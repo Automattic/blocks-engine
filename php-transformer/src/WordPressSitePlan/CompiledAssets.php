@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Closure;
 use InvalidArgumentException;
 
@@ -45,7 +46,7 @@ final class CompiledAssets
             $contentHash = $reference['sha256'] ?? WordPressSitePlan::contentHash($payload);
             $priorReferences = array();
             if (isset($rowByTarget[strtolower($target)])) [$target, $priorReferences] = self::collidingTarget($rows, $rowByTarget, $target, (string) $asset['path'], $contentHash, $recordFinding);
-            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => WordPressSitePlan::value($asset, 'source'), 'source_role' => WordPressSitePlan::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => WordPressSitePlan::value($asset, 'kind'), 'role' => WordPressSitePlan::value($asset, 'role'), 'stylesheet_placement' => WordPressSitePlan::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (WordPressSitePlan::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => WordPressSitePlan::value($asset, 'intent'), 'mime_type' => WordPressSitePlan::value($asset, 'mime_type'), 'media' => WordPressSitePlan::value($asset, 'media'), 'placement' => WordPressSitePlan::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => WordPressSitePlan::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) || array() !== $priorReferences ? WordPressSitePlan::mergedReferences($priorReferences, ArrayField::array($asset, 'references')) : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => WordPressSitePlan::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'stylesheet_link_position' => is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null, 'reconciliation_identity' => WordPressSitePlan::identity('asset', $asset['path'], $target), 'content_hash' => $contentHash), static fn(mixed $value): bool => null !== $value);
+            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => WordPressSitePlan::value($asset, 'source'), 'source_role' => WordPressSitePlan::value($asset, 'source_role'), 'pipeline_sanitized' => $asset['pipeline_sanitized'] ?? null, 'kind' => WordPressSitePlan::value($asset, 'kind'), 'role' => WordPressSitePlan::value($asset, 'role'), 'stylesheet_placement' => WordPressSitePlan::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (WordPressSitePlan::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => WordPressSitePlan::value($asset, 'intent'), 'mime_type' => WordPressSitePlan::value($asset, 'mime_type'), 'media' => WordPressSitePlan::value($asset, 'media'), 'placement' => WordPressSitePlan::value($asset, 'placement'), 'defer' => !empty($asset['defer']) ? true : null, 'async' => !empty($asset['async']) ? true : null, 'selector' => WordPressSitePlan::value($asset, 'selector'), 'references' => is_array($asset['references'] ?? null) || array() !== $priorReferences ? self::mergedReferences($priorReferences, ArrayField::array($asset, 'references')) : null, 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => WordPressSitePlan::value($asset, 'hash'), 'content' => $assetContent, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'stylesheet_link_position' => is_int($asset['stylesheet_link_position'] ?? null) ? $asset['stylesheet_link_position'] : null, 'reconciliation_identity' => WordPressSitePlan::identity('asset', $asset['path'], $target), 'content_hash' => $contentHash), static fn(mixed $value): bool => null !== $value);
             $rowByTarget[strtolower($target)] = array_key_last($rows);
             if (isset($asset['inline_references'])) $rows[array_key_last($rows)]['inline_references'] = $asset['inline_references'];
             if (isset($asset['source_media']) && is_string($asset['source_media'])) $rows[array_key_last($rows)]['source_media'] = $asset['source_media'];
@@ -64,6 +65,56 @@ final class CompiledAssets
         }
         unset($row);
         return $rows;
+    }
+
+    /**
+     * Keep variant-scoped author rules on the ids the page actually renders.
+     *
+     * When a captured desktop/mobile pair shares an id, the mobile copy is
+     * rendered as `<id>--data-blocks-engine-capture-mobile` so the page keeps unique ids. The delivered
+     * stylesheets still address the source id (`:where(.data-blocks-engine-capture-mobile-document)
+     * #<id>`), so without this pass every mobile id rule misses its element.
+     * It runs after shared-chrome extraction, which reasons about the source
+     * ids, and only changes selectors scoped to a non-default document variant.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return array<int,array<string,mixed>>
+     */
+    public static function withVariantScopedIdSelectors(array $assets): array
+    {
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
+            $content = DocumentVariantIds::scopeIdSelectors($asset['content']);
+            if ($content === $asset['content']) continue;
+            $asset = self::withRewrittenTextContent($asset, $content);
+        }
+        unset($asset);
+        return $assets;
+    }
+
+    /**
+     * An asset whose text was rewritten in place. Its transport twin
+     * (`content_base64` and `transport_sha256`) described the bytes as
+     * delivered, so it is dropped rather than left to contradict the content.
+     *
+     * @param array<string,mixed> $asset
+     * @return array<string,mixed>
+     */
+    public static function withRewrittenTextContent(array $asset, string $content): array
+    {
+        $asset['content'] = $content;
+        $asset['bytes'] = strlen($content);
+        $asset['content_hash'] = WordPressSitePlan::contentHash($content);
+        if (array_key_exists('hash', $asset)) $asset['hash'] = WordPressSitePlan::contentHash($content);
+        unset($asset['content_base64'], $asset['transport_sha256']);
+        return $asset;
+    }
+
+    /** @param array<int,mixed> $prior @param array<int,mixed> $references @return array<int,mixed> */
+    public static function mergedReferences(array $prior, array $references): array
+    {
+        foreach ($references as $reference) if (!in_array($reference, $prior, true)) $prior[] = $reference;
+        return $prior;
     }
 
     /**

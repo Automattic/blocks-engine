@@ -63,7 +63,7 @@ final class ListingQueryPresentation
                 return $original . (array() === $aliases ? '' : implode(',', array_keys($aliases)) . '{' . $body . '}');
             });
             if ($content === $asset['content']) continue;
-            $asset = WordPressSitePlan::withRewrittenTextContent($asset, $content);
+            $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
         return $assets;
