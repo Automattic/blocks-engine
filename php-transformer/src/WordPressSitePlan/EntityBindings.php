@@ -122,6 +122,32 @@ final class EntityBindings
         unset($declaration);
 
         $markupBySource = array_column($pages, 'canonical_block_markup', 'source_path');
+        // A shared header may retain a page copy (for example a captured
+        // responsive variant). Cart navigation is one capability of that
+        // shared control: prefer its exact template-part anchor, not a second
+        // entity for every route that carries the same opener.
+        foreach ($declarations as &$declaration) {
+            if ('cart_links' !== ($declaration['type'] ?? null)) continue;
+            $cartLinks = array();
+            foreach ($declaration['payload']['entities'] as $entity) {
+                foreach ($entity['bindings'] as &$binding) {
+                    $matches = array();
+                    foreach ($parts as $part) {
+                        if ('header' !== ($part['area'] ?? null)) continue;
+                        $partMarkup = $part['canonical_block_markup'] ?? '';
+                        $search = $binding['search_block_markup'];
+                        if (1 === substr_count($partMarkup, $search)) $matches[] = $part['source_path'];
+                    }
+                    if (1 === count($matches)) $binding['source_path'] = $matches[0];
+                }
+                unset($binding);
+                if (isset($entity['bindings'][0])) $entity['source_path'] = $entity['bindings'][0]['source_path'];
+                $key = $entity['source_path'] . "\n" . ($entity['bindings'][0]['search_block_markup'] ?? $entity['selector']);
+                $cartLinks[$key] = $entity;
+            }
+            $declaration['payload']['entities'] = array_values($cartLinks);
+        }
+        unset($declaration);
         $sourceMarkupBySource = array_column($pages, '_projected_source_block_markup', 'source_path');
         // A page that synced patterns took content from is matched on its markup
         // before that projection; each resolved block is then rebased below.

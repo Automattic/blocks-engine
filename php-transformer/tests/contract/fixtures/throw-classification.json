@@ -1840,6 +1840,10 @@
       }
     },
     "src/WordPressSitePlan/PlanDocuments.php": {
+      "InvalidArgumentException('WordPress site plan declared content fields are invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException(\"WordPress site plan {$kind} is structurally invalid.\")": {
         "class": "integrity",
         "count": 1

@@ -24,6 +24,7 @@ final class PlanDocuments
     private static function assertContentDecision(array $document): void
     {
         $decision = $document['content_decision'] ?? null;
+        if ((array_key_exists('modified_timestamp', $document) && !PublicationDate::isUtc($document['modified_timestamp'])) || (array_key_exists('author_name', $document) && (!is_string($document['author_name']) || '' === trim($document['author_name'])))) throw new InvalidArgumentException('WordPress site plan declared content fields are invalid.');
         if (null === $decision && !array_key_exists('publication_timestamp', $document)) return;
         if (!is_array($decision) || 'blocks-engine/content-decision/v1' !== ($decision['schema'] ?? null) || !in_array($decision['state'] ?? null, array('declared', 'inferred', 'defaulted'), true) || !is_string($decision['post_type'] ?? null) || $decision['post_type'] !== $document['post_type'] || !is_array($decision['evidence'] ?? null) || count($decision['evidence']) > 16) throw new InvalidArgumentException('WordPress site plan content decision is invalid.');
         $provenance = $decision['provenance'] ?? null;
