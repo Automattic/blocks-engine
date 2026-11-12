@@ -1502,7 +1502,12 @@ final class ArtifactCompiler
             $productSlug = $pageProducts[$sourcePath][0];
             if (isset($schemaProducts[$productSlug])) $purchaseProduct =& $schemaProducts[$productSlug];
             else $purchaseProduct =& $products[$productSlug];
-            $purchaseProduct['bindings'][] = array_merge($binding, array('role' => 'commerce_add_to_cart_form', 'source_path' => $sourcePath));
+            $purchaseBinding = array_merge($binding, array('role' => 'commerce_add_to_cart_form', 'source_path' => $sourcePath));
+            // Multiple recognizers can claim the same placement. Coalesce only
+            // identical bindings; distinct page anchors remain separate placements.
+            if ( ! in_array($purchaseBinding, $purchaseProduct['bindings'] ?? array(), true) ) {
+                $purchaseProduct['bindings'][] = $purchaseBinding;
+            }
             // Preserve the same flat control indexes and validated presentation
             // facts as a form entity when shop takes ownership of the controls.
             if ( is_array($fallback['controls'] ?? null) ) {
