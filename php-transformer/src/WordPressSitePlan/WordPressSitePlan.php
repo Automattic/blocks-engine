@@ -236,37 +236,10 @@ final class WordPressSitePlan
         }
         // Taxonomy membership must see numbered captures before they are
         // suppressed. They are views of a listing, never standalone content.
-        $paginationSources = array();
-        $paginationDiagnostics = array();
-        foreach ($pages as $page) {
-            $route = $routeBySource[$page['source_path']] ?? '';
-            $parent = PageRoute::paginationParent($route);
-            if (!empty($page['entrypoint']) || null === $parent) continue;
-            $paginationSources[$page['source_path']] = true;
-            $paginationDiagnostics[] = array(
-                'code' => 'wordpress_site_plan_pagination_suppressed',
-                'severity' => 'info',
-                'message' => 'A pagination capture is a view of its parent, not a standalone document.',
-                'source_path' => $page['source_path'],
-                'source_route' => $route,
-                'parent_route' => $parent,
-                'reason_code' => str_contains($route, '/comment-page-') ? 'comment_pagination' : 'listing_pagination',
-            );
-        }
-        // A suppressed numbered capture repeats its listing's chrome. Record the
-        // listing that owns it so the runtime entities it shares with that
-        // listing (a sidebar form, for instance) fold into the listing's binding.
-        $paginationOwners = $paginationOwnerBySource;
-        $sourceByRoute = array_flip(array_map(static fn(string $route): string => rtrim($route, '/'), array_filter($routeBySource, 'is_string')));
-        // A listing that became a template surface has no page route; its
-        // numbered capture still sits beside it in the source tree.
-        $surfaceSources = array_fill_keys(array_column($surfaces, 'source_path'), true);
-        foreach (array_keys($paginationSources) as $source) {
-            $owner = $sourceByRoute[rtrim((string) PageRoute::paginationParent($routeBySource[$source] ?? ''), '/')] ?? null;
-            $sibling = preg_replace('~/(?:page/[1-9][0-9]*|comment-page-[1-9][0-9]*)(/index\.html?)$~i', '$1', $source);
-            if (!is_string($owner) && is_string($sibling) && isset($surfaceSources[$sibling])) $owner = $sibling;
-            if (is_string($owner) && $owner !== $source && !isset($paginationSources[$owner])) $paginationOwners[$source] = $owner;
-        }
+        $pagination = PaginationCaptures::select($pages, $routeBySource, $surfaces, $paginationOwnerBySource);
+        $paginationSources = $pagination['sources'];
+        $paginationDiagnostics = $pagination['diagnostics'];
+        $paginationOwners = $pagination['owners'];
         $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($paginationSources[$page['source_path']])));
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($paginationSources[$document['source_path']])));
         $assets = array_values(array_filter($assets, static fn(array $asset): bool => 'page' !== ($asset['compilation']['scope'] ?? null) || !isset($paginationSources[$asset['compilation']['id'] ?? ''])));
