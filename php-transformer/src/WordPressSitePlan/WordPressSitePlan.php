@@ -14,7 +14,6 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Path\RouteSlug;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
-use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use InvalidArgumentException;
@@ -925,7 +924,7 @@ final class WordPressSitePlan
         if ( ! is_string($plan['theme']['stylesheet'] ?? null) || ! is_string($plan['theme']['theme_json'] ?? null) || (null !== ($plan['theme']['bootstrap'] ?? null) && ! is_string($plan['theme']['bootstrap'])) ) {
             throw new InvalidArgumentException('WordPress site plan theme is structurally invalid.');
         }
-        self::assertFontMaterialization($plan['theme'], $plan['assets'], $writesByTarget);
+        CompiledAssets::assertFontMaterialization($plan['theme'], $plan['assets'], $writesByTarget);
         $policyStatus = 'failed' === ($plan['quality']['status'] ?? null) ? 'failed' : 'passed';
         if ( !in_array($plan['quality']['status'] ?? null, array('success', 'success_with_warnings', 'failed'), true) || !is_bool($plan['quality']['pass'] ?? null) || ('failed' !== $plan['quality']['status']) !== $plan['quality']['pass'] || ! is_array($plan['quality']['metrics'] ?? null) || ! is_array($plan['quality']['fallbacks'] ?? null) || !is_array($plan['quality']['core_html_fallback_evidence'] ?? null) || EditabilityPolicy::SCHEMA !== ($plan['quality']['editability_policy']['schema'] ?? null) || 'required' !== ($plan['quality']['editability_policy']['enforcement'] ?? null) || $policyStatus !== ($plan['quality']['editability_policy']['status'] ?? null) ) {
             throw new InvalidArgumentException('WordPress site plan quality is structurally invalid.');
@@ -933,27 +932,6 @@ final class WordPressSitePlan
         // Bound retention for long-lived processes without an eviction index.
         if (count($validated) >= 4096) $validated = array();
         $validated[$contentHash] = true;
-    }
-
-    /** @param array<string,mixed> $theme @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $writesByTarget */
-    private static function assertFontMaterialization(array $theme, array $assets, array $writesByTarget): void
-    {
-        if (!array_key_exists('font_materialization', $theme)) return;
-        $fontMaterialization = $theme['font_materialization'];
-        if (!is_array($fontMaterialization)) throw new InvalidArgumentException('WordPress site plan font materialization is structurally invalid.');
-        $assetsBySource = array_column($assets, null, 'source_path');
-        $fontAssets = array();
-        foreach ($assets as $asset) {
-            $targetPath = (string) ($asset['target_path'] ?? '');
-            $fontAssets[] = array('source' => $asset['source'] ?? null, 'path' => $asset['source_path'] ?? null, 'target_path' => str_starts_with($targetPath, 'assets/') ? substr($targetPath, 7) : $targetPath, 'mime_type' => $asset['mime_type'] ?? null, 'content' => $asset['content'] ?? null);
-        }
-        foreach (($fontMaterialization['webfont_contract']['svg_consumers'] ?? array()) as $consumer) {
-            $asset = is_array($consumer) ? ($assetsBySource[$consumer['source_path'] ?? ''] ?? null) : null;
-            $targetPath = is_array($asset) ? (string) ($asset['target_path'] ?? '') : '';
-            $writePath = str_starts_with($targetPath, 'assets/') ? substr($targetPath, 7) : $targetPath;
-            if (!is_array($asset) || $writePath !== ($consumer['write_path'] ?? null) || !isset($writesByTarget[$targetPath])) throw new InvalidArgumentException('WordPress site plan webfont SVG consumer is detached from canonical assets or writes.');
-        }
-        FontMaterializationPlanBuilder::assertPlan($fontMaterialization, $fontAssets);
     }
 
     /** @param mixed $documents @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
