@@ -15,7 +15,6 @@ use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PageRoute;
 use DOMElement;
 use DOMXPath;
@@ -152,7 +151,7 @@ final class RouteStateProjector
         $documents = array();
         $groups = array();
         $menus = array();
-        $root = WordPressSitePlan::entryRootFromDocuments(array(array('entrypoint' => true, 'source_path' => $entryPath)));
+        $root = PageRoute::entryRoot(array(array('entrypoint' => true, 'source_path' => $entryPath)));
         foreach ($files as $index => $file) {
             if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !preg_match('/<nav\b|\brole=["\']?navigation\b/i', $file['content'])) continue;
             $document = HtmlSerialization::parseFragment($file['content']);

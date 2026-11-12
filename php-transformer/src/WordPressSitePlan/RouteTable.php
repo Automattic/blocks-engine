@@ -48,7 +48,7 @@ final class RouteTable
     {
         if (!is_array($documents)) throw new InvalidArgumentException('Compiled site documents must be an array.');
         $legacy = array(); foreach ($legacyRoutes as $route) if (is_array($route) && is_string($route['source_path'] ?? null)) $legacy[$route['source_path']] = $route;
-        $entryRoot = WordPressSitePlan::entryRootFromDocuments($documents);
+        $entryRoot = PageRoute::entryRoot($documents);
         $this->routeCollisions = array(); $this->omittedRouteCollisionDiagnostics = 0;
         $derived = array(); $explicit = array();
         foreach ($documents as $order => $document) {
