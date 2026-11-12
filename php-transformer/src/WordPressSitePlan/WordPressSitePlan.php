@@ -45,9 +45,6 @@ final class WordPressSitePlan
     public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
     private string $sourceOrigin = '';
     public const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
-    /** @var array<string,array<string,mixed>> */
-    private array $unresolvedScriptReferenceDiagnostics = array();
-    private int $omittedUnresolvedScriptReferenceDiagnostics = 0;
     /** @var array<string,array<string,mixed>> Dropped or rewritten units, keyed by their identity fields. */
     private array $unitFindings = array();
     private readonly ShellExtraction $shellExtraction;
@@ -185,8 +182,6 @@ final class WordPressSitePlan
         $this->sourceOrigin = RouteLinks::origin($sourceUrl);
         $this->listings = new ListingQueryLoops($this->sourceOrigin, $this->chromeIdentityKey(...));
         $this->postChrome = new PostChrome($this->listings, $this->chromeIdentityKey(...), $this->recordUnitFinding(...));
-        $this->unresolvedScriptReferenceDiagnostics = array();
-        $this->omittedUnresolvedScriptReferenceDiagnostics = 0;
         $this->unitFindings = array();
         $editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
@@ -649,13 +644,14 @@ final class WordPressSitePlan
             if ($compacted !== $asset['content']) $asset = self::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);
-        $assetWrites = $this->assetWrites($assets, $references);
+        $themeAssetWrites = new ThemeAssetWrites();
+        $assetWrites = $themeAssetWrites->writes($assets, $references);
         foreach ($assets as &$asset) unset($asset['reference_origin']); unset($asset);
         $placeholderAssets = $this->assets($this->missingMedia->assets());
         if (array() !== $placeholderAssets) {
             $assets = array_merge($assets, $placeholderAssets);
             $tokens = array_merge($tokens, $this->tokens($placeholderAssets));
-            $assetWrites = array_merge($assetWrites, $this->assetWrites($placeholderAssets, $references));
+            $assetWrites = array_merge($assetWrites, $themeAssetWrites->writes($placeholderAssets, $references));
         }
         // Asset bytes are final now. Integrity copied from the source must
         // describe them before script loading and the head bootstrap emit it.
@@ -665,7 +661,7 @@ final class WordPressSitePlan
         $scriptLoading = DocumentScripts::loading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $runtimeEmoji, $rootDocuments), $assetWrites);
         $unitFindings = array_merge($this->unitFindingDiagnostics(), NavigationInstanceDiagnostics::collect($assets, $emittedMarkup . "\n" . implode("\n", self::markups($menus))));
-        $recoveryDiagnostics = array_merge($routeTable->diagnostics(), $this->links->diagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->heads->diagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
+        $recoveryDiagnostics = array_merge($routeTable->diagnostics(), $this->links->diagnostics(), $themeAssetWrites->diagnostics(), $this->heads->diagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
         // Declarations still over a byte limit are dropped here with their
@@ -2003,31 +1999,6 @@ final class WordPressSitePlan
         return $operations;
     }
 
-    /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
-    private function assetWrites(array $assets, AssetReferenceCanonicalizer $references): array
-    {
-        $writes = array();
-        $authorStylesheetOrigins = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && 'files' === ($asset['source'] ?? null) && is_string($asset['source_path'] ?? null) ? $asset['source_path'] : null, $assets)));
-        foreach ( $assets as $asset ) {
-            $content = is_string($asset['content'] ?? null) ? $asset['content'] : null;
-            // Resolve copied author URLs before recovery judges them against the
-            // generated stylesheet's directory (which is not their origin).
-            if ('editor-static-state' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, $authorStylesheetOrigins);
-            // An inline stylesheet's urls are relative to the documents that held
-            // the <style>, not to its generated inline/ path.
-            if ('inline-style' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, array_column($asset['inline_references'] ?? array(), 'source_path'));
-            if (is_string($content)) $content = $references->content($content, (string) ($asset['reference_origin'] ?? $asset['source_path']));
-            if (is_array($asset['payload_reference'] ?? null)) { $writes[] = $this->referenceWrite('theme_asset', $asset['target_path'], $asset['source_path'], $asset['payload_reference']); continue; }
-            $base64Transport = is_string($asset['content_base64'] ?? null);
-            $text = is_string($content) && empty($asset['binary']) && 1 === preg_match('//u', $content) && (!$base64Transport || 'text/css' === ($asset['mime_type'] ?? null));
-            $data = $text ? $content : (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (is_string($content) ? base64_encode($content) : null));
-            if ( ! is_string($data) ) throw new InvalidArgumentException(sprintf('Compiled site asset %s lacks a materializable payload.', $asset['source_path']));
-            $writes[] = $this->write('theme_asset', $asset['target_path'], $data, $asset['source_path'], $text ? 'utf8' : 'base64');
-            if ($text && self::isVerbatimRuntimeWrite('theme_asset', $asset['target_path'])) $this->recordUnresolvedScriptReferences($asset['target_path'], $data, $asset['source_path']);
-        }
-        return $writes;
-    }
-
     // A dynamic reference is a URL the script builds or assigns: an import, an
     // injected script, a `src` it sets, a URL it constructs. Inserting a node
     // (`appendChild`, `insertBefore`) names no URL: a copy button's scratch
@@ -2058,11 +2029,11 @@ final class WordPressSitePlan
     /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $menus @return array<int,array<string,mixed>> */
     private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts, array $theme, array $tokens, array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array()): array
     {
-        $writes = array($this->write('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), $this->write('theme_scaffold', 'theme.json', json_encode($theme, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"));
-        $writes[] = $this->write('theme_bootstrap', 'functions.php', ThemeBootstrap::functionsPhp($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $runtimeEmoji, $rootDocuments));
-        if (DocumentRootContext::needsCanvas(array_merge($pages, $rootDocuments))) $writes[] = $this->write('theme_scaffold', 'document-canvas.php', DocumentRootContext::canvas());
-        foreach ( $templates as $template ) $writes[] = $this->write('theme_template', $template['target_path'], $template['canonical_block_markup']);
-        foreach ( $parts as $part ) $writes[] = $this->write('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
+        $writes = array(self::write('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), self::write('theme_scaffold', 'theme.json', json_encode($theme, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"));
+        $writes[] = self::write('theme_bootstrap', 'functions.php', ThemeBootstrap::functionsPhp($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $runtimeEmoji, $rootDocuments));
+        if (DocumentRootContext::needsCanvas(array_merge($pages, $rootDocuments))) $writes[] = self::write('theme_scaffold', 'document-canvas.php', DocumentRootContext::canvas());
+        foreach ( $templates as $template ) $writes[] = self::write('theme_template', $template['target_path'], $template['canonical_block_markup']);
+        foreach ( $parts as $part ) $writes[] = self::write('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
         return $writes;
     }
 
@@ -2102,9 +2073,9 @@ final class WordPressSitePlan
         }
     }
     /** @return array<string,mixed> */
-    private function write(string $kind, string $target, string $content, ?string $sourcePath = null, string $encoding = 'utf8'): array { $sourcePath ??= 'wordpress-site-plan/' . $target; return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash($content), 'payload' => array('encoding' => $encoding, 'data' => $content)); }
+    public static function write(string $kind, string $target, string $content, ?string $sourcePath = null, string $encoding = 'utf8'): array { $sourcePath ??= 'wordpress-site-plan/' . $target; return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash($content), 'payload' => array('encoding' => $encoding, 'data' => $content)); }
     /** @param array{schema:string,id:string,bytes:int,sha256:string} $reference */
-    private function referenceWrite(string $kind, string $target, string $sourcePath, array $reference): array { return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash(RuntimeDeclarations::canonicalJson($reference)), 'raw_sha256' => $reference['sha256'], 'payload' => array('encoding' => 'reference', 'reference' => $reference)); }
+    public static function referenceWrite(string $kind, string $target, string $sourcePath, array $reference): array { return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash(RuntimeDeclarations::canonicalJson($reference)), 'raw_sha256' => $reference['sha256'], 'payload' => array('encoding' => 'reference', 'reference' => $reference)); }
     /** @param array<string,mixed> $asset */
     private static function referenceBackedBinaryAsset(array $asset): bool { return !empty($asset['binary']) && 'image/svg+xml' !== strtolower((string) ($asset['mime_type'] ?? '')) && !str_ends_with(strtolower((string) ($asset['source_path'] ?? $asset['path'] ?? '')), '.svg'); }
     private static function relativePath(string $origin, string $target): string
@@ -2178,37 +2149,6 @@ final class WordPressSitePlan
             if (is_array($document['design_usage'] ?? null) && is_string($document['source_path'] ?? null)) $usage[$document['source_path']] = $document['design_usage'];
         }
         return $usage;
-    }
-
-    /**
-     * A script or data file is published verbatim, so a local route or asset
-     * path written in its strings (`'<a href="' + slug + '.html">'`) cannot be
-     * rewritten to its WordPress address. The page still imports: each distinct
-     * string is reported once per file as a warning naming where it was written.
-     */
-    private function recordUnresolvedScriptReferences(string $targetPath, string $payload, string $sourcePath): void
-    {
-        self::assertNoLocalBrowserReferencesInWrite($targetPath, $payload, $sourcePath, function (string $url, string $attribute) use ($sourcePath): void {
-            $key = $sourcePath . "\0" . $url;
-            if (isset($this->unresolvedScriptReferenceDiagnostics[$key])) return;
-            if (count($this->unresolvedScriptReferenceDiagnostics) >= self::MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS) { $this->omittedUnresolvedScriptReferenceDiagnostics++; return; }
-            $this->unresolvedScriptReferenceDiagnostics[$key] = array(
-                'code' => 'wordpress_site_plan_unresolved_script_reference',
-                'severity' => 'warning',
-                'message' => mb_strcut("{$sourcePath} writes {$url} in its strings; the file is published verbatim, so that address is not rewritten for WordPress.", 0, 256, 'UTF-8'),
-                'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
-                'value' => mb_strcut($url, 0, 256, 'UTF-8'),
-                'attribute' => $attribute,
-                'reason_code' => 'unresolved_local_browser_reference',
-            );
-        });
-    }
-    /** @return array<int,array<string,mixed>> */
-    private function unresolvedScriptReferenceDiagnostics(): array
-    {
-        $diagnostics = array_values($this->unresolvedScriptReferenceDiagnostics);
-        if ($this->omittedUnresolvedScriptReferenceDiagnostics > 0) $diagnostics[] = array('code' => 'wordpress_site_plan_unresolved_script_reference', 'severity' => 'warning', 'message' => sprintf('%d more unresolved script references were published verbatim; omitted from this diagnostic list.', $this->omittedUnresolvedScriptReferenceDiagnostics));
-        return $diagnostics;
     }
 
     /** @param array<int,mixed> $provenance */
@@ -2304,7 +2244,7 @@ final class WordPressSitePlan
      * quoted value. Undo those two escapes so the markup is read as written.
      * (Tokenizing would be exact but costs ~10x the file in memory.)
      */
-    private static function assertNoLocalBrowserReferencesInWrite(string $targetPath, string $payload, string $sourcePath, ?callable $report = null): void
+    public static function assertNoLocalBrowserReferencesInWrite(string $targetPath, string $payload, string $sourcePath, ?callable $report = null): void
     {
         $target = strtolower($targetPath);
         if (str_ends_with($target, '.php')) {
@@ -2325,7 +2265,7 @@ final class WordPressSitePlan
      * declared asset tokens. Markup it builds at runtime is not page markup the
      * plan can rewrite, so its local strings are findings, not plan failures.
      */
-    private static function isVerbatimRuntimeWrite(string $kind, string $targetPath): bool
+    public static function isVerbatimRuntimeWrite(string $kind, string $targetPath): bool
     {
         return 'theme_asset' === $kind && 1 === preg_match('/\.(?:m?js|cjs|json)$/i', $targetPath);
     }

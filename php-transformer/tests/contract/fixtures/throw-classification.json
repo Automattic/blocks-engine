@@ -1654,6 +1654,15 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/ThemeAssetWrites.php": {
+      "InvalidArgumentException(sprintf('Compiled site asset %s lacks a materializable payload.',$asset['source_path']))": {
+        "class": "representability",
+        "count": 1,
+        "unit": "asset",
+        "finding": "wordpress_site_plan_missing_local_media",
+        "pending": true
+      }
+    },
     "src/WordPressSitePlan/ThemeTemplates.php": {
       "InvalidArgumentException('A declared template surface collides with a generated template.')": {
         "class": "integrity",
@@ -2266,13 +2275,6 @@
       "InvalidArgumentException(mb_strcut($message,0,256,'UTF-8'))": {
         "class": "integrity",
         "count": 1
-      },
-      "InvalidArgumentException(sprintf('Compiled site asset %s lacks a materializable payload.',$asset['source_path']))": {
-        "class": "representability",
-        "count": 1,
-        "unit": "asset",
-        "finding": "wordpress_site_plan_missing_local_media",
-        "pending": true
       },
       "InvalidArgumentException(sprintf('WordPress site plan %s must be an array.',$key))": {
         "class": "integrity",
