@@ -467,7 +467,7 @@ final class WordPressSitePlan
         $pages = $blockThemeChrome['pages'];
         $singleContent = array() !== $blockThemeChrome['templates'] ? reset($blockThemeChrome['templates']) : null;
           $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
-          $pages = self::resolveFeaturedImageTargets($pages, $tokens);
+          $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
           $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
          // Content every panel of one tabs block repeats is declared once.
          $syncedPatterns = SyncedPatternProjection::project($pages, $assets);
@@ -552,7 +552,7 @@ final class WordPressSitePlan
         $parts = $articleChrome['parts'];
         // Template-group lifting settles post bodies and can add featured images.
         $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
-        $pages = self::resolveFeaturedImageTargets($pages, $tokens);
+        $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
         $registeredTemplates = array();
         foreach ($pages as $page) if (isset($page['route_template']) && !isset($registeredTemplates[$page['route_template']])) {
             $registeredTemplates[$page['route_template']] = true;
@@ -994,28 +994,6 @@ final class WordPressSitePlan
         return $this->chromeIdentityKeys[hash('xxh128', $markup)] ??= ('' === ($identity = ChromeIdentity::markup($markup)) ? '' : hash('xxh128', $identity));
     }
 
-    /**
-     * Name each featured-image handoff by its declared theme write, so the
-     * consumer attaches the same file the plan materializes.
-     *
-     * @param array<int,array<string,mixed>> $pages
-     * @param array<int,array{token:string,source_path:string,target_path:string}> $tokens
-     * @return array<int,array<string,mixed>>
-     */
-    private static function resolveFeaturedImageTargets(array $pages, array $tokens): array
-    {
-        $targets = array_column($tokens, 'target_path', 'token');
-        foreach ($pages as &$page) {
-            $image = $page['metadata']['featured_image'] ?? null;
-            if (!is_array($image)) continue;
-            $target = $targets[$image['asset_token'] ?? ''] ?? null;
-            if (is_string($target)) $page['metadata']['featured_image']['target_path'] = $target;
-            else unset($page['metadata']['featured_image']);
-        }
-        unset($page);
-        return $pages;
-    }
-
     // A dynamic reference is a URL the script builds or assigns: an import, an
     // injected script, a `src` it sets, a URL it constructs. Inserting a node
     // (`appendChild`, `insertBefore`) names no URL: a copy button's scratch
@@ -1048,14 +1026,6 @@ final class WordPressSitePlan
     public static function write(string $kind, string $target, string $content, ?string $sourcePath = null, string $encoding = 'utf8'): array { $sourcePath ??= 'wordpress-site-plan/' . $target; return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash($content), 'payload' => array('encoding' => $encoding, 'data' => $content)); }
     /** @param array{schema:string,id:string,bytes:int,sha256:string} $reference */
     public static function referenceWrite(string $kind, string $target, string $sourcePath, array $reference): array { return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash(RuntimeDeclarations::canonicalJson($reference)), 'raw_sha256' => $reference['sha256'], 'payload' => array('encoding' => 'reference', 'reference' => $reference)); }
-    private static function relativePath(string $origin, string $target): string
-    {
-        $from = '' === $origin ? array() : explode('/', dirname($origin));
-        if (array('.') === $from) $from = array();
-        $to = explode('/', $target);
-        while (array() !== $from && array() !== $to && $from[0] === $to[0]) { array_shift($from); array_shift($to); }
-        return str_repeat('../', count($from)) . implode('/', $to);
-    }
 
     /**
      * Rendered design usage of every compiled document, keyed by source path.

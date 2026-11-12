@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControlsRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
@@ -204,6 +205,7 @@ final class FormRuntimeRequirementAnalyzer
         if ( '' === $method || 'get' === $method ) {
             if ( $search || preg_match('~(?:^|/)search(?:/|$)~', $path) ) return 'search';
             if ( $select && ! $freeText ) return 'filter_sort';
+            if ( ! $freeText && (new ListingControlsRecognizer())->hasNumericBoundsForForm($form) ) return 'filter_sort';
         }
 
         // Keep existing GET search/filter intents, but recognize bounded choice
