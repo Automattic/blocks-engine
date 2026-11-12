@@ -72,19 +72,23 @@ final class GlobalShellArtifacts
             $converted = $this->navigationBlockNormalizer->normalize($converted, $this->session->transformationProvenanceState()->sources(), $this->session->transformationProvenanceState()->sourceBaseHiddenStates(), $this->session->transformationProvenanceState()->sourceCollapsedWrapperHiddenStates());
             if ( 1 === count($converted) && 'core/group' !== ($converted[0]['blockName'] ?? null) && $area === ($converted[0]['attrs']['tagName'] ?? null) ) {
                 // A landmark block of its own (a scroll-state carrier) is the box.
-                $markup = $this->runtime->serializeBlocks($converted);
+                $bindingBlocks = $converted;
+                $markup = $this->runtime->serializeBlocks($bindingBlocks);
             } else {
                 $wrapper = 1 === count($converted) && 'core/group' === ($converted[0]['blockName'] ?? null)
                     ? $converted[0]
                     : $this->blocks->createBlock('core/group', array(), $converted, $child);
                 $wrapperAttrs = ArrayField::array($wrapper, 'attrs');
                 $wrapperAttrs['tagName'] = $area;
-                $markup = $this->runtime->serializeBlocks(array($this->blocks->createBlock('core/group', $wrapperAttrs, $wrapper['innerBlocks'] ?? array(), $child)));
+                $bindingBlocks = array($this->blocks->createBlock('core/group', $wrapperAttrs, $wrapper['innerBlocks'] ?? array(), $child));
+                $markup = $this->runtime->serializeBlocks($bindingBlocks);
             }
             if ( '' === trim($markup) ) {
                 continue;
             }
             $artifacts[] = array(
+                '_binding_blocks' => $bindingBlocks,
+                '_binding_source_selector' => SourceDom::elementSelector($child),
                 'source_path' => $source . '#' . $area,
                 'slug' => $area,
                 'title' => ucfirst($area),

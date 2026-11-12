@@ -482,6 +482,7 @@ final class ArtifactCompiler
         $allGutenbergGaps = DeterministicRowDeduplicator::dedupe($allGutenbergGaps);
         $runtimeDeclarationDiagnostics = array();
         $runtimeEntityRecords = array();
+        $normalized['runtime_declarations'] = $this->cartLinkRuntimeDeclarations($normalized['runtime_declarations'], $allDiagnostics, $entryPath);
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files'], $runtimeDeclarationDiagnostics, $runtimeEntityRecords);
         // Internal fallback markers are consumed above and never part of the
         // published contract. Ambiguous description candidates were used to
@@ -1147,6 +1148,30 @@ final class ArtifactCompiler
             return $inputKeys;
         }
         return array_values(array_filter(array_keys($artifact), 'is_string'));
+    }
+
+    /**
+     * Promote informational cart evidence without adding importer fallbacks.
+     * The declaration stays optional: a consumer without a cart-link adapter
+     * skips it, so the page imports unchanged.
+     */
+    private function cartLinkRuntimeDeclarations(array $declarations, array $diagnostics, string $entryPath): array
+    {
+        foreach ( $declarations as $declaration ) {
+            if ( 'entity_collection' === ($declaration['kind'] ?? null) && 'cart_links' === ($declaration['type'] ?? null) ) return $declarations;
+        }
+        $entities = array();
+        foreach ( $diagnostics as $finding ) {
+            if ( 'commerce_cart_link_detected' !== ($finding['code'] ?? null) || empty($finding['binding']['search_block_markup']) ) continue;
+            $source = $finding['binding']['source_path'] ?? $finding['source_path'];
+            $entity = array('source_path' => $source, 'selector' => $finding['selector'], 'bindings' => array(array_merge($finding['binding'], array('source_path' => $source))));
+            if ( isset($finding['count_badge']) ) $entity['count_badge'] = $finding['count_badge'];
+            $entities[$source . "\n" . $finding['selector']] = $entity;
+        }
+        if ( array() !== $entities ) {
+            $declarations[] = array('kind' => 'entity_collection', 'type' => 'cart_links', 'source_path' => $entryPath, 'payload' => array('schema' => 'generic/cart-links/v1', 'entities' => array_values($entities)));
+        }
+        return $declarations;
     }
 
     /**
