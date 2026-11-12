@@ -314,7 +314,6 @@ final class WordPressSitePlan
         $nativeArchiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
         $assetPages = array_values(array_filter($pages, static fn(array $page): bool => !isset($nativeArchiveSources[$page['source_path']])));
         $pageSources = array_fill_keys(array_column($assetPages, 'source_path'), true);
-        $entryRoot = PageRoute::entryRoot($compiled['pages']);
         foreach ($compiled['pages'] as $document) {
             if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
             $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $entryRoot);
