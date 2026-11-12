@@ -274,4 +274,53 @@ final class ThemeTemplates
          }
          return $templates;
     }
+
+    /**
+     * Prove a template part is placed where its placement says, and nowhere
+     * else: every template it binds (its placement's template slugs, the
+     * route overrides it applies to, the archives it covers, and for an inline
+     * shell the templates whose frame or archive carries it) references it at
+     * least once and at most once per captured document copy, unless the
+     * content already carries that chrome. Any other template must not
+     * reference it.
+     *
+     * @param array<string,mixed> $part @param array<string,mixed> $plan @param array<string,bool> $overrideTemplateSlugs
+     */
+    public static function assertPartBound(array $part, array $plan, array $overrideTemplateSlugs): void
+    {
+        $boundTemplates = in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true) ? $part['placement']['template_slugs'] : array();
+        if (in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true)) foreach (array_keys($overrideTemplateSlugs) as $slug) if (TemplateSlugs::partAppliesToOverride($part, $slug)) $boundTemplates[] = $slug;
+        if (in_array('archive', $part['placement']['template_slugs'] ?? array(), true)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) {
+            if (!isset($entity['archive'])) continue;
+            $boundTemplates[] = TemplateSlugs::forArchive($entity);
+            if ('author' === $entity['kind']) $boundTemplates[] = 'author';
+        }
+        if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach ($plan['templates'] as $template) if (in_array($part['slug'], $template['shell_frame'] ?? array(), true)) $boundTemplates[] = $template['slug'];
+        if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) foreach (array_merge($plan['taxonomy_entities'], $plan['author_entities']) as $entity) if (isset($entity['archive']) && in_array($entity['archive']['source_path'], $part['placement']['source_paths'] ?? array(), true)) foreach ($plan['templates'] as $template) if ((TemplateSlugs::forArchive($entity) === ($template['slug'] ?? null) || ('author' === $entity['kind'] && 'author' === ($template['slug'] ?? null) && $template['source_path'] === $entity['archive']['source_path'])) && str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"')) $boundTemplates[] = $template['slug'];
+        foreach ( $plan['templates'] as $template ) {
+            $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
+            // An inline shell is bound where it sits, so a template that
+            // keeps every captured document copy binds it once per copy.
+            $allowed = 'inline_shared_shell' === ($part['placement']['kind'] ?? null) ? self::documentCopyCount($template['canonical_block_markup']) : 1;
+            $contentOwnsChrome = self::contentCarriesChrome($template['canonical_block_markup'], $part['area']);
+            foreach ($plan['pages'] as $page) if (TemplateSlugs::forPage($page) === $template['slug'] && self::contentCarriesChrome($page['canonical_block_markup'], $part['area'])) $contentOwnsChrome = true;
+            if (0 === $references && $contentOwnsChrome) continue;
+            if (in_array($template['slug'], $boundTemplates, true) && ($references < 1 || $references > $allowed)) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
+            if (!in_array($template['slug'], $boundTemplates, true) && 0 !== $references) throw new InvalidArgumentException('WordPress site plan has an unproven template part binding.');
+        }
+    }
+
+    /** Rendered elements rooting a captured document copy; at least one. */
+    private static function documentCopyCount(string $markup): int
+    {
+        $html = (string) preg_replace('/<!--.*?-->/s', '', $markup);
+        $copies = 0;
+        if (preg_match_all('/<[a-z][a-z0-9-]*\\s[^>]*?\\bclass="([^"]*)"/i', $html, $matches)) {
+            foreach ($matches[1] as $classes) {
+                if (array_filter(preg_split('/\\s+/', $classes) ?: array(), ShellExtraction::isResponsiveVariantClass(...))) ++$copies;
+            }
+        }
+
+        return max(1, $copies);
+    }
 }

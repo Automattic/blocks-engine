@@ -72,7 +72,7 @@ final class ArchiveEntities
             } elseif ('category' === $entity['taxonomy'] && preg_match('~(?:^|/)category/[^/]+/[^/]+~', $archive['source_route'])) {
                 throw new InvalidArgumentException('WordPress site plan hierarchical category lacks its parent.');
             }
-            } elseif ('category' !== $entity['taxonomy'] || isset($entity['parent'])) {
+            } elseif (('category' !== $entity['taxonomy'] && 'metadata:content_index' !== ($entity['provenance'] ?? null)) || isset($entity['parent'])) {
                 throw new InvalidArgumentException('WordPress site plan section must be an unparented category.');
             }
             $members = $entity['membership_source_paths'] ?? null;
