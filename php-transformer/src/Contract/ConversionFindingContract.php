@@ -77,7 +77,7 @@ final class ConversionFindingContract
         'repair_bucket', 'suggested_repair_class', 'suggested_generic_repair_class',
         'suggested_primitive', 'materialization_hint', 'runtime_island_type',
         'script_role', 'block_name', 'path',
-        'form_intent', 'materialization_path', 'acceptability',
+        'form_intent', 'type', 'materialization_path', 'acceptability',
         'fallback_identity', 'reconciliation_identity',
     );
 
