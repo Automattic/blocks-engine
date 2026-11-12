@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
-use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 use Automattic\BlocksEngine\PhpTransformer\Support\StepTimer;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -36,7 +35,6 @@ final class WordPressSitePlan
     public const SYNCED_PATTERN_TOKEN_PREFIX = '{{wordpress-site-plan:pattern:';
     /** Blocks whose serialized `url` attribute names a route rather than an asset. */
     public const ROUTE_URL_BLOCKS = array('navigation-link', 'navigation-submenu', 'button', 'social-link');
-    public const MAX_DOCUMENT_IDENTITY_DIAGNOSTICS = 50;
     /** Marks the post-content block of a template that holds a page's hoisted layout frame. */
     public const FRAME_CONTENT_CLASS = 'blocks-engine-frame-content';
     public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
@@ -138,8 +136,8 @@ final class WordPressSitePlan
         }
         // Redirect captures have no content identity to materialize. Remove
         // only proven empty redirects before validating compiled block bodies.
-        $compiled['pages'] = array_values(array_filter($compiled['pages'] ?? array(), static fn(mixed $document): bool => !is_array($document) || !self::emptyRedirectDocument($document)));
-        $identityFailures = self::compiledSiteIdentityFailures($compiled);
+        $compiled['pages'] = array_values(array_filter($compiled['pages'] ?? array(), static fn(mixed $document): bool => !is_array($document) || !DocumentIdentity::isEmptyRedirect($document)));
+        $identityFailures = DocumentIdentity::compiledSiteFailures($compiled);
         if ( array() !== $identityFailures ) {
             throw new DocumentIdentityException($identityFailures);
         }
@@ -1074,129 +1072,13 @@ final class WordPressSitePlan
         FontMaterializationPlanBuilder::assertPlan($fontMaterialization, $fontAssets);
     }
 
-    /**
-     * Collect every compiled page or template part that cannot become a site-plan document.
-     *
-     * @param array<string,mixed> $compiledSite
-     * @return array<int,array{source_path:string,reason:string,document_kind:string}>
-     */
-    public static function compiledSiteIdentityFailures(array $compiledSite): array
-    {
-        $pages = ArrayField::array($compiledSite, 'pages');
-        $parts = ArrayField::array($compiledSite, 'template_parts');
-        $parts = array_values(array_filter($parts, static fn (mixed $part): bool => is_array($part) && 'entry_shell' !== ($part['placement']['kind'] ?? null)));
-
-        return array_merge(
-            self::documentIdentityFailures($pages, 'page'),
-            self::documentIdentityFailures($parts, 'template_part')
-        );
-    }
-
-    /**
-     * @param mixed $documents
-     * @return array<int,array{source_path:string,reason:string,document_kind:string}>
-     */
-    public static function documentIdentityFailures(mixed $documents, string $documentKind): array
-    {
-        if ( ! is_array($documents) ) {
-            return array();
-        }
-        $failures = array();
-        foreach ( $documents as $document ) {
-            if ( ! is_array($document) || ! self::safePath($document['source_path'] ?? null) ) {
-                $failures[] = array(
-                    'source_path' => is_array($document) && is_string($document['source_path'] ?? null) ? $document['source_path'] : '',
-                    'reason' => 'unsafe_identity',
-                    'document_kind' => $documentKind,
-                );
-                continue;
-            }
-            if ('page' === $documentKind && self::emptyRedirectDocument($document)) continue;
-            // Native term captures may contain no presentation at all. Defer
-            // their content validation until taxonomy ownership is resolved;
-            // any unproven capture still faces the final page contract.
-            if ('page' === $documentKind) {
-                $classes = DocumentRootContext::bodyClasses($document);
-                if (in_array('archive', $classes, true) && (in_array('tag', $classes, true) || in_array('category', $classes, true))) continue;
-            }
-            if ( ! is_string($document['block_markup'] ?? null) || '' === trim($document['block_markup']) ) {
-                $failures[] = array(
-                    'source_path' => $document['source_path'],
-                    'reason' => 'empty_block_markup',
-                    'document_kind' => $documentKind,
-                );
-            }
-        }
-
-        return $failures;
-    }
-
-    /**
-     * @param array<int,array{source_path:string,reason:string,document_kind:string}> $failures
-     * @return array<int,array<string,mixed>>
-     */
-    public static function documentIdentityDiagnostics(array $failures): array
-    {
-        $total = count($failures);
-        if ( 0 === $total ) {
-            return array();
-        }
-        $retained = array_slice($failures, 0, self::MAX_DOCUMENT_IDENTITY_DIAGNOSTICS);
-        $diagnostics = array();
-        foreach ( $retained as $failure ) {
-            $diagnostics[] = self::documentIdentityDiagnostic($failure, $total);
-        }
-        if ( $total > count($retained) ) {
-            $diagnostics[] = array(
-                'code' => 'wordpress_site_plan_not_self_contained',
-                'severity' => 'error',
-                'message' => sprintf('%d compiled site documents lack a safe identity or block markup; %d omitted from this diagnostic list.', $total, $total - count($retained)),
-                'reason' => 'truncated',
-                'document_count' => $total,
-                'omitted_count' => $total - count($retained),
-                'reason_code' => 'wordpress_site_plan_not_self_contained',
-                'pattern_family' => 'site_plan_document',
-                'repair_bucket' => 'restore_compiled_document_identity',
-            );
-        }
-
-        return $diagnostics;
-    }
-
-    /**
-     * @param array{source_path:string,reason:string,document_kind:string} $failure
-     * @return array<string,mixed>
-     */
-    private static function documentIdentityDiagnostic(array $failure, int $documentCount): array
-    {
-        $path = mb_strcut($failure['source_path'], 0, 256, 'UTF-8');
-        $kind = 'template_part' === $failure['document_kind'] ? 'template part' : 'page';
-        $named = '' === $path ? 'Compiled ' . $kind : 'Compiled ' . $kind . ' "' . $path . '"';
-        $message = 'unsafe_identity' === $failure['reason']
-            ? $named . ' lacks a safe source path.'
-            : $named . ' has empty block markup.';
-
-        return array(
-            'code' => 'wordpress_site_plan_not_self_contained',
-            'severity' => 'error',
-            'message' => mb_strcut($message, 0, 256, 'UTF-8'),
-            'source_path' => $path,
-            'document_kind' => substr($failure['document_kind'], 0, 64),
-            'reason' => substr($failure['reason'], 0, 64),
-            'document_count' => $documentCount,
-            'reason_code' => 'wordpress_site_plan_not_self_contained',
-            'pattern_family' => 'site_plan_document',
-            'repair_bucket' => 'restore_compiled_document_identity',
-        );
-    }
-
     /** @param mixed $documents @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
     private function documents(mixed $documents, bool $part, array $tokens, AssetReferenceCanonicalizer $references, array $routes): array
     {
         if ( ! is_array($documents) ) {
             throw new InvalidArgumentException('Compiled site documents must be an array.');
         }
-        $failures = self::documentIdentityFailures($documents, $part ? 'template_part' : 'page');
+        $failures = DocumentIdentity::failures($documents, $part ? 'template_part' : 'page');
         if ( array() !== $failures ) {
             throw new DocumentIdentityException($failures);
         }
@@ -1550,18 +1432,6 @@ final class WordPressSitePlan
         }
         $paths = array_keys($catalog); $sorted = $paths; sort($sorted, SORT_STRING); if ($paths !== $sorted) throw new InvalidArgumentException('WordPress site plan source document catalog must be sorted.');
         return $catalog;
-    }
-    /** @param array<string,mixed> $document */
-    private static function emptyRedirectDocument(array $document): bool
-    {
-        if (!empty($document['entrypoint']) || !is_string($document['html'] ?? null)) return false;
-        $html = $document['html'];
-        $redirect = false;
-        foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) {
-            if ('meta' === ($node['name'] ?? null) && 'refresh' === strtolower((string) ($node['attributes']['http-equiv'] ?? ''))) $redirect = true;
-        }
-        $body = preg_replace('~<(head|script|style)\\b[^>]*>.*?</\\1>~is', '', $html) ?? $html;
-        return $redirect && '' === trim(strip_tags($body)) && !preg_match('~<(?:img|video|audio|iframe|svg|canvas|form)\\b~i', $body);
     }
     /** @param array<string,mixed> $compiled @param array<string,mixed> $data @param array<string,mixed> $coreHtmlFallbackEvidence @return array<string,mixed> */
     private function reporting(array $pages, array $data, array $coreHtmlFallbackEvidence, array $scriptDiagnostics = array(), array $surfaces = array()): array { $documents = array(); foreach ($pages as $page) if (is_array($page)) $documents[] = array('source_path' => $page['source_path'] ?? '', 'kind' => 'page', 'body_format' => 'blocks', 'block_document' => true, 'provenance' => $page['provenance'] ?? array()); foreach ($surfaces as $surface) $documents[] = array('source_path' => $surface['source_path'] ?? '', 'kind' => 'template_surface', 'body_format' => 'blocks', 'block_document' => true, 'template_surface' => $surface['template_surface'] ?? array(), 'provenance' => $surface['provenance'] ?? array()); return array('source_documents' => $documents, 'metrics' => array('source_document_count' => count($documents), 'block_document_count' => count($documents), 'native_block_count' => $data['metrics']['block_count'] ?? 0, 'fallback_count' => $data['metrics']['fallback_count'] ?? 0), 'core_html_fallback_evidence' => $coreHtmlFallbackEvidence, 'diagnostic_codes' => array_values(array_map(static fn(array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), array_merge($data['diagnostics'], $scriptDiagnostics)))); }
