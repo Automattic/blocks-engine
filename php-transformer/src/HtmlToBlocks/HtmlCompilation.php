@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssNestingFlattener;
+use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -1165,7 +1167,49 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     public function transform(string $html, array $options = array()): TransformerResult
     {
+        [$html, $options] = self::withFlatNestedStyleRules($html, $options);
         return $this->transformTimed($html, $options, new \Automattic\BlocksEngine\PhpTransformer\Support\StepTimer('transform.source_preparation'));
+    }
+
+    /**
+     * Selector analysis and projection read flat style rules only. Desugar
+     * native CSS nesting in every author stylesheet input first, so nested
+     * rules are matched against the source like their flat equivalents.
+     *
+     * @param array<string, mixed> $options
+     * @return array{0: string, 1: array<string, mixed>}
+     */
+    private static function withFlatNestedStyleRules(string $html, array $options): array
+    {
+        $styles = StyleTagScanner::scan($html);
+        foreach ( array_reverse($styles) as $style ) {
+            $content = $style['content'];
+            $flat = CssNestingFlattener::flatten($content);
+            if ( $flat === $content ) {
+                continue;
+            }
+            $contentEnd = strrpos(substr($html, 0, $style['end_offset']), '</');
+            if ( false === $contentEnd || substr($html, $contentEnd - strlen($content), strlen($content)) !== $content ) {
+                continue;
+            }
+            $html = substr_replace($html, $flat, $contentEnd - strlen($content), strlen($content));
+        }
+        if ( is_string($options['static_css'] ?? null) ) {
+            $options['static_css'] = CssNestingFlattener::flatten($options['static_css']);
+        }
+        foreach ( array( 'stylesheet_payloads', 'author_stylesheet_assets' ) as $key ) {
+            if ( ! is_array($options[$key] ?? null) ) {
+                continue;
+            }
+            foreach ( $options[$key] as $index => $asset ) {
+                foreach ( array( 'content', 'cascade_content' ) as $field ) {
+                    if ( is_array($asset) && is_string($asset[$field] ?? null) ) {
+                        $options[$key][$index][$field] = CssNestingFlattener::flatten($asset[$field]);
+                    }
+                }
+            }
+        }
+        return array( $html, $options );
     }
 
     /** @param array<string, mixed> $options */
