@@ -14,6 +14,8 @@ foreach (array(
     'compare sale tokens' => array('<span class="price price--compare">$40</span><span class="price price--sale">$30</span>', '40', '30'),
     'hidden nonzero compare' => array($pix . '<span class="price-compare" hidden>$40</span>', '31.68', null),
     'zero compare' => array($pix . '<span class="price-compare">R$0,00</span>', '31.68', null),
+    'explicit sale token' => array('<span class="price">$48</span><span class="price sale">$36</span>', '48', '36'),
+    'discount beside prior price' => array('<s class="price">$40</s><span class="price discount">$30</span>', '40', '30'),
     'declared strike' => array('<span class="price" style="text-decoration: line-through">$40</span><span class="price--sale">$30</span>', '40', '30'),
 ) as $label => [$prices, $regular, $sale]) {
     $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Catalog</title></head><body><main><div style="display:grid"><article><h2>Desk Lamp</h2><img src="/lamp.jpg" alt="Lamp">'

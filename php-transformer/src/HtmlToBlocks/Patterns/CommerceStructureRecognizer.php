@@ -567,8 +567,10 @@ final class CommerceStructureRecognizer
      * Currency-formatted price text for the card, returning the regular price and
      * an optional sale price. schema.org `itemprop="price"` is preferred; otherwise
      * elements whose text is currency-formatted or carry a price token are used.
-     * A sale/discount token requires a visible, nonzero prior price before it
-     * can identify a sale price; qualified alternative prices are not sales.
+     * A sale/special/reduced token marks the sale price. The ambiguous
+     * discount/now tokens also name qualified alternative prices (e.g. a
+     * payment-method discount), so they mark a sale only beside a visible,
+     * nonzero prior price.
      *
      * @return array{price: string, sale_price?: string}
      */
@@ -686,7 +688,7 @@ final class CommerceStructureRecognizer
                         }
                     }
                 }
-                if ( ('ins' === strtolower($node->tagName) && $hasStruckPrice) || ('ins' !== strtolower($node->tagName) && $hasPriorPrice && $this->classifier->hasCommerceToken($node, array( 'sale', 'discount', 'special', 'reduced', 'now' ))) ) {
+                if ( ('ins' === strtolower($node->tagName) && $hasStruckPrice) || ('ins' !== strtolower($node->tagName) && ($this->classifier->hasCommerceToken($node, array( 'sale', 'special', 'reduced' )) || ($hasPriorPrice && $this->classifier->hasCommerceToken($node, array( 'discount', 'now' ))))) ) {
                     $isSale = true;
                     break;
                 }
