@@ -6,6 +6,7 @@ require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BindingAnchors;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assertions = 0;
@@ -71,7 +72,7 @@ foreach (array('nick-projects-five-plugin-installs' => $paragraph, 'nick-project
     $binding = $entity['bindings'][0] ?? array();
     $assert($expectedAnchor === ($binding['search_block_markup'] ?? null), "{$id} retains the exact native serialized text-leaf anchor");
     $resolvedBinding = $resolvedEntities[$id]['bindings'][0] ?? array();
-    $assert(WordPressSitePlan::bindingPosition($resolvedBinding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($resolved['pages'][0]['resolved_block_markup']), $expectedAnchor), "{$id} receives a valid resolved document position");
+    $assert(BindingAnchors::positionMatches($resolvedBinding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($resolved['pages'][0]['resolved_block_markup']), $expectedAnchor), "{$id} receives a valid resolved document position");
     $assert(hash('sha256', $entity['fallback']['text'] ?? '') === ($entity['fallback']['hash'] ?? null), "{$id} transports its captured fallback/hash");
 }
 $assert($plan['pages'][0]['canonical_block_markup'] === $plainMarkup, 'declaring metrics leaves captured Paragraph, Heading, icon, link and layout markup unchanged');
@@ -115,7 +116,7 @@ foreach (array('stargazers_count' => '7', 'forks_count' => '9') as $metric => $f
     $githubAnchor = '<!-- wp:paragraph --><p>' . $fallback . '</p><!-- /wp:paragraph -->';
     $assert(($githubEntity['source']['id'] ?? null) === 'github.repository-information' && ($githubEntity['source']['resources'][0]['repository'] ?? null) === '.github' && ($githubEntity['fallback']['text'] ?? null) === $fallback && ($githubEntity['fallback']['hash'] ?? null) === hash('sha256', $fallback), "{$metric} transports the generic source recipe and real plain-number repository fallback/hash");
     $assert(($githubEntity['provenance']['kind'] ?? null) === 'source_corroboration' && ($githubEntity['provenance']['source_path'] ?? null) === 'src/components/gh-repo-card.tsx', "{$metric} retains explicit source provenance");
-    $assert(($githubBinding['source_path'] ?? null) === ($githubHeaderParts[0]['source_path'] ?? null) && WordPressSitePlan::bindingPosition($githubBinding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($githubHeaderParts[0]['resolved_block_markup']), $githubAnchor), "{$metric} binding reanchors to the shared native Paragraph leaf");
+    $assert(($githubBinding['source_path'] ?? null) === ($githubHeaderParts[0]['source_path'] ?? null) && BindingAnchors::positionMatches($githubBinding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($githubHeaderParts[0]['resolved_block_markup']), $githubAnchor), "{$metric} binding reanchors to the shared native Paragraph leaf");
 }
 $githubHeaderMarkup = $githubHeaderParts[0]['resolved_block_markup'];
 $assert(str_contains($githubHeaderMarkup, 'href="https://github.com/Automattic/.github"') && str_contains($githubHeaderMarkup, '★'), 'GitHub metric declarations preserve the native repository link and authored icon');
@@ -151,7 +152,7 @@ $neutralParts = array_values(array_filter($neutralResolved['template_parts'], st
 $neutralEntity = $neutralEntities[0] ?? array(); $neutralBinding = $neutralEntity['bindings'][0] ?? array();
 $assert(1 === count($neutralEntities) && 1 === count($neutralParts) && ($neutralEntity['source']['id'] ?? null) === 'neutral.example-records' && ($neutralEntity['extraction']['pointer'] ?? null) === '/measurements/score' && ($neutralEntity['extraction']['value_type'] ?? null) === 'nonnegative_integer', 'third neutral source recipe and extraction survive full compilation and shared-shell extraction');
 $assert(($neutralEntity['provenance']['kind'] ?? null) === 'operator_mapping' && ($neutralEntity['fallback']['text'] ?? null) === '31' && ($neutralEntity['fallback']['hash'] ?? null) === hash('sha256', '31'), 'third neutral source preserves operator mapping and its plain numeric fallback/hash');
-$assert(($neutralBinding['source_path'] ?? null) === ($neutralParts[0]['source_path'] ?? null) && WordPressSitePlan::bindingPosition($neutralBinding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($neutralParts[0]['resolved_block_markup']), $neutralAnchor), 'third neutral source selector reanchors to the shared native text leaf');
+$assert(($neutralBinding['source_path'] ?? null) === ($neutralParts[0]['source_path'] ?? null) && BindingAnchors::positionMatches($neutralBinding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($neutralParts[0]['resolved_block_markup']), $neutralAnchor), 'third neutral source selector reanchors to the shared native text leaf');
 
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
@@ -194,7 +195,7 @@ $shellContainer = 1 === count($shellParts) ? $shellParts[0]['canonical_block_mar
 $assert(1 === count($shellParts) && 2 === count($shellByMetric), 'shared-shell extraction coalesces both sum and typed success_count source facts');
 foreach (array('active_installs' => $shellAnchor, 'plugin_response_count' => $shellCountAnchor) as $metric => $anchor) {
     $shellBound = $shellByMetric[$metric]['bindings'][0] ?? array();
-    $assert(WordPressSitePlan::bindingPosition($shellBound['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($shellContainer), $anchor), "shared-shell {$metric} native leaf is reanchored");
+    $assert(BindingAnchors::positionMatches($shellBound['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($shellContainer), $anchor), "shared-shell {$metric} native leaf is reanchored");
     $assert(($shellParts[0]['source_path'] ?? null) === ($shellBound['source_path'] ?? null), "shared-shell {$metric} binding source path is the template part");
 }
 $assert($shellDeclarationIdentity === ($shellResolved['runtime_declarations'][0]['reconciliation_identity'] ?? null), 'shared-shell fact coalescing preserves the declaration reconciliation identity');

@@ -1585,6 +1585,26 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/BindingAnchors.php": {
+      "InvalidArgumentException('A resolved WordPress site plan does not resolve every runtime entity manifest.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A runtime entity binding no longer has its declared source document block anchor after shell extraction: '.(is_string($source)?$source:'unknown').' ('.(is_string($binding['role']??null)?$binding['role']:'unknown').').')": {
+        "class": "integrity",
+        "count": 1,
+        "finding": "runtime_entity_binding_unanchored",
+        "test": "tests/contract/unanchored-runtime-entity-binding.php"
+      },
+      "InvalidArgumentException('A provider script supersession proof is malformed or detached from its bound form.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A provider script supersession proof does not match its source inline-script asset and document metadata.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/ContentDecisions.php": {
       "InvalidArgumentException('Compiled site documents must be an array.')": {
         "class": "integrity",
@@ -1843,24 +1863,6 @@
       "InvalidArgumentException('A page asset scope is structurally invalid.')": {
         "class": "integrity",
         "count": 1
-      },
-      "InvalidArgumentException('A provider script supersession proof does not match its source inline-script asset and document metadata.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('A provider script supersession proof is malformed or detached from its bound form.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('A resolved WordPress site plan does not resolve every runtime entity manifest.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('A runtime entity binding no longer has its declared source document block anchor after shell extraction: '.(is_string($source)?$source:'unknown').' ('.(is_string($binding['role']??null)?$binding['role']:'unknown').').')": {
-        "class": "integrity",
-        "count": 1,
-        "finding": "runtime_entity_binding_unanchored",
-        "test": "tests/contract/unanchored-runtime-entity-binding.php"
       },
       "InvalidArgumentException('Asset consumers or destination are stale.')": {
         "class": "integrity",

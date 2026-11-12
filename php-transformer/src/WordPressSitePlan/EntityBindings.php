@@ -169,7 +169,7 @@ final class EntityBindings
             foreach ($claims as $claimIndex => $members) {
                 $identity = $members[0];
                 $position = $declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['position'] ?? null;
-                if (isset($declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['projected_anchor']) || true !== $identity['canonical_position'] || !WordPressSitePlan::bindingPosition($position, $documentIndex, $search)) continue;
+                if (isset($declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['projected_anchor']) || true !== $identity['canonical_position'] || !BindingAnchors::positionMatches($position, $documentIndex, $search)) continue;
                 if (isset($claimedOffsets[$position['offset']])) throw new InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.');
                 $claimedOffsets[$position['offset']] = true;
                 $claimedClaims[$claimIndex] = true;
@@ -258,7 +258,7 @@ final class EntityBindings
             if (null === $selected || !is_string($fallback) || '' === $fallback) continue;
             $matches = array();
             foreach ($declarations as $di => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $ei => $entity) foreach ($entity['bindings'] ?? array() as $bi => $binding) {
-                if (!isset($anchored[$di . ':' . $ei . ':' . $bi]) || $selected !== ($binding['source_path'] ?? null) || null === $sourceBindings[$di][$ei][$bi] || $sourceBindings[$di][$ei][$bi] !== $sourceBindings[$drop['declaration']][$drop['entity']][$drop['binding']] || !WordPressSitePlan::bindingPosition($binding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markupBySource[$selected]), $binding['search_block_markup'])) continue;
+                if (!isset($anchored[$di . ':' . $ei . ':' . $bi]) || $selected !== ($binding['source_path'] ?? null) || null === $sourceBindings[$di][$ei][$bi] || $sourceBindings[$di][$ei][$bi] !== $sourceBindings[$drop['declaration']][$drop['entity']][$drop['binding']] || !BindingAnchors::positionMatches($binding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markupBySource[$selected]), $binding['search_block_markup'])) continue;
                 $matches[] = array($di, $ei);
             }
             if (1 !== count($matches)) continue;

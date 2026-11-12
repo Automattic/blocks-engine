@@ -15,6 +15,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BindingAnchors;
 
 $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) {
@@ -44,7 +45,7 @@ foreach (array(
     $assert(is_array($plan) && 'failed' !== $result['status'] && !isset($result['source_reports']['wordpress_site_plan_diagnostics']), "A binding to {$label} no longer fails the site plan.");
     WordPressSitePlan::assertValid($plan);
     $kept = $bindingsOf($plan);
-    $assert(1 === count($kept) && 'price' === $kept[0]['role'] && $present === $kept[0]['search_block_markup'] && WordPressSitePlan::bindingPosition($kept[0]['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($plan['pages'][0]['canonical_block_markup']), $present), "The anchored sibling binding is kept beside a binding to {$label}.");
+    $assert(1 === count($kept) && 'price' === $kept[0]['role'] && $present === $kept[0]['search_block_markup'] && BindingAnchors::positionMatches($kept[0]['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($plan['pages'][0]['canonical_block_markup']), $present), "The anchored sibling binding is kept beside a binding to {$label}.");
     $assert(str_contains($plan['pages'][0]['canonical_block_markup'], 'Kept paragraph'), "The page stays static and complete beside a binding to {$label}.");
     $found = $findings($plan);
     $assert(1 === count($found) && 'warning' === $found[0]['severity'] && 'binding' === $found[0]['unit'] && $reason === $found[0]['reason_code'] && $sourcePath === $found[0]['source_path'] && 'product-1' === $found[0]['entity_id'] && 'sale' === $found[0]['role'] && 'data/products.json' === $found[0]['declaration_source_path'], "The dropped binding to {$label} is reported once: " . json_encode($found));

@@ -420,7 +420,7 @@ final class PostChrome
                 $search = $binding['search_block_markup'] ?? null;
                 if (!is_string($search) || '' === $search) continue;
                 $position = $binding['position'] ?? null;
-                if (WordPressSitePlan::bindingPosition($position, $documentIndex, $search)) { $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']); continue; }
+                if (BindingAnchors::positionMatches($position, $documentIndex, $search)) { $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']); continue; }
                 // A manifest record keeps the position it was compiled with, which
                 // page canonicalization can shift; protect every block it may name.
                 for ($offset = strpos($markup, $search); false !== $offset; $offset = strpos($markup, $search, $offset + strlen($search))) $ranges[] = array('offset' => $offset, 'length' => strlen($search));
