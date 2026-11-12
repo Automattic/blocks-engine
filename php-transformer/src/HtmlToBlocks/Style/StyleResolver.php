@@ -2447,8 +2447,9 @@ final class StyleResolver implements ElementPresentationResolver
         // `.wp-block-image img{max-width:100%}`. That clamp assumes the source
         // clamps too. When the source's computed max-width is the initial
         // `none` -- no author rule constrains the image -- and the width is
-        // not carried natively while the height is carried or responsive, the browser derives the
-        // width from that fixed height through the aspect (or intrinsic)
+        // not carried natively while a definite height is carried (or the
+        // width is viewport-derived), the browser derives the width from
+        // that height through the aspect (or intrinsic)
         // ratio, exactly as the source did; core's clamp is then the one
         // declaration that breaks the box, because it snaps the width to the
         // container while the height stays fixed, distorting or cropping the
@@ -2457,10 +2458,13 @@ final class StyleResolver implements ElementPresentationResolver
         // Restate the source's `none` on the carrier so the derived width
         // keeps overflowing the way the source let it. An image the source
         // itself clamps (an author `max-width`, or a carried width such as
-        // `width:100%`) keeps core's responsive default untouched.
+        // `width:100%`) keeps core's responsive default untouched. Percentage
+        // heights depend on the containing block and may become auto when
+        // positioning moves to a wrapper; they must not lift the clamp.
         if (
             '' === $nativeWidth
-            && ('' !== $nativeHeight || $this->imageHasViewportDerivedWidth($image))
+            && (1 === preg_match('/^(?:\d+|\d*\.\d+)(?:px|em|rem|ch|ex|cap|ic|lh|rlh|cm|mm|q|in|pt|pc|[sld]?v[whib]|[sld]?vmin|[sld]?vmax)?$/i', $nativeHeight)
+                || $this->imageHasViewportDerivedWidth($image))
             && ! isset($box['max-width'])
             && ! $this->imageAxisVariesByViewport($image, 'max-width')
             && $this->imageComputedMaxWidthIsNone($declarations)
