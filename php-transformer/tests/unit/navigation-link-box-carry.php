@@ -169,7 +169,7 @@ $assert(
 );
 $listCss = $assetsCss($listResult);
 $listItemRule = '';
-if ( preg_match('/\.wp-block-navigation-item:nth-child\(1\)(?! :where)[^{}]*\{([^}]*)\}/', $listCss, $ruleMatch) ) {
+if ( preg_match('/\.wp-block-navigation-item:nth-child\(1\)(?! :where| \.wp-block-navigation__submenu-container)[^{}]*\{([^}]*)\}/', $listCss, $ruleMatch) ) {
     $listItemRule = $ruleMatch[0];
 }
 $assert(

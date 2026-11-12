@@ -800,6 +800,28 @@ final class NavigationPatternContext
         return false;
     }
 
+    /** A submenu parent whose source paints its own indicator glyph, which core's icon would duplicate. */
+    public function recordSubmenuIndicator(DOMElement $toggle): void
+    {
+        $this->submenuToggleIndicators[$toggle->getNodePath() ?? ''] = true;
+    }
+
+    /**
+     * A form control does not inherit text presentation: the user agent
+     * resets these properties on it. A native item standing in for one keeps
+     * those resets wherever the control's own rules state nothing.
+     */
+    public function formControlTextResets(DOMElement $control): string
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) return '';
+        $own = $this->styleResolver->cssDeclarations($this->resolvedStyle($control));
+        $resets = array();
+        foreach ( array( 'text-transform' => 'none', 'letter-spacing' => 'normal', 'word-spacing' => 'normal', 'text-indent' => '0', 'text-shadow' => 'none' ) as $property => $initial ) {
+            if ( ! isset($own[$property]) && '' === $this->styleResolver->conditionalDeclaration($control, $property) ) $resets[] = $property . ':' . $initial;
+        }
+        return implode(';', $resets);
+    }
+
     /** Whether a submenu parent under this source element paints no indicator and carries no disclosure control. */
     public function hasUnindicatedSubmenuParentWithin(DOMElement $source): bool
     {
@@ -933,7 +955,7 @@ final class NavigationPatternContext
                     // Anchor subjects add Core's content anchor to the item target;
                     // projected source boxes already have their structural path.
                     $target = str_contains($target, '.wp-block-navigation-item__content')
-                        ? $itemTarget . ' :where(.wp-block-navigation-item__content)'
+                        ? self::itemContentTarget($itemTarget)
                         : $itemTarget;
                 }
                 $this->session?->authorSelectorProjectionState()->installNavigationSubject($path, $target);
@@ -1075,6 +1097,15 @@ final class NavigationPatternContext
         }
     }
 
+    /**
+     * An item's own content, through any retained boxes, but not the links in
+     * its submenu: those are other items. The exclusion adds no specificity.
+     */
+    private static function itemContentTarget(string $item): string
+    {
+        return $item . ' :where(.wp-block-navigation-item__content):not(:where(' . $item . ' .wp-block-navigation__submenu-container *))';
+    }
+
     /** The source anchor remains a distinct CSS subject inside Core's item. */
     public function navigationAnchorSubjectMarker(DOMElement $anchor, ?DOMElement $item = null): string
     {
@@ -1087,7 +1118,7 @@ final class NavigationPatternContext
         }
         if (!$presented) return '';
         $marker = $this->navigationSubjectMarker($anchor, 'anchor');
-        $target = '.wp-block-navigation .wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)';
+        $target = self::itemContentTarget('.wp-block-navigation .wp-block-navigation-item.' . $marker);
         $this->pendingNavigationSubjects[$anchor->getNodePath() ?? ''] = array('marker' => $marker, 'target' => $target, 'source' => SourceDom::elementSelector($anchor));
         if ($this->inlineAnchorCarriesPercentageHeight($anchor)) {
             // Core inserts a block anchor with auto height and a label span.
@@ -1108,7 +1139,7 @@ final class NavigationPatternContext
         $width = $this->absoluteLabelSizingWidth($anchor);
         if ('' === $width) return '';
         $marker = $this->navigationSubjectMarker($anchor, 'label-width');
-        $target = '.wp-block-navigation .wp-block-navigation-item.' . $marker . ' :where(.wp-block-navigation-item__content)';
+        $target = self::itemContentTarget('.wp-block-navigation .wp-block-navigation-item.' . $marker);
         // Out-of-flow layers contribute no intrinsic width to Core's flex
         // item. Size the new carriers without changing placement or height.
         $source = SourceDom::elementSelector($anchor);

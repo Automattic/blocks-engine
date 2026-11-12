@@ -3200,6 +3200,30 @@ final class NavigationPattern implements PatternRecognizerInterface
     /** @return array<string, mixed>|null */
     private function navigationBlockFromListItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null, ?array &$listItems = null): ?array
     {
+        $jumpMenu = $this->jumpSelectItem($element);
+        if ( null !== $jumpMenu ) {
+            $children = array();
+            foreach ( $jumpMenu['options'] as $option ) {
+                $children[] = $createBlock('core/navigation-link', array( 'label' => $option['label'], 'url' => $option['url'], 'kind' => 'custom' ), array(), $option['element']);
+            }
+            // The select has no destination of its own, so core opens the
+            // submenu on activation, as the source opened its option list.
+            $attrs = $this->navigationItemAttributes($element, $jumpMenu['select'], null, array( 'label' => $jumpMenu['label'], 'kind' => 'custom' ), $presentationAttributes, $navigationContext);
+            $resets = $navigationContext?->formControlTextResets($jumpMenu['select']) ?? '';
+            if ( '' !== $resets && isset($attrs['metadata']['blocksEngineNavigationAnchor']) ) {
+                $style = (string) ($attrs['metadata']['blocksEngineNavigationAnchor']['style'] ?? '');
+                $attrs['metadata']['blocksEngineNavigationAnchor']['style'] = $resets . ('' === $style ? '' : ';' . $style);
+            }
+            if ( null !== $jumpMenu['indicator'] ) {
+                // The source's own glyph stays beside the label, where its
+                // rules place it; core's icon would draw a second indicator.
+                $indicator = $jumpMenu['indicator'];
+                $attrs['label'] .= '<span class="' . htmlspecialchars(trim($indicator->getAttribute('class')), ENT_QUOTES) . '" aria-hidden="true">' . htmlspecialchars(trim($indicator->textContent ?? ''), ENT_QUOTES) . '</span>';
+                $navigationContext?->recordSubmenuIndicator($element);
+            }
+            return $createBlock('core/navigation-submenu', $attrs, $children, $element);
+        }
+
         $buttonMenu = $this->buttonDropdownItem($element);
         if ( null !== $buttonMenu ) {
             $clusterAnchors = null;
@@ -4792,6 +4816,66 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ($this->claimsBeforeAuthorOwnedLayout($node) || $this->hasNavigationSignal($node)) return true;
         }
         return false;
+    }
+
+    /**
+     * A jump menu: a `<select>` outside any form whose options, apart from a
+     * placeholder that names it, are all same-site destinations. It is another
+     * presentation of a submenu — its placeholder is the parent label and
+     * each destination option a child link — so it belongs in the native
+     * menu rather than holding the whole landmark out of it. The select may
+     * sit alone in a wrapper beside a glyph-only indicator (`▼`), which then
+     * replaces core's own submenu icon.
+     *
+     * @return array{select:DOMElement, label:string, options:list<array{label:string, url:string, element:DOMElement}>, indicator:?DOMElement}|null
+     */
+    private function jumpSelectItem(DOMElement $element): ?array
+    {
+        $select = 'select' === strtolower($element->tagName) ? $element : null;
+        $indicator = null;
+        if ( null === $select ) {
+            foreach ( $element->childNodes as $child ) {
+                if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                    continue;
+                }
+                if ( $child instanceof DOMElement && 'select' === strtolower($child->tagName) && null === $select ) {
+                    $select = $child;
+                    continue;
+                }
+                if ( ! $child instanceof DOMElement || null !== $indicator || 0 !== $child->childElementCount || 1 !== preg_match('/^[^\p{L}\p{N}\s]{1,2}$/u', trim($child->textContent ?? '')) ) {
+                    return null;
+                }
+                $indicator = $child;
+            }
+        }
+        if ( null === $select || $select->hasAttribute('multiple') || $select->hasAttribute('form') ) {
+            return null;
+        }
+        for ( $parent = $select->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'form' === strtolower($parent->tagName) ) {
+                return null;
+            }
+        }
+        $label = trim(SourceDom::attr($select, 'aria-label'));
+        $options = array();
+        foreach ( $select->getElementsByTagName('option') as $option ) {
+            $text = trim(preg_replace('/\s+/', ' ', $option->textContent ?? '') ?? '');
+            $value = trim(SourceDom::attr($option, 'value'));
+            if ( '' === $value ) {
+                if ( array() !== $options || '' === $text ) {
+                    return null;
+                }
+                $label = $text;
+                continue;
+            }
+            $url = SourceDom::safeNavigationUrl($value);
+            if ( '' === $text || '' === $url || ! ( str_starts_with($url, '/') && ! str_starts_with($url, '//') ) ) {
+                return null;
+            }
+            $options[] = array( 'label' => $text, 'url' => $url, 'element' => $option );
+        }
+
+        return '' !== $label && count($options) >= 2 ? array( 'select' => $select, 'label' => $label, 'options' => $options, 'indicator' => $indicator ) : null;
     }
 
     private function hasButtonDropdownChild(DOMElement $element): bool
