@@ -16,6 +16,31 @@ use DOMElement;
  */
 final class ButtonDeclarationRouting
 {
+    private const WRAPPER_OWNED_PROPERTIES = array(
+        // Float participation belongs to the outer box in the source
+        // formatting context, never to the painted descendant link.
+        'float', 'clear', 'position', 'top', 'right', 'bottom', 'left', 'z-index',
+        'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
+        'grid-area', 'grid-column', 'grid-row',
+        'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
+        'align-self', 'justify-self', 'order',
+        // Flex sizing is item participation, like the `align-self` and
+        // `order` above it: it describes how the box behaves inside the
+        // author's flex container. These declarations travel with
+        // LayoutParticipation::participatingBox() so neutralizing a
+        // wrapper cannot drop them.
+        'flex', 'flex-grow', 'flex-shrink', 'flex-basis',
+    );
+
+    /**
+     * Whether `$name` sizes or places the box that participates in the
+     * author's formatting context rather than painting the control.
+     */
+    public static function isWrapperOwnedProperty(string $name): bool
+    {
+        return in_array(strtolower($name), self::WRAPPER_OWNED_PROPERTIES, true);
+    }
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer
@@ -33,21 +58,6 @@ final class ButtonDeclarationRouting
         $geometry = array();
         $inner = array();
         $placementVars = $this->buttonPlacementCustomProperties($body);
-        $wrapperOwned = array(
-            // Float participation belongs to the outer box in the source
-            // formatting context, never to the painted descendant link.
-            'float', 'clear', 'position', 'top', 'right', 'bottom', 'left', 'z-index',
-            'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
-            'grid-area', 'grid-column', 'grid-row',
-            'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
-            'align-self', 'justify-self', 'order',
-                    // Flex sizing is item participation, like the `align-self` and
-                    // `order` above it: it describes how the box behaves inside the
-                    // author's flex container. These declarations travel with
-                    // LayoutParticipation::participatingBox() so neutralizing a
-                    // wrapper cannot drop them.
-            'flex', 'flex-grow', 'flex-shrink', 'flex-basis',
-        );
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
             $colon = strpos($declaration, ':');
             $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
@@ -63,7 +73,7 @@ final class ButtonDeclarationRouting
                 continue;
             }
             $places = '' !== $name && false !== $colon && $this->declarationPlacesTheButton($name, $placementVars);
-            $owned = '' !== $name && false !== $colon && in_array($name, $wrapperOwned, true)
+            $owned = '' !== $name && false !== $colon && self::isWrapperOwnedProperty($name)
                 && ! $this->isButtonControlBoxSize($name, $value, $controls);
             if ( $this->releasesButtonWrapperWidth($name, $value, $controls) ) {
                 $geometry[] = $declaration;
