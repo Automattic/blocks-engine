@@ -6104,23 +6104,19 @@ final class ArtifactCompiler
             return null;
         }
 
-        $paths = array_filter(array(
-            ArtifactPath::resolveRelativePath($reference, $entryPath),
-            str_starts_with($reference, '/') ? ArtifactPath::resolveRelativePath(ltrim($reference, '/'), $entryPath) : '',
-        ), static fn (string $path): bool => '' !== $path);
-        $paths = array_values(array_unique($paths));
-        if ( array() === $paths ) {
+        $path = str_starts_with($reference, '/')
+            ? $this->artifactRootRelativePath($reference, $entryPath, array_fill_keys(array_column($files, 'path'), true))
+            : ArtifactPath::resolveRelativePath($reference, $entryPath);
+        if ( '' === $path ) {
             return null;
         }
 
-        foreach ( $paths as $path ) {
-            if ( isset($this->filesByPath[$path]) ) {
-                return $this->filesByPath[$path];
-            }
+        if ( isset($this->filesByPath[$path]) ) {
+            return $this->filesByPath[$path];
         }
 
         foreach ( $files as $file ) {
-            if ( in_array($file['path'] ?? '', $paths, true) ) {
+            if ( ($file['path'] ?? '') === $path ) {
                 return $file;
             }
         }
