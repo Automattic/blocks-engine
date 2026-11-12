@@ -958,7 +958,12 @@ final class CommerceStructureRecognizer
             return false;
         }
 
-        return self::hasCommerceWord($this->vocabulary($element), array( 'checkout' ));
+        // A control's submitted name is action evidence, not total-row vocabulary.
+        $name = in_array($tagName, array( 'button', 'input' ), true)
+            ? (string) preg_replace('/[^a-z0-9]+/i', ' ', SourceDom::attr($element, 'name'))
+            : '';
+
+        return self::hasCommerceWord($this->vocabulary($element) . ' ' . $name, array( 'checkout' ));
     }
 
     /**
