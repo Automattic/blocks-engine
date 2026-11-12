@@ -858,23 +858,7 @@ final class WordPressSitePlan
         foreach ($plan['pages'] as $index => $page) if (($expectedCandidatePages[$index]['whole_page_candidates'] ?? null) !== ($page['whole_page_candidates'] ?? null)) throw new InvalidArgumentException('Whole-page candidates are stale, duplicated, or detached from their canonical source pages.');
         $documentsBySource = StylesheetScopes::documentsBySource($plan['pages'], $plan['theme']['document_roots'] ?? array());
         StylesheetScopes::assertOwned($plan['assets'], $documentsBySource);
-        // A document position holds exactly one stylesheet instance, across
-        // every resource, so each route replays one unambiguous sequence.
-        $identities = array();
-        foreach ($plan['assets'] as $asset) {
-            if (isset($asset['stylesheet_instances']) && ('css' !== $asset['kind'] || !is_array($asset['stylesheet_instances']))) throw new InvalidArgumentException('Only stylesheet resources may declare ordered instances.');
-            foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
-                if (!is_array($instance) || array('source_path', 'order', 'media', 'type') !== array_keys(array_diff_key($instance, array_flip(array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA)))) || !isset($documentsBySource[$instance['source_path'] ?? '']) || !is_int($instance['order'] ?? null) || $instance['order'] < 0 || !is_string($instance['media'] ?? null) || !is_string($instance['type'] ?? null) || array_filter(PageStylesheets::deviceAttributes($instance), static fn(mixed $value): bool => !is_string($value))) throw new InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.');
-                // A frontend-only and an editor-only copy share their position:
-                // each context still replays exactly one resource there.
-                foreach (array('frontend', 'editor') as $context) {
-                    if (!in_array($asset['stylesheet_target'] ?? 'both', array('both', $context), true)) continue;
-                    $identity = $instance['source_path'] . "\0" . $instance['order'] . "\0" . $context;
-                    if (isset($identities[$identity])) throw new InvalidArgumentException('Two stylesheet instances claim one document position.');
-                    $identities[$identity] = true;
-                }
-            }
-        }
+        PageStylesheets::assertInstances($plan['assets'], $documentsBySource);
         $routeSources = array(); foreach ($plan['routes'] as $route) { self::unique($routeSources, $route['source_path'], 'route source'); $page = $pagesBySource[$route['source_path']] ?? null; if (!is_array($page) || $route['target_path'] !== $page['route']['path'] || $route['target_slug'] !== $page['slug']) throw new InvalidArgumentException('WordPress site plan routes do not match canonical page routes.'); }
         if (count($routeSources) !== count($pagePaths)) throw new InvalidArgumentException('WordPress site plan must export every canonical page route.');
         // Source identities compare case-insensitively, as unique() keys them.

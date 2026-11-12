@@ -1839,6 +1839,20 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/PageStylesheets.php": {
+      "InvalidArgumentException('Only stylesheet resources may declare ordered instances.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Two stylesheet instances claim one document position.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/PlanDocuments.php": {
       "InvalidArgumentException('WordPress site plan declared content fields are invalid.')": {
         "class": "integrity",
@@ -2173,19 +2187,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('Only stylesheet resources may declare ordered instances.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('Stylesheet assets must declare a supported target.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Stylesheet instance must identify a canonical document, order and conditions.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Two stylesheet instances claim one document position.')": {
         "class": "integrity",
         "count": 1
       },
