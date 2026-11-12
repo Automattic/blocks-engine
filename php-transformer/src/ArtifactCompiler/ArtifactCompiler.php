@@ -4090,7 +4090,7 @@ final class ArtifactCompiler
                 $canonicalSource = $members[$sourcePath]['rows'][$area][$variant]['markup'];
                 foreach ($members as $member) {
                     $candidate = $member['rows'][$area][$variant]['markup'];
-                    if (substr_count($candidate, CaptureEvidence::VIEWPORT_ENTRANCE . '=') > substr_count($canonicalSource, CaptureEvidence::VIEWPORT_ENTRANCE . '=')) $canonicalSource = $candidate;
+                    if (self::sourceShellEvidenceCount($candidate) > self::sourceShellEvidenceCount($canonicalSource)) $canonicalSource = $candidate;
                 }
                 $canonicalMarkup = self::normalizeSourceShellIdentity($canonicalSource, false);
                 $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $members[$sourcePath]['content'], $headMatch) ? $headMatch[1] : '';
@@ -4265,6 +4265,17 @@ final class ArtifactCompiler
         }
     }
 
+    private static function sourceShellEvidenceCount(string $markup): int
+    {
+        $dom = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
+        $count = 0;
+        foreach ($dom->getElementsByTagName('*') as $node) {
+            foreach (array(CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::GLYPH_COLOR) as $attribute) if ($node->hasAttribute($attribute)) ++$count;
+            foreach (SourceDom::tokens($node->getAttribute('class')) as $class) if (str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX)) ++$count;
+        }
+        return $count;
+    }
+
     private static function normalizeSourceShellIdentity(string $markup, bool $ignoreViewportEntrance = true): string
     {
         $dom = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
@@ -4279,6 +4290,17 @@ final class ArtifactCompiler
                     if (is_string($name) && is_array($state) && array_key_exists('after', $state) && is_string($state['after']) && $node->getAttribute($name) === $state['after']) $node->removeAttribute($name);
                 }
                 $node->removeAttribute(CaptureEvidence::VIEWPORT_ENTRANCE);
+            }
+        }
+        if ($ignoreViewportEntrance) {
+            foreach ($xpath->query('//*') ?: array() as $node) {
+                if (!$node instanceof \DOMElement) continue;
+                // The source still owns provenance here: do not infer sampled
+                // paint from the SVG produced later by social-link lowering.
+                $node->removeAttribute(CaptureEvidence::GLYPH_COLOR);
+                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX)));
+                if (array() === $classes) $node->removeAttribute('class');
+                else $node->setAttribute('class', implode(' ', $classes));
             }
         }
         $currentNodes = array();

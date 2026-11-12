@@ -1756,7 +1756,7 @@ final class ShellExtraction
             foreach ($candidates as $index => $rows) {
                 if (1 !== count($rows)) continue;
                 $identityPages[] = $index;
-                $identityInputs[] = (string) ($rows[0]['identity_markup'] ?? $rows[0]['markup']);
+                $identityInputs[] = $this->plan->withoutShellSelfReferences((string) ($rows[0]['identity_markup'] ?? $rows[0]['markup']), $pages[$index], $pages);
             }
             $clusterIdentities = array_combine($identityPages, self::canonicalizeRouteNumberedShellIds($identityInputs, $stylesheetIds));
             foreach ($applicable as $index => $page) {
