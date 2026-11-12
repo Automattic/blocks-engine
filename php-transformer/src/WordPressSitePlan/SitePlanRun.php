@@ -21,7 +21,6 @@ use InvalidArgumentException;
  */
 final class SitePlanRun
 {
-<<<<<<< HEAD
     private readonly string $sourceOrigin;
     private readonly UnitFindings $unitFindings;
     private readonly ShellExtraction $shellExtraction;
@@ -50,18 +49,6 @@ final class SitePlanRun
     private readonly array $initialRuntimeDeclarations;
     private readonly array $initialRuntimeRecords;
     private readonly array $initialTaxonomyProjection;
-=======
-    private string $sourceOrigin = '';
-    private UnitFindings $unitFindings;
-    private ShellExtraction $shellExtraction;
-    private ListingQueryLoops $listings;
-    private PostChrome $postChrome;
-    private RouteLinks $links;
-    private DocumentHeads $heads;
-    private ?DesignSystem $designSystem = null;
-    private ?PresetBinding $presetBinding = null;
-    private MissingMediaRecovery $missingMedia;
->>>>>>> origin/trunk
 
     /**
      * Post-chrome matching normalizes every nested range of every post, and
@@ -73,7 +60,6 @@ final class SitePlanRun
      */
     private array $chromeIdentityKeys = array();
 
-<<<<<<< HEAD
     /**
      * Admits the compiled site and builds the context every later stage reads:
      * the route map and links, the design system, the reference canonicalizer
@@ -82,30 +68,14 @@ final class SitePlanRun
      * @param array<string,mixed> $data
      */
     public function __construct(private readonly array $data, private readonly WordPressSitePlanInput $input, private readonly bool $strictMissingMedia, private readonly ?StepTimer $timer)
-=======
-    public function __construct(private readonly bool $strictMissingMedia, private readonly ?StepTimer $timer)
-    {
-    }
-
-    /**
-     * @param array<string,mixed> $data
-     * @return array<string,mixed>
-     */
-    public function plan(array $data, WordPressSitePlanInput $input): array
->>>>>>> origin/trunk
     {
         $sourceUrl = RouteLinks::sourceUrl($data['provenance'] ?? array());
         $this->sourceOrigin = RouteLinks::origin($sourceUrl);
         $this->listings = new ListingQueryLoops($this->sourceOrigin, $this->chromeIdentityKey(...));
         $this->unitFindings = new UnitFindings();
         $this->postChrome = new PostChrome($this->listings, $this->chromeIdentityKey(...), $this->unitFindings->record(...));
-<<<<<<< HEAD
         $this->editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($this->editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($this->editabilityPolicy['schema'] ?? null) || 'required' !== ($this->editabilityPolicy['enforcement'] ?? null) || !in_array($this->editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
-=======
-        $editabilityPolicy = $input->editabilityPolicy;
-        if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
->>>>>>> origin/trunk
             throw new InvalidArgumentException('WordPress site plan requires a versioned editability policy.');
         }
         $compiled = $input->compiledSite;
@@ -120,11 +90,7 @@ final class SitePlanRun
             throw new DocumentIdentityException($identityFailures);
         }
 
-<<<<<<< HEAD
         $this->runtimeEmoji = (bool) array_filter($compiled['pages'], static fn(array $page): bool => 'wordpress' === ($page['document_metadata']['root_attributes'][CaptureEvidence::RUNTIME_EMOJI] ?? null));
-=======
-        $runtimeEmoji = (bool) array_filter($compiled['pages'], static fn(array $page): bool => 'wordpress' === ($page['document_metadata']['root_attributes'][CaptureEvidence::RUNTIME_EMOJI] ?? null));
->>>>>>> origin/trunk
         $runtimeDeclarations = $compiled['runtime_declarations'] ?? array();
         $runtimeRecords = RuntimeDeclarations::normalizeRecords($compiled['runtime_records'] ?? array());
         $runtimeDeclarations = RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords);
@@ -150,7 +116,6 @@ final class SitePlanRun
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
-<<<<<<< HEAD
         $this->surfaces = TemplateSurfaces::select($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
         $this->routeTable = new RouteTable();
@@ -158,24 +123,11 @@ final class SitePlanRun
         // Both native archive kinds use the same listing, template and resource pipeline.
         $taxonomyProjection = TaxonomyProjection::project($documents, $this->routeMap, $this->sourceOrigin);
         $authorProjection = AuthorProjection::project($documents, $this->routeMap, $this->sourceOrigin);
-=======
-        $surfaces = TemplateSurfaces::select($documents);
-        $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
-        $routeTable = new RouteTable();
-        $routeMap = $routeTable->canonical($documents, $input->routes);
-        // Both native archive kinds use the same listing, template and resource pipeline.
-        $taxonomyProjection = TaxonomyProjection::project($documents, $routeMap, $this->sourceOrigin);
-        $authorProjection = AuthorProjection::project($documents, $routeMap, $this->sourceOrigin);
->>>>>>> origin/trunk
         foreach (array('entities', 'diagnostics') as $key) $taxonomyProjection[$key] = array_merge($taxonomyProjection[$key], $authorProjection[$key]);
         $taxonomyProjection['pagination_source_paths_by_archive'] += $authorProjection['pagination_source_paths_by_archive'];
         $routeSources = array();
         $routeTargets = array();
-<<<<<<< HEAD
         foreach ($this->routeMap as $route) {
-=======
-        foreach ($routeMap as $route) {
->>>>>>> origin/trunk
             $sourcePath = (string) ($route['source_path'] ?? '');
             $targetPath = (string) ($route['target_path'] ?? '');
             if ('' !== $sourcePath && '' !== $targetPath) $routeSources[$sourcePath] = $targetPath;
@@ -183,23 +135,15 @@ final class SitePlanRun
         }
         // Native date archives are document roots, not materialized pages, but
         // their captured file paths still participate in link resolution.
-<<<<<<< HEAD
         $this->entryRoot = PageRoute::entryRoot($compiled['pages']);
         foreach ($compiled['pages'] as $document) {
             if (!ContentDecisions::isDateArchive($document)) continue;
             $path = $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $this->entryRoot);
-=======
-        $entryRoot = PageRoute::entryRoot($compiled['pages']);
-        foreach ($compiled['pages'] as $document) {
-            if (!ContentDecisions::isDateArchive($document)) continue;
-            $path = $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $entryRoot);
->>>>>>> origin/trunk
             $target = '/' . trim($path, '/') . '/';
             $routeSources[$document['source_path']] = $target;
             $routeTargets['/' . trim($path, '/')] = $target;
         }
         $this->timer?->start('compose.site_plan.pages');
-<<<<<<< HEAD
         $this->links = new RouteLinks($sourceUrl, $this->sourceOrigin, $routeSources, $routeTargets, $this->presetBinding, $documents, $this->routeMap);
         $this->shellExtraction = new ShellExtraction($this->links);
         $this->heads = new DocumentHeads($this->links, $this->unitFindings->record(...));
@@ -232,21 +176,6 @@ final class SitePlanRun
         // Entity ownership is already proven independently and must survive a
         // declined presentation, including ownership of numbered captures.
         $routeBySource = array_column($this->routeMap, 'target_path', 'source_path');
-=======
-        $this->links = new RouteLinks($sourceUrl, $this->sourceOrigin, $routeSources, $routeTargets, $this->presetBinding, $documents, $routeMap);
-        $this->shellExtraction = new ShellExtraction($this->links);
-        $this->heads = new DocumentHeads($this->links, $this->unitFindings->record(...));
-        $entityBindings = new EntityBindings($this->links, $this->unitFindings->record(...));
-        $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
-        $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
-        $missingImports = new MissingStylesheetImportRecovery($this->strictMissingMedia);
-        $references = new AssetReferenceCanonicalizer($tokens, PageRoute::entryRoot($documents), $this->missingMedia, $missingFonts, $missingImports);
-        $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
-        // Probe presentation with the final plan's canonical listing projection.
-        // Entity ownership is already proven independently and must survive a
-        // declined presentation, including ownership of numbered captures.
-        $routeBySource = array_column($routeMap, 'target_path', 'source_path');
->>>>>>> origin/trunk
         foreach ($pages as &$page) {
             $path = $routeBySource[$page['source_path']] ?? null;
             if (is_string($path)) $page['route'] = array('path' => $path, 'parent_path' => PageRoute::parent($path), 'slug' => PageRoute::slug($path));
@@ -268,26 +197,16 @@ final class SitePlanRun
         }
         // Taxonomy membership must see numbered captures before they are
         // suppressed. They are views of a listing, never standalone content.
-<<<<<<< HEAD
         $pagination = PaginationCaptures::select($pages, $routeBySource, $this->surfaces, $paginationOwnerBySource);
-=======
-        $pagination = PaginationCaptures::select($pages, $routeBySource, $surfaces, $paginationOwnerBySource);
->>>>>>> origin/trunk
         $paginationSources = $pagination['sources'];
         $paginationDiagnostics = $pagination['diagnostics'];
         $paginationOwners = $pagination['owners'];
         $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($paginationSources[$page['source_path']])));
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($paginationSources[$document['source_path']])));
         $assets = array_values(array_filter($assets, static fn(array $asset): bool => 'page' !== ($asset['compilation']['scope'] ?? null) || !isset($paginationSources[$asset['compilation']['id'] ?? ''])));
-<<<<<<< HEAD
         $runtimeEntityRecords = $this->compiled['runtime_entity_records'] ?? array();
         $eventDiagnostics = array();
         $runtimeDeclarations = EventDeclarations::add($documents, $this->routeMap, $runtimeDeclarations, $runtimeEntityRecords, $eventDiagnostics);
-=======
-        $runtimeEntityRecords = $compiled['runtime_entity_records'] ?? array();
-        $eventDiagnostics = array();
-        $runtimeDeclarations = EventDeclarations::add($documents, $routeMap, $runtimeDeclarations, $runtimeEntityRecords, $eventDiagnostics);
->>>>>>> origin/trunk
         $assets = PageStylesheets::instances($assets, $pages);
         NativeListItemFallbackReconciler::reconcileBlockDocuments(
             $data['fallbacks'],
@@ -314,7 +233,6 @@ final class SitePlanRun
         // extraction. Asset and route projection can make source anchors equal,
         // so assign occurrences only after that shared projection is complete.
         $this->timer?->start('compose.site_plan.entity_bindings');
-<<<<<<< HEAD
         $bindingTemplates = ThemeTemplates::build($this->links, array(), array(), $this->surfaces, $tokens, $this->references, $this->routeMap);
         $surfaceMarkup = array_column($this->surfaces, 'block_markup', 'source_path');
         foreach ($bindingTemplates as &$template) if (isset($surfaceMarkup[$template['source_path'] ?? ''])) $template['_projected_source_block_markup'] = $surfaceMarkup[$template['source_path']];
@@ -329,22 +247,6 @@ final class SitePlanRun
         $pages = $this->routeTable->hierarchy($pages, $this->routeMap);
         $pages = TemplateSlugs::qualifyColliding($pages);
         $surfaceSources = array_fill_keys(array_column($this->surfaces, 'source_path'), true);
-=======
-        $bindingTemplates = ThemeTemplates::build($this->links, array(), array(), $surfaces, $tokens, $references, $routeMap);
-        $surfaceMarkup = array_column($surfaces, 'block_markup', 'source_path');
-        foreach ($bindingTemplates as &$template) if (isset($surfaceMarkup[$template['source_path'] ?? ''])) $template['_projected_source_block_markup'] = $surfaceMarkup[$template['source_path']];
-        unset($template);
-        $runtimeDeclarations = $entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, $bindingTemplates, $paginationOwners);
-        // A form provider rebuilds a form from its fallback's readable blocks.
-        foreach ($data['fallbacks'] as &$fallback) {
-            $source = is_array($fallback) ? ($fallback['source_path'] ?? $fallback['source'] ?? null) : null;
-            if (is_string($source) && is_array($fallback['readable_blocks'] ?? null)) $fallback = EntityMarkup::map($fallback, fn(string $markup): string => $this->links->markup($references->content($markup, $source), $source, $routeMap));
-        }
-        unset($fallback);
-        $pages = $routeTable->hierarchy($pages, $routeMap);
-        $pages = TemplateSlugs::qualifyColliding($pages);
-        $surfaceSources = array_fill_keys(array_column($surfaces, 'source_path'), true);
->>>>>>> origin/trunk
         foreach ($assets as &$asset) {
             if ('page' === ($asset['compilation']['scope'] ?? null) && isset($surfaceSources[$asset['compilation']['id'] ?? ''])) $asset['compilation'] = array('scope' => 'shared');
         }
@@ -355,15 +257,9 @@ final class SitePlanRun
         $nativeArchiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
         $assetPages = array_values(array_filter($pages, static fn(array $page): bool => !isset($nativeArchiveSources[$page['source_path']])));
         $pageSources = array_fill_keys(array_column($assetPages, 'source_path'), true);
-<<<<<<< HEAD
         foreach ($this->compiled['pages'] as $document) {
             if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
             $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $this->entryRoot);
-=======
-        foreach ($compiled['pages'] as $document) {
-            if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
-            $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $entryRoot);
->>>>>>> origin/trunk
             $metadata = $document['document_metadata'] ?? array();
             $rootDocuments[] = array('source_path' => $document['source_path'], 'reconciliation_identity' => WordPressSitePlan::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
         }
@@ -388,34 +284,20 @@ final class SitePlanRun
             foreach ($document['shell_artifacts'] ?? array() as $key => $artifact) {
                 if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup']);
             }
-<<<<<<< HEAD
             $page['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $this->references, $this->routeMap, $bound);
-=======
-            $page['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $references, $routeMap, $bound);
->>>>>>> origin/trunk
         }
         unset($page);
         $routes = RouteTable::forPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
         // canonical plan rebuilds them from full page shell candidates.
-<<<<<<< HEAD
         $compiledParts = is_array($this->compiled['template_parts'] ?? null) ? array_values(array_filter($this->compiled['template_parts'], static fn(mixed $part): bool => !is_array($part) || 'entry_shell' !== ($part['placement']['kind'] ?? null))) : null;
         $this->timer?->start('compose.site_plan.shell_extraction');
         $existingParts = $this->documents($compiledParts, true, $tokens, $this->references, $this->routeMap);
-=======
-        $compiledParts = is_array($compiled['template_parts'] ?? null) ? array_values(array_filter($compiled['template_parts'], static fn(mixed $part): bool => !is_array($part) || 'entry_shell' !== ($part['placement']['kind'] ?? null))) : null;
-        $this->timer?->start('compose.site_plan.shell_extraction');
-        $existingParts = $this->documents($compiledParts, true, $tokens, $references, $routeMap);
->>>>>>> origin/trunk
         $explicitBindings = $this->shellExtraction->bindExplicitParts($pages, $existingParts, $runtimeDeclarations, $runtimeEntityRecords);
         $pages = $explicitBindings['pages'];
         $existingParts = $explicitBindings['parts'];
         $reservedPartSlugs = array_fill_keys(array_column($existingParts, 'slug'), true);
-<<<<<<< HEAD
         $canonicalInlineParts = $this->documents(ArrayField::array($this->compiled, 'inline_shell_artifacts'), true, $tokens, $this->references, $this->routeMap);
-=======
-        $canonicalInlineParts = $this->documents(ArrayField::array($compiled, 'inline_shell_artifacts'), true, $tokens, $references, $routeMap);
->>>>>>> origin/trunk
         $pages = $this->shellExtraction->withSourceSharedShellIdentity($pages, $canonicalInlineParts, $runtimeDeclarations, $runtimeEntityRecords);
         $inlineShells = $this->shellExtraction->inlineSharedShells($pages, $reservedPartSlugs, $runtimeDeclarations, $canonicalInlineParts, $runtimeEntityRecords, $assets);
         $reservedPartSlugs += array_fill_keys(array_column($inlineShells['parts'], 'slug'), true);
@@ -458,11 +340,7 @@ final class SitePlanRun
         $emitted = static fn (array $rows): array => array_map(static fn (mixed $row): mixed => is_array($row) ? array_filter($row, static fn (int|string $key): bool => !is_string($key) || !str_starts_with($key, '_'), ARRAY_FILTER_USE_KEY) : $row, $rows);
         $this->timer?->start('compose.site_plan.stylesheets');
         $liveElementMarkers = preg_match_all(DeadElementMarkers::PATTERN, (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
-<<<<<<< HEAD
         $assets = SharedChromeStylesheets::project($assets, array_merge($parts, $frameParts), $pages, $this->references, $assetTargetCollisions, $liveElementMarkers);
-=======
-        $assets = SharedChromeStylesheets::project($assets, array_merge($parts, $frameParts), $pages, $references, $assetTargetCollisions, $liveElementMarkers);
->>>>>>> origin/trunk
         $assets = DeadElementMarkers::withoutDeadSelectors($assets, $liveElementMarkers);
         // Removing dead selectors can consume a generated sheet's last rule.
         $assets = array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['source'] ?? '', array('engine-support', 'editor-static-state', 'wordpress-compat'), true) || !is_string($asset['content'] ?? null) || '' !== trim($asset['content'])));
@@ -487,25 +365,15 @@ final class SitePlanRun
         if (array() !== $fallbackSources) foreach ($assets as &$asset) if ('css' === ($asset['kind'] ?? null) && array() !== array_filter($asset['scopes'] ?? array(), static fn(array $scope): bool => 'page' === ($scope['kind'] ?? null) && isset($fallbackSources[$scope['source_path'] ?? '']))) $asset['frame_fallback'] = true; unset($asset);
         $assets = SharedChromeStylesheets::projectDetachedPaintOrder($assets, $parts, $pages);
         $assets = PageStylesheets::place($assets, $pages, array_merge($pages, $parts, $frameParts));
-<<<<<<< HEAD
         $assets = EditorStaticStateAssets::share($assets, $this->references);
-=======
-        $assets = EditorStaticStateAssets::share($assets, $references);
->>>>>>> origin/trunk
         $assets = StylesheetScopes::foldSupport($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments), StylesheetScopes::canonicalDocuments(StylesheetScopes::documentsBySource($assetPages, $rootDocuments)), implode("\n", array_column(array_merge($parts, $frameParts), 'canonical_block_markup')));
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
         $this->timer?->start('compose.site_plan.templates');
-<<<<<<< HEAD
         $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $this->routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $bindingTemplates), $assets);
          $navigation = NavigationEntityProjection::project($pages, $parts, $this->input->menus, $runtimeDeclarations, $runtimeEntityRecords);
-=======
-        $runtimeDeclarations = $entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
-         BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $bindingTemplates), $assets);
-         $navigation = NavigationEntityProjection::project($pages, $parts, $input->menus, $runtimeDeclarations, $runtimeEntityRecords);
->>>>>>> origin/trunk
          $pages = $navigation['pages'];
          $parts = $navigation['parts'];
          $menus = $navigation['menus'];
@@ -523,11 +391,7 @@ final class SitePlanRun
          // Query Loop projection can shorten page markup after shell extraction,
          // and synced patterns take shared panel content (and its bindings) out
          // of the page. Rebase retained runtime anchors on the final documents.
-<<<<<<< HEAD
          $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $this->routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
-=======
-         $runtimeDeclarations = $entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $references, $routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
->>>>>>> origin/trunk
          $pages = WholePageCandidates::attach($pages, $runtimeDeclarations, $runtimeEntityRecords);
          foreach ($pages as &$page) unset($page['_projected_source_block_markup'], $page['_synced_pattern_source']); unset($page);
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
@@ -572,11 +436,7 @@ final class SitePlanRun
             $entity['membership_source_paths'] = array_values(array_filter($entity['membership_source_paths'], static fn(string $source): bool => isset($postSources[$source])));
             if (array() !== $entity['membership_source_paths']) $taxonomyProjection['entities'][] = $entity;
         }
-<<<<<<< HEAD
         $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $this->routeMap, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome'], $blockThemeChrome['templates']);
-=======
-        $templates = ThemeTemplates::build($this->links, $pages, $parts, $surfaces, $tokens, $references, $routeMap, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome'], $blockThemeChrome['templates']);
->>>>>>> origin/trunk
         foreach ($templates as &$template) {
             $chrome = $blockThemeChrome['templates'][$template['slug']] ?? null;
             if (!is_string($chrome)) continue;
@@ -632,21 +492,13 @@ final class SitePlanRun
         }
         unset($asset);
         $themeAssetWrites = new ThemeAssetWrites();
-<<<<<<< HEAD
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
-=======
-        $assetWrites = $themeAssetWrites->writes($assets, $references);
->>>>>>> origin/trunk
         foreach ($assets as &$asset) unset($asset['reference_origin']); unset($asset);
         $placeholderAssets = CompiledAssets::rows($this->missingMedia->assets(), $this->unitFindings->record(...));
         if (array() !== $placeholderAssets) {
             $assets = array_merge($assets, $placeholderAssets);
             $tokens = array_merge($tokens, $this->tokens($placeholderAssets));
-<<<<<<< HEAD
             $assetWrites = array_merge($assetWrites, $themeAssetWrites->writes($placeholderAssets, $this->references));
-=======
-            $assetWrites = array_merge($assetWrites, $themeAssetWrites->writes($placeholderAssets, $references));
->>>>>>> origin/trunk
         }
         // Asset bytes are final now. Integrity copied from the source must
         // describe them before script loading and the head bootstrap emit it.
@@ -654,15 +506,9 @@ final class SitePlanRun
         $pages = $integrity->documents($pages);
         $parts = $integrity->documents($parts);
         $scriptLoading = DocumentScripts::loading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
-<<<<<<< HEAD
         $writes = array_merge(ThemeScaffold::writes($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $this->runtimeEmoji, $rootDocuments), $assetWrites);
         $unitFindings = array_merge($this->unitFindings->diagnostics(), NavigationInstanceDiagnostics::collect($assets, $emittedMarkup . "\n" . implode("\n", self::markups($menus))));
         $recoveryDiagnostics = array_merge($this->routeTable->diagnostics(), $this->links->diagnostics(), $themeAssetWrites->diagnostics(), $this->heads->diagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $this->missingFonts->diagnostics(), $this->missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
-=======
-        $writes = array_merge(ThemeScaffold::writes($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $runtimeEmoji, $rootDocuments), $assetWrites);
-        $unitFindings = array_merge($this->unitFindings->diagnostics(), NavigationInstanceDiagnostics::collect($assets, $emittedMarkup . "\n" . implode("\n", self::markups($menus))));
-        $recoveryDiagnostics = array_merge($routeTable->diagnostics(), $this->links->diagnostics(), $themeAssetWrites->diagnostics(), $this->heads->diagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
->>>>>>> origin/trunk
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
         // Declarations still over a byte limit are dropped here with their
@@ -708,11 +554,7 @@ final class SitePlanRun
         unset($page);
         $plan = array(
             'schema' => WordPressSitePlan::SCHEMA,
-<<<<<<< HEAD
             'source' => array('schema' => $this->compiled['schema'] ?? null, 'source_hash' => $this->compiled['source_hash'] ?? null, 'entry_path' => $this->compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => TemplateSurfaces::sourceCatalog($this->compiled['pages'] ?? array())),
-=======
-            'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => TemplateSurfaces::sourceCatalog($compiled['pages'] ?? array())),
->>>>>>> origin/trunk
             'pages' => $pages,
             'templates' => $templates,
             'template_parts' => $parts,
@@ -725,29 +567,17 @@ final class SitePlanRun
             'taxonomy_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'taxonomy_term' === $entity['kind'])),
             'comment_entities' => $commentEntities,
             'author_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'author' === $entity['kind'])),
-<<<<<<< HEAD
             'navigation_links' => $this->input->navigationLinks,
             'menus' => $menus,
             'theme' => array_merge($this->runtimeEmoji ? array('runtime_emoji' => 'wordpress') : array(), array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), $rootDocuments ? array('document_roots' => $rootDocuments) : array(), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $this->input->fontMaterialization ? array() : array('font_materialization' => $this->input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array(), (int) ($this->compiled['source_css_bytes'] ?? 0))))),
             'visual_repair' => $this->compiled['visual_repair'] ?? array(),
-=======
-            'navigation_links' => $input->navigationLinks,
-            'menus' => $menus,
-            'theme' => array_merge($runtimeEmoji ? array('runtime_emoji' => 'wordpress') : array(), array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), $rootDocuments ? array('document_roots' => $rootDocuments) : array(), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array(), (int) ($compiled['source_css_bytes'] ?? 0))))),
-            'visual_repair' => $compiled['visual_repair'] ?? array(),
->>>>>>> origin/trunk
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
             'runtime_entity_records' => $runtimeEntityRecords,
             'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics),
             // A dropped or rewritten unit is a warning on the plan, the same as withFindings().
-<<<<<<< HEAD
             'quality' => array('status' => UnitFindings::status($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true, 'step_timings' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $this->input->coreHtmlFallbackEvidence, 'editability_policy' => $this->editabilityPolicy),
             'reporting' => PlanReporting::summary($pages, $data, $this->input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), array_merge($this->surfaces, array_values(array_column(array_filter($templates, static fn(array $template): bool => isset($archiveSources[$template['source_path'] ?? ''])), null, 'source_path')))),
-=======
-            'quality' => array('status' => UnitFindings::status($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true, 'step_timings' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $input->coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy),
-            'reporting' => PlanReporting::summary($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), array_merge($surfaces, array_values(array_column(array_filter($templates, static fn(array $template): bool => isset($archiveSources[$template['source_path'] ?? ''])), null, 'source_path')))),
->>>>>>> origin/trunk
         );
         $plan['reference_semantics']['navigation_entities'] = NavigationEntityProjection::REFERENCE_CONTRACT;
         if (array() !== $syncedPatterns) {
@@ -769,11 +599,7 @@ final class SitePlanRun
         // An image nothing references is not materialized; its row and token
         // remain so the plan still reports what the source carried.
         if (array() !== $unwritten) $plan['writes'] = array_values(array_filter($plan['writes'], static fn(array $write): bool => !isset($unwritten[$write['target_path']])));
-<<<<<<< HEAD
         $plan = ContentConservation::check($plan, $this->compiled['pages']);
-=======
-        $plan = ContentConservation::check($plan, $compiled['pages']);
->>>>>>> origin/trunk
         $plan['plan_identity'] = WordPressSitePlan::planIdentity($plan);
         WordPressSitePlan::assertValid($plan);
         return $plan;
