@@ -5571,10 +5571,21 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( MenuVocabulary::containsUnconditionalMenuToken($attributes) ) {
             return true;
         }
-        if ( MenuVocabulary::containsLinksToken($attributes) && ! $this->isContactLinkCluster($element) ) {
+        // A `links` class names a group of links. One link is not a menu:
+        // it stays the list or link the source wrote.
+        if ( MenuVocabulary::containsLinksToken($attributes) && ! $this->isContactLinkCluster($element) && $this->hasSeveralLinks($element) ) {
             return true;
         }
 
+        return false;
+    }
+
+    private function hasSeveralLinks(DOMElement $element): bool
+    {
+        $links = 0;
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor->hasAttribute('href') && ++$links > 1 ) return true;
+        }
         return false;
     }
 
