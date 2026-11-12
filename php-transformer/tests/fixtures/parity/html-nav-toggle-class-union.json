@@ -24,7 +24,7 @@
             }
         },
         {
-            "path": "blocks.0.innerBlocks.1",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0",
             "name": "core/navigation",
             "attrs": {
                 "className": "hidden md:flex items-center gap-0.5 blocks-engine-native-responsive-navigation blocks-engine-list-navigation blocks-engine-anchor-items-navigation blocks-engine-native-navigation-toggle-874528f3fd21",
@@ -37,7 +37,7 @@
             }
         },
         {
-            "path": "blocks.0.innerBlocks.1.innerBlocks.0",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0.innerBlocks.0",
             "name": "core/navigation-link",
             "attrs": {
                 "label": "Home",
@@ -46,7 +46,7 @@
             }
         },
         {
-            "path": "blocks.0.innerBlocks.1.innerBlocks.1",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0.innerBlocks.1",
             "name": "core/navigation-link",
             "attrs": {
                 "label": "Browse",
@@ -63,42 +63,42 @@
             "value": "success"
         },
         {
-            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0.attrs.className",
             "assert": "contains",
             "value": "hidden md:flex items-center gap-0.5"
         },
         {
-            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0.attrs.className",
             "assert": "not_contains",
             "value": "md:hidden"
         },
         {
-            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0.attrs.className",
             "assert": "not_contains",
             "value": "w-9"
         },
         {
-            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0.attrs.className",
             "assert": "not_contains",
             "value": "h-9"
         },
         {
-            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0.attrs.className",
             "assert": "not_contains",
             "value": "justify-center"
         },
         {
-            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0.attrs.className",
             "assert": "not_contains",
             "value": "hover:bg-muted"
         },
         {
-            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0.attrs.className",
             "assert": "not_contains",
             "value": "transition-colors"
         },
         {
-            "path": "blocks.0.innerBlocks.1.attrs.overlayMenu",
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0.attrs.overlayMenu",
             "assert": "equals",
             "value": "mobile"
         },

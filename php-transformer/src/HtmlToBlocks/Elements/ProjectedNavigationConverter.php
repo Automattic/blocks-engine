@@ -37,6 +37,35 @@ final class ProjectedNavigationConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
+        $slotNavigation = $this->inFlowNavigationForControl($element);
+        if ($slotNavigation instanceof DOMElement) {
+            $block = $this->tree->patterns($slotNavigation, $fallbacks, array(NavigationPattern::class));
+            if (null !== $block) {
+                $id = $this->inFlowSlotId($slotNavigation);
+                $this->session->generatedSupportStylesheetState()->registerNativeNavigationToggle(
+                    $id,
+                    '[data-blocks-engine-navigation-inline-slot="' . $id . '"]{display:contents!important}'
+                        . '[data-blocks-engine-navigation-inline-slot="' . $id . '"]:empty{display:none!important}'
+                );
+                $block['attrs'] = $this->withSourceOpener($block['attrs'], $slotNavigation);
+                $block['attrs']['metadata'][NavigationOpenerPresentation::METADATA_KEY]['slot'] = $id;
+                $block['attrs']['metadata'][NavigationOpenerPresentation::METADATA_KEY]['breakpoint'] = $this->navigationToggleSuppressor->sourceCollapseBreakpoint($slotNavigation, $element);
+                return ConversionOutcome::handled(array(
+                    'blockName' => 'core/group',
+                    'attrs' => array('className' => SourceDom::mergeClassNames('blocks-engine-navigation-toggle-slot', SourceDom::attr($element, 'class')), 'layout' => array('type' => 'default')),
+                    'innerBlocks' => array($block),
+                    'innerHTML' => '<div class="wp-block-group blocks-engine-navigation-toggle-slot ' . htmlspecialchars(SourceDom::attr($element, 'class'), ENT_QUOTES) . '"></div>',
+                    'innerContent' => array('<div class="wp-block-group blocks-engine-navigation-toggle-slot ' . htmlspecialchars(SourceDom::attr($element, 'class'), ENT_QUOTES) . '">', null, '</div>'),
+                ));
+            }
+        }
+        if ('nav' === $tagName) {
+            $toggle = $this->navigationToggleSuppressor->navigationToggleControl($element);
+            if ($toggle instanceof DOMElement && $this->inFlowNavigationForControl($toggle)?->isSameNode($element)) {
+                $html = '<div data-blocks-engine-navigation-inline-slot="' . $this->inFlowSlotId($element) . '"></div>';
+                return ConversionOutcome::handled(array('blockName' => 'core/html', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => $html, 'innerContent' => array($html)));
+            }
+        }
         $runtimeButton = ('button' === $tagName || AuthoredButtonBlockGenerator::isRoleButton($element))
             && $this->runtimeDomTargets->isRuntimeDomTarget($element)
             && $this->retainsRuntimeButtonBinding($element);
@@ -488,6 +517,12 @@ final class ProjectedNavigationConverter implements ElementConverter
             $extraRules .= $presentation->css($open, $source['button'], $toggle);
             $extraRules .= $presentation->css($open . '>svg', $source['icon'], $presentation->icon($toggle) ?? $toggle);
         }
+        if ($this->inFlowNavigationForControl($toggle) instanceof DOMElement) {
+            // The source button's box, not the artwork's intrinsic width, owns
+            // this flex item. Replay it after the intrinsic-icon reset above.
+            $extraRules .= $presentation->css($host . '>.wp-block-navigation__responsive-container-open',
+                $this->styleResolver->authoredControlPresentation($toggle, array('width', 'height', 'min-width', 'min-height', 'display', 'align-items', 'justify-content', 'place-items', 'border', 'border-radius', 'padding', 'background', 'background-color')), $toggle);
+        }
         if (null !== $source && null === $presentation->icon($toggle) && $this->hasNavigationHeader($navigation)) {
             $paint = $this->responsiveNavigationOverlayAttributes($navigation)['customOverlayBackgroundColor'] ?? '';
             if ('' !== $paint) {
@@ -547,6 +582,31 @@ final class ProjectedNavigationConverter implements ElementConverter
         return $marker;
     }
 
+    /** An external in-flow opener and a responsive inline menu share one host. */
+    private function inFlowNavigationForControl(DOMElement $control): ?DOMElement
+    {
+        if ('button' !== strtolower($control->tagName)
+            || !$this->navigationToggleSuppressor->isRedundantMenuToggleControl($control)
+            || $this->navigationToggleSuppressor->projectedNavigationTargetForControl($control) instanceof DOMElement) return null;
+        $placement = $this->styleResolver->collapsedViewportDeclarations($control, array('position', 'display'));
+        if (in_array(CssValueInspector::withoutImportant($placement['position'] ?? ''), array('absolute', 'fixed'), true)
+            || 'none' === CssValueInspector::withoutImportant($placement['display'] ?? '')) return null;
+        for ($scope = $control->parentNode; $scope instanceof DOMElement && 'body' !== strtolower($scope->tagName); $scope = $scope->parentNode) {
+            foreach ($scope->getElementsByTagName('nav') as $navigation) {
+                if (SourceDom::elementContains($navigation, $control)) continue;
+                $toggle = $this->navigationToggleSuppressor->navigationToggleControl($navigation);
+                if ($toggle instanceof DOMElement && $toggle->isSameNode($control)
+                    && null !== $this->navigationToggleSuppressor->sourceCollapseBreakpoint($navigation, $control)) return $navigation;
+            }
+        }
+        return null;
+    }
+
+    private function inFlowSlotId(DOMElement $navigation): string
+    {
+        return 'navigation-slot-' . substr(hash('sha256', $navigation->getNodePath()), 0, 12);
+    }
+
     /** @param array<string,mixed> $attrs @return array<string,mixed> */
     public function withSourceOpener(array $attrs, DOMElement $navigation): array
     {
@@ -556,6 +616,9 @@ final class ProjectedNavigationConverter implements ElementConverter
         if (null !== $source) $attrs['metadata'][NavigationOpenerPresentation::METADATA_KEY] = array('svg' => $source['artwork']);
         // A text-only opener is Core's text opener ("Menu"/"Close"), not its icon.
         elseif (NavigationOpenerPresentation::isTextOnly($toggle)) $attrs['hasIcon'] = false;
+        if ($this->inFlowNavigationForControl($toggle) instanceof DOMElement) {
+            $attrs['metadata'][NavigationOpenerPresentation::METADATA_KEY]['classes'] = SourceDom::attr($toggle, 'class');
+        }
         return $attrs;
     }
 
