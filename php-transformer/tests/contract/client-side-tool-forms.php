@@ -26,6 +26,8 @@ $cases['anonymous field wrapper'] = array('<form><div><label>Name<input name="fi
 foreach (array('radio', 'checkbox') as $type) {
     $cases[$type . ' group feedback'] = array('<form><fieldset><input type="' . $type . '" name="option"><input type="' . $type . '" name="option"><div role="status"></div></fieldset><input name="first"><button>Send</button></form>', 1, 'unknown');
 }
+// A live form region announces its own submission, not a tool result.
+$cases['live form region'] = array('<form aria-live="polite"><input name="first"><input name="second"><button type="submit">Send</button></form>', 1, 'unknown');
 $cases['multiple fields result'] = array('<form><div><input name="first"><input name="second"><output></output></div><button>Calculate</button></form>', 1, 'client_side_tool');
 $cases['distinct checkbox groups result'] = array('<form><div><input type="checkbox" name="first"><input type="checkbox" name="second"><output></output></div><button>Calculate</button></form>', 1, 'client_side_tool');
 $cases['single wrapped date input'] = array('<form><label>Date<input type="date" name="date"></label><button>Calculate</button><output></output></form>', 1, 'client_side_tool');
