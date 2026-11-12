@@ -104,7 +104,8 @@ $assert('runtime_dom_target' === ($recorded[0]['reason'] ?? ''), 'styled-runtime
 
 $recorded = array();
 $search = $converter->convert($elementFrom('<input type="search" aria-label="Find">', 'input'));
-$assert('core/html' === ($search['blockName'] ?? ''), 'search-input-is-preserved');
+$assert('core/paragraph' === ($search['blockName'] ?? ''), 'search-input-becomes-readable-paragraph');
+$assert('Find' === ($search['attrs']['content'] ?? ''), 'search-input-retains-readable-label');
 $assert(array() === $recorded, 'search-input-does-not-record-runtime-target');
 
 $runtimeInput = $converter->convert($elementFrom('<input data-runtime name="email">', 'input'));

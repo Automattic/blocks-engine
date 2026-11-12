@@ -3618,6 +3618,9 @@ final class AuthorStylesheetProjector
                 $parsed = CssSelectorMatcher::parse($match[0]);
                 $class = (string) ($parsed['compounds'][0]['classes'][0] ?? '');
                 $marker = $context->authorStyles->sourceClassMarker($class);
+                if ( $context->authorStyles->isHostRenderedClass($class) && $this->hasReliableHostClassIdentity($class, $context) ) {
+                    $marker = EngineMarker::subjectClassClass($class);
+                }
                 $end = $offset + strlen($match[0]);
                 foreach ( $ownedSpans as $start => $replacement ) {
                     if ( $offset < $replacement['end'] && $end > $start ) {
@@ -3634,6 +3637,29 @@ final class AuthorStylesheetProjector
             $offset = CssSyntaxScanner::consume($selector, $offset, $state) ?? ($offset + 1);
         }
         return $this->replaceSelectorSpans($selector, $replacements);
+    }
+
+    /**
+     * Rewriting is safe only when every source occurrence has a confirmed
+     * wrapper projection and the emitted markup contains enough carriers.
+     * A requested marker alone is not proof: lowering can discard a wrapper.
+     */
+    private function hasReliableHostClassIdentity(string $class, AuthorStylesheetProjectionContext $context): bool
+    {
+        $elements = $context->authorStyles->sourceElementsByClass($class);
+        // With no source occurrences the selector must match nothing, even
+        // when the host manufactures this class at runtime.
+        if ( array() === $elements ) {
+            return true;
+        }
+        $identity = EngineMarker::subjectClassClass($class);
+        foreach ( $elements as $element ) {
+            if ( ! $context->selectorProjections->hasHostClassCarrier($element->getNodePath() ?? '') ) {
+                return false;
+            }
+        }
+        preg_match_all('/<[^>]+\\sclass="[^"]*\\b' . preg_quote($identity, '/') . '\\b[^"]*"/', $context->emittedMarkup, $carriers);
+        return count($carriers[0]) >= count($elements);
     }
 
     /** @param array<string, mixed> $parsed */

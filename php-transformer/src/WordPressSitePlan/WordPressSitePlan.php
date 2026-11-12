@@ -5124,9 +5124,27 @@ PHP;
         return null === $absolute ? '#' : htmlspecialchars($absolute, ENT_QUOTES | ENT_HTML5, 'UTF-8', false) . (preg_match('/[?#].*$/s', $value, $rawSuffix) ? $rawSuffix[0] : '');
     }
     /**
-     * Resolves a document-relative path against the source URL of the page that
-     * declared it. The recorded source URL locates the entrypoint; every other
-     * document keeps its path relative to the entrypoint directory.
+     * Compare current-document URLs as route state, without changing emission.
+     *
+     * @param array<string,mixed> $page
+     * @param array<int,array<string,mixed>> $routes
+     */
+    public function withoutShellSelfReferences(string $markup, array $page, array $routes): string
+    {
+        $source = (string) ($page['source_path'] ?? '');
+        $name = basename($source);
+        $url = $this->sourceDocumentReference(str_starts_with(strtolower($name), 'index.') ? '' : $name, $source, $routes);
+        if (null === $url || '' === $url) return $markup;
+        if (str_starts_with(strtolower($name), 'index.') && !str_ends_with($url, '/')) $url .= '/';
+        // Exact values only: neither other routes nor URLs merely beginning
+        // with the current route are self references. Work on the comparison
+        // copy; there is no shared-part current-document URL runtime contract.
+        $urls = array_unique(array($url, rtrim($url, '/')));
+        return \Automattic\BlocksEngine\PhpTransformer\Support\RouteSelfReference::markup($markup, array_values($urls));
+    }
+
+    /**
+     * Resolve against the recorded entrypoint URL and the document directory.
      *
      * @param array<int,array<string,mixed>> $routes
      */

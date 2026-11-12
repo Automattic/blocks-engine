@@ -663,7 +663,7 @@ $displayFamilies = array_column($displayTheme['settings']['typography']['fontFam
 $assert(str_contains((string) ($displayFamilies['heading'] ?? ''), 'Fraunces') && str_starts_with((string) ($displayFamilies['body'] ?? ''), '-apple-system'), 'system-stack-display-headings: heading is the webfont headings render, body the system stack (' . json_encode($displayFamilies) . ')');
 $displayMarkup = implode('', array_column($displayPlan['pages'], 'canonical_block_markup'));
 $assert(!preg_match('/<!-- wp:heading \{"className":"text-xl","level":3[^}]*"fontFamily"/', $displayMarkup), 'system-stack-display-headings: system-stack headings do not bind to the display family');
-$assert(!isset($displayTheme['styles']['elements']['heading']['typography']['fontFamily']), 'system-stack-display-headings: the heading element style is not set while some headings render another family');
+$assert('inherit' === ($displayTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'system-stack-display-headings: heading typography inherits while some headings render another family');
 $unanimous = $displayFixture;
 $unanimous['files']['contact.html'] = str_replace('<h3 class="text-xl">', '<h3 class="font-display text-xl">', $unanimous['files']['contact.html']);
 [, $unanimousTheme] = $compile($unanimous);

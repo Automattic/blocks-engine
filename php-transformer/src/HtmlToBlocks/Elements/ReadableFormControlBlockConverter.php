@@ -85,18 +85,6 @@ final class ReadableFormControlBlockConverter
             return $this->createBlock->htmlPreservationBlock($element);
         }
 
-        if ( 'input' === $tagName && 'search' === FormControlClassifier::controlType($element) ) {
-            $label = $this->metadataBuilder->label($element);
-            if ( '' === $label ) {
-                $label = SourceDom::attr($element, 'aria-label');
-            }
-            if ( '' === $label ) {
-                $label = 'Search';
-            }
-
-            return $this->createBlock->htmlPreservationBlock($element);
-        }
-
         // Prose summaries cannot carry an associated label's inline markup.
         // Keep the native labelled control when it owns links or formatting.
         if (null !== $label) {

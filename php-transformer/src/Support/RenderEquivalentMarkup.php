@@ -41,21 +41,25 @@ final class RenderEquivalentMarkup
         return self::isZeroLength($value) ? '0px' : $value;
     }
 
-    public static function canonical(string $html): string
+    /** When comparing resting chrome, ignore sampled entrance evidence and stagger delays. */
+    public static function canonical(string $html, bool $ignoreMotion = false): string
     {
-        return preg_replace_callback('/<([a-zA-Z][a-zA-Z0-9-]*)(\s[^<>]*?)?(\/?)>/', static function (array $match): string {
+        return preg_replace_callback('/<([a-zA-Z][a-zA-Z0-9-]*)(\s[^<>]*?)?(\/?)>/', static function (array $match) use ($ignoreMotion): string {
             $attributes = trim($match[2] ?? '');
             if ('' === $attributes) return $match[0];
             if (!preg_match_all('/([^\s=\/>]+)(?:\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+)))?/', $attributes, $pairs, PREG_SET_ORDER)) return $match[0];
             $parsed = array();
             foreach ($pairs as $pair) {
                 $name = strtolower($pair[1]);
-                if (in_array($name, self::DIAGNOSTIC_ATTRIBUTES, true)) continue;
+                if (in_array($name, self::DIAGNOSTIC_ATTRIBUTES, true) || ($ignoreMotion && CaptureEvidence::VIEWPORT_ENTRANCE === $name)) continue;
                 $value = $pair[2] ?? '';
                 if ('' === $value && isset($pair[3]) && '' !== $pair[3]) $value = $pair[3];
                 if ('' === $value && isset($pair[4]) && '' !== $pair[4]) $value = $pair[4];
                 $hasValue = isset($pair[2]) || isset($pair[3]) || isset($pair[4]);
-                if ('style' === $name) $value = self::canonicalStyle($value);
+                if ('style' === $name) {
+                    $value = self::canonicalStyle($value, $ignoreMotion);
+                    if ($ignoreMotion && '' === $value) continue;
+                }
                 if ('class' === $name) {
                     $classes = preg_split('/\s+/', trim($value)) ?: array();
                     sort($classes, SORT_STRING);
@@ -68,8 +72,8 @@ final class RenderEquivalentMarkup
         }, $html) ?? $html;
     }
 
-    /** Inline declarations as `property:value;…`, trimmed, with zero box lengths spelled `0px`. */
-    public static function canonicalStyle(string $style): string
+    /** Inline declarations as `property:value;…`, optionally ignoring resting-chrome stagger delays. */
+    public static function canonicalStyle(string $style, bool $ignoreMotion = false): string
     {
         /** @var array<string,string> $declarations */
         $declarations = array();
@@ -78,6 +82,7 @@ final class RenderEquivalentMarkup
             if (false === $colon) continue;
             $property = strtolower(trim(substr($declaration, 0, $colon)));
             $value = trim(substr($declaration, $colon + 1));
+            if ($ignoreMotion && in_array($property, array('transition-delay', 'animation-delay'), true)) continue;
             if ('' === $property || '' === $value || CssPropertyName::startsLikeNumber($property)) continue;
             if (preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property)) {
                 $value = implode(' ', array_map(static fn (string $token): string => self::canonicalZeroLength($token), self::splitTokens($value)));

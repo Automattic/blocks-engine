@@ -691,6 +691,13 @@ final class ThemeJsonProjection
             if (array() === ($styles['elements'][$level]['color'] ?? array())) unset($styles['elements'][$level]['color']);
             if (array() === ($styles['elements'][$level] ?? array())) unset($styles['elements'][$level]);
         }
+        // Absence of a unanimous element look means inheritance, not absence
+        // of an editable element in Global Styles. Keep that default explicit
+        // without promoting a section's colour or a heading level's typeface
+        // to the whole site. Authored and derived element families still win.
+        foreach (array('link', 'heading') as $element) {
+            $styles['elements'][$element]['typography']['fontFamily'] ??= 'inherit';
+        }
         $settings = $theme['settings'];
         if (!isset($settings['layout']['contentSize']) && isset($system->layout['content'])) {
             $settings['layout']['contentSize'] = $system->layout['content']['value'];
