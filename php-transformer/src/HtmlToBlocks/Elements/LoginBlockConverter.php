@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use DOMElement;
+use DOMText;
 
 /** Replaces plain credential forms with destination-owned WordPress authentication. */
 final class LoginBlockConverter
@@ -33,7 +34,7 @@ final class LoginBlockConverter
         $checkboxes = 0;
         $terms = false;
         $submits = 0;
-        $secondaryButtons = array();
+
         // Count raw controls, including hidden-by-CSS and new-password fields.
         foreach ( $form->getElementsByTagName('*') as $control ) {
             if ( ! $control instanceof DOMElement || ! FormControlClassifier::isControlElement($control) ) {
@@ -83,7 +84,6 @@ final class LoginBlockConverter
                 continue;
             }
             if ( 'button' === $tag && 'button' === $type ) {
-                $secondaryButtons[] = $control;
                 continue;
             }
             return null;
@@ -101,17 +101,58 @@ final class LoginBlockConverter
         if ( $registration ) {
             $blocks[] = $this->buttons($registrationText, '/wp-login.php?action=register');
         }
-        // Handler-free secondary controls (for example, guest access) stay
-        // editable buttons after the form. Interleaved prose such as "Or" is
-        // not carried over.
-        foreach ( $secondaryButtons as $control ) {
-            $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
+        // Collect prose after the submit, flushing it before the matching
+        // secondary control. Credential labels remain owned by loginout.
+        $afterSubmit = false;
+        $prose = '';
+        foreach ( $this->signInContent($form) as $node ) {
+            if ( $node instanceof DOMText ) {
+                if ( $afterSubmit ) {
+                    $prose .= $node->textContent;
+                }
+                continue;
+            }
+            if ( 'submit' === FormControlClassifier::controlType($node) ) {
+                $afterSubmit = true;
+                continue;
+            }
+            $text = trim(preg_replace('/\s+/', ' ', $node->textContent ?? '') ?? '');
             if ( '' === $text ) {
                 return null;
             }
+            $prose = trim(preg_replace('/\s+/', ' ', $prose) ?? '');
+            if ( '' !== $prose ) {
+                $blocks[] = $this->createBlock->createBlock('core/paragraph', array( 'content' => htmlspecialchars($prose, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ));
+            }
+            $prose = '';
             $blocks[] = $this->buttons($text);
         }
         return 1 === count($blocks) ? $blocks[0] : $this->createBlock->createBlock('core/group', array(), $blocks, $form);
+    }
+
+    /** @return \Generator<int, DOMElement|DOMText> */
+    private function signInContent(DOMElement $element): \Generator
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMText ) {
+                yield $child;
+                continue;
+            }
+            if ( ! $child instanceof DOMElement
+                || in_array(strtolower($child->tagName), array( 'label', 'legend', 'script', 'style', 'template' ), true)
+                || $child->hasAttribute('hidden')
+                || SourceDom::isAriaHidden($child)
+                || preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse))\s*(?:!important\s*)?(?:;|$)/i', SourceDom::attr($child, 'style')) ) {
+                continue;
+            }
+            if ( FormControlClassifier::isControlElement($child) ) {
+                if ( in_array(FormControlClassifier::controlType($child), array( 'submit', 'button' ), true) ) {
+                    yield $child;
+                }
+                continue;
+            }
+            yield from $this->signInContent($child);
+        }
     }
 
     /** @return array<string, mixed> */
