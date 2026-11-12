@@ -1545,6 +1545,16 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/PageRoute.php": {
+      "InvalidArgumentException('WordPress site plan has an unsafe explicit page route.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan page routes reject encoded path separators and dot segments.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/SyncedPatternProjection.php": {
       "InvalidArgumentException('WordPress site plan contains an undeclared synced pattern reference.')": {
         "class": "integrity",
@@ -1958,10 +1968,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan has an unsafe explicit page route.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan has an unsupported schema.')": {
         "class": "integrity",
         "count": 1
@@ -2015,10 +2021,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan page route is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan page routes reject encoded path separators and dot segments.')": {
         "class": "integrity",
         "count": 1
       },
