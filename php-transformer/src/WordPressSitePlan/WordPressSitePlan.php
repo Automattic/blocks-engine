@@ -96,7 +96,7 @@ final class WordPressSitePlan
      */
     public function fromCompilerInput(array $data, WordPressSitePlanInput $input): array
     {
-        return (new SitePlanRun($this->strictMissingMedia, $this->timer))->plan($data, $input);
+        return (new SitePlanRun($data, $input, $this->strictMissingMedia, $this->timer))->plan();
     }
 
     /**
