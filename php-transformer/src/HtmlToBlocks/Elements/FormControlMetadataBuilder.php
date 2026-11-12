@@ -187,6 +187,7 @@ final class FormControlMetadataBuilder
             }
             ++$totalControls;
             $labelElement = $this->labelElement($node);
+            array_push($claimedLabels, ...SourceDom::associatedLabels($node));
             if ( $labelElement instanceof DOMElement ) {
                 $claimedLabels[] = $labelElement;
             }
@@ -925,11 +926,18 @@ final class FormControlMetadataBuilder
         $candidates = array();
         $listbox = $this->ownedListboxPanel($control);
         $honeypotCopy = FormControlClassifier::honeypotCopyElements($wrapper);
+        $labels = SourceDom::associatedLabels($control);
+        // Preserve the single wrapping label's leading-name/trailing-helper
+        // convention, but never read another associated label as helper copy.
+        $excludedLabels = array_filter($labels, static fn (DOMElement $label): bool => 1 < count($labels) || ! $labelElement instanceof DOMElement || ! $label->isSameNode($labelElement));
         foreach ( $wrapper->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
                 continue;
             }
             if ( $this->isControlOwnedCopy($node, $this->collapsedElementText($node), $honeypotCopy, array()) ) {
+                continue;
+            }
+            if ( $this->isControlOwnedCopy($node, $this->collapsedElementText($node), $excludedLabels, array()) ) {
                 continue;
             }
             if ( $listbox instanceof DOMElement && $this->isOwnedListboxCopy($node, $listbox) ) {
