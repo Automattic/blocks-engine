@@ -467,7 +467,7 @@ final class WordPressSitePlan
         $pages = $blockThemeChrome['pages'];
         $singleContent = array() !== $blockThemeChrome['templates'] ? reset($blockThemeChrome['templates']) : null;
           $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
-          $pages = self::resolveFeaturedImageTargets($pages, $tokens);
+          $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
           $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
          // Content every panel of one tabs block repeats is declared once.
          $syncedPatterns = SyncedPatternProjection::project($pages, $assets);
@@ -552,7 +552,7 @@ final class WordPressSitePlan
         $parts = $articleChrome['parts'];
         // Template-group lifting settles post bodies and can add featured images.
         $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
-        $pages = self::resolveFeaturedImageTargets($pages, $tokens);
+        $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
         $registeredTemplates = array();
         foreach ($pages as $page) if (isset($page['route_template']) && !isset($registeredTemplates[$page['route_template']])) {
             $registeredTemplates[$page['route_template']] = true;
@@ -1006,28 +1006,6 @@ final class WordPressSitePlan
     private function chromeIdentityKey(string $markup): string
     {
         return $this->chromeIdentityKeys[hash('xxh128', $markup)] ??= ('' === ($identity = ChromeIdentity::markup($markup)) ? '' : hash('xxh128', $identity));
-    }
-
-    /**
-     * Name each featured-image handoff by its declared theme write, so the
-     * consumer attaches the same file the plan materializes.
-     *
-     * @param array<int,array<string,mixed>> $pages
-     * @param array<int,array{token:string,source_path:string,target_path:string}> $tokens
-     * @return array<int,array<string,mixed>>
-     */
-    private static function resolveFeaturedImageTargets(array $pages, array $tokens): array
-    {
-        $targets = array_column($tokens, 'target_path', 'token');
-        foreach ($pages as &$page) {
-            $image = $page['metadata']['featured_image'] ?? null;
-            if (!is_array($image)) continue;
-            $target = $targets[$image['asset_token'] ?? ''] ?? null;
-            if (is_string($target)) $page['metadata']['featured_image']['target_path'] = $target;
-            else unset($page['metadata']['featured_image']);
-        }
-        unset($page);
-        return $pages;
     }
 
     // A dynamic reference is a URL the script builds or assigns: an import, an
