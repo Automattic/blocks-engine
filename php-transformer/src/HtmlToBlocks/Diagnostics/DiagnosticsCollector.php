@@ -95,7 +95,7 @@ final class DiagnosticsCollector
                     // The same finding as its fallback row: a consumer
                     // reconciling the diagnostic needs the producer identity.
                     'fallback_identity'               => $fallback['fallback_identity'] ?? null,
-                ) + array_intersect_key($fallback, array_flip(array('materialization_path', 'required_scripts', 'acceptability')));
+                ) + array_intersect_key($fallback, array_flip(array('type', 'materialization_path', 'required_scripts', 'acceptability')));
             }
         }
 

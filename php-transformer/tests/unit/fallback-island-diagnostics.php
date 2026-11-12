@@ -13,6 +13,8 @@ $assert = static function (bool $condition, string $message): void {
     }
 };
 $contract = array(
+    // Importers admit a preserved island by its fallback type.
+    'type' => 'unsupported_html_fallback',
     'materialization_path' => 'preserved_runtime_island',
     'required_scripts' => array('runtime.js'),
     'acceptability' => 'acceptable_preservation',
@@ -32,7 +34,7 @@ foreach (array($contract, array('required_scripts' => array()), array()) as $fie
         }
     }
 }
-foreach (array('materialization_path' => array(), 'required_scripts' => 'runtime.js', 'acceptability' => false) as $key => $invalid) {
+foreach (array('type' => 1, 'materialization_path' => array(), 'required_scripts' => 'runtime.js', 'acceptability' => false) as $key => $invalid) {
     try {
         ConversionFindingContract::assertFinding(array('code' => 'generic_fallback', $key => $invalid));
     } catch (InvalidArgumentException) {
