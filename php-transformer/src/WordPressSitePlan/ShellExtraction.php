@@ -3733,8 +3733,11 @@ final class ShellExtraction
                 foreach ($items($candidate['markup'], $design($candidate) . "\0" . $candidate['area'], $route) as $row) {
                     if (!$row['valid'] || $row['current']) continue;
                     $rest = $atRest($row['attrs']);
-                    if ($row['holds']) $held[$row['key']][BlockAttributes::encode($rest)] = $rest;
-                    else $resting[$row['key']][BlockAttributes::encode($rest)] = $rest;
+                    // One look is one presentation: per-document generated markers
+                    // (an item's anchor or label semantic class) do not split it.
+                    $look = BlockAttributes::encode($asIdentity($rest));
+                    if ($row['holds']) $held[$row['key']][$look] = $rest;
+                    else $resting[$row['key']][$look] = $rest;
                 }
             }
         }
@@ -3997,11 +4000,60 @@ final class ShellExtraction
         return false;
     }
 
+    /**
+     * A captured panel's snapshot (`data-blocks-engine-capture-existing-panel`)
+     * is capture evidence of the panel's resting presentation, recorded per
+     * route. Its HTML carries that route's current-page state and route-numbered
+     * ids (a drawer's active link, `nav-414-navId-mobile`), so routes sharing one
+     * drawer record different snapshots. The compiler already projected the
+     * panel from it, so the plan carries it as evidence nothing renders. Chrome
+     * identity compares the snapshot's structure instead: element names, link
+     * targets and text.
+     */
+    private static function capturedPanelStructureIdentity(string $markup): string
+    {
+        if (!str_contains($markup, CaptureEvidence::EXISTING_PANEL)) return $markup;
+        $name = preg_quote(CaptureEvidence::EXISTING_PANEL, '/');
+        // Serialized block attributes escape quotes as \u0022, so the value has none.
+        $markup = preg_replace_callback('/"' . $name . '":"([^"]*)"/', static function (array $match): string {
+            $snapshot = json_decode('"' . $match[1] . '"');
+            return is_string($snapshot) ? '"' . CaptureEvidence::EXISTING_PANEL . '":"' . self::capturedPanelSnapshotStructure($snapshot) . '"' : $match[0];
+        }, $markup) ?? $markup;
+
+        return preg_replace_callback('/\s' . $name . '="([^"]*)"/', static fn (array $match): string => ' ' . CaptureEvidence::EXISTING_PANEL . '="' . self::capturedPanelSnapshotStructure(html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5)) . '"', $markup) ?? $markup;
+    }
+
+    private static function capturedPanelSnapshotStructure(string $snapshot): string
+    {
+        $decoded = json_decode($snapshot, true);
+        if (!is_array($decoded)) return hash('sha256', $snapshot);
+        array_walk_recursive($decoded, static function (&$value, $key): void {
+            if ('html' !== $key || !is_string($value)) return;
+            $signature = array();
+            $walk = static function (\DOMNode $node) use (&$walk, &$signature): void {
+                foreach ($node->childNodes as $child) {
+                    if ($child instanceof \DOMElement) {
+                        $signature[] = '<' . strtolower($child->tagName) . ($child->hasAttribute('href') ? ' ' . $child->getAttribute('href') : '') . '>';
+                        $walk($child);
+                        $signature[] = '</>';
+                    } elseif (XML_TEXT_NODE === $child->nodeType && '' !== trim((string) $child->textContent)) {
+                        $signature[] = trim((string) $child->textContent);
+                    }
+                }
+            };
+            $walk(HtmlSerialization::parseFragment('<div>' . $value . '</div>'));
+            $value = 'structure:' . hash('sha256', implode("\0", $signature));
+        });
+
+        return hash('sha256', (string) json_encode($decoded));
+    }
+
     private static function normalizeNestedChromeMarkup(string $markup): string
     {
         // Emission-only landmark transport must not prevent producer/capture matching.
         $markup = str_replace(array(',"className":"blocks-engine-shell-landmark"', ' blocks-engine-shell-landmark'), '', $markup);
         $markup = self::withoutCurrentNavigationState($markup, true);
+        $markup = self::capturedPanelStructureIdentity($markup);
         $markup = self::normalizeRenderIds($markup);
         $markup = self::withoutScrollStateCarrierIdentity($markup);
         $markup = preg_replace('/\s*' . EngineMarker::patternBody() . '/', '', $markup) ?? $markup;

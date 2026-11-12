@@ -520,9 +520,20 @@ PHP;
         $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
         // Font binding waited for the scoped defaults; do not pin a block to
         // a preset when the written Global Styles already owns its family.
+        // Shell candidates hold the page's bytes and block offsets, so a page
+        // whose markup binding changes has them read again from the bound page.
+        $documentsBySource = array_column($documents, null, 'source_path');
         foreach ($pages as &$page) {
-            $page['canonical_block_markup'] = $this->presetBinding?->bind($page['canonical_block_markup']) ?? $page['canonical_block_markup'];
-            $page['content_hash'] = self::contentHash($page['canonical_block_markup']);
+            $bound = $this->presetBinding?->bind($page['canonical_block_markup']);
+            if (null === $bound || $bound === $page['canonical_block_markup']) continue;
+            $page['canonical_block_markup'] = $bound;
+            $page['content_hash'] = self::contentHash($bound);
+            $document = $documentsBySource[$page['source_path']] ?? null;
+            if (!is_array($document) || !isset($page['shell_candidates'])) continue;
+            foreach ($document['shell_artifacts'] ?? array() as $key => $artifact) {
+                if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup']);
+            }
+            $page['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $references, $routeMap, $bound);
         }
         unset($page);
         $routes = $this->routesForPages($pages);
