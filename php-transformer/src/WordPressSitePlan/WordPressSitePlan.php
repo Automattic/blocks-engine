@@ -919,21 +919,7 @@ final class WordPressSitePlan
         foreach ( $plan['assets'] as $asset ) {
             $expectedConsumers = $asset['consumers'] ?? array();
             if (($asset['consumers'] ?? null) !== $expectedConsumers || ($asset['destination'] ?? null) !== AssetConsumers::destination($expectedConsumers, $asset, $unreferenced, $fontEmbeddingSvgs) || ($asset['theme_write_reasons'] ?? null) !== AssetConsumers::themeWriteReasons($expectedConsumers, $asset['destination'])) throw new InvalidArgumentException('Asset consumers or destination are stale.');
-            $target = $asset['target_path'];
-            if ('none' === $asset['destination']) {
-                if (isset($writesByTarget[$target])) throw new InvalidArgumentException('WordPress site plan writes an unreferenced asset.');
-                continue;
-            }
-            if ('media_library' === $asset['destination'] && !isset($writesByTarget[$target])) continue;
-            if ( ! isset($writesByTarget[$target]) || 'theme_asset' !== ($writesByTarget[$target]['kind'] ?? null) || $writesByTarget[$target]['source_path'] !== $asset['source_path'] ) {
-                throw new InvalidArgumentException('WordPress site plan asset lacks a write.');
-            }
-            $write = $writesByTarget[$target];
-            $assetReference = CompiledAssets::payloadReference($asset['payload_reference'] ?? null);
-            $writeReference = CompiledAssets::payloadReference($write['payload']['reference'] ?? null);
-            if ((null !== $assetReference) !== ('reference' === ($write['payload']['encoding'] ?? null)) || (null !== $assetReference && (null === $writeReference || RuntimeDeclarations::canonicalJson($assetReference) !== RuntimeDeclarations::canonicalJson($writeReference) || ($write['raw_sha256'] ?? null) !== $asset['raw_sha256']))) {
-                throw new InvalidArgumentException('WordPress site plan reference asset and write do not match.');
-            }
+            ThemeAssetWrites::assertWritten($asset, $writesByTarget);
         }
         AssetPublications::assertDeclarations($plan['runtime_declarations'], $plan['assets'], $writesByTarget);
         if ( ! is_string($plan['theme']['stylesheet'] ?? null) || ! is_string($plan['theme']['theme_json'] ?? null) || (null !== ($plan['theme']['bootstrap'] ?? null) && ! is_string($plan['theme']['bootstrap'])) ) {

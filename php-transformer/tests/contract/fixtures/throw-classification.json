@@ -2098,6 +2098,18 @@
         "unit": "asset",
         "finding": "wordpress_site_plan_missing_local_media",
         "pending": true
+      },
+      "InvalidArgumentException('WordPress site plan writes an unreferenced asset.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan asset lacks a write.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan reference asset and write do not match.')": {
+        "class": "integrity",
+        "count": 1
       }
     },
     "src/WordPressSitePlan/ThemeScaffold.php": {
@@ -2199,14 +2211,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan asset lacks a write.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan writes an unreferenced asset.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan contains an undeclared reference token.')": {
         "class": "integrity",
         "count": 1
@@ -2272,10 +2276,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan quality is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan reference asset and write do not match.')": {
         "class": "integrity",
         "count": 1
       },
