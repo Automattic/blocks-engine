@@ -105,12 +105,12 @@ $assert(
     $centeredButtons
 );
 $assert(
-    ! preg_match('/' . preg_quote($centeredMarker, '/') . '\.' . preg_quote($centeredMarker, '/') . '\.wp-block-buttons\{width:max-content/', $centeredCss),
-    'the centered buttons wrapper is not pinned to max-content',
+    ! preg_match('/' . preg_quote($centeredMarker, '/') . '\.' . preg_quote($centeredMarker, '/') . '\.wp-block-buttons\{width:fit-content/', $centeredCss),
+    'the centered buttons wrapper is not pinned to fit-content',
     $centeredCss
 );
 $assert(
-    1 === preg_match('/' . preg_quote($centeredMarker, '/') . '\.' . preg_quote($centeredMarker, '/') . '\.wp-block-button\{width:max-content;max-width:100%\}/', $centeredCss),
+    1 === preg_match('/' . preg_quote($centeredMarker, '/') . '\.' . preg_quote($centeredMarker, '/') . '\.wp-block-button\{width:fit-content;max-width:100%\}/', $centeredCss),
     'the button itself still shrink-wraps its label inside the filled wrapper',
     $centeredCss
 );
@@ -164,7 +164,7 @@ $leftDefaultMarker = $controlMarkerOf($leftDefaultButtons);
 $leftDefaultCss = $cssFor($leftDefaultOut);
 $assert(
     '' !== $leftDefaultMarker
-    && 1 === preg_match('/' . preg_quote($leftDefaultMarker, '/') . '\.' . preg_quote($leftDefaultMarker, '/') . '\.wp-block-buttons\{width:max-content;max-width:100%\}/', $leftDefaultCss),
+    && 1 === preg_match('/' . preg_quote($leftDefaultMarker, '/') . '\.' . preg_quote($leftDefaultMarker, '/') . '\.wp-block-buttons\{width:fit-content;max-width:100%\}/', $leftDefaultCss),
     'a non-centered inline control keeps its intrinsic shrink-to-fit wrapper',
     $leftDefaultCss
 );

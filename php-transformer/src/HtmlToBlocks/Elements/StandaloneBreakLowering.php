@@ -54,10 +54,17 @@ final class StandaloneBreakLowering
             $boundDisplay = strtolower($this->styleResolver->resolvedPresentationDeclarations($bound)['display'] ?? '');
             if ( '' === $boundDisplay ) {
                 if ( ! in_array(strtolower($bound->tagName), array( 'address', 'article', 'aside', 'blockquote', 'div', 'dl', 'fieldset', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hr', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'table', 'ul' ), true) ) return null;
-            } elseif ( ! in_array($boundDisplay, array( 'block', 'flow-root', 'flex', 'grid', 'table', 'list-item' ), true) ) return null;
+            } elseif ( ! in_array($boundDisplay, array( 'block', 'flow-root', 'flex', 'grid', 'table', 'list-item', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) return null;
         }
         if ( $first !== $break ) return array();
         ++$count;
+        // An atomic inline sibling already occupies the line the first break
+        // terminates. Only subsequent breaks create empty line boxes.
+        if ( $bounds[0] instanceof DOMElement ) {
+            $previousDisplay = strtolower($this->styleResolver->resolvedPresentationDeclarations($bounds[0])['display'] ?? '');
+            if ( in_array($previousDisplay, array( 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) --$count;
+        }
+        if ( 0 === $count ) return array();
 
         $leading = $this->inheritedTypography($parent, 'line-height');
         $font = $this->inheritedTypography($parent, 'font-size');
