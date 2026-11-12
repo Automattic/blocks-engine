@@ -1781,7 +1781,8 @@ PHP;
 
     /**
      * Partition generated rules by their exact consumers and delivery side.
-     * Opaque statements and URL-bearing sheets retain their original resource.
+     * Opaque statements and sheets with location-dependent URLs retain their
+     * original resource. Self-contained data URLs can move with their rules.
      *
      * @param array<int,array<string,mixed>> $assets
      * @param list<string> $canonicalSources
@@ -1793,7 +1794,10 @@ PHP;
         foreach ($assets as $index => $asset) {
             if ('engine-support' !== ($asset['source'] ?? '') || 'css' !== ($asset['kind'] ?? '') || in_array('global', array_column($asset['scopes'], 'kind'), true)) continue;
             $content = (string) ($asset['content'] ?? '');
-            if (false !== stripos($content, 'url(')) continue;
+            // Data URLs do not depend on the resource's location. Keep the
+            // conservative URL guard for every other reference.
+            $withoutDataUrls = preg_replace('/url\(\s*(?:"data:[^"]*"|\'data:[^\']*\'|data:[^\s)"\']*)\s*\)/i', '', $content) ?? $content;
+            if (false !== stripos($withoutDataUrls, 'url(')) continue;
             $tree = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($content);
             if (!$tree->wellFormed) continue;
             $parts = array();
