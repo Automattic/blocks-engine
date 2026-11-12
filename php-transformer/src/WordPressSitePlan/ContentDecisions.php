@@ -191,9 +191,10 @@ final class ContentDecisions
                 $pageEvidenceByIndex[$index] = array_values(array_map(static fn(string $type): array => array('source' => 'json-ld:' . $type), $pageTypes));
             }
         }
-        // Unmarked builder dates become evidence only when the same source
-        // slot varies across sibling routes. Count routes, not captures, so
-        // a lone date or identical template chrome cannot establish a slot.
+        // Unmarked builder dates and single-article datetime slots become
+        // evidence only when the same source slot varies across sibling routes.
+        // Count routes, not captures, so a lone date or identical template
+        // chrome cannot establish a slot.
         $dateSlotsByParent = array();
         foreach ($dateSlotsByIndex as $index => $slots) {
             if (!empty($documents[$index]['entrypoint']) || isset($pageEvidenceByIndex[$index])) continue;
@@ -442,8 +443,8 @@ final class ContentDecisions
         $html = ArrayField::string($document, 'html');
         if ('' === trim($html) && is_string($document['block_markup'] ?? null)) $html = $document['block_markup'];
         $evidence = array(); $add = static function (array &$rows, string $source, ?string $value = null): void { if (count($rows) >= 16) return; $row = array('source' => $source); if (null !== $value) $row['publication_timestamp'] = $value; $rows[] = $row; };
-        // Keep offset candidates separate from evidence: a plain <time> must
-        // neither select the publication instant nor affect post inference.
+        // Keep offset candidates separate from evidence: a plain <time> alone
+        // must neither select the publication instant nor affect post inference.
         $timestamp = static function (string $value) use (&$localTimes): ?string {
             $date = PublicationDate::normalize($value, $localTime);
             if (null !== $date && null !== $localTime) $localTimes[$date] ??= $localTime;
@@ -479,6 +480,18 @@ final class ContentDecisions
     {
         $rows = array();
         foreach (self::publicationHtmlFragments($html) as $fragment) {
+            // A lone article gives its lone time a stable source slot. As with
+            // builder IDs below, only variation across siblings proves it is
+            // publication evidence; compare UTC instants, not display text or
+            // offset spellings. Multiple articles/times are ambiguous.
+            $xpath = new \DOMXPath(HtmlSerialization::parseDocument($fragment));
+            $articles = $xpath->query('//article');
+            if (1 === $articles->length) {
+                $times = $xpath->query('.//time', $articles->item(0));
+                if (1 === $times->length && null !== ($parsed = $timestamp($times->item(0)->getAttribute('datetime')))) {
+                    $dateSlots['article:time:datetime'] = array('text' => $parsed, 'publication_timestamp' => $parsed);
+                }
+            }
             foreach (HtmlMarkupParser::htmlMarkupNodes($fragment) as $node) {
                 if ('tag' !== ($node['kind'] ?? null) || !is_int($node['inner_offset'] ?? null)) {
                     continue;

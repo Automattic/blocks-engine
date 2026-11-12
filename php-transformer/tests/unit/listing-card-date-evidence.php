@@ -71,4 +71,48 @@ foreach (array(
     }
 }
 
+// A single article's datetime is the same sibling-slot primitive (#5794).
+$articleFiles = $load(dirname(__DIR__) . '/fixtures/sibling-article-times-site');
+foreach (array(
+    'reduced page' => array('visible', true),
+    'ISO visible text' => array('iso', true),
+    'repeated instant' => array('repeated', false),
+    'equivalent offsets' => array('offsets', false),
+    'single route' => array('single', false),
+    'outside article' => array('outside', false),
+    'multiple articles' => array('articles', false),
+    'multiple times' => array('times', false),
+    'invalid datetime' => array('invalid', false),
+) as $name => [$variant, $inferred]) {
+    $source = $articleFiles;
+    foreach (array('first-story', 'second-story', 'third-story') as $index => $slug) {
+        $path = "news/{$slug}/index.html";
+        $instant = '2026-11-11T15:30:' . (11 + $index) . '+00:00';
+        if ('single' === $variant && $index > 0) { unset($source[$path]); continue; }
+        $html = $source[$path];
+        if ('iso' === $variant) $html = str_replace('November 11, 2026', $instant, $html);
+        if ('repeated' === $variant) $html = str_replace($instant, '2026-11-11T15:30:11+00:00', $html);
+        if ('offsets' === $variant) $html = str_replace($instant, 0 === $index ? '2026-11-11T15:30:11Z' : '2026-11-11T16:30:11+01:00', $html);
+        if ('outside' === $variant) $html = str_replace(array('<article>', '</article>'), array('<section>', '</section>'), $html);
+        if ('articles' === $variant) $html = str_replace('</main>', '<article>Another article.</article></main>', $html);
+        if ('times' === $variant) $html = str_replace('</article>', '<time datetime="2026-01-01">Updated</time></article>', $html);
+        if ('invalid' === $variant) $html = str_replace($instant, 'not-a-date', $html);
+        $source[$path] = $html;
+    }
+    $pages = $plan($source);
+    foreach ($source as $path => $html) {
+        $page = $pages[$path];
+        $isPost = $inferred && 'index.html' !== $path;
+        $assert(($isPost ? 'post' : 'page') === $page['post_type'], "{$name}: {$path} type", $page['content_decision']);
+        if (!$isPost) {
+            $assert(!isset($page['publication_timestamp']), "{$name}: {$path} has no publication instant", $page);
+            continue;
+        }
+        preg_match('/datetime="([^"]+)"/', $html, $match);
+        $expected = str_replace('+00:00', 'Z', $match[1]);
+        $assert($expected === ($page['publication_timestamp'] ?? null), "{$name}: {$path} full instant", $page);
+        $assert(array('html:visible-date', 'listing:parent') === array_column($page['content_decision']['evidence'], 'source'), "{$name}: {$path} sibling evidence", $page['content_decision']);
+    }
+}
+
 fwrite(STDOUT, "listing card date evidence tests: passed\n");
