@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 function remove_action(...$args): void {}
 function add_action(...$args): void {}
@@ -23,7 +24,7 @@ foreach ($plan['writes'] as $write) if ('functions.php' === $write['target_path'
 
 // Evaluate the emitted data and registrations, without a WordPress installation.
 eval(substr($bootstrap, 5));
-$enqueues = (new ReflectionMethod(WordPressSitePlan::class, 'stylesheetEnqueues'))->invoke(null, $plan['assets'], $plan['pages']);
+$enqueues = (new ReflectionMethod(ThemeBootstrap::class, 'stylesheetEnqueues'))->invoke(null, $plan['assets'], $plan['pages']);
 $legacy = $legacyAttributes = array();
 foreach ($enqueues as $enqueue) {
     $asset = $enqueue['asset'];

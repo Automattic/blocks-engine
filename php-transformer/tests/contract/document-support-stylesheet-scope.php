@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -31,7 +32,7 @@ foreach (array('home-copy' => array('index.html'), 'about-copy' => array('en/abo
     $markup = array_column($plan['pages'], 'canonical_block_markup', 'source_path');
     foreach (array_keys($files) as $other) {
         if (!str_ends_with($other, '.html')) continue;
-        $targets = array_column(WordPressSitePlan::documentStylesheets($plan, $other), 'target_path');
+        $targets = array_column(ThemeBootstrap::documentStylesheets($plan, $other), 'target_path');
         // Support folded past its consumers matches nothing on other routes.
         $assert(in_array($other, $owners, true) ? in_array($asset['target_path'], $targets, true) : !in_array($asset['target_path'], $targets, true) || !str_contains($markup[$other], $class), 'Support CSS loads on its consumers and is inert elsewhere.');
     }

@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 // A deterministic many-route fixture without unrelated HTML/CSS projection.
 $pages = $assets = array();
@@ -13,7 +13,7 @@ for ($i = 0; $i < 28; ++$i) {
     foreach ($pages as $page) $instances[] = array('source_path' => $page['source_path'], 'order' => $i, 'media' => 0 === $i % 2 ? '' : 'print');
     $assets[] = array('kind' => 'css', 'source_path' => "style-$i.css", 'target_path' => "assets/style-$i.css", 'content_hash' => hash('sha256', "style-$i"), 'scopes' => array(array('kind' => 'global')), 'stylesheet_instances' => $instances);
 }
-$bootstrap = (new ReflectionMethod(WordPressSitePlan::class, 'bootstrap'))->invoke(null, $assets, array(), array(), array(), array(), $pages);
+$bootstrap = (new ReflectionMethod(ThemeBootstrap::class, 'functionsPhp'))->invoke(null, $assets, array(), array(), array(), array(), $pages);
 echo '100 routes × 28 styles: functions.php ' . strlen($bootstrap) . " bytes\n";
 if (getenv('BOOTSTRAP_SIZE_ONLY')) return;
 
@@ -30,7 +30,7 @@ function get_post_type(int $id): string { return 'page'; }
 function get_page_uri(int $id): string { return "page-$id"; }
 function get_theme_file_uri(string $path): string { return $path; }
 function wp_enqueue_style(string $handle, string $uri, array $deps, mixed $version, string $media = 'all'): void { $GLOBALS['enqueued'][] = array($handle, $uri, $media); }
-$rows = (new ReflectionMethod(WordPressSitePlan::class, 'stylesheetEnqueues'))->invoke(null, $assets, $pages);
+$rows = (new ReflectionMethod(ThemeBootstrap::class, 'stylesheetEnqueues'))->invoke(null, $assets, $pages);
 foreach (array(false, true) as $legacy) foreach (range(1, 100) as $route) {
     $GLOBALS['route_id'] = $route;
     $GLOBALS['legacy_route'] = $legacy;
