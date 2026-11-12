@@ -103,7 +103,7 @@ final class EntityBindings
                     continue;
                 }
                 if (is_string($entity['source_path'] ?? null)) {
-                    $entity = WordPressSitePlan::mapEntityMarkup($entity, fn(string $markup): string => $this->links->markup($references->content($markup, $entity['source_path']), $entity['source_path'], $routes));
+                    $entity = EntityMarkup::map($entity, fn(string $markup): string => $this->links->markup($references->content($markup, $entity['source_path']), $entity['source_path'], $routes));
                 }
                 foreach ( $entity['bindings'] as &$binding ) {
                     if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
