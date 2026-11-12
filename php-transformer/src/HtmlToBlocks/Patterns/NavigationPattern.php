@@ -209,7 +209,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( 'li' !== strtolower($item->tagName) ) {
             return false;
         }
-        $style = strtolower(preg_replace('/\s+/', '', $this->attr($item, 'style')) ?? '');
+        $style = strtolower(preg_replace('/\s+/', '', SourceDom::attr($item, 'style')) ?? '');
         if ( ! $item->hasAttribute('hidden') && ! str_contains($style, 'display:none')
             && ! ( $navigationContext?->isHiddenAtReferenceViewport($item) ?? false ) ) {
             return false;
@@ -218,7 +218,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         foreach ( $list->childNodes as $sibling ) {
             if ( $sibling instanceof DOMElement && ! $sibling->isSameNode($item) ) {
                 foreach ( $sibling->getElementsByTagName('a') as $anchor ) {
-                    $visible[$this->attr($anchor, 'href')] = true;
+                    $visible[SourceDom::attr($anchor, 'href')] = true;
                 }
             }
         }
@@ -228,7 +228,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( ! $this->hasListAncestor($anchor, $item) && $this->isPlaceholderMenuOpener($anchor) ) {
                 continue;
             }
-            if ( ! $this->hasListAncestor($anchor, $item) || ! isset($visible[$this->attr($anchor, 'href')]) ) {
+            if ( ! $this->hasListAncestor($anchor, $item) || ! isset($visible[SourceDom::attr($anchor, 'href')]) ) {
                 return false;
             }
             $copies++;
@@ -239,10 +239,10 @@ final class NavigationPattern implements PatternRecognizerInterface
     /** A link that declares itself a menu control, with no destination of its own. */
     private function isPlaceholderMenuOpener(DOMElement $anchor): bool
     {
-        $href = trim($this->attr($anchor, 'href'));
-        $popup = strtolower(trim($this->attr($anchor, 'aria-haspopup')));
+        $href = trim(SourceDom::attr($anchor, 'href'));
+        $popup = strtolower(trim(SourceDom::attr($anchor, 'aria-haspopup')));
         return in_array($href, array( '', '#' ), true)
-            && ( 'button' === strtolower(trim($this->attr($anchor, 'role')))
+            && ( 'button' === strtolower(trim(SourceDom::attr($anchor, 'role')))
                 || $anchor->hasAttribute('aria-expanded')
                 || ! in_array($popup, array( '', 'false' ), true) );
     }
