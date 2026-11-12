@@ -20,11 +20,15 @@ body{background:#222;margin:0}
 HTML;
 $result = (new HtmlTransformer())->transform($html)->toArray();
 $markup = $result['serialized_blocks'];
-// Independent boxes remain editable menus, with their own styling scopes.
+// Each one-link box stays its own list, with its own styling scope; a single
+// link is not a menu, so none of them becomes a navigation entity.
 foreach (array('i1', 'i2', 'i3') as $class) {
-    if (!preg_match('/<!-- wp:navigation \{[^\n]*"className":"[^"]*\b' . $class . '\b/', $markup)) {
+    if (!preg_match('/<!-- wp:list \{[^\n]*"className":"[^"]*\b' . $class . '\b/', $markup)) {
         throw new RuntimeException('Missing editable source list scope: ' . $class);
     }
+}
+if (str_contains($markup, '<!-- wp:navigation')) {
+    throw new RuntimeException('A one-link list became a navigation menu.');
 }
 if ($path = getenv('SIBLING_LINK_LISTS_ARTIFACT')) {
     $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
