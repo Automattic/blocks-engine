@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RestingNavigation;
 
 $failures = 0;
@@ -32,13 +32,13 @@ $header = static fn (string $currentLabel, string $dialogId): string =>
 // The page's own item is current on each route; the header is the same header.
 $identities = array();
 foreach ( array( 'Start' => '1111111111111111', 'Team' => '2222222222222222', 'Contact' => '3333333333333333' ) as $current => $dialogId ) {
-    $identities[$current] = ShellExtraction::identityMarkup($header($current, $dialogId));
+    $identities[$current] = ChromeIdentity::markup($header($current, $dialogId));
 }
 $assert(1 === count(array_unique($identities)), 'one header has one identity whichever of its items is current and whatever hash its dialog trigger id carries');
 
 // A different menu still has a different identity.
 $other = str_replace('"label":"Press"', '"label":"News"', $header('Start', '1111111111111111'));
-$assert(ShellExtraction::identityMarkup($other) !== $identities['Start'], 'a different menu label is a different header');
+$assert(ChromeIdentity::markup($other) !== $identities['Start'], 'a different menu label is a different header');
 
 // A current top-level item keeps its own classes. It does not take the classes of the submenu items.
 $resting = RestingNavigation::markup($header('Contact', '1111111111111111'));

@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -165,9 +165,9 @@ foreach ($varying['pages'] as $page) $assert(str_contains($page['canonical_block
 foreach (array('href="#%s"', 'for="%s"', 'aria-labelledby="%s"') as $reference) {
     $a = '<div id="yui_123_a"></div>';
     $b = '<div id="yui_456_b"></div>';
-    $assert(ShellExtraction::documentChromeIdentity($a) === ShellExtraction::documentChromeIdentity($b), 'Unreferenced runtime ids do not define authored identity.');
-    $assert(ShellExtraction::documentChromeIdentity($a, $a . '<a ' . sprintf($reference, 'yui_123_a') . '></a>') !== ShellExtraction::documentChromeIdentity($b), 'Document references preserve runtime ids.');
+    $assert(ChromeIdentity::document($a) === ChromeIdentity::document($b), 'Unreferenced runtime ids do not define authored identity.');
+    $assert(ChromeIdentity::document($a, $a . '<a ' . sprintf($reference, 'yui_123_a') . '></a>') !== ChromeIdentity::document($b), 'Document references preserve runtime ids.');
 }
-$assert(ShellExtraction::documentChromeIdentity("<div id='yui_123_a'></div>") === ShellExtraction::documentChromeIdentity("<div id='yui_456_b'></div>"), 'Single-quoted runtime ids also normalize.');
-$assert(ShellExtraction::documentChromeIdentity('<div data-id="yui_123_a"></div>') !== ShellExtraction::documentChromeIdentity('<div data-id="yui_456_b"></div>'), 'Authored data attributes remain significant.');
+$assert(ChromeIdentity::document("<div id='yui_123_a'></div>") === ChromeIdentity::document("<div id='yui_456_b'></div>"), 'Single-quoted runtime ids also normalize.');
+$assert(ChromeIdentity::document('<div data-id="yui_123_a"></div>') !== ChromeIdentity::document('<div data-id="yui_456_b"></div>'), 'Authored data attributes remain significant.');
 fwrite(STDOUT, "shared trailing newsletter overlay: ok\n");
