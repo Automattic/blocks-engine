@@ -49,6 +49,7 @@ foreach ($cases as $name => [$html, $count, $intent]) {
         $assert('preserved_runtime_island' === $form['materialization_path'], $name . ': materialization path');
         $assert('preserved_runtime_island' === $form['loss_class'], $name . ': loss class');
         $assert('acceptable_preservation' === $form['acceptability'], $name . ': acceptability');
+        $assert('unsupported_html_fallback' === ($form['type'] ?? ''), $name . ': admissible fallback type');
         $assert('fallback_metadata_with_readable_blocks' === $form['preservation_strategy'], $name . ': strategy');
         $assert(!empty($form['controls']), $name . ': editable controls');
         $assert(str_contains(json_encode($form['required_scripts'] ?? array()), 'site.js'), $name . ': source script required');
