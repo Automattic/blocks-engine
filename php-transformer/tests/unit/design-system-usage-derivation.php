@@ -112,6 +112,15 @@ $assert(array('heading' => 'Georgia,serif', 'body' => 'ui-sans-serif,system-ui,s
 $assert('var:preset|font-family|body' === ($systemStackTheme['styles']['typography']['fontFamily'] ?? null), 'rendered system stacks: root typography references body');
 $assert('var:preset|font-family|heading' === ($systemStackTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'rendered system stacks: heading typography references heading (' . json_encode($systemStackTheme['styles'] ?? array()) . ')');
 
+// Later authored heading families win without an inheritance reset (#5789).
+[, $cascadeTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>:root{--heading-font:Verdana,sans-serif}body{font-family:"Courier New",monospace}h1,h2,h3{font-family:var(--heading-font)}</style><style>h1,h2,h3{font-family:Georgia,serif}</style><h1>Main title</h1><h2>Second title</h2><h3>Third title</h3><p>Body text paragraph.</p>')));
+$cascadeFamilies = array_column($cascadeTheme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
+foreach (array('h1', 'h2', 'h3') as $level) {
+    $reference = $cascadeTheme['styles']['elements'][$level]['typography']['fontFamily'] ?? '';
+    $assert(str_starts_with($reference, 'var:preset|font-family|') && 'Georgia,serif' === ($cascadeFamilies[substr($reference, strlen('var:preset|font-family|'))] ?? null), 'authored heading cascade: ' . $level . ' references the winning Georgia preset, not inherit');
+}
+$assert('inherit' !== ($cascadeTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'authored heading cascade: no heading inheritance reset overrides source families');
+
 // Channel custom properties are colours only in the consuming function, not
 // standalone palette values. Keep the authored expression as the CSS fallback.
 foreach (array('hsl(var(--foreground))', 'hsl(var(--foreground) / 1)', 'rgb(var(--channels))', 'rgb(var(--channels) / 100%)') as $expression) {
