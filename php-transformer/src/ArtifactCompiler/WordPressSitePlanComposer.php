@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentityException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanInput;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanView;
 use InvalidArgumentException;
@@ -34,7 +35,7 @@ final class WordPressSitePlanComposer
         $compiledSite = ArrayField::array($sourceReports, 'compiled_site');
         $runtimeIslandPackage = ArrayField::array($sourceReports, 'runtime_island_package');
         $fallbackEvidence = ArrayField::array($sourceReports, 'core_html_fallback_evidence');
-        $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($compiledSite);
+        $identityFailures = DocumentIdentity::compiledSiteFailures($compiledSite);
         $wordpressSitePlan = null;
         // Editability failures retain a failed-quality plan as review evidence;
         // all other failures have no materializable source identity or site plan.

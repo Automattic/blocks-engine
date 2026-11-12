@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $assert = static function (bool $condition, string $message): void { if (! $condition) throw new RuntimeException($message); };
 
@@ -22,7 +23,7 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
 WordPressSitePlan::assertValid($plan);
 $parts = array_column($plan['template_parts'], null, 'slug');
 $assert(isset($parts['header'], $parts['footer']), 'The shared header and footer are template parts.');
-$templates = WordPressSitePlan::renderedTemplates($plan);
+$templates = ThemeTemplates::rendered($plan);
 
 foreach ($plan['pages'] as $page) {
     $markup = $page['canonical_block_markup'];
@@ -57,7 +58,7 @@ $pair = static fn (string $variant): string => '<div class="' . $variant . '-doc
 $single = static fn (string $title): string => '<div id="root"><div class="app"><header class="masthead"><p>Brand</p></header><main><h1>' . $title . '</h1></main><footer class="colophon"><p>Shared footer</p></footer></div></div>';
 $fallback = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $pair('desktop') . $pair('mobile'), 'about.html' => $single('About'))))->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($fallback);
-$fallbackTemplates = WordPressSitePlan::renderedTemplates($fallback);
+$fallbackTemplates = ThemeTemplates::rendered($fallback);
 $fallbackPages = array_column($fallback['pages'], 'canonical_block_markup', 'slug');
 $assert(!str_contains($fallbackTemplates['front-page'] ?? '', 'wp:template-part') && str_contains($fallbackPages['home'] ?? '', 'wp:template-part'), 'A page that cannot be split safely keeps its references in place.');
 

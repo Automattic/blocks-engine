@@ -4,6 +4,7 @@ require getenv('BLOCKS_ENGINE_AUTOLOAD') ?: dirname(__DIR__, 2) . '/vendor/autol
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 $document = static fn(string $head): string => '<html><head>' . $head . '</head><body><nav><ul class="nav"><li><a href="/">One</a></li></ul></nav></body></html>';
 $link = static fn(string $file, string $media = ''): string => '<link rel="stylesheet" href="' . $file . '"' . ('' === $media ? '' : ' media="' . $media . '"') . '>';
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
@@ -30,10 +31,10 @@ $bootstrap = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyl
 if (!preg_match('/if \( is_front_page\(\) \) \{\n((?:        [^\n]+\n)+)    \}/', $bootstrap, $block) || !preg_match_all("/wp_enqueue_style\\( '([^']+)', get_theme_file_uri\\( '([^']+)' \\)/", $block[1], $calls)) throw new RuntimeException('The front-page route publishes one ordered stylesheet block.');
 if (array('a.css', 'b.css', 'a.css') !== array_map('basename', $calls[2]) || 3 !== count(array_unique($calls[1])) || $calls[2][0] !== $calls[2][2]) throw new RuntimeException('A,B,A publishes three distinct handles, with both A instances on one resource URI.');
 // Hosts without the generated bootstrap replay the same per-document sequence.
-$published = WordPressSitePlan::documentStylesheets($plan, 'index.html');
+$published = ThemeBootstrap::documentStylesheets($plan, 'index.html');
 $authored = array_values(array_filter($published, static fn(array $row): bool => in_array(basename($row['target_path']), array('a.css', 'b.css'), true)));
 if (array('a.css', 'b.css', 'a.css') !== array_map(static fn(array $row): string => basename($row['target_path']), $authored) || $calls[1] !== array_column($authored, 'handle')) throw new RuntimeException('documentStylesheets() replays the bootstrap route sequence and handles.');
-$conditionRows = array_values(array_filter(WordPressSitePlan::documentStylesheets($plan, 'conditions.html'), static fn(array $row): bool => 'a.css' === basename($row['target_path'])));
+$conditionRows = array_values(array_filter(ThemeBootstrap::documentStylesheets($plan, 'conditions.html'), static fn(array $row): bool => 'a.css' === basename($row['target_path'])));
 if (array('(max-width:700px)', '(min-width:1200px)') !== array_column($conditionRows, 'media')) throw new RuntimeException('documentStylesheets() carries each occurrence media.');
 if (2 !== count(array_filter($plan['writes'], static fn(array $write): bool => in_array(basename($write['target_path']), array('a.css', 'b.css'), true)))) throw new RuntimeException('Instances never duplicate resource writes.');
 $invalid = $plan;
@@ -96,7 +97,7 @@ $importPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/i
     'website/index.html' => $importPage(''),
     'website/en/index.html' => $importPage('<style media="all">@import url("/en.css") (max-width:767px);</style>'),
 )))->toArray()['source_reports']['wordpress_site_plan'];
-$importSheets = static fn(string $document): array => array_map(static fn(array $row): string => basename($row['target_path']), WordPressSitePlan::documentStylesheets($importPlan, $document));
+$importSheets = static fn(string $document): array => array_map(static fn(array $row): string => basename($row['target_path']), ThemeBootstrap::documentStylesheets($importPlan, $document));
 if (in_array('en.css', $importSheets('website/index.html'), true)) throw new RuntimeException('A sheet imported by one route\'s inline style is not published on other routes.');
 if (in_array('en.css', $importSheets('website/en/index.html'), true)) throw new RuntimeException('The importing route loads the sheet through its inline style, not as an unconditional second copy.');
 $importer = array_values(array_filter($importPlan['assets'], static fn(array $asset): bool => str_starts_with($asset['source_path'], 'inline/') && str_contains((string) ($asset['content'] ?? ''), '@import')));

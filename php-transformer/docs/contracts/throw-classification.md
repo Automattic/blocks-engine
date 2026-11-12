@@ -67,7 +67,7 @@ unexpanded. The same throw on the entrypoint still fails the compile.
 ## Throwing helpers
 
 `THROW_CLASSIFICATION_HELPERS` in the guard lists methods that throw for their caller:
-`WordPressSitePlan::invalidDeclaration()` and `WordPressSitePlan::unique()`. Their call
+`PlanDocuments::invalidDeclaration()` and `WordPressSitePlan::unique()`. Their call
 sites are classified, because the arguments decide the message. The guard fails when a
 listed helper disappears, or when a new method declares a `never` return type outside the
 list.

@@ -1256,7 +1256,7 @@ final class SharedChromeStylesheets
                     $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::generatedAlternatives($selector, $classMatcher, true), $kept), 'is_string'));
                     if (array() === $kept) return $inherited;
                     if (null !== $liveElementMarkers) {
-                        $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => WordPressSitePlan::withoutDeadElementMarkers($selector, $liveElementMarkers), $kept), 'is_string'));
+                        $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => DeadElementMarkers::withoutDead($selector, $liveElementMarkers), $kept), 'is_string'));
                         // Every selector named only replaced elements: the rule matches nothing.
                         if (array() === $kept) return $inherited;
                     }
@@ -1311,7 +1311,7 @@ final class SharedChromeStylesheets
             $sharedAsset['token'] = 'asset-' . substr(hash('sha256', $sharedAsset['target_path']), 0, 16);
             $sharedAsset['reconciliation_identity'] = WordPressSitePlan::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
             // Global chrome is not an occurrence of the stylesheet it was lifted
-            // from; placeSharedStylesheetProjections() gives it a slot on every
+            // from; PageStylesheets::place() gives it a slot on every
             // route, next to whichever contributing stylesheet that route applies.
             unset($sharedAsset['inline_references'], $sharedAsset['stylesheet_instances'], $sharedAsset['stylesheet_parent'], $sharedAsset['stylesheet_inline_order']);
             $sharedAsset['_stylesheet_projection_origins'] = array(self::stylesheetProjectionOrigin($asset));
@@ -1379,7 +1379,7 @@ final class SharedChromeStylesheets
     {
         $devices = array();
         foreach ($asset['stylesheet_instances'] ?? array() as $instance) {
-            foreach (WordPressSitePlan::stylesheetDeviceAttributes($instance) as $attribute => $value) {
+            foreach (PageStylesheets::deviceAttributes($instance) as $attribute => $value) {
                 if (is_string($value)) $devices[$attribute . "\0" . $value] = true;
             }
         }

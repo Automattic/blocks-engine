@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BindingAnchors;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 /**
@@ -253,7 +254,7 @@ $assert(str_contains($listingBinding['search_block_markup'] ?? '', WordPressSite
 $resolution = array_column($resolvedListing['runtime_entity_resolution'], null, 'reconciliation_identity')[$listing['reconciliation_identity']] ?? array();
 $resolvedBinding = $resolution['entities'][0]['bindings'][0] ?? array();
 $resolvedPage = $resolvedListing['pages'][0]['resolved_block_markup'];
-$assert(is_string($resolvedBinding['search_block_markup'] ?? null) && !str_contains($resolvedBinding['search_block_markup'], WordPressSitePlan::TOKEN_PREFIX) && WordPressSitePlan::bindingPosition($resolvedBinding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($resolvedPage), $resolvedBinding['search_block_markup']), 'Resolution anchors the factored binding on the resolved page: ' . json_encode($resolvedBinding['position'] ?? null));
+$assert(is_string($resolvedBinding['search_block_markup'] ?? null) && !str_contains($resolvedBinding['search_block_markup'], WordPressSitePlan::TOKEN_PREFIX) && BindingAnchors::positionMatches($resolvedBinding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($resolvedPage), $resolvedBinding['search_block_markup']), 'Resolution anchors the factored binding on the resolved page: ' . json_encode($resolvedBinding['position'] ?? null));
 
 // A canonical inline collection fits, even when destination URLs push its resolved projection over the limit.
 $grid = ''; $files = array();

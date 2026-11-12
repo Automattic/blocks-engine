@@ -5,7 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Support\NavigationUrl;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -51,7 +51,7 @@ foreach (array_keys($files) as $entrypoint) {
     $assert(2 === count($plan['pages']), 'Both routes are retained.');
     foreach ($plan['pages'] as $page) {
         $markup = $page['canonical_block_markup'];
-        $template = WordPressSitePlan::renderedTemplates($plan)[$page['route_template'] ?? ($page['entrypoint'] ? 'front-page' : 'page')] ?? '';
+        $template = ThemeTemplates::rendered($plan)[$page['route_template'] ?? ($page['entrypoint'] ? 'front-page' : 'page')] ?? '';
         $assert(str_contains($template . $markup, 'wp:template-part {"slug":"' . $headers[0]['slug'] . '"'), 'Both routes reference the shared header.');
         $assert(!str_contains($markup, '<header') && !str_contains($markup, 'wp:navigation '), 'Neither route embeds an inline header or menu.');
     }

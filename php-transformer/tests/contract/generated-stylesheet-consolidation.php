@@ -3,7 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PageStylesheets;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -29,7 +29,7 @@ $copy = static fn(string $page, bool $fallback = false, string $content = '.nav{
     'reconciliation_identity' => md5($page . $content), 'source' => 'wordpress-compat', 'kind' => 'css', 'content' => $content, 'references' => array(),
     'scopes' => array(array('kind' => 'page', 'source_path' => $page)),
 ) + ($fallback ? array('frame_fallback' => true) : array());
-$merge = new ReflectionMethod(WordPressSitePlan::class, 'mergeIdenticalPageStylesheets');
+$merge = new ReflectionMethod(PageStylesheets::class, 'mergeIdentical');
 $merged = $merge->invoke(null, array($copy('index.html'), $copy('a/index.html', true), $copy('b/index.html')), array());
 $assert(1 === count($merged) && !empty($merged[0]['frame_fallback']) && 3 === count($merged[0]['scopes']), 'Identical copies fold into one fallback resource: ' . json_encode($merged));
 $global = array('scopes' => array(array('kind' => 'global'))) + $copy('shared', false, '.x{color:red}');

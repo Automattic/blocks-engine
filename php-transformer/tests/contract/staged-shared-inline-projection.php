@@ -5,7 +5,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/../Support/BootstrapStyles.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 // Read only generated literal data, without running the WordPress bootstrap.
 $registry = static function (string $bootstrap, string $name): array {
@@ -57,7 +57,7 @@ foreach (array(3, 6) as $count) {
     // Compare occurrence order, handles, media, fallback and route ownership
     // against the enqueue plan, not just registry sizes.
     $expected = array();
-    $enqueues = (new ReflectionMethod(WordPressSitePlan::class, 'stylesheetEnqueues'))->invoke(null, $plan['assets'], $plan['pages']);
+    $enqueues = (new ReflectionMethod(ThemeBootstrap::class, 'stylesheetEnqueues'))->invoke(null, $plan['assets'], $plan['pages']);
     foreach ($enqueues as $enqueue) {
         $asset = $enqueue['asset'];
         foreach ($enqueue['scopes'] ?? array($enqueue['scope']) as $scope) $expected[] = array($asset['target_path'], $scope, $enqueue['handle'], $asset['source_media'] ?? $enqueue['media'], !empty($enqueue['fallback']), array());

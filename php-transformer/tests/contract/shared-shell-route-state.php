@@ -4,7 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RestingNavigation;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
@@ -72,12 +72,12 @@ $chrome = static function (string $current) use ($box, $lineHeight): string {
     }
     return $markup . '<!-- /wp:navigation --></div><!-- /wp:group -->';
 };
-$resting = ShellExtraction::identityMarkup($chrome('none'));
+$resting = ChromeIdentity::markup($chrome('none'));
 foreach (array('one', 'two', 'three') as $current) {
-    $assert($resting === ShellExtraction::identityMarkup($chrome($current)), "Chrome serving {$current} has the resting chrome identity.");
+    $assert($resting === ChromeIdentity::markup($chrome($current)), "Chrome serving {$current} has the resting chrome identity.");
 }
-$assert($resting !== ShellExtraction::identityMarkup(str_replace('"Two"', '"Portfolio"', $chrome('none'))), 'A different menu label is a different chrome identity.');
-$assert(str_contains(ShellExtraction::identityMarkup(str_replace('"className":"submenu"', '"className":"submenu open"', $chrome('none'))), 'open'), 'Disclosure state on a menu that does not hold the served route stays part of the identity.');
+$assert($resting !== ChromeIdentity::markup(str_replace('"Two"', '"Portfolio"', $chrome('none'))), 'A different menu label is a different chrome identity.');
+$assert(str_contains(ChromeIdentity::markup(str_replace('"className":"submenu"', '"className":"submenu open"', $chrome('none'))), 'open'), 'Disclosure state on a menu that does not hold the served route stays part of the identity.');
 // An authored current submenu omits the resting colour marker its siblings
 // share; identity recovers it from siblings with the same classes, whatever
 // order the source listed them in.
@@ -90,7 +90,7 @@ $submenus = static function (bool $current) use ($color): string {
     }
     return $markup . '<!-- /wp:navigation -->';
 };
-$assert(ShellExtraction::identityMarkup($submenus(false)) === ShellExtraction::identityMarkup($submenus(true)), 'An authored current submenu has its resting siblings\' identity.');
+$assert(ChromeIdentity::markup($submenus(false)) === ChromeIdentity::markup($submenus(true)), 'An authored current submenu has its resting siblings\' identity.');
 
 $part = RestingNavigation::markup($chrome('two'));
 preg_match('/<!-- wp:navigation-link (\{[^>]*"label":"Two"[^>]*\}) \/-->/', $part, $two);

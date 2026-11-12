@@ -15,7 +15,7 @@ final class NavigationReferenceItemsRuntime
 {
     public static function source(): string
     {
-        return str_replace(array('__ITEMS_KEY__', '__DOCUMENT_ID__'), array(NavigationEntityProjection::ITEMS_KEY, WordPressSitePlan::DOCUMENT_ID_EXPRESSION), <<<'PHP'
+        return str_replace(array('__ITEMS_KEY__', '__DOCUMENT_ID__'), array(NavigationEntityProjection::ITEMS_KEY, ThemeBootstrap::DOCUMENT_ID_EXPRESSION), <<<'PHP'
 $blocks_engine_navigation_items = array();
 add_filter( 'render_block_data', static function ( array $block ) use ( &$blocks_engine_navigation_items ): array {
     if ( 'core/navigation' === ( $block['blockName'] ?? null ) ) $blocks_engine_navigation_items[] = $block['attrs']['metadata']['__ITEMS_KEY__'] ?? null;

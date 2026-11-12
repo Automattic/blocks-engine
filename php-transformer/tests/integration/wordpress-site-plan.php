@@ -19,6 +19,7 @@ require $testsDir . '/includes/bootstrap.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
@@ -330,7 +331,7 @@ $assert(!str_contains($frontEditorCss, '.global-presentation{display:block}') &&
 $assert(1 === preg_match('/\\bmedia=([\'"])\\(min-width: 48rem\\)\\1/', $linkFor($aboutEditorAssets, $aboutInlinePath)) && strpos($aboutEditorAssets, get_theme_file_uri('assets/assets/global.css')) < strpos($aboutEditorAssets, get_theme_file_uri($aboutInlinePath)), 'Iframe stylesheet links preserve responsive stylesheet media and source cascade order.');
 $assert('' !== $linkFor($siteEditorAssets, 'assets/assets/global.css') && '' !== $linkFor($siteEditorAssets, $aboutInlinePath) && !str_contains(implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $siteEditor['settings']['styles'] ?? array())), '.about-owned{color:#654321}'), 'The site editor canvas loads the complete declared authored presentation set by URL, not inlined.');
 $assert('' === $frontRequestThemeJsonCss && '' === $frontEditorThemeJsonCss && '' === $aboutEditorThemeJsonCss, 'Presentation CSS is not duplicated through frontend or editor theme JSON.');
-$assert(str_contains($frontEditorCss, WordPressSitePlan::EDITOR_CORE_IMAGE_INTERACTION_CSS) && str_contains($frontEditorCss, WordPressSitePlan::EDITOR_POST_TITLE_INTERACTION_CSS) && str_contains($frontEditorCss, WordPressSitePlan::EDITOR_LINK_INTERACTION_CSS), 'Editor interaction compatibility remains a bounded editor-settings rule.');
+$assert(str_contains($frontEditorCss, ThemeBootstrap::EDITOR_CORE_IMAGE_INTERACTION_CSS) && str_contains($frontEditorCss, ThemeBootstrap::EDITOR_POST_TITLE_INTERACTION_CSS) && str_contains($frontEditorCss, ThemeBootstrap::EDITOR_LINK_INTERACTION_CSS), 'Editor interaction compatibility remains a bounded editor-settings rule.');
 global $wp_query;
 $setRequest = static function (WP_Post $post, bool $frontPage) use (&$wp_query): void { $page = 'page' === $post->post_type; $uri = $page ? get_page_uri($post) : ''; $wp_query->is_front_page = $frontPage; $wp_query->is_page = $page; $wp_query->is_single = !$page; $wp_query->is_home = false; $wp_query->is_singular = true; $wp_query->post = $post; $wp_query->posts = array($post); $wp_query->queried_object = $post; $wp_query->queried_object_id = $post->ID; $wp_query->query_vars = $page ? array('page_id' => $post->ID, 'pagename' => $uri) : array('p' => $post->ID, 'post_type' => 'post'); setup_postdata($post); };
 $resetScripts = static function (): WP_Scripts { $scripts = wp_scripts(); $scripts->queue = array(); $scripts->to_do = array(); $scripts->done = array(); $scripts->in_footer = array(); $scripts->groups = array(); return $scripts; };

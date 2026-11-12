@@ -5,7 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
 $compile = static fn(array $files): array => (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
@@ -49,8 +49,8 @@ foreach ($result['source_reports']['compiled_site']['pages'] as &$page) {
 unset($page);
 $headers = array_column($result['source_reports']['compiled_site']['pages'], 'block_markup');
 $other = str_replace('about/index.html', 'index.html', $headers[1]);
-$assert(ShellExtraction::identityMarkup($headers[0]) === ShellExtraction::identityMarkup($other), 'Serialized style whitespace has one shell identity.');
-$assert(ShellExtraction::identityMarkup($headers[0]) !== ShellExtraction::identityMarkup(str_replace('inherit', 'hidden', $other)), 'Different declaration values remain different shell identities.');
+$assert(ChromeIdentity::markup($headers[0]) === ChromeIdentity::markup($other), 'Serialized style whitespace has one shell identity.');
+$assert(ChromeIdentity::markup($headers[0]) !== ChromeIdentity::markup(str_replace('inherit', 'hidden', $other)), 'Different declaration values remain different shell identities.');
 $plan = (new WordPressSitePlan())->fromResult($result);
 WordPressSitePlan::assertValid($plan);
 $assert(1 === count(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === $part['area'])), 'Serialized style and nested itemStyle whitespace extract one shared header.');

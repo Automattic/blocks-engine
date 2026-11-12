@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 $cases = array(
     'unmarked' => array('', '', true),
@@ -29,7 +30,7 @@ foreach ($cases as $name => [$homeRuntime, $secondRuntime, $removesEmoji]) {
     $bootstrap = (string) ($writes['functions.php']['payload']['data'] ?? '');
     if (!str_contains($bootstrap, "add_filter( 'run_wptexturize', '__return_false' );")
         || $removesEmoji !== str_contains($bootstrap, "remove_action( 'wp_head', 'print_emoji_detection_script', 7 );")
-        || $removesEmoji !== str_contains($bootstrap, WordPressSitePlan::SOURCE_NATIVE_EMOJI)
+        || $removesEmoji !== str_contains($bootstrap, ThemeBootstrap::SOURCE_NATIVE_EMOJI)
         || (!$removesEmoji && (str_contains($bootstrap, 'print_emoji_detection_script') || str_contains($bootstrap, 'tiny_mce_plugins')))) {
         fwrite(STDERR, "FAIL: {$name}: captured emoji runtime controls removal without enabling texturization\n");
         exit(1);

@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\EntityBindings;
 use InvalidArgumentException;
 
 /** Bounded, content-addressed records for declaration entities. */
@@ -154,7 +154,7 @@ final class RuntimeEntityManifest
     private static function planForm(array $entity): array
     {
         if (!is_array($entity['bindings'] ?? null)) return $entity;
-        foreach ($entity['bindings'] as &$binding) if (is_array($binding) && !is_array($binding['projected_anchor'] ?? null)) $binding['projected_anchor'] = WordPressSitePlan::projectedBindingAnchor($binding);
+        foreach ($entity['bindings'] as &$binding) if (is_array($binding) && !is_array($binding['projected_anchor'] ?? null)) $binding['projected_anchor'] = EntityBindings::projectedAnchor($binding);
         unset($binding);
         return $entity;
     }

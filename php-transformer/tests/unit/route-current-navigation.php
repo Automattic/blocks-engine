@@ -13,7 +13,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RestingNavigation;
 
 $failures = 0;
@@ -54,7 +54,7 @@ $assert(array() === $currentLabels($compile('about', 'fixture:about')), 'a sourc
 $relative = (string) (( new HtmlTransformer() )->transform('<header><nav><a href="../">Home</a><a href="../books/">Books</a></nav></header>', array( 'source' => 'website/books/index.html' ))->toArray()['serialized_blocks'] ?? '');
 $assert(array( 'Books' ) === $currentLabels($relative), 'a relative directory href resolves to its index document', json_encode($currentLabels($relative)));
 
-$identity = new ReflectionMethod(ShellExtraction::class, 'normalizeNestedChromeMarkup');
+$identity = new ReflectionMethod(ChromeIdentity::class, 'markup');
 $part = new ReflectionMethod(RestingNavigation::class, 'markup');
 $headerOf = static function (string $markup): string {
     $start = strpos($markup, '<!-- wp:navigation ');

@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
@@ -17,7 +18,7 @@ $artifact = array('entrypoint' => 'index.html', 'files' => array(
 $plan = (new ArtifactCompiler())->compile($artifact)->toWordPressSitePlanView()['wordpress_site_plan'];
 WordPressSitePlan::assertValid($plan);
 $templates = array_column($plan['templates'], null, 'slug');
-$rendered = WordPressSitePlan::renderedTemplates($plan);
+$rendered = ThemeTemplates::rendered($plan);
 $assert(isset($templates['single'], $templates['404'], $rendered['archive'], $rendered['search']), 'A page-only import still supplies future native WordPress routes.');
 $assert(!isset($templates['archive'], $templates['search']), 'Archive and search render through the identical index listing rather than repeating it.');
 $assert(str_contains($templates['single']['canonical_block_markup'], 'wp:post-title') && str_contains($templates['single']['canonical_block_markup'], 'wp:post-content') && !str_contains($templates['single']['canonical_block_markup'], 'wp:query '), 'A newly authored native post renders title/body rather than an archive loop.');

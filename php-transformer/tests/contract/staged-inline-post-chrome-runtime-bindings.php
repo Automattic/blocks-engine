@@ -8,8 +8,9 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ListingQueryLoops;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PostChrome;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BindingAnchors;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -90,7 +91,7 @@ foreach ($materialized as $declaration) foreach ($declaration['payload']['entiti
     if (!is_string($source) || !isset($postMarkupBySource[$source]) || !is_string($search) || '' === $search) continue;
     $markup = $postMarkupBySource[$source];
     $position = $binding['position'] ?? null;
-    $assert(true === WordPressSitePlan::bindingPosition($position, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $search), "The binding anchors one exact block of {$source}.");
+    $assert(true === BindingAnchors::positionMatches($position, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $search), "The binding anchors one exact block of {$source}.");
     $occurrenceOffset = null;
     $cursor = 0;
     $seen = 0;
@@ -109,7 +110,7 @@ foreach ($plan['runtime_declarations'] as $declaration) {
     foreach (RuntimeEntityManifest::resolve($declaration['payload'], $manifestRecords) as $entity) foreach ($entity['bindings'] ?? array() as $binding) {
         $source = $binding['source_path'] ?? null;
         if (!isset($postMarkupBySource[$source])) continue;
-        $assert(true === WordPressSitePlan::bindingPosition($binding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($postMarkupBySource[$source]), (string) $binding['search_block_markup']), "A manifest-backed binding anchors exactly on {$source}.");
+        $assert(true === BindingAnchors::positionMatches($binding['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($postMarkupBySource[$source]), (string) $binding['search_block_markup']), "A manifest-backed binding anchors exactly on {$source}.");
     }
 }
 
@@ -169,7 +170,7 @@ foreach ($unitPosts as $post) {
     $assert(null !== $index, 'The bound form block resolves to one emitted block position.');
     $boundEntities[] = array('bindings' => array(array('role' => 'form', 'source_path' => $post['source_path'], 'search_block_markup' => $form, 'occurrence' => 1, 'position' => array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $index, 'offset' => $offset, 'length' => strlen($form)))));
 }
-$identity = static fn(string $markup): string => ShellExtraction::identityMarkup($markup);
+$identity = static fn(string $markup): string => ChromeIdentity::markup($markup);
 $chrome = new PostChrome(new ListingQueryLoops('', $identity), $identity, static function (array $finding): void {});
 
 // Manifest-backed records: a bound form whose entity lives in a manifest

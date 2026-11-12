@@ -4,6 +4,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -30,7 +31,7 @@ foreach (array('Dispatches from the open trail.', 'Field report one', 'Field rep
 $assert(!str_contains($markup, 'wp:post-content') && !str_contains($markup, 'wp:query'), 'Captured cards are static, never post bodies or a live query.');
 $diagnostics = array_values(array_filter($plan['diagnostics'], static fn(array $d): bool => 'wordpress_site_plan_taxonomy_archive_presentation_static' === $d['code']));
 $assert(1 === count($diagnostics) && 'warning' === $diagnostics[0]['severity'] && 'tag/field-notes/index.html' === $diagnostics[0]['source_path'] && '/tag/field-notes' === $diagnostics[0]['source_route'], 'Static archive warning is source-owned.');
-$generic = WordPressSitePlan::renderedTemplates($plan)['archive'];
+$generic = ThemeTemplates::rendered($plan)['archive'];
 $assert(str_contains($generic, '"slug":"header"') && str_contains($generic, '"slug":"footer"'), 'Generic archive includes both shell parts.');
 WordPressSitePlan::assertValid($plan);
 echo "tag archive static badges: passed\n";

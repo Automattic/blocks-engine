@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $assert = static function (bool $condition, string $message): void {
@@ -61,7 +61,7 @@ foreach (array(390, 768, 1440) as $viewport) {
 }
 $assert(array(390 => 56, 768 => 102, 1440 => 102) === $viewportHeights, 'header geometry contract covers phone, tablet, and desktop reference widths');
 $assert(! str_contains($css, '[data-mesh-id="shared-header-carrier"]'), 'the emitted stylesheet does not retain a dead source-only selector');
-$template = WordPressSitePlan::renderedTemplates($plan)['front-page'] ?? '';
+$template = ThemeTemplates::rendered($plan)['front-page'] ?? '';
 $assert(strpos($template, '"slug":"header"') < strpos($template, 'wp:post-content'), 'the emitted template places the shared header before the hero content');
 
 echo "Shared empty data carrier geometry contract passed\n";

@@ -4,7 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -39,13 +39,13 @@ foreach (array('transition-delay', 'animation-delay', 'entrance', 'transition-en
 }
 
 // Identity-only normalization must not erase authored presentation or targets.
-$identity = static fn (string $style): string => ShellExtraction::identityMarkup('<a href="about.html" style="' . $style . '">About</a>');
+$identity = static fn (string $style): string => ChromeIdentity::markup('<a href="about.html" style="' . $style . '">About</a>');
 $assert($identity('transition-delay:.1s;color:red') === $identity('transition-delay:.2s;color:red'), 'Stagger timing is incidental.');
 $assert($identity('color:red') !== $identity('color:blue'), 'Authored color remains structural.');
 $assert($identity('transition:opacity .3s') !== $identity('transition:transform .3s'), 'Transition behavior remains structural.');
 
 $navigation = static fn (string $style): string => '<!-- wp:navigation {"metadata":{"blocksEngineNavigationItems":[{"blocksEngineNavigationAnchor":{"style":"' . $style . '"}}]}} /-->';
-$assert(ShellExtraction::identityMarkup($navigation('transition:opacity .3s;transition-delay:.1s;animation-delay:.2s')) === ShellExtraction::identityMarkup($navigation('transition:opacity .3s;transition-delay:.3s;animation-delay:.4s')), 'Nested navigation anchor metadata ignores both delays.');
-$assert(ShellExtraction::identityMarkup($navigation('color:red')) !== ShellExtraction::identityMarkup($navigation('color:blue')), 'Nested navigation anchor paint is preserved.');
+$assert(ChromeIdentity::markup($navigation('transition:opacity .3s;transition-delay:.1s;animation-delay:.2s')) === ChromeIdentity::markup($navigation('transition:opacity .3s;transition-delay:.3s;animation-delay:.4s')), 'Nested navigation anchor metadata ignores both delays.');
+$assert(ChromeIdentity::markup($navigation('color:red')) !== ChromeIdentity::markup($navigation('color:blue')), 'Nested navigation anchor paint is preserved.');
 
 echo "Shared shell motion timing contract passed.\n";

@@ -5,6 +5,8 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\StylesheetScopes;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -32,11 +34,11 @@ echo "Navigation icon support: {$copies} shared-icon copies, " . count($sheets) 
 $assert(1 === $copies, 'An icon used by two of three routes is emitted once.');
 $sheets = array_values(array_filter($sheets, static fn(array $sheet): bool => str_contains($sheet['content'], 'M0%200h24v24H0z')));
 foreach (array_keys($files) as $index => $source) {
-    $loads = in_array($sheets[0]['target_path'], array_column(WordPressSitePlan::documentStylesheets($plan, $source), 'target_path'), true);
+    $loads = in_array($sheets[0]['target_path'], array_column(ThemeBootstrap::documentStylesheets($plan, $source), 'target_path'), true);
     $assert($loads === ($index < 2), 'Only routes owning the icon load its shared resource.');
 }
 // Exercise the allocator's URL boundary independently of icon lowering.
-$allocate = new ReflectionMethod(WordPressSitePlan::class, 'allocateDocumentSupport');
+$allocate = new ReflectionMethod(StylesheetScopes::class, 'allocateSupport');
 foreach (array('url("data:image/svg+xml,%3Csvg/%3E")', "url('data:image/svg+xml,%3Csvg/%3E')", 'url(data:image/svg+xml,%3Csvg/%3E)', 'url(../images/icon.svg)', 'url("#icon")') as $url) {
     $assets = array();
     foreach (array('index.html', 'about.html') as $source) {

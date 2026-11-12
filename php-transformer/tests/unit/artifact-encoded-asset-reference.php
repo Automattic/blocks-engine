@@ -3,7 +3,7 @@ declare(strict_types=1);
 require getenv('BLOCKS_ENGINE_AUTOLOAD') ?: dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 // Both document-relative and site-root references must find the on-disk path.
 foreach (array('dir@1' => 'dir%401', 'dir space' => 'dir%20space', 'dir+1' => 'dir%2B1') as $directory => $encoded) {
@@ -20,7 +20,7 @@ foreach (array('dir@1' => 'dir%401', 'dir space' => 'dir%20space', 'dir+1' => 'd
             }
             $results[] = $markup;
             $plan = $result['source_reports']['wordpress_site_plan'];
-            $styles = array_values(array_filter(WordPressSitePlan::documentStylesheets($plan, 'index.html'), static fn(array $row): bool => 'grid.css' === basename($row['target_path'])));
+            $styles = array_values(array_filter(ThemeBootstrap::documentStylesheets($plan, 'index.html'), static fn(array $row): bool => 'grid.css' === basename($row['target_path'])));
             if (1 !== count($styles)) throw new RuntimeException('The linked stylesheet must be enqueued exactly once.');
             $bootstrap = (string) array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'];
             if (1 !== substr_count($bootstrap, "wp_enqueue_style( '" . $styles[0]['handle'] . "'")) throw new RuntimeException('The emitted theme must enqueue the stylesheet once.');
