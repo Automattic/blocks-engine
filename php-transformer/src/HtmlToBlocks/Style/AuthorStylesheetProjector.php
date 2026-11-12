@@ -505,7 +505,7 @@ final class AuthorStylesheetProjector
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body, $context) . $this->separatorBorderRule($prelude, $declarations, $context);
         $navigationItemSpaceRule = $this->navigationItemSpaceRule($prelude, $declarations, $context)
             . $this->navigationListBoxRule($prelude, $declarations, $context)
-            . $this->directNavigationDisplayRule($prelude, $declarations, $context)
+            . $this->directNavigationHostRule($prelude, $declarations, $context)
             . $this->navigationItemFlexItemRule($prelude, $declarations, $context)
             . $this->navigationToggleRowRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
@@ -535,10 +535,15 @@ final class AuthorStylesheetProjector
         return $this->withEditorProjectionRules($css, $prelude, $body, $context);
     }
 
-    /** Project host display here, never in an after-author reference-value replay. */
-    private function directNavigationDisplayRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    /**
+     * Project host display here, never in an after-author reference-value replay.
+     * The host's cross-axis alignment rides along: the list-navigation baseline
+     * outranks a bare class, and Core's toggle is a direct child of the host.
+     */
+    private function directNavigationHostRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
-        if (!isset($declarations['display'])) return '';
+        $lifted = array_intersect_key($declarations, array('display' => true, 'align-items' => true));
+        if (array() === $lifted) return '';
         $targets = array();
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
             // Class compounds only (`.menus`, `.menus.res`): every lifted rule
@@ -555,7 +560,7 @@ final class AuthorStylesheetProjector
                 }
             }
         }
-        return array() === $targets ? '' : implode(',', array_unique($targets)) . '{display:' . $declarations['display'] . '}';
+        return array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($lifted) . '}';
     }
 
     private function withEditorProjectionRules(string $css, string $prelude, string $body, AuthorStylesheetProjectionContext $context): string

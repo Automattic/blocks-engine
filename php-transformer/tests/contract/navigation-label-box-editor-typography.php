@@ -14,7 +14,7 @@ $frontend = array('blocks' => $result['serialized_blocks'], 'assets' => array_va
 // label boxes share markers and structural selectors instead of enumerating positions.
 // Duplicate subject removal also removes a redundant single-arm :is().
 // Keep serialized runtime metadata and every non-editor asset byte-locked.
-if ('f14a327af4f0a5aecfc5840bb356f7924d07af6a93c3cf65641c2ba83617b551' !== hash('sha256', json_encode($frontend))) {
+if ('8aeabd3baf7c4d25e84d66424e7df5713ded9476d99b996ca63c94a287edbd18' !== hash('sha256', json_encode($frontend))) {
     throw new RuntimeException('Frontend markup or stylesheet output changed.');
 }
 $native = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($result['serialized_blocks']);
