@@ -17,6 +17,9 @@ final class FormRuntimeRequirementAnalyzer
     /** @var WeakMap<DOMDocument, array<string, true>>|null */
     private static ?WeakMap $sourceBehaviorForms = null;
 
+    /** @var WeakMap<DOMDocument, array<string, bool>>|null */
+    private static ?WeakMap $sourceToolForms = null;
+
     /** Retain behavior evidence removed by script extraction or URL sanitization. */
     public static function indexSourceBehavior(DOMDocument $document, string $sourceHtml): void
     {
@@ -27,13 +30,21 @@ final class FormRuntimeRequirementAnalyzer
         $source = HtmlSerialization::parseDocument($sourceHtml);
         $sourceForms = $source->getElementsByTagName('form');
         $behavior = array();
+        $tools = array();
         foreach ( $sourceForms as $index => $form ) {
+            if ( self::isClientSideTool($form) ) {
+                $tools[$index] = true;
+            }
             if ( self::hasSourceBehavior($form) ) {
                 $behavior[$index] = true;
             }
         }
         $paths = array();
+        $toolPaths = array();
         foreach ( $forms as $index => $form ) {
+            if ( $forms->length === $sourceForms->length ) {
+                $toolPaths[(string) $form->getNodePath()] = isset($tools[$index]);
+            }
             // If normalization changed the form count, do not guess which
             // remaining form owned the removed behavior.
             if ( isset($behavior[$index]) || (array() !== $behavior && $forms->length !== $sourceForms->length) ) {
@@ -42,12 +53,17 @@ final class FormRuntimeRequirementAnalyzer
         }
         self::$sourceBehaviorForms ??= new WeakMap();
         self::$sourceBehaviorForms[$document] = $paths;
+        self::$sourceToolForms ??= new WeakMap();
+        self::$sourceToolForms[$document] = $toolPaths;
     }
 
     public static function releaseSourceBehavior(DOMDocument $document): void
     {
         if ( null !== self::$sourceBehaviorForms ) {
             unset(self::$sourceBehaviorForms[$document]);
+        }
+        if ( null !== self::$sourceToolForms ) {
+            unset(self::$sourceToolForms[$document]);
         }
     }
 
@@ -60,7 +76,8 @@ final class FormRuntimeRequirementAnalyzer
 
     public function requiresPreservation(DOMElement $form): bool
     {
-        return 0 < $form->getElementsByTagName('script')->length
+        return 'client_side_tool' === self::formIntent($form)
+            || 0 < $form->getElementsByTagName('script')->length
             || array() !== SourceDom::eventMetadata($form)
             || $this->hasSubmissionMetadata($form)
             || self::hasCommerceSubmissionSignal($form)
@@ -182,6 +199,7 @@ final class FormRuntimeRequirementAnalyzer
         // and omit `method`, but a search or filter form never collects an email.
         if ( $email && ($subscribe || preg_match('~(?:^|/)(?:newsletter|subscribe)(?:/|$)~', $path)) ) return 'newsletter';
         if ( $email && $message ) return 'contact';
+        if ( self::isClientSideTool($form) ) return 'client_side_tool';
         $method = strtolower(trim(SourceDom::attr($form, 'method')));
         if ( '' === $method || 'get' === $method ) {
             if ( $search || preg_match('~(?:^|/)search(?:/|$)~', $path) ) return 'search';
@@ -251,6 +269,46 @@ final class FormRuntimeRequirementAnalyzer
                 if ( '' !== $url && ('' === LinkUrlSanitizer::sanitize($url) || ! in_array($scheme, array( '', 'http', 'https' ), true)) ) {
                     return true;
                 }
+            }
+        }
+
+        return false;
+    }
+
+    /** Local result workflows need the source runtime, not a form provider. */
+    private static function isClientSideTool(DOMElement $form): bool
+    {
+        if ( null !== $form->ownerDocument && isset(self::$sourceToolForms[$form->ownerDocument][(string) $form->getNodePath()]) ) {
+            return self::$sourceToolForms[$form->ownerDocument][(string) $form->getNodePath()];
+        }
+        if ( ! in_array(trim(SourceDom::attr($form, 'action')), array( '', '#' ), true) ) {
+            return false;
+        }
+        foreach ( $form->getElementsByTagName('*') as $control ) {
+            if ( ! in_array(trim(SourceDom::attr($control, 'formaction')), array( '', '#' ), true) ) {
+                return false;
+            }
+            // A select that changes location is navigation, even beside a status.
+            foreach ( $control->attributes as $attribute ) {
+                if ( 1 === preg_match('/\\b(?:location|open)\\b/i', str_starts_with(strtolower($attribute->nodeName), 'on') ? ($attribute->nodeValue ?? '') : '') ) {
+                    return false;
+                }
+            }
+        }
+        $document = $form->ownerDocument;
+        if ( null === $document || (0 === $document->getElementsByTagName('script')->length && ! self::hasSourceBehavior($form)) ) {
+            return false;
+        }
+        // Results commonly sit just after the form rather than inside it.
+        $scope = $form->parentNode;
+        if ( ! $scope instanceof DOMElement ) {
+            return false;
+        }
+        foreach ( $scope->getElementsByTagName('*') as $result ) {
+            if ( 'output' === strtolower($result->tagName)
+                || 'status' === strtolower(SourceDom::attr($result, 'role'))
+                || in_array(strtolower(SourceDom::attr($result, 'aria-live')), array( 'polite', 'assertive' ), true) ) {
+                return true;
             }
         }
 
