@@ -247,6 +247,9 @@ final class FormControlMetadataBuilder
     /** @return array<string, mixed>|null */
     private function inFormContextItem(DOMElement $node, DOMElement $form): ?array
     {
+        if ( $this->isValidationFeedbackCopy($node) ) {
+            return null;
+        }
         $tagName = strtolower($node->tagName);
         $text = trim((string) preg_replace('/\s+/', ' ', $node->textContent ?? ''));
         if ( '' === $text || 200 < strlen($text) ) {
@@ -934,6 +937,9 @@ final class FormControlMetadataBuilder
             if ( ! $node instanceof DOMElement ) {
                 continue;
             }
+            if ( $this->isValidationFeedbackCopy($node) ) {
+                continue;
+            }
             if ( $this->isControlOwnedCopy($node, $this->collapsedElementText($node), $honeypotCopy, array()) ) {
                 continue;
             }
@@ -985,6 +991,43 @@ final class FormControlMetadataBuilder
         }
 
         return $candidates;
+    }
+
+    /**
+     * Field live regions are runtime validation, not permanent helper/context
+     * copy. Also exclude their text carriers and containers, so nesting cannot
+     * smuggle feedback back into either collection path.
+     */
+    private function isValidationFeedbackCopy(DOMElement $node): bool
+    {
+        $regions = array($node);
+        foreach ( $node->getElementsByTagName('*') as $descendant ) {
+            $regions[] = $descendant;
+        }
+        for ( $ancestor = $node->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( in_array(strtolower($ancestor->tagName), array( 'form', 'body', 'html' ), true) ) {
+                break;
+            }
+            $regions[] = $ancestor;
+        }
+        foreach ( $regions as $region ) {
+            if ( ! $region->hasAttribute('aria-live') && ! in_array(SourceDom::role($region), array( 'alert', 'status' ), true) ) {
+                continue;
+            }
+            for ( $wrapper = $region->parentNode; $wrapper instanceof DOMElement; $wrapper = $wrapper->parentNode ) {
+                if ( in_array(strtolower($wrapper->tagName), array( 'form', 'fieldset', 'body', 'html' ), true) ) {
+                    break;
+                }
+                $controls = FormControlClassifier::controlElements($wrapper);
+                if ( array() !== $controls ) {
+                    if ( 1 === count($controls) ) {
+                        return true;
+                    }
+                    break;
+                }
+            }
+        }
+        return false;
     }
 
     private function collapsedElementText(DOMElement $element): string
