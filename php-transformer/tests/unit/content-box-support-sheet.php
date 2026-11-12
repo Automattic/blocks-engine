@@ -141,6 +141,25 @@ $cases = array(
     ),
 );
 
+// Reduced full-width card regression (Automattic/blocks-engine#5675).
+foreach ( array(
+    'where reset' => array( ':where(*, *::before, *::after){box-sizing:border-box}', true ),
+    'layered where reset' => array( '@layer reset{ :where(*, *::before, *::after){box-sizing:border-box} }', true ),
+    'is reset' => array( ':is(*, ::before, ::after){box-sizing:border-box}', true ),
+    'flat wrapped arms' => array( ':where(*), :is(*)::before, ::after{box-sizing:border-box}', true ),
+    'nested layers' => array( '@layer reset{@layer base{*{box-sizing:border-box}}}', true ),
+    'media reset is conditional' => array( '@media (min-width:900px){:where(*, *::before, *::after){box-sizing:border-box}}', false ),
+    'supports in a layer is conditional' => array( '@layer reset{@supports (display:grid){*{box-sizing:border-box}}}', false ),
+    'pseudo elements alone do not reset elements' => array( ':where(*::before, ::after){box-sizing:border-box}', false ),
+    'a restricted subject is not universal' => array( ':where(*).other{box-sizing:border-box}', false ),
+) as $name => [$reset, $universal] ) {
+    $cases[ $name ] = array(
+        'sheets' => static fn (): array => $compile('<!doctype html><html><head><title>Reset</title><style>' . $reset . 'body{margin:0}.card{width:100%;padding:0 32px;background:#f1e683}</style></head><body><div class="card"><h1>Card</h1><p>Text inside a padded full-width card.</p></div></body></html>'),
+        $universal ? 'not_after' : 'after' => array( '/\.card ?\{[^}]*box-sizing:content-box/' ),
+        'not_author' => array( '/\.card ?\{[^}]*box-sizing:content-box/' ),
+    );
+}
+
 foreach ( $cases as $name => $case ) {
     $by = ( $case['sheets'] )();
     foreach ( array( 'after' => 'after-author', 'author' => 'author' ) as $key => $sheet ) {
