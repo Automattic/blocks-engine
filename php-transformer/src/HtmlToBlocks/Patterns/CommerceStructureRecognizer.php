@@ -29,6 +29,7 @@ final class CommerceStructureRecognizer
         'checkout' => array( 'checkout' ),
         'order' => array( 'order' ),
         'compact' => array( 'addtocart', 'add-to-cart' ),
+        'close' => array( 'close', 'dismiss', 'cerrar', 'fechar', 'fermer', 'schließen', 'chiudi', 'sluiten', '×', '✕' ),
     );
 
     /** @var SplObjectStorage<DOMElement, array<string, mixed>|null> Retains wrappers for stable native identity during this compilation. */
@@ -441,6 +442,45 @@ final class CommerceStructureRecognizer
             }
         }
         return false;
+    }
+
+    /** A cart navigation control, not a purchase action or a product-card control. */
+    public function isCartOpener(DOMElement $element): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), array('button', 'a'), true) || SourceDom::hasNonAuthoredAncestor($element) ) {
+            return false;
+        }
+        $identity = implode(' ', array(
+            SourceDom::authorIdentityAttribute($element, 'class'),
+            SourceDom::authorIdentityAttribute($element, 'id'),
+            $element->getAttribute('name'),
+            $element->getAttribute('aria-label'),
+            $element->getAttribute('title'),
+            $this->collapsedText($element),
+        ));
+        foreach ( SourceDom::tokens($element->getAttribute('aria-labelledby')) as $id ) {
+            $label = $element->ownerDocument?->getElementById($id);
+            if ( $label instanceof DOMElement ) $identity .= ' ' . $this->collapsedText($label);
+        }
+        foreach ( $element->attributes as $attribute ) {
+            if ( str_starts_with($attribute->name, 'data-') ) {
+                $identity .= ' ' . $attribute->name . ' ' . $attribute->value;
+            }
+        }
+        if ( ! self::hasCommerceWord($identity, array('cart')) || self::hasCommerceWord($identity, array('add', 'buy', 'compact', 'close')) ) {
+            return false;
+        }
+        // Only actual card candidates count: a page wrapper can also contain
+        // a name, price and purchase action belonging to a descendant grid.
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'dialog' === strtolower($node->tagName) && ( $this->hasCommerceIdentity($node, array('cart')) || self::hasCommerceWord($node->getAttribute('aria-label'), array('cart')) || $this->isCartSummary($node) ) ) {
+                return false;
+            }
+            if ( $node->parentNode instanceof DOMElement && $this->isProductGridContainer($node->parentNode) && null !== $this->productCardData($node) ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** @param array<int, string> $groups */
