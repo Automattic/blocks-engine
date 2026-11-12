@@ -360,6 +360,14 @@ final class CommerceStructureRecognizer
                 continue;
             }
 
+            // Whole-card prose and identity attributes are not action labels.
+            if ( $includeNavigation && 'a' === $tagName && $this->navigatesAway(SourceDom::attr($descendant, 'href')) ) {
+                if ( $this->isPurchaseNavigation($descendant) ) {
+                    return $descendant;
+                }
+                continue;
+            }
+
             $haystack = strtolower(implode(' ', array(
                 SourceDom::attr($descendant, 'class'),
                 SourceDom::attr($descendant, 'id'),
@@ -398,6 +406,41 @@ final class CommerceStructureRecognizer
         }
 
         return null;
+    }
+
+    /** A document link needs an action label or an explicit cart/checkout target. */
+    private function isPurchaseNavigation(DOMElement $link): bool
+    {
+        $path = (string) parse_url(SourceDom::attr($link, 'href'), PHP_URL_PATH);
+        if ( self::hasCommerceWord(rawurldecode($path), array( 'cart', 'checkout', 'compact' )) ) {
+            return true;
+        }
+
+        $labels = array(SourceDom::attr($link, 'aria-label'), SourceDom::attr($link, 'value'));
+        // Inline wrappers may decorate a label; headings and paragraphs describe
+        // a linked document rather than the action of following the link.
+        $hasProse = false;
+        foreach ( $link->getElementsByTagName('*') as $child ) {
+            if ( in_array(strtolower($child->tagName), array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p' ), true) ) {
+                $hasProse = true;
+                break;
+            }
+        }
+        if ( ! $hasProse ) {
+            $labels[] = $this->collapsedText($link);
+        }
+        foreach ( $labels as $label ) {
+            $label = trim($label);
+            if ( '' === $label || mb_strlen($label) > 80 ) {
+                continue;
+            }
+            if ( self::hasCommerceWord($label, array( 'buy', 'checkout', 'compact' ))
+                || ( self::hasCommerceWord($label, array( 'add' )) && self::hasCommerceWord($label, array( 'cart', 'container' )) )
+                || 1 === preg_match('/^(?:order\b|place\s+(?:your\s+|an?\s+)?order\b)/i', $label) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param array<int, string> $groups */
