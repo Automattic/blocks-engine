@@ -3289,8 +3289,13 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null, ?NavigationPatternContext $navigationContext = null): array
     {
+        // An empty anchor (a CSS-painted dot or swatch) is named only by its
+        // `aria-label`/`title`. core/navigation-link renders nothing without a
+        // label and paints the label it has, so keep that name read but not
+        // painted, as a text-less button does.
+        $hiddenName = $this->emptyAnchorName($anchor);
         $linkAttrs = $this->navigationItemAttributes($item ?? $anchor, $anchor, null, array(
-            'label' => $this->anchorLabel($anchor, $innerHtml, $navigationContext),
+            'label' => '' !== $hiddenName ? SourceDom::visuallyHiddenLabel($hiddenName) : $this->anchorLabel($anchor, $innerHtml, $navigationContext),
             'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
             'kind'  => 'custom',
         ), $presentationAttributes, $navigationContext);
@@ -3401,6 +3406,31 @@ final class NavigationPattern implements PatternRecognizerInterface
         foreach ( $listItems as $item ) {
             $navigationContext->recordNavigationSource($item, AuthorSelectorProjectionState::NAVIGATION_ITEM, 1 === count($sourceListsByContainer[$containerOf($item)]));
         }
+    }
+
+    /**
+     * The `aria-label` or `title` of an anchor with no content at all: no
+     * text and no child element. Such an anchor paints no name, so its name
+     * must not become visible text. Empty when the anchor has content.
+     */
+    private function emptyAnchorName(DOMElement $anchor): string
+    {
+        if ( '' !== trim($anchor->textContent ?? '') ) {
+            return '';
+        }
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                return '';
+            }
+        }
+        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+            $name = trim(SourceDom::attr($anchor, $attribute));
+            if ( '' !== $name ) {
+                return $name;
+            }
+        }
+
+        return '';
     }
 
     private function anchorLabel(DOMElement $anchor, callable $innerHtml, ?NavigationPatternContext $navigationContext = null): string
