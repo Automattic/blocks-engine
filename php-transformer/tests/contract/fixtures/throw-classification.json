@@ -1640,6 +1640,12 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/StylesheetScopes.php": {
+      "InvalidArgumentException('A document-owned compiled asset must resolve to a canonical document.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/SyncedPatternProjection.php": {
       "InvalidArgumentException('WordPress site plan contains an undeclared synced pattern reference.')": {
         "class": "integrity",
@@ -1723,10 +1729,6 @@
         "count": 1
       },
       "InvalidArgumentException('A page asset scope is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('A document-owned compiled asset must resolve to a canonical document.')": {
         "class": "integrity",
         "count": 1
       },
