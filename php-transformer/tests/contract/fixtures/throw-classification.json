@@ -2073,6 +2073,28 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/SitePlanRun.php": {
+      "InvalidArgumentException('WordPress site plan requires a versioned editability policy.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan requires a compiled-site report.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "DocumentIdentityException($identityFailures)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Compiled site documents must be an array.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "DocumentIdentityException($failures)": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/StylesheetScopes.php": {
       "InvalidArgumentException('WordPress site plan asset scopes must be a nonempty array.')": {
         "class": "integrity",
@@ -2231,14 +2253,6 @@
       }
     },
     "src/WordPressSitePlan/WordPressSitePlan.php": {
-      "DocumentIdentityException($failures)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "DocumentIdentityException($identityFailures)": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException(\"WordPress site plan {$kind} has invalid {$field}.\")": {
         "class": "integrity",
         "count": 1
@@ -2252,10 +2266,6 @@
         "count": 1
       },
       "InvalidArgumentException('Asset consumers or destination are stale.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Compiled site documents must be an array.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2316,14 +2326,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan reference capability semantics are invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan requires a compiled-site report.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan requires a versioned editability policy.')": {
         "class": "integrity",
         "count": 1
       },
