@@ -10,7 +10,8 @@ use DOMElement;
 /** Selects the editable, compositional, or preserved representation of a form. */
 final class FormDispatcher
 {
-    public function __construct(private readonly FormDispatchContext $context, private readonly SourceBlockCreator $createBlock)
+    /** @param \Closure(DOMElement): ?array<string, mixed>|null $cardPurchaseBlock */
+    public function __construct(private readonly FormDispatchContext $context, private readonly SourceBlockCreator $createBlock, private readonly ?\Closure $cardPurchaseBlock = null)
     {
     }
 
@@ -20,6 +21,11 @@ final class FormDispatcher
      */
     public function convert(DOMElement $element, array &$fallbacks): ?array
     {
+        $cardPurchase = null !== $this->cardPurchaseBlock ? ($this->cardPurchaseBlock)($element) : null;
+        if ( null !== $cardPurchase ) {
+            return $cardPurchase;
+        }
+
         $loginBlock = $this->context->loginBlockFromForm($element);
         if ( null !== $loginBlock ) {
             return $loginBlock;
