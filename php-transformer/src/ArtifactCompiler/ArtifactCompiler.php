@@ -4084,12 +4084,9 @@ final class ArtifactCompiler
             $walk($body);
             foreach ($rows as &$areaRows) foreach ($areaRows as &$row) {
                 $row['source_identity'] = 'markup:' . hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeStackingIdentity::normalize($row['identity']));
-                foreach ($file['metadata']['compilation']['html_include_sources'] ?? array() as $path => $fragment) {
-                    if (self::normalizeSourceShellIdentity($fragment) === $row['identity']) {
-                        $row['source_identity'] = 'include:' . $path . ':' . hash('sha256', $row['identity']);
-                        break;
-                    }
-                }
+                // Include provenance describes transport, not a different shell.
+                // An expanded include and identical inline markup must share the
+                // same compilation group and its canonical support assets.
             }
             unset($areaRows, $row);
             $documents[(string) $file['path']] = array('content' => (string) $file['content'], 'rows' => $rows);
