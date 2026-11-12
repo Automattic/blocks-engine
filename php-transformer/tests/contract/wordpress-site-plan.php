@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\BindingAnchors;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
@@ -1524,7 +1525,7 @@ $boundListingPages = array_column($boundListingPlan['pages'] ?? array(), null, '
 $boundListingMarkup = $boundListingPages['journal/index.html']['canonical_block_markup'] ?? '';
 $boundListingBindings = array();
 foreach ($boundListingPlan['runtime_declarations'] ?? array() as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach ($entity['bindings'] ?? array() as $binding) if ('journal/index.html' === ($binding['source_path'] ?? null)) $boundListingBindings[] = $binding;
-$assert('failed' !== ($boundListing['status'] ?? null) && str_contains($boundListingMarkup, '<!-- wp:query') && 1 === count($boundListingBindings) && WordPressSitePlan::bindingPosition($boundListingBindings[0]['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($boundListingMarkup), $boundListingBindings[0]['search_block_markup'] ?? ''), 'A page-owned form after converted listing cards keeps its exact block position after Query Loop replacement: ' . json_encode(array('status' => $boundListing['status'], 'query' => str_contains($boundListingMarkup, '<!-- wp:query'), 'bindings' => count($boundListingBindings), 'diagnostics' => $boundListing['source_reports']['wordpress_site_plan_diagnostics'] ?? array())));
+$assert('failed' !== ($boundListing['status'] ?? null) && str_contains($boundListingMarkup, '<!-- wp:query') && 1 === count($boundListingBindings) && BindingAnchors::positionMatches($boundListingBindings[0]['position'] ?? null, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($boundListingMarkup), $boundListingBindings[0]['search_block_markup'] ?? ''), 'A page-owned form after converted listing cards keeps its exact block position after Query Loop replacement: ' . json_encode(array('status' => $boundListing['status'], 'query' => str_contains($boundListingMarkup, '<!-- wp:query'), 'bindings' => count($boundListingBindings), 'diagnostics' => $boundListing['source_reports']['wordpress_site_plan_diagnostics'] ?? array())));
 $escapedVisibleDate = $listedJournal;
 foreach ($escapedVisibleDate['source_reports']['compiled_site']['pages'] as &$page) {
     if ('journal/first/index.html' !== ($page['source_path'] ?? null)) {

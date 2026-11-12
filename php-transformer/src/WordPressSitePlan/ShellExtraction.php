@@ -1119,7 +1119,7 @@ final class ShellExtraction
             $position = $binding['position'] ?? null;
             $search = $binding['search_block_markup'] ?? null;
             if (!is_string($search) || '' === $search) continue;
-            if (WordPressSitePlan::bindingPosition($position, $index, $search)) { $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']); continue; }
+            if (BindingAnchors::positionMatches($position, $index, $search)) { $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']); continue; }
             // A manifest record keeps the position it was compiled with, which
             // page canonicalization can shift; protect every block it may name.
             for ($offset = strpos($markup, $search); false !== $offset; $offset = strpos($markup, $search, $offset + strlen($search))) $ranges[] = array('offset' => $offset, 'length' => strlen($search));
@@ -2845,7 +2845,7 @@ final class ShellExtraction
             $search = $binding['search_block_markup'] ?? null;
             if (!is_string($search) || '' === $search) continue;
             $documentIndex ??= new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']);
-            $block = WordPressSitePlan::bindingPosition($position, $documentIndex, $search) ? ($documentIndex->ranges()[$position['block_index']] ?? null) : null;
+            $block = BindingAnchors::positionMatches($position, $documentIndex, $search) ? ($documentIndex->ranges()[$position['block_index']] ?? null) : null;
             foreach ($ranges as $range) {
                 if (is_array($block) && $block['offset'] >= $range['offset'] && $block['offset'] + $block['length'] <= $range['offset'] + $range['length']) {
                     if ($movable) $refs[] = array('declaration' => $declarationIndex, 'entity' => $entityIndex, 'binding' => $bindingIndex, 'offset' => $block['offset'], 'range' => $range);
@@ -2965,7 +2965,7 @@ final class ShellExtraction
             $position = $binding['position'] ?? null;
             if (($binding['source_path'] ?? null) !== ($page['source_path'] ?? null)) continue;
             $search = $binding['search_block_markup'] ?? null;
-            if (!is_string($search) || !WordPressSitePlan::bindingPosition($position, $index, $search)) continue;
+            if (!is_string($search) || !BindingAnchors::positionMatches($position, $index, $search)) continue;
             $range = $index->ranges()[$position['block_index']] ?? null;
             if (is_array($range) && ($range['offset'] < $offset || $range['offset'] + $range['length'] > $offset + $length)) return true;
         }
