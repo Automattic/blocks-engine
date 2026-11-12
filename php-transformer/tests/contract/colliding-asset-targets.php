@@ -12,6 +12,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\CompiledAssets;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
@@ -50,11 +51,10 @@ $assert(($staged['source_reports']['wordpress_site_plan'] ?? null) === $plan, 'S
 // Different bytes on one target: the later asset is given the next free
 // numbered target, and its token follows that target.
 $source = static fn (string $path, string $content): array => array('path' => $path, 'target_path' => 'css/site.css', 'source' => 'files', 'kind' => 'css', 'role' => 'stylesheet', 'mime_type' => 'text/css', 'bytes' => strlen($content), 'hash' => hash('sha256', $content), 'content' => $content);
-$builder = new WordPressSitePlan();
-$rows = ( new ReflectionMethod(WordPressSitePlan::class, 'assets') )->invoke($builder, array($source('css/site.css', 'a{color:red}'), $source('css/Site.css', 'b{color:blue}'), $source('css/SITE.css', 'i{color:green}')));
+$suffixFindings = array();
+$rows = CompiledAssets::rows(array($source('css/site.css', 'a{color:red}'), $source('css/Site.css', 'b{color:blue}'), $source('css/SITE.css', 'i{color:green}')), static function (array $finding) use (&$suffixFindings): void { $suffixFindings[] = $finding; });
 $assert(array('assets/css/site.css', 'assets/css/site-2.css', 'assets/css/site-3.css') === array_column($rows, 'target_path'), 'Different bytes on one target get deterministic suffixed targets: ' . json_encode(array_column($rows, 'target_path')));
 foreach ($rows as $row) $assert($row['token'] === 'asset-' . substr(hash('sha256', $row['target_path']), 0, 16) && $row['reconciliation_identity'] === WordPressSitePlan::identity('asset', $row['source_path'], $row['target_path']), 'Each suffixed asset has a token and identity derived from its own target.');
-$suffixFindings = ( new ReflectionMethod(WordPressSitePlan::class, 'unitFindingDiagnostics') )->invoke($builder);
 $assert(2 === count($suffixFindings) && array('colliding_asset_target', 'colliding_asset_target') === array_column($suffixFindings, 'reason_code') && array('assets/css/site-2.css', 'assets/css/site-3.css') === array_column($suffixFindings, 'resolved_target_path'), 'Each suffixed target is reported with the target it was given.');
 
 // The validator is still the backstop for a plan that declares a collision.

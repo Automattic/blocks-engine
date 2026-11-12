@@ -117,16 +117,15 @@ final class FormFallbackFindingBuilder
             $finding['steps'] = $steps;
         }
         // Provider fields span the workflow, unlike the visible block topology.
-        // Explicit step panels also cover wizards that use hidden sections rather
-        // than a CSS paging track. Ordinary non-rendered decoys stay excluded.
-        $stepPanels = array();
-        foreach ( $element->getElementsByTagName('*') as $panel ) {
-            if ( $panel->hasAttribute('data-step') && '' !== trim($panel->getAttribute('data-step')) ) {
-                $stepPanels[$panel->getAttribute('data-step')] = true;
-            }
-        }
-        if ( 'form' === strtolower($element->tagName) && (null !== $steps || count($stepPanels) > 1) ) {
+        // Hidden sibling panels need not have any particular step attribute.
+        // Only expand within the recognized partitions, not unrelated decoys.
+        if ( 'form' === strtolower($element->tagName) ) {
             $intentControls = FormRuntimeRequirementAnalyzer::intentControls($element);
+            if ( null === $steps ) {
+                $panelControls = (new FormWorkflowPanelDetector())->controls($element, $intentControls);
+                $visibleSelectors = array_column($controls, 'selector');
+                $intentControls = array_values(array_filter($intentControls, static fn (DOMElement $control): bool => in_array($control, $panelControls, true) || in_array(SourceDom::elementSelector($control), $visibleSelectors, true)));
+            }
             $selectors = array_column($controls, 'selector');
             $missing = array_filter($intentControls, static fn (DOMElement $control): bool => ! in_array(SourceDom::elementSelector($control), $selectors, true));
             if ( array() !== $missing ) {
