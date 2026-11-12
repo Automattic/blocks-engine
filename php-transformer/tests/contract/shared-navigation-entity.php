@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RestingNavigation;
 
 $assert = static function (bool $condition, string $message): void { if (! $condition) throw new RuntimeException($message); };
 $pages = static function (array $plan): array { $rows = array(); foreach ($plan['pages'] as $page) $rows[$page['source_path']] = $page; return $rows; };
@@ -86,9 +87,9 @@ $divergentVariant = (new ArtifactCompiler())->compile(array('entrypoint' => 'ind
 $assert(2 === count($entityMenus($divergentVariant)), 'Variant menus with different destinations stay independent.');
 
 $currentItem = '<!-- wp:navigation-link {"className":"item blocks-engine-current-navigation-item be-inline-geometry-0123456789abcdef","label":"Home","url":"/"} /-->';
-$entityItem = ShellExtraction::withoutCurrentNavigationState($currentItem);
+$entityItem = RestingNavigation::markup($currentItem);
 $assert(str_contains($entityItem, 'be-inline-geometry-0123456789abcdef') && !str_contains($entityItem, 'blocks-engine-current-navigation-item'), 'The shared navigation entity keeps a current item\'s geometry carrier.');
-$identityItem = ShellExtraction::withoutCurrentNavigationState($currentItem, true);
+$identityItem = RestingNavigation::markup($currentItem, true);
 $assert(!str_contains($identityItem, 'be-inline-geometry-0123456789abcdef'), 'Shell identity still ignores current-item geometry.');
 
 echo "shared-navigation-entity: ok\n";

@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RestingNavigation;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
@@ -52,7 +53,7 @@ $listMenu = static function (array $disclosed): string {
     $submenu = '<!-- wp:list --><ul class="wp-block-list">' . $listItem('Fiat', $disclosed) . $listItem('Ford', $disclosed) . '</ul><!-- /wp:list -->';
     return '<!-- wp:group {"tagName":"ul"} --><ul class="wp-block-group">' . $item('Home', $disclosed) . $item('About', $disclosed) . $item('Models', $disclosed, $submenu) . '</ul><!-- /wp:group -->';
 };
-$resting = static fn(string $markup): string => ShellExtraction::withoutCurrentNavigationState($markup, true);
+$resting = static fn(string $markup): string => RestingNavigation::markup($markup, true);
 foreach (array(array('About'), array('Models', 'Fiat'), array('Models', 'Ford')) as $served) {
     $assert($resting($listMenu(array('Home'))) === $resting($listMenu($served)), 'The served item\'s disclosure classes do not split li-group menu chrome: ' . implode(', ', $served));
 }

@@ -14,6 +14,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RestingNavigation;
 
 $failures = 0;
 $passes = 0;
@@ -54,7 +55,7 @@ $relative = (string) (( new HtmlTransformer() )->transform('<header><nav><a href
 $assert(array( 'Books' ) === $currentLabels($relative), 'a relative directory href resolves to its index document', json_encode($currentLabels($relative)));
 
 $identity = new ReflectionMethod(ShellExtraction::class, 'normalizeNestedChromeMarkup');
-$part = new ReflectionMethod(ShellExtraction::class, 'withoutCurrentNavigationState');
+$part = new ReflectionMethod(RestingNavigation::class, 'markup');
 $headerOf = static function (string $markup): string {
     $start = strpos($markup, '<!-- wp:navigation ');
     return substr($markup, $start, strpos($markup, '<!-- /wp:navigation -->') + strlen('<!-- /wp:navigation -->') - $start);
