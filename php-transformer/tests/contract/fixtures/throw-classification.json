@@ -1679,6 +1679,24 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/CompiledAssets.php": {
+      "InvalidArgumentException('Compiled site assets must be an array.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Compiled site asset lacks a safe source identity.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Compiled site asset lacks a safe target identity.')": {
+        "class": "integrity",
+        "count": 2
+      },
+      "InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/ContentDecisions.php": {
       "InvalidArgumentException('Compiled site documents must be an array.')": {
         "class": "integrity",
@@ -1793,6 +1811,24 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/PageOperations.php": {
+      "InvalidArgumentException('WordPress site plan operation is invalid.')": {
+        "class": "integrity",
+        "count": 2
+      },
+      "InvalidArgumentException('WordPress site plan create_page operation is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan operation references an invalid front page.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan operations are incomplete.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/PageRoute.php": {
       "InvalidArgumentException('WordPress site plan has an unsafe explicit page route.')": {
         "class": "integrity",
@@ -1804,6 +1840,10 @@
       }
     },
     "src/WordPressSitePlan/PlanDocuments.php": {
+      "InvalidArgumentException('WordPress site plan declared content fields are invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException(\"WordPress site plan {$kind} is structurally invalid.\")": {
         "class": "integrity",
         "count": 1
@@ -2022,6 +2062,32 @@
         "pending": true
       }
     },
+    "src/WordPressSitePlan/ThemeScaffold.php": {
+      "InvalidArgumentException('WordPress site plan style.css scaffold is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan theme.json scaffold is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan theme.json is not valid JSON.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan theme.json shape is unsupported.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan document canvas is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/ThemeTemplates.php": {
       "InvalidArgumentException('A declared template surface collides with a generated template.')": {
         "class": "integrity",
@@ -2048,10 +2114,6 @@
         "count": 1
       },
       "DocumentIdentityException($identityFailures)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException(\"WordPress site plan resolved {$kind} payload is not canonical.\")": {
         "class": "integrity",
         "count": 1
       },
@@ -2084,18 +2146,6 @@
         "count": 1
       },
       "InvalidArgumentException('Asset consumers or destination are stale.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Compiled site asset lacks a safe source identity.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('Compiled site asset lacks a safe target identity.')": {
-        "class": "integrity",
-        "count": 2
-      },
-      "InvalidArgumentException('Compiled site assets must be an array.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2147,15 +2197,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan binary write cannot carry a resolution projection.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan contains an undeclared reference token.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan create_page operation is invalid.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2171,23 +2213,11 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan document canvas is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan external metadata URL must not carry a resolved alias.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan fallback archive must not have a per-entity template.')": {
         "class": "integrity",
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan font materialization is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2223,18 +2253,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan operation is invalid.')": {
-        "class": "integrity",
-        "count": 2
-      },
-      "InvalidArgumentException('WordPress site plan operation references an invalid front page.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan operations are incomplete.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan page has a stale content hash.')": {
         "class": "integrity",
         "count": 1
@@ -2246,14 +2264,6 @@
       "InvalidArgumentException('WordPress site plan page route is invalid.')": {
         "class": "integrity",
         "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan publication resolution is malformed or stale.')": {
-        "class": "integrity",
-        "count": 2
       },
       "InvalidArgumentException('WordPress site plan quality is structurally invalid.')": {
         "class": "integrity",
@@ -2283,26 +2293,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan resolution is malformed or fabricated.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan resolved metadata URL is missing, stale, or tampered.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan resolved metadata declaration is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan resolved navigation content is not canonical.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan resolved write payload is not canonical.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan routes do not match canonical page routes.')": {
         "class": "integrity",
         "count": 1
@@ -2324,10 +2314,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan source identity is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan style.css scaffold is invalid.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2356,18 +2342,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan theme is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan theme.json is not valid JSON.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan theme.json scaffold is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan theme.json shape is unsupported.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2443,6 +2417,22 @@
       }
     },
     "src/WordPressSitePlan/WordPressSitePlanResolver.php": {
+      "InvalidArgumentException('WordPress site plan identity is stale.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan does not match the externally approved plan identity.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan is already a resolved projection.')": {
+        "class": "programmer",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan cannot prove dynamic client asset references.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('Attachment resolutions must be a token map.')": {
         "class": "integrity",
         "count": 1
@@ -2451,47 +2441,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('Asset publication reference token is not declared.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan cannot prove dynamic client asset references.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan contains unresolved reference tokens.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan does not match the externally approved plan identity.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan identity is stale.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan is already a resolved projection.')": {
-        "class": "programmer",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan requires an unsupported runtime capability.')": {
-        "class": "operational",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan resolution requires a valid theme_uri.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan resolution requires an absolute http(s) theme_uri without credentials, query, or fragment.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan resolution theme_uri has an ambiguous path.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan resolution theme_uri has an invalid port.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2503,7 +2453,67 @@
         "class": "integrity",
         "count": 1
       },
+      "InvalidArgumentException('WordPress site plan resolution requires a valid theme_uri.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan resolution requires an absolute http(s) theme_uri without credentials, query, or fragment.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan resolution theme_uri has an invalid port.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan resolution theme_uri has an ambiguous path.')": {
+        "class": "integrity",
+        "count": 1
+      },
       "InvalidArgumentException('WordPress site plan runtime capabilities must be a unique bounded list.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan requires an unsupported runtime capability.')": {
+        "class": "operational",
+        "count": 1
+      },
+      "InvalidArgumentException('Asset publication reference token is not declared.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan resolution is malformed or fabricated.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan publication resolution is malformed or stale.')": {
+        "class": "integrity",
+        "count": 2
+      },
+      "InvalidArgumentException(\"WordPress site plan resolved {$kind} payload is not canonical.\")": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan resolved navigation content is not canonical.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan binary write cannot carry a resolution projection.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan resolved write payload is not canonical.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan resolved metadata declaration is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan resolved metadata URL is missing, stale, or tampered.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan external metadata URL must not carry a resolved alias.')": {
         "class": "integrity",
         "count": 1
       }

@@ -294,6 +294,10 @@ final class ArtifactNormalizer
                 if ( is_array($file['metadata']['compilation'] ?? null) ) {
                     $metadata['compilation'] = $file['metadata']['compilation'];
                 }
+                $declaredContent = DeclaredContent::sanitize($file['metadata']['declared_content'] ?? null);
+                if ( null !== $declaredContent ) {
+                    $metadata['declared_content'] = $declaredContent;
+                }
                 if ( array() !== $metadata ) {
                     $normalized['metadata'] = $metadata;
                 }

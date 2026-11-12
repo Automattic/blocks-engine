@@ -18,7 +18,20 @@ final class FormControlLabel
 
     public static function element(DOMElement $control): ?DOMElement
     {
-        $label = SourceDom::associatedLabel($control, true);
+        $labels = SourceDom::associatedLabels($control);
+        if ( in_array(FormControlClassifier::controlType($control), array( 'checkbox', 'radio' ), true) ) {
+            foreach ( $labels as $label ) {
+                if ( SourceDom::elementContains($label, $control) ) {
+                    return $label;
+                }
+            }
+            // Without a wrapper, the trailing associated caption is the choice
+            // text; an earlier label commonly supplies the field title.
+            if ( 1 < count($labels) ) {
+                return $labels[count($labels) - 1];
+            }
+        }
+        $label = $labels[0] ?? null;
         if ( $label instanceof DOMElement ) {
             return $label;
         }

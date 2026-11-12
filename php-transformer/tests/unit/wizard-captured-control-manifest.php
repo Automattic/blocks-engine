@@ -22,7 +22,15 @@ HTML;
 $capturedHtml = str_replace('"value":""}', '"value":"","defaultValue":"","checked":false,"defaultChecked":false,"indeterminate":false}', $html);
 $failures = array();
 $ordinaryHtml = str_replace(array(' data-step="1"', ' data-step="2"'), '', $capturedHtml);
-foreach ( array($html, $capturedHtml, $ordinaryHtml) as $index => $source ) {
+$quoteHtml = str_replace(array('data-step="1"', 'data-step="2"'), array('class="quote-step" data-quote-step="1"', 'class="quote-step" data-quote-step="3"'), $capturedHtml);
+$capturedOnlyHtml = str_replace(array(' hidden', '<textarea name="requirements">'), array('', '<textarea name="requirements" data-blocks-engine-capture-native-control-state=\'{"version":1,"kind":"textarea","rendered":false,"value":"","defaultValue":""}\'>'), $quoteHtml);
+// A direct unrendered control is not a sibling panel partition.
+$nonWizardHtml = str_replace(array('<section>', '<section hidden>', '</section>'), '', $ordinaryHtml);
+$decoy = '<input name="decoy" data-blocks-engine-capture-native-control-state=\'{"version":1,"kind":"input","rendered":false,"type":"text","value":"","defaultValue":"","checked":false,"defaultChecked":false,"indeterminate":false}\'>';
+$wrappedDecoyHtml = str_replace('</form>', '<div hidden>' . str_replace('name="decoy"', 'name="wrappedDecoy"', $decoy) . '</div></form>', $quoteHtml);
+$variants = array($html, $capturedHtml, $ordinaryHtml, $quoteHtml, $capturedOnlyHtml, $nonWizardHtml, $wrappedDecoyHtml);
+foreach ( $variants as $index => $source ) {
+    $source = str_replace('</form>', $decoy . '</form>', $source);
     $result = (new ArtifactCompiler())->compile(array(
         'entrypoint' => 'index.html',
         'files' => array('index.html' => '<!doctype html><html><body><main>' . $source . '</main></body></html>'),
@@ -32,9 +40,11 @@ foreach ( array($html, $capturedHtml, $ordinaryHtml) as $index => $source ) {
     if ( 'contact' !== ($finding['form_intent'] ?? null) ) $failures[] = 'Intent must be contact';
     $names = array_column($finding['controls'] ?? array(), 'name');
     foreach ( array('tripType', 'name', 'email', 'requirements') as $name ) {
-        $expected = 2 !== $index || ! in_array($name, array('name', 'email'), true);
-        if ( $expected !== in_array($name, $names, true) ) $failures[] = 'Unexpected diagnostic control membership: ' . $name;
+        $expected = 5 !== $index || ! in_array($name, array('name', 'email'), true);
+        if ( $expected !== in_array($name, $names, true) ) $failures[] = 'Variant ' . $index . ': unexpected diagnostic control membership: ' . $name;
     }
+    if ( in_array('wrappedDecoy', $names, true) ) $failures[] = 'Unrelated hidden container must remain excluded';
+    if ( in_array('decoy', $names, true) ) $failures[] = 'Unrendered control outside the panel set must remain excluded';
 }
 if ( array() !== $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
