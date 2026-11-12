@@ -712,6 +712,12 @@ final class SourceDom
     /** Explicit labels take precedence; callers may opt into wrapping labels. */
     public static function associatedLabel(DOMElement $control, bool $includeImplicit = false): ?DOMElement
     {
+        return self::associatedLabels($control, $includeImplicit)[0] ?? null;
+    }
+
+    /** @return list<DOMElement> Explicit labels in source order, followed by an implicit wrapping label. */
+    public static function associatedLabels(DOMElement $control, bool $includeImplicit = true): array
+    {
         $implicit = null;
         if ( $includeImplicit ) {
             for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
@@ -723,23 +729,29 @@ final class SourceDom
         }
         $id = self::attr($control, 'id');
         if ( '' === $id || ! $control->ownerDocument instanceof DOMDocument ) {
-            return $implicit;
+            return $implicit instanceof DOMElement ? array($implicit) : array();
         }
 
         $scope = self::documentVariantRoot($control);
-        $fallback = null;
+        $labels = array();
+        $fallback = array();
         foreach ( $control->ownerDocument->getElementsByTagName('label') as $label ) {
             if ( ! $label instanceof DOMElement || $id !== self::attr($label, 'for') ) {
                 continue;
             }
             $labelScope = self::documentVariantRoot($label);
             if ( ( null === $scope && null === $labelScope ) || ( $scope instanceof DOMElement && $labelScope instanceof DOMElement && $scope->isSameNode($labelScope) ) ) {
-                return $label;
+                $labels[] = $label;
+            } else {
+                $fallback[] = $label;
             }
-            $fallback ??= $label;
         }
 
-        return $fallback ?? $implicit;
+        $labels = array() !== $labels ? $labels : $fallback;
+        if ( $implicit instanceof DOMElement && ! in_array($implicit, $labels, true) ) {
+            $labels[] = $implicit;
+        }
+        return $labels;
     }
 
     public static function elementSelector(DOMElement $element): string

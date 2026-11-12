@@ -942,6 +942,8 @@ final class NavigationPatternContext
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             $this->recordCurrentItemPresentation($current, $scope, $source);
             $markup = (string) json_encode($block);
+            // Without a submenu no item holds another item's links.
+            $hasSubmenus = str_contains($markup, '"core\/navigation-submenu"');
             $root = $source->getNodePath() ?? '';
             $this->publishInheritedNavigationPresentation($block, $source, $scope);
             foreach ($this->pendingNavigationSubjects as $path => $subject) {
@@ -955,7 +957,7 @@ final class NavigationPatternContext
                     // Anchor subjects add Core's content anchor to the item target;
                     // projected source boxes already have their structural path.
                     $target = str_contains($target, '.wp-block-navigation-item__content')
-                        ? self::itemContentTarget($itemTarget)
+                        ? self::itemContentTarget($itemTarget, $hasSubmenus)
                         : $itemTarget;
                 }
                 $this->session?->authorSelectorProjectionState()->installNavigationSubject($path, $target);
@@ -1099,11 +1101,13 @@ final class NavigationPatternContext
 
     /**
      * An item's own content, through any retained boxes, but not the links in
-     * its submenu: those are other items. The exclusion adds no specificity.
+     * its submenu: those are other items. The exclusion adds no specificity,
+     * and a menu without submenus has nothing to exclude.
      */
-    private static function itemContentTarget(string $item): string
+    private static function itemContentTarget(string $item, bool $hasSubmenus = true): string
     {
-        return $item . ' :where(.wp-block-navigation-item__content):not(:where(' . $item . ' .wp-block-navigation__submenu-container *))';
+        $content = $item . ' :where(.wp-block-navigation-item__content)';
+        return $hasSubmenus ? $content . ':not(:where(' . $item . ' .wp-block-navigation__submenu-container *))' : $content;
     }
 
     /** The source anchor remains a distinct CSS subject inside Core's item. */

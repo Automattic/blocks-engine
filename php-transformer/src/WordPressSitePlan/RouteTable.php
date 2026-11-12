@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\DeclaredContent;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use InvalidArgumentException;
 
@@ -125,7 +126,7 @@ final class RouteTable
             $route = array_values(array_filter($routes, static fn(array $route): bool => $route['source_path'] === $page['source_path']))[0] ?? null; if (!is_array($route)) throw new InvalidArgumentException('WordPress site plan page lacks a canonical route.'); $path = $route['target_path'];
             if (isset($byRoute[$path])) throw new InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both resolve to %s.', (string) ($pages[$byRoute[$path]]['source_path'] ?? ''), (string) $page['source_path'], $path));
             $page['route'] = array('path' => $path, 'parent_path' => PageRoute::parent($path), 'slug' => PageRoute::slug($path));
-            if ('/' !== $path) $page['slug'] = $page['route']['slug'];
+            if ('/' !== $path) $page['slug'] = DeclaredContent::sanitize($page['metadata']['declared_content'] ?? null)['slug'] ?? $page['route']['slug'];
             $page['reconciliation_identity'] = WordPressSitePlan::identity('page', $page['source_path'], $path);
             $byRoute[$path] = $index;
         }
