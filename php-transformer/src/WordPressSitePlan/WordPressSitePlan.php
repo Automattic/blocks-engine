@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
-use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\StepTimer;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -161,8 +160,8 @@ final class WordPressSitePlan
         // which is what tells a button that renders through them apart from
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
-        $this->designSystem = DesignSystem::fromUsage(self::designUsage($documents))?->withButtonElementsOwnedBy(array_values(array_filter(array_column($documents, 'block_markup'), 'is_string')));
-        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, self::designUsage($documents));
+        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy(array_values(array_filter(array_column($documents, 'block_markup'), 'is_string')));
+        $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
         $surfaces = TemplateSurfaces::select($documents);
@@ -468,7 +467,7 @@ final class WordPressSitePlan
         $pages = $blockThemeChrome['pages'];
         $singleContent = array() !== $blockThemeChrome['templates'] ? reset($blockThemeChrome['templates']) : null;
           $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
-          $pages = self::resolveFeaturedImageTargets($pages, $tokens);
+          $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
           $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
          // Content every panel of one tabs block repeats is declared once.
          $syncedPatterns = SyncedPatternProjection::project($pages, $assets);
@@ -553,7 +552,7 @@ final class WordPressSitePlan
         $parts = $articleChrome['parts'];
         // Template-group lifting settles post bodies and can add featured images.
         $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
-        $pages = self::resolveFeaturedImageTargets($pages, $tokens);
+        $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
         $registeredTemplates = array();
         foreach ($pages as $page) if (isset($page['route_template']) && !isset($registeredTemplates[$page['route_template']])) {
             $registeredTemplates[$page['route_template']] = true;
@@ -569,14 +568,14 @@ final class WordPressSitePlan
         $emittedMarkup = implode("\n", self::markups(array_merge($pages, $parts, $templates, $syncedPatterns)));
         $menus = array_values(array_filter($menus, static fn(array $menu): bool => !isset($menu['token']) || str_contains($emittedMarkup, self::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}')));
         $operations = PageOperations::plan($pages);
-        $assets = self::withVariantScopedIdSelectors($assets);
+        $assets = CompiledAssets::withVariantScopedIdSelectors($assets);
         // Stylesheet values equal to a token follow it too: links inside
         // text, navigation items and states have no block attribute to bind.
         if (null !== $this->presetBinding) foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
             $content = $this->presetBinding->bindStylesheet($asset['content']);
             if ($content === $asset['content']) continue;
-            $asset = self::withRewrittenTextContent($asset, $content);
+            $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
         // Asset payloads are the last canonicalization pass, so the placeholder
@@ -587,7 +586,7 @@ final class WordPressSitePlan
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $compacted = $compactor->compactStylesheet($asset['content']);
-            if ($compacted !== $asset['content']) $asset = self::withRewrittenTextContent($asset, $compacted);
+            if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);
         $themeAssetWrites = new ThemeAssetWrites();
@@ -621,7 +620,7 @@ final class WordPressSitePlan
         // compiled entity manifests' content-addressed store.
         if (array() !== $factoredRuntimeDeclarations['entity_records']) $runtimeEntityRecords = RuntimeEntityManifest::normalizeRecords(array_values(array_column(array_merge($runtimeEntityRecords, $factoredRuntimeDeclarations['entity_records']), null, 'content_hash')));
         if (array() !== $droppedDeclarations) {
-            $runtimeEntityRecords = self::referencedEntityRecords(RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords), $runtimeEntityRecords);
+            $runtimeEntityRecords = RuntimeEntityManifest::referencedRecords(RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords), $runtimeEntityRecords);
             $pages = WholePageCandidates::attach(array_map(static function (array $page): array { unset($page['whole_page_candidates']); return $page; }, $pages), RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords), $runtimeEntityRecords);
             $unitFindings = array_merge($unitFindings, $droppedDeclarations);
             $recoveryDiagnostics = array_merge($recoveryDiagnostics, $droppedDeclarations);
@@ -702,20 +701,6 @@ final class WordPressSitePlan
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
         return $plan;
-    }
-
-    /**
-     * Entity records still referenced once factoring dropped declarations.
-     * Records only a dropped manifest referenced leave the plan with it.
-     *
-     * @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $records
-     * @return array<int,array<string,mixed>>
-     */
-    private static function referencedEntityRecords(array $declarations, array $records): array
-    {
-        $referenced = array();
-        foreach ($declarations as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) foreach ($declaration['payload']['entities'] ?? array() as $reference) if (is_string($reference['content_hash'] ?? null)) $referenced[$reference['content_hash']] = true;
-        return array_values(array_filter($records, static fn (mixed $record): bool => is_array($record) && isset($referenced[$record['content_hash'] ?? ''])));
     }
 
     /**
@@ -964,57 +949,6 @@ final class WordPressSitePlan
         return $rows;
     }
 
-    /**
-     * Keep variant-scoped author rules on the ids the page actually renders.
-     *
-     * When a captured desktop/mobile pair shares an id, the mobile copy is
-     * rendered as `<id>--data-blocks-engine-capture-mobile` so the page keeps unique ids. The delivered
-     * stylesheets still address the source id (`:where(.data-blocks-engine-capture-mobile-document)
-     * #<id>`), so without this pass every mobile id rule misses its element.
-     * It runs after shared-chrome extraction, which reasons about the source
-     * ids, and only changes selectors scoped to a non-default document variant.
-     *
-     * @param array<int,array<string,mixed>> $assets
-     * @return array<int,array<string,mixed>>
-     */
-    private static function withVariantScopedIdSelectors(array $assets): array
-    {
-        foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
-            $content = DocumentVariantIds::scopeIdSelectors($asset['content']);
-            if ($content === $asset['content']) continue;
-            $asset = self::withRewrittenTextContent($asset, $content);
-        }
-        unset($asset);
-        return $assets;
-    }
-
-    /**
-     * An asset whose text was rewritten in place. Its transport twin
-     * (`content_base64` and `transport_sha256`) described the bytes as
-     * delivered, so it is dropped rather than left to contradict the content.
-     *
-     * @param array<string,mixed> $asset
-     * @return array<string,mixed>
-     */
-    public static function withRewrittenTextContent(array $asset, string $content): array
-    {
-        $asset['content'] = $content;
-        $asset['bytes'] = strlen($content);
-        $asset['content_hash'] = self::contentHash($content);
-        if (array_key_exists('hash', $asset)) $asset['hash'] = self::contentHash($content);
-        unset($asset['content_base64'], $asset['transport_sha256']);
-        return $asset;
-    }
-
-    /** @param array<int,mixed> $prior @param array<int,mixed> $references @return array<int,mixed> */
-    public static function mergedReferences(array $prior, array $references): array
-    {
-        foreach ($references as $reference) if (!in_array($reference, $prior, true)) $prior[] = $reference;
-        return $prior;
-    }
-
-
     /** @param array<int,array<string,mixed>> $assets @return array<int,array<string,string>> */
     private function tokens(array $assets): array { return array_map(static fn(array $asset): array => array('token' => $asset['token'], 'source_path' => $asset['source_path'], 'target_path' => $asset['target_path']), $assets); }
 
@@ -1060,28 +994,6 @@ final class WordPressSitePlan
         return $this->chromeIdentityKeys[hash('xxh128', $markup)] ??= ('' === ($identity = ChromeIdentity::markup($markup)) ? '' : hash('xxh128', $identity));
     }
 
-    /**
-     * Name each featured-image handoff by its declared theme write, so the
-     * consumer attaches the same file the plan materializes.
-     *
-     * @param array<int,array<string,mixed>> $pages
-     * @param array<int,array{token:string,source_path:string,target_path:string}> $tokens
-     * @return array<int,array<string,mixed>>
-     */
-    private static function resolveFeaturedImageTargets(array $pages, array $tokens): array
-    {
-        $targets = array_column($tokens, 'target_path', 'token');
-        foreach ($pages as &$page) {
-            $image = $page['metadata']['featured_image'] ?? null;
-            if (!is_array($image)) continue;
-            $target = $targets[$image['asset_token'] ?? ''] ?? null;
-            if (is_string($target)) $page['metadata']['featured_image']['target_path'] = $target;
-            else unset($page['metadata']['featured_image']);
-        }
-        unset($page);
-        return $pages;
-    }
-
     // A dynamic reference is a URL the script builds or assigns: an import, an
     // injected script, a `src` it sets, a URL it constructs. Inserting a node
     // (`appendChild`, `insertBefore`) names no URL: a copy button's scratch
@@ -1114,29 +1026,6 @@ final class WordPressSitePlan
     public static function write(string $kind, string $target, string $content, ?string $sourcePath = null, string $encoding = 'utf8'): array { $sourcePath ??= 'wordpress-site-plan/' . $target; return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash($content), 'payload' => array('encoding' => $encoding, 'data' => $content)); }
     /** @param array{schema:string,id:string,bytes:int,sha256:string} $reference */
     public static function referenceWrite(string $kind, string $target, string $sourcePath, array $reference): array { return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash(RuntimeDeclarations::canonicalJson($reference)), 'raw_sha256' => $reference['sha256'], 'payload' => array('encoding' => 'reference', 'reference' => $reference)); }
-    private static function relativePath(string $origin, string $target): string
-    {
-        $from = '' === $origin ? array() : explode('/', dirname($origin));
-        if (array('.') === $from) $from = array();
-        $to = explode('/', $target);
-        while (array() !== $from && array() !== $to && $from[0] === $to[0]) { array_shift($from); array_shift($to); }
-        return str_repeat('../', count($from)) . implode('/', $to);
-    }
-
-    /**
-     * Rendered design usage of every compiled document, keyed by source path.
-     *
-     * @param array<int,array<string,mixed>> $documents
-     * @return array<string,array<string,mixed>>
-     */
-    private static function designUsage(array $documents): array
-    {
-        $usage = array();
-        foreach ($documents as $document) {
-            if (is_array($document['design_usage'] ?? null) && is_string($document['source_path'] ?? null)) $usage[$document['source_path']] = $document['design_usage'];
-        }
-        return $usage;
-    }
 
     /** @param array<int,mixed> $provenance */
     private function sourceUrlFromProvenance(array $provenance): string

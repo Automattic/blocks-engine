@@ -379,7 +379,7 @@ final class PageStylesheets
                 $head['scopes'] = array_merge($head['scopes'], $asset['scopes']);
                 if (!empty($asset['frame_fallback'])) $head['frame_fallback'] = true;
                 if (isset($asset['stylesheet_instances']) || isset($head['stylesheet_instances'])) $head['stylesheet_instances'] = array_merge($head['stylesheet_instances'] ?? array(), $asset['stylesheet_instances'] ?? array());
-                if (isset($asset['references']) || isset($head['references'])) $head['references'] = WordPressSitePlan::mergedReferences(ArrayField::array($head, 'references'), ArrayField::array($asset, 'references'));
+                if (isset($asset['references']) || isset($head['references'])) $head['references'] = CompiledAssets::mergedReferences(ArrayField::array($head, 'references'), ArrayField::array($asset, 'references'));
                 $merged[$position] = $head;
                 $folded = true;
                 break;

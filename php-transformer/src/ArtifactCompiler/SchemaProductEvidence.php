@@ -109,6 +109,14 @@ final class SchemaProductEvidence
                 $pageClaims = array_merge($pageClaims, self::typedNodes($schema, 'Product'));
                 $listing = $listing || array() !== self::typedNodes($schema, 'ItemList');
             }
+            // Only narrow page ownership when there is an explicit self-routed claim.
+            // Listings without one retain all their observed products.
+            $claims = array_filter($pageClaims, static function (array $product) use ($path, $entryRoot, $canonicalPagePath): bool {
+                $url = self::declaredUrl($product);
+                return '' === $url || ltrim(self::pageRoute($url, $path, $entryRoot), '/') === $canonicalPagePath;
+            });
+            $hasSelfClaim = count($claims) > count(array_filter($claims, static fn (array $product): bool => '' === self::declaredUrl($product)));
+            if ($hasSelfClaim) $pageClaims = $claims;
             foreach ($schemas as $schema) {
                 foreach (self::typedNodes($schema, 'Product') as $product) {
                     $row = self::row($product, $path, $pagePath, $slug, $price, $siteNames);
@@ -118,7 +126,8 @@ final class SchemaProductEvidence
                     }
                     if (null === $row) continue;
                     [$productSlug, $fields] = $row;
-                    $pageEvidence[$path] = $product;
+                    $pageClaim = !$hasSelfClaim || in_array($product, $pageClaims, true);
+                    if ($pageClaim) $pageEvidence[$path] = $product;
                     $tokens = array('slug:' . $productSlug);
                     $identity = '';
                     foreach (array('productGroupID', 'sku', '@id') as $key) {
@@ -136,7 +145,7 @@ final class SchemaProductEvidence
                         $tokens[] = 'route:' . $route;
                         foreach ($alternates[$route] ?? array() as $alternate) $tokens[] = 'route:' . $alternate;
                     }
-                    $entries[] = array('language' => $language, 'path' => $path, 'fields' => $fields, 'tokens' => $tokens, 'routes' => $hasRoute ? array($route) : array(), 'score' => (isset($defaults[$route]) ? 2 : 0) + ($route === $canonicalPagePath ? 1 : 0));
+                    $entries[] = array('page_claim' => $pageClaim, 'language' => $language, 'path' => $path, 'fields' => $fields, 'tokens' => $tokens, 'routes' => $hasRoute ? array($route) : array(), 'score' => (isset($defaults[$route]) ? 2 : 0) + ($route === $canonicalPagePath ? 1 : 0));
                 }
             }
         }
@@ -183,11 +192,27 @@ final class SchemaProductEvidence
             foreach ($group['entries'] as $entry) {
                 foreach ($entry['routes'] as $route) $routes[$route] = $fields['slug'];
                 $path = $entry['path'];
-                if (!in_array($fields['slug'], $pageProducts[$path] ?? array(), true)) $pageProducts[$path][] = $fields['slug'];
+                if ($entry['page_claim'] && !in_array($fields['slug'], $pageProducts[$path] ?? array(), true)) $pageProducts[$path][] = $fields['slug'];
             }
         }
         ksort($chosen, SORT_STRING);
         return $chosen;
+    }
+
+    /** Declared page used only to filter ownership claims, never product slugs or route tokens. */
+    private static function declaredUrl(array $product): string
+    {
+        $offers = $product['offers'] ?? array();
+        if (is_array($offers) && array_is_list($offers)) $offers = $offers[0] ?? array();
+        $mainEntity = $product['mainEntityOfPage'] ?? '';
+        if (is_array($mainEntity)) $mainEntity = $mainEntity['@id'] ?? $mainEntity['url'] ?? '';
+        $id = $product['@id'] ?? '';
+        // Bare identifiers are identity evidence, not declared page URLs.
+        if (!is_string($id) || !preg_match('~^(?:https?://|/|\./|\.\./)~i', $id)) $id = '';
+        foreach (array($product['url'] ?? '', is_array($offers) ? ($offers['url'] ?? '') : '', $mainEntity, $id) as $url) {
+            if (is_string($url) && '' !== trim($url)) return trim($url);
+        }
+        return '';
     }
 
     /** @return array<int,array<string,mixed>> */

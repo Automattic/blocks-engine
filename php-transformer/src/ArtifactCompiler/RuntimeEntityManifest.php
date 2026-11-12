@@ -172,6 +172,20 @@ final class RuntimeEntityManifest
         return array_values($normalized);
     }
 
+    /**
+     * Entity records still referenced once factoring dropped declarations.
+     * Records only a dropped manifest referenced leave the plan with it.
+     *
+     * @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $records
+     * @return array<int,array<string,mixed>>
+     */
+    public static function referencedRecords(array $declarations, array $records): array
+    {
+        $referenced = array();
+        foreach ($declarations as $declaration) if (self::SCHEMA === ($declaration['payload']['schema'] ?? null)) foreach ($declaration['payload']['entities'] ?? array() as $reference) if (is_string($reference['content_hash'] ?? null)) $referenced[$reference['content_hash']] = true;
+        return array_values(array_filter($records, static fn (mixed $record): bool => is_array($record) && isset($referenced[$record['content_hash'] ?? ''])));
+    }
+
     /** @param array<string,mixed> $payload @param array<int,mixed> $records @return array<int,array<string,mixed>> */
     public static function resolve(array $payload, array $records): array
     {

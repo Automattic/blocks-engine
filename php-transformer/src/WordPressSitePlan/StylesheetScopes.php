@@ -229,7 +229,7 @@ final class StylesheetScopes
             $scopes = array();
             foreach ($run as $member) foreach ($member['asset']['scopes'] as $scope) $scopes['global' === $scope['kind'] ? '' : $scope['source_path']] = $scope;
             $sources = array_diff(array_keys($scopes), array(''));
-            $asset = WordPressSitePlan::withRewrittenTextContent($asset, implode("\n", array_column($run, 'content')));
+            $asset = CompiledAssets::withRewrittenTextContent($asset, implode("\n", array_column($run, 'content')));
             $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', serialize(array_keys($scopes)) . $asset['content']), 0, 16) . '.css';
             $asset['source_path'] = $path;
             $asset['target_path'] = 'assets/' . $path;
@@ -302,7 +302,7 @@ final class StylesheetScopes
         // rules from, so the inventory keeps its cascade order.
         $allocated = array();
         foreach ($groups as $key => $group) {
-            $asset = WordPressSitePlan::withRewrittenTextContent($group['asset'], implode("\n", $group['rules']));
+            $asset = CompiledAssets::withRewrittenTextContent($group['asset'], implode("\n", $group['rules']));
             $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', $key . $asset['content']), 0, 16) . '.css';
             $asset['source_path'] = $path;
             $asset['target_path'] = 'assets/' . $path;
