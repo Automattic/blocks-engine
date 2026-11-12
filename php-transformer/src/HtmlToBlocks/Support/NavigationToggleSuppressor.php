@@ -115,6 +115,7 @@ final class NavigationToggleSuppressor
                 continue;
             }
             if ( SourceDom::isBoundCapturedDialogTrigger($control) ) {
+                $this->mirrorCapturedMenuCopy($control, $root);
                 continue;
             }
 
@@ -143,8 +144,183 @@ final class NavigationToggleSuppressor
                     $this->session->navigationProjectionState()->markImplicitDialogControl($control);
                 }
                 $this->recordProjectedNavigationRelationship($control, $relationship['target'], $relationship['navigation']);
+                continue;
+            }
+
+            // The capture opens a shared header's drawer on only some pages.
+            $swapped = $this->visibilitySwappedNavigation($control);
+            if ( $swapped instanceof DOMElement ) {
+                $this->session->navigationProjectionState()->projectMirror($control, $swapped);
             }
         }
+    }
+
+    /**
+     * The links a separate toggle swaps with by width: a builder's phone row
+     * holds the toggle and hides on wide screens, while its desktop row holds
+     * the links and hides on small ones. Each row keeps its own wrappers and
+     * siblings, so neither can stand in for the other: a single block would
+     * sit in the wrong row at one of the two widths.
+     */
+    private function visibilitySwappedNavigation(DOMElement $control): ?DOMElement
+    {
+        if ( ! $this->isHiddenAtDefaultViewport($control)
+            || $this->hiddenBelowSharedAncestor($control, null, StyleResolver::MOBILE_REFERENCE_WIDTH) ) {
+            return null;
+        }
+
+        for ( $scope = $control->parentNode; $scope instanceof DOMElement && 'body' !== strtolower($scope->tagName); $scope = $scope->parentNode ) {
+            $found = array();
+            foreach ( $scope->getElementsByTagName('*') as $candidate ) {
+                if ( ! $candidate instanceof DOMElement
+                    || SourceDom::elementContains($candidate, $control)
+                    || SourceDom::hasAncestorTag($candidate, array( 'dialog' ))
+                    || ( array() !== $found && SourceDom::elementContains($found[count($found) - 1], $candidate) )
+                    || ! $this->isAssociatedNavigationTarget($candidate)
+                    || ! $this->ownsCoreNavigation($candidate) ) {
+                    continue;
+                }
+                $found[] = $candidate;
+            }
+            if ( array() === $found ) {
+                continue;
+            }
+
+            return 1 === count($found)
+                && ! $this->isHiddenAtDefaultViewport($found[0])
+                && $this->hiddenBelowSharedAncestor($found[0], $scope, StyleResolver::MOBILE_REFERENCE_WIDTH)
+                && $this->rowHoldsOtherContent($control, $scope)
+                && $this->rowHoldsOtherContent($found[0], $scope)
+                ? $found[0]
+                : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * The captured panel of a toggle whose row swaps with the links, when it
+     * only repeats those links: the mirror's overlay replaces it.
+     */
+    private function mirrorCapturedMenuCopy(DOMElement $control, DOMElement $root): void
+    {
+        $swapped = $this->visibilitySwappedNavigation($control);
+        if ( ! $swapped instanceof DOMElement ) {
+            return;
+        }
+        $id = trim(SourceDom::attr($control, 'id'));
+        foreach ( $root->getElementsByTagName('dialog') as $dialog ) {
+            if ( $dialog instanceof DOMElement
+                && in_array($id, preg_split('/\s+/', trim(SourceDom::attr($dialog, 'data-blocks-engine-triggers'))) ?: array(), true)
+                && $this->dialogRepeatsNavigation($dialog, $swapped) ) {
+                $this->session->navigationProjectionState()->projectMirror($control, $swapped, $dialog);
+                return;
+            }
+        }
+    }
+
+    /** Same destinations, with nothing else to read or use beyond a close button. */
+    private function dialogRepeatsNavigation(DOMElement $dialog, DOMElement $navigation): bool
+    {
+        $destinations = static function (DOMElement $container): array {
+            $found = array();
+            foreach ( $container->getElementsByTagName('a') as $anchor ) {
+                // A placeholder href is a control inside the menu, not a destination.
+                if ( $anchor instanceof DOMElement && '' !== trim($anchor->getAttribute('href')) && ! str_starts_with(trim($anchor->getAttribute('href')), '#') ) {
+                    $found[CapturedMenuDialogFold::label($anchor) . '|' . preg_replace('#/?(index\.html?)?$#', '', trim($anchor->getAttribute('href')))] = true;
+                }
+            }
+            ksort($found);
+
+            return array_keys($found);
+        };
+        if ( array() === $destinations($dialog) || $destinations($dialog) !== $destinations($navigation) ) {
+            return false;
+        }
+        foreach ( array( 'form', 'input', 'select', 'textarea', 'iframe', 'video', 'audio' ) as $tag ) {
+            if ( 0 < $dialog->getElementsByTagName($tag)->length ) {
+                return false;
+            }
+        }
+        $extraText = static function (DOMNode $node) use (&$extraText): string {
+            if ( $node instanceof DOMElement && in_array(strtolower($node->tagName), array( 'a', 'button', 'svg', 'style', 'script' ), true) ) {
+                return '';
+            }
+            if ( ! $node instanceof DOMElement ) {
+                return XML_TEXT_NODE === $node->nodeType ? trim((string) $node->textContent) : '';
+            }
+            $text = '';
+            foreach ( $node->childNodes as $child ) {
+                $text .= $extraText($child);
+            }
+
+            return $text;
+        };
+
+        return '' === $extraText($dialog);
+    }
+
+    /**
+     * Whether the element's row in the scope draws something else, such as its
+     * own logo. A wrapper around only a toggle or only a menu is no row: one
+     * block can take both places.
+     */
+    private function rowHoldsOtherContent(DOMElement $element, DOMElement $scope): bool
+    {
+        $row = $element;
+        while ( $row->parentNode instanceof DOMElement && ! $row->parentNode->isSameNode($scope) ) {
+            $row = $row->parentNode;
+        }
+        foreach ( $row->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement
+                && in_array(strtolower($descendant->tagName), array( 'a', 'img', 'svg', 'button' ), true)
+                && ! $descendant->isSameNode($element)
+                && ! SourceDom::elementContains($element, $descendant)
+                && ! SourceDom::elementContains($descendant, $element) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether `display:none` applies at the width on the element or an ancestor below the stop. */
+    private function hiddenBelowSharedAncestor(DOMElement $element, ?DOMElement $stop, float $width): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            // A captured document's own wrapper switches the whole page, not this row.
+            if ( SourceDom::isDocumentVariantRoot($node)
+                || in_array(strtolower($node->tagName), array( 'body', 'html' ), true)
+                || ( null !== $stop && $node->isSameNode($stop) ) ) {
+                return false;
+            }
+            $value = $this->styleResolver->declaredPresentation($node, 'display')->resolvedValueWhere(
+                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+            );
+            $value = $this->styleResolver->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant(trim($value)), $node, $width);
+            if ( 'none' === strtolower(trim($value)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** The captured panel this toggle's navigation replaces. */
+    public function mirrorPanel(DOMElement $control): ?DOMElement
+    {
+        return $this->session->navigationProjectionState()->mirrorPanel($control);
+    }
+
+    /** Whether this toggle gets its own navigation beside links that stay in their row. */
+    public function isMirrorControl(DOMElement $control): bool
+    {
+        return $this->session->navigationProjectionState()->isMirrorControl($control);
+    }
+
+    public function setBuildingMirror(bool $building): void
+    {
+        $this->session->navigationProjectionState()->setBuildingMirror($building);
     }
 
     /** A collapsed panel cannot host the replacement opener in the header row. */
@@ -308,6 +484,12 @@ final class NavigationToggleSuppressor
                     continue;
                 }
 
+                // Hidden items inside a menu the page shows belong to that menu
+                // (a "More" list, say); they are not this control's panel.
+                if ( $this->isInsideVisibleNavigation($candidate, $control) ) {
+                    continue;
+                }
+
                 // A capture can retain only the initially closed menu while the
                 // source creates its dialog after a click. A unique hidden nav
                 // in the control's bounded scope is its static counterpart.
@@ -347,6 +529,19 @@ final class NavigationToggleSuppressor
         }
 
         return null;
+    }
+
+    private function isInsideVisibleNavigation(DOMElement $candidate, DOMElement $control): bool
+    {
+        for ( $node = $candidate->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $this->isNavigationLandmark($node)
+                && ! SourceDom::elementContains($node, $control)
+                && ! $this->isHiddenAtDefaultViewport($node) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1671,7 +1866,10 @@ final class NavigationToggleSuppressor
 
             $projectedTarget = $this->projectedNavigationTargetForControl($toggle);
             if ( $projectedTarget instanceof DOMElement ) {
-                if ( $projectedTarget->isSameNode($navigation) ) {
+                // A mirror toggle belongs to the copy in its own slot, not to
+                // the links that stay inline in their row.
+                if ( $projectedTarget->isSameNode($navigation)
+                    && ( ! $this->isMirrorControl($toggle) || $this->session->navigationProjectionState()->isBuildingMirror() ) ) {
                     return $this->concreteToggleControl($toggle);
                 }
                 continue;
@@ -1992,7 +2190,7 @@ final class NavigationToggleSuppressor
      */
     public function isHashAnchorMenuProjection(DOMElement $element): bool
     {
-        return $this->isProjectableHashAnchorMenuToggle($element);
+        return ! $this->isMirrorControl($element) && $this->isProjectableHashAnchorMenuToggle($element);
     }
 
     /**
@@ -2003,6 +2201,10 @@ final class NavigationToggleSuppressor
      */
     public function projectedOverlayMenu(DOMElement $control): string
     {
+        // The toggle's row already decides where this copy shows.
+        if ( $this->isMirrorControl($control) ) {
+            return 'always';
+        }
         // The hamburger of an absorbed menu dialog is hidden at the wide
         // reference viewport, so the navigation that takes it over shows its
         // own button only on narrow screens.

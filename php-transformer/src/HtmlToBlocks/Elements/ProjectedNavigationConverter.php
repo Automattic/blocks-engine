@@ -66,6 +66,9 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $projectedNavigation ??= $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element);
         if ( $projectedNavigation instanceof DOMElement ) {
+            if ( $this->navigationToggleSuppressor->isMirrorControl($element) ) {
+                return $this->convertMirrorControl($element, $projectedNavigation, $fallbacks);
+            }
             $block = $this->tree->patterns($projectedNavigation, $fallbacks, array(NavigationPattern::class));
             // A landmark carrier is the panel's own box around its menu. The
             // control's slot takes only that menu; Core's overlay is the panel.
@@ -131,6 +134,140 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return ConversionOutcome::unhandled();
+    }
+
+    /**
+     * Put a navigation in the slot of a toggle whose row swaps with the row
+     * that holds the links. Core's overlay opens at every width here, and the
+     * toggle's source row decides where the block shows, so there is no
+     * breakpoint to carry over and the links stay in their own row.
+     *
+     * @param array<int, mixed> $fallbacks
+     */
+    private function convertMirrorControl(DOMElement $control, DOMElement $navigation, array &$fallbacks): ConversionOutcome
+    {
+        $panel = $this->navigationToggleSuppressor->mirrorPanel($control);
+        $this->navigationToggleSuppressor->setBuildingMirror(true);
+        try {
+            $block = $this->tree->patterns($navigation, $fallbacks, array(NavigationPattern::class));
+            if ( null === $block || 'core/navigation' !== ($block['blockName'] ?? '') ) {
+                return ConversionOutcome::unhandled();
+            }
+            $block['attrs']['className'] = SourceDom::mergeClassNames(
+                'blocks-engine-list-navigation blocks-engine-native-responsive-navigation',
+                (string) ($block['attrs']['className'] ?? ''),
+                $this->responsiveNavigationToggleMarker($navigation),
+                null === $panel ? $this->mirrorRowPaintMarker($control, $navigation) : $this->responsiveNavigationOverlayMarker($panel),
+                null === $panel ? '' : $this->mirrorPanelLinkMarker($panel)
+            );
+            $block['attrs']['overlayMenu'] = 'always';
+            $block['attrs'] = array_replace(
+                $block['attrs'],
+                null === $panel ? array() : array_intersect_key($this->responsiveNavigationOverlayAttributes($panel), array_flip(array('customOverlayBackgroundColor', 'customOverlayTextColor')))
+            );
+            $block['attrs'] = $this->withSourceOpener($block['attrs'], $navigation);
+        } finally {
+            $this->navigationToggleSuppressor->setBuildingMirror(false);
+        }
+        $this->supersedeRuntimeSelectorsForControl($control);
+
+        return ConversionOutcome::handled($block);
+    }
+
+    /**
+     * With no captured panel to copy, the overlay takes the paint around the
+     * toggle, so links drawn for the header stay readable once it opens.
+     */
+    private function mirrorRowPaintMarker(DOMElement $control, DOMElement $navigation): string
+    {
+        $background = '';
+        for ( $node = $control->parentNode; $node instanceof DOMElement && '' === $background; $node = $node->parentNode ) {
+            $values = $this->styleResolver->collapsedViewportDeclarations($node, array('background', 'background-color'));
+            $background = $this->portableCollapsedPaint($node, $this->backgroundColorLayer($node, (string) ($values['background-color'] ?? $values['background'] ?? '')));
+            // A translucent header relies on what is behind it; the overlay covers the page.
+            $parsed = '' === $background ? null : CssColor::parse($background);
+            if ( null !== $parsed && 1.0 > $parsed[3] ) {
+                $background = '';
+            }
+            if ( 'html' === strtolower($node->tagName) ) {
+                break;
+            }
+        }
+        $anchor = $navigation->getElementsByTagName('a')->item(0);
+        $color = $anchor instanceof DOMElement
+            ? $this->portableCollapsedPaint($anchor, (string) ($this->styleResolver->collapsedViewportDeclarations($anchor, array('color'))['color'] ?? ''))
+            : '';
+        $marker = 'blocks-engine-navigation-row-paint-' . substr(hash('sha256', $background . '|' . $color), 0, 12);
+        $open = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker
+            . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
+        $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay(
+            $marker,
+            ( '' === $background ? '' : $open . '{background:' . $background . '!important}' )
+                . $open . ' .wp-block-navigation__container{padding-inline-start:2rem!important}'
+                . $open . ' .wp-block-navigation-item{margin:0!important;padding:0!important}'
+                . $open . ' .wp-block-navigation-item__content{margin:0!important}'
+                . ( '' === $color ? '' : $open . ' .wp-block-navigation__responsive-container-close{color:' . $color . '!important}' )
+        );
+
+        return $marker;
+    }
+
+    /**
+     * The panel's links replace the row's in the open overlay. The links in
+     * this navigation come from the row, so their inline spacing and type
+     * would otherwise carry over into the panel.
+     */
+    private function mirrorPanelLinkMarker(DOMElement $panel): string
+    {
+        $anchor = $panel->getElementsByTagName('a')->item(0);
+        if ( ! $anchor instanceof DOMElement ) {
+            return '';
+        }
+        $properties = array('color', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'text-transform', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left');
+        $declarations = array('text-transform' => 'none!important');
+        foreach ( $this->styleResolver->collapsedViewportDeclarations($anchor, $properties) as $property => $value ) {
+            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $anchor);
+            if ( '' !== trim($value) && ! preg_match('/[{}<>;]|var\(|url\(/i', $value) ) {
+                $declarations[$property] = trim($value) . '!important';
+            }
+        }
+        $body = implode(';', array_map(static fn (string $property, string $value): string => $property . ':' . $value, array_keys($declarations), $declarations));
+        // The row's links sat in its own box; the panel's inset came from the
+        // wrappers around its links.
+        $inset = 0.0;
+        $item = null;
+        for ( $node = $anchor->parentNode; $node instanceof DOMElement && ! $node->isSameNode($panel->parentNode); $node = $node->parentNode ) {
+            $item ??= 'li' === strtolower($node->tagName) ? $node : null;
+            $boxes = $this->styleResolver->collapsedViewportDeclarations($node, array('padding-left', 'margin-left'));
+            foreach ( $boxes as $value ) {
+                if ( 1 === preg_match('/^(-?\d*\.?\d+)px$/', CssValueInspector::withoutImportant(trim($value)), $match) ) {
+                    $inset += (float) $match[1];
+                }
+            }
+        }
+        $rowGap = '';
+        if ( $item instanceof DOMElement ) {
+            $boxes = $this->styleResolver->collapsedViewportDeclarations($item, array('margin-bottom', 'padding-bottom', 'padding-top', 'margin-top'));
+            $sum = 0.0;
+            foreach ( $boxes as $value ) {
+                if ( 1 === preg_match('/^(\d*\.?\d+)px$/', CssValueInspector::withoutImportant(trim($value)), $match) ) {
+                    $sum += (float) $match[1];
+                }
+            }
+            $rowGap = 0.0 < $sum ? $sum . 'px' : '';
+        }
+        $marker = 'blocks-engine-navigation-panel-links-' . substr(hash('sha256', $body . '|' . $inset . '|' . $rowGap), 0, 12);
+        $open = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker
+            . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
+        $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay(
+            $marker,
+            $open . ' .wp-block-navigation__container{padding-inline-start:' . $inset . 'px!important;' . ( '' === $rowGap ? '' : 'row-gap:' . $rowGap . '!important' ) . '}'
+                . $open . ' .wp-block-navigation-item{margin:0!important;padding:0!important}'
+                . $open . ' .wp-block-navigation-item__content{margin:0!important;' . $body . '}'
+                . ( isset($declarations['color']) ? $open . ' .wp-block-navigation__responsive-container-close{color:' . $declarations['color'] . '}' : '' )
+        );
+
+        return $marker;
     }
 
     private function retainsRuntimeButtonBinding(DOMElement $element): bool
@@ -253,7 +390,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         // these boundaries also participate in the generated marker hash.
         $collapseBoundary = $always ? '' : $this->sourceCollapseBoundary($navigation, $toggle);
         $absentAbove = $always ? '' : $this->sourceAbsentAboveBoundary($navigation, $toggle);
-        $bindsPanel = ! $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle)
+        $bindsPanel = ! $this->navigationToggleSuppressor->isMirrorControl($toggle)
+            && ! $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle)
             && ( $always || ( '' !== $absentAbove && ! $this->navigationToggleSuppressor->projectedNavigationTargetForControl($toggle) instanceof DOMElement ) )
             && $this->hasNavigationHeader($navigation);
         // Making the host static also cancels its own relative offsets. Carry
