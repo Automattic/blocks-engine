@@ -5140,10 +5140,7 @@ PHP;
         // with the current route are self references. Work on the comparison
         // copy; there is no shared-part current-document URL runtime contract.
         $urls = array_unique(array($url, rtrim($url, '/')));
-        foreach ($urls as $self) foreach (array($self, rawurlencode($self), urlencode($self)) as $value) {
-            $markup = preg_replace('~' . preg_quote($value, '~') . '(?=["<\\s&]|$)~', 'blocks-engine-self-document', $markup) ?? $markup;
-        }
-        return $markup;
+        return \Automattic\BlocksEngine\PhpTransformer\Support\RouteSelfReference::markup($markup, array_values($urls));
     }
 
     /**

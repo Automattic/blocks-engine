@@ -84,6 +84,8 @@ final class CaptureEvidence
     public const VIEWPORT_CLASS_PREFIX = 'data-blocks-engine-capture-width-class-';
     /** Class prefix pairing responsive counterparts; followed by 12 lowercase hex digits. */
     public const RESPONSIVE_COUNTERPART_CLASS_PREFIX = 'data-blocks-engine-capture-responsive-counterpart-';
+    /** Capture alias for a responsive dialog root class. */
+    public const RESPONSIVE_CLASS_PREFIX = 'data-blocks-engine-capture-responsive-class-';
     /** Authored fragment shared by responsive target copies; ids remain variant-specific. */
     public const RESPONSIVE_FRAGMENT = 'data-blocks-engine-capture-responsive-fragment';
     /** Marks the capture's responsive-fragment resolver script; the theme ships its own runtime. */

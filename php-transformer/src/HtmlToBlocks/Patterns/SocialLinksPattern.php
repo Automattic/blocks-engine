@@ -147,7 +147,6 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             // its source selectors without a Custom HTML escape hatch.
             foreach ($capturedPaint as [$svg, $color]) {
                 $svg->setAttribute('style', rtrim($svg->getAttribute('style'), "; \t\n\r") . ';fill:' . $color);
-                $svg->setAttribute('class', trim($svg->getAttribute('class') . ' blocks-engine-captured-glyph-paint'));
             }
             $artworkLinks = array();
             foreach ($anchors as $anchor) {
