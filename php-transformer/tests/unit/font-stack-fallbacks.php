@@ -33,7 +33,7 @@ foreach ($headings[1] as $attributes) {
 
 // Generic primaries are distinct families, not interchangeable fallbacks.
 [$genericTheme, $genericMarkup] = $compile('<style>body{font-family:serif}h2{font-family:sans-serif}h3{font-family:monospace}</style><main><p>Body</p><h2>Title</h2><h3>Subtitle</h3></main>');
-$assert('inherit' === ($genericTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'Different generic primaries leave the shared heading default inheriting');
+$assert(!isset($genericTheme['styles']['elements']['heading']['typography']['fontFamily']), 'Different authored generic primaries must not receive a shared heading inheritance reset');
 $genericFamilies = array_column($genericTheme['settings']['typography']['fontFamilies'], 'fontFamily', 'slug');
 preg_match_all('/<!-- wp:heading\b(.*?)-->/s', $genericMarkup, $genericHeadings);
 foreach ($genericHeadings[1] as $index => $attributes) {

@@ -163,7 +163,17 @@ final class ThemeJsonProjection
         $counts = array_count_values(array_map(static fn(array $candidate): string => $candidate['property'] . "\n" . strtolower($candidate['value']), $candidates));
         $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => !isset($conditionalProperties[$candidate['target'] . "\n" . $candidate['property']]) && !isset($unrepresentableProperties[$candidate['target'] . "\n" . $candidate['property']]) && (1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:'))));
         $presets = null === $system ? $this->presets($selected, $fontFamilyStacks) : $this->systemPresets($system);
-        $selected = $this->sharedDefaults($selected, $assets, $documentPaths);
+        // Unlayered type selectors have equal specificity: within the same
+        // stylesheet applicability, the last heading family is the winner.
+        // Keep different route scopes separate for sharedDefaults() to veto.
+        $headingFamilies = array();
+        foreach ($selected as $index => $candidate) {
+            if ('font-family' !== $candidate['property'] || '' !== $candidate['layer'] || !preg_match('/^element:h[1-6]$/', $candidate['target'])) continue;
+            $key = $candidate['target'] . "\n" . json_encode($assets[$candidate['asset']]['scopes'] ?? array(array('kind' => 'global')));
+            if (isset($headingFamilies[$key])) unset($selected[$headingFamilies[$key]]);
+            $headingFamilies[$key] = $index;
+        }
+        $selected = $this->sharedDefaults(array_values($selected), $assets, $documentPaths);
         $responsiveBreakpoints = ResponsiveBreakpoints::fromAssets($assets);
         $theme = $this->theme($selected, $presets, $this->fontFaces($assets), $responsiveBreakpoints['viewport'], $system);
         if (null !== $system) $theme = $this->withSystem($theme, $system, $presets, array_replace($this->authoredElementProperties($deliveryAssets, $variables), $contestedProperties));
@@ -696,6 +706,13 @@ final class ThemeJsonProjection
         // without promoting a section's colour or a heading level's typeface
         // to the whole site. Authored and derived element families still win.
         foreach (array('link', 'heading') as $element) {
+            // A source-owned heading family must not be reset to the body font
+            // by the later Global Styles stylesheet, even if it cannot project.
+            if ('heading' === $element) {
+                $hasAuthoredFamily = false;
+                foreach (array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) $hasAuthoredFamily = $hasAuthoredFamily || isset($authored['element:' . $tag . "\nfont-family"]);
+                if ($hasAuthoredFamily) continue;
+            }
             $styles['elements'][$element]['typography']['fontFamily'] ??= 'inherit';
         }
         $settings = $theme['settings'];
