@@ -1483,6 +1483,20 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/ContentDecisions.php": {
+      "InvalidArgumentException('Compiled site documents must be an array.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('Compiled site document is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "ValidationException('A declared template surface must have coherent versioned identity and declaration provenance.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/EntityBindings.php": {
       "InvalidArgumentException('A runtime entity binding lacks an exact emitted block anchor.')": {
         "class": "integrity",
@@ -1798,17 +1812,13 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('Compiled site document is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('Compiled site document is outside the entrypoint content root.')": {
         "class": "integrity",
         "count": 1
       },
       "InvalidArgumentException('Compiled site documents must be an array.')": {
         "class": "integrity",
-        "count": 4
+        "count": 3
       },
       "InvalidArgumentException('Compiled site route source is invalid.')": {
         "class": "integrity",
@@ -2265,10 +2275,6 @@
         "count": 1
       },
       "ValidationException(\"WordPress site plan {$label} is invalid: {$reason}.\")": {
-        "class": "integrity",
-        "count": 1
-      },
-      "ValidationException('A declared template surface must have coherent versioned identity and declaration provenance.')": {
         "class": "integrity",
         "count": 1
       },
