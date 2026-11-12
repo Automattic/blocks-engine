@@ -4077,7 +4077,7 @@ final class ShellExtraction
         $markup = preg_replace_callback('/\sclass="([^"]*)"/', static fn (array $match): string => ' class="' . implode(' ', array_filter(preg_split('/\s+/', trim($match[1])) ?: array(), static fn (string $class): bool => !self::isInheritedNavigationLinkColor($class))) . '"', $markup) ?? $markup;
         // Block comments were canonicalized as JSON above; only the rendered HTML
         // between them is read as tags.
-        $markup = implode('', array_map(static fn (string $piece): string => str_starts_with($piece, '<!--') ? $piece : RenderEquivalentMarkup::canonical($piece), preg_split('/(<!--.*?-->)/s', $markup, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array($markup)));
+        $markup = implode('', array_map(static fn (string $piece): string => str_starts_with($piece, '<!--') ? $piece : RenderEquivalentMarkup::canonical($piece, true), preg_split('/(<!--.*?-->)/s', $markup, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array($markup)));
         return ChromeStackingIdentity::normalize(ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup));
     }
 
@@ -4142,7 +4142,7 @@ final class ShellExtraction
             }
             // Rendered HTML a block carries as an attribute (its content, a
             // label's markup) reads like the HTML between block comments.
-            foreach ($attrs as $name => $value) if (is_string($value) && ('content' === $name || preg_match('/<[a-zA-Z]/', $value))) $attrs[$name] = RenderEquivalentMarkup::canonical($value);
+            foreach ($attrs as $name => $value) if (is_string($value) && ('content' === $name || preg_match('/<[a-zA-Z]/', $value))) $attrs[$name] = RenderEquivalentMarkup::canonical($value, true);
             if (is_string($attrs['className'] ?? null)) {
                 $classes = array_values(array_filter(preg_split('/\s+/', trim($attrs['className'])) ?: array(), static fn(string $class): bool => '' !== $class && 'wp-block-group' !== $class && 'blocks-engine-empty-visual-group' !== $class && 'blocks-engine-css-owned-layout' !== $class && null === EngineMarker::editorAnchorId($class) && !self::isInheritedNavigationLinkColor($class)));
                 sort($classes, SORT_STRING);
@@ -4161,8 +4161,16 @@ final class ShellExtraction
     private static function canonicalizeIdentityStyles(array &$attrs): void
     {
         foreach ($attrs as $name => &$value) {
-            if (is_array($value)) self::canonicalizeIdentityStyles($value);
-            elseif (is_string($value) && str_contains($value, ':') && ('style' === $name || str_ends_with((string) $name, 'Style'))) $value = RenderEquivalentMarkup::canonicalStyle($value);
+            if (CaptureEvidence::VIEWPORT_ENTRANCE === $name) {
+                unset($attrs[$name]);
+            } elseif (is_array($value)) {
+                $hadValues = array() !== $value;
+                self::canonicalizeIdentityStyles($value);
+                if ($hadValues && array() === $value) unset($attrs[$name]);
+            } elseif (is_string($value) && str_contains($value, ':') && ('style' === $name || str_ends_with((string) $name, 'Style'))) {
+                $value = RenderEquivalentMarkup::canonicalStyle($value, true);
+                if ('' === $value) unset($attrs[$name]);
+            }
         }
     }
 
