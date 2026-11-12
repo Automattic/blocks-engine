@@ -1996,6 +1996,20 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/PlanWrites.php": {
+      "InvalidArgumentException('WordPress site plan write has a stale payload hash or invalid structure.')": {
+        "class": "integrity",
+        "count": 2
+      },
+      "InvalidArgumentException('WordPress site plan write has an invalid payload reference.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan write has invalid base64 payload.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/RouteTable.php": {
       "InvalidArgumentException('Compiled site documents must be an array.')": {
         "class": "integrity",
@@ -2352,18 +2366,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan theme is structurally invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan write has a stale payload hash or invalid structure.')": {
-        "class": "integrity",
-        "count": 2
-      },
-      "InvalidArgumentException('WordPress site plan write has an invalid payload reference.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan write has invalid base64 payload.')": {
         "class": "integrity",
         "count": 1
       },
