@@ -55,16 +55,19 @@ final class FormControlMetadataBuilder
     }
 
     /**
-     * @param list<DOMElement>|null $manifestControls Provider-only inventory; topology keeps the authored inventory.
+     * @param list<DOMElement>|null $manifestControls Explicit provider inventory.
+     * @param list<DOMElement>|null $emittedElements Elements corresponding to emitted metadata rows.
      * @return array<int, array<string, mixed>>
      */
-    public function controls(DOMElement $form, array $additionalControls = array(), ?array $manifestControls = null): array
+    public function controls(DOMElement $form, array $additionalControls = array(), ?array $manifestControls = null, ?array &$emittedElements = null): array
     {
         $controls = array();
+        $emittedElements = array();
         $order = 0;
         foreach ( $manifestControls ?? FormControlClassifier::controlElements($form, $additionalControls) as $control ) {
             $metadata = $this->control($control, in_array($control, $additionalControls, true));
             if ( array() !== $metadata ) {
+                $emittedElements[] = $control;
                 $marker = $this->session?->authorSelectorProjectionState()->tagMarker($control->tagName) ?? '';
                 if ( '' !== $marker ) {
                     $metadata['source_tag_marker'] = $marker;

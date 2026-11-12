@@ -48,7 +48,8 @@ final class FormLayoutGraphBuilder
     /** Custom-property resolution over {@see $selectorCache}; replaced with it at every build(). */
     private FormCustomPropertyResolver $customProperties;
 
-    public function __construct()
+    /** @param list<DOMElement>|null $controlElements Explicit inventory in metadata row order. */
+    public function __construct(private readonly ?array $controlElements = null)
     {
         $this->selectorCache = new CssSelectorMatchCache();
         $this->customProperties = new FormCustomPropertyResolver($this->selectorCache);
@@ -651,7 +652,9 @@ final class FormLayoutGraphBuilder
         // reported controls, and keeps non-authored controls (and the wrappers
         // that exist only to hide them) out of the projected layout. Each id
         // describes the box that paints its control.
-        return FormControlClassifier::presentedControlElements($form);
+        return null !== $this->controlElements
+            ? array_map(FormControlClassifier::presentingElement(...), $this->controlElements)
+            : FormControlClassifier::presentedControlElements($form);
     }
 
     /**

@@ -34,15 +34,13 @@ final class FormFallbackFindingBuilder
      */
     public function build(DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null, ?array $layoutGraph = null): array
     {
-        $controls = $this->metadataBuilder->controls($element);
-        $controlTopology = (new FormControlTopologyBuilder())->build($element);
+        $controls = $this->metadataBuilder->controls($element, array(), null, $controlElements);
         $layoutGraph ??= (new FormLayoutGraphBuilder())->build($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         $presentationBuilder = new FormPresentationGraphBuilder(
             fn (DOMElement $control, string $value): string => $this->context->resolvePresentationValue($control, $value),
             fn (DOMElement $element): string => $this->context->sanitizeInlineSvgMarkup($element),
             fn (DOMElement $control): ?DOMElement => $this->metadataBuilder->requiredMarker($control)
         );
-        $presentationGraph = $presentationBuilder->build($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         $formMetadata = $this->metadataBuilder->form($element);
         $containerPresentation = $presentationBuilder->buildContainer($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         if ($containerPresentation) $formMetadata['container_presentation'] = $containerPresentation;
@@ -89,10 +87,10 @@ final class FormFallbackFindingBuilder
             'readable_blocks'  => null !== $readableFormBlock ? $this->identifyChoiceGroups(array( $readableFormBlock ), $choiceGroups) : array(),
             'binding'          => $binding,
             'controls'         => $controls,
-            'control_topology' => $controlTopology,
-            'sibling_relations' => (new FormControlTopologyBuilder())->directLabelControlPairs($element),
+            'control_topology' => array(),
+            'sibling_relations' => array(),
             'layout_graph'     => $layoutGraph,
-            'presentation_graph' => $presentationGraph,
+            'presentation_graph' => array(),
             'control_count'    => count($controls),
             'text_length'      => strlen(trim($element->textContent ?? '')),
             'child_count'      => SourceDom::childElementCount($element),
@@ -116,7 +114,7 @@ final class FormFallbackFindingBuilder
         if ( null !== $steps ) {
             $finding['steps'] = $steps;
         }
-        // Provider fields span the workflow, unlike the visible block topology.
+        // Provider fields and their indexed graphs span the workflow.
         // Hidden sibling panels need not have any particular step attribute.
         // Only expand within the recognized partitions, not unrelated decoys.
         if ( 'form' === strtolower($element->tagName) ) {
@@ -129,10 +127,22 @@ final class FormFallbackFindingBuilder
             $selectors = array_column($controls, 'selector');
             $missing = array_filter($intentControls, static fn (DOMElement $control): bool => ! in_array(SourceDom::elementSelector($control), $selectors, true));
             if ( array() !== $missing ) {
-                $finding['controls'] = $this->metadataBuilder->controls($element, array(), $intentControls);
+                $finding['controls'] = $this->metadataBuilder->controls($element, array(), $intentControls, $controlElements);
                 $finding['control_count'] = count($finding['controls']);
             }
         }
+        // Metadata can omit elements. Build every indexed graph from the exact
+        // surviving inventory, not from a fresh classifier enumeration.
+        $topologyBuilder = new FormControlTopologyBuilder();
+        $finding['control_topology'] = $topologyBuilder->build($element, $controlElements);
+        $finding['sibling_relations'] = $topologyBuilder->directLabelControlPairs($element, $controlElements);
+        $finding['layout_graph'] = (new FormLayoutGraphBuilder($controlElements))->build($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
+        $finding['presentation_graph'] = (new FormPresentationGraphBuilder(
+            fn (DOMElement $control, string $value): string => $this->context->resolvePresentationValue($control, $value),
+            fn (DOMElement $node): string => $this->context->sanitizeInlineSvgMarkup($node),
+            fn (DOMElement $control): ?DOMElement => $this->metadataBuilder->requiredMarker($control),
+            controlElements: $controlElements
+        ))->build($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         if ( 'form' !== strtolower($element->tagName) ) {
             $finding['form_boundary'] = $this->pseudoFormAnalyzer->boundaryMetadata($element);
         }
