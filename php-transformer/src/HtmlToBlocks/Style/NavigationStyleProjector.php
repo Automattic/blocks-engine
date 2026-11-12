@@ -733,6 +733,16 @@ final class NavigationStyleProjector
                     $mappedRule = $condition . '{' . $mappedRule . '}';
                 }
                 $rules[] = $mappedRule;
+                if ( '' === $pseudo && $this->laysOutChildren($declarations) ) {
+                    // The source anchor's children (a text span and a badge)
+                    // were its flex or grid items. Core wraps them in one label
+                    // span, which would become the only item and drop the gap.
+                    $labelRule = $itemSelector . '>.wp-block-navigation-item__content>.wp-block-navigation-item__label{display:contents}';
+                    foreach ( array_reverse($conditions) as $condition ) {
+                        $labelRule = $condition . '{' . $labelRule . '}';
+                    }
+                    $rules[] = $labelRule;
+                }
 
                 // The site editor renders a referenced wp_navigation entity
                 // without the frontend list-navigation root marker.
@@ -777,6 +787,15 @@ final class NavigationStyleProjector
             static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::LIST_NAVIGATION_REPAIR, $css),
             $rules
         );
+    }
+
+    /** @param list<string> $declarations */
+    private function laysOutChildren(array $declarations): bool
+    {
+        foreach ( $declarations as $declaration ) {
+            if ( 1 === preg_match('/^display\s*:\s*(?:inline-)?(?:flex|grid)\s*(?:!important)?\s*$/i', trim($declaration)) ) return true;
+        }
+        return false;
     }
 
     /**

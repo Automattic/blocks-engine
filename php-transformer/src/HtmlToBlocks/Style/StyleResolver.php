@@ -3733,7 +3733,7 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /** Read the source cascade, not the presentation declarations we prune. */
-    private function resolvedInheritedTypographyValue(DOMElement $element, string $property): string
+    public function resolvedInheritedTypographyValue(DOMElement $element, string $property): string
     {
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
             $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($current));

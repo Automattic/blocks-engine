@@ -3218,7 +3218,8 @@ final class NavigationPattern implements PatternRecognizerInterface
                 // The source's own glyph stays beside the label, where its
                 // rules place it; core's icon would draw a second indicator.
                 $indicator = $jumpMenu['indicator'];
-                $attrs['label'] .= '<span class="' . htmlspecialchars(trim($indicator->getAttribute('class')), ENT_QUOTES) . '" aria-hidden="true">' . htmlspecialchars(trim($indicator->textContent ?? ''), ENT_QUOTES) . '</span>';
+                $typography = $navigationContext?->indicatorTypography($indicator, $jumpMenu['select']) ?? '';
+                $attrs['label'] .= '<span class="' . htmlspecialchars(trim($indicator->getAttribute('class')), ENT_QUOTES) . '"' . ('' === $typography ? '' : ' style="' . htmlspecialchars($typography, ENT_QUOTES) . '"') . ' aria-hidden="true">' . htmlspecialchars(trim($indicator->textContent ?? ''), ENT_QUOTES) . '</span>';
                 $navigationContext?->recordSubmenuIndicator($element);
             }
             return $createBlock('core/navigation-submenu', $attrs, $children, $element);

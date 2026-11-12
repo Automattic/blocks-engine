@@ -319,6 +319,13 @@ final class GeneratedBlockStyleProjector
                 // default. The wrapper is already a block there, so it needs no
                 // width; an intrinsic one would shrink it to its label.
             } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::declared($sourceDeclarations, 'display'), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
+                // fit-content already wraps a label within its container; the
+                // cap only binds a label that cannot wrap, which the uncapped
+                // source control lets overflow.
+                $unwrappable = in_array(CssValueInspector::declared($sourceDeclarations, 'white-space'), array( 'nowrap', 'pre' ), true)
+                    && '' === CssValueInspector::declared($sourceDeclarations, 'max-width')
+                    && array() === $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'max-width' ));
+                $fitCap = $unwrappable ? array() : array( 'max-width:100%' );
                 if ( 'center' === $inheritedTextAlignment ) {
                     // A flex or grid item shrinks to its content unless told to
                     // fill. In block flow the wrapper already spans its line,
@@ -332,13 +339,13 @@ final class GeneratedBlockStyleProjector
                     // Shrink to fit without making the whole label the minimum
                     // width of a content-sized parent (for example a grid track).
                     $outerWrapperDeclarations[] = 'width:fit-content';
-                    $outerWrapperDeclarations[] = 'max-width:100%';
+                    $outerWrapperDeclarations = array_merge($outerWrapperDeclarations, $fitCap);
                 }
                 $intrinsicWrapperDeclarations[] = 'width:fit-content';
-                $intrinsicWrapperDeclarations[] = 'max-width:100%';
+                $intrinsicWrapperDeclarations = array_merge($intrinsicWrapperDeclarations, $fitCap);
                 $declarations[] = 'box-sizing:' . $sourceBoxSizing;
                 $declarations[] = 'width:fit-content';
-                $declarations[] = 'max-width:100%';
+                $declarations = array_merge($declarations, $fitCap);
             }
             if ( ! $this->sourceControlHasVisibleBorder($sourceControl, $sourceDeclarations) ) {
                 if ( '' === trim((string) ($style['border']['style'] ?? '')) ) {

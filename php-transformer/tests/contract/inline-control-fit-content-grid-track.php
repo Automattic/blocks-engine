@@ -18,33 +18,41 @@ $assert(str_contains($result['serialized_blocks'], 'Use the HVAC Labor Rate Calc
 // Unpainted anchors remain textual links; an explicit control role exercises
 // native button lowering without adding paint or changing the sizing CSS.
 $html = str_replace('class="button" href=', 'class="button" role="button" href=', $html);
-$result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
-$document = new DOMDocument();
-@$document->loadHTML($result['serialized_blocks']);
-$link = (new DOMXPath($document))->query('//a[@href="/x/"]')->item(0);
-$assert($link instanceof DOMElement, 'The control link survives.');
-$button = $link->parentNode;
-$wrapper = $button->parentNode;
-$assert($button instanceof DOMElement && $wrapper instanceof DOMElement && str_contains($button->getAttribute('class'), 'wp-block-button') && str_contains($wrapper->getAttribute('class'), 'wp-block-buttons'), 'The control has intrinsic and outer button wrappers.');
-$widths = $caps = array();
-foreach ($result['assets'] as $asset) {
-    if ('css' !== ($asset['kind'] ?? '')) continue;
-    preg_match_all('/([^{}]+)\{([^{}]*)\}/', $asset['content'] ?? '', $rules, PREG_SET_ORDER);
-    foreach ($rules as $rule) {
-        foreach (CssStylesheetTransformer::splitSelectorList(trim($rule[1])) ?? array() as $selector) {
-            $parsed = CssSelectorMatcher::parse($selector);
-            if (! $parsed['supported']) continue;
-            foreach (array($wrapper, $button, $link) as $index => $element) {
-                if (! CssSelectorMatcher::matches($element, $parsed)['matches']) continue;
-                $assert(! preg_match('/(?:^|;)\s*width\s*:\s*max-content(?:\s*!important)?\s*(?:;|$)/', $rule[2]), 'Neither control nor wrappers may impose a max-content minimum: ' . $selector);
-                if (preg_match('/(?:^|;)\s*width\s*:\s*fit-content(?:\s*!important)?\s*(?:;|$)/', $rule[2])) $widths[$index] = true;
-                if (preg_match('/(?:^|;)\s*max-width\s*:\s*100%(?:\s*!important)?\s*(?:;|$)/', $rule[2])) $caps[$index] = true;
+$layers = static function (string $html) use ($assert): array {
+    $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
+    $document = new DOMDocument();
+    @$document->loadHTML($result['serialized_blocks']);
+    $link = (new DOMXPath($document))->query('//a[@href="/x/"]')->item(0);
+    $assert($link instanceof DOMElement, 'The control link survives.');
+    $button = $link->parentNode;
+    $wrapper = $button->parentNode;
+    $assert($button instanceof DOMElement && $wrapper instanceof DOMElement && str_contains($button->getAttribute('class'), 'wp-block-button') && str_contains($wrapper->getAttribute('class'), 'wp-block-buttons'), 'The control has intrinsic and outer button wrappers.');
+    $widths = $caps = array();
+    foreach ($result['assets'] as $asset) {
+        if ('css' !== ($asset['kind'] ?? '')) continue;
+        preg_match_all('/([^{}]+)\{([^{}]*)\}/', $asset['content'] ?? '', $rules, PREG_SET_ORDER);
+        foreach ($rules as $rule) {
+            foreach (CssStylesheetTransformer::splitSelectorList(trim($rule[1])) ?? array() as $selector) {
+                $parsed = CssSelectorMatcher::parse($selector);
+                if (! $parsed['supported']) continue;
+                foreach (array($wrapper, $button, $link) as $index => $element) {
+                    if (! CssSelectorMatcher::matches($element, $parsed)['matches']) continue;
+                    $assert(! preg_match('/(?:^|;)\s*width\s*:\s*max-content(?:\s*!important)?\s*(?:;|$)/', $rule[2]), 'Neither control nor wrappers may impose a max-content minimum: ' . $selector);
+                    if (preg_match('/(?:^|;)\s*width\s*:\s*fit-content(?:\s*!important)?\s*(?:;|$)/', $rule[2])) $widths[$index] = true;
+                    if (preg_match('/(?:^|;)\s*max-width\s*:\s*100%(?:\s*!important)?\s*(?:;|$)/', $rule[2])) $caps[$index] = true;
+                }
             }
         }
     }
-}
-foreach (array('outer wrapper', 'intrinsic wrapper', 'control') as $index => $name) {
-    $assert(isset($widths[$index]), 'The ' . $name . ' must shrink to fit so the grid track can wrap the label.');
-    $assert(isset($caps[$index]), 'The ' . $name . ' must retain its max-width:100% cap.');
+    return array($widths, $caps);
+};
+// A wrapping label keeps the cap; a nowrap label overflows its uncapped
+// source container, so no generated layer may clamp it.
+foreach (array('wrapping' => array($html, true), 'nowrap' => array(str_replace('padding:.7rem 1rem}', 'padding:.7rem 1rem;white-space:nowrap}', $html), false)) as $case => [$source, $capped]) {
+    [$widths, $caps] = $layers($source);
+    foreach (array('outer wrapper', 'intrinsic wrapper', 'control') as $index => $name) {
+        $assert(isset($widths[$index]), $case . ': the ' . $name . ' must shrink to fit so the grid track can wrap the label.');
+        $assert($capped === isset($caps[$index]), $case . ': the ' . $name . ($capped ? ' must retain' : ' must not take') . ' a max-width:100% cap.');
+    }
 }
 echo "Inline control fit-content grid track contract passed.\n";
