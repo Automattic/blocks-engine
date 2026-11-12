@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\StylesheetScopes;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 $assert = static function (bool $condition, string $message): void {
@@ -78,7 +79,7 @@ foreach ($realistic['assets'] as $asset) {
 $assert($repairs > 0, 'The realistic fixture exercises editor repair sharing.');
 // A rule whose selector also matches a route outside its owners folds in
 // behind a zero-weight gate on its owners' route classes.
-$fold = new ReflectionMethod(WordPressSitePlan::class, 'foldDocumentSupport');
+$fold = new ReflectionMethod(StylesheetScopes::class, 'foldSupport');
 $documents = array();
 foreach (array('index.html' => 'be-r-aaaa1111', 'page-1.html' => 'be-r-bbbb2222') as $source => $class) {
     $documents[$source] = array('source_path' => $source, 'canonical_block_markup' => '<div class="shared-x"></div>', 'document_metadata' => array('root_attributes' => array('class' => 'be-r ' . $class)));
