@@ -100,6 +100,15 @@ final class FormFallbackFindingBuilder
             'html_bytes'       => $boundedHtml['bytes'],
             'html_truncated'   => $boundedHtml['truncated'],
         );
+        if ( 'client_side_tool' === $finding['form_intent'] ) {
+            $finding['runtime_requirement'] = 'client_script_execution';
+            $finding['materialization_path'] = 'preserved_runtime_island';
+            $finding['required_scripts'] = $this->session->fallbackEmitter()->requiredScriptsForElement($element);
+            $finding['message'] = 'Client-side tool controls remain editable; preserve the source script runtime and live result region.';
+            $finding['suggested_repair_class'] = 'preserve_runtime_island';
+            $finding['actionability'] = 'preserve_source_script_with_readable_controls';
+            $finding['materialization_target'] = array();
+        }
         if ( array() !== $choiceGroups ) {
             $finding['choice_groups'] = $choiceGroups;
         }
@@ -111,7 +120,18 @@ final class FormFallbackFindingBuilder
             $finding['form_boundary'] = $this->pseudoFormAnalyzer->boundaryMetadata($element);
         }
 
-        return $this->context->buildFallbackDiagnostic($finding);
+        $diagnostic = $this->context->buildFallbackDiagnostic($finding);
+        if ( 'client_side_tool' === $finding['form_intent'] ) {
+            $diagnostic['type'] = 'unsupported_html_fallback';
+            $diagnostic['id'] = $diagnostic['fallback_identity'];
+            $diagnostic['source_path'] = $diagnostic['source'] ?? '';
+            $diagnostic['source_html_preview'] = $boundedHtml['html'];
+            $diagnostic['acceptability'] = 'acceptable_preservation';
+            $diagnostic['recoverability'] = 'recoverable_with_script_enqueue_or_component_runtime';
+            $diagnostic['materialization_hint'] = 'preserve_source_script_with_readable_controls_and_live_results';
+        }
+
+        return $diagnostic;
     }
 
     /**

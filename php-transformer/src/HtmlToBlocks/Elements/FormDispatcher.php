@@ -26,6 +26,17 @@ final class FormDispatcher
             return $cardPurchase;
         }
 
+        // Tool controls (including a lone date input) always use the same
+        // editable representation, never the prose-summary/raw-HTML fallback.
+        if ( 'client_side_tool' === FormRuntimeRequirementAnalyzer::formIntent($element) ) {
+            $readable = $this->context->buildReadableFormBlock($element, true, $fallbacks);
+            if ( null !== $readable ) {
+                $fallbacks[] = $this->context->buildFallbackFinding($element, $readable);
+                $this->context->recordForm($element, $readable);
+                return $readable;
+            }
+        }
+
         $loginBlock = $this->context->loginBlockFromForm($element);
         if ( null !== $loginBlock ) {
             return $loginBlock;

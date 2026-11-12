@@ -25,9 +25,10 @@ final class FormRuntimeIslandRecorder
     public function recordForm(DOMElement $element, ?array $readableFormBlock): void
     {
         $controls = $this->metadataBuilder->controls($element);
-        ($this->recordRuntimeIsland)($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
+        $intent = FormRuntimeRequirementAnalyzer::formIntent($element);
+        ($this->recordRuntimeIsland)($element, 'form', 'form_requires_runtime', 'client_side_tool' === $intent ? 'client_script_execution' : 'server_or_client_form_handler', array(
             'form'             => $this->metadataBuilder->form($element),
-            'form_intent'      => FormRuntimeRequirementAnalyzer::formIntent($element),
+            'form_intent'      => $intent,
             'controls'         => $controls,
             'control_count'    => count($controls),
             'events'           => SourceDom::eventMetadata($element),
