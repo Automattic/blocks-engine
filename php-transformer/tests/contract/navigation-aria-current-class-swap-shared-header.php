@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
 
@@ -55,7 +56,7 @@ foreach (array(
     WordPressSitePlan::assertValid($plan);
     $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
     $assert(1 === count($headers), "$case: one shared header part");
-    $templates = WordPressSitePlan::renderedTemplates($plan);
+    $templates = ThemeTemplates::rendered($plan);
     foreach ($plan['pages'] as $page) {
         $shared = null === $difference || 'services/index.html' !== $page['source_path'];
         $template = $templates[!empty($page['entrypoint']) ? 'front-page' : (isset($templates['page-' . $page['slug']]) ? 'page-' . $page['slug'] : 'page')];
@@ -74,7 +75,7 @@ foreach (array('with skip link' => true, 'without skip link' => false) as $case 
     WordPressSitePlan::assertValid($plan);
     $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
     $assert(1 === count($headers), "$case: one shared fixture header");
-    $templates = WordPressSitePlan::renderedTemplates($plan);
+    $templates = ThemeTemplates::rendered($plan);
     $assert(6 === count($plan['pages']), "$case: all fixture routes compiled");
     foreach ($plan['pages'] as $page) {
         $template = $templates[$page['route_template'] ?? (!empty($page['entrypoint']) ? 'front-page' : 'page')];

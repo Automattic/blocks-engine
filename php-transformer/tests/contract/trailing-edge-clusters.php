@@ -4,6 +4,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\TemplateSlugs;
 
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
@@ -32,7 +33,7 @@ foreach (array(false, true) as $retainEmbeds) {
     $assert(1 === count($footers) && array() === $retained, $evidence);
     $assert(str_contains($footers[0]['canonical_block_markup'], 'Shared colophon'), 'The footer part retains its copy.');
     $assert(4 === count($footers[0]['placement']['source_paths'] ?? array_keys($footers[0]['provenance']['sources'] ?? array())), 'One footer cluster spans every route: ' . $evidence);
-    $templates = WordPressSitePlan::renderedTemplates($plan);
+    $templates = ThemeTemplates::rendered($plan);
     foreach ($plan['pages'] as $page) {
         $markup = $page['canonical_block_markup'];
         $assert(!str_contains($markup, 'wp:template-part') && str_contains($markup, 'Body ' . $page['title']), 'Route content retains only its own body: ' . $page['source_path']);

@@ -4,12 +4,12 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $fixture = require dirname(__DIR__) . '/fixtures/route-subset-shell.php';
 $result = (new ArtifactCompiler())->compile($fixture)->toArray();
 $plan = $result['source_reports']['wordpress_site_plan'];
-$templates = WordPressSitePlan::renderedTemplates($plan);
+$templates = ThemeTemplates::rendered($plan);
 $parts = array_column($plan['template_parts'], null, 'slug');
 foreach ($plan['pages'] as $page) {
     if (str_contains($page['canonical_block_markup'], 'Shared brand')) {

@@ -5,7 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\EntityEquivalence;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 /*
  * A site's chrome captured on several routes carries route state that is not
@@ -37,7 +37,7 @@ $plan = $compile(array(
     'about/index.html' => $inner('About', 'Who we are.'),
     'contact/index.html' => $inner('Contact', 'Write to us.'),
 ));
-$templates = WordPressSitePlan::renderedTemplates($plan);
+$templates = ThemeTemplates::rendered($plan);
 $pages = array_column($plan['pages'], 'canonical_block_markup', 'source_path');
 $extracted = array();
 foreach ($plan['diagnostics'] as $diagnostic) if ('wordpress_site_plan_shell_extracted' === ($diagnostic['code'] ?? null)) $extracted[$diagnostic['area']] = $diagnostic;
