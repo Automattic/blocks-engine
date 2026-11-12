@@ -77,7 +77,7 @@ final class ConversionFindingContract
         'repair_bucket', 'suggested_repair_class', 'suggested_generic_repair_class',
         'suggested_primitive', 'materialization_hint', 'runtime_island_type',
         'script_role', 'block_name', 'path',
-        'form_intent',
+        'form_intent', 'materialization_path', 'acceptability',
         'fallback_identity', 'reconciliation_identity',
     );
 
@@ -90,7 +90,7 @@ final class ConversionFindingContract
     private const ARRAY_FIELDS = array(
         'source_selector_specificity', 'context', 'events', 'classification',
         'controls', 'control', 'form', 'readable_blocks', 'signals', 'materialization_target', 'products',
-        'source_items', 'block_items', 'source_item', 'block_item',
+        'source_items', 'block_items', 'source_item', 'block_item', 'required_scripts',
     );
 
     /**
