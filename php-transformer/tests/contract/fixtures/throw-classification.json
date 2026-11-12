@@ -1803,6 +1803,125 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/PlanDocuments.php": {
+      "InvalidArgumentException(\"WordPress site plan {$kind} is structurally invalid.\")": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan template part identity is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan template part placement is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan content decision is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan content decision provenance is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan structured page evidence is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan content decision evidence is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan content decision timestamp is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan publication timestamp is invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('WordPress site plan document metadata is structurally invalid.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('meta declaration','meta',$index,$sourcePath,$documentKind,'invalid_structure',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('meta declaration','meta',$index,$sourcePath,$documentKind,'invalid_order',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('meta declaration','meta',$index,$sourcePath,$documentKind,'invalid_placement',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('meta declaration','meta',$index,$sourcePath,$documentKind,'unsupported_field',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('link declaration','link',$index,$sourcePath,$documentKind,'invalid_structure',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('link declaration','link',$index,$sourcePath,$documentKind,'invalid_order',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('link declaration','link',$index,$sourcePath,$documentKind,'invalid_placement',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('link declaration','link',$index,$sourcePath,$documentKind,'unresolved_local_url',$row)": {
+        "class": "integrity",
+        "count": 1,
+        "finding": "wordpress_site_plan_omitted_link_declaration",
+        "test": "tests/contract/unresolved-local-head-links.php"
+      },
+      "invalidDeclaration('link declaration','link',$index,$sourcePath,$documentKind,'unsupported_field',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'invalid_structure',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'invalid_order',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'invalid_placement',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'unresolved_local_url',$row)": {
+        "class": "representability",
+        "count": 1,
+        "unit": "item",
+        "finding": "wordpress_site_plan_script_url_unsupported",
+        "pending": true
+      },
+      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'unsupported_field',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'invalid_loading_semantics',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'invalid_supersession_metadata',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'undeclared_asset_token',$row)": {
+        "class": "integrity",
+        "count": 1
+      },
+      "ValidationException(\"WordPress site plan {$label} is invalid: {$reason}.\")": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/RouteTable.php": {
       "InvalidArgumentException('Compiled site documents must be an array.')": {
         "class": "integrity",
@@ -1940,10 +2059,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException(\"WordPress site plan {$kind} is structurally invalid.\")": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException(\"WordPress site plan {$kind} lacks {$field}.\")": {
         "class": "integrity",
         "count": 1
@@ -2040,22 +2155,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan content decision evidence is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan content decision is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan content decision provenance is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan content decision timestamp is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan create_page operation is invalid.')": {
         "class": "integrity",
         "count": 1
@@ -2073,10 +2172,6 @@
         "count": 1
       },
       "InvalidArgumentException('WordPress site plan document canvas is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan document metadata is structurally invalid.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2160,10 +2255,6 @@
         "class": "integrity",
         "count": 2
       },
-      "InvalidArgumentException('WordPress site plan publication timestamp is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan quality is structurally invalid.')": {
         "class": "integrity",
         "count": 1
@@ -2236,10 +2327,6 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan structured page evidence is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan style.css scaffold is invalid.')": {
         "class": "integrity",
         "count": 1
@@ -2264,15 +2351,7 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('WordPress site plan template part identity is invalid.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('WordPress site plan template part lacks its canonical write.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('WordPress site plan template part placement is invalid.')": {
         "class": "integrity",
         "count": 1
       },
@@ -2317,83 +2396,6 @@
         "count": 1
       },
       "InvalidArgumentException(sprintf('WordPress site plan has colliding page routes: %s and %s both resolve to %s.',$routePaths[$page['route']['path']],(string)$page['source_path'],(string)$page['route']['path']))": {
-        "class": "integrity",
-        "count": 1
-      },
-      "ValidationException(\"WordPress site plan {$label} is invalid: {$reason}.\")": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('link declaration','link',$index,$sourcePath,$documentKind,'invalid_order',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('link declaration','link',$index,$sourcePath,$documentKind,'invalid_placement',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('link declaration','link',$index,$sourcePath,$documentKind,'invalid_structure',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('link declaration','link',$index,$sourcePath,$documentKind,'unresolved_local_url',$row)": {
-        "class": "integrity",
-        "count": 1,
-        "finding": "wordpress_site_plan_omitted_link_declaration",
-        "test": "tests/contract/unresolved-local-head-links.php"
-      },
-      "invalidDeclaration('link declaration','link',$index,$sourcePath,$documentKind,'unsupported_field',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('meta declaration','meta',$index,$sourcePath,$documentKind,'invalid_order',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('meta declaration','meta',$index,$sourcePath,$documentKind,'invalid_placement',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('meta declaration','meta',$index,$sourcePath,$documentKind,'invalid_structure',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('meta declaration','meta',$index,$sourcePath,$documentKind,'unsupported_field',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'invalid_loading_semantics',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'invalid_order',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'invalid_placement',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'invalid_structure',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'invalid_supersession_metadata',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'undeclared_asset_token',$row)": {
-        "class": "integrity",
-        "count": 1
-      },
-      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'unresolved_local_url',$row)": {
-        "class": "representability",
-        "count": 1,
-        "unit": "item",
-        "finding": "wordpress_site_plan_script_url_unsupported",
-        "pending": true
-      },
-      "invalidDeclaration('script declaration','script',$index,$sourcePath,$documentKind,'unsupported_field',$row)": {
         "class": "integrity",
         "count": 1
       },
