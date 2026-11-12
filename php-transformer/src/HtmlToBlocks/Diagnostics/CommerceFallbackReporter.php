@@ -1185,6 +1185,17 @@ final class CommerceFallbackReporter
                 continue;
             }
             $scopes[$id] = true;
+            // The cart provider replaces the whole scope, including its forms.
+            $formSelectors = array();
+            foreach ( SourceDom::subtreeElements($scope) as $node ) {
+                if ( 'form' === strtolower($node->tagName) ) {
+                    $formSelectors[SourceDom::elementSelector($node)] = true;
+                }
+            }
+            $fallbacks = array_values(array_filter($fallbacks, static fn (array $finding): bool =>
+                'html_form_fallback' !== ($finding['diagnostic_code'] ?? '')
+                || ! isset($formSelectors[$finding['selector'] ?? ''])
+            ));
             $runtimeSelectors = $this->runtimeIslands->runtimeDomSelectorsForElement($scope);
             $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
                 'type'              => 'html',
@@ -1292,7 +1303,8 @@ final class CommerceFallbackReporter
             if ( 'main' === strtolower($node->tagName) || 'main' === strtolower(SourceDom::attr($node, 'role')) ) {
                 return '';
             }
-            $hidden = $hidden || $node->hasAttribute('hidden');
+            $hidden = $hidden || $node->hasAttribute('hidden')
+                || 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i', SourceDom::attr($node, 'style'));
         }
 
         return $hidden ? 'site_chrome' : '';
