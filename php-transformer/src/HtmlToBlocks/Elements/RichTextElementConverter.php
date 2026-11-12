@@ -359,6 +359,80 @@ final class RichTextElementConverter implements ElementConverter
     }
 
     /**
+     * Split direct iframe children through the iframe-only paragraph primitive.
+     * Phrasing runs keep the paragraph's presentation; nested iframes stay on
+     * the existing RichText fallback path. Restore the source DOM afterwards.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function paragraphWithIframeChildren(DOMElement $element, array &$fallbacks): ?array
+    {
+        $nodes = iterator_to_array($element->childNodes);
+        $hasIframe = false;
+        foreach ( $nodes as $node ) {
+            if ( $node instanceof DOMElement ) {
+                if ( 'iframe' === strtolower($node->tagName) ) {
+                    $hasIframe = true;
+                } elseif ( ! \Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags::isAllowed($node->tagName)
+                    || 0 < $node->getElementsByTagName('iframe')->length ) {
+                    return null;
+                }
+            }
+        }
+        if ( ! $hasIframe ) {
+            return null;
+        }
+
+        $children = array();
+        $local = array();
+        // Reuse the paragraph so each run retains its attributes and cascade.
+        $flush = function () use ($element, &$children, &$local): void {
+            $content = $this->richTextMaterializer->content($element);
+            if ( '' !== trim($this->runtime->stripAllTags($content)) || SourceDom::carriesOnlyRichTextInlineImages($element) ) {
+                $block = $this->convertParagraph($element, $local);
+                if ( null !== $block ) {
+                    $children[] = $block;
+                }
+            }
+            while ( null !== $element->firstChild ) {
+                $element->removeChild($element->firstChild);
+            }
+        };
+        foreach ( $nodes as $node ) {
+            $element->removeChild($node);
+        }
+        try {
+            foreach ( $nodes as $node ) {
+                if ( $node instanceof DOMElement && 'iframe' === strtolower($node->tagName) ) {
+                    $flush();
+                    $element->appendChild($node);
+                    // The same primitive as an iframe-only paragraph (#4666).
+                    $block = $this->context->mediaBlockFromTextlessElement($element, $local);
+                    if ( null === $block ) {
+                        return null;
+                    }
+                    $children[] = $block;
+                    $element->removeChild($node);
+                } else {
+                    $element->appendChild($node);
+                }
+            }
+            $flush();
+        } finally {
+            foreach ( $nodes as $node ) {
+                $element->appendChild($node);
+            }
+        }
+        if ( $this->containsHtmlBlock($children) ) {
+            return null;
+        }
+        $fallbacks = array_merge($fallbacks, $local);
+
+        return $this->createBlock->createBlock('core/group', array('layout' => array('type' => 'default')), $children);
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
@@ -383,6 +457,11 @@ final class RichTextElementConverter implements ElementConverter
         $media = $this->context->mediaBlockFromTextlessElement($element, $fallbacks);
         if ( null !== $media || count($fallbacks) > $fallbackCount ) {
             return $media;
+        }
+
+        $splitMedia = $this->paragraphWithIframeChildren($element, $fallbacks);
+        if ( null !== $splitMedia ) {
+            return $splitMedia;
         }
 
         $editableIconRow = $this->context->compactLinkedIconTextRowFromParagraph($element);
