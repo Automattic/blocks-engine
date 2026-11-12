@@ -204,8 +204,9 @@ $orphanPlan = (new WordPressSitePlan())->fromCompilerResult($orphanInput);
 WordPressSitePlan::assertValid($orphanPlan);
 $assert(array() === $orphanPlan['runtime_declarations'] && array() === $orphanPlan['runtime_entity_records'], 'A dropped manifest takes its entity records with it.');
 // The validator holds every plan to that: a record no manifest references is rejected.
+$orphanEntity = RuntimeDeclarations::canonical(array('id' => 'orphan', 'title' => 'No manifest names this'));
 $orphaned = $manifestPlan;
-$orphaned['runtime_declarations'] = array();
+$orphaned['runtime_entity_records'] = RuntimeEntityManifest::normalizeRecords(array_merge($manifestPlan['runtime_entity_records'], array(array('content_hash' => RuntimeDeclarations::hash($orphanEntity), 'entity' => $orphanEntity))));
 try {
     WordPressSitePlan::assertValid($orphaned);
     $assert(false, 'A plan carrying unreferenced entity records is rejected.');
