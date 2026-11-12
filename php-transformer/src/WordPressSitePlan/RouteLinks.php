@@ -106,7 +106,7 @@ final class RouteLinks
      * the artifact records its source URL, or neutralize it to a same-page
      * fragment otherwise, and report the outcome instead of rejecting the whole
      * plan. Asset references (src, srcset, CSS url(), link href) stay on the
-     * declared-token path and remain rejected by assertNoLocalBrowserReferences.
+     * declared-token path and remain rejected by LocalBrowserReferences::assertNone().
      *
      * @param array<int,array<string,mixed>> $routes
      */
@@ -132,7 +132,7 @@ final class RouteLinks
     /**
      * Link destinations stored in block comment attributes (a navigation item's
      * `url`, a wrapper's `href`, a form's `action`) get the same treatment as
-     * markup links. WordPressSitePlan::assertNoLocalBrowserReferences() walks these attributes too,
+     * markup links. LocalBrowserReferences::assertNone() walks these attributes too,
      * so leaving them unresolved rejects the whole plan.
      *
      * @param array<int,array<string,mixed>> $routes

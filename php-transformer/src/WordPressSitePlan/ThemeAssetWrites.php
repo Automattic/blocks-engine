@@ -39,7 +39,7 @@ final class ThemeAssetWrites
             $data = $text ? $content : (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (is_string($content) ? base64_encode($content) : null));
             if ( ! is_string($data) ) throw new InvalidArgumentException(sprintf('Compiled site asset %s lacks a materializable payload.', $asset['source_path']));
             $writes[] = WordPressSitePlan::write('theme_asset', $asset['target_path'], $data, $asset['source_path'], $text ? 'utf8' : 'base64');
-            if ($text && WordPressSitePlan::isVerbatimRuntimeWrite('theme_asset', $asset['target_path'])) $this->recordUnresolvedScriptReferences($asset['target_path'], $data, $asset['source_path']);
+            if ($text && LocalBrowserReferences::isVerbatimWrite('theme_asset', $asset['target_path'])) $this->recordUnresolvedScriptReferences($asset['target_path'], $data, $asset['source_path']);
         }
         return $writes;
     }
@@ -52,7 +52,7 @@ final class ThemeAssetWrites
      */
     private function recordUnresolvedScriptReferences(string $targetPath, string $payload, string $sourcePath): void
     {
-        WordPressSitePlan::assertNoLocalBrowserReferencesInWrite($targetPath, $payload, $sourcePath, function (string $url, string $attribute) use ($sourcePath): void {
+        LocalBrowserReferences::assertNoneInWrite($targetPath, $payload, $sourcePath, function (string $url, string $attribute) use ($sourcePath): void {
             $key = $sourcePath . "\0" . $url;
             if (isset($this->unresolvedScriptReferenceDiagnostics[$key])) return;
             if (count($this->unresolvedScriptReferenceDiagnostics) >= WordPressSitePlan::MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS) { $this->omittedUnresolvedScriptReferenceDiagnostics++; return; }

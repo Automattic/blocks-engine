@@ -1527,6 +1527,14 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/LocalBrowserReferences.php": {
+      "ValidationException(sprintf('WordPress site plan contains unresolved local browser reference %s.',$url))": {
+        "class": "integrity",
+        "count": 1,
+        "finding": "wordpress_site_plan_unresolved_navigation_link",
+        "test": "tests/contract/relative-form-action.php"
+      }
+    },
     "src/WordPressSitePlan/MissingFontSourceRecovery.php": {
       "ValidationException($diagnostic['message'])": {
         "class": "integrity",
@@ -2299,12 +2307,6 @@
       "ValidationException('Declared template surface variants have different block markup.')": {
         "class": "integrity",
         "count": 1
-      },
-      "ValidationException(sprintf('WordPress site plan contains unresolved local browser reference %s.',$url))": {
-        "class": "integrity",
-        "count": 1,
-        "finding": "wordpress_site_plan_unresolved_navigation_link",
-        "test": "tests/contract/relative-form-action.php"
       },
       "invalidDeclaration('link declaration','link',$index,$sourcePath,$documentKind,'invalid_order',$row)": {
         "class": "integrity",
