@@ -307,6 +307,10 @@ final class FormRuntimeRequirementAnalyzer
             return false;
         }
         foreach ( $scope->getElementsByTagName('*') as $result ) {
+            // A live form announces its own submission state, not a tool result.
+            if ( $result->isSameNode($form) ) {
+                continue;
+            }
             if ( 'output' === strtolower($result->tagName)
                 || 'status' === strtolower(SourceDom::attr($result, 'role'))
                 || in_array(strtolower(SourceDom::attr($result, 'aria-live')), array( 'polite', 'assertive' ), true) ) {

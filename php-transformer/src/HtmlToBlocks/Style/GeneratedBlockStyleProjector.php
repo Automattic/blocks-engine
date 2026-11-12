@@ -303,7 +303,7 @@ final class GeneratedBlockStyleProjector
                 // The outer carrier participates in the source float context.
                 // Size that float to the decorated link rather than the space
                 // left alongside earlier floats (possibly a zero-width slot).
-                $outerWrapperDeclarations[] = 'width:max-content';
+                $outerWrapperDeclarations[] = 'width:fit-content';
                 $outerWrapperDeclarations[] = 'max-width:100%';
             } elseif ( ! $hasAuthoredWidth && $this->sourceControlFillsFlowLine($sourceControl, $sourceDeclarations) ) {
                 // A block-level control in normal flow spans its container's
@@ -329,13 +329,15 @@ final class GeneratedBlockStyleProjector
                         $outerWrapperDeclarations[] = 'max-width:100%';
                     }
                 } else {
-                    $outerWrapperDeclarations[] = 'width:max-content';
+                    // Shrink to fit without making the whole label the minimum
+                    // width of a content-sized parent (for example a grid track).
+                    $outerWrapperDeclarations[] = 'width:fit-content';
                     $outerWrapperDeclarations[] = 'max-width:100%';
                 }
-                $intrinsicWrapperDeclarations[] = 'width:max-content';
+                $intrinsicWrapperDeclarations[] = 'width:fit-content';
                 $intrinsicWrapperDeclarations[] = 'max-width:100%';
                 $declarations[] = 'box-sizing:' . $sourceBoxSizing;
-                $declarations[] = 'width:max-content';
+                $declarations[] = 'width:fit-content';
                 $declarations[] = 'max-width:100%';
             }
             if ( ! $this->sourceControlHasVisibleBorder($sourceControl, $sourceDeclarations) ) {
