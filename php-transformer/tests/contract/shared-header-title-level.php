@@ -34,7 +34,7 @@ foreach ($routes as $current => $title) {
     foreach ($routes as $slug => $label) {
         $links .= '<li><a class="menu-link' . ($slug === $current ? ' is-active-menu-item' : '') . '" href="' . $slug . '.html">' . $label . '</a></li>';
     }
-    $files[$current . '.html'] = '<!doctype html><html><head><title>' . $title . '</title><style>.' . $titleClass . '{font-size:24px;font-family:Georgia;font-weight:700;margin:0' . $titlePresentation . '}.menu-link{color:#123456}.is-active-menu-item{color:#abcdef;text-decoration:underline}</style></head><body><header><div class="logo">' . $wordmark . '</div><nav><ul>' . $links . '</ul></nav></header><main><' . ($homeHeading ? 'h2' : 'h1') . '>' . $title . '</' . ($homeHeading ? 'h2' : 'h1') . '><p>Content for ' . $title . '</p></main></body></html>';
+    $files[$current . '.html'] = '<!doctype html><html><head><title>' . $title . '</title><style>.' . $titleClass . '{font-size:24px;font-family:Georgia;font-weight:700;letter-spacing:.06em;line-height:1;text-transform:uppercase;margin:0' . $titlePresentation . '}.menu-link{color:#123456}.is-active-menu-item{color:#abcdef;text-decoration:underline}</style></head><body><header><div class="logo">' . $wordmark . '</div><nav><ul>' . $links . '</ul></nav></header><main><' . ($homeHeading ? 'h2' : 'h1') . '>' . $title . '</' . ($homeHeading ? 'h2' : 'h1') . '><p>Content for ' . $title . '</p></main></body></html>';
 }
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
 $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === $part['area']));
@@ -49,6 +49,7 @@ $titleAttrs = json_decode($titleMatch[1], true);
 $assert(0 === $titleAttrs['level'] && true === $titleAttrs['isLink'], $cell . ': The shared title links home without a heading.');
 $assert('24px' === $titleAttrs['style']['typography']['fontSize'], $cell . ': Title size survives lowering.');
 $assert(str_contains($titleAttrs['style']['typography']['fontFamily'], 'Georgia'), $cell . ': Title font survives lowering.');
+$assert(array('700', '.06em', '1', 'uppercase') === array($titleAttrs['style']['typography']['fontWeight'] ?? null, $titleAttrs['style']['typography']['letterSpacing'] ?? null, $titleAttrs['style']['typography']['lineHeight'] ?? null, $titleAttrs['style']['typography']['textTransform'] ?? null), $cell . ': Title weight, tracking, leading and case survive lowering.');
 $assert('inherit' === $titleAttrs['style']['elements']['link']['color']['text'], $cell . ': The home link uses wordmark colour, not generic theme link colour.');
 if ('' !== $titlePresentation) {
     $assert('rgba(51,51,51,1)' === $titleAttrs['style']['color']['text'], $cell . ': Title colour survives lowering.');
