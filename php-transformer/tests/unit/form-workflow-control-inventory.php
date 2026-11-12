@@ -11,7 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopolog
 $wizard = '<form class="quote-form">'
     . '<section class="quote-step" data-quote-step="1"><label class="quote-field">Trip<select name="tripType"><option>Umrah</option><option>Hajj</option></select></label><button type="button" data-next>Next</button></section>'
     . '<section class="quote-step" data-quote-step="2" hidden><label>Name<input name="name" required></label><label>Email<input type="email" name="email" required></label></section>'
-    . '<section class="quote-step" data-quote-step="3" hidden><label>Requirements<textarea name="requirements"></textarea></label><button type="submit">Send</button></section></form>';
+    . '<section class="quote-step" data-quote-step="3" hidden><label>Requirements<textarea name="requirements"></textarea></label><input name="website" style="display:none"><div style="display:none"><input name="conditional"></div><button type="submit">Send</button></section></form>';
 $captured = '<form><div><div><input name="name"></div><div><input name="other" data-blocks-engine-capture-native-control-state=\'{"version":1,"kind":"input","rendered":false,"type":"text","value":"","defaultValue":"","checked":false,"defaultChecked":false,"indeterminate":false}\'></div></div></form>';
 $choiceConfig = htmlspecialchars(json_encode(array(
     'group' => array('label' => 'Travel party'),
@@ -33,6 +33,23 @@ foreach ($cases as $label => [$html, $names]) {
     $finding = $findings[0] ?? array();
     if (array_diff($names, array_column($finding['controls'] ?? array(), 'name'))) {
         throw new RuntimeException($label . ': missing workflow controls');
+    }
+    if ('captured peer' !== $label) {
+        foreach ($finding['controls'] as $control) {
+            $name = $control['name'] ?? '';
+            if (in_array($name, array('name', 'email', 'requirements'), true) || 'submit' === ($control['type'] ?? '')) {
+                $panel = in_array($name, array('name', 'email'), true) ? 1 : 2;
+                if (isset($control['hidden']) || array('panel' => $panel, 'rendered' => false) !== ($control['workflow_step'] ?? null)) {
+                    throw new RuntimeException($label . ': workflow controls must be step gated, not unconditionally hidden');
+                }
+            }
+            if (in_array($name, array('website', 'conditional'), true) && 'none' !== ($control['hidden']['value'] ?? null)) {
+                throw new RuntimeException($label . ': declarations inside a step must remain hidden');
+            }
+        }
+        if (array_diff(array('website', 'conditional'), array_column($finding['controls'], 'name'))) {
+            throw new RuntimeException($label . ': missing hidden controls inside workflow panel');
+        }
     }
     $count = count($finding['controls']);
     $readableIndices = array();
@@ -77,7 +94,7 @@ foreach ($cases as $label => [$html, $names]) {
     foreach ($finding['layout_graph']['nodes'] ?? array() as $node) {
         if ('control' !== ($node['kind'] ?? null)) continue;
         $index = $node['control'] ?? (int) substr($node['id'], strlen('control-'));
-        if (($node['selector'] ?? null) !== ($finding['controls'][$index]['selector'] ?? null)) {
+        if (($node['source']['selector'] ?? $node['selector'] ?? null) !== ($finding['controls'][$index]['selector'] ?? null)) {
             throw new RuntimeException($label . ': layout control index drift');
         }
     }
