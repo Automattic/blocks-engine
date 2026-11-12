@@ -4,7 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RouteLinks;
 
 // Unlabeled chrome detection can claim an off-canvas drawer that holds the
 // navigation; the source-shared header artifact covers only the landmark.
@@ -18,6 +18,6 @@ foreach (array('index.html' => 'a', 'about.html' => 'b') as $path => $geometry) 
     ));
 }
 $artifact = array('area' => 'header', 'canonical_block_markup' => $group('site-header', $paragraph('Home')), 'placement' => array('variant' => 1, 'equal_source_identity' => true, 'source_paths' => array('index.html', 'about.html')));
-foreach ((new ShellExtraction(new WordPressSitePlan()))->withSourceSharedShellIdentity($pages, array($artifact)) as $page) {
+foreach ((new ShellExtraction(new RouteLinks('', '', array(), array(), null, array(), array())))->withSourceSharedShellIdentity($pages, array($artifact)) as $page) {
     if (!str_contains($page['shell_candidates'][0]['template_part_markup'], 'Shopping Cart')) throw new RuntimeException("{$page['source_path']}: a landmark-only artifact must not replace chrome it does not cover.");
 }

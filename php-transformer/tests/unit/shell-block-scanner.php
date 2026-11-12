@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
 use Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RouteLinks;
 
 $passes = 0;
 $failures = 0;
@@ -18,7 +19,7 @@ $scanner = new ReflectionClass(ShellExtraction::class);
 foreach (array('blockCommentTokens', 'blockRangesAtDepth', 'topLevelBlockRanges', 'directChildBlockRanges') as $retired) {
     $assert(!$scanner->hasMethod($retired), 'retired structure helper stays deleted: ' . $retired);
 }
-$extraction = new ShellExtraction(new Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan());
+$extraction = new ShellExtraction(new RouteLinks('', '', array(), array(), null, array(), array()));
 $call = static function (string $method, string $markup) use ($scanner, $extraction): array {
     $arguments = array(new BlockMarkupIndex($markup), '', 'header');
     return $scanner->getMethod($method)->invoke($extraction, ...$arguments);

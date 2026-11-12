@@ -4,7 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RouteLinks;
 
 /**
  * Shared footer content is emitted from a real occurrence, not its identity.
@@ -40,7 +40,7 @@ $pages = array_map(static fn (string $path): array => array('source_path' => $pa
 // The two footer variants were compiled separately, so their marker counters differ.
 $first = $address(17);
 $second = $address(42);
-$result = (new ShellExtraction(new WordPressSitePlan()))->factorSharedFooterContent($pages, array(
+$result = (new ShellExtraction(new RouteLinks('', '', array(), array(), null, array(), array())))->factorSharedFooterContent($pages, array(
     $footer('footer', $first, $paragraph('Desktop footer links')),
     $footer('footer-mobile', $second, $paragraph('Phone footer links')),
 ), array());
