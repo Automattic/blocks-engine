@@ -1164,8 +1164,8 @@ final class ShellExtraction
                 foreach ($pages as $page) {
                     if (!empty($page['synthetic']) || !isset($part['provenance']['sources'][$page['source_path'] ?? ''])) continue;
                     if (!empty($page['entrypoint'])) $selected = in_array('front-page', $part['placement']['template_slugs'] ?? array(), true);
-                    elseif ('page' !== ($page['post_type'] ?? null)) $selected = in_array('single', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded[WordPressSitePlan::routeTemplateKey($page)]);
-                    else $selected = in_array('page', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded[WordPressSitePlan::routeTemplateKey($page)]);
+                    elseif ('page' !== ($page['post_type'] ?? null)) $selected = in_array('single', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded[TemplateSlugs::forPage($page)]);
+                    else $selected = in_array('page', $part['placement']['template_slugs'] ?? array(), true) && !isset($excluded[TemplateSlugs::forPage($page)]);
                     if ($selected) $sourcePaths[] = (string) $page['source_path'];
                 }
             }
@@ -1918,7 +1918,7 @@ final class ShellExtraction
                 if (1 !== count($ranges)) continue;
                 $wrapper = self::soleChromeWrapper($pages[$index]['canonical_block_markup'], $ranges[0]);
                 if (null === $wrapper) continue;
-                $slug = WordPressSitePlan::routeTemplateKey($pages[$index]);
+                $slug = TemplateSlugs::forPage($pages[$index]);
                 $templateWrappers[$slug] = array('opening' => $wrapper['opening'], 'closing' => $wrapper['closing']);
                 if ('page' === ($pages[$index]['post_type'] ?? null) && empty($pages[$index]['entrypoint'])) $pageWrappers[$index] = $templateWrappers[$slug];
                 $withoutShells[$index] = $wrapper['page'];
@@ -2549,13 +2549,13 @@ final class ShellExtraction
         $assigned = array_filter(array('page' => $generic, 'single' => $postFrame));
         foreach ($split as $index => $frame) {
             $page = $pages[$index];
-            $routeKey = WordPressSitePlan::routeTemplateKey($page);
+            $routeKey = TemplateSlugs::forPage($page);
             $slug = !empty($page['entrypoint']) ? 'front-page' : ($page['route_template'] ?? (isset($inner[$index]) && null !== $generic ? 'page' : ('post' === $page['post_type'] && null !== $postFrame ? 'single' : $routeKey)));
             // Exclusions already require a route override. Its content may be
             // stripped only when that override receives the captured frame.
             if (isset($excludedTemplates[$routeKey])) $slug = $routeKey;
             if (isset($assigned[$slug]) && self::frameIdentity($assigned[$slug]) !== self::frameIdentity($frame)) {
-                $slug = WordPressSitePlan::routeTemplateKey(array_diff_key($page, array('route_template' => true)));
+                $slug = TemplateSlugs::forPage(array_diff_key($page, array('route_template' => true)));
                 $pages[$index]['route_template'] = $slug;
                 $pages[$index]['metadata']['post_meta']['_wp_page_template'] = $slug;
             }
@@ -2590,7 +2590,7 @@ final class ShellExtraction
         }
         // A page that keeps its chrome in its own content must not also get the
         // generic frame, so it renders through a plain route template.
-        if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames[WordPressSitePlan::routeTemplateKey($page)] = array('opening' => '', 'closing' => '', 'shells' => array());
+        if (isset($frames['page'])) foreach ($inner as $index => $page) if (!isset($split[$index])) $frames[TemplateSlugs::forPage($page)] = array('opening' => '', 'closing' => '', 'shells' => array());
         return array('pages' => $pages, 'frames' => $frames, 'generic_source' => $genericSource);
     }
 
@@ -3032,7 +3032,7 @@ final class ShellExtraction
             if (!empty($page['entrypoint'])) { if ($carries) $templateSlugs[] = 'front-page'; continue; }
             $templateSlugs[] = 'page' === ($page['post_type'] ?? null) ? 'page' : 'single';
             if ($carries) continue;
-            $slug = WordPressSitePlan::routeTemplateKey($page);
+            $slug = TemplateSlugs::forPage($page);
             if (isset($overrides[$slug])) return null;
             $overrides[$slug] = true;
         }

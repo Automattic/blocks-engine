@@ -4,6 +4,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\TemplateSlugs;
 
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
 $files = array();
@@ -35,7 +36,7 @@ foreach (array(false, true) as $retainEmbeds) {
     foreach ($plan['pages'] as $page) {
         $markup = $page['canonical_block_markup'];
         $assert(!str_contains($markup, 'wp:template-part') && str_contains($markup, 'Body ' . $page['title']), 'Route content retains only its own body: ' . $page['source_path']);
-        $template = $templates[WordPressSitePlan::routeTemplateKey($page)] ?? $templates[$page['entrypoint'] ? 'front-page' : ('post' === $page['post_type'] ? 'single' : 'page')] ?? '';
+        $template = $templates[TemplateSlugs::forPage($page)] ?? $templates[$page['entrypoint'] ? 'front-page' : ('post' === $page['post_type'] ? 'single' : 'page')] ?? '';
         $assert(str_contains($template, '"slug":"' . $footers[0]['slug'] . '"'), 'Route template references the shared footer: ' . $page['source_path']);
     }
 }
