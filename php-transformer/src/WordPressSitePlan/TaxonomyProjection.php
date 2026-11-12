@@ -332,6 +332,76 @@ final class TaxonomyProjection
         return array_values(array_unique($names));
     }
 
+    /**
+     * Each pagination capture of an archive, keyed by source path, with the
+     * archive source that owns it.
+     *
+     * @param array{entities:array<int,array<string,mixed>>,pagination_source_paths_by_archive:array<string,array<int,string>>} $projection
+     * @return array<string,string>
+     */
+    public static function paginationOwners(array $projection): array
+    {
+        $owners = array();
+        foreach ($projection['entities'] as $taxonomyEntity) {
+            $archiveSource = $taxonomyEntity['archive']['source_path'];
+            foreach ($projection['pagination_source_paths_by_archive'][$archiveSource] ?? array() as $paginationSource) $owners[$paginationSource] = $archiveSource;
+        }
+        return $owners;
+    }
+
+    /**
+     * Probes presentation with the final plan's canonical listing projection.
+     * An archive whose probed listing renders no query loop declines its
+     * presentation. Entity ownership is already proven independently and
+     * survives a declined presentation, including ownership of numbered
+     * captures.
+     *
+     * @param array<string,mixed> $projection
+     * @param array<int,array<string,mixed>> $preflightPages
+     * @return array<string,mixed>
+     */
+    public static function withPreflightPresentation(array $projection, array $preflightPages): array
+    {
+        $preflightBySource = array_column($preflightPages, null, 'source_path');
+        $projectedTaxonomyEntities = array();
+        foreach ($projection['entities'] as $taxonomyEntity) {
+            $archiveSource = $taxonomyEntity['archive']['source_path'];
+            if (!str_contains((string) ($preflightBySource[$archiveSource]['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
+                unset($taxonomyEntity['archive']['presentation_markup']);
+            }
+            $projectedTaxonomyEntities[] = $taxonomyEntity;
+        }
+        $projection['entities'] = self::retainProvenParents($projectedTaxonomyEntities, $projection['diagnostics']);
+        return $projection;
+    }
+
+    /**
+     * Settles each archive's presentation on its final page. An archive with
+     * no page is dropped. One that renders no query loop keeps its captured
+     * presentation and static cards, with a warning.
+     *
+     * @param array<string,mixed> $projection
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<string,mixed>
+     */
+    public static function withSettledPresentation(array $projection, array $pages): array
+    {
+        $projectedTaxonomyEntities = array();
+        foreach ($projection['entities'] as $taxonomyEntity) {
+            foreach ($pages as $page) if (($page['source_path'] ?? null) === ($taxonomyEntity['archive']['source_path'] ?? null)) {
+                if (!str_contains((string) ($page['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
+                    $projection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_presentation_static', 'severity' => 'warning', 'message' => 'The archive renders its captured presentation and static cards rather than a live query because the listing could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
+                }
+                if ('' !== trim($page['canonical_block_markup'])) $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
+                else unset($taxonomyEntity['archive']['presentation_markup']);
+                $projectedTaxonomyEntities[] = $taxonomyEntity;
+                continue 2;
+            }
+        }
+        $projection['entities'] = self::retainProvenParents($projectedTaxonomyEntities, $projection['diagnostics']);
+        return $projection;
+    }
+
     /** Remove descendants if a parent's native query presentation was subsequently declined. */
     public static function retainProvenParents(array $entities, array &$diagnostics): array
     {
