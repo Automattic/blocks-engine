@@ -87,4 +87,40 @@ final class ArchiveEntities
             if (($entity['evidence'] ?? null) !== $evidence) throw new InvalidArgumentException('WordPress site plan taxonomy evidence is incomplete.');
         }
     }
+
+    /**
+     * Each archive-backed entity names a captured source that has no
+     * materialized page of its own.
+     *
+     * @param array<int,array<string,mixed>> $entities @param array<string,mixed> $sourceCatalog @param array<string,array<string,mixed>> $pagesBySource
+     */
+    public static function assertArchiveSources(array $entities, array $sourceCatalog, array $pagesBySource): void
+    {
+        foreach ($entities as $entity) {
+            if (!array_key_exists('archive', $entity)) continue;
+            $source = $entity['archive']['source_path'] ?? '';
+            if (!isset($sourceCatalog[$source]) || isset($pagesBySource[$source])) throw new InvalidArgumentException('WordPress site plan native archive must name a captured source without a materialized page.');
+        }
+    }
+
+    /**
+     * An archive entity with captured presentation has exactly one per-entity
+     * template, from its own archive source and carrying that presentation. An
+     * archive that falls back to the template hierarchy has none.
+     *
+     * @param array<int,array<string,mixed>> $entities @param array<int,array<string,mixed>> $templates
+     */
+    public static function assertArchiveTemplates(array $entities, array $templates): void
+    {
+        foreach ($entities as $entity) {
+            if (!isset($entity['archive'])) continue;
+            $templateSlug = TemplateSlugs::forArchive($entity);
+            $archiveTemplates = array_values(array_filter($templates, static fn(array $template): bool => $templateSlug === ($template['slug'] ?? null)));
+            if (!array_key_exists('presentation_markup', $entity['archive'])) {
+                if (array() !== $archiveTemplates) throw new InvalidArgumentException('WordPress site plan fallback archive must not have a per-entity template.');
+                continue;
+            }
+            if (1 !== count($archiveTemplates) || ($archiveTemplates[0]['source_path'] ?? null) !== $entity['archive']['source_path'] || ($archiveTemplates[0]['canonical_block_markup'] ?? null) !== $entity['archive']['presentation_markup']) throw new InvalidArgumentException('WordPress site plan native archive entity lacks its source-owned archive template.');
+        }
+    }
 }

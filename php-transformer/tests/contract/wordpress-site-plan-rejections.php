@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 /**
  * The strict site plan validator rejects a plan whose stylesheet scopes,
- * stylesheet instances, asset writes or template part bindings disagree with
- * the code that produces them. Each case breaks one fact of a compiled plan
- * and expects that fact's rejection.
+ * stylesheet instances, asset writes, write payloads or template part bindings
+ * disagree with the code that produces them. Each case breaks one fact of a
+ * compiled plan and expects that fact's rejection.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -67,6 +67,14 @@ $cases = array(
         $plan['template_parts'][$header]['placement']['template_slugs'] = array_values(array_diff($plan['template_parts'][$header]['placement']['template_slugs'], array('index')));
         return $plan;
     }, 'WordPress site plan has an unproven template part binding.'),
+    'write whose payload no longer matches its hash' => array(static function (array $plan) use ($write): array { $plan['writes'][$write($plan, 'assets/site.css')]['payload']['data'] .= '.x{}'; return $plan; }, 'WordPress site plan write has a stale payload hash or invalid structure.'),
+    'base64 write that does not decode' => array(static function (array $plan) use ($write): array {
+        $target = $write($plan, 'assets/photo.png');
+        $plan['writes'][$target]['payload'] = array('encoding' => 'base64', 'data' => '*not base64*');
+        $plan['writes'][$target]['payload_hash'] = WordPressSitePlan::contentHash('*not base64*');
+        return $plan;
+    }, 'WordPress site plan write has invalid base64 payload.'),
+    'reference write without a reference' => array(static function (array $plan) use ($write): array { $plan['writes'][$write($plan, 'assets/photo.png')]['payload'] = array('encoding' => 'reference'); return $plan; }, 'WordPress site plan write has an invalid payload reference.'),
 );
 foreach ($cases as $name => [$mutate, $expected]) {
     $error = null;
