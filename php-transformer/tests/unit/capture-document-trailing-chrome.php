@@ -5,7 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RouteLinks;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -91,7 +91,7 @@ $root = $group('content-root', $main);
 $tail = $group('visible-scaffold', '<!-- wp:paragraph --><p>Once per page</p><!-- /wp:paragraph -->');
 $separate = static function (string $markup, array $declarations = array()): array {
     $page = array('post_type' => 'post', 'source_path' => 'post.html', 'slug' => 'post', 'canonical_block_markup' => $markup);
-    return (new ShellExtraction(new WordPressSitePlan()))->separateCaptureDocumentChrome(array($page), $declarations);
+    return (new ShellExtraction(new RouteLinks('', '', array(), array(), null, array(), array())))->separateCaptureDocumentChrome(array($page), $declarations);
 };
 $flat = $group('data-blocks-engine-capture-desktop-document', $main . $tail);
 $assert($flat === $separate($flat)['pages'][0]['canonical_block_markup'], 'A flat main/footer shape stays with ordinary shell extraction.');
@@ -108,7 +108,7 @@ foreach (array('home', 'about') as $slug) {
     $content = $group('content-root', '<!-- wp:group {"tagName":"main"} --><main><!-- wp:paragraph --><p>Unique ' . $slug . '</p><!-- /wp:paragraph --></main><!-- /wp:group -->');
     $sidePages[] = array('post_type' => 'post', 'source_path' => $slug . '.html', 'canonical_block_markup' => $group('data-blocks-engine-capture-desktop-document', $group('side-nav', '<!-- wp:paragraph --><p>Shared nav</p><!-- /wp:paragraph -->') . $content . $group('side-bar', '<!-- wp:paragraph --><p>Shared sidebar</p><!-- /wp:paragraph -->')));
 }
-$sides = (new ShellExtraction(new WordPressSitePlan()))->separateCaptureDocumentChrome($sidePages, array());
+$sides = (new ShellExtraction(new RouteLinks('', '', array(), array(), null, array(), array())))->separateCaptureDocumentChrome($sidePages, array());
 $assert(!str_contains($sides['pages'][0]['canonical_block_markup'], 'Shared nav') && !str_contains($sides['pages'][1]['canonical_block_markup'], 'Shared sidebar') && str_contains($sides['pages'][1]['canonical_block_markup'], 'Unique about'), 'Shared side regions on both sides of the content root leave route content.');
 $navAt = strpos($sides['chrome']['single'], 'Shared nav'); $slotAt = strpos($sides['chrome']['single'], '<!-- wp:post-content /-->'); $barAt = strpos($sides['chrome']['single'], 'Shared sidebar');
 $assert(false !== $navAt && false !== $slotAt && false !== $barAt && $navAt < $slotAt && $slotAt < $barAt, 'The shared document frame keeps nav, post content, and sidebar in source order inside one wrapper.');
@@ -124,12 +124,12 @@ foreach (array('aaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbb', 'cccccccccccccccc') as $i
     $varying = $group('request-output', '<!-- wp:paragraph --><p>Reader ' . $index . '</p><!-- /wp:paragraph -->');
     $posts[] = array('post_type' => 'post', 'source_path' => 'post-' . $index . '.html', 'canonical_block_markup' => $group('data-blocks-engine-capture-desktop-document', $root . $scaffold . $varying));
 }
-$shared = (new ShellExtraction(new WordPressSitePlan()))->separateCaptureDocumentChrome($posts, array());
+$shared = (new ShellExtraction(new RouteLinks('', '', array(), array(), null, array(), array())))->separateCaptureDocumentChrome($posts, array());
 $assert(1 === substr_count($shared['chrome']['single'], '<p id="scaffold">Shared</p>'), 'Generated identity differences do not split shared chrome.');
 $assert(!str_contains($shared['chrome']['single'], 'Reader '), 'Per-request sibling content is not frozen into the template.');
 $assert(3 === count($shared['diagnostics']), 'Every dropped per-post sibling is diagnosed.');
 $posts[] = array('post_type' => 'post', 'source_path' => 'without-chrome.html', 'canonical_block_markup' => $root);
-$intersection = (new ShellExtraction(new WordPressSitePlan()))->separateCaptureDocumentChrome($posts, array());
+$intersection = (new ShellExtraction(new RouteLinks('', '', array(), array(), null, array(), array())))->separateCaptureDocumentChrome($posts, array());
 $assert(array() === $intersection['chrome'], 'The intersection includes posts with no capture chrome.');
 $ambiguous = $group('data-blocks-engine-capture-desktop-document', $root . $root . $tail);
 $assert($ambiguous === $separate($ambiguous)['pages'][0]['canonical_block_markup'], 'Ambiguous main-owning roots are untouched.');

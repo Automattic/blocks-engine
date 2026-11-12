@@ -37,7 +37,7 @@ final class WordPressSitePlan
     private string $sourceOrigin = '';
     public const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
     private UnitFindings $unitFindings;
-    private readonly ShellExtraction $shellExtraction;
+    private ShellExtraction $shellExtraction;
     private ListingQueryLoops $listings;
     private PostChrome $postChrome;
     private RouteLinks $links;
@@ -56,7 +56,6 @@ final class WordPressSitePlan
      */
     public function __construct(private readonly bool $strictMissingMedia = false, private readonly ?StepTimer $timer = null)
     {
-        $this->shellExtraction = new ShellExtraction($this);
         $this->listings = new ListingQueryLoops('', $this->chromeIdentityKey(...));
         $this->unitFindings = new UnitFindings();
         $this->postChrome = new PostChrome($this->listings, $this->chromeIdentityKey(...), $this->unitFindings->record(...));
@@ -193,6 +192,7 @@ final class WordPressSitePlan
         }
         $this->timer?->start('compose.site_plan.pages');
         $this->links = new RouteLinks($sourceUrl, $this->sourceOrigin, $routeSources, $routeTargets, $this->presetBinding, $documents, $routeMap);
+        $this->shellExtraction = new ShellExtraction($this->links);
         $this->heads = new DocumentHeads($this->links, $this->unitFindings->record(...));
         $entityBindings = new EntityBindings($this->links, $this->unitFindings->record(...));
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
@@ -907,11 +907,6 @@ final class WordPressSitePlan
     // Resolve the site root directory from the entrypoint document/page so route
     // derivation and validation agree on the same web root without shared state.
 
-    /** @internal Exposed for ShellExtraction, which resolves shell links through the run's route table. */
-    public function links(): RouteLinks
-    {
-        return $this->links;
-    }
 
     /** @param array<string,string> $tokens */
     public static function assertTokens(string $content, array $tokens): void { if (preg_match_all('/\{\{wordpress-site-plan:asset:([^}]+)\}\}/', $content, $matches)) foreach ($matches[1] as $token) if (!isset($tokens[$token])) throw new InvalidArgumentException('WordPress site plan contains an undeclared reference token.'); }

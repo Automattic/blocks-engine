@@ -232,7 +232,7 @@ $edgePages = array();
 foreach ($embedResult['source_reports']['compiled_site']['pages'] as $row) {
     $edgePages[] = $row + array('post_type' => 'page', 'canonical_block_markup' => $row['block_markup'], 'shell_candidates' => array());
 }
-$edgeExtraction = new Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction(new WordPressSitePlan());
+$edgeExtraction = new Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction(new Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RouteLinks('', '', array(), array(), null, array(), array()));
 $edgePartition = $edgeExtraction->edgeShells($edgePages, array(), array());
 foreach ($edgePartition['pages'] as $row) {
     $edgeHeaders = array_values(array_filter($row['shell_candidates'], static fn(array $candidate): bool => 'header' === $candidate['area']));

@@ -6,7 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\RouteLinks;
 
 $assert = static function (bool $condition, string $message): void {
     if (! $condition) {
@@ -30,7 +30,7 @@ $part = array('source_path' => $partSource, 'slug' => 'footer', 'area' => 'foote
 $pages = array_map(static fn (string $path): array => array('source_path' => $path, 'canonical_block_markup' => $paragraph('Body for ' . $path), 'entrypoint' => 'index.html' === $path, 'post_type' => 'page', 'slug' => basename($path, '.html')), array('index.html', 'about.html', 'team.html'));
 $declarations = array(array('kind' => 'entity_collection', 'payload' => array('schema' => 'x', 'entities' => array(array('bindings' => array(array('role' => 'form', 'source_path' => $partSource, 'search_block_markup' => $form, 'occurrence' => 1, 'position' => array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $formIndex, 'offset' => $formOffset, 'length' => strlen($form)))))))));
 
-$extraction = new ShellExtraction(new WordPressSitePlan());
+$extraction = new ShellExtraction(new RouteLinks('', '', array(), array(), null, array(), array()));
 $result = $extraction->factorSharedFooterContent($pages, array($part), $declarations);
 $factoredFooter = (string) $result['parts'][0]['canonical_block_markup'];
 $assert(str_contains($factoredFooter, $form), 'The bound form block, consent line included, is untouched: ' . $factoredFooter);
