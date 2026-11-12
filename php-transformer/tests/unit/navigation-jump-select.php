@@ -30,7 +30,7 @@ foreach (array(
     'each option is a submenu link' => str_contains($jump['nav'], '"label":"Lunch","url":"/menus/lunch/"') && str_contains($jump['nav'], '"label":"Main menu","url":"/menus/main/"'),
     'source glyph replaces core icon' => str_contains($jump['nav'], '"showSubmenuIcon":false'),
     'control keeps form text resets' => str_contains($jump['nav'], 'text-transform:none'),
-    'submenu anchor styling skips its child links' => str_contains($jump['json'], '>:where(.wp-block-navigation-item__content)') && !str_contains($jump['json'], ' :where(.wp-block-navigation-item__content)'),
+    'submenu anchor styling skips its child links' => str_contains($jump['json'], ' :where(.wp-block-navigation-item__content):not(:where('),
     'overlay opens on the opaque surface behind the menu' => str_contains($jump['json'], 'is-menu-open:not(.disable-default-overlay){background:#0b0b04!important;color:#f3e6dd!important}'),
     'host alignment outranks the list baseline' => str_contains($jump['json'], ':root .wp-block-navigation.links{display:flex;align-items:center}'),
 ) as $name => $ok) {

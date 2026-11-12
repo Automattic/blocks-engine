@@ -955,7 +955,7 @@ final class NavigationPatternContext
                     // Anchor subjects add Core's content anchor to the item target;
                     // projected source boxes already have their structural path.
                     $target = str_contains($target, '.wp-block-navigation-item__content')
-                        ? $itemTarget . '>:where(.wp-block-navigation-item__content)'
+                        ? self::itemContentTarget($itemTarget)
                         : $itemTarget;
                 }
                 $this->session?->authorSelectorProjectionState()->installNavigationSubject($path, $target);
@@ -1097,6 +1097,15 @@ final class NavigationPatternContext
         }
     }
 
+    /**
+     * An item's own content, through any retained boxes, but not the links in
+     * its submenu: those are other items. The exclusion adds no specificity.
+     */
+    private static function itemContentTarget(string $item): string
+    {
+        return $item . ' :where(.wp-block-navigation-item__content):not(:where(' . $item . ' .wp-block-navigation__submenu-container *))';
+    }
+
     /** The source anchor remains a distinct CSS subject inside Core's item. */
     public function navigationAnchorSubjectMarker(DOMElement $anchor, ?DOMElement $item = null): string
     {
@@ -1109,9 +1118,7 @@ final class NavigationPatternContext
         }
         if (!$presented) return '';
         $marker = $this->navigationSubjectMarker($anchor, 'anchor');
-        // Core renders an item's content as its direct child; a submenu's
-        // nested links are not this anchor.
-        $target = '.wp-block-navigation .wp-block-navigation-item.' . $marker . '>:where(.wp-block-navigation-item__content)';
+        $target = self::itemContentTarget('.wp-block-navigation .wp-block-navigation-item.' . $marker);
         $this->pendingNavigationSubjects[$anchor->getNodePath() ?? ''] = array('marker' => $marker, 'target' => $target, 'source' => SourceDom::elementSelector($anchor));
         if ($this->inlineAnchorCarriesPercentageHeight($anchor)) {
             // Core inserts a block anchor with auto height and a label span.
@@ -1132,7 +1139,7 @@ final class NavigationPatternContext
         $width = $this->absoluteLabelSizingWidth($anchor);
         if ('' === $width) return '';
         $marker = $this->navigationSubjectMarker($anchor, 'label-width');
-        $target = '.wp-block-navigation .wp-block-navigation-item.' . $marker . '>:where(.wp-block-navigation-item__content)';
+        $target = self::itemContentTarget('.wp-block-navigation .wp-block-navigation-item.' . $marker);
         // Out-of-flow layers contribute no intrinsic width to Core's flex
         // item. Size the new carriers without changing placement or height.
         $source = SourceDom::elementSelector($anchor);
