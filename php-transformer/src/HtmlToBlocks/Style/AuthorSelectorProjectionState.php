@@ -756,6 +756,19 @@ final class AuthorSelectorProjectionState
         return $this->unwrappedImageCarriers[$path] ?? '';
     }
 
+    /** @var array<string, true> Source paths whose wrappers received host-collision identity. */
+    private array $hostClassCarriers = array();
+
+    public function recordHostClassCarrier(string $path): void
+    {
+        $this->hostClassCarriers[$path] = true;
+    }
+
+    public function hasHostClassCarrier(string $path): bool
+    {
+        return isset($this->hostClassCarriers[$path]);
+    }
+
     public function ensureSemanticMarker(string $path): string
     {
         return $this->semanticMarkers[$path] ??= $this->allocatePathMarker('semantic', $path);
