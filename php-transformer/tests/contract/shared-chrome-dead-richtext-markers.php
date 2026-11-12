@@ -4,7 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DeadElementMarkers;
 
 $assert = static function (bool $condition, string $message): void {
     if (! $condition) {
@@ -69,7 +69,7 @@ $assert(1 === preg_match('/(?:^|}|,)header \.sr-only\{position:absolute/', $chro
 $assert(str_contains($chromeCss, '.cta{border:1px solid}'), 'Authored chrome rules are unchanged.');
 
 // Pruning keeps what each selector matches and its specificity.
-$prune = (new ReflectionMethod(WordPressSitePlan::class, 'withoutDeadElementMarkers'))->getClosure(null);
+$prune = (new ReflectionMethod(DeadElementMarkers::class, 'withoutDead'))->getClosure(null);
 $live = array('blocks-engine-richtext-aaaaaaaaaaaa-0' => true, 'blocks-engine-control-aaaaaaaaaaaa-0' => true);
 $cases = array(
     '.sr-only:not(:where(.blocks-engine-richtext-bbbbbbbbbbbb-0))' => '.sr-only',

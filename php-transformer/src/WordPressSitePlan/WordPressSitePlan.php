@@ -42,8 +42,6 @@ final class WordPressSitePlan
     public const MAX_DOCUMENT_IDENTITY_DIAGNOSTICS = 50;
     /** Marks the post-content block of a template that holds a page's hoisted layout frame. */
     public const FRAME_CONTENT_CLASS = 'blocks-engine-frame-content';
-    /** Markers that name one carrier element: rich text, control and semantic. */
-    private const ELEMENT_MARKER_PATTERN = '/blocks-engine-(?:richtext|control|semantic)-[a-f0-9]+-\d+/';
     public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
     private string $sourceOrigin = '';
     public const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
@@ -492,9 +490,9 @@ final class WordPressSitePlan
         // route's projected source markup from before its chrome was extracted.
         $emitted = static fn (array $rows): array => array_map(static fn (mixed $row): mixed => is_array($row) ? array_filter($row, static fn (int|string $key): bool => !is_string($key) || !str_starts_with($key, '_'), ARRAY_FILTER_USE_KEY) : $row, $rows);
         $this->timer?->start('compose.site_plan.stylesheets');
-        $liveElementMarkers = preg_match_all(self::ELEMENT_MARKER_PATTERN, (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
+        $liveElementMarkers = preg_match_all(DeadElementMarkers::PATTERN, (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
         $assets = SharedChromeStylesheets::project($assets, array_merge($parts, $frameParts), $pages, $references, $assetTargetCollisions, $liveElementMarkers);
-        $assets = self::withoutDeadElementMarkerSelectors($assets, $liveElementMarkers);
+        $assets = DeadElementMarkers::withoutDeadSelectors($assets, $liveElementMarkers);
         // Removing dead selectors can consume a generated sheet's last rule.
         $assets = array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['source'] ?? '', array('engine-support', 'editor-static-state', 'wordpress-compat'), true) || !is_string($asset['content'] ?? null) || '' !== trim($asset['content'])));
         foreach ($assetTargetCollisions as $collision) $this->recordUnitFinding(array(
@@ -1770,101 +1768,6 @@ final class WordPressSitePlan
         }
 
         return max(1, $copies);
-    }
-
-    /**
-     * An element marker no emitted markup, runtime declaration or entity
-     * record carries names an element the plan replaced or dropped, so every
-     * stylesheet selector naming it matches nothing: drop those arms from
-     * page stylesheets too, as the shared-chrome projection already does.
-     *
-     * @param list<array<string,mixed>> $assets
-     * @param array<string,true> $live
-     * @return list<array<string,mixed>>
-     */
-    private static function withoutDeadElementMarkerSelectors(array $assets, array $live): array
-    {
-        foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference']) || 1 !== preg_match(self::ELEMENT_MARKER_PATTERN, $asset['content'])) continue;
-            $content = (new CssStylesheetTransformer())->transformStyleRules(
-                $asset['content'],
-                static function (string $prelude, string $body) use ($live): string {
-                    if (1 !== preg_match(self::ELEMENT_MARKER_PATTERN, $prelude)) return $prelude . '{' . $body . '}';
-                    $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-                    if (null === $selectors) return $prelude . '{' . $body . '}';
-                    $kept = array();
-                    $changed = false;
-                    foreach ($selectors as $selector) {
-                        $pruned = self::withoutDeadElementMarkers(trim($selector), $live);
-                        if ($pruned !== trim($selector)) $changed = true;
-                        if (null !== $pruned) $kept[] = $pruned;
-                    }
-                    if (!$changed) return $prelude . '{' . $body . '}';
-                    return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
-                }
-            );
-            if ($content === $asset['content']) continue;
-            $asset = self::withRewrittenTextContent($asset, $content);
-        }
-        unset($asset);
-        return $assets;
-    }
-
-    public static function withoutDeadElementMarkers(string $selector, array $live): ?string
-    {
-        $dead = static function (string $text) use ($live): bool {
-            if (!preg_match_all(self::ELEMENT_MARKER_PATTERN, $text, $markers)) return false;
-            foreach ($markers[0] as $marker) if (!isset($live[$marker])) return true;
-            return false;
-        };
-        if (!$dead($selector)) return $selector;
-        $offset = 0;
-        while (false !== ($start = stripos($selector, ':where(', $offset))) {
-            $open = $start + strlen(':where(');
-            $depth = 1;
-            for ($end = $open; $end < strlen($selector) && $depth > 0; ++$end) {
-                if ('(' === $selector[$end]) ++$depth;
-                elseif (')' === $selector[$end]) --$depth;
-            }
-            if (0 !== $depth) return $selector;
-            $inner = substr($selector, $open, $end - 1 - $open);
-            $arguments = CssStylesheetTransformer::splitSelectorList($inner);
-            if (null === $arguments || !$dead($inner)) {
-                $offset = $open;
-                continue;
-            }
-            $alive = array();
-            foreach ($arguments as $argument) {
-                $argument = self::withoutDeadElementMarkers(trim($argument), $live);
-                if (null !== $argument) $alive[] = $argument;
-            }
-            if (array() !== $alive) {
-                $replacement = ':where(' . implode(',', $alive) . ')';
-                $selector = substr($selector, 0, $start) . $replacement . substr($selector, $end);
-                $offset = $start + strlen($replacement);
-                continue;
-            }
-            // `:not(:where(dead))` excluded nothing; any other position required a dead element.
-            if ($start >= 5 && 0 === strcasecmp(substr($selector, $start - 5, 5), ':not(') && ')' === ($selector[$end] ?? '')) {
-                // A compound left with no other simple selector keeps `*`,
-                // which, like `:not(:where())`, adds no specificity.
-                $before = $start - 5;
-                $after = $selector[$end + 1] ?? '';
-                $alone = (0 === $before || str_contains(" \t\n>+~(,", $selector[$before - 1])) && ('' === $after || str_contains(" \t\n>+~),", $after));
-                $replacement = $alone ? '*' : '';
-                $selector = substr($selector, 0, $before) . $replacement . substr($selector, $end + 1);
-                $offset = $before + strlen($replacement);
-                continue;
-            }
-            return null;
-        }
-        // A dead marker outside `:where()` (a class or attribute the subject
-        // must carry) leaves nothing to match; inside another `:not()` it is
-        // left as authored.
-        $positive = self::positiveSelector($selector);
-        if ($dead($positive)) return null;
-        $selector = trim($selector);
-        return '' === $selector ? null : $selector;
     }
 
     /** @param array<int,array<string,mixed>> $assets @param array<int,mixed> $declarations @return array<int,array<string,mixed>> */

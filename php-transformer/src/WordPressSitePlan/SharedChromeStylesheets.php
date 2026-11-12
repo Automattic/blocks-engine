@@ -1256,7 +1256,7 @@ final class SharedChromeStylesheets
                     $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::generatedAlternatives($selector, $classMatcher, true), $kept), 'is_string'));
                     if (array() === $kept) return $inherited;
                     if (null !== $liveElementMarkers) {
-                        $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => WordPressSitePlan::withoutDeadElementMarkers($selector, $liveElementMarkers), $kept), 'is_string'));
+                        $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => DeadElementMarkers::withoutDead($selector, $liveElementMarkers), $kept), 'is_string'));
                         // Every selector named only replaced elements: the rule matches nothing.
                         if (array() === $kept) return $inherited;
                     }
