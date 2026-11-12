@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-probed-navigation-submenu-keeps-authored-hide-rule",
+  "description": "Asking whether a menu would become core/navigation must not reroute its author rules. A toggle in a row that swaps with the links by width probes the menu for navigation ownership; that probe minted a semantic marker for the submenu list and rerouted `.menu .sub-nav{opacity:0}` onto it. No emitted element carries a probe-minted marker (when the menu is kept as authored markup the list keeps only its own classes), so the hide rule matched nothing and the dropdowns rendered open. The nested source rule only reached analysis once nesting was desugared at input.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-probed-navigation-submenu-keeps-authored-hide-rule.json",
+    "notes": "Product-neutral fixture: a site-builder header whose phone-row toggle swaps with a desktop menu that hides submenus until hover."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.menu{& ul{list-style:none;margin:0}& .sub-nav{opacity:0;position:absolute}& li:hover>.sub-nav{opacity:1}}.phone-row{display:none}@media (max-width:767px){.phone-row{display:block}.desk-row{display:none}}</style><header><div class=\"phone-row\"><button class=\"burger\" aria-label=\"Open menu\" aria-controls=\"drawer\" aria-expanded=\"false\"><svg viewBox=\"0 0 10 10\"><path d=\"M0 0h10\"/></svg></button></div><div class=\"desk-row\"><div class=\"cell\"><a href=\"/\">Logo</a></div><div class=\"cell\"><nav class=\"menu\"><ul class=\"top\"><li class=\"wrap\"><a class=\"item\" href=\"/a/\">Alpha</a><ul class=\"sub-nav\"><li><a href=\"/a/1/\">One</a></li><li><a href=\"/a/2/\">Two</a></li></ul></li><li class=\"wrap\"><a class=\"item\" href=\"/b/\">Beta</a></li></ul></nav></div></div></header>"
+  },
+  "expected_fallbacks": [],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "contains",
+      "value": ".menu .sub-nav{opacity:0;position:absolute}"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "not_contains",
+      "value": "blocks-engine-semantic-"
+    },
+    {
+      "path": "source_reports.wp_block_validity.status",
+      "assert": "equals",
+      "value": "pass"
+    }
+  ]
+}

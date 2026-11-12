@@ -4,24 +4,30 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
 /**
- * Desugars attribute-gated native CSS nesting into equivalent flat rules.
+ * Desugars native CSS nesting into equivalent flat style rules.
  *
- * Selector analysis and attribute/state projection read top-level style
- * rules (optionally inside conditional at-rules). A rule nested in a style
- * rule is emitted verbatim instead, which keeps working while every class it
- * names survives lowering, but a nested selector gated by a source attribute
- * (`.menu{&[data-mode=v] .item{...}}`) can never match again: lowering drops
- * the attribute, and the rule was never analyzed, so no marker replaced it.
- * Flattening those rules lets them take the flat path that already projects
- * attribute selectors; every other nested rule keeps its authored nesting.
+ * Selector analysis, attribute/state projection and every other stylesheet
+ * walker read top-level style rules (optionally inside conditional
+ * at-rules). Normalizing nesting once at input gives them all the same flat
+ * view of the cascade instead of each one learning to descend into style
+ * rules.
  *
- * Resolution follows CSS Nesting: a nested selector without `&` is relative
- * to its parent (`& ` descendant, or `& > x` for a leading combinator).
- * A leading `&` of a single parent selector is substituted textually, which
- * is exact in both matching and specificity; any other position or a parent
- * selector list uses `:is(<parent>)`. Declarations and rules keep their
- * source order, so cascade order is preserved. Rules containing anything
- * this cannot flatten exactly are kept unchanged.
+ * Resolution follows CSS Nesting, which defines `&` as `:is(<parent>)`:
+ * - a nested selector without `&` is relative to its parent (`& ` before a
+ *   compound, `&` before a leading combinator);
+ * - a leading `&` of a single parent selector is substituted textually,
+ *   which matches the same elements with the same specificity as
+ *   `:is(<parent>)` and keeps the selector plain for projection;
+ * - any other position, or a parent selector list, uses `:is(<parent>)`,
+ *   whose specificity is the most specific parent, exactly as nesting.
+ *
+ * Declarations, nested rules and comments keep their source order, so
+ * cascade order is unchanged (declarations after a nested rule are a nested
+ * declarations rule in CSS, and stay after it here). A conditional at-rule
+ * nested in a style rule (`@media`, `@supports`, `@container`, `@layer`,
+ * `@starting-style`) wraps its resolved flat rules. A style rule whose
+ * nesting cannot be expressed exactly in flat CSS (another at-rule inside
+ * it, or `&` standing for a pseudo-element) is kept as authored.
  */
 final class CssNestingFlattener
 {
@@ -40,7 +46,7 @@ final class CssNestingFlattener
             return self::$memo[$key];
         }
         $tree = new CssRuleTree($css);
-        $result = $tree->wellFormed ? (new self($tree))->renderTop(-1) : $css;
+        $result = $tree->wellFormed ? (new self($tree))->renderGroup(-1) : $css;
         if ( count(self::$memo) >= 64 ) {
             self::$memo = array();
         }
@@ -51,8 +57,8 @@ final class CssNestingFlattener
     {
     }
 
-    /** Render the contents of a top-level or conditional at-rule block. */
-    private function renderTop(int $scope): string
+    /** Render the contents of the stylesheet or of a top-level conditional at-rule. */
+    private function renderGroup(int $scope): string
     {
         $css = $this->tree->source;
         $offset = $scope + 1;
@@ -68,15 +74,17 @@ final class CssNestingFlattener
             $atRule = self::atRuleName($prelude);
             if ( null !== $atRule ) {
                 if ( in_array($atRule, self::CONDITIONAL_AT_RULES, true) ) {
-                    $changed = $this->renderTop($boundary);
-                    if ( $changed !== substr($css, $boundary + 1, $end - $boundary - 1) ) {
-                        $replacement = $prelude . '{' . $changed . '}';
+                    $inner = $this->renderGroup($boundary);
+                    if ( $inner !== substr($css, $boundary + 1, $end - $boundary - 1) ) {
+                        $replacement = $prelude . '{' . $inner . '}';
                     }
                 }
             } elseif ( $this->hasNestedRules($boundary) ) {
                 $selector = trim(CssSyntaxScanner::withoutComments($prelude));
-                if ( null !== CssStylesheetTransformer::splitSelectorList($selector) && $this->hasAttributeGatedRules($boundary, $selector) ) {
-                    $replacement = $this->renderGated($boundary, $selector, array( trim($prelude) ));
+                if ( null !== CssStylesheetTransformer::splitSelectorList($selector) ) {
+                    $flat = $this->renderBody($boundary, $selector);
+                    // Keep any comment that led the authored prelude.
+                    $replacement = null === $flat ? null : self::leadingComments($prelude) . $flat;
                 }
             }
             if ( null !== $replacement ) {
@@ -85,118 +93,6 @@ final class CssNestingFlattener
             }
         }
         return $output . substr($css, $offset, $limit - $offset);
-    }
-
-    /**
-     * A body whose resolved selector is attribute-gated is flattened whole.
-     * Otherwise its content keeps its authored nesting (re-wrapped in the
-     * original ancestor preludes, in source order) and only attribute-gated
-     * descendants are flattened.
-     *
-     * @param list<string> $chain Authored preludes from the top-level rule down.
-     */
-    private function renderGated(int $scope, string $selector, array $chain): string
-    {
-        if ( self::hasAttributeSelector($selector) ) {
-            $flat = $this->renderBody($scope, $selector);
-            if ( null !== $flat ) {
-                return $flat;
-            }
-        }
-        $css = $this->tree->source;
-        $offset = $scope + 1;
-        $limit = (int) $this->tree->blockEnd($scope);
-        $output = '';
-        foreach ( $this->tree->rules($scope) as $rule ) {
-            ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
-            if ( '{' !== $css[$boundary] ) {
-                continue;
-            }
-            $prelude = substr($css, $start, $boundary - $start);
-            if ( self::isCustomPropertyBlock($prelude) ) {
-                continue;
-            }
-            $atRule = self::atRuleName($prelude);
-            if ( null !== $atRule ) {
-                if ( ! in_array($atRule, self::CONDITIONAL_AT_RULES, true) || ! $this->hasAttributeGatedRules($boundary, $selector) ) {
-                    continue;
-                }
-                $output .= self::wrap($chain, substr($css, $offset, $start - $offset))
-                    . trim($prelude) . '{' . $this->renderGated($boundary, $selector, $chain) . '}';
-                $offset = $end + 1;
-                continue;
-            }
-            $resolved = self::resolve($selector, trim(CssSyntaxScanner::withoutComments($prelude)));
-            if ( null === $resolved || ! $this->hasAttributeGatedRules($boundary, $resolved) ) {
-                continue;
-            }
-            $output .= self::wrap($chain, substr($css, $offset, $start - $offset))
-                . $this->renderGated($boundary, $resolved, array( ...$chain, trim($prelude) ));
-            $offset = $end + 1;
-        }
-        return $output . self::wrap($chain, substr($css, $offset, $limit - $offset));
-    }
-
-    /** Whether the body resolves any attribute-gated rule; a gated selector counts when its body has content. */
-    private function hasAttributeGatedRules(int $scope, string $selector): bool
-    {
-        if ( self::hasAttributeSelector($selector) ) {
-            return true;
-        }
-        $css = $this->tree->source;
-        foreach ( $this->tree->rules($scope) as $rule ) {
-            ['start' => $start, 'boundary' => $boundary] = $rule;
-            if ( '{' !== $css[$boundary] ) {
-                continue;
-            }
-            $prelude = substr($css, $start, $boundary - $start);
-            if ( self::isCustomPropertyBlock($prelude) ) {
-                continue;
-            }
-            $atRule = self::atRuleName($prelude);
-            if ( null !== $atRule ) {
-                if ( in_array($atRule, self::CONDITIONAL_AT_RULES, true) && $this->hasAttributeGatedRules($boundary, $selector) ) {
-                    return true;
-                }
-                continue;
-            }
-            $resolved = self::resolve($selector, trim(CssSyntaxScanner::withoutComments($prelude)));
-            if ( null !== $resolved && $this->hasAttributeGatedRules($boundary, $resolved) ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** @param list<string> $chain */
-    private static function wrap(array $chain, string $content): string
-    {
-        if ( '' === trim(trim(CssSyntaxScanner::withoutComments($content)), ';') ) {
-            return '';
-        }
-        foreach ( array_reverse($chain) as $prelude ) {
-            $content = $prelude . '{' . $content . '}';
-        }
-        return $content;
-    }
-
-    private static function hasAttributeSelector(string $selector): bool
-    {
-        $quote = '';
-        $length = strlen($selector);
-        for ( $index = 0; $index < $length; ++$index ) {
-            $character = $selector[$index];
-            if ( '\\' === $character ) {
-                ++$index;
-            } elseif ( '' !== $quote ) {
-                $quote = $character === $quote ? '' : $quote;
-            } elseif ( '"' === $character || "'" === $character ) {
-                $quote = $character;
-            } elseif ( '[' === $character ) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -219,6 +115,7 @@ final class CssNestingFlattener
                 continue;
             }
             $output .= self::declarationRule($selector, substr($css, $offset, $start - $offset));
+            $output .= self::leadingComments($prelude);
             $offset = $end + 1;
             $atRule = self::atRuleName($prelude);
             if ( null !== $atRule ) {
@@ -229,7 +126,7 @@ final class CssNestingFlattener
                 if ( null === $inner ) {
                     return null;
                 }
-                $output .= trim($prelude) . '{' . $inner . '}';
+                $output .= trim(CssSyntaxScanner::withoutComments($prelude)) . '{' . $inner . '}';
                 continue;
             }
             $resolved = self::resolve($selector, trim(CssSyntaxScanner::withoutComments($prelude)));
@@ -245,10 +142,19 @@ final class CssNestingFlattener
         return $output . self::declarationRule($selector, substr($css, $offset, $limit - $offset));
     }
 
+    /** A run of declarations as a rule for `$selector`; a comment-only run stays a bare comment. */
     private static function declarationRule(string $selector, string $declarations): string
     {
         $trimmed = trim(CssSyntaxScanner::withoutComments($declarations));
-        return '' === trim($trimmed, "; \t\n\r\f") ? '' : $selector . '{' . trim($declarations) . '}';
+        if ( '' === trim($trimmed, "; \t\n\r\f") ) {
+            return str_contains($declarations, '/*') ? trim($declarations, "; \t\n\r\f") : '';
+        }
+        return $selector . '{' . trim($declarations) . '}';
+    }
+
+    private static function leadingComments(string $prelude): string
+    {
+        return preg_match('/^(?:\s*\/\*.*?\*\/)+/s', $prelude, $match) ? trim($match[0]) : '';
     }
 
     private function hasNestedRules(int $scope): bool
@@ -262,7 +168,7 @@ final class CssNestingFlattener
         return false;
     }
 
-    /** Resolve a nested selector list against its parent selector list. */
+    /** Resolve a nested selector list against its parent selector list; null when not exact. */
     public static function resolve(string $parent, string $nested): ?string
     {
         $parents = CssStylesheetTransformer::splitSelectorList($parent);
@@ -275,9 +181,11 @@ final class CssNestingFlattener
             return null;
         }
         $single = 1 === count($parents) ? $parents[0] : null;
+        // `&` cannot represent a pseudo-element, and `:is()` cannot hold one.
+        if ( 1 === preg_match('/::|:(?:before|after|first-line|first-letter)\b/i', $parent) ) {
+            return null;
+        }
         $wrapped = ':is(' . implode(',', $parents) . ')';
-        // `:is()` cannot hold a pseudo-element, so such a parent only resolves textually.
-        $wrappable = 1 !== preg_match('/::|:(?:before|after|first-line|first-letter)\b/i', $parent);
         $resolved = array();
         foreach ( $children as $child ) {
             $child = trim($child);
@@ -286,15 +194,12 @@ final class CssNestingFlattener
             }
             $positions = self::nestingPositions($child);
             if ( array() === $positions ) {
-                $child = '& ' . $child;
+                $child = ( 1 === preg_match('/^[>+~]/', $child) ? '&' : '& ' ) . $child;
                 $positions = array( 0 );
             }
             $out = '';
             $cursor = 0;
             foreach ( $positions as $position ) {
-                if ( ! ( 0 === $position && null !== $single ) && ! $wrappable ) {
-                    return null;
-                }
                 $out .= substr($child, $cursor, $position - $cursor);
                 $out .= ( 0 === $position && null !== $single ) ? $single : $wrapped;
                 $cursor = $position + 1;

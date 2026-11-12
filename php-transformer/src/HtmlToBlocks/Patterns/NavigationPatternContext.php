@@ -67,8 +67,7 @@ final class NavigationPatternContext
             // Icon/label composites already project their box onto the item.
             && 0 === $element->getElementsByTagName('svg')->length
             && !$this->ownsLabelTypography($element) && $this->hasNavigationSubjectPresentation($element)) {
-            $path = $element->getNodePath() ?? '';
-            $projections->ensureSemanticMarker($path);
+            $this->publishedSemanticMarker($element->getNodePath() ?? '');
         }
         $markers = $this->sourcePresentationMarkers($element);
         if (null !== $projections && 1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName)
@@ -210,6 +209,22 @@ final class NavigationPatternContext
         return false;
     }
 
+    /**
+     * A semantic marker routes every author rule that matches its source
+     * element onto the marker instead of the authored selector, so only the
+     * conversion that emits the element may allocate one. A probe (toggle
+     * ownership asks whether a list would become core/navigation) reuses an
+     * existing marker but never mints one: when the element is emitted some
+     * other way (kept as authored markup), a probe-minted marker would leave
+     * those rules bound to a class no emitted element carries.
+     */
+    private function publishedSemanticMarker(string $path): string
+    {
+        $projections = $this->session?->authorSelectorProjectionState();
+        if (null === $projections || '' === $path) return '';
+        return $this->publishesSubjects ? $projections->ensureSemanticMarker($path) : $projections->semanticMarker($path);
+    }
+
     private function sourceListHostIdentity(DOMElement $element): string
     {
         if (null === $this->session || !in_array(strtolower($element->tagName), array('ul', 'ol'), true)) return '';
@@ -231,7 +246,7 @@ final class NavigationPatternContext
                 }
                 foreach ($subjects as $candidate) {
                     $match = $styles->selectorMatchCache()->matches($candidate, $record['selector'], $parsed);
-                    if (($match['supported'] ?? false) && ($match['matches'] ?? false)) { $projections = $this->session->authorSelectorProjectionState(); return implode(' ', $projections->semanticCarrierClasses($projections->ensureSemanticMarker($element->getNodePath() ?? ''), $element->getNodePath() ?? '')); }
+                    if (($match['supported'] ?? false) && ($match['matches'] ?? false)) { $marker = $this->publishedSemanticMarker($element->getNodePath() ?? ''); return '' === $marker ? '' : implode(' ', $this->session->authorSelectorProjectionState()->semanticCarrierClasses($marker, $element->getNodePath() ?? '')); }
                 }
             }
         }
@@ -1757,7 +1772,8 @@ final class NavigationPatternContext
             }
             if (array() === $resets) continue;
 
-            $marker = $this->session->authorSelectorProjectionState()->ensureSemanticMarker($ancestor->getNodePath() ?? '');
+            $marker = $this->publishedSemanticMarker($ancestor->getNodePath() ?? '');
+            if ('' === $marker) continue;
             $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay(
                 $marker,
                 EngineSupportCss::responsiveOverlayContainingBlockRule($marker, $resets)

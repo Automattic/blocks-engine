@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-button-nested-rule-body-declaration-routing",
-  "description": "A button rule whose body nests a style rule keeps that nested rule whole. Button declaration routing splits a flat body at ';' and lifts placement declarations such as transform onto a separate rule; applied to a body with nested rules it cut the nested block mid-way and left stray closing braces. The truncated stylesheet hid later rules from class-identity coalescing, so a RichText marker scoped to `.label.hidden-copy` was merged with every plain `.label` and its display:none hid every button label.",
+  "description": "A button rule whose body nests a style rule keeps that nested rule whole. Button declaration routing splits a flat body at ';' and lifts placement declarations such as transform onto a separate rule; applied to a body with nested rules it cut the nested block mid-way and left stray closing braces. The truncated stylesheet hid later rules from class-identity coalescing, so a RichText marker scoped to `.label.hidden-copy` was merged with every plain `.label` and its display:none hid every button label. Nesting is now desugared at input, so the nested `:before` rule arrives as one flat rule whose declarations stay together.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-button-nested-rule-body-declaration-routing.json",
@@ -24,7 +24,7 @@
     {
       "path": "source_reports.author_stylesheet_projections.0.content",
       "assert": "contains",
-      "value": "{& .label{&:before{content:\"\";border-top-width:2px;transform:scaleX(0)}}}"
+      "value": ":before{content:\"\";border-top-width:2px;transform:scaleX(0)}"
     },
     {
       "path": "source_reports.author_stylesheet_projections.0.content",

@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-nested-style-rule-attribute-selector-projection",
-  "description": "A nested style rule gated by source attributes projects like its flat equivalent, while ungated nested rules keep their authored nesting. Selector analysis only read top-level rules, so a nested rule gated by source attributes (`.menu{&[data-mode=v]{&[layout=one] .item{...}}}`) was emitted verbatim: lowering dropped the attributes and moved the class it selected, and the vertical-menu padding and item separators stopped applying.",
+  "description": "Nested style rules project like their flat equivalents. Selector analysis only read top-level rules, so a nested rule gated by source attributes (`.menu{&[data-mode=v]{&[layout=one] .item{...}}}`) was emitted verbatim: lowering dropped the attributes and moved the class it selected, and the vertical-menu padding and item separators stopped applying. Nesting is now desugared at input, so the ungated and the attribute-gated item rules both reach the emitted link, and the gated one still wins by its higher specificity.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-nested-style-rule-attribute-selector-projection.json",
@@ -16,16 +16,49 @@
     "content": "<style>.menu{& .item{padding:0 15px}}.menu{&[data-mode=v]{&[layout=one] .item{padding:15px 0}}}</style><main><nav class=\"menu\" data-mode=\"v\" layout=\"one\"><ul class=\"list\"><li class=\"wrap\"><a class=\"item\" href=\"/a/\">Alpha</a></li><li class=\"wrap\"><a class=\"item\" href=\"/b/\">Beta</a></li></ul></nav></main>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/navigation" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Alpha" } }
+    {
+      "path": "blocks.0",
+      "name": "core/navigation"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/navigation-link",
+      "attrs": {
+        "label": "Alpha"
+      }
+    }
   ],
   "expected_fallbacks": [],
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "\"className\":\"item blocks-engine-attribute-" },
-    { "path": "source_reports.author_stylesheet_projections.0.content", "assert": "contains", "value": ":where(.wp-block-navigation-item__content):not(.be-c-0):not(.be-c-0):not(.be-c-0):not(.be-c-0){padding:15px 0}" },
-    { "path": "source_reports.author_stylesheet_projections.0.content", "assert": "not_contains", "value": "&[layout=one]" },
-    { "path": "source_reports.author_stylesheet_projections.0.content", "assert": "contains", "value": ".menu{& .item{padding:0 15px}}" },
-    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "\"className\":\"item blocks-engine-attribute-"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "contains",
+      "value": ":where(.wp-block-navigation-item__content):not(.be-c-0):not(.be-c-0){padding:0 15px}"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "contains",
+      "value": ":where(.wp-block-navigation-item__content):not(.be-c-0):not(.be-c-0):not(.be-c-0):not(.be-c-0){padding:15px 0}"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "not_contains",
+      "value": "&"
+    },
+    {
+      "path": "source_reports.wp_block_validity.status",
+      "assert": "equals",
+      "value": "pass"
+    }
   ]
 }

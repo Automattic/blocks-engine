@@ -64,7 +64,7 @@ $trailingNestedSibling = false;
 $assert($trailingNestedSibling, 'a trailing nested media rule cannot consume the closing brace and later sibling selector');
 $relativeNestedMargin = $transform('<style>.shell{margin-left:0;&:not(.missing){margin-left:24px}margin-left:12px}</style><div class="shell"><p>Label</p></div>');
 $assert(
-    (bool) preg_match('/\.shell\{&:not\(\.missing\):not\(\.be-c-[^)]+\)\{margin-left:24px\}\}/', $css($relativeNestedMargin)),
+    (bool) preg_match('/\.shell:not\(\.missing\):not\(\.be-c-[^)]+\)\{margin-left:24px\}\.shell:not\(\.be-c-[^)]+\)\{margin-left:12px\}/', $css($relativeNestedMargin)),
     'relative nested selectors retain their host and receive the same margin priority as later parent declarations'
 );
 $behaviorStyledImage = $transform(
