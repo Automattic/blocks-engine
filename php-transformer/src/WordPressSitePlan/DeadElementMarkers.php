@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 
 /**
@@ -105,7 +106,7 @@ final class DeadElementMarkers
         // A dead marker outside `:where()` (a class or attribute the subject
         // must carry) leaves nothing to match; inside another `:not()` it is
         // left as authored.
-        $positive = WordPressSitePlan::positiveSelector($selector);
+        $positive = CssSelectorCompoundInspector::positiveSelector($selector);
         if ($dead($positive)) return null;
         $selector = trim($selector);
         return '' === $selector ? null : $selector;
