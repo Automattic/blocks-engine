@@ -20,7 +20,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
  * (`ArtifactCompiler` -> `WordPressSitePlan`), not just `HtmlTransformer`,
  * because the ambiguity blocks-engine#2026 measured only ever surfaced at
  * site-plan composition -- a single-page `HtmlTransformer::transform()` call
- * never exercises `WordPressSitePlan::canonicalEntityBindings()` at all.
+ * never exercises `EntityBindings::canonical()` at all.
  */
 
 $assert = static function (bool $condition, string $message): void {

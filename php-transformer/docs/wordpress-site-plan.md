@@ -335,7 +335,7 @@ apply; in the editor its wrapper takes no box and the editor restatement of chil
 combinators tolerates it.
 
 Runtime bindings inside a synced pattern belong to the pattern document, like
-bindings in a shared template part. The final `canonicalEntityBindings()` pass
+bindings in a shared template part. The final `EntityBindings::canonical()` pass
 matches bindings on the page markup before the projection, then rebases each
 one: a binding in the first panel's copy moves to the pattern `source_path` with
 `occurrence` and `position` recomputed on the pattern markup, the copies in the

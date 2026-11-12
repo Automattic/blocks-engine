@@ -7,7 +7,7 @@
  */
 require __DIR__ . '/../../vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\EntityBindings;
 
 $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) {
@@ -16,7 +16,7 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 $markup = "<!-- wp:group -->\n<div class=\"wp-block-group\">" . str_repeat('<p>Card</p>', 20000) . "</div>\n<!-- /wp:group -->";
-$anchor = WordPressSitePlan::projectedBindingAnchor(array('search_block_markup' => $markup, 'occurrence' => 2));
+$anchor = EntityBindings::projectedAnchor(array('search_block_markup' => $markup, 'occurrence' => 2));
 $encoded = (string) json_encode($anchor);
 
 $assert(strlen($encoded) < 512, 'The projected anchor stays small for a large bound block: ' . strlen($encoded) . ' bytes.');
