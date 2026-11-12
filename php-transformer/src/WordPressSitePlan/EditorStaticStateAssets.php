@@ -67,7 +67,7 @@ final class EditorStaticStateAssets
                     foreach ($asset['scopes'] as $scope) if (!in_array($scope, $resources[$path]['scopes'], true)) $resources[$path]['scopes'][] = $scope;
                     continue;
                 }
-                $resource = WordPressSitePlan::withRewrittenTextContent($asset, $text);
+                $resource = CompiledAssets::withRewrittenTextContent($asset, $text);
                 $resource['source_path'] = $resource['target_path'] = $path;
                 $resource['token'] = 'asset-' . substr(hash('sha256', $path), 0, 16);
                 $resource['reconciliation_identity'] = WordPressSitePlan::identity('asset', $path, $path);

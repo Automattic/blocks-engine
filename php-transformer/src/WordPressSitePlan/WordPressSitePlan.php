@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
-use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\Support\StepTimer;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -569,14 +568,14 @@ final class WordPressSitePlan
         $emittedMarkup = implode("\n", self::markups(array_merge($pages, $parts, $templates, $syncedPatterns)));
         $menus = array_values(array_filter($menus, static fn(array $menu): bool => !isset($menu['token']) || str_contains($emittedMarkup, self::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}')));
         $operations = PageOperations::plan($pages);
-        $assets = self::withVariantScopedIdSelectors($assets);
+        $assets = CompiledAssets::withVariantScopedIdSelectors($assets);
         // Stylesheet values equal to a token follow it too: links inside
         // text, navigation items and states have no block attribute to bind.
         if (null !== $this->presetBinding) foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
             $content = $this->presetBinding->bindStylesheet($asset['content']);
             if ($content === $asset['content']) continue;
-            $asset = self::withRewrittenTextContent($asset, $content);
+            $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
         // Asset payloads are the last canonicalization pass, so the placeholder
@@ -587,7 +586,7 @@ final class WordPressSitePlan
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $compacted = $compactor->compactStylesheet($asset['content']);
-            if ($compacted !== $asset['content']) $asset = self::withRewrittenTextContent($asset, $compacted);
+            if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);
         $themeAssetWrites = new ThemeAssetWrites();
@@ -963,57 +962,6 @@ final class WordPressSitePlan
         }
         return $rows;
     }
-
-    /**
-     * Keep variant-scoped author rules on the ids the page actually renders.
-     *
-     * When a captured desktop/mobile pair shares an id, the mobile copy is
-     * rendered as `<id>--data-blocks-engine-capture-mobile` so the page keeps unique ids. The delivered
-     * stylesheets still address the source id (`:where(.data-blocks-engine-capture-mobile-document)
-     * #<id>`), so without this pass every mobile id rule misses its element.
-     * It runs after shared-chrome extraction, which reasons about the source
-     * ids, and only changes selectors scoped to a non-default document variant.
-     *
-     * @param array<int,array<string,mixed>> $assets
-     * @return array<int,array<string,mixed>>
-     */
-    private static function withVariantScopedIdSelectors(array $assets): array
-    {
-        foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
-            $content = DocumentVariantIds::scopeIdSelectors($asset['content']);
-            if ($content === $asset['content']) continue;
-            $asset = self::withRewrittenTextContent($asset, $content);
-        }
-        unset($asset);
-        return $assets;
-    }
-
-    /**
-     * An asset whose text was rewritten in place. Its transport twin
-     * (`content_base64` and `transport_sha256`) described the bytes as
-     * delivered, so it is dropped rather than left to contradict the content.
-     *
-     * @param array<string,mixed> $asset
-     * @return array<string,mixed>
-     */
-    public static function withRewrittenTextContent(array $asset, string $content): array
-    {
-        $asset['content'] = $content;
-        $asset['bytes'] = strlen($content);
-        $asset['content_hash'] = self::contentHash($content);
-        if (array_key_exists('hash', $asset)) $asset['hash'] = self::contentHash($content);
-        unset($asset['content_base64'], $asset['transport_sha256']);
-        return $asset;
-    }
-
-    /** @param array<int,mixed> $prior @param array<int,mixed> $references @return array<int,mixed> */
-    public static function mergedReferences(array $prior, array $references): array
-    {
-        foreach ($references as $reference) if (!in_array($reference, $prior, true)) $prior[] = $reference;
-        return $prior;
-    }
-
 
     /** @param array<int,array<string,mixed>> $assets @return array<int,array<string,string>> */
     private function tokens(array $assets): array { return array_map(static fn(array $asset): array => array('token' => $asset['token'], 'source_path' => $asset['source_path'], 'target_path' => $asset['target_path']), $assets); }
