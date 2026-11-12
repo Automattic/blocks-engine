@@ -174,7 +174,7 @@ final class NavigationToggleSuppressor
             foreach ( $scope->getElementsByTagName('*') as $candidate ) {
                 if ( ! $candidate instanceof DOMElement
                     || SourceDom::elementContains($candidate, $control)
-                    || $this->hasAncestorTag($candidate, 'dialog')
+                    || SourceDom::hasAncestorTag($candidate, array( 'dialog' ))
                     || ( array() !== $found && SourceDom::elementContains($found[count($found) - 1], $candidate) )
                     || ! $this->isAssociatedNavigationTarget($candidate)
                     || ! $this->ownsCoreNavigation($candidate) ) {
