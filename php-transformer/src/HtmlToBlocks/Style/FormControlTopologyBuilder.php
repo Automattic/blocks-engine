@@ -29,12 +29,15 @@ final class FormControlTopologyBuilder
         'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
     );
 
-    /** @return array<string, mixed> */
-    public function build(DOMElement $form): array
+    /**
+     * @param list<DOMElement>|null $controlElements Explicit inventory in metadata row order.
+     * @return array<string, mixed>
+     */
+    public function build(DOMElement $form, ?array $controlElements = null): array
     {
         $controlIndexes = array();
         $relevantElements = array();
-        foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
+        foreach ( $controlElements ?? FormControlClassifier::controlElements($form) as $index => $control ) {
             $controlIndexes[$control->getNodePath()] = $index;
             for ( $ancestor = $control->parentNode; $ancestor instanceof DOMElement && $ancestor !== $form; $ancestor = $ancestor->parentNode ) {
                 $relevantElements[$ancestor->getNodePath()] = true;
@@ -144,12 +147,13 @@ final class FormControlTopologyBuilder
      * Preserve only directly adjacent label/control pairs. A provider that wraps
      * controls can then transpose its parent's proven source gap inside the field.
      *
+     * @param list<DOMElement>|null $controlElements Explicit inventory in metadata row order.
      * @return array<string, mixed>
      */
-    public function directLabelControlPairs(DOMElement $form): array
+    public function directLabelControlPairs(DOMElement $form, ?array $controlElements = null): array
     {
         $indexes = array();
-        foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
+        foreach ( $controlElements ?? FormControlClassifier::controlElements($form) as $index => $control ) {
             $indexes[$control->getNodePath()] = $index;
         }
         $pairs = array();
@@ -183,12 +187,13 @@ final class FormControlTopologyBuilder
      * other form controls. Labels and other non-controls intentionally do not
      * make a wrapper shared.
      *
+     * @param list<DOMElement>|null $controlElements Explicit inventory in metadata row order.
      * @return array<int, list<DOMElement>>
      */
-    public function exclusiveWrapperAncestors(DOMElement $form): array
+    public function exclusiveWrapperAncestors(DOMElement $form, ?array $controlElements = null): array
     {
         $result = array();
-        $controls = FormControlClassifier::controlElements($form);
+        $controls = $controlElements ?? FormControlClassifier::controlElements($form);
         $owners = array();
         foreach ( $controls as $control ) {
             $depth = 0;

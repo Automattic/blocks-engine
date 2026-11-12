@@ -150,7 +150,7 @@ final class FormPresentationGraphBuilder
     private readonly FormCustomPropertyResolver $customProperties;
 
     /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker @param list<DOMElement> $scopeElements @param CssSelectorMatchCache|null $selectorMatchCache A cache the caller owns and shares across one compile's passes; by default this builder owns one. */
-    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null, private readonly array $scopeElements = array(), ?CssSelectorMatchCache $selectorMatchCache = null, private readonly array $additionalControls = array())
+    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null, private readonly array $scopeElements = array(), ?CssSelectorMatchCache $selectorMatchCache = null, private readonly array $additionalControls = array(), private readonly ?array $controlElements = null)
     {
         $this->matchCache = $selectorMatchCache ?? new CssSelectorMatchCache();
         $this->customProperties = new FormCustomPropertyResolver($this->matchCache);
@@ -594,7 +594,7 @@ final class FormPresentationGraphBuilder
         $hasRequiredMarker = false;
         $hasCaptionLayer = false;
         $controlContainers = array();
-        $exclusiveAncestors = (new FormControlTopologyBuilder())->exclusiveWrapperAncestors($form);
+        $exclusiveAncestors = (new FormControlTopologyBuilder())->exclusiveWrapperAncestors($form, $this->controlElements);
 
         foreach ( $this->controls($form) as $index => $control ) {
             if ( $index >= self::MAX_CONTROLS ) {
@@ -1445,7 +1445,9 @@ final class FormPresentationGraphBuilder
         // control manifest omits, so layered author CSS on the submit button
         // landed on an unmapped index and providers declined the form. Each
         // index describes the element that paints its control.
-        return FormControlClassifier::presentedControlElements($form, $this->additionalControls);
+        return null !== $this->controlElements
+            ? array_map(FormControlClassifier::presentingElement(...), $this->controlElements)
+            : FormControlClassifier::presentedControlElements($form, $this->additionalControls);
     }
 
     /** @return list<DOMElement> */

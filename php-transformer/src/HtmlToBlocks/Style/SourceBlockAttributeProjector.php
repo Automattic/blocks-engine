@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
 use DOMElement;
 
 /** Projects source identities and structural carriers onto canonical block attributes. */
@@ -109,6 +110,15 @@ final class SourceBlockAttributeProjector
         SourceBlockAttributeProjectionContext $context
     ): array {
         $sourceTagName = strtolower($sourceElement->tagName);
+        if ( 'core/html' === $name && array() !== FormDispatcher::hostRenderedClasses($sourceElement) ) {
+            // Preserved forms have no block wrapper: identity must live in
+            // their actual markup, not the ignored core/html className.
+            $attrs['content'] = SourceDom::safeFallbackHtml(
+                $sourceElement,
+                $context->selectorProjections->tagMarkers(),
+                fn (DOMElement $element): array => SourceDom::tokens($this->sourceProjectionClassName($element, $context, SourceDom::attr($element, 'class')))
+            );
+        }
         if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
             if ($this->sourceImageIsFlexOrGridItem($sourceElement)) {
@@ -425,7 +435,11 @@ final class SourceBlockAttributeProjector
             // to its marker, whatever the token's length or position, so every
             // class on the element must carry its marker too.
             foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class')), -1, PREG_SPLIT_NO_EMPTY) ?: array() as $class ) {
-                if ( $context->authorStyles->isHostRenderedClass($class) && in_array($class, SourceDom::tokens($className), true) ) {
+                if ( $context->authorStyles->isHostRenderedClass($class)
+                    && (in_array($class, SourceDom::tokens($className), true)
+                        || in_array($class, FormDispatcher::hostRenderedClasses($element), true)) ) {
+                    // CSS-owned form lowering may consume the readable class.
+                    // The source identity still belongs on its emitted carrier.
                     $hostClassIdentities[] = EngineMarker::subjectClassClass($class);
                     $context->selectorProjections->recordHostClassCarrier($element->getNodePath() ?? '');
                 }
