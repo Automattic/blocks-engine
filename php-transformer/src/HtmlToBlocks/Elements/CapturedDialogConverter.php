@@ -15,6 +15,9 @@ use DOMElement;
 /** Materializes editable dialog content as a core Group with a runtime shell. */
 final class CapturedDialogConverter implements ElementConverter
 {
+    /** @var list<DOMElement> Adopted panels converting as their own content. */
+    private array $adopting = array();
+
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly PatternTreeConverter $tree,
@@ -22,9 +25,39 @@ final class CapturedDialogConverter implements ElementConverter
     ) {
     }
 
+    /**
+     * A source panel adopted in place with its resting presentation is itself
+     * the dialog: it carries the bindings, whatever its tag. Claimed before
+     * any other converter, its shell wraps the panel converted as ordinary
+     * content, and renders no element of its own.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    public function convertAdoptedPanel(DOMElement $element, array &$fallbacks): ConversionOutcome
+    {
+        if ( ! self::isAdoptedPanel($element) ) return ConversionOutcome::unhandled();
+        foreach ( $this->adopting as $adopting ) {
+            if ( $adopting->isSameNode($element) ) return ConversionOutcome::unhandled();
+        }
+        if ( $this->isSupersededByNativeNavigation($element) ) {
+            return ConversionOutcome::handled(null);
+        }
+
+        return ConversionOutcome::handled($this->block($element, $fallbacks));
+    }
+
+    public static function isAdoptedPanel(DOMElement $element): bool
+    {
+        return 'true' === SourceDom::attr($element, 'data-blocks-engine-captured-dialog')
+            && in_array(SourceDom::attr($element, 'data-blocks-engine-resting'), array('authored', 'hidden'), true);
+    }
+
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
+        if ( self::isAdoptedPanel($element) ) {
+            return $this->convertAdoptedPanel($element, $fallbacks);
+        }
         // A native closed dialog already supplies its own hidden runtime shell;
         // capture evidence is only needed for other dialog surfaces.
         $isClosedNativeDialog = 'dialog' === $tagName && !$element->hasAttribute('open');
@@ -42,7 +75,7 @@ final class CapturedDialogConverter implements ElementConverter
     private function isSupersededByNativeNavigation(DOMElement $dialog): bool
     {
         $document = $dialog->ownerDocument;
-        if ( null === $document || 0 === $dialog->getElementsByTagName('nav')->length ) return false;
+        if ( null === $document || ('nav' !== strtolower($dialog->tagName) && 0 === $dialog->getElementsByTagName('nav')->length) ) return false;
         foreach ( SourceDom::tokens(SourceDom::attr($dialog, 'data-blocks-engine-triggers')) as $triggerId ) {
             $trigger = $document->getElementById($triggerId);
             if ( ! $trigger instanceof DOMElement ) continue;
@@ -119,7 +152,21 @@ final class CapturedDialogConverter implements ElementConverter
             'resting' => in_array(SourceDom::attr($element, 'data-blocks-engine-resting'), array('authored', 'hidden'), true) ? SourceDom::attr($element, 'data-blocks-engine-resting') : '',
             'restingState' => CapturedDialogBlockGenerator::restingState(json_decode(SourceDom::attr($element, 'data-blocks-engine-resting-state'), true)),
         ), static fn(mixed $value): bool => false !== $value && '' !== $value && array() !== $value);
-        $children = $this->tree->children($element, $fallbacks, true);
+        $adopted = self::isAdoptedPanel($element);
+        if ( $adopted ) {
+            // The panel block renders the panel's own tag, class, style and
+            // labels; the shell only adds the bindings to that element.
+            unset($attrs['tagName'], $attrs['sourceStyle'], $attrs['className'], $attrs['ariaLabel'], $attrs['ariaLabelledby'], $attrs['ariaDescribedby'], $attrs['addCloseButton']);
+            $this->adopting[] = $element;
+            try {
+                $panel = $this->tree->element($element, $fallbacks, true);
+            } finally {
+                array_pop($this->adopting);
+            }
+            $children = null === $panel ? array() : array($panel);
+        } else {
+            $children = $this->tree->children($element, $fallbacks, true);
+        }
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $tag = $attrs['tagName'] ?? 'dialog';
         $opening = '<' . $tag;
@@ -141,10 +188,14 @@ final class CapturedDialogConverter implements ElementConverter
         foreach ($shellAttributes as $attribute) {
             $attributes[$attribute[1]] = html_entity_decode($attribute[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }
-        $groupAttrs = array('metadata' => array('blocksEngineDialog' => array('tagName' => $tag, 'attributes' => $attributes, 'addCloseButton' => !empty($attrs['addCloseButton']))));
+        // An adopted panel's shell names no tag: it renders as the panel.
+        $shell = $adopted ? array('adopt' => true, 'attributes' => $attributes) : array('tagName' => $tag, 'attributes' => $attributes, 'addCloseButton' => !empty($attrs['addCloseButton']));
+        $groupAttrs = array('metadata' => array('blocksEngineDialog' => $shell));
         if (isset($attrs['className'])) $groupAttrs['className'] = $attrs['className'];
-        if (isset($attrs['dialogId'])) $groupAttrs['anchor'] = $attrs['dialogId'];
-        $groupOpening = '<div' . (isset($attrs['dialogId']) ? ' id="' . $escape($attrs['dialogId']) . '"' : '')
+        // An adopted panel's block holds its anchor; the shell holds none.
+        $anchor = $adopted ? null : ($attrs['dialogId'] ?? null);
+        if (null !== $anchor) $groupAttrs['anchor'] = $anchor;
+        $groupOpening = '<div' . (null !== $anchor ? ' id="' . $escape($anchor) . '"' : '')
             . ' class="wp-block-group' . (isset($attrs['className']) ? ' ' . $escape($attrs['className']) : '') . '">';
         $innerContent = array($groupOpening);
         foreach ($children as $_) $innerContent[] = null;
