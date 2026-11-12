@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\DeclaredContent;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlMarkupParser;
 
 /** Recognizes captured category and tag collections from reciprocal links or WordPress body identity. */
@@ -21,10 +22,16 @@ final class TaxonomyProjection
         return in_array($match[1], array('category', 'categories'), true) || !str_contains($match[2], '/');
     }
 
-    /** @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @return array{entities:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>,pagination_source_paths_by_archive:array<string,array<int,string>>} */
+    /**
+     * Entities in `declared_entities` carry no archive; the caller adds them
+     * once the final post set is known.
+     *
+     * @param array<int,array<string,mixed>> $documents @param array<int,array<string,mixed>> $routes @return array{entities:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>,pagination_source_paths_by_archive:array<string,array<int,string>>,declared_entities:array<int,array<string,mixed>>}
+     */
     public static function project(array $documents, array $routes, string $sourceOrigin = ''): array
     {
         $routeBySource = array_column($routes, 'target_path', 'source_path');
+        $declared = self::declaredTerms($documents, $routeBySource);
         $routeByLinkPath = ReciprocalArchiveProof::routeLinkAliases($routes);
         $documentsByRoute = array();
         foreach ($documents as $document) {
@@ -39,13 +46,13 @@ final class TaxonomyProjection
         }
 
         $siteName = self::sharedTitleSuffix($documents);
-        $entities = array();
-        $diagnostics = array();
+        $entities = $declared['entities'];
+        $diagnostics = $declared['diagnostics'];
         $corroboratedBySlug = array();
         foreach ($documents as $archive) {
             $source = $archive['source_path'] ?? null;
             $route = is_string($source) ? ($routeBySource[$source] ?? null) : null;
-            if (!is_string($source) || !is_string($route) || !self::isTermRoute($route)) continue;
+            if (!is_string($source) || !is_string($route) || isset($declared['archive_sources'][$source]) || !self::isTermRoute($route)) continue;
             preg_match(self::TERM_ROUTE, $route, $termMatch);
             $taxonomy = in_array($termMatch[1], array('tag', 'tags'), true) ? 'post_tag' : 'category';
             $slug = basename($route);
@@ -135,7 +142,9 @@ final class TaxonomyProjection
         }
         $paginationSourcesByArchive = array();
         $candidatesByRoute = array();
-        foreach ($corroboratedBySlug as $group) {
+        foreach ($corroboratedBySlug as $key => $group) {
+            // A declared term owns its slug; reciprocal-link proof cannot claim it again.
+            if (isset($declared['keys'][$key])) continue;
             if (1 < count($group)) {
                 foreach ($group as $candidate) $diagnostics[] = array('code' => 'wordpress_site_plan_taxonomy_archive_ambiguous_term', 'severity' => 'info', 'message' => 'More than one captured taxonomy archive claims the same term slug, so none of them can prove ownership of that term.', 'source_path' => $candidate['source'], 'source_route' => $candidate['route']);
                 continue;
@@ -169,7 +178,79 @@ final class TaxonomyProjection
             if (null !== $parentRoute) $entity['parent'] = basename($parentRoute);
             $entities[] = $entity;
         }
-        return array('entities' => $entities, 'diagnostics' => $diagnostics, 'pagination_source_paths_by_archive' => $paginationSourcesByArchive);
+        return array('entities' => $entities, 'diagnostics' => $diagnostics, 'pagination_source_paths_by_archive' => $paginationSourcesByArchive, 'declared_entities' => $declared['unarchived']);
+    }
+
+    /**
+     * Tags declared by content records (`metadata.declared_content`): posts
+     * name their terms, and a declared term archive names the term it lists.
+     * The declaration is the proof, so no reciprocal links are required.
+     *
+     * @param array<int,array<string,mixed>> $documents @param array<string,mixed> $routeBySource
+     * @return array{entities:array<int,array<string,mixed>>,unarchived:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>,archive_sources:array<string,bool>,keys:array<string,bool>}
+     */
+    private static function declaredTerms(array $documents, array $routeBySource): array
+    {
+        $members = array();
+        $archives = array();
+        foreach ($documents as $document) {
+            $source = $document['source_path'] ?? null;
+            $declared = DeclaredContent::sanitize($document['metadata']['declared_content'] ?? null);
+            if (!is_string($source) || null === $declared) continue;
+            if (isset($declared['term_archive'])) {
+                $route = $routeBySource[$source] ?? null;
+                if (is_string($route)) $archives[$declared['term_archive']['name']][] = array('source' => $source, 'route' => $route, 'archive' => $document);
+                continue;
+            }
+            if ('post' !== ($document['metadata']['post_type'] ?? null)) continue;
+            foreach ($declared['terms'] ?? array() as $name) $members[$name][] = $source;
+        }
+        $result = array('entities' => array(), 'unarchived' => array(), 'diagnostics' => array(), 'archive_sources' => array(), 'keys' => array());
+        $bySlug = array();
+        foreach (array_unique(array_merge(array_map('strval', array_keys($members)), array_map('strval', array_keys($archives)))) as $name) {
+            $archive = null;
+            $candidates = $archives[$name] ?? array();
+            foreach ($candidates as $candidate) $result['archive_sources'][$candidate['source']] = true;
+            if (1 < count($candidates)) {
+                foreach ($candidates as $candidate) $result['diagnostics'][] = array('code' => 'wordpress_site_plan_taxonomy_archive_ambiguous_term', 'severity' => 'info', 'message' => 'More than one captured taxonomy archive claims the same term slug, so none of them can prove ownership of that term.', 'source_path' => $candidate['source'], 'source_route' => $candidate['route']);
+            } elseif (1 === count($candidates)) {
+                if (self::supportedTermSpelling($candidates[0]['route'], basename($candidates[0]['route']))) $archive = $candidates[0];
+                else $result['diagnostics'][] = array('code' => 'wordpress_site_plan_taxonomy_archive_unsupported_spelling', 'severity' => 'info', 'message' => 'A captured taxonomy route or slug spelling is outside the canonical term vocabulary, so the collection stays explicitly unproven.', 'source_path' => $candidates[0]['source'], 'source_route' => $candidates[0]['route']);
+            }
+            $termMembers = array_values(array_unique($members[$name] ?? array()));
+            sort($termMembers, SORT_STRING);
+            $slug = null !== $archive ? basename($archive['route']) : self::termSlug($name);
+            $bySlug[$slug][] = array('name' => $name, 'slug' => $slug, 'archive' => $archive, 'members' => $termMembers);
+        }
+        foreach ($bySlug as $slug => $group) {
+            if (1 < count($group)) {
+                $result['diagnostics'][] = array('code' => 'wordpress_site_plan_taxonomy_declared_term_ambiguous', 'severity' => 'info', 'message' => 'More than one declared term name resolves to the same term slug, so none of them is projected.', 'source_route' => (string) $slug);
+                continue;
+            }
+            $term = $group[0];
+            $result['keys']['post_tag:' . $slug] = true;
+            $entity = array('kind' => 'taxonomy_term', 'taxonomy' => 'post_tag', 'slug' => (string) $slug, 'name' => $term['name'], 'membership_source_paths' => $term['members']);
+            if (null === $term['archive']) {
+                if (array() === $term['members']) continue;
+                $result['unarchived'][] = $entity + array('evidence' => array('membership' => true, 'name' => true), 'provenance' => DeclaredContent::PROVENANCE);
+                continue;
+            }
+            $entity['archive'] = array(
+                'source_path' => $term['archive']['source'],
+                'source_route' => $term['archive']['route'],
+                'presentation_markup' => (string) ($term['archive']['archive']['block_markup'] ?? ''),
+                'query' => array('post_type' => 'post', 'taxonomy' => 'post_tag', 'term' => (string) $slug),
+            );
+            $result['entities'][] = $entity + array('evidence' => array('membership' => true, 'name' => true, 'archive' => true), 'provenance' => DeclaredContent::PROVENANCE);
+        }
+        return $result;
+    }
+
+    /** A canonical term slug for a declared name without a captured archive route. */
+    private static function termSlug(string $name): string
+    {
+        $slug = trim(substr(trim(strtolower((string) preg_replace('/[^A-Za-z0-9]+/', '-', $name)), '-'), 0, 200), '-');
+        return '' === $slug ? 'term-' . substr(hash('sha256', $name), 0, 12) : $slug;
     }
 
     /** Parent-route sections share the archive term contract, without claiming an archive. */
