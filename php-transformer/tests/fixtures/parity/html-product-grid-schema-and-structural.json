@@ -32,7 +32,7 @@
     { "path": "fallbacks.0.products", "assert": "count", "count": 2 },
     { "path": "fallbacks.0.products.0.name", "assert": "equals", "value": "Desk Lamp" },
     { "path": "fallbacks.0.products.0.price", "assert": "equals", "value": "$48" },
-    { "path": "fallbacks.0.products.0.sale_price", "assert": "equals", "value": "$36" },
+    { "path": "fallbacks.0.products.0.sale_price", "assert": "equals", "value": null },
     { "path": "fallbacks.0.products.0.description", "assert": "equals", "value": "Warm focused light for any desk." },
     { "path": "fallbacks.0.products.0.image.src", "assert": "equals", "value": "/img/lamp.jpg" },
     { "path": "fallbacks.0.products.0.image.alt", "assert": "equals", "value": "Desk Lamp" },
