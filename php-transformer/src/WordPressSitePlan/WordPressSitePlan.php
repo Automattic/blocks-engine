@@ -47,23 +47,16 @@ final class WordPressSitePlan
     public const LISTING_QUERY_CLASS = 'blocks-engine-listing-query';
     private string $sourceOrigin = '';
     public const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
-    private const MAX_OMITTED_LINK_DECLARATION_DIAGNOSTICS = 50;
-    private const OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE = 'wordpress_site_plan_omitted_link_declaration';
     /** @var array<string,array<string,mixed>> */
     private array $unresolvedScriptReferenceDiagnostics = array();
     private int $omittedUnresolvedScriptReferenceDiagnostics = 0;
-    /** @var array<string,array<string,mixed>> */
-    private array $omittedLinkDeclarations = array();
-    /** @var array<string,array<string,bool>> */
-    private array $omittedLinkDeclarationPages = array();
     /** @var array<string,array<string,mixed>> Dropped or rewritten units, keyed by their identity fields. */
     private array $unitFindings = array();
-    /** @var array<string,bool> */
-    private array $omittedLinkDeclarationOverflow = array();
     private readonly ShellExtraction $shellExtraction;
     private ListingQueryLoops $listings;
     private PostChrome $postChrome;
     private RouteLinks $links;
+    private DocumentHeads $heads;
     private ?DesignSystem $designSystem = null;
     private ?PresetBinding $presetBinding = null;
     private MissingMediaRecovery $missingMedia;
@@ -196,10 +189,7 @@ final class WordPressSitePlan
         $this->postChrome = new PostChrome($this->listings, $this->chromeIdentityKey(...), $this->recordUnitFinding(...));
         $this->unresolvedScriptReferenceDiagnostics = array();
         $this->omittedUnresolvedScriptReferenceDiagnostics = 0;
-        $this->omittedLinkDeclarations = array();
-        $this->omittedLinkDeclarationPages = array();
         $this->unitFindings = array();
-        $this->omittedLinkDeclarationOverflow = array();
         $editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
             throw new InvalidArgumentException('WordPress site plan requires a versioned editability policy.');
@@ -271,6 +261,7 @@ final class WordPressSitePlan
         }
         $this->timer?->start('compose.site_plan.pages');
         $this->links = new RouteLinks($sourceUrl, $this->sourceOrigin, $routeSources, $routeTargets, $this->presetBinding, $documents, $routeMap);
+        $this->heads = new DocumentHeads($this->links, $this->recordUnitFinding(...));
         $entityBindings = new EntityBindings($this->links, $this->recordUnitFinding(...));
         $this->missingMedia = new MissingMediaRecovery($this->strictMissingMedia, array_column($assets, 'target_path'));
         $missingFonts = new MissingFontSourceRecovery($this->strictMissingMedia);
@@ -676,7 +667,7 @@ final class WordPressSitePlan
         $scriptLoading = DocumentScripts::loading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $runtimeEmoji, $rootDocuments), $assetWrites);
         $unitFindings = array_merge($this->unitFindingDiagnostics(), NavigationInstanceDiagnostics::collect($assets, $emittedMarkup . "\n" . implode("\n", self::markups($menus))));
-        $recoveryDiagnostics = array_merge($routeTable->diagnostics(), $this->links->diagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->omittedLinkDeclarationDiagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
+        $recoveryDiagnostics = array_merge($routeTable->diagnostics(), $this->links->diagnostics(), $this->unresolvedScriptReferenceDiagnostics(), $this->heads->diagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $missingFonts->diagnostics(), $missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
         // Declarations still over a byte limit are dropped here with their
@@ -1349,7 +1340,7 @@ final class WordPressSitePlan
             $canonical = $this->links->markup($markup, $document['source_path'], $routes);
             $target = $part ? 'parts/' . self::value($document, 'slug') . '.html' : self::value($document, 'source_path');
             $area = $part ? self::value($document, 'area', 'uncategorized') : null;
-            $row = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $area, 'tag_name' => $part ? self::value($document, 'tag_name', ShellLandmarkPolicy::templatePartAreaTagName((string) $area)) : null, 'placement' => $part && is_array($document['placement'] ?? null) ? $document['placement'] : ($part ? array('kind' => 'unbound') : null), 'canonical_block_markup' => $canonical, '_projected_source_block_markup' => $document['block_markup'], 'metadata' => ArrayField::array($document, 'metadata'), 'document_metadata' => $this->documentMetadata($document, $references, $routes), 'provenance' => ArrayField::array($document, 'provenance'), 'reconciliation_identity' => self::identity($part ? 'template-part' : 'page', $document['source_path'], $target), 'content_hash' => self::contentHash($canonical));
+            $row = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $area, 'tag_name' => $part ? self::value($document, 'tag_name', ShellLandmarkPolicy::templatePartAreaTagName((string) $area)) : null, 'placement' => $part && is_array($document['placement'] ?? null) ? $document['placement'] : ($part ? array('kind' => 'unbound') : null), 'canonical_block_markup' => $canonical, '_projected_source_block_markup' => $document['block_markup'], 'metadata' => ArrayField::array($document, 'metadata'), 'document_metadata' => $this->heads->metadata($document, $references, $routes), 'provenance' => ArrayField::array($document, 'provenance'), 'reconciliation_identity' => self::identity($part ? 'template-part' : 'page', $document['source_path'], $target), 'content_hash' => self::contentHash($canonical));
             if (!$part && is_array($document['content_decision'] ?? null)) {
                 $row['content_decision'] = $document['content_decision'];
                 if (is_string($document['publication_timestamp'] ?? null)) $row['publication_timestamp'] = $document['publication_timestamp'];
@@ -1948,82 +1939,7 @@ final class WordPressSitePlan
 
     /** @param array<int,array<string,mixed>> $assets @return array<int,array<string,string>> */
     private function tokens(array $assets): array { return array_map(static fn(array $asset): array => array('token' => $asset['token'], 'source_path' => $asset['source_path'], 'target_path' => $asset['target_path']), $assets); }
-    /** @param array<string,mixed> $document @param array<int,array<string,string>> $tokens @return array<string,mixed> */
-    private function documentMetadata(array $document, AssetReferenceCanonicalizer $references, array $routes): array
-    {
-        $metadata = is_array($document['document_metadata'] ?? null) ? $document['document_metadata'] : array('source_context' => array('source_path' => self::value($document, 'source_path'), 'kind' => 'document'), 'title' => self::value($document, 'title'), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array());
-        foreach (array('links', 'scripts') as $kind) {
-            if (!is_array($metadata[$kind] ?? null)) $metadata[$kind] = array();
-            foreach ($metadata[$kind] as &$row) {
-                if (!is_array($row) || !is_string($row['url'] ?? null)) continue;
-                $reference = $this->documentAssetReference($row['url'], self::value($document, 'source_path'), $references, $routes);
-                if (null !== $reference) {
-                    $row['asset_reference'] = $reference;
-                    unset($row['url']);
-                    continue;
-                }
-                if ('links' !== $kind) continue;
-                $route = $this->links->reference($row['url'], self::value($document, 'source_path'), $routes);
-                if (null !== $route) { $row['url'] = $route; continue; }
-                // A local link that names neither a captured asset nor a route has nothing to bind.
-                // Omit it and say so; the strict link validator stays the integrity backstop.
-                if (self::explicitUrl($row['url'])) continue;
-                $this->recordOmittedLinkDeclaration(self::value($document, 'source_path'), $row);
-                $row = null;
-            }
-            unset($row);
-            $metadata[$kind] = array_values(array_filter($metadata[$kind], static fn(mixed $row): bool => is_array($row)));
-            foreach ($metadata[$kind] as $index => &$row) $row['order'] = $index;
-            unset($row);
-        }
-        if ('html' === ($metadata['source_context']['kind'] ?? null)) foreach (self::unrenderedHeadItems($metadata) as $drop) $this->recordDroppedHeadItem(self::value($document, 'source_path'), $drop);
-        return $metadata;
-    }
 
-    /**
-     * Records one omitted link declaration. An omission is a reportable quality
-     * defect, not a silent edit: the plan keeps a bounded, deduplicated warning
-     * per declaration so a consumer can show what the head lost.
-     *
-     * These land on the plan's own `diagnostics`, beside
-     * `wordpress_site_plan_unresolved_navigation_link`. They are not envelope
-     * diagnostics, so they do not reach `source_reports.wordpress_site_plan_diagnostics`
-     * or `WordPressSitePlanView::diagnostics()`, which carry the failure
-     * channel; a consumer wanting these reads the plan.
-     *
-     * @param array<string,mixed> $link
-     */
-    private function recordOmittedLinkDeclaration(string $sourcePath, array $link): void
-    {
-        $url = (string) ($link['url'] ?? '');
-        $relation = trim((string) preg_replace('/\s+/', ' ', (string) ($link['rel'] ?? '')));
-        // Keyed on the declaration rather than the page. WordPress prints the
-        // same discovery links in every head, so keying on the page spends the
-        // whole budget restating one site's boilerplate and names no other
-        // defect: a 60-page capture reported 5 facts about 10 pages and gave
-        // up. One row per distinct declaration, with the page it was first seen
-        // on and how many pages carried it.
-        //
-        // Pages, not tags: fullDocumentMetadata() keeps duplicate links, so a
-        // head that prints one pingback twice would otherwise report two
-        // affected pages when it has one.
-        $key = $relation . "\0" . $url;
-        if (isset($this->omittedLinkDeclarations[$key])) { $this->omittedLinkDeclarationPages[$key][$sourcePath] = true; return; }
-        // Counted as distinct declarations, the same unit as the rows above it,
-        // so the listed rows and the remainder add up.
-        if (count($this->omittedLinkDeclarations) >= self::MAX_OMITTED_LINK_DECLARATION_DIAGNOSTICS) { $this->omittedLinkDeclarationOverflow[$key] = true; return; }
-        $label = $relation . ' link';
-        $this->omittedLinkDeclarationPages[$key][$sourcePath] = true;
-        $this->omittedLinkDeclarations[$key] = array_filter(array(
-            'code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE,
-            'severity' => 'warning',
-            'message' => self::clipDiagnosticField("Omitted {$url} ({$label} declaration), which names neither a captured asset nor an artifact route."),
-            'source_path' => self::clipDiagnosticField($sourcePath),
-            'rel' => self::clipDiagnosticField($relation),
-            'value' => self::clipDiagnosticField($url),
-            'reason_code' => 'unresolved_local_url',
-        ), static fn(mixed $field): bool => '' !== $field);
-    }
     /**
      * Clips one diagnostic field to its budget without splitting a UTF-8
      * sequence. A byte-wise cut can leave an invalid string, and planIdentity()
@@ -2031,7 +1947,7 @@ final class WordPressSitePlan
      * sequence would discard the whole plan -- the failure this omission exists
      * to avoid, one layer up.
      */
-    private static function clipDiagnosticField(string $value): string { return mb_strcut($value, 0, 256, 'UTF-8'); }
+    public static function clipDiagnosticField(string $value): string { return mb_strcut($value, 0, 256, 'UTF-8'); }
     /**
      * Records one unit the plan dropped or rewrote instead of failing. Findings
      * with the same fields are one row whose `omitted_count` counts them.
@@ -2047,72 +1963,6 @@ final class WordPressSitePlan
     }
     /** @return array<int,array<string,mixed>> */
     private function unitFindingDiagnostics(): array { return array_values($this->unitFindings); }
-    /**
-     * WordPress renders the document head: core owns charset and viewport,
-     * platform fields own route SEO and the site icon, and stylesheets and
-     * executable scripts are enqueued. Any other source head item is a loss.
-     * @param array<string,mixed> $metadata
-     * @return list<array{code:string,reason_code:string,tag:string,name:string}>
-     */
-    private static function unrenderedHeadItems(array $metadata): array
-    {
-        $drops = array();
-        $drop = static function (string $tag, string $name) use (&$drops): void { $drops[] = array('code' => 'document_head_element_dropped', 'reason_code' => 'unrendered', 'tag' => $tag, 'name' => $name); };
-        foreach ($metadata['meta'] ?? array() as $row) {
-            if ('head' !== ($row['placement'] ?? null) || isset($row['charset'])) continue;
-            $equiv = strtolower(trim((string) ($row['http_equiv'] ?? '')));
-            $name = strtolower(trim((string) ($row['name'] ?? $row['property'] ?? '')));
-            if ('' !== $equiv) { if ('content-type' !== $equiv) $drop('meta', 'http-equiv=' . $equiv); continue; }
-            if (in_array($name, array('viewport', 'description', 'robots', 'googlebot', 'bingbot', 'generator'), true) || str_starts_with($name, 'og:') || str_starts_with($name, 'twitter:')) continue;
-            $drop('meta', $name);
-        }
-        foreach ($metadata['links'] ?? array() as $row) {
-            if ('head' !== ($row['placement'] ?? null)) continue;
-            $relations = preg_split('/\s+/', strtolower(trim((string) ($row['rel'] ?? '')))) ?: array();
-            if (array() === array_diff($relations, array('stylesheet', 'icon', 'shortcut', 'apple-touch-icon', 'canonical', 'alternate', 'next', 'prev'))) continue;
-            $drop('link', implode(' ', $relations));
-        }
-        foreach ($metadata['scripts'] ?? array() as $row) {
-            if ('head' === ($row['placement'] ?? null) && 'inline' === ($row['source_kind'] ?? null) && !DocumentScripts::isExecutableType((string) ($row['type'] ?? ''), false)) $drop('script', strtolower((string) ($row['type'] ?? '')));
-        }
-        return $drops;
-    }
-    /** @param array{code:string,reason_code:string,tag:string,name:string} $drop */
-    private function recordDroppedHeadItem(string $sourcePath, array $drop): void
-    {
-        $this->recordUnitFinding(array_filter(array(
-            'code' => $drop['code'],
-            'unit' => 'item',
-            'message' => sprintf('Document head <%s> %s is not rendered by WordPress (%s); it was dropped.', $drop['tag'], $drop['name'], $drop['reason_code']),
-            'source_path' => $sourcePath,
-            'reason_code' => $drop['reason_code'],
-            'tag' => $drop['tag'],
-            'name' => $drop['name'],
-        ), static fn(string $value): bool => '' !== $value));
-    }
-    /** @return array<int,array<string,mixed>> */
-    private function omittedLinkDeclarationDiagnostics(): array
-    {
-        $diagnostics = array();
-        foreach ($this->omittedLinkDeclarations as $key => $diagnostic) {
-            $diagnostic['occurrences'] = count($this->omittedLinkDeclarationPages[$key] ?? array());
-            $diagnostics[] = $diagnostic;
-        }
-        $overflow = count($this->omittedLinkDeclarationOverflow);
-        if ($overflow > 0) $diagnostics[] = array('code' => self::OMITTED_LINK_DECLARATION_DIAGNOSTIC_CODE, 'severity' => 'warning', 'message' => sprintf('%d more distinct unresolved link declarations were omitted; omitted from this diagnostic list.', $overflow), 'reason' => 'truncated', 'omitted_count' => $overflow);
-        return $diagnostics;
-    }
-    /** @param array<int,array<string,mixed>> $routes */
-    private function documentAssetReference(string $url, string $sourcePath, AssetReferenceCanonicalizer $references, array $routes): ?string
-    {
-        $reference = $references->reference($url, $sourcePath);
-        if (null !== $reference) return $reference;
-        $entryRoot = self::entryRootFromDocuments($routes);
-        if ('' === $entryRoot) return null;
-        $rooted = ArtifactPath::resolveRelativePath(ltrim($url, '/'), $entryRoot . '/index.html');
-        $reference = '' === $rooted ? null : $references->reference('/' . $rooted, $sourcePath);
-        return $reference ?? $references->reference($url, '');
-    }
 
     /** @param array<int,array<string,mixed>> $documents @return array<int,array<string,mixed>> */
     private function templateSurfaces(array $documents): array
@@ -2865,7 +2715,7 @@ final class WordPressSitePlan
     private static function assertRows(array $rows, string $kind, array $fields, array $optional = array()): void { foreach ($rows as $row) { if (!is_array($row)) throw new InvalidArgumentException("WordPress site plan {$kind} must be an array."); foreach ($fields as $field) if (!array_key_exists($field, $row) || (!is_string($row[$field]) && !is_int($row[$field]))) throw new InvalidArgumentException("WordPress site plan {$kind} lacks {$field}."); foreach ($optional as $field) if (array_key_exists($field, $row) && !is_string($row[$field])) throw new InvalidArgumentException("WordPress site plan {$kind} has invalid {$field}."); } }
     /** @param array<string,mixed> $data */
     public static function value(array $data, string $key, string $default = ''): string { return is_string($data[$key] ?? null) ? $data[$key] : $default; }
-    private static function explicitUrl(mixed $url): bool { return is_string($url) && (preg_match('~^(?:[a-z][a-z0-9+.-]*:|//)~i', $url) === 1 || self::routeUrl($url)); }
+    public static function explicitUrl(mixed $url): bool { return is_string($url) && (preg_match('~^(?:[a-z][a-z0-9+.-]*:|//)~i', $url) === 1 || self::routeUrl($url)); }
     private static function routeUrl(mixed $url): bool { return is_string($url) && preg_match('~^/(?:[a-z0-9_-]+(?:/[a-z0-9_-]+)*)?(?:[?#].*)?$~', $url) === 1; }
     public static function safePath(mixed $path): bool { if (!is_string($path) || '' === $path || str_contains($path, "\0") || str_starts_with($path, '/') || str_starts_with($path, '\\') || preg_match('/^[A-Za-z]:/', $path)) return false; foreach (explode('/', str_replace('\\', '/', $path)) as $segment) if ('' === $segment || '.' === $segment || '..' === $segment) return false; return true; }
 }
