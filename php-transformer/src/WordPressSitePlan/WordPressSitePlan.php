@@ -1062,14 +1062,6 @@ final class WordPressSitePlan
     public static function write(string $kind, string $target, string $content, ?string $sourcePath = null, string $encoding = 'utf8'): array { $sourcePath ??= 'wordpress-site-plan/' . $target; return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash($content), 'payload' => array('encoding' => $encoding, 'data' => $content)); }
     /** @param array{schema:string,id:string,bytes:int,sha256:string} $reference */
     public static function referenceWrite(string $kind, string $target, string $sourcePath, array $reference): array { return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash(RuntimeDeclarations::canonicalJson($reference)), 'raw_sha256' => $reference['sha256'], 'payload' => array('encoding' => 'reference', 'reference' => $reference)); }
-    private static function relativePath(string $origin, string $target): string
-    {
-        $from = '' === $origin ? array() : explode('/', dirname($origin));
-        if (array('.') === $from) $from = array();
-        $to = explode('/', $target);
-        while (array() !== $from && array() !== $to && $from[0] === $to[0]) { array_shift($from); array_shift($to); }
-        return str_repeat('../', count($from)) . implode('/', $to);
-    }
 
     /**
      * Rendered design usage of every compiled document, keyed by source path.
