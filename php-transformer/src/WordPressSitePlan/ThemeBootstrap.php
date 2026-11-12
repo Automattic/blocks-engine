@@ -562,6 +562,12 @@ PHP;
         return false;
     }
 
+    // A file-system path and a URL path are different encodings of the same
+    // name: browsers request exactly what the bootstrap emits and the server
+    // URL-decodes the request path before touching the filesystem, so a
+    // literal `%24` in an on-disk name must be emitted as `%2524` to round-trip
+    // back onto the materialized file. Encode every segment, preserving the
+    // `/` separators.
     private static function encodedAssetUrlPath(string $path): string { return implode('/', array_map('rawurlencode', explode('/', $path))); }
 
     /**
@@ -588,7 +594,7 @@ PHP;
      */
     private static function stylesheetEnqueues(array $assets, array $pages, array $rootDocuments = array()): array
     {
-        $documentsBySource = WordPressSitePlan::assetOwnerDocuments($pages, $rootDocuments);
+        $documentsBySource = StylesheetScopes::documentsBySource($pages, $rootDocuments);
         // Replay owners are delivery metadata, not empty stylesheet resources.
         $deliveryAssets = array();
         foreach ($assets as $asset) {

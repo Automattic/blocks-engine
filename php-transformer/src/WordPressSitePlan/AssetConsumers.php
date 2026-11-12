@@ -69,6 +69,21 @@ final class AssetConsumers
     }
 
     /**
+     * Why an asset bound for the media library still needs a theme write: a
+     * stylesheet that consumes it has no portable relative URL to an upload,
+     * so each stylesheet consumer is an explicit, counted fallback.
+     *
+     * @param list<array<string,mixed>> $consumers @return list<array<string,mixed>>
+     */
+    public static function themeWriteReasons(array $consumers, string $destination): array
+    {
+        if ('media_library' !== $destination) return array();
+        $reasons = array();
+        foreach ($consumers as $consumer) if ('stylesheet' === $consumer['kind']) $reasons[] = array('reason' => 'attachment_url_required', 'target_path' => $consumer['target_path'], 'count' => $consumer['count']);
+        return $reasons;
+    }
+
+    /**
      * Image assets no plan member references. Static references are declared
      * tokens only, and plan metadata (featured images, reports) names assets
      * by target path, so an image whose token and target path are absent from
