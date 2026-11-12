@@ -35,7 +35,7 @@ final class SyncedPatternProjection
 
     /**
      * Each edited page keeps `_synced_pattern_source` (its markup before
-     * projection and the replaced ranges) so canonicalEntityBindings() can
+     * projection and the replaced ranges) so EntityBindings::canonical() can
      * move the runtime bindings inside a pattern onto the pattern document.
      *
      * @param array<int,array<string,mixed>> $pages

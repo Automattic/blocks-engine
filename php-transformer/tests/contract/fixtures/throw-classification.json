@@ -1483,6 +1483,36 @@
         "count": 1
       }
     },
+    "src/WordPressSitePlan/EntityBindings.php": {
+      "InvalidArgumentException('A runtime entity binding lacks an exact emitted block anchor.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A runtime entity binding has an invalid emitted block position.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.')": {
+        "class": "integrity",
+        "count": 2
+      },
+      "InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.')": {
+        "class": "integrity",
+        "count": 3
+      },
+      "InvalidArgumentException('A runtime entity binding source anchor is ambiguous after reprojection.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A runtime entity binding no longer identifies an emitted canonical block.')": {
+        "class": "integrity",
+        "count": 1
+      },
+      "InvalidArgumentException('A runtime entity binding resolved to empty canonical block markup.')": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
     "src/WordPressSitePlan/MissingFontSourceRecovery.php": {
       "ValidationException($diagnostic['message'])": {
         "class": "integrity",
@@ -1646,39 +1676,11 @@
         "class": "integrity",
         "count": 1
       },
-      "InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.')": {
-        "class": "integrity",
-        "count": 2
-      },
-      "InvalidArgumentException('A runtime entity binding has an invalid emitted block position.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('A runtime entity binding lacks an exact emitted block anchor.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('A runtime entity binding no longer has its declared source document block anchor after shell extraction: '.(is_string($source)?$source:'unknown').' ('.(is_string($binding['role']??null)?$binding['role']:'unknown').').')": {
         "class": "integrity",
         "count": 1,
         "finding": "runtime_entity_binding_unanchored",
         "test": "tests/contract/unanchored-runtime-entity-binding.php"
-      },
-      "InvalidArgumentException('A runtime entity binding no longer identifies an emitted canonical block.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.')": {
-        "class": "integrity",
-        "count": 3
-      },
-      "InvalidArgumentException('A runtime entity binding resolved to empty canonical block markup.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('A runtime entity binding source anchor is ambiguous after reprojection.')": {
-        "class": "integrity",
-        "count": 1
       },
       "InvalidArgumentException('Asset consumers or destination are stale.')": {
         "class": "integrity",
