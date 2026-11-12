@@ -6,7 +6,7 @@ require_once __DIR__ . '/../fixtures/captured-components.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDialogProjector;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 
 $failures = 0;
 $assert = static function (bool $ok, string $message) use (&$failures): void {
@@ -57,7 +57,7 @@ $assert(str_contains(json_encode($headers), 'blocksEngineDialog'), 'the regressi
 // colour is page state even when there is no navigation-link current marker.
 $root = '<!-- wp:navigation {"overlayMenu":"never"} --><nav class="wp-block-navigation">' . $menu . '</nav><!-- /wp:navigation -->';
 $currentRoot = str_replace('class="wp-block-navigation"', 'class="wp-block-navigation blocks-engine-navigation-current-color-' . str_repeat('a', 64) . '"', $root);
-$assert(ShellExtraction::identityMarkup($root) === ShellExtraction::identityMarkup($currentRoot), 'rendered root current colour does not change shell identity');
+$assert(ChromeIdentity::markup($root) === ChromeIdentity::markup($currentRoot), 'rendered root current colour does not change shell identity');
 
 // Compare the projector on the same source path so only captured current-page
 // state varies, not the intentionally document-scoped part of the identity.

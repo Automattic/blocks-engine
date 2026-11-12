@@ -73,9 +73,15 @@ final class WrapperCoalescer
 
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
 
+    private bool $wrapperBudgetExceeded = false;
+
     /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
     public function compressProjectedGroupChains(array $blocks, int $depth = 1): array
     {
+        if (1 === $depth) {
+            $metrics = (new EditabilityReport())->fromBlocks($blocks)['metrics'];
+            $this->wrapperBudgetExceeded = $metrics['wrapper_to_content_ratio'] > EditabilityPolicy::THRESHOLDS['wrapper_to_content_ratio'];
+        }
         return array_values(array_map(fn (array $block): array => $this->normalizeWrapperChain($block, $depth), $blocks));
     }
 
@@ -123,9 +129,10 @@ final class WrapperCoalescer
         $nativeGroupTree = $nativeGroupTree || (('core/freeform' !== $terminalName || $hasSourceBox)
             && array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth']);
-        // Native nesting must respect the wrapper budget as well as depth.
-        // Branching terminals can otherwise retain many wrappers per leaf.
-        if ($nativeGroupTree && 'core/freeform' === $terminalName && array() !== ($terminal['innerBlocks'] ?? array()) && 2 <= count($chain)) {
+        // The ratio budget belongs to the document, not each component. An
+        // empty visual branch can have no content leaves while the complete
+        // document is comfortably within budget; folding it buys no policy gain.
+        if ($nativeGroupTree && $this->wrapperBudgetExceeded && 'core/freeform' === $terminalName && array() !== ($terminal['innerBlocks'] ?? array()) && 2 <= count($chain)) {
             $nativeMetrics = (new EditabilityReport())->fromBlocks(array($block))['metrics'];
             $nativeGroupTree = $nativeMetrics['wrapper_to_content_ratio'] <= EditabilityPolicy::THRESHOLDS['wrapper_to_content_ratio'];
         }

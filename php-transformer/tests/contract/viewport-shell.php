@@ -5,7 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\SharedChromeStylesheets;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
 foreach (array('combined', 'split', 'trailing-chrome') as $variant) {
@@ -52,7 +52,7 @@ $render = static function (string $markup, string $content = '') use (&$render, 
     }
     return $html;
 };
-$templates = WordPressSitePlan::renderedTemplates($plan);
+$templates = ThemeTemplates::rendered($plan);
 // Optional browser checks also run against the source; PHP-only hosts retain
 // the deterministic CSS/tree assertions above. Assert the content viewport too:
 // headless Chrome's CLI window includes 143px of browser chrome.

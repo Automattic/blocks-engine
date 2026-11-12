@@ -70,7 +70,7 @@ Diffing normalized Home and About candidates pinpoints retained state in both:
 
 The input is a captured native checkbox wrapping a menu label. Its descendant
 links are retained label markup, **not core/navigation-link blocks**.
-`normalizeNestedChromeMarkup()` delegates to `RestingNavigation::markup()`;
+`ChromeIdentity::markup()` delegates to `RestingNavigation::markup()`;
 that primitive restores peer presentation for native navigation links, but does
 not give arbitrary retained label descendants a route-state binding. Generic
 block-comment canonicalization does not erase `labelMarkup` or authored data

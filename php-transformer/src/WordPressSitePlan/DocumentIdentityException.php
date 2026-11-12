@@ -27,7 +27,7 @@ final class DocumentIdentityException extends InvalidArgumentException
     /** @return array<int,array<string,mixed>> */
     public function diagnostics(): array
     {
-        return WordPressSitePlan::documentIdentityDiagnostics($this->failures);
+        return DocumentIdentity::diagnostics($this->failures);
     }
 
     /**

@@ -593,8 +593,26 @@ final class ProjectedNavigationConverter implements ElementConverter
             $paint = $this->portableCollapsedPaint($panel, $this->backgroundColorLayer($panel, $background));
             if ( '' !== $paint ) $attrs['customOverlayBackgroundColor'] = $paint;
         }
+        if ( isset($attrs['customOverlayTextColor']) && ! isset($attrs['customOverlayBackgroundColor']) ) {
+            // The source text was painted for the surface behind the menu,
+            // not for Core's white overlay: open the panel on that surface.
+            $surface = $this->opaqueSurfaceBehind($navigation);
+            if ( '' !== $surface ) $attrs['customOverlayBackgroundColor'] = $surface;
+        }
 
         return $attrs;
+    }
+
+    /** The nearest opaque background colour painted by an ancestor of the menu. */
+    private function opaqueSurfaceBehind(DOMElement $navigation): string
+    {
+        for ( $node = $navigation->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $values = $this->styleResolver->collapsedViewportAuthorDeclarations($node, array('background', 'background-color'));
+            $paint = $this->portableCollapsedPaint($node, $this->backgroundColorLayer($node, (string) ($values['background-color'] ?? $values['background'] ?? '')));
+            if ( '' !== $paint && CssColor::opaque($paint) ) return $paint;
+        }
+
+        return '';
     }
 
     /** Include only full-bleed, passive backdrop children of the controlled panel chain. */

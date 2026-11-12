@@ -142,7 +142,7 @@ final class PostChrome
                 // Compare the same non-semantic per-document capture identity
                 // as shell extraction, but retain the desktop payload verbatim
                 // so its authored blocks and generated geometry keep their CSS.
-                $identities = array_map(array(ShellExtraction::class, 'documentChromeIdentity'), $articles);
+                $identities = array_map(ChromeIdentity::document(...), $articles);
                 $pages[$index]['canonical_block_markup'] = 1 === count(array_unique($identities)) ? $articles[0] : implode("\n", $bodies);
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($pages[$index]['canonical_block_markup']);
                 continue;
@@ -243,7 +243,7 @@ final class PostChrome
                     unset($attrs['url']);
                     return '<!-- wp:social-link ' . BlockAttributes::encode($attrs) . ' /-->';
                 }, $identityMarkup) ?? $identityMarkup;
-                $identity = ShellExtraction::identityMarkup($identityMarkup);
+                $identity = ChromeIdentity::markup($identityMarkup);
                 $groups[$identity][$index] = $post;
             }
             foreach ($groups as $identity => $group) {
@@ -420,7 +420,7 @@ final class PostChrome
                 $search = $binding['search_block_markup'] ?? null;
                 if (!is_string($search) || '' === $search) continue;
                 $position = $binding['position'] ?? null;
-                if (WordPressSitePlan::bindingPosition($position, $documentIndex, $search)) { $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']); continue; }
+                if (BindingAnchors::positionMatches($position, $documentIndex, $search)) { $ranges[] = array('offset' => $position['offset'], 'length' => $position['length']); continue; }
                 // A manifest record keeps the position it was compiled with, which
                 // page canonicalization can shift; protect every block it may name.
                 for ($offset = strpos($markup, $search); false !== $offset; $offset = strpos($markup, $search, $offset + strlen($search))) $ranges[] = array('offset' => $offset, 'length' => strlen($search));

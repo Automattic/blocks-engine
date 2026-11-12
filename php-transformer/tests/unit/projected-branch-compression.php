@@ -53,7 +53,7 @@ $assert('failed' !== ($deepResult['status'] ?? null), 'A proof-free page over th
 $assert(true === ($deepQuality['pass'] ?? null) && 'failed' !== ($deepQuality['status'] ?? null), 'The canonical plan quality gate passes without layout-geometry proofs.');
 $assert('passed' === ($deepQuality['editability_policy']['status'] ?? null), 'The plan editability policy verdict is passed, not failed.');
 $assert(is_int($deepMetrics['max_nesting_depth'] ?? null) && 20 >= $deepMetrics['max_nesting_depth'], 'Deterministic branch compression brings the measured nesting depth within the editability maximum.');
-$assert(6 === substr_count($deepBlocks, '<!-- wp:custom/layout-shell'), 'Only over-budget projected branches become shells; descendants use their saved depth.');
+$assert(5 === substr_count($deepBlocks, '<!-- wp:custom/layout-shell'), 'Only over-depth projected branches become shells when the document wrapper ratio is within budget.');
 $assert(str_contains($deepBlocks, '>Depth leaf heading<') && str_contains($deepBlocks, '>Depth leaf paragraph<') && str_contains($deepBlocks, '>Depth unit 2 content<'), 'Compressed output preserves the deep editable content.');
 $assert(str_contains($deepBlocks, 'id="dp-outer-1"') && str_contains($deepBlocks, 'id="dp-branch-' . $units . '"'), 'Compressed layout shells retain the source wrapper identities.');
 

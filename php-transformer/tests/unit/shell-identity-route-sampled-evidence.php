@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -33,7 +34,7 @@ foreach ($cases as $label => [$area, $shell]) {
     if ('sampled glyph paint' === $label) {
         $assert(str_contains($parts[0]['canonical_block_markup'], '#9aa470'), 'Captured paint survives in the shared part.');
         $authored = '<!-- wp:html --><svg style="fill:#123456"><path d="M0 0h10v10z"/></svg><!-- /wp:html -->';
-        $assert(\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction::identityMarkup($authored) !== \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ShellExtraction::identityMarkup(str_replace('#123456', '#abcdef', $authored)), 'Authored paint still distinguishes shells.');
+        $assert(\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity::markup($authored) !== \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity::markup(str_replace('#123456', '#abcdef', $authored)), 'Authored paint still distinguishes shells.');
     }
     echo $label . ": shared\n";
 }

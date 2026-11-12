@@ -892,7 +892,7 @@ final class CapturedDialogProjector
             } elseif ($script->hasAttribute(CaptureEvidence::GALLERY_RUNTIME)) {
                 if (!self::isRecognizedRuntimeScript($script, CaptureEvidence::GALLERY_RUNTIME)) return false;
             } elseif (!$script->hasAttribute(CaptureEvidence::NATIVE_CONTROL_RUNTIME)
-                && \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::isExecutableScriptType($script->getAttribute('type'), 'module' === $script->getAttribute('type'))
+                && \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentScripts::isExecutableType($script->getAttribute('type'), 'module' === $script->getAttribute('type'))
             ) {
                 return false;
             }

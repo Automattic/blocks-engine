@@ -4,7 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -39,7 +39,7 @@ $assert(3 === count($plan['pages']), 'All source routes are retained.');
 foreach ($plan['pages'] as $page) {
     $markup = $page['canonical_block_markup'];
     $templateSlug = $page['entrypoint'] ? 'front-page' : 'page';
-    $template = WordPressSitePlan::renderedTemplates($plan)[$templateSlug] ?? '';
+    $template = ThemeTemplates::rendered($plan)[$templateSlug] ?? '';
     $assert(str_contains($template . $markup, 'wp:template-part {"slug":"' . $headers[0]['slug'] . '"'), 'Every page references the shared header through its native template.');
     $assert(!str_contains($markup, '<header') && !str_contains($markup, 'wp:navigation '), 'No page embeds an inline header copy.');
 }
@@ -135,7 +135,7 @@ foreach ($localized['pages'] as $page) {
     $markup = $page['canonical_block_markup'];
     $assert(!str_contains($markup, '<header') && !str_contains($markup, 'wp:navigation '), 'Locale pages and translated posts contain no inline header.');
     $templateSlug = $page['route_template'] ?? (!empty($page['entrypoint']) ? 'front-page' : ('post' === $page['post_type'] ? 'single' : 'page'));
-    $template = WordPressSitePlan::renderedTemplates($localized)[$templateSlug] ?? '';
+    $template = ThemeTemplates::rendered($localized)[$templateSlug] ?? '';
     preg_match('/wp:template-part \{"slug":"([^"]+)"/', $markup . $template, $reference);
     $assert(isset($bySlug[$reference[1] ?? '']), 'Every locale route references an existing header part: ' . $page['source_path'] . ' ' . $markup);
     if (str_contains($page['source_path'], 'story')) {
