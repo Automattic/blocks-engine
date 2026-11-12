@@ -40,7 +40,7 @@ while ( false !== ( $start = strpos($css, '@layer blocks-engine-reset{', $offset
 }
 $unlayered .= substr($css, $offset);
 
-$item = '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item}';
+$item = '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item;align-items:normal}';
 $anchor = '.wp-block-navigation:where(.blocks-engine-list-navigation:not(.blocks-engine-anchor-items-navigation)) .wp-block-navigation-item__content{display:inline}';
 $assert(str_contains($unlayered, $item) && ! str_contains($layered, $item), 'the list item display restatement stays unlayered, so it outranks Core\'s flex item');
 $assert(str_contains($unlayered, $anchor) && ! str_contains($layered, $anchor), 'the anchor display restatement stays unlayered, so it outranks Core\'s block content');
