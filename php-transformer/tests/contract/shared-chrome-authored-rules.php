@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\SharedChromeStylesheets;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void {
@@ -80,7 +81,7 @@ $assert(2 === count($mediaShared) && 2 === count(array_unique(array_column($medi
 
 // The engine rewrites an ancestor id into an editor-parity compound; its
 // positive hooks still identify the detached ancestor.
-$reanchor = new ReflectionMethod(WordPressSitePlan::class, 'reanchoredDetachedContextSelector');
+$reanchor = new ReflectionMethod(SharedChromeStylesheets::class, 'reanchoredDetachedContextSelector');
 $context = array('class' => array(), 'id' => array('page-root' => true));
 $assert(':is(:where(.blocks-engine-editor-anchor-page-root):not(#be-i-0),:where(:has(> #site-chrome))) :where(.menu) .item' === $reanchor->invoke(null, ':where(.blocks-engine-editor-anchor-page-root):not(#be-i-0) :where(.menu) .item', $context, array('site-chrome')), 'An engine-rewritten ancestor id is re-anchored on the part wrapper.');
 $assert('.page-only .item' === $reanchor->invoke(null, '.page-only .item', $context, array('site-chrome')), 'An ancestor the chrome never sat under is left alone.');
@@ -90,7 +91,7 @@ $assert('.wp-site-blocks .item' === $reanchor->invoke(null, '.wp-site-blocks .it
 
 // A navigation link keeps its classes only in its block comment. Its authored
 // class still identifies header rules; an editor-anchor class stands for its id.
-$hooks = (new ReflectionMethod(WordPressSitePlan::class, 'authoredChromeHooks'))->invoke(null, '<!-- wp:group {"anchor":"top","className":"bar blocks-engine-editor-anchor-top wp-block-x"} --><div id="top" class="wp-block-group bar"><!-- wp:navigation-link {"className":"item has-x","label":"A","url":"/"} /--></div><!-- /wp:group -->');
+$hooks = (new ReflectionMethod(SharedChromeStylesheets::class, 'authoredChromeHooks'))->invoke(null, '<!-- wp:group {"anchor":"top","className":"bar blocks-engine-editor-anchor-top wp-block-x"} --><div id="top" class="wp-block-group bar"><!-- wp:navigation-link {"className":"item has-x","label":"A","url":"/"} /--></div><!-- /wp:group -->');
 $assert(array('bar' => true, 'item' => true) == $hooks['class'] && array('top' => true) === $hooks['id'], 'Chrome hooks come from HTML and block attributes, without utility classes: ' . json_encode($hooks));
 
 // A responsive capture (for example of a Wix site) ships a desktop and a mobile
@@ -136,7 +137,7 @@ $assert(str_contains($desktopChrome, ':is(#masterPage.mesh-layout,:where(:has(> 
 $variantId = static fn (string $id): string => '(?:#' . $id . '|:is\(#' . $id . ',#' . $id . '--data-blocks-engine-capture-mobile\))';
 $assert(1 === preg_match('/:is\(:where\(\.data-blocks-engine-capture-mobile-document\) ' . $variantId('masterPage') . '\.mesh-layout,:where\(\.data-blocks-engine-capture-mobile-document:has\(> ' . $variantId('SITE_FOOTER') . '\),[^{]*\) ' . $variantId('SITE_FOOTER') . '\{position:relative\}/', $mobileChrome), 'The mobile-scoped footer rule is re-anchored onto the part wrapper and keeps its variant scope: ' . $mobileChrome);
 $assert(!str_contains(preg_replace('/:where\(\.data-blocks-engine-capture-mobile-document[^)]*\)|\.data-blocks-engine-capture-mobile-document/', '', $mobileChrome) ?? '', ':where(:has(> #SITE_FOOTER)'), 'The mobile wrapper arm never matches the desktop copy of the footer.');
-$assert(str_contains((new ReflectionMethod(WordPressSitePlan::class, 'reanchoredDetachedContextSelector'))->invoke(null, '.data-blocks-engine-capture-mobile-document > #masterPage #SITE_FOOTER', array('class' => array(), 'id' => array('masterPage' => true)), array('SITE_FOOTER')), '.data-blocks-engine-capture-mobile-document > #masterPage #SITE_FOOTER'), 'A variant root joined by a child combinator is not a scope prefix, so the selector is left as written.');
+$assert(str_contains((new ReflectionMethod(SharedChromeStylesheets::class, 'reanchoredDetachedContextSelector'))->invoke(null, '.data-blocks-engine-capture-mobile-document > #masterPage #SITE_FOOTER', array('class' => array(), 'id' => array('masterPage' => true)), array('SITE_FOOTER')), '.data-blocks-engine-capture-mobile-document > #masterPage #SITE_FOOTER'), 'A variant root joined by a child combinator is not a scope prefix, so the selector is left as written.');
 
 // Issue #3054: a shared header logo carries a base and a responsive width
 // utility; route B's content also uses the responsive one. Whatever projection
