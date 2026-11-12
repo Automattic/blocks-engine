@@ -598,8 +598,10 @@ final class CommerceStructureRecognizer
      * Currency-formatted price text for the card, returning the regular price and
      * an optional sale price. schema.org `itemprop="price"` is preferred; otherwise
      * elements whose text is currency-formatted or carry a price token are used.
-     * A price element marked with a sale/discount token is treated as the sale
-     * price and the other as the regular price.
+     * A sale/special/reduced token marks the sale price. The ambiguous
+     * discount/now tokens also name qualified alternative prices (e.g. a
+     * payment-method discount), so they mark a sale only beside a visible,
+     * nonzero prior price.
      *
      * @return array{price: string, sale_price?: string}
      */
@@ -614,11 +616,47 @@ final class CommerceStructureRecognizer
         return false;
     }
 
+    /** Token-based sales require an actual, visible prior amount in the card. */
+    private function hasPriorPrice(DOMElement $card): bool
+    {
+        foreach ( SourceDom::subtreeElements($card) as $candidate ) {
+            if ( ! $this->isPriceElement($candidate) || $this->hasPriceDescendant($candidate) ) {
+                continue;
+            }
+            $amount = $this->currencyFormattedText($this->collapsedText($candidate), $candidate);
+            if ( ! preg_match('/[1-9]/', $amount) ) {
+                continue;
+            }
+            $prior = false;
+            $hidden = false;
+            for ( $node = $candidate; $node instanceof DOMElement; $node = $node->parentNode ) {
+                $style = SourceDom::attr($node, 'style');
+                if ( $node->hasAttribute('hidden') || preg_match('/(?:display\s*:\s*none|visibility\s*:\s*hidden)/i', $style) ) {
+                    $hidden = true;
+                }
+                if ( in_array(strtolower($node->tagName), array( 'del', 's' ), true)
+                    || $this->classifier->hasCommerceToken($node, array( 'compare', 'was', 'old', 'original' ))
+                    || preg_match('/text-decoration(?:-line)?\s*:[^;]*\bline-through\b/i', $style)
+                ) {
+                    $prior = true;
+                }
+                if ( $node === $card ) {
+                    break;
+                }
+            }
+            if ( $prior && ! $hidden ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private function productPriceTexts(DOMElement $card): array
     {
         $regular = '';
         $sale = '';
         $fallback = '';
+        $hasPriorPrice = $this->hasPriorPrice($card);
 
         $schemaPrice = $this->firstDescendantWithItemprop($card, array( 'price' ));
         if ( null !== $schemaPrice ) {
@@ -681,7 +719,7 @@ final class CommerceStructureRecognizer
                         }
                     }
                 }
-                if ( ('ins' === strtolower($node->tagName) && $hasStruckPrice) || ('ins' !== strtolower($node->tagName) && $this->classifier->hasCommerceToken($node, array( 'sale', 'discount', 'special', 'reduced', 'now' ))) ) {
+                if ( ('ins' === strtolower($node->tagName) && $hasStruckPrice) || ('ins' !== strtolower($node->tagName) && ($this->classifier->hasCommerceToken($node, array( 'sale', 'special', 'reduced' )) || ($hasPriorPrice && $this->classifier->hasCommerceToken($node, array( 'discount', 'now' ))))) ) {
                     $isSale = true;
                     break;
                 }
