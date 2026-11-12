@@ -1006,7 +1006,6 @@ final class WordPressSitePlan
     /** @internal Shared artifact-root semantics for document-head asset resolution. */
     public static function entryRootFromDocuments(array $documents): string { foreach ($documents as $document) { if (is_array($document) && (!empty($document['entrypoint']) || 'entrypoint' === ($document['source_relation'] ?? null)) && is_string($document['source_path'] ?? null)) { $dir = str_replace('\\', '/', dirname($document['source_path'])); return in_array($dir, array('.', '/', ''), true) ? '' : $dir; } } return ''; }
 
-
     /** @internal Exposed for ShellExtraction, which resolves shell links through the run's route table. */
     public function links(): RouteLinks
     {
