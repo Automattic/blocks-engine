@@ -54,15 +54,15 @@ $files = array(
 
 $projected = (string) ((new CapturedDialogProjector())->project($files)['files'][0]['content'] ?? '');
 $assert(! str_contains($projected, '<dialog'), 'the shared resting panel is not moved into a dialog box', $projected);
-$assert(1 === preg_match('/<header>.*<div id="([^"]+)" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="([^"]+)"[^>]*data-blocks-engine-placement="in-place" data-blocks-engine-resting="authored"[^>]*><nav id="nav"[^>]*>' . preg_quote($links, '/') . '<\/nav><\/div><\/header>/s', $projected, $wrapper), 'the panel stays in place in the header, wrapped by an in-place dropdown', $projected);
-$assert(1 === preg_match('/<button[^>]*aria-controls="' . preg_quote($wrapper[1] ?? '-', '/') . '"[^>]*id="' . preg_quote($wrapper[2] ?? '-', '/') . '"/', $projected), 'the captured toggle opens and closes the in-place panel', $projected);
-$assert(1 === preg_match('/<nav id="nav" aria-label="Main navigation">/', $projected), 'the panel is restored to its visible resting state', $projected);
+$assert(1 === preg_match('/<header>.*<nav id="nav" aria-label="Main navigation" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="([^"]+)"[^>]*data-blocks-engine-placement="in-place" data-blocks-engine-resting="authored"[^>]*>' . preg_quote($links, '/') . '<\/nav><\/header>/s', $projected, $adopted), 'the panel stays in place in the header as the in-place dropdown itself', $projected);
+$assert(1 === preg_match('/<button[^>]*aria-controls="nav"[^>]*id="' . preg_quote($adopted[1] ?? '-', '/') . '"/', $projected), 'the captured toggle opens and closes the in-place panel', $projected);
+$assert(! str_contains($projected, 'style="display: flex !important;"') && ! preg_match('/<nav id="nav"[^>]*\shidden/', $projected), 'the panel is restored to its visible resting state', $projected);
 
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $files))->toArray();
 $markup = implode('', array_column($result['source_reports']['wordpress_site_plan']['pages'] ?? array(), 'canonical_block_markup'))
     . json_encode($result['source_reports']['wordpress_site_plan']['template_parts'] ?? array(), JSON_UNESCAPED_SLASHES);
 $markup = stripslashes($markup);
-$assert(1 === preg_match('/<!-- wp:group \{[^>]*"data-blocks-engine-placement":"in-place"[^>]*"data-blocks-engine-resting":"authored"[^>]*--><div [^>]*>\s*<!-- wp:navigation \{[^}]*"anchor":"nav"/', $markup), 'the panel converts to the header navigation, wrapped by its toggle\'s in-place dropdown', $markup);
+$assert(1 === preg_match('/<!-- wp:group \{"metadata":\{"blocksEngineDialog":\{"adopt":true[^>]*"data-blocks-engine-placement":"in-place"[^>]*"data-blocks-engine-resting":"authored"[^>]*--><div class="wp-block-group">\s*<!-- wp:navigation \{[^}]*"anchor":"nav"/', $markup), 'the panel converts to the header navigation, adopted as its toggle\'s in-place dropdown', $markup);
 $assert(! str_contains($markup, '<dialog') && ! str_contains($markup, 'data-blocks-engine-capture'), 'no dialog box or capture-only attribute is left', $markup);
 
 if ( $failures > 0 ) {
