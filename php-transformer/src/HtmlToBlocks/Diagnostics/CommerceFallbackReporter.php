@@ -1310,7 +1310,7 @@ final class CommerceFallbackReporter
         return $hidden ? 'site_chrome' : '';
     }
 
-    /** The outermost runtime DOM target around `$summary` below the page landmarks, else the summary. */
+    /** The outermost runtime target or enclosing cart form below page landmarks, else the summary. */
     private function cartViewScope(DOMElement $summary): DOMElement
     {
         $scope = $summary;
@@ -1320,7 +1320,9 @@ final class CommerceFallbackReporter
                 || '' !== ShellLandmarkPolicy::landmarkKind($node->tagName, SourceDom::attr($node, 'role')) ) {
                 break;
             }
-            if ( array() !== $this->runtimeIslands->runtimeDomSelectorsForElement($node) ) {
+            // The summary's checkout control belongs to its enclosing form;
+            // replacing only an inner totals wrapper would leave that form behind.
+            if ( 'form' === strtolower($node->tagName) || array() !== $this->runtimeIslands->runtimeDomSelectorsForElement($node) ) {
                 $scope = $node;
             }
         }
