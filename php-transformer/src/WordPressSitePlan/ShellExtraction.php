@@ -487,7 +487,7 @@ final class ShellExtraction
         foreach ($document['shell_artifacts'] ?? array() as $candidate) {
             if (!is_array($candidate) || !in_array($candidate['area'] ?? null, array('header', 'footer'), true) || !is_string($candidate['block_markup'] ?? null) || '' === trim($candidate['block_markup'])) continue;
             $sourcePath = WordPressSitePlan::value($document, 'source_path');
-            $markup = $this->plan->routeLinks($references->content($candidate['block_markup'], $sourcePath), $sourcePath, $routes);
+            $markup = $this->plan->links()->markup($references->content($candidate['block_markup'], $sourcePath), $sourcePath, $routes);
             // One rendered part serves every route; a page's own current item
             // is restored at render time, never frozen into the shared part.
             $templatePartMarkup = self::landmarkPartMarkup(RestingNavigation::markup($markup), (string) $candidate['area']);
@@ -525,7 +525,7 @@ final class ShellExtraction
     {
         $normalize = function (string $markup) use ($sourcePath): string {
             return preg_replace_callback('/("(?:url|href)"\s*:\s*"|\bhref\s*=\s*[\'"])([^"\']+)([\'"])/i', fn(array $match): string =>
-                $match[1] . $this->plan->shellFragmentReference($match[2], $sourcePath) . $match[3], $markup) ?? $markup;
+                $match[1] . $this->plan->links()->shellFragmentReference($match[2], $sourcePath) . $match[3], $markup) ?? $markup;
         };
         foreach ($candidates as &$candidate) {
             $markup = $normalize($candidate['markup']);
@@ -1727,7 +1727,7 @@ final class ShellExtraction
             foreach ($candidates as $index => $rows) {
                 if (1 !== count($rows)) continue;
                 $identityPages[] = $index;
-                $identityInputs[] = $this->plan->withoutShellSelfReferences((string) ($rows[0]['identity_markup'] ?? $rows[0]['markup']), $pages[$index], $pages);
+                $identityInputs[] = $this->plan->links()->withoutShellSelfReferences((string) ($rows[0]['identity_markup'] ?? $rows[0]['markup']), $pages[$index], $pages);
             }
             $clusterIdentities = array_combine($identityPages, self::canonicalizeRouteNumberedShellIds($identityInputs, $stylesheetIds));
             foreach ($applicable as $index => $page) {
@@ -1993,7 +1993,7 @@ final class ShellExtraction
             elseif ($singlePage) $templateSlugs = WordPressSitePlan::NATIVE_TEMPLATE_SLUGS;
             $partMarkup = is_array($absorbed) ? self::landmarkPartMarkup($absorbed['markup'], $area) : $first['template_part_markup'];
             // An entry shell renders on every route, but its in-page sections exist only on the entry page.
-            if ($singlePage && !$inlineShell) $partMarkup = $this->plan->qualifyShellFragments($partMarkup, $pages[array_key_first($applicable)]['source_path']);
+            if ($singlePage && !$inlineShell) $partMarkup = $this->plan->links()->qualifyShellFragments($partMarkup, $pages[array_key_first($applicable)]['source_path']);
             $ancestorContext = is_array($absorbed) ? ($absorbed['ancestor_context'] ?? null) : ($first['ancestor_context'] ?? null);
             $container = isset($first['legacy_container_opening']) ? array('opening' => $first['legacy_container_opening'], 'closing' => $first['legacy_container_closing']) : null;
             $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineShell ? array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $cluster['indexes'])) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $inlineShell ? null : $container, 'template_wrappers' => !$singlePage && !$inlineShell ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : (!empty($first['route_edge']) ? 'route_edge' : 'canonical'), array_intersect_key($candidates, array_flip($cluster['indexes'])), $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
