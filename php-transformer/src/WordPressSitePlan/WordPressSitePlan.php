@@ -530,6 +530,12 @@ final class WordPressSitePlan
         // Shell extraction needed the archive documents, but route overrides
         // belong only to documents that actually materialize in WordPress.
         foreach (TaxonomyProjection::sections($pages, $taxonomyProjection['entities'], $this->sourceOrigin) as $entity) if (!isset($entity['archive'])) $taxonomyProjection['entities'][] = $entity;
+        // Declared terms without a captured archive keep only surviving posts.
+        $postSources = array_fill_keys(array_column(array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null)), 'source_path'), true);
+        foreach ($taxonomyProjection['declared_entities'] ?? array() as $entity) {
+            $entity['membership_source_paths'] = array_values(array_filter($entity['membership_source_paths'], static fn(string $source): bool => isset($postSources[$source])));
+            if (array() !== $entity['membership_source_paths']) $taxonomyProjection['entities'][] = $entity;
+        }
         $templates = ThemeTemplates::build($this->links, $pages, $parts, $surfaces, $tokens, $references, $routeMap, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome'], $blockThemeChrome['templates']);
         foreach ($templates as &$template) {
             $chrome = $blockThemeChrome['templates'][$template['slug']] ?? null;
@@ -1032,6 +1038,8 @@ final class WordPressSitePlan
                 $row['content_decision'] = $document['content_decision'];
                 if (is_string($document['publication_timestamp'] ?? null)) $row['publication_timestamp'] = $document['publication_timestamp'];
                 if (is_string($document['publication_local_time'] ?? null)) $row['publication_local_time'] = $document['publication_local_time'];
+                if (is_string($document['modified_timestamp'] ?? null)) $row['modified_timestamp'] = $document['modified_timestamp'];
+                if (is_string($document['author_name'] ?? null)) $row['author_name'] = $document['author_name'];
             }
             if ( ! $part ) $row['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $references, $routes, $canonical);
             $rows[] = $row;
