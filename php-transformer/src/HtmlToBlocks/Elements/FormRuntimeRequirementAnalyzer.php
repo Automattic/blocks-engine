@@ -310,8 +310,64 @@ final class FormRuntimeRequirementAnalyzer
             if ( 'output' === strtolower($result->tagName)
                 || 'status' === strtolower(SourceDom::attr($result, 'role'))
                 || in_array(strtolower(SourceDom::attr($result, 'aria-live')), array( 'polite', 'assertive' ), true) ) {
+                if ( ! self::isFieldFeedback($result, $scope) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** A field's accessible feedback is not the result of the whole workflow. */
+    private static function isFieldFeedback(DOMElement $result, DOMElement $scope): bool
+    {
+        $identity = SourceDom::authorIdentityAttribute($result, 'id') . ' ' . SourceDom::authorIdentityAttribute($result, 'class');
+        $tokens = preg_split('/[^a-z0-9]+/', strtolower($identity)) ?: array();
+        if ( array() !== array_intersect($tokens, array( 'error', 'invalid', 'validation', 'hint', 'help', 'feedback' )) ) {
+            return true;
+        }
+
+        $id = SourceDom::attr($result, 'id');
+        if ( '' !== $id && null !== $result->ownerDocument ) {
+            foreach ( $result->ownerDocument->getElementsByTagName('*') as $control ) {
+                if ( ! in_array(strtolower($control->tagName), array( 'input', 'select', 'textarea' ), true) ) {
+                    continue;
+                }
+                $references = SourceDom::tokens(SourceDom::attr($control, 'aria-describedby') . ' ' . SourceDom::attr($control, 'aria-errormessage'));
+                if ( in_array($id, $references, true) ) {
+                    return true;
+                }
+            }
+        }
+
+        // Only wrappers below the form/scope can identify a field. Counting the
+        // form itself would discard genuine single-input tools with local results.
+        for ( $ancestor = $result->parentNode; $ancestor instanceof DOMElement && $ancestor !== $scope && 'form' !== strtolower($ancestor->tagName); $ancestor = $ancestor->parentNode ) {
+            $controls = array();
+            foreach ( $ancestor->getElementsByTagName('*') as $control ) {
+                if ( in_array(strtolower($control->tagName), array( 'input', 'select', 'textarea' ), true)
+                    && ! in_array(FormControlClassifier::controlType($control), array( 'hidden', 'submit', 'button', 'reset', 'image' ), true) ) {
+                    $controls[] = $control;
+                }
+            }
+            if ( array() === $controls ) {
+                continue;
+            }
+            if ( 1 === count($controls) ) {
                 return true;
             }
+            $type = FormControlClassifier::controlType($controls[0]);
+            $name = SourceDom::attr($controls[0], 'name');
+            if ( '' === $name || ! in_array($type, array( 'radio', 'checkbox' ), true) ) {
+                return false;
+            }
+            foreach ( $controls as $control ) {
+                if ( $type !== FormControlClassifier::controlType($control) || $name !== SourceDom::attr($control, 'name') ) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         return false;
