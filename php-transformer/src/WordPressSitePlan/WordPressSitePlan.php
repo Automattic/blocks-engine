@@ -213,20 +213,9 @@ final class WordPressSitePlan
             if (array() !== $trail) $page['metadata']['breadcrumb_trail'] = $trail;
         }
         unset($page);
-        $preflightPages = $pages;
-        $preflightPages = (new ListingQueryLoops($this->sourceOrigin, $this->chromeIdentityKey(...)))->materialize($preflightPages, $runtimeDeclarations, $taxonomyProjection['entities']);
-        $preflightBySource = array_column($preflightPages, null, 'source_path');
-        $projectedTaxonomyEntities = array();
-        $paginationOwnerBySource = array();
-        foreach ($taxonomyProjection['entities'] as $taxonomyEntity) {
-            $archiveSource = $taxonomyEntity['archive']['source_path'];
-            if (!str_contains((string) ($preflightBySource[$archiveSource]['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
-                unset($taxonomyEntity['archive']['presentation_markup']);
-            }
-            $projectedTaxonomyEntities[] = $taxonomyEntity;
-            foreach ($taxonomyProjection['pagination_source_paths_by_archive'][$archiveSource] ?? array() as $paginationSource) $paginationOwnerBySource[$paginationSource] = $archiveSource;
-        }
-        $taxonomyProjection['entities'] = TaxonomyProjection::retainProvenParents($projectedTaxonomyEntities, $taxonomyProjection['diagnostics']);
+        $preflightPages = (new ListingQueryLoops($this->sourceOrigin, $this->chromeIdentityKey(...)))->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities']);
+        $paginationOwnerBySource = TaxonomyProjection::paginationOwners($taxonomyProjection);
+        $taxonomyProjection = TaxonomyProjection::withPreflightPresentation($taxonomyProjection, $preflightPages);
         if (array() !== $paginationOwnerBySource) {
             foreach ($assets as &$asset) {
                 $owner = $asset['compilation'] ?? null;
@@ -452,20 +441,7 @@ final class WordPressSitePlan
          $pages = WholePageCandidates::attach($pages, $runtimeDeclarations, $runtimeEntityRecords);
          foreach ($pages as &$page) unset($page['_projected_source_block_markup'], $page['_synced_pattern_source']); unset($page);
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
-         $projectedTaxonomyEntities = array();
-         foreach ($taxonomyProjection['entities'] as $taxonomyEntity) {
-             foreach ($pages as $page) if (($page['source_path'] ?? null) === ($taxonomyEntity['archive']['source_path'] ?? null)) {
-                 if (!str_contains((string) ($page['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
-                     $taxonomyProjection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_presentation_static', 'severity' => 'warning', 'message' => 'The archive renders its captured presentation and static cards rather than a live query because the listing could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
-                 }
-                 if ('' !== trim($page['canonical_block_markup'])) $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
-                 else unset($taxonomyEntity['archive']['presentation_markup']);
-                 $projectedTaxonomyEntities[] = $taxonomyEntity;
-                 continue 2;
-             }
-         }
-         $taxonomyProjection['entities'] = TaxonomyProjection::retainProvenParents($projectedTaxonomyEntities, $taxonomyProjection['diagnostics']);
-         unset($taxonomyEntity);
+        $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
         // Archive documents remain working inputs until their presentation is
         // settled, but native archive routes must never materialize pages.
         $archiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
