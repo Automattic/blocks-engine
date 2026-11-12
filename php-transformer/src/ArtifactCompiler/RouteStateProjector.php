@@ -16,6 +16,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PageRoute;
 use DOMElement;
 use DOMXPath;
 
@@ -254,7 +255,7 @@ final class RouteStateProjector
                         $binding['current']['style'] = $serialize($styles[array_search(true, array_column($rows, 'current'), true)]);
                         foreach ($rows as $i => $row) {
                             $path = (string) ($files[$row['index']]['path'] ?? '');
-                            $route = self::labelRoute(WordPressSitePlan::stripEntryRoot($path, $root));
+                            $route = self::labelRoute(PageRoute::withoutEntryRoot($path, $root));
                             $binding['routes'][$route]['style'] = $serialize($styles[$i]);
                         }
                         ksort($binding['routes'], SORT_STRING);
@@ -278,7 +279,7 @@ final class RouteStateProjector
                     if (1 === count($rest) && 1 === count($active)) continue;
                     foreach ($rows as $row) {
                         $node = $row['nodes'][$position];
-                        $binding['routes'][self::labelRoute(WordPressSitePlan::stripEntryRoot((string) ($files[$row['index']]['path'] ?? ''), $root))][$name] = $node->hasAttribute($name) ? $node->getAttribute($name) : null;
+                        $binding['routes'][self::labelRoute(PageRoute::withoutEntryRoot((string) ($files[$row['index']]['path'] ?? ''), $root))][$name] = $node->hasAttribute($name) ? $node->getAttribute($name) : null;
                     }
                     ksort($binding['routes'], SORT_STRING);
                 }

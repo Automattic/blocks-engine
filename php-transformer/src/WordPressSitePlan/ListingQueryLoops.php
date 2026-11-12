@@ -67,7 +67,7 @@ final class ListingQueryLoops
             if ('post' !== ($page['post_type'] ?? null) || !empty($page['synthetic']) || !is_string($page['route']['path'] ?? null)) {
                 continue;
             }
-            $postsByParent[WordPressSitePlan::parentRoutePath($page['route']['path'])][] = $page;
+            $postsByParent[PageRoute::parent($page['route']['path'])][] = $page;
         }
         $pagesBySource = array_column($pages, null, 'source_path');
         $sections = TaxonomyProjection::sections($pages, $taxonomyEntities, $this->sourceOrigin);
