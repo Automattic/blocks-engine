@@ -137,11 +137,10 @@ final class SchemaProductEvidence
                         if ('' !== $value) { $identity = $key . ':' . $value; break; }
                     }
                     if ('' !== $identity) $tokens = array('id:' . $identity);
-                    $declaredUrl = self::declaredUrl($product);
-                    $routeUrl = '' !== $declaredUrl ? $declaredUrl : '/' . self::entryRelative($path, $entryRoot);
+                    $routeUrl = !isset($product['url']) && !isset($product['offers']['url']) ? '/' . self::entryRelative($path, $entryRoot) : ($fields['url'] ?? '/' . self::entryRelative($path, $entryRoot));
                     $route = ltrim(self::pageRoute($routeUrl, $path, $entryRoot), '/');
                     if (!$listing && 1 === count($pageClaims) && '' !== $pagePath && $route === $canonicalPagePath) $detailPages[$path] = '/' . $route;
-                    $hasRoute = '' !== $declaredUrl || in_array('ProductGroup', (array) ($product['@type'] ?? array()), true);
+                    $hasRoute = isset($product['url']) || isset($product['offers']['url']) || in_array('ProductGroup', (array) ($product['@type'] ?? array()), true);
                     if ($hasRoute) {
                         $tokens[] = 'route:' . $route;
                         foreach ($alternates[$route] ?? array() as $alternate) $tokens[] = 'route:' . $alternate;
@@ -200,7 +199,7 @@ final class SchemaProductEvidence
         return $chosen;
     }
 
-    /** The product's declared page, never the containing document's fallback route. */
+    /** Declared page used only to filter ownership claims, never product slugs or route tokens. */
     private static function declaredUrl(array $product): string
     {
         $offers = $product['offers'] ?? array();
@@ -284,7 +283,7 @@ final class SchemaProductEvidence
             }
         }
         if ('' === $name || '' === $regularPrice) return null;
-        $url = self::declaredUrl($product);
+        $url = is_string($product['url'] ?? null) ? $product['url'] : (ArrayField::string($offers, 'url'));
         if ('' === trim($url) && $isGroup) $url = '/' . $pagePath;
         $urlPath = (string) (parse_url($url, PHP_URL_PATH) ?: '');
         $segments = array_values(array_filter(explode('/', trim($urlPath, '/')), 'strlen'));

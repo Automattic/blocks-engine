@@ -23,12 +23,19 @@ foreach (array('url', 'offers.url', 'mainEntityOfPage', '@id') as $index => $fie
     else $card[$field] = $url;
     $related[] = $card;
 }
+$listingProducts = array($product('Desk Lamp'), $product('Floor Lamp'));
+foreach ($listingProducts as &$item) $item['mainEntityOfPage'] = 'https://shop.example/produtos/lamp-a/';
+unset($item);
+$idOnly = $product('Reading Lamp');
+$idOnly['@id'] = 'https://shop.example/produtos/unrelated-segment/#product';
 $cases = array(
     'own only' => array(array($own), array('lamp-a'), true),
     'own plus related' => array(array_merge(array($own), $related), array('lamp-a'), true),
     'route-less ambiguity' => array(array($product('Lamp A'), $product('Lamp B')), array('lamp-a', 'lamp-b'), false),
     'self-routed ambiguity' => array(array($own, $own), array('lamp-a'), false),
     'listing without self claim' => array($related, array('lamp-b', 'lamp-c', 'lamp-d', 'lamp-e'), false),
+    'listing with shared mainEntityOfPage' => array($listingProducts, array('desk-lamp', 'floor-lamp'), false),
+    'fragment id keeps name slug' => array(array($idOnly), array('reading-lamp'), true),
 );
 foreach ($cases as $label => [$products, $expectedClaims, $detail]) {
     $scripts = '';
@@ -36,6 +43,9 @@ foreach ($cases as $label => [$products, $expectedClaims, $detail]) {
         // Match WebPage.mainEntity plus separate related Product scripts in the reduction.
         if (0 === $index && $detail) $item = array('@type' => 'WebPage', 'mainEntity' => $item);
         $scripts .= '<script type="application/ld+json">' . json_encode($item) . '</script>';
+    }
+    if ('listing with shared mainEntityOfPage' === $label) {
+        $scripts = '<script type="application/ld+json">' . json_encode(array('@type' => 'ItemList', 'itemListElement' => array_map(static fn (array $item): array => array('@type' => 'ListItem', 'item' => $item), $products))) . '</script>';
     }
     $html = '<!doctype html><html><head><title>Lamp A</title>' . $scripts . '</head><body><main><h1>Lamp A</h1><p>R$89.90</p><form id="product_form" method="post"><input type="hidden" name="variant_id" value="123"><input type="number" name="quantity" value="1" min="1"><button type="submit">Add to cart</button></form></main></body></html>';
     $diagnostics = $routes = $pageProducts = $detailPages = array();
@@ -45,6 +55,13 @@ foreach ($cases as $label => [$products, $expectedClaims, $detail]) {
     $assert($expectedClaims === $claims, $label . ': pageProducts: ' . json_encode($pageProducts));
     $assert(($detail ? array($path => '/produtos/lamp-a') : array()) === $detailPages, $label . ': detailPages: ' . json_encode($detailPages));
     $assert(count(array_unique(array_column($products, 'name'))) === count($rows), $label . ': all products remain evidence');
+    if (in_array($label, array('listing with shared mainEntityOfPage', 'fragment id keeps name slug'), true)) {
+        $assert(array() === $routes, $label . ': ownership URLs must not create route tokens');
+        foreach ($expectedClaims as $slug) {
+            $assert(isset($rows[$slug]), $label . ': name-derived slug: ' . $slug);
+            $assert('/produtos/lamp-a' === $rows[$slug]['url'], $label . ': row URL keeps containing-page fallback');
+        }
+    }
     if ('own plus related' !== $label) continue;
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<html><body>Shop</body></html>', $path => $html)))->toArray();
     $assert('failed' !== $result['status'], 'Related-products detail page compiles');
