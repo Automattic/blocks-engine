@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
@@ -84,17 +85,26 @@ final class WrapperCoalescer
         $candidate = $this->collectWrapperChain($block, $depth);
         $chain = $candidate['chain'];
         $terminal = $candidate['terminal'];
-        // A div chain around a core block already has a native representation:
+        // A group chain around a core block already has a native representation:
         // nested core/group wrappers keep every id and class, editable with
         // core tools. Fold it into a generated companion only when native
-        // nesting would breach the editability depth budget, or around
+        // nesting would breach an editability budget, or around
         // non-core terminals that need shell transport.
         $terminalName = (string) ($terminal['blockName'] ?? '');
         $nativeGroupTree = (('core/freeform' === $terminalName
-                && array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool => 'core/group' === ($child['blockName'] ?? null)))
+                && (array() === ($terminal['innerBlocks'] ?? array())
+                    || array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool => 'core/group' === ($child['blockName'] ?? null))))
             || (str_starts_with($terminalName, 'core/') && ! in_array($terminalName, array( 'core/freeform', 'core/html' ), true)))
-            && array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null))
+            && ('core/freeform' === $terminalName
+                || ('core/group' === $terminalName && array() === ($terminal['innerBlocks'] ?? array()))
+                || array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null)))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
+        // Native nesting must respect the wrapper budget as well as depth.
+        // Branching terminals can otherwise retain many wrappers per leaf.
+        if ($nativeGroupTree && 'core/freeform' === $terminalName && array() !== ($terminal['innerBlocks'] ?? array()) && 2 <= count($chain)) {
+            $nativeMetrics = (new EditabilityReport())->fromBlocks(array($block))['metrics'];
+            $nativeGroupTree = $nativeMetrics['wrapper_to_content_ratio'] <= EditabilityPolicy::THRESHOLDS['wrapper_to_content_ratio'];
+        }
         $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
         if (!$nativeGroupTree && (2 <= count($chain) || (array() !== $chain && $terminalIsShell))) {
             return $this->foldWrapperChain($chain, $terminal);
