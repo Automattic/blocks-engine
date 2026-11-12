@@ -162,6 +162,21 @@ final class DesignSystem
     }
 
     /**
+     * Rendered design usage of every compiled document, keyed by source path.
+     *
+     * @param array<int,array<string,mixed>> $documents
+     * @return array<string,array<string,mixed>>
+     */
+    public static function usageBySource(array $documents): array
+    {
+        $usage = array();
+        foreach ($documents as $document) {
+            if (is_array($document['design_usage'] ?? null) && is_string($document['source_path'] ?? null)) $usage[$document['source_path']] = $document['design_usage'];
+        }
+        return $usage;
+    }
+
+    /**
      * @param array<string,array<string,mixed>> $usageBySource Usage keyed by document source path.
      */
     public static function fromUsage(array $usageBySource): ?self
