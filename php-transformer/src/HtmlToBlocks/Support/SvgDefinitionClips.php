@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 use DOMElement;
 use DOMNode;
 
-/** Lower only definition carriers whose clips all have exact native equivalents. */
+/** Lower definition carriers whose clips are inert or have exact native equivalents. */
 final class SvgDefinitionClips
 {
     public static function isCarrier(DOMElement $svg): bool
@@ -41,12 +41,24 @@ final class SvgDefinitionClips
     /** All-or-nothing: unsupported definitions must keep their in-document carrier. */
     private static function carrierReplacements(DOMElement $svg): array
     {
+        $display = '';
+        foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($svg->getAttribute('style'), array(';')) as $declaration) {
+            if (preg_match('/^\s*display\s*:\s*(.*?)\s*$/i', $declaration, $match)
+                && (!str_contains($display, '!') || str_contains($match[1], '!'))) {
+                $display = strtolower($match[1]);
+            }
+        }
+        // Browsers ignore clips inside display:none SVGs, regardless of geometry.
+        $inert = 1 === preg_match('/^none\s*(?:!\s*important)?$/', $display);
         if (!SourceDom::isDefinitionsOnlySvg($svg)
-            || preg_match('/^0(?:\.0+)?(?:px)?$/', trim($svg->getAttribute('width'))) !== 1
-            || preg_match('/^0(?:\.0+)?(?:px)?$/', trim($svg->getAttribute('height'))) !== 1) {
+            || (!$inert && (preg_match('/^0(?:\.0+)?(?:px)?$/', trim($svg->getAttribute('width'))) !== 1
+                || preg_match('/^0(?:\.0+)?(?:px)?$/', trim($svg->getAttribute('height'))) !== 1))) {
             return array();
         }
         foreach ($svg->attributes as $attr) {
+            if ($inert) {
+                continue;
+            }
             $name = strtolower($attr->name);
             // Carrier metadata does not change the geometry of its definitions.
             if (str_starts_with($name, 'data-') || str_starts_with($name, 'xmlns')
@@ -70,10 +82,12 @@ final class SvgDefinitionClips
             if (in_array(strtolower($defs->tagName), array('title', 'desc', 'metadata'), true)) {
                 continue;
             }
-            if ($defs->attributes->length > 0) {
+            $directClip = $inert && 'clippath' === strtolower($defs->tagName);
+            if (!$directClip && ($defs->attributes->length > 0
+                || ($inert && 'defs' !== strtolower($defs->tagName)))) {
                 return array();
             }
-            foreach ($defs->childNodes as $clip) {
+            foreach ($directClip ? array($defs) : $defs->childNodes as $clip) {
                 if (self::isNeutralNode($clip)) {
                     continue;
                 }
@@ -81,7 +95,7 @@ final class SvgDefinitionClips
                     return array();
                 }
                 if ('clippath' !== strtolower($clip->tagName) || '' === $clip->getAttribute('id')
-                    || null === ($native = self::native($clip))) {
+                    || null === ($native = $inert ? 'none' : self::native($clip))) {
                     return array();
                 }
                 $result[$clip->getAttribute('id')] = $native;

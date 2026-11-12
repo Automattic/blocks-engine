@@ -23,6 +23,7 @@ $rows = array(
     'adjacent semicircular arcs' => array('<path d="M0 .5 A.5 .5 0 0 1 1 .5 A.5 .5 0 0 1 0 .5Z"/>', 'ellipse(50% 50% at 50% 50%)'),
     'user-space path' => array('<path d="M0 0 L100 0 L0 100 Z"/>', 'url("#m1")', 'userSpaceOnUse'),
     'bbox curve cannot use pixel path' => array('<path d="M0 0 C0 1 1 0 1 1 Z"/>', 'url("#m1")'),
+    'issue 5788 inert clip' => array('<path class="clip-path" d="M0,0"></path>', 'none', 'objectBoundingBox', 'class="clip"', true),
     'visible icon' => array(null, null),
 );
 foreach ($rows as $name => $row) {
@@ -31,7 +32,10 @@ foreach ($rows as $name => $row) {
         if ($inline && 'url("#m1")' === $expected) continue;
         $units = $row[2] ?? 'objectBoundingBox';
         $svg = null === $shape ? '<svg width="24" height="24" viewBox="0 0 24 24"><path d="M0 0 L24 0 L0 24 Z"/></svg>' : '<svg width="0" height="0" style="position: absolute" ' . ($row[3] ?? '') . '><defs><clipPath id="m1" clipPathUnits="' . $units . '">' . $shape . '</clipPath></defs></svg>';
-        $html = '<!doctype html><html><body><div class="fluid"><div class="wrap"><img src="https://example.com/a.jpg" alt="I"></div>' . $svg . '</div><style>.fluid .wrap { clip-path: url("#m1"); overflow: hidden }</style></body></html>';
+        if ($row[4] ?? false) {
+            $svg = str_replace(array('width="0" height="0" style="position: absolute"', '<defs>', '</defs>'), array('style="display: none"', '', ''), $svg);
+        }
+        $html = '<!doctype html><html><body><div class="fluid"><div class="wrap"><img src="https://example.com/a.jpg" alt="I">' . (($row[4] ?? false) ? '<p>Section content</p>' : '') . '</div>' . $svg . '</div><style>.fluid .wrap { clip-path: url("#m1"); overflow: hidden }</style></body></html>';
         if ($inline) {
             $html = str_replace('class="wrap"', 'class="wrap" style="clip-path:url(&quot;#m1&quot;);overflow:hidden"', $html);
             $html = str_replace('clip-path: url("#m1");', '', $html);
@@ -44,6 +48,11 @@ foreach ($rows as $name => $row) {
             throw new RuntimeException($name . ': expected native image(s), no HTML or SVG companion');
         }
         $assets = $result['source_reports']['wordpress_site_plan']['assets'] ?? array();
+        if (($row[4] ?? false) && (!str_contains($markup, '<!-- wp:paragraph')
+            || !str_contains($markup, 'Section content')
+            || preg_match('/clip-path\s*:\s*url\(/i', $markup . json_encode($assets, JSON_UNESCAPED_SLASHES)))) {
+            throw new RuntimeException($name . ': paragraph must convert with no dead clip reference in markup or generated CSS');
+        }
         if (null === $expected) {
             if (!str_contains($markup, 'blocks-engine-synthetic-svg-paragraph') || !array_filter($assets, static fn ($asset) => str_contains($asset['content'] ?? '', 'M0 0 L24 0 L0 24 Z'))) {
                 throw new RuntimeException($name . ': visible SVG must still materialize as an image asset');
