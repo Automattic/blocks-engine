@@ -524,8 +524,29 @@ final class AuthorStylesheetProjector
             $rules .= $carrierPrelude . '{' . $carrierReset . '}';
         }
         $rules .= $this->tableVerticalMarginRules($prelude, $margins, $context);
+        $marginGroups = array();
+        foreach ( $margins as $property => $value ) {
+            $marginPrelude = $this->marginSelectorPrelude($prelude, $context);
+            if ( '' !== $imagePlacement['rules'] && 1 !== preg_match('/\bauto\b/i', $value) ) {
+                // The leaf placement projection already spaces the image.
+                // Keep non-auto margins off its synthetic wrapper; real source
+                // boxes retain them. Auto margins can still center a wrapper
+                // whose authored width owns the source image box.
+                $marginPrelude = implode(',', array_map(
+                    static fn (string $selector): string => self::canMatchSyntheticImageFigure($selector)
+                        ? rtrim($selector) . ':not(:where(.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '))'
+                        : rtrim($selector),
+                    CssStylesheetTransformer::splitSelectorList($marginPrelude) ?? array()
+                ));
+            }
+            $marginGroups[$marginPrelude][$property] = $value;
+        }
+        $marginRules = '';
+        foreach ( $marginGroups as $marginPrelude => $marginDeclarations ) {
+            $marginRules .= $marginPrelude . '{' . $this->styleResolver->cssDeclarationString($marginDeclarations) . '}';
+        }
         $css = $rules
-            . $this->marginSelectorPrelude($prelude, $context) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
+            . $marginRules
             . $imageRule
             . $imagePlacement['rules']
             . $svgImageRule

@@ -93,7 +93,7 @@ $dead = $rules($frontEnd, '/img\.(?:pic|other)\b|img#photo\b/', array());
 $assert(array() === $dead, 'no emitted rule keeps an img.class or img#id subject the markup cannot match', implode(' | ', $dead));
 
 // 2. The float, the margin and the box reach the figure that carries the class…
-$figure = '/^#hero\s+:where\(figure\)[^{,]*\.pic\.wp-block-image(?::not\([^)]*\))*$/';
+$figure = '/^#hero\s+:where\(figure\)[^{,]*\.pic\.wp-block-image(?::not\(.*\))*$/';
 $assert(array() !== $rules($frontEnd, $figure, array( 'float:left', 'width:250px', 'height:200px', 'border:1pxsolid#ccc', 'padding:3px', 'background:#eee' )), 'the box and paint of the class rule land on the figure that carries the class', $frontEnd);
 $assert(array() !== $rules($frontEnd, $figure, array( 'margin:2.3em' )), 'the margin of the class rule lands on the figure');
 // …and the <img> inside keeps filling that box through the existing bridge.
