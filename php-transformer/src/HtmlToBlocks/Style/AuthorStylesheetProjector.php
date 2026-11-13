@@ -3607,6 +3607,10 @@ final class AuthorStylesheetProjector
         foreach (array('width', 'height') as $property) {
             if ('auto' === CssValueInspector::declared($declarations, $property)) {
                 $bridge[] = $property . ':' . $declarations[$property];
+            } elseif (! $ownsBox && ! in_array($position, array('absolute', 'fixed'), true) && isset($declarations[$property])) {
+                // A responsive rule can change only one axis. The figure owns
+                // that declaration; its leaf must follow the new value too.
+                $bridge[] = $property . ':inherit';
             }
         }
         $objectFit = $this->explicitObjectFit($declarations);

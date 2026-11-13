@@ -224,10 +224,11 @@ final class ImageDimensionResolver
         if ( '' !== $inline && ! in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
             return $this->imageDimensionValue($inline);
         }
-        if ( $this->styles->imageAxisVariesByViewport($image, $property) ) {
-            // A responsive rule resizes this axis: the projected stylesheet
-            // resolves it per viewport, and neither the desktop value nor the
-            // HTML attribute may be pinned inline over it.
+        if ( $this->styles->imageAxisVariesByViewport($image, $property)
+            || $this->styles->imageAxisVariesByViewport($image, $other) ) {
+            // Core saves a missing opposite axis as auto when one dimension
+            // is present. Leave both axes to projection when either varies,
+            // so that auto cannot override responsive stylesheet sizing.
             return '';
         }
         $stylesheet = $this->imageStylesheetDimension($image, $property);

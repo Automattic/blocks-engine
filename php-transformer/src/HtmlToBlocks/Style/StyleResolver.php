@@ -3229,8 +3229,8 @@ final class StyleResolver implements ElementPresentationResolver
      * source container and collapses the image to its intrinsic ratio. Carry
      * height:100% on the injected figure so authored percentage sizing keeps
      * resolving against the original container box. When the container height
-     * is auto the figure percentage computes back to auto, so the carry stays
-     * faithful even when the driving rule lives behind a media query.
+     * is auto the figure percentage computes back to auto. Responsive heights
+     * instead belong to the projected author cascade, without this carry.
      *
      * An image the source links adds a second injected box to that same chain:
      * core/image serializes it as <figure><a><img></a></figure>, and that <a>
@@ -3244,7 +3244,10 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function injectedFigureHeightClassName(DOMElement $image): string
     {
-        if ( ! $this->authorStylesDriveImageHeight($image) ) {
+        if ( ! $this->authorStylesDriveImageHeight($image)
+            || $this->imageAxisVariesByViewport($image, 'height') ) {
+            // Responsive figure geometry is already owned by the projected
+            // author rules. A permanent important fill would override them.
             return '';
         }
 
