@@ -506,6 +506,7 @@ final class AuthorStylesheetProjector
             . $this->navigationListBoxRule($prelude, $declarations, $context)
             . $this->directNavigationHostRule($prelude, $declarations, $context)
             . $this->navigationItemFlexItemRule($prelude, $declarations, $context)
+            . $this->syntheticParagraphItemRule($prelude, $declarations, $context)
             . $this->navigationToggleRowRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
@@ -2126,7 +2127,7 @@ final class AuthorStylesheetProjector
             // The emitted tree is authoritative: add a zero-specificity hop
             // only when that topology actually exists, keeping the source arm
             // for matches that were not wrapped.
-            $carrierChild = $this->projectInlineLayoutCarrierChildSelector($selector, $parsed, $context);
+            $carrierChild = $this->projectParagraphCarrierChildSelector($selector, $parsed, $context);
             if ( null !== $carrierChild ) {
                 $rewritten[] = $carrierChild;
             }
@@ -3829,7 +3830,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed */
-    private function projectInlineLayoutCarrierChildSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    private function projectParagraphCarrierChildSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $itemSlot = false): ?string
     {
         $rightmost = $parsed['rightmost_compound_span'] ?? null;
         $combinators = $parsed['combinators'] ?? array();
@@ -3842,8 +3843,40 @@ final class AuthorStylesheetProjector
         if ( 1 === preg_match('/:(?:first|last|only|nth)-|:nth-/i', substr($selector, $start)) ) {
             return null;
         }
-        $projected = substr($selector, 0, $start) . ':where(.' . self::INLINE_LAYOUT_CARRIER_CLASS . ')>' . substr($selector, $start);
-        return $this->matchesEmittedMarkup(CssSelectorMatcher::parse($projected), $context->emittedMarkup) ? $projected : null;
+        $arms = array();
+        $classes = $itemSlot ? array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS) : array(self::INLINE_LAYOUT_CARRIER_CLASS, SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS);
+        foreach ( $classes as $class ) {
+            $carrier = ':where(.' . $class . ')';
+            $prefix = substr($selector, 0, $start);
+            $subject = substr($selector, $start);
+            $projected = $prefix . $carrier . '>' . $subject;
+            if ( ! $this->matchesEmittedMarkup(CssSelectorMatcher::parse($projected), $context->emittedMarkup) ) continue;
+            // The same subject predicate guards the item slot: unrelated
+            // synthetic paragraphs must not receive this item's placement.
+            $arms[] = $itemSlot ? $prefix . $carrier . ':has(>' . $subject . ')' : $projected;
+        }
+        return array() === $arms ? null : implode(',', $arms);
+    }
+
+    /**
+     * Restate only non-cumulative item placement on the inserted paragraph.
+     * Its source-box and synthetic-anchor variants share this carrier marker.
+     * The leaf still owns its typography, paint and inner layout.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function syntheticParagraphItemRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $placement = array_filter($declarations, static fn (string $property): bool => in_array($property, array('flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'align-self', 'justify-self', 'place-self', 'order', 'grid-area', 'grid-row', 'grid-row-start', 'grid-row-end', 'grid-column', 'grid-column-start', 'grid-column-end'), true), ARRAY_FILTER_USE_KEY);
+        if ( array() === $placement ) return '';
+        $targets = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] || array() === $this->matchingSourceElements($selector, $parsed, $context) ) continue;
+            $target = $this->projectParagraphCarrierChildSelector($selector, $parsed, $context, true);
+            if ( null !== $target ) $targets[] = $this->rewriteSourceTagTypes($target, CssSelectorMatcher::parse($target), $context);
+        }
+        return array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($placement) . '}';
     }
 
     /** @param array<string, mixed> $parsed */
