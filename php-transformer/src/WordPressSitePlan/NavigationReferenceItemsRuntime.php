@@ -49,7 +49,7 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
         // which the navigation's current and resting rules complete.
         $url = is_string( $attrs['url'] ?? null ) ? trim( $attrs['url'] ) : '';
         $current = str_contains( (string) ( $attrs['className'] ?? '' ), 'blocks-engine-current-navigation-item' )
-            || ( null !== $served && '' !== $url && '/' === $url[0] && ( 1 === strlen( $url ) || '/' !== $url[1] ) && '/' . trim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) === $served );
+            || ( null !== $served && '' !== $url && '/' === $url[0] && ( 1 === strlen( $url ) || '/' !== $url[1] ) && ! str_contains( $url, '#' ) && '/' . trim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) === $served );
         if ( $current !== ! empty( $own['current'] ) ) continue;
         unset( $attrs['className'], $attrs['metadata']['blocksEngineNavigationAnchor'] );
         if ( is_string( $own['className'] ?? null ) ) $attrs['className'] = $own['className'];
