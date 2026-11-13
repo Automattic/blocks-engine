@@ -71,7 +71,7 @@ final class WrapperCoalescer
     ) {
     }
 
-    private const LANDMARK_GROUP_TAGS = array('header', 'footer');
+    private const LANDMARK_GROUP_TAGS = array('header', 'footer', 'nav');
 
     private bool $wrapperBudgetExceeded = false;
 
@@ -209,7 +209,7 @@ final class WrapperCoalescer
     private function foldableWrapperDescriptor(array $block): ?array
     {
         // A landmark stays its own group block: folded into a layout shell's
-        // wrapper list, a header or footer (or a `role="main"` region, which
+        // wrapper list, a header, footer or navigation (or a `role="main"` region, which
         // only its block name records) loses its block identity for the editor
         // and for shell extraction. A native grid or flex
         // layout is likewise an editor control the wrapper list cannot carry.
