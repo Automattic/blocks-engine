@@ -65,6 +65,25 @@ final class FormControlLabel
         return $label;
     }
 
+    /** An unassociated caption immediately preceding one same-name radio group. */
+    public static function choiceGroupLabel(DOMElement $group): ?DOMElement
+    {
+        $label = $group->previousElementSibling;
+        if ( ! $label instanceof DOMElement || 'label' !== strtolower($label->tagName)
+            || '' !== SourceDom::attr($label, 'for') || array() !== FormControlClassifier::controlElements($label) ) {
+            return null;
+        }
+        $controls = FormControlClassifier::controlElements($group);
+        if ( count($controls) < 2 ) return null;
+        $name = SourceDom::attr($controls[0], 'name');
+        if ( '' === $name ) return null;
+        foreach ( $controls as $control ) {
+            if ( 'input' !== strtolower($control->tagName) || 'radio' !== FormControlClassifier::controlType($control)
+                || $name !== SourceDom::attr($control, 'name') ) return null;
+        }
+        return $label;
+    }
+
     /**
      * Markup rendered by a client framework routinely states the association
      * by position alone: one label and one control inside the same field
@@ -82,6 +101,16 @@ final class FormControlLabel
             }
 
             $controls = FormControlClassifier::controlElements($wrapper);
+            // Preserve positional labels on captured button-backed fields. Only
+            // a native fillable target can ignore sibling action triggers.
+            if ( in_array(strtolower($control->tagName), array('input', 'select', 'textarea'), true)
+                && ! in_array(FormControlClassifier::controlType($control), array('button', 'submit', 'reset', 'image', 'hidden'), true) ) {
+                $controls = array_values(array_filter($controls, static fn (DOMElement $candidate): bool =>
+                (in_array(strtolower($candidate->tagName), array('input', 'select', 'textarea'), true)
+                    && ! in_array(FormControlClassifier::controlType($candidate), array('button', 'submit', 'reset', 'image', 'hidden'), true))
+                    || 'combobox' === SourceDom::role($candidate)
+                ));
+            }
             // A wrapper shared with another control cannot say which one a label belongs to.
             if ( 1 !== count($controls) || ! $controls[0]->isSameNode($control) ) {
                 return null;
