@@ -46,7 +46,7 @@ $full = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
     'category/topic/index.html' => '<main><h1>Topic</h1></main>',
 )))->toArray();
 $fullPages = array_column((new WordPressSitePlan())->fromCompilerResult($full)['pages'], null, 'source_path');
-$assert(str_contains($fullPages['index.html']['canonical_block_markup'], 'wp:post-content') && !str_contains($fullPages['index.html']['canonical_block_markup'], 'wp:post-excerpt'), 'a full-content listing retains article ownership even when its post declares a description');
+$assert(!str_contains($fullPages['index.html']['canonical_block_markup'], 'wp:post-content') && str_contains($fullPages['index.html']['canonical_block_markup'], 'wp:post-excerpt') && str_contains($fullPages['index.html']['canonical_block_markup'], 'substantial independent text'), 'identical text in every card stays literal chrome even when every article repeats it');
 $tagged = static fn(string $html): string => strtr($html, array(
     '<h2>' => '<h2 data-blocks-engine-capture-device-hide="mobile">',
     '<p><time' => '<p data-blocks-engine-capture-device-hide="mobile"><time',
