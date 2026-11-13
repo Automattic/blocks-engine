@@ -72,9 +72,13 @@ final class ListingQueryLoops
         $pagesBySource = array_column($pages, null, 'source_path');
         $sections = TaxonomyProjection::sections($pages, $taxonomyEntities, $this->sourceOrigin);
         foreach ($taxonomyEntities as $entity) if (isset($entity['archive'])) foreach ($entity['membership_source_paths'] as $sourcePath) if (isset($pagesBySource[$sourcePath])) $postsByArchive[$entity['archive']['source_path']][] = $pagesBySource[$sourcePath];
+        // A term archive presents its own term: it inherits the archive query
+        // or stays as captured, and is never a section's fixed listing.
+        $archiveSources = array();
+        foreach ($taxonomyEntities as $entity) if (isset($entity['archive']['source_path'])) $archiveSources[$entity['archive']['source_path']] = true;
         $candidates = array();
         foreach ($pages as $index => $page) {
-            if (isset($postsByArchive[$page['source_path']]) || count($postsByParent) < 2) $candidates[] = array($index, null);
+            if (isset($archiveSources[$page['source_path']]) || count($postsByParent) < 2) $candidates[] = array($index, null);
             else foreach ($sections as $route => $entity) $candidates[] = array($index, $route);
         }
         foreach ($candidates as [$index, $sectionRoute]) {
