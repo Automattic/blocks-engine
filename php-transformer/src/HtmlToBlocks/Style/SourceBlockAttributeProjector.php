@@ -331,18 +331,15 @@ final class SourceBlockAttributeProjector
         }
         foreach (array('padding', 'margin') as $box) {
             $sides = $attrs['style']['spacing'][$box] ?? array();
-            if (!is_array($sides) || !$this->styleResolver->hasGlobalZeroBox($sourceElement, $box)) continue;
-            if (array() === $sides) {
-                $resolved = $this->styleResolver->styleAttributeMapper()->map($this->styleResolver->resolvedPresentationDeclarations($sourceElement));
-                $computed = $resolved['style']['spacing'][$box] ?? array();
-                if (array() === $computed || array() !== array_filter($computed, static fn(string $value): bool => !CssValueInspector::isZeroLength($value))) continue;
-            }
-            $marker = 'blocks-engine-zero-' . str_replace('/', '-', $name) . '-' . $box;
+            $zeroSides = is_array($sides) ? array_values(array_intersect(array('top', 'right', 'bottom', 'left'), array_keys(array_filter($sides, static fn($value): bool => is_string($value) && CssValueInspector::isZeroLength($value))))) : array();
+            if (array() === $zeroSides || !$this->styleResolver->hasGlobalZeroBox($sourceElement, $box)) continue;
+            // Only the sides the instance zeroes join the shared rule; a partial box
+            // gets a side-specific marker so unlisted sides keep their own cascade.
+            $all = 4 === count($zeroSides);
+            $marker = 'blocks-engine-zero-' . str_replace('/', '-', $name) . '-' . $box . ($all ? '' : '-' . implode('', array_map(static fn(string $side): string => $side[0], $zeroSides)));
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $marker);
-            $context->generatedStyles->registerGlobalZeroBox($marker, $box);
-            foreach ($sides as $side => $value) {
-                if (is_string($value) && CssValueInspector::isZeroLength($value)) unset($attrs['style']['spacing'][$box][$side]);
-            }
+            $context->generatedStyles->registerGlobalZeroBox($marker, $all ? $box . ':0' : implode(';', array_map(static fn(string $side): string => $box . '-' . $side . ':0', $zeroSides)));
+            foreach ($zeroSides as $side) unset($attrs['style']['spacing'][$box][$side]);
             if (array() === ($attrs['style']['spacing'][$box] ?? null)) unset($attrs['style']['spacing'][$box]);
         }
         if (array() === ($attrs['style']['spacing'] ?? null)) unset($attrs['style']['spacing']);

@@ -11,11 +11,11 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, string> */
     private array $globalZeroBoxRules = array();
 
-    public function registerGlobalZeroBox(string $marker, string $box): void
+    public function registerGlobalZeroBox(string $marker, string $declarations): void
     {
         // Beat core block margins and layout block-gap selectors, but let
         // nonzero inline instance values continue to override the shared reset.
-        $this->globalZeroBoxRules[$marker] = 'body .' . $marker . '.' . $marker . '{' . $box . ':0}';
+        $this->globalZeroBoxRules[$marker] = 'body .' . $marker . '.' . $marker . '{' . $declarations . '}';
     }
 
     /** @var array<string, string> */

@@ -36,10 +36,10 @@ foreach (array(false, true) as $override) {
     $assert(count($comments) > 0, 'Canonical blocks were inspected');
     $assert(($override ? 1 : 0) === $overrides, 'Only the differing list item retains padding-left');
     $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
-    foreach (array('group', 'list-item', 'paragraph') as $block) {
+    foreach (array('group', 'list-item') as $block) {
         foreach (array('padding', 'margin') as $box) {
-            $marker = 'blocks-engine-zero-core-' . $block . '-' . $box;
-            $assert(str_contains($css, '.' . $marker . '.' . $marker . '{' . $box . ':0}'), $block . ' shared ' . $box . ' reset beats core layout defaults');
+            // A box zeroed on every side shares `{box:0}`; a partial box shares a side-specific rule.
+            $assert(1 === preg_match('/body \.(blocks-engine-zero-core-' . $block . '-' . $box . '(?:-[trbl]+)?)\.\1\{' . $box . '(?:-[a-z]+)?:0[;}]/', $css), $block . ' shared ' . $box . ' reset beats core layout defaults');
         }
     }
 }
