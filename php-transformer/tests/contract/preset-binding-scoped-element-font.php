@@ -26,7 +26,7 @@ foreach (array(true, false) as $shared) {
         if (null === $family) throw new RuntimeException('A universally loaded element font is owned by Global Styles.');
         if (str_contains($rule, 'font-family:')) throw new RuntimeException('An element font owned by Global Styles yields its stylesheet declaration.');
     } else {
-        if ('inherit' !== $family) throw new RuntimeException('A partially loaded stylesheet must leave global heading typography inheriting.');
+        if (null !== $family) throw new RuntimeException('A partially loaded authored heading family must stay source-owned without a Global Styles inheritance reset.');
         if (!preg_match('/font-family:[^;]*Libre Caslon Display/', $rule)) throw new RuntimeException('The scoped h1 rule must retain its winning font family when Global Styles does not own it.');
     }
 }
