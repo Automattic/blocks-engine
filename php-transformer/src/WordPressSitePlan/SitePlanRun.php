@@ -325,7 +325,8 @@ final class SitePlanRun
         $emittedMarkup = implode("\n", self::markups(array_merge($pages, $parts, $templates, $syncedPatterns)));
         $menus = array_values(array_filter($menus, static fn(array $menu): bool => !isset($menu['token']) || str_contains($emittedMarkup, WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}')));
         $operations = PageOperations::plan($pages);
-        $assets = $this->finalStylesheets($assets);
+        $navigationMarkup = $emittedMarkup . "\n" . implode("\n", self::markups($menus));
+        $assets = $this->finalStylesheets($assets, $navigationMarkup);
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
         foreach ($assets as &$asset) unset($asset['reference_origin']); unset($asset);
@@ -342,7 +343,7 @@ final class SitePlanRun
         $parts = $integrity->documents($parts);
         $scriptLoading = DocumentScripts::loading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge(ThemeScaffold::writes($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $this->runtimeEmoji, $rootDocuments), $assetWrites);
-        $unitFindings = array_merge($this->unitFindings->diagnostics(), NavigationInstanceDiagnostics::collect($assets, $emittedMarkup . "\n" . implode("\n", self::markups($menus))));
+        $unitFindings = array_merge($this->unitFindings->diagnostics(), NavigationInstanceDiagnostics::collect($assets, $navigationMarkup));
         $recoveryDiagnostics = array_merge($this->routeTable->diagnostics(), $this->links->diagnostics(), $themeAssetWrites->diagnostics(), $this->heads->diagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $this->missingFonts->diagnostics(), $this->missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
@@ -464,15 +465,17 @@ final class SitePlanRun
         return array('pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources);
     }
     /**
-     * Stylesheets take their final form: variant-scoped id selectors, preset
+     * Stylesheets take their final form: variant-scoped id selectors, no
+     * rules for navigation instances the emitted markup never renders, preset
      * bindings for values equal to a token, and one compaction each.
      *
      * @param array<int,array<string,mixed>> $assets
      * @return array<int,array<string,mixed>>
      */
-    private function finalStylesheets(array $assets): array
+    private function finalStylesheets(array $assets, string $navigationMarkup): array
     {
         $assets = CompiledAssets::withVariantScopedIdSelectors($assets);
+        $assets = NavigationInstanceDiagnostics::withoutOrphanedRules($assets, $navigationMarkup);
         // Stylesheet values equal to a token follow it too: links inside
         // text, navigation items and states have no block attribute to bind.
         if (null !== $this->presetBinding) foreach ($assets as &$asset) {
