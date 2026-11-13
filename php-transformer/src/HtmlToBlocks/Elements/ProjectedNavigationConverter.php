@@ -380,6 +380,16 @@ final class ProjectedNavigationConverter implements ElementConverter
         // A toggle carried by its own padding, border and an icon child keeps
         // that intrinsic box; the touch-target floor is for boxes with none.
         $hasIntrinsicBox = ! $isJumpMenu && $this->nativeNavigationToggleHasIntrinsicBox($toggle);
+        if ($hasIntrinsicBox && null === $source) {
+            foreach ($toggle->getElementsByTagName('*') as $child) {
+                $box = $this->styleResolver->collapsedViewportDeclarations($child, array('width', 'height'));
+                if ($this->nativeNavigationToggleDimensionIsUsable($box['width'] ?? '') && $this->nativeNavigationToggleDimensionIsUsable($box['height'] ?? '')) {
+                    if (!$hasUsableWidth) $declarations[] = 'width:' . $box['width'] . '!important';
+                    if (!$hasUsableHeight) $declarations[] = 'height:' . $box['height'] . '!important';
+                    break;
+                }
+            }
+        }
         if ( ! $hasUsableWidth && null === $source && ! $hasIntrinsicBox ) {
             $declarations[] = 'min-width:44px!important';
         }
@@ -454,10 +464,14 @@ final class ProjectedNavigationConverter implements ElementConverter
                 $slotDeclarations[] = $property . ':' . $value . '!important';
             }
         }
+        $wrapperSlot = $always ? null : $this->nativeNavigationToggleWrapperSlot($toggle, $navigation);
+        if ( null !== $wrapperSlot ) {
+            $slotDeclarations = array_merge($slotDeclarations, $wrapperSlot['host']);
+        }
         $buttonPresentation = 'button' === strtolower($toggle->tagName)
             ? $this->styleResolver->authoredControlPresentation($toggle, array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-radius', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-left-radius', 'border-bottom-right-radius', 'background', 'background-color'))
             : array();
-        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', (array() === $buttonPresentation ? '' : serialize($buttonPresentation)) . implode(';', $openDeclarations) . implode(';', $slotDeclarations) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary ) . ( '' === $absentAbove ? '' : ';absent:' . $absentAbove )), 0, 12);
+        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', (array() === $buttonPresentation ? '' : serialize($buttonPresentation)) . implode(';', $openDeclarations) . implode(';', $slotDeclarations) . ( null === $wrapperSlot ? '' : ';wrapper' ) . $extra . (null === $source ? '' : serialize($source)) . ( '' === $collapseBoundary ? '' : ';collapse:' . $collapseBoundary ) . ( '' === $absentAbove ? '' : ';absent:' . $absentAbove )), 0, 12);
         $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.' . $marker;
         $hostDeclarations = $this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations, array() !== $placement);
         $drawer = $this->collapsedContainingBlock($toggle);
@@ -471,8 +485,15 @@ final class ProjectedNavigationConverter implements ElementConverter
             // keep its own box inside the open overlay.
             $outOfFlowRule = $host . ':not(.wp-block-navigation__container){position:absolute!important;inset:auto!important;width:0!important;height:0!important;margin:0!important;flex-basis:0!important}';
             $slotDeclarations = array();
+            $wrapperSlot = null;
         }
         $hostRule = $host . '{' . implode(';', array_merge($hostDeclarations, $slotDeclarations)) . '}' . $outOfFlowRule;
+        if ( null !== $wrapperSlot ) {
+            // The wrapper is the row's last item, after the host. Addressing it
+            // from the host keeps the rule independent of where the header
+            // sits in each page, so shared chrome stays identical.
+            $hostRule .= $host . '~:last-child{margin-inline-start:auto!important}';
+        }
         // Core repeats source list classes on its inner container. Neither
         // that list nor the replacement toggle host is the source drawer:
         // retaining its translation (or a transform hint) moves the closed
@@ -1311,6 +1332,62 @@ final class ProjectedNavigationConverter implements ElementConverter
         return $portable;
     }
 
+    /**
+     * The trailing slot of a toggle that sits in a sibling wrapper of the
+     * navigation, or null when the toggle shares the navigation's row.
+     *
+     * Core's open button renders inside the navigation host, so at collapsed
+     * widths it takes the navigation's slot in the row. A source header laid
+     * out as `brand | nav | actions{cart, toggle}`, whose nav leaves the flow
+     * when collapsed, shows the toggle at the trailing edge, after the cart.
+     * When the toggle closes that actions wrapper and the wrapper closes a
+     * flex row that already keeps it at the trailing edge, the host is
+     * ordered after the wrapper, spaced by the wrapper's gap, and the wrapper
+     * keeps the trailing edge with an auto inline-start margin. Rows with
+     * other shapes keep the navigation's slot.
+     *
+     * @return array{host: list<string>}|null
+     */
+    private function nativeNavigationToggleWrapperSlot(DOMElement $toggle, DOMElement $navigation): ?array
+    {
+        $wrapper = $toggle->parentNode;
+        $row = $navigation->parentNode;
+        if ( ! $wrapper instanceof DOMElement || ! $row instanceof DOMElement
+            || $wrapper->isSameNode($row) || ! $wrapper->parentNode instanceof DOMElement || ! $wrapper->parentNode->isSameNode($row)
+            || ! $this->isLastElementChild($toggle) || ! $this->isLastElementChild($wrapper) ) {
+            return null;
+        }
+        $layout = array_map('strtolower', $this->portableCollapsedPlacement($row, array('display', 'flex-direction', 'justify-content')));
+        if ( ! in_array($layout['display'] ?? '', array('flex', 'inline-flex'), true)
+            || ! in_array($layout['flex-direction'] ?? 'row', array('row', ''), true) ) {
+            return null;
+        }
+        $wrapperBox = $this->portableCollapsedPlacement($wrapper, array('order', 'margin-left', 'margin-inline-start', 'gap', 'column-gap'));
+        $trailing = in_array($layout['justify-content'] ?? '', array('space-between', 'flex-end', 'end', 'right'), true)
+            || 'auto' === strtolower($wrapperBox['margin-left'] ?? $wrapperBox['margin-inline-start'] ?? '');
+        $order = $wrapperBox['order'] ?? '0';
+        if ( ! $trailing || ! preg_match('/^-?\d+$/', $order) ) {
+            return null;
+        }
+        $host = array('order:' . ( (int) $order + 1 ) . '!important');
+        $gap = $wrapperBox['column-gap'] ?? ( isset($wrapperBox['gap']) ? (string) array_slice(preg_split('/\s+/', $wrapperBox['gap']) ?: array(), -1)[0] : '' );
+        if ( preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px|r?em)$/', $gap) ) {
+            $host[] = 'margin-inline-start:' . $gap . '!important';
+        }
+
+        return array( 'host' => $host );
+    }
+
+    private function isLastElementChild(DOMElement $element): bool
+    {
+        for ( $next = $element->nextSibling; null !== $next; $next = $next->nextSibling ) {
+            if ( $next instanceof DOMElement ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** @param list<string> $properties @return array<string, string> */
     private function portableCollapsedPlacement(DOMElement $element, array $properties): array
     {
@@ -1427,6 +1504,15 @@ final class ProjectedNavigationConverter implements ElementConverter
             // offsets have to resolve against the ancestor the toggle's did.
             $placesOpenButton ? 'position:static!important' : 'position:relative!important',
             'overflow:visible!important',
+            // The source panel's closed state (faded, offset, inert) lands on
+            // this host too. The host is the toggle's slot and Core's overlay
+            // renders inside it, so that state would hide both the opener and
+            // the opened menu.
+            'inset:auto!important',
+            'opacity:1!important',
+            'visibility:visible!important',
+            'pointer-events:auto!important',
+            'clip-path:none!important',
         );
         if ( $always && 'table-cell' === $display ) {
             $host[] = 'display:table-cell!important';
@@ -1648,7 +1734,7 @@ final class ProjectedNavigationConverter implements ElementConverter
     private function nativeNavigationToggleHasIntrinsicBox(DOMElement $toggle): bool
     {
         foreach ( $toggle->getElementsByTagName('*') as $child ) {
-            $declarations = $this->styleResolver->resolvedPresentationDeclarations($child);
+            $declarations = $this->styleResolver->collapsedViewportDeclarations($child, array('width', 'height'));
             $fontSize = null;
             $lengths = array();
             foreach ( array( 'width', 'height' ) as $property ) {

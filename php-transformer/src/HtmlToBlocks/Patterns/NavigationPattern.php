@@ -2074,6 +2074,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             'orientation' => 'vertical',
             'justifyContent' => $this->verticalNavigationJustification($style),
         );
+        $marker = 'blocks-engine-navigation-direction-' . substr(hash('sha256', SourceDom::elementSelector($element)), 0, 12);
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $marker);
+        $navigationContext->projectNavigationDirection($element, $marker);
 
         return $attrs;
     }
@@ -3702,7 +3705,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             $boxes = $navigationContext->navigationAnchorBoxes($anchor, $item, null !== $submenuContainer);
             // A wrapper box renders on every route too, so it drops route state like the anchor.
             if ($isCurrentNavigationItem) foreach ($boxes as $index => $box) $boxes[$index]['className'] = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $box['className']))['className'] ?? '');
-            if (array() !== $boxes) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['boxes'] = $boxes;
+            if (array() !== $boxes) {
+                $itemAttrs['metadata']['blocksEngineNavigationAnchor']['boxes'] = $boxes;
+                $siblings = $navigationContext->navigationItemEmptySiblings($anchor, $item);
+                if (array() !== $siblings) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['siblings'] = $siblings;
+            }
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $navigationContext->navigationItemSubjectMarker($item));
         }
         if ( $submenuContainer instanceof DOMElement ) {

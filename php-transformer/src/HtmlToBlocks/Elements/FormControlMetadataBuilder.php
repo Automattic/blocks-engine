@@ -64,6 +64,7 @@ final class FormControlMetadataBuilder
         $controls = array();
         $emittedElements = array();
         $order = 0;
+        $panels = (new FormWorkflowPanelDetector())->panels($form, FormRuntimeRequirementAnalyzer::intentControls($form));
         foreach ( $manifestControls ?? FormControlClassifier::controlElements($form, $additionalControls) as $control ) {
             $metadata = $this->control($control, in_array($control, $additionalControls, true));
             if ( array() !== $metadata ) {
@@ -87,7 +88,25 @@ final class FormControlMetadataBuilder
                 // `display: none` is not judged: a custom checkbox hides its input
                 // and stays operable through its visible label.
                 $wrapper = $control->parentNode;
-                $hidden = ! $wrapper instanceof DOMElement || $wrapper->isSameNode($form) ? null : $this->hiddenState($wrapper, $form);
+                $boundary = $form;
+                $step = null;
+                foreach ( $panels as $index => $panel ) {
+                    if ( ! in_array($control, $panel['controls'], true) ) continue;
+                    $metadata['workflow_step'] = array('panel' => $index, 'rendered' => ! $panel['hidden']);
+                    if ( $panel['hidden'] ) {
+                        $boundary = $panel['element'];
+                        $step = $boundary;
+                    }
+                }
+                // Only the panel's own hiding is step gating. Declarations
+                // below it (including a decoy input's own display:none) remain
+                // unconditional. Custom checkbox/radio inputs can be hidden
+                // while their visible label still operates them.
+                $start = null !== $step && ! in_array(FormControlClassifier::controlType($control), array('checkbox', 'radio'), true) ? $control : $wrapper;
+                $hidden = ! $start instanceof DOMElement || $start->isSameNode($boundary) ? null : $this->hiddenState($start, $boundary);
+                if ( null === $hidden && null !== $step && $step->parentNode instanceof DOMElement && ! $step->parentNode->isSameNode($form) ) {
+                    $hidden = $this->hiddenState($step->parentNode, $form);
+                }
                 if ( is_array($hidden) ) {
                     $metadata['hidden'] = $hidden;
                 }
@@ -159,11 +178,9 @@ final class FormControlMetadataBuilder
      * not a control, so nothing in the control manifest carries it. Record it
      * against the controls it sits around so a materialized form can keep it.
      *
-     * Copy that sits between two controls cannot be placed by position alone
-     * (see `interleaved_context`), but the text itself is still reported —
-     * bounded, under `unrepresented_context` — instead of being discarded
-     * outright, so a caller can turn it into a named diagnostic rather than a
-     * silent loss.
+     * Prose between controls is context_after anchored to the preceding
+     * control selector. Unassociated labels without a unique owner remain
+     * unrepresented: treating those as prose would hide an ambiguous field name.
      *
      * @return array{context_before: array<int, array<string, mixed>>, context_after: array<int, array<string, mixed>>, interleaved_context: bool, unrepresented_context: array<int, array<string, mixed>>}
      */
@@ -175,6 +192,7 @@ final class FormControlMetadataBuilder
         $interleaved = false;
         $seenControls = 0;
         $totalControls = 0;
+        $precedingControl = null;
 
         // Copy a control already owns — its label, its field description — is
         // carried by the control manifest, so it must not also surface here.
@@ -208,6 +226,14 @@ final class FormControlMetadataBuilder
             }
         }
 
+        foreach ( $form->getElementsByTagName('*') as $group ) {
+            if ( ! $group instanceof DOMElement ) continue;
+            $groupLabel = FormControlLabel::choiceGroupLabel($group);
+            if ( $groupLabel instanceof DOMElement && '' !== trim($groupLabel->textContent) && strlen(trim($groupLabel->textContent)) <= 200 ) {
+                $claimedLabels[] = $groupLabel;
+            }
+        }
+
         $recorded = array();
         foreach ( $form->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
@@ -216,6 +242,7 @@ final class FormControlMetadataBuilder
             if ( FormControlClassifier::isControlElement($node) ) {
                 if ( ! FormControlClassifier::isNonAuthoredControl($node) ) {
                     ++$seenControls;
+                    $precedingControl = $node;
                 }
                 continue;
             }
@@ -235,7 +262,12 @@ final class FormControlMetadataBuilder
                 $after[] = $item;
             } else {
                 $interleaved = true;
-                $unrepresented[] = $item;
+                if ( 'label' !== strtolower($node->tagName) && $precedingControl instanceof DOMElement ) {
+                    $item['after_control_selector'] = SourceDom::elementSelector($precedingControl);
+                    $after[] = $item;
+                } else {
+                    $unrepresented[] = $item;
+                }
             }
         }
 

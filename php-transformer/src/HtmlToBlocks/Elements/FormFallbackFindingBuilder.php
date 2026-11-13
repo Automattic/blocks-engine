@@ -34,7 +34,8 @@ final class FormFallbackFindingBuilder
      */
     public function build(DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null, ?array $layoutGraph = null): array
     {
-        $controls = $this->metadataBuilder->controls($element, array(), null, $controlElements);
+        $controlElements = FormWorkflowControlInventory::elements($element, $this->metadataBuilder, $this->session);
+        $controls = $this->metadataBuilder->controls($element, array(), $controlElements);
         $layoutGraph ??= (new FormLayoutGraphBuilder())->build($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         $presentationBuilder = new FormPresentationGraphBuilder(
             fn (DOMElement $control, string $value): string => $this->context->resolvePresentationValue($control, $value),
@@ -113,23 +114,6 @@ final class FormFallbackFindingBuilder
         $steps = true === ($layoutGraph['truncated'] ?? true) ? null : (new FormStepTrackDetector())->detect($element, $layoutGraph, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         if ( null !== $steps ) {
             $finding['steps'] = $steps;
-        }
-        // Provider fields and their indexed graphs span the workflow.
-        // Hidden sibling panels need not have any particular step attribute.
-        // Only expand within the recognized partitions, not unrelated decoys.
-        if ( 'form' === strtolower($element->tagName) ) {
-            $intentControls = FormRuntimeRequirementAnalyzer::intentControls($element);
-            if ( null === $steps ) {
-                $panelControls = (new FormWorkflowPanelDetector())->controls($element, $intentControls);
-                $visibleSelectors = array_column($controls, 'selector');
-                $intentControls = array_values(array_filter($intentControls, static fn (DOMElement $control): bool => in_array($control, $panelControls, true) || in_array(SourceDom::elementSelector($control), $visibleSelectors, true)));
-            }
-            $selectors = array_column($controls, 'selector');
-            $missing = array_filter($intentControls, static fn (DOMElement $control): bool => ! in_array(SourceDom::elementSelector($control), $selectors, true));
-            if ( array() !== $missing ) {
-                $finding['controls'] = $this->metadataBuilder->controls($element, array(), $intentControls, $controlElements);
-                $finding['control_count'] = count($finding['controls']);
-            }
         }
         // Metadata can omit elements. Build every indexed graph from the exact
         // surviving inventory, not from a fresh classifier enumeration.

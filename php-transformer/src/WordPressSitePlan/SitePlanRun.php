@@ -161,7 +161,35 @@ final class SitePlanRun
         $this->initialTaxonomyProjection = $taxonomyProjection;
     }
 
-    /** @return array<string,mixed> */
+    /**
+     * Runs the plan stages in order. Each stage is named by its timer:
+     *
+     * - pages (begun by the constructor): routes the pages, selects
+     *   pagination captures, adds event declarations and instances page
+     *   stylesheets.
+     * - entity_bindings: anchors runtime declarations on the final page
+     *   markup before shell extraction, settles the route hierarchy, and
+     *   pairs root documents with the asset pages.
+     * - theme_json: scopes stylesheets, projects theme.json and binds
+     *   presets on the pages.
+     * - shell_extraction: extractedShells() moves shared chrome out of the
+     *   pages into template parts and frames.
+     * - stylesheets: projects shared chrome stylesheets, drops selectors
+     *   no emitted markup matches, then places and folds them.
+     * - templates: projects navigation, post chrome, listings and synced
+     *   patterns, then builds the theme templates.
+     * - asset_writes: plans page operations, the final stylesheets, asset
+     *   writes, document integrity and script loading.
+     * - plan_assembly: factors runtime declarations and assembles the plan.
+     * - asset_consumers: assigns asset consumers and checks content
+     *   conservation.
+     *
+     * A step belongs in the stage whose values it reads and rewrites.
+     * EntityBindings::canonical() runs again after each pass that rewrites
+     * page markup, so runtime anchors follow the final documents.
+     *
+     * @return array<string,mixed>
+     */
     public function plan(): array
     {
         $data = $this->data;
@@ -207,10 +235,7 @@ final class SitePlanRun
         // extraction. Asset and route projection can make source anchors equal,
         // so assign occurrences only after that shared projection is complete.
         $this->timer?->start('compose.site_plan.entity_bindings');
-        $bindingTemplates = ThemeTemplates::build($this->links, array(), array(), $this->surfaces, $tokens, $this->references, $this->routeMap);
-        $surfaceMarkup = array_column($this->surfaces, 'block_markup', 'source_path');
-        foreach ($bindingTemplates as &$template) if (isset($surfaceMarkup[$template['source_path'] ?? ''])) $template['_projected_source_block_markup'] = $surfaceMarkup[$template['source_path']];
-        unset($template);
+        $bindingTemplates = $this->bindingTemplates($tokens);
         $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $this->routeMap, $pages, $bindingTemplates, $paginationOwners);
         // A form provider rebuilds a form from its fallback's readable blocks.
         foreach ($data['fallbacks'] as &$fallback) {
@@ -220,23 +245,8 @@ final class SitePlanRun
         unset($fallback);
         $pages = $this->routeTable->hierarchy($pages, $this->routeMap);
         $pages = TemplateSlugs::qualifyColliding($pages);
-        $surfaceSources = array_fill_keys(array_column($this->surfaces, 'source_path'), true);
-        foreach ($assets as &$asset) {
-            if ('page' === ($asset['compilation']['scope'] ?? null) && isset($surfaceSources[$asset['compilation']['id'] ?? ''])) $asset['compilation'] = array('scope' => 'shared');
-        }
-        unset($asset);
-        // Root selector context belongs to captured documents, not only to
-        // entities that survive as pages (terms, authors and dates do not).
-        $rootDocuments = array();
-        $nativeArchiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
-        $assetPages = array_values(array_filter($pages, static fn(array $page): bool => !isset($nativeArchiveSources[$page['source_path']])));
-        $pageSources = array_fill_keys(array_column($assetPages, 'source_path'), true);
-        foreach ($this->compiled['pages'] as $document) {
-            if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
-            $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $this->entryRoot);
-            $metadata = $document['document_metadata'] ?? array();
-            $rootDocuments[] = array('source_path' => $document['source_path'], 'reconciliation_identity' => WordPressSitePlan::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
-        }
+        $assets = StylesheetScopes::withSharedSurfaces($assets, $this->surfaces);
+        ['asset_pages' => $assetPages, 'root_documents' => $rootDocuments] = $this->rootDocuments($pages, $taxonomyProjection, $routeBySource, $paginationOwners, $paginationSources);
         $this->timer?->start('compose.site_plan.theme_json');
         $assets = StylesheetScopes::assign($assets, StylesheetScopes::documentsBySource($assetPages, $rootDocuments));
         $projector = new ThemeJsonProjection();
@@ -249,45 +259,7 @@ final class SitePlanRun
         // canonical plan rebuilds them from full page shell candidates.
         $compiledParts = is_array($this->compiled['template_parts'] ?? null) ? array_values(array_filter($this->compiled['template_parts'], static fn(mixed $part): bool => !is_array($part) || 'entry_shell' !== ($part['placement']['kind'] ?? null))) : null;
         $this->timer?->start('compose.site_plan.shell_extraction');
-        $existingParts = $this->documents($compiledParts, true, $tokens, $this->references, $this->routeMap);
-        $explicitBindings = $this->shellExtraction->bindExplicitParts($pages, $existingParts, $runtimeDeclarations, $runtimeEntityRecords);
-        $pages = $explicitBindings['pages'];
-        $existingParts = $explicitBindings['parts'];
-        $reservedPartSlugs = array_fill_keys(array_column($existingParts, 'slug'), true);
-        $canonicalInlineParts = $this->documents(ArrayField::array($this->compiled, 'inline_shell_artifacts'), true, $tokens, $this->references, $this->routeMap);
-        $pages = $this->shellExtraction->withSourceSharedShellIdentity($pages, $canonicalInlineParts, $runtimeDeclarations, $runtimeEntityRecords);
-        $inlineShells = $this->shellExtraction->inlineSharedShells($pages, $reservedPartSlugs, $runtimeDeclarations, $canonicalInlineParts, $runtimeEntityRecords, $assets);
-        $reservedPartSlugs += array_fill_keys(array_column($inlineShells['parts'], 'slug'), true);
-        $edgeShells = $this->shellExtraction->edgeShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations']);
-        $inlineShells['pages'] = $edgeShells['pages'];
-        $inlineShells['parts'] = array_merge($inlineShells['parts'], $edgeShells['parts']);
-        $inlineShells['diagnostics'] = array_merge($inlineShells['diagnostics'], $edgeShells['diagnostics']);
-        // Variant parts settle their area: no single part is bound in templates.
-        $reservedPartSlugs += array_fill_keys(array_column($edgeShells['parts'], 'slug'), true) + array_fill_keys(array_column($edgeShells['parts'], 'area'), true);
-        $shells = $this->shellExtraction->sharedShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations'], $runtimeEntityRecords, true, true, $assets);
-        $inlineAreas = array_fill_keys(array_column($inlineShells['parts'], 'area'), true);
-        $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
-        $trailingChrome = $this->shellExtraction->withSharedFooterTrailingChrome($pages, $shells['pages'], $shells['parts'], $shells['runtime_declarations'], $runtimeEntityRecords, $assets);
-        $shells['runtime_declarations'] = $trailingChrome['runtime_declarations'];
-        $runtimeEntityRecords = $trailingChrome['runtime_entity_records'];
-        $shells['pages'] = $trailingChrome['pages'];
-        $shells['parts'] = $trailingChrome['parts'];
-        $footerContent = $this->shellExtraction->factorSharedFooterContent($shells['pages'], $shells['parts'], $shells['runtime_declarations'], $runtimeEntityRecords);
-        $shells['pages'] = $footerContent['pages'];
-        $shells['parts'] = $footerContent['parts'];
-        $shells['diagnostics'] = array_merge($shells['diagnostics'], $footerContent['diagnostics']);
-        $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
-        $documentChrome = $this->shellExtraction->separateCaptureDocumentChrome($shells['pages'], $shells['runtime_declarations'], $runtimeEntityRecords);
-        $shells['diagnostics'] = array_merge($shells['diagnostics'], $documentChrome['diagnostics']);
-        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($documentChrome['pages'], $parts, $shells['runtime_declarations']);
-        $pages = $shellFrames['pages'];
-        $folded = $this->shellExtraction->foldFrameTrailingChrome($shellFrames['frames'], $parts, $pages);
-        $shellFrames['frames'] = $folded['frames'];
-        $parts = $folded['parts'];
-        // The generic page template is shared by routes that did not author it,
-        // so the rules aimed at its markers are site-wide chrome rules.
-        $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
-        foreach ($documentChrome['chrome'] as $chrome) $frameParts[] = array('slug' => 'document-chrome', 'placement' => array('kind' => 'shared_shell', 'template_slugs' => array('single')), 'canonical_block_markup' => $chrome);
+        ['pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts, 'shell_frames' => $shellFrames, 'document_chrome' => $documentChrome, 'runtime_declarations' => $shellDeclarations, 'runtime_entity_records' => $runtimeEntityRecords, 'diagnostics' => $shellDiagnostics] = $this->extractedShells($pages, $compiledParts, $tokens, $runtimeDeclarations, $runtimeEntityRecords, $assets);
         $assetTargetCollisions = array();
         // Element markers some emitted markup still carries. A rule naming
         // any other marker names an element extraction replaced (one route's
@@ -296,7 +268,7 @@ final class SitePlanRun
         // route's projected source markup from before its chrome was extracted.
         $emitted = static fn (array $rows): array => array_map(static fn (mixed $row): mixed => is_array($row) ? array_filter($row, static fn (int|string $key): bool => !is_string($key) || !str_starts_with($key, '_'), ARRAY_FILTER_USE_KEY) : $row, $rows);
         $this->timer?->start('compose.site_plan.stylesheets');
-        $liveElementMarkers = preg_match_all(DeadElementMarkers::PATTERN, (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
+        $liveElementMarkers = preg_match_all(DeadElementMarkers::PATTERN, (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shellDeclarations ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
         $assets = SharedChromeStylesheets::project($assets, array_merge($parts, $frameParts), $pages, $this->references, $assetTargetCollisions, $liveElementMarkers);
         $assets = DeadElementMarkers::withoutDeadSelectors($assets, $liveElementMarkers);
         // Removing dead selectors can consume a generated sheet's last rule.
@@ -318,7 +290,7 @@ final class SitePlanRun
         $assets = StylesheetScopes::foldSupport($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments), StylesheetScopes::canonicalDocuments(StylesheetScopes::documentsBySource($assetPages, $rootDocuments)), implode("\n", array_column(array_merge($parts, $frameParts), 'canonical_block_markup')));
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
-        $runtimeDeclarations = $shells['runtime_declarations'];
+        $runtimeDeclarations = $shellDeclarations;
         $this->timer?->start('compose.site_plan.templates');
         $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $this->routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $bindingTemplates), $assets);
@@ -346,7 +318,7 @@ final class SitePlanRun
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
         $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
         ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
-        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $this->routeMap, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome'], $blockThemeChrome['templates']);
+        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $this->routeMap, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates']);
         $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
         $sharedTemplateTitles = ThemeTemplates::shareOverrides($pages, $parts, $templates);
         $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates);
@@ -356,22 +328,15 @@ final class SitePlanRun
         // Template-group lifting settles post bodies and can add featured images.
         $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
         $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
-        $registeredTemplates = array();
-        foreach ($pages as $page) if (isset($page['route_template']) && !isset($registeredTemplates[$page['route_template']])) {
-            $registeredTemplates[$page['route_template']] = true;
-            $themeProjection['theme']['customTemplates'][] = array('name' => $page['route_template'], 'title' => $sharedTemplateTitles[$page['route_template']] ?? $page['title'], 'postTypes' => array($page['post_type']));
-        }
-        foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (isset($taxonomyEntity['archive']) && TemplateSlugs::forArchive($taxonomyEntity) === ($template['slug'] ?? null)) {
-            $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
-            continue 2;
-        }
-        unset($taxonomyEntity);
+        $themeProjection = ThemeTemplates::withCustomTemplates($themeProjection, $pages, $sharedTemplateTitles);
+        $taxonomyProjection = TaxonomyProjection::withArchivePresentation($taxonomyProjection, $templates);
         $this->timer?->start('compose.site_plan.asset_writes');
         $routes = RouteTable::forPages($pages);
         $emittedMarkup = implode("\n", self::markups(array_merge($pages, $parts, $templates, $syncedPatterns)));
         $menus = array_values(array_filter($menus, static fn(array $menu): bool => !isset($menu['token']) || str_contains($emittedMarkup, WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}')));
         $operations = PageOperations::plan($pages);
-        $assets = $this->finalStylesheets($assets);
+        $navigationMarkup = $emittedMarkup . "\n" . implode("\n", self::markups($menus));
+        $assets = $this->finalStylesheets($assets, $navigationMarkup);
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
         foreach ($assets as &$asset) unset($asset['reference_origin']); unset($asset);
@@ -388,7 +353,7 @@ final class SitePlanRun
         $parts = $integrity->documents($parts);
         $scriptLoading = DocumentScripts::loading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge(ThemeScaffold::writes($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $this->runtimeEmoji, $rootDocuments), $assetWrites);
-        $unitFindings = array_merge($this->unitFindings->diagnostics(), NavigationInstanceDiagnostics::collect($assets, $emittedMarkup . "\n" . implode("\n", self::markups($menus))));
+        $unitFindings = array_merge($this->unitFindings->diagnostics(), NavigationInstanceDiagnostics::collect($assets, $navigationMarkup));
         $recoveryDiagnostics = array_merge($this->routeTable->diagnostics(), $this->links->diagnostics(), $themeAssetWrites->diagnostics(), $this->heads->diagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $this->missingFonts->diagnostics(), $this->missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
         // All shell, navigation, listing and script binding projection is now
         // complete. Only the public plan needs the bounded record form.
@@ -437,10 +402,10 @@ final class SitePlanRun
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
             'runtime_entity_records' => $runtimeEntityRecords,
-            'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics),
+            'diagnostics' => array_merge($data['diagnostics'], $shellDiagnostics, $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics),
             // A dropped or rewritten unit is a warning on the plan, the same as withFindings().
             'quality' => array('status' => UnitFindings::status($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true, 'step_timings' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $this->input->coreHtmlFallbackEvidence, 'editability_policy' => $this->editabilityPolicy),
-            'reporting' => PlanReporting::summary($pages, $data, $this->input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), array_merge($this->surfaces, array_values(array_column(array_filter($templates, static fn(array $template): bool => isset($archiveSources[$template['source_path'] ?? ''])), null, 'source_path')))),
+            'reporting' => PlanReporting::summary($pages, $data, $this->input->coreHtmlFallbackEvidence, array_merge($shellDiagnostics, $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), array_merge($this->surfaces, array_values(array_column(array_filter($templates, static fn(array $template): bool => isset($archiveSources[$template['source_path'] ?? ''])), null, 'source_path')))),
         );
         $plan['reference_semantics']['navigation_entities'] = NavigationEntityProjection::REFERENCE_CONTRACT;
         if (array() !== $syncedPatterns) {
@@ -510,15 +475,17 @@ final class SitePlanRun
         return array('pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources);
     }
     /**
-     * Stylesheets take their final form: variant-scoped id selectors, preset
+     * Stylesheets take their final form: variant-scoped id selectors, no
+     * rules for navigation instances the emitted markup never renders, preset
      * bindings for values equal to a token, and one compaction each.
      *
      * @param array<int,array<string,mixed>> $assets
      * @return array<int,array<string,mixed>>
      */
-    private function finalStylesheets(array $assets): array
+    private function finalStylesheets(array $assets, string $navigationMarkup): array
     {
         $assets = CompiledAssets::withVariantScopedIdSelectors($assets);
+        $assets = NavigationInstanceDiagnostics::withoutOrphanedRules($assets, $navigationMarkup);
         // Stylesheet values equal to a token follow it too: links inside
         // text, navigation items and states have no block attribute to bind.
         if (null !== $this->presetBinding) foreach ($assets as &$asset) {
@@ -620,6 +587,117 @@ final class SitePlanRun
         unset($page);
         return $pages;
     }
+    /**
+     * Extracts the shared shells: explicit parts first, then inline shared
+     * shells, edge shells, shared shells with their trailing footer chrome
+     * and footer content, capture document chrome, and the hoisted shell
+     * frames. Returns the pages and parts that carry them.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param mixed $compiledParts
+     * @param array<int,array<string,string>> $tokens
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @param array<int,array<string,mixed>> $runtimeEntityRecords
+     * @param array<int,array<string,mixed>> $assets
+     * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,frame_parts:list<array<string,mixed>>,shell_frames:array<string,mixed>,document_chrome:array<int,string>,runtime_declarations:mixed,runtime_entity_records:array<int,array<string,mixed>>,diagnostics:array<int,mixed>}
+     */
+    private function extractedShells(array $pages, mixed $compiledParts, array $tokens, array $runtimeDeclarations, array $runtimeEntityRecords, array $assets): array
+    {
+        $existingParts = $this->documents($compiledParts, true, $tokens, $this->references, $this->routeMap);
+        $explicitBindings = $this->shellExtraction->bindExplicitParts($pages, $existingParts, $runtimeDeclarations, $runtimeEntityRecords);
+        $pages = $explicitBindings['pages'];
+        $existingParts = $explicitBindings['parts'];
+        $reservedPartSlugs = array_fill_keys(array_column($existingParts, 'slug'), true);
+        $canonicalInlineParts = $this->documents(ArrayField::array($this->compiled, 'inline_shell_artifacts'), true, $tokens, $this->references, $this->routeMap);
+        $pages = $this->shellExtraction->withSourceSharedShellIdentity($pages, $canonicalInlineParts, $runtimeDeclarations, $runtimeEntityRecords);
+        $inlineShells = $this->shellExtraction->inlineSharedShells($pages, $reservedPartSlugs, $runtimeDeclarations, $canonicalInlineParts, $runtimeEntityRecords, $assets);
+        $reservedPartSlugs += array_fill_keys(array_column($inlineShells['parts'], 'slug'), true);
+        $edgeShells = $this->shellExtraction->edgeShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations']);
+        $inlineShells['pages'] = $edgeShells['pages'];
+        $inlineShells['parts'] = array_merge($inlineShells['parts'], $edgeShells['parts']);
+        $inlineShells['diagnostics'] = array_merge($inlineShells['diagnostics'], $edgeShells['diagnostics']);
+        // Variant parts settle their area: no single part is bound in templates.
+        $reservedPartSlugs += array_fill_keys(array_column($edgeShells['parts'], 'slug'), true) + array_fill_keys(array_column($edgeShells['parts'], 'area'), true);
+        $shells = $this->shellExtraction->sharedShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations'], $runtimeEntityRecords, true, true, $assets);
+        $inlineAreas = array_fill_keys(array_column($inlineShells['parts'], 'area'), true);
+        $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
+        $trailingChrome = $this->shellExtraction->withSharedFooterTrailingChrome($pages, $shells['pages'], $shells['parts'], $shells['runtime_declarations'], $runtimeEntityRecords, $assets);
+        $shells['runtime_declarations'] = $trailingChrome['runtime_declarations'];
+        $runtimeEntityRecords = $trailingChrome['runtime_entity_records'];
+        $shells['pages'] = $trailingChrome['pages'];
+        $shells['parts'] = $trailingChrome['parts'];
+        $footerContent = $this->shellExtraction->factorSharedFooterContent($shells['pages'], $shells['parts'], $shells['runtime_declarations'], $runtimeEntityRecords);
+        $shells['pages'] = $footerContent['pages'];
+        $shells['parts'] = $footerContent['parts'];
+        $shells['diagnostics'] = array_merge($shells['diagnostics'], $footerContent['diagnostics']);
+        $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
+        $documentChrome = $this->shellExtraction->separateCaptureDocumentChrome($shells['pages'], $shells['runtime_declarations'], $runtimeEntityRecords);
+        $shells['diagnostics'] = array_merge($shells['diagnostics'], $documentChrome['diagnostics']);
+        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($documentChrome['pages'], $parts, $shells['runtime_declarations']);
+        $pages = $shellFrames['pages'];
+        $folded = $this->shellExtraction->foldFrameTrailingChrome($shellFrames['frames'], $parts, $pages);
+        $shellFrames['frames'] = $folded['frames'];
+        $parts = $folded['parts'];
+        // The generic page template is shared by routes that did not author it,
+        // so the rules aimed at its markers are site-wide chrome rules.
+        $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
+        foreach ($documentChrome['chrome'] as $chrome) $frameParts[] = array('slug' => 'document-chrome', 'placement' => array('kind' => 'shared_shell', 'template_slugs' => array('single')), 'canonical_block_markup' => $chrome);
+        return array(
+            'pages' => $pages,
+            'parts' => $parts,
+            'frame_parts' => $frameParts,
+            'shell_frames' => $shellFrames,
+            'document_chrome' => $documentChrome['chrome'],
+            'runtime_declarations' => $shells['runtime_declarations'],
+            'runtime_entity_records' => $runtimeEntityRecords,
+            'diagnostics' => array_merge($inlineShells['diagnostics'], $shells['diagnostics']),
+        );
+    }
+    /**
+     * Theme templates for the captured surfaces alone, before any page or
+     * part exists, for anchoring entity bindings. Each carries its surface's
+     * projected source markup.
+     *
+     * @param array<int,array<string,string>> $tokens
+     * @return array<int,array<string,mixed>>
+     */
+    private function bindingTemplates(array $tokens): array
+    {
+        $bindingTemplates = ThemeTemplates::build($this->links, array(), array(), $this->surfaces, $tokens, $this->references, $this->routeMap);
+        $surfaceMarkup = array_column($this->surfaces, 'block_markup', 'source_path');
+        foreach ($bindingTemplates as &$template) if (isset($surfaceMarkup[$template['source_path'] ?? ''])) $template['_projected_source_block_markup'] = $surfaceMarkup[$template['source_path']];
+        unset($template);
+        return $bindingTemplates;
+    }
+
+    /**
+     * Root selector context belongs to captured documents, not only to
+     * entities that survive as pages (terms, authors and dates do not).
+     * Returns the pages whose stylesheets are scoped (native archives are
+     * excluded) and the captured documents no such page carries.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<string,mixed> $taxonomyProjection
+     * @param array<string,string> $routeBySource
+     * @param array<string,mixed> $paginationOwners
+     * @param array<string,mixed> $paginationSources
+     * @return array{asset_pages:list<array<string,mixed>>,root_documents:list<array<string,mixed>>}
+     */
+    private function rootDocuments(array $pages, array $taxonomyProjection, array $routeBySource, array $paginationOwners, array $paginationSources): array
+    {
+        $rootDocuments = array();
+        $nativeArchiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
+        $assetPages = array_values(array_filter($pages, static fn(array $page): bool => !isset($nativeArchiveSources[$page['source_path']])));
+        $pageSources = array_fill_keys(array_column($assetPages, 'source_path'), true);
+        foreach ($this->compiled['pages'] as $document) {
+            if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
+            $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $this->entryRoot);
+            $metadata = $document['document_metadata'] ?? array();
+            $rootDocuments[] = array('source_path' => $document['source_path'], 'reconciliation_identity' => WordPressSitePlan::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
+        }
+        return array('asset_pages' => $assetPages, 'root_documents' => $rootDocuments);
+    }
+
     /** @param mixed $documents @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
     private function documents(mixed $documents, bool $part, array $tokens, AssetReferenceCanonicalizer $references, array $routes): array
     {

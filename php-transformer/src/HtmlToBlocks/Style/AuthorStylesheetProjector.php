@@ -463,6 +463,10 @@ final class AuthorStylesheetProjector
         $body = $imagePlacement['body'];
         if ( '' !== $imagePlacement['rules'] ) {
             $declarations = array_filter($declarations, static fn (string $property): bool => ! NativeImageLeafPresentation::isPlacementProperty($property), ARRAY_FILTER_USE_KEY);
+            // Vertical spacing already belongs to the painting leaf. Replaying
+            // it onto the figure doubles the gap. Horizontal auto margins still
+            // position the sized figure (whose leaf may fill its entire width).
+            $margins = array_filter($margins, static fn (string $property): bool => ! in_array($property, array('margin-top', 'margin-bottom', 'margin-block', 'margin-block-start', 'margin-block-end'), true), ARRAY_FILTER_USE_KEY);
         }
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
         $imageRule = '' === $imagePrelude
@@ -1618,10 +1622,20 @@ final class AuthorStylesheetProjector
         return $this->directButtonWrapperPrelude(
             $prelude,
             $context,
-            fn (string $selector, array $parsed, string $marker, DOMElement $element): string =>
-                LayoutParticipation::BOX_LINK === LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox()
-                    ? $this->projectControlSelector($selector, $parsed, $marker, $context)
-                    : $this->projectButtonBoxSelector($selector, $parsed, $marker, $context)
+            function (string $selector, array $parsed, string $marker, DOMElement $element) use ($context): string {
+                // Placement shifts the same box geometry sizes. It reaches the
+                // link only because the save wrapper is flattened, so it needs
+                // the flattened carrier like the geometry arm: a provider that
+                // saves its own core/button around the same control marker
+                // keeps a wrapper box and applies the source shift itself, and
+                // a second application on the link would double it.
+                $participation = LayoutParticipation::resolve($element, $this->styleResolver);
+                if ( LayoutParticipation::BOX_LINK !== $participation->participatingBox() ) {
+                    return $this->projectButtonBoxSelector($selector, $parsed, $marker, $context);
+                }
+                $link = $this->projectControlSelector($selector, $parsed, $marker, $context);
+                return $participation->neutralizeButtonWrapper() ? $this->flattenedWrapperLinkArm($link) : $link;
+            }
         );
     }
 
@@ -5167,20 +5181,9 @@ final class AuthorStylesheetProjector
     private function typedItemRuleOutranks(DOMElement $element, array $parsed, AuthorStylesheetProjectionContext $context): bool
     {
         $own = array_values(CssSelectorMatcher::specificityCounts($parsed));
-        foreach ($context->authorStyles->styleRules() as $rule) {
-            foreach ((array) ($rule['selectors'] ?? array()) as $candidate) {
-                $typed = $candidate['parsed'] ?? array();
-                if (!($typed['supported'] ?? false) || str_contains((string) ($candidate['selector'] ?? ''), '::')
-                    || null === (CssSelectorCompoundInspector::rightmost($typed['compounds'])['type'] ?? null)
-                ) {
-                    continue;
-                }
-                $weight = CssSelectorMatcher::specificityCounts($typed);
-                if (array($weight['ids'], $weight['classes'], $weight['types']) >= $own
-                    && CssSelectorMatcher::matches($element, $typed)['matches']
-                ) {
-                    return true;
-                }
+        foreach ($context->authorStyles->typeSubjectSelectors() as $typed) {
+            if ($typed['weight'] >= $own && CssSelectorMatcher::matches($element, $typed['parsed'])['matches']) {
+                return true;
             }
         }
         return false;
