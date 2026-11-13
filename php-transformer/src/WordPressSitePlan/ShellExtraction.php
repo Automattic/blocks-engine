@@ -3550,7 +3550,7 @@ final class ShellExtraction
         $properties = array('color', 'text-decoration', 'text-decoration-line', 'font-size', 'font-family', 'font-style', 'font-weight', 'letter-spacing', 'line-height', 'text-transform');
         $analysis = (new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer())->analyze(
             array_values(array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))),
-            '', $properties, 4000000, 50000, 100000, 16
+            '', array_merge($properties, array('display', 'margin', 'padding', 'width', 'height')), 4000000, 50000, 100000, 16
         );
         if ($analysis['truncated']) return $pages;
         $entry = null;
@@ -3600,7 +3600,22 @@ final class ShellExtraction
                                 if ('' !== $style && !preg_match('/^(?:color|text-decoration(?:-line)?|font-size|font-family|font-style|font-weight|letter-spacing|line-height|text-transform)\s*:/', $style) && !preg_match('/^margin-(?:top|right|bottom|left):0$/', $style)) $styles[$style] = true;
                             }
                             $presentation = self::wordmarkPresentation($element, $presentation, $subjectIndex, $properties);
-                            if ('a' === $element->tagName) $links[] = html_entity_decode($element->getAttribute('href'));
+                            if ('a' === $element->tagName) {
+                                // Core's site-title creates its own anchor; it cannot
+                                // carry the source anchor's responsive identity or box.
+                                // Keep the editable paragraph/link when that identity
+                                // would otherwise be discarded by wordmark promotion.
+                                foreach ($element->attributes as $attribute) {
+                                    if (!in_array($attribute->name, array('href', 'class', 'style'), true)) { $valid = false; break; }
+                                }
+                                foreach ($analysis['rules'] as $rule) {
+                                    if (null !== $rule['condition'] && \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches']) {
+                                        $valid = false;
+                                        break;
+                                    }
+                                }
+                                $links[] = html_entity_decode($element->getAttribute('href'));
+                            }
                         }
                         ksort($classes); ksort($styles);
                         $fragments[$fragment] = array($text, $classes, $styles, $links, $presentation, $valid);

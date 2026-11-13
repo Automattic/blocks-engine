@@ -191,9 +191,11 @@ final class AuthorSelectorProjectionState
      * `$shownDisplay` is the root's display wherever the source shows the list.
      * `$marker` names the list as every route shows it.
      */
-    public function installNavigationListBoxSubject(string $path, string $shownDisplay, string $marker): string
+    public function installNavigationListBoxSubject(string $path, string $shownDisplay, string $marker, bool $innerList = false): string
     {
-        $this->navigationListBoxSubjects[$path] = ':where(nav.wp-block-navigation.' . $marker . ')';
+        $this->navigationListBoxSubjects[$path] = $innerList
+            ? 'nav.wp-block-navigation.' . $marker . ' .wp-block-navigation__container'
+            : ':where(nav.wp-block-navigation.' . $marker . ')';
         $this->navigationListShownDisplays[$path] = $shownDisplay;
 
         return $marker;

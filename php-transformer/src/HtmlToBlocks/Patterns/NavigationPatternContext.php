@@ -130,6 +130,17 @@ final class NavigationPatternContext
         return trim($identity . ' ' . $boxMarker);
     }
 
+    /** Overlay navigation keeps its list box inside Core's responsive container. */
+    public function responsiveListBoxIdentity(?DOMElement $list): string
+    {
+        if (!$list instanceof DOMElement || null === $this->session || null === $this->styleResolver
+            || $this->styleResolver->declaredPresentation($list, 'flex-direction')->isEmpty()) return '';
+        $marker = $this->navigationSubjectMarker($list, 'list-box');
+        return $this->session->authorSelectorProjectionState()->installNavigationListBoxSubject(
+            $list->getNodePath() ?? '', 'flex', $marker, true
+        );
+    }
+
     /** Marker for the native root that renders a source list's own box. */
     private function navigationListBoxMarker(?DOMElement $list): string
     {
