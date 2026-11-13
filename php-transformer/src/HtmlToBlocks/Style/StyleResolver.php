@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
@@ -4571,15 +4572,7 @@ final class StyleResolver implements ElementPresentationResolver
     private function mediaTextInlineDeclarationEntries(string $style): array
     {
         $entries = array();
-        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
-            $separator = strpos($declaration, ':');
-            if (false === $separator) {
-                continue;
-            }
-
-            $rawProperty = trim(substr($declaration, 0, $separator));
-            $property = str_starts_with($rawProperty, '--') ? $rawProperty : strtolower($rawProperty);
-            $rawValue = trim(substr($declaration, $separator + 1));
+        foreach (CssRuleAnalyzer::declarationList($style) as ['name' => $property, 'value' => $rawValue]) {
             $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
             $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
@@ -5891,12 +5884,7 @@ final class StyleResolver implements ElementPresentationResolver
     public function imageShapeDeclarationEntries(string $style): array
     {
         $entries = array();
-        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
-            if (! str_contains($declaration, ':')) {
-                continue;
-            }
-            [$property, $value] = array_map('trim', explode(':', $declaration, 2));
-            $property = strtolower($property);
+        foreach (CssRuleAnalyzer::declarationList($style) as ['name' => $property, 'value' => $value]) {
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
             if (in_array($property, array('width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
                 $entries[] = array('property' => $property, 'value' => $value);
@@ -6417,15 +6405,7 @@ final class StyleResolver implements ElementPresentationResolver
     private static function parseVerbatimCssDeclarations(string $style, bool $expandFont): array
     {
         $declarations = array();
-        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            if ( ! str_contains($declaration, ':') ) {
-                continue;
-            }
-            [$name, $value] = array_map('trim', explode(':', $declaration, 2));
-            // Custom property names are case-sensitive: `--btnBg` and
-            // `--btnbg` are distinct properties, and `var(--btnBg)` only
-            // reads the first.
-            $name = str_starts_with($name, '--') ? $name : strtolower($name);
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $name, 'value' => $value ] ) {
             // A browser drops `0: none`; its name would also be an int key.
             if ( CssPropertyName::startsLikeNumber($name) ) {
                 continue;

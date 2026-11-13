@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
@@ -1072,12 +1073,7 @@ final class AuthorStylesheetProjector
     private function allowsSubjectArms(string $prelude, string $body): bool
     {
         $universalReset = $this->preludeIsUniversalReset($prelude);
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            if ( false === $colon ) {
-                continue;
-            }
-            $name = strtolower(trim(substr($declaration, 0, $colon)));
+        foreach ( CssRuleAnalyzer::declarationList($body) as [ 'name' => $name ] ) {
             if ( '' === $name ) {
                 continue;
             }
@@ -1326,13 +1322,7 @@ final class AuthorStylesheetProjector
         }
 
         $declarations = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            if ( false === $colon ) {
-                continue;
-            }
-            $name = trim(substr($declaration, 0, $colon));
-            $value = trim(substr($declaration, $colon + 1));
+        foreach ( CssRuleAnalyzer::declarationList($body) as [ 'name' => $name, 'value' => $value ] ) {
             if ( '' === $name || '' === $value || ( ! $this->isButtonLinkLayoutProperty($name) && ! $this->isButtonLinkPresentationProperty($name) ) ) {
                 continue;
             }
@@ -1443,14 +1433,8 @@ final class AuthorStylesheetProjector
         if ( preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)/i', $body) && preg_match('/(?:^|;)\s*(?:width|height)\s*:\s*0(?:[;\s]|$)/i', $body) ) {
             return true;
         }
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            if ( false === $colon ) {
-                continue;
-            }
+        foreach ( CssRuleAnalyzer::declarationList($body) as [ 'name' => $property, 'value' => $value ] ) {
             $controls = null === $element ? array() : array( $element );
-            $property = trim(substr($declaration, 0, $colon));
-            $value = trim(substr($declaration, $colon + 1));
             // A layout-item width release competes on the link and rides the
             // compatibility restatement; it does not specialize the button the
             // way wrapper-owned geometry does.
