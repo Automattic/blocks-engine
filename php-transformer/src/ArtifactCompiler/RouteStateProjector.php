@@ -691,7 +691,8 @@ final class RouteStateProjector
                 $unaliasable += $sheetRules[$sheet][1];
             }
             foreach ($rules as $class => $meaning) {
-                if (isset($unaliasable[$class]) || preg_match($named($class), $global)) continue;
+                // Engine-minted classes (re-ingested control bindings) are no route vocabulary.
+                if (str_starts_with($class, 'blocks-engine-') || isset($unaliasable[$class]) || preg_match($named($class), $global)) continue;
                 $meanings[$index][$class] = hash('sha256', implode("\n", $meaning));
             }
         }
