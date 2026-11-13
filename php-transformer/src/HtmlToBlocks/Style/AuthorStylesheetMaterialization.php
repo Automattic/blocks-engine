@@ -7,9 +7,12 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\EditorCanvasBodyBackground;
 use Automattic\BlocksEngine\PhpTransformer\Css\TemplatePartStickyContainment;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 
 /**
  * One compilation's author-stylesheet stage. It is built once blocks are
@@ -108,7 +111,7 @@ final class AuthorStylesheetMaterialization
         $contentBoxSupportCss = $this->contentBoxCss;
         if ( $includeAuthorStyles && '' !== $this->session->authorStyleAnalysis()->combinedCss() ) {
             $contentBoxRestatements = new ContentBoxRestatements();
-            $authorCss = $this->rewrite(
+            $authorCss = $this->combinedProjection($authorStylesheetProjections) ?? $this->rewrite(
                 $this->session->authorStyleAnalysis()->combinedCss(),
                 false,
                 '',
@@ -247,6 +250,50 @@ final class AuthorStylesheetMaterialization
             $includeAuthorStyles,
             array() !== $this->session->authorStyleAnalysis()->stylesheetAssets()
         );
+    }
+
+
+    /**
+     * Reuse only projections with the combined pass's context and ordering.
+     * Layer bridges are appended per project() call, namespaces affect the
+     * entire stream, and malformed CSS can recover across asset boundaries.
+     * Those cases still need the legacy combined projection, as do assets
+     * projected with retained shared classes or an outer media condition.
+     *
+     * @param list<array{path: string, content: string, bytes: int, hash: string, source_hash: string}> $projections
+     */
+    private function combinedProjection(array $projections): ?string
+    {
+        $assets = $this->session->authorStyleAnalysis()->stylesheetAssets();
+        if ( array() === $assets || count($assets) !== count($projections) ) {
+            return null;
+        }
+        foreach ( $assets as $asset ) {
+            if ( isset($this->sharedStylesheetPaths[$asset['path']])
+                || isset($this->sharedStylesheetPaths[$asset['source_path'] ?? ''])
+                || '' !== trim((string) ($asset['media'] ?? ''))
+                || ! StylesheetActivation::active($asset)
+                || preg_match('/@(?:layer|namespace)\b/i', $asset['content'])
+                || ! $this->hasCompleteStylesheet($asset['content']) ) {
+                return null;
+            }
+        }
+        return implode("\n\n", array_column($projections, 'content'));
+    }
+
+
+    private function hasCompleteStylesheet(string $css): bool
+    {
+        $tree = CssRuleTreeCache::parse($css);
+        if ( ! $tree->wellFormed ) {
+            return false;
+        }
+        $end = 0;
+        foreach ( $tree->rules() as $rule ) {
+            $end = $rule['end'] + 1;
+        }
+        // A dangling prelude could consume the next asset's first rule.
+        return '' === trim(CssSyntaxScanner::withoutComments(substr($css, $end)));
     }
 
 
