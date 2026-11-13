@@ -89,6 +89,25 @@ final class ThemeTemplates
     }
 
     /**
+     * Registers each page's route template as a theme.json custom template,
+     * once per template, titled by its shared override when it has one.
+     *
+     * @param array<string,mixed> $themeProjection
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<string,string> $sharedTemplateTitles
+     * @return array<string,mixed>
+     */
+    public static function withCustomTemplates(array $themeProjection, array $pages, array $sharedTemplateTitles): array
+    {
+        $registeredTemplates = array();
+        foreach ($pages as $page) if (isset($page['route_template']) && !isset($registeredTemplates[$page['route_template']])) {
+            $registeredTemplates[$page['route_template']] = true;
+            $themeProjection['theme']['customTemplates'][] = array('name' => $page['route_template'], 'title' => $sharedTemplateTitles[$page['route_template']] ?? $page['title'], 'postTypes' => array($page['post_type']));
+        }
+        return $themeProjection;
+    }
+
+    /**
      * Share generated route overrides only after their final markup is known.
      * Keep placement keys aligned with TemplateSlugs::forPage() for binding validation.
      *
