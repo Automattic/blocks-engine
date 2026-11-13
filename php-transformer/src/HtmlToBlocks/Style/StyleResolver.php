@@ -7346,12 +7346,21 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function cascadedCustomProperties(DOMElement $element, bool $resting = false): array
     {
+        return $this->session->sourceStyleResolutionState()->cascadedCustomProperties(
+            $element,
+            $resting,
+            fn(array $ancestors): array => $this->computeCascadedCustomProperties($ancestors, $resting)
+        );
+    }
+
+    /**
+     * @param list<DOMElement> $ancestors The element followed by its ancestors, nearest first.
+     * @return array<string, string>
+     */
+    private function computeCascadedCustomProperties(array $ancestors, bool $resting): array
+    {
         $sourceStyles = $this->session->sourceStyleResolutionState();
         $customProperties = $sourceStyles->customProperties();
-        $ancestors = array();
-        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-            $ancestors[] = $current;
-        }
         foreach ( array_reverse($ancestors) as $ancestor ) {
             $declared = $sourceStyles->cascadedDeclarations($ancestor, $this->computeCascadedDeclarations(...))['custom'];
             if ( ! $resting ) {

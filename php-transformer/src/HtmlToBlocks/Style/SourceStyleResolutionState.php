@@ -87,6 +87,15 @@ final class SourceStyleResolutionState
      */
     private array $matchedRules = array();
 
+    /**
+     * Each source element's inherited custom properties, keyed by resting flag
+     * and node path, with the ancestor chain and style attributes they were
+     * cascaded from.
+     *
+     * @var array<string, array{chain: list<DOMElement>, styles: list<string>, properties: array<string, string>}>
+     */
+    private array $cascadedCustomProperties = array();
+
     private string $formLayoutCss = '';
     private ?ContainerStyleQueries $containerStyleQueries = null;
 
@@ -102,6 +111,7 @@ final class SourceStyleResolutionState
         $this->stateStyleFamilies = array();
         $this->cascadedDeclarations = array();
         $this->matchedRules = array();
+        $this->cascadedCustomProperties = array();
         $this->ariaControlledTargetIds = array();
     }
 
@@ -123,6 +133,7 @@ final class SourceStyleResolutionState
         $this->cascadedValueRules = $analysis['cascaded_values'] ?? array();
         $this->cascadedDeclarations = array();
         $this->matchedRules = array();
+        $this->cascadedCustomProperties = array();
         $this->customProperties = $analysis['custom_properties'];
         $this->layerNames = array_values(array_map('strval', $analysis['layer_names'] ?? array()));
     }
@@ -140,6 +151,7 @@ final class SourceStyleResolutionState
         $this->pseudoElementRules = array_filter($this->pseudoElementRules, $isMatchable);
         $this->ruleCandidateIndexes = array();
         $this->matchedRules = array();
+        $this->cascadedCustomProperties = array();
     }
 
     /**
@@ -185,6 +197,55 @@ final class SourceStyleResolutionState
             $entry = $this->matchedRules[$key] = array( 'node' => $element, 'rules' => $compute($element, $collection) );
         }
         return $entry['rules'];
+    }
+
+    /**
+     * The element's remembered inherited custom properties, computing and
+     * remembering them on a miss. An entry is reused only while the element
+     * and every ancestor are the same attached nodes with the same style
+     * attributes: the conditions under which the per-element declaration and
+     * rule memos it is cascaded from would be reused.
+     *
+     * @param callable(list<DOMElement>): array<string, string> $compute Receives
+     *        the element followed by its ancestors, nearest first.
+     * @return array<string, string>
+     */
+    public function cascadedCustomProperties(DOMElement $element, bool $resting, callable $compute): array
+    {
+        $chain = array();
+        $styles = array();
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $chain[] = $node;
+            $styles[] = $node->getAttribute('style');
+        }
+        if ( ! $node instanceof DOMDocument ) {
+            return $compute($chain);
+        }
+        $key = ( $resting ? 'resting' : 'desktop' ) . "\0" . $element->getNodePath();
+        $entry = $this->cascadedCustomProperties[$key] ?? null;
+        if ( null !== $entry && $entry['styles'] === $styles && self::sameNodes($entry['chain'], $chain) ) {
+            return $entry['properties'];
+        }
+        $properties = $compute($chain);
+        $this->cascadedCustomProperties[$key] = array( 'chain' => $chain, 'styles' => $styles, 'properties' => $properties );
+        return $properties;
+    }
+
+    /**
+     * @param list<DOMElement> $remembered
+     * @param list<DOMElement> $current
+     */
+    private static function sameNodes(array $remembered, array $current): bool
+    {
+        if ( count($remembered) !== count($current) ) {
+            return false;
+        }
+        foreach ( $remembered as $index => $node ) {
+            if ( ! $node->isSameNode($current[$index]) ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
