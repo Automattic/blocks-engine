@@ -176,25 +176,11 @@ final class SitePlanRun
         // Entity ownership is already proven independently and must survive a
         // declined presentation, including ownership of numbered captures.
         $routeBySource = array_column($this->routeMap, 'target_path', 'source_path');
-        foreach ($pages as &$page) {
-            $path = $routeBySource[$page['source_path']] ?? null;
-            if (is_string($path)) $page['route'] = array('path' => $path, 'parent_path' => PageRoute::parent($path), 'slug' => PageRoute::slug($path));
-            // Shared chrome later moves the breadcrumb into one template, so
-            // each document's own source trail is recorded while it still has it.
-            $trail = BreadcrumbLabelRuntime::trail($page);
-            if (array() !== $trail) $page['metadata']['breadcrumb_trail'] = $trail;
-        }
-        unset($page);
+        $pages = self::routedPages($pages, $routeBySource);
         $preflightPages = (new ListingQueryLoops($this->sourceOrigin, $this->chromeIdentityKey(...)))->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities']);
         $paginationOwnerBySource = TaxonomyProjection::paginationOwners($taxonomyProjection);
         $taxonomyProjection = TaxonomyProjection::withPreflightPresentation($taxonomyProjection, $preflightPages);
-        if (array() !== $paginationOwnerBySource) {
-            foreach ($assets as &$asset) {
-                $owner = $asset['compilation'] ?? null;
-                if ('page' === ($owner['scope'] ?? null) && isset($paginationOwnerBySource[$owner['id'] ?? ''])) $asset['compilation']['id'] = $paginationOwnerBySource[$owner['id']];
-            }
-            unset($asset);
-        }
+        $assets = PaginationCaptures::withOwnedAssets($assets, $paginationOwnerBySource);
         // Taxonomy membership must see numbered captures before they are
         // suppressed. They are views of a listing, never standalone content.
         $pagination = PaginationCaptures::select($pages, $routeBySource, $this->surfaces, $paginationOwnerBySource);
@@ -325,15 +311,7 @@ final class SitePlanRun
             'target_path' => $collision['target_path'],
             'resolved_target_path' => $collision['resolved_target_path'],
         ));
-        // A page made later in WordPress renders in the generic page template but
-        // owns no stylesheet. The page that authored the frame lends its own as
-        // the fallback that routes without styles of their own already use.
-        // An entry shell renders on every native template, so its page lends
-        // the stylesheets that dress that chrome in the same way.
-        $fallbackSources = array();
-        if (isset($shellFrames['frames']['page']) && is_string($shellFrames['generic_source'])) $fallbackSources[$shellFrames['generic_source']] = true;
-        foreach ($parts as $part) if ('entry_shell' === ($part['placement']['kind'] ?? null)) $fallbackSources[substr((string) $part['source_path'], 0, (int) strrpos((string) $part['source_path'], '#'))] = true;
-        if (array() !== $fallbackSources) foreach ($assets as &$asset) if ('css' === ($asset['kind'] ?? null) && array() !== array_filter($asset['scopes'] ?? array(), static fn(array $scope): bool => 'page' === ($scope['kind'] ?? null) && isset($fallbackSources[$scope['source_path'] ?? '']))) $asset['frame_fallback'] = true; unset($asset);
+        $assets = PageStylesheets::withFrameFallbacks($assets, $shellFrames, $parts);
         $assets = SharedChromeStylesheets::projectDetachedPaintOrder($assets, $parts, $pages);
         $assets = PageStylesheets::place($assets, $pages, array_merge($pages, $parts, $frameParts));
         $assets = EditorStaticStateAssets::share($assets, $this->references);
@@ -618,6 +596,26 @@ final class SitePlanRun
                 if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup']);
             }
             $page['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $this->references, $this->routeMap, $bound);
+        }
+        unset($page);
+        return $pages;
+    }
+    /**
+     * Gives each page its route, and records each document's own breadcrumb
+     * trail while it still has it: shared chrome later moves the breadcrumb
+     * into one template.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<string,mixed> $routeBySource
+     * @return array<int,array<string,mixed>>
+     */
+    private static function routedPages(array $pages, array $routeBySource): array
+    {
+        foreach ($pages as &$page) {
+            $path = $routeBySource[$page['source_path']] ?? null;
+            if (is_string($path)) $page['route'] = array('path' => $path, 'parent_path' => PageRoute::parent($path), 'slug' => PageRoute::slug($path));
+            $trail = BreadcrumbLabelRuntime::trail($page);
+            if (array() !== $trail) $page['metadata']['breadcrumb_trail'] = $trail;
         }
         unset($page);
         return $pages;
