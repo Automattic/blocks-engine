@@ -1941,7 +1941,7 @@ final class NavigationToggleSuppressor
             return false;
         }
         for ( $node = $navigation; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            if ( SourceDom::documentVariantRoot($node) === $node ) {
+            if ( SourceDom::isDocumentVariantRoot($node) ) {
                 break;
             }
             if ( '#' === $match[1] ? $match[2] === SourceDom::attr($node, 'id') : in_array($match[2], preg_split('/\s+/', SourceDom::attr($node, 'class')) ?: array(), true) ) {
@@ -2030,10 +2030,11 @@ final class NavigationToggleSuppressor
             return false;
         }
 
+        $variantRoot = SourceDom::documentVariantRoot($navigationRoot);
         foreach ( $document->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement
                 || $candidate->isSameNode($navigationRoot)
-                || SourceDom::documentVariantRoot($candidate) !== SourceDom::documentVariantRoot($navigationRoot)
+                || SourceDom::documentVariantRoot($candidate) !== $variantRoot
                 || $this->isInsideProjectedNavigationSuppressed($candidate)
                 || $this->isInsideNativeDisclosure($candidate)
                 || SourceDom::elementContains($navigationRoot, $candidate)
@@ -2045,7 +2046,7 @@ final class NavigationToggleSuppressor
             if ( $signature === $this->sourceNavigationSignature($candidate)
                 && ($this->hasMobileNavigationSignal($navigationRoot)
                     || ($this->hasMobileNavigationSignal($candidate) && ! $this->isContentNavigationBesideChromeVariant($navigationRoot, $candidate)))
-                && (null === SourceDom::documentVariantRoot($navigationRoot) || $this->hasMenuVisibilityEvidence($navigationRoot) || $this->hasMenuVisibilityEvidence($candidate))
+                && (null === $variantRoot || $this->hasMenuVisibilityEvidence($navigationRoot) || $this->hasMenuVisibilityEvidence($candidate))
             ) {
                 return true;
             }
@@ -2141,7 +2142,7 @@ final class NavigationToggleSuppressor
             return true;
         }
         for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            if ( SourceDom::documentVariantRoot($node) === $node ) {
+            if ( SourceDom::isDocumentVariantRoot($node) ) {
                 break;
             }
             $identity = strtolower(trim(SourceDom::attr($node, 'id') . ' ' . SourceDom::attr($node, 'class') . ' ' . SourceDom::attr($node, 'aria-label')));
@@ -2157,7 +2158,7 @@ final class NavigationToggleSuppressor
     private function hasMenuVisibilityEvidence(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            if ( SourceDom::documentVariantRoot($node) === $node ) {
+            if ( SourceDom::isDocumentVariantRoot($node) ) {
                 break;
             }
             if ( $this->sourceElementIsHidden($node) ) {
