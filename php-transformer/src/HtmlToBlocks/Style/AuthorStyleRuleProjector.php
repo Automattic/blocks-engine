@@ -723,7 +723,7 @@ final class AuthorStyleRuleProjector
         // Boxless wrappers neither establish percentage containing blocks nor
         // interrupt grid/flex item participation. Follow the layout parent,
         // not merely the DOM parent, when proving the available block size.
-        while ( $parent instanceof DOMElement ) {
+        while ( null !== $this->gridConditions && $parent instanceof DOMElement ) {
             $parentDeclarations = $this->gridPresentationDeclarations($parent);
             $parentDisplay = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
                 CssValueInspector::withoutImportant((string) ($parentDeclarations['display'] ?? '')),
