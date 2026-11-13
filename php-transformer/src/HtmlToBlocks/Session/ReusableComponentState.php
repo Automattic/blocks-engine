@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session;
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RouteStateProjector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use DOMElement;
 
 /** Per-transform reusable component recognition and mapping state. */
 final class ReusableComponentState
@@ -16,6 +18,9 @@ final class ReusableComponentState
 
     /** @var array<string, true> */
     private array $generatedCandidates = array();
+
+    /** @var \SplObjectStorage<DOMElement, string>|null Resting navigation evidence keyed by source element. */
+    private ?\SplObjectStorage $restingNavigation = null;
 
     /** @param array<string, mixed> $recognition */
     public function installRecognition(array $recognition): void
@@ -41,6 +46,38 @@ final class ReusableComponentState
     public function isGeneratedCandidate(string $path): bool
     {
         return isset($this->generatedCandidates[$path]);
+    }
+
+    /**
+     * Take the captures' resting navigation evidence off the source before
+     * lowering, so no output carries it; only a generated component, which
+     * saves its menu as markup for every route, reads it back.
+     */
+    public function liftRestingNavigation(DOMElement $root): void
+    {
+        $this->restingNavigation = null;
+        $nodes = array();
+        foreach ($root->getElementsByTagName('*') as $node) if ($node->hasAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE)) $nodes[] = $node;
+        foreach ($nodes as $node) {
+            $this->restingNavigation ??= new \SplObjectStorage();
+            $this->restingNavigation[$node] = $node->getAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE);
+            $node->removeAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE);
+        }
+    }
+
+    /**
+     * Restore the evidence onto a detached copy of a source subtree, node for
+     * node, for RouteStateProjector::withRestingNavigation to consume.
+     */
+    public function withRestingNavigationEvidence(DOMElement $source, DOMElement $copy): void
+    {
+        if (null === $this->restingNavigation) return;
+        $sources = array_merge(array($source), iterator_to_array($source->getElementsByTagName('*'), false));
+        $copies = array_merge(array($copy), iterator_to_array($copy->getElementsByTagName('*'), false));
+        if (count($sources) !== count($copies)) return;
+        foreach ($sources as $index => $node) {
+            if ($node instanceof DOMElement && isset($this->restingNavigation[$node]) && $copies[$index] instanceof DOMElement) $copies[$index]->setAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE, $this->restingNavigation[$node]);
+        }
     }
 
     /**

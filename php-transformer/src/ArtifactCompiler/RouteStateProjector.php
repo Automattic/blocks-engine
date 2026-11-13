@@ -209,9 +209,17 @@ final class RouteStateProjector
                 $names = array();
                 foreach ($rows as $row) foreach ($row['nodes'][$position]->attributes as $attr) $names[$attr->name] = true;
                 $binding = array('rest' => array(), 'current' => array());
+                $restingItem = array('rest' => array(), 'current' => array());
                 foreach (array_keys($names) as $name) {
                     if (!in_array($name, array('class', 'style', 'aria-current'), true) && !str_starts_with($name, 'data-')) continue;
                     if (str_starts_with($name, 'data-blocks-engine-')) continue;
+                    if (!$rows[0]['retained'] && 'style' !== $name) {
+                        $restingState = self::restingState($rows, $position, $name);
+                        if (null !== $restingState) {
+                            $restingItem['rest'] += $restingState['rest'];
+                            $restingItem['current'] += $restingState['current'];
+                        }
+                    }
                     // Ordinary links already project anchor classes and colours.
                     // Only descendant inline paint needs this cross-route binding.
                     if (!$rows[0]['retained'] && ('style' !== $name || 'a' === strtolower($rows[0]['nodes'][$position]->tagName))) continue;
@@ -281,6 +289,14 @@ final class RouteStateProjector
                         $binding['routes'][self::labelRoute(PageRoute::withoutEntryRoot((string) ($files[$row['index']]['path'] ?? ''), $root))][$name] = $node->hasAttribute($name) ? $node->getAttribute($name) : null;
                     }
                     ksort($binding['routes'], SORT_STRING);
+                }
+                if (array() !== $restingItem['rest']) {
+                    // Native navigation re-derives the served item itself, so
+                    // the evidence only rests a menu kept as markup.
+                    foreach ($rows as $row) {
+                        $row['nodes'][$position]->setAttribute(self::RESTING_STATE_ATTRIBUTE, (string) json_encode($restingItem, JSON_UNESCAPED_SLASHES));
+                        $changed[$row['index']] = true;
+                    }
                 }
                 if (array() === $binding['rest']) continue;
                 foreach ($rows as $row) {
@@ -359,6 +375,82 @@ final class RouteStateProjector
     public const CURRENT_SOURCES_ATTRIBUTE = 'data-blocks-engine-current-sources';
 
     public const CURRENT_SECTION_ATTRIBUTE = 'data-blocks-engine-current-section';
+
+    /**
+     * How a navigation item rests, recorded without changing it: the class
+     * tokens and attribute values only its current copies carry, across the
+     * captures, and what its resting copies carry instead.
+     */
+    public const RESTING_STATE_ATTRIBUTE = 'data-blocks-engine-route-resting';
+
+    /**
+     * The route state one attribute of the same navigation item carries: class
+     * tokens every current copy has and no resting copy has (or the reverse),
+     * or one current value against one resting value. Other differences are
+     * the item's own content.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @return array{rest:array<string, mixed>, current:array<string, mixed>}|null
+     */
+    private static function restingState(array $rows, int $position, string $name): ?array
+    {
+        $selected = array_values(array_filter($rows, static fn(array $row): bool => $row['current']));
+        $resting = array_values(array_filter($rows, static fn(array $row): bool => !$row['current']));
+        $value = static fn(array $row): ?string => $row['nodes'][$position]->hasAttribute($name) ? $row['nodes'][$position]->getAttribute($name) : null;
+        if ('class' === $name) {
+            $tokens = static fn(array $peers): array => array_map(static fn(array $row): array => SourceDom::tokens((string) $value($row)), $peers);
+            $only = static fn(array $own, array $other): array => array_values(array_diff(array_intersect(...array_merge($own, array(array_merge(...$own)))), array_merge(...$other)));
+            $current = $only($tokens($selected), $tokens($resting));
+            $rest = $only($tokens($resting), $tokens($selected));
+            return array() === $current && array() === $rest ? null : array('rest' => array('class' => $rest), 'current' => array('class' => $current));
+        }
+        $current = array_values(array_unique(array_map($value, $selected), SORT_REGULAR));
+        $rest = array_values(array_unique(array_map($value, $resting), SORT_REGULAR));
+        if (1 !== count($current) || 1 !== count($rest) || $current === $rest) return null;
+        return array('rest' => array($name => $rest[0]), 'current' => array($name => $current[0]));
+    }
+
+    /**
+     * Markup kept as one component for every route rests its navigation items
+     * on the evidence the captures recorded, and binds each item's current
+     * state to the served route instead.
+     */
+    public static function withRestingNavigation(DOMElement $root): void
+    {
+        $nodes = array();
+        if ($root->hasAttribute(self::RESTING_STATE_ATTRIBUTE)) $nodes[] = $root;
+        foreach ($root->getElementsByTagName('*') as $node) if ($node->hasAttribute(self::RESTING_STATE_ATTRIBUTE)) $nodes[] = $node;
+        foreach ($nodes as $node) {
+            $state = json_decode($node->getAttribute(self::RESTING_STATE_ATTRIBUTE), true);
+            $node->removeAttribute(self::RESTING_STATE_ATTRIBUTE);
+            if (!is_array($state) || !is_array($state['rest'] ?? null) || !is_array($state['current'] ?? null)) continue;
+            // The binding resolves against its item's own link: the node
+            // itself, the link it holds, or the link holding it.
+            $link = null;
+            if ('a' === strtolower($node->tagName)) $link = 'self';
+            elseif (null !== $node->getElementsByTagName('a')->item(0)) $link = 'next';
+            else for ($cursor = $node->parentNode; $cursor instanceof DOMElement && null === $link; $cursor = $cursor->parentNode) if ('a' === strtolower($cursor->tagName)) $link = 'previous';
+            if (null === $link) continue;
+            $binding = array('rest' => array(), 'current' => array());
+            foreach ($state['rest'] as $name => $value) {
+                if ('class' === $name) {
+                    $restTokens = array_map('strval', (array) $value);
+                    $currentTokens = array_map('strval', (array) ($state['current']['class'] ?? array()));
+                    $classes = self::classes($node);
+                    $binding['rest']['class'] = implode(' ', array_values(array_unique(array_merge(array_diff($classes, $currentTokens), $restTokens))));
+                    $binding['current']['class'] = implode(' ', array_values(array_unique(array_merge(array_diff($classes, $restTokens), $currentTokens))));
+                    continue;
+                }
+                $binding['rest'][$name] = $value;
+                $binding['current'][$name] = $state['current'][$name] ?? null;
+            }
+            foreach ($binding['rest'] as $name => $value) {
+                if (null === $value || '' === $value && 'class' === $name) $node->removeAttribute($name); else $node->setAttribute($name, (string) $value);
+            }
+            if ('self' !== $link) $binding['link'] = $link;
+            $node->setAttribute('data-blocks-engine-route-state', (string) json_encode($binding, JSON_UNESCAPED_SLASHES));
+        }
+    }
 
     private static function sortedClasses(string $classes): string
     {
