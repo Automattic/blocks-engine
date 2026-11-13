@@ -3550,7 +3550,7 @@ final class ShellExtraction
         $properties = array('color', 'text-decoration', 'text-decoration-line', 'font-size', 'font-family', 'font-style', 'font-weight', 'letter-spacing', 'line-height', 'text-transform');
         $analysis = (new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer())->analyze(
             array_values(array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))),
-            '', $properties, 4000000, 50000, 100000, 16
+            '', array('*'), 4000000, 50000, 100000, 16
         );
         if ($analysis['truncated']) return $pages;
         $entry = null;
@@ -3605,6 +3605,10 @@ final class ShellExtraction
                                 // typography is compared through the resolved presentation.
                                 if ('' !== $style && !preg_match('/^(?:color|text-decoration(?:-line)?|font-size|font-family|font-style|font-weight|letter-spacing|line-height|text-transform)\s*:/', $style) && !preg_match('/^margin-(?:top|right|bottom|left):0$/', $style)) $styles[$style] = true;
                             }
+                            // Core Site Title cannot retain the inner anchor's box
+                            // or conditional presentation. Classes alone are not
+                            // evidence: unconditional typography can be promoted.
+                            if ('a' === $element->tagName && '' !== trim($element->getAttribute('class')) && self::wordmarkAnchorNeedsPresentation($element, $subjectIndex, $properties)) { $valid = false; break; }
                             $presentation = self::wordmarkPresentation($element, $presentation, $subjectIndex, $properties);
                             if ('a' === $element->tagName) {
                                 // Core's live title replaces this anchor. Conditional
@@ -3813,6 +3817,27 @@ final class ShellExtraction
         }
         unset($page);
         return $pages;
+    }
+
+    /** Presentation that cannot move from the authored link to Core's title. */
+    private static function wordmarkAnchorNeedsPresentation(\DOMElement $element, array $subjectIndex, array $properties): bool
+    {
+        $rules = array_column(\Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::entries($element, $subjectIndex), 'rule');
+        $rules[] = array('declarations' => \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($element->getAttribute('style'), array('*')), 'inline' => true);
+        foreach ($rules as $rule) {
+            if (empty($rule['inline']) && !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches']) continue;
+            foreach ($rule['declarations'] as $declaration) {
+                $name = $declaration['name'];
+                $value = trim(preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value']);
+                if (null !== ($rule['condition'] ?? null)) return true;
+                if (in_array($name, $properties, true)) continue;
+                // Lowering bare links adds zero paragraph margins; those do
+                // not require preserving an independently styled anchor box.
+                if (preg_match('/^margin(?:-(?:top|right|bottom|left))?$/', $name) && preg_match('/^0(?:px)?$/', $value)) continue;
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Resolve the single text leaf through its wrappers, not block-support placement. */

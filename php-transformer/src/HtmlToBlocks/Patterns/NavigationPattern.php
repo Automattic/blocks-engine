@@ -2071,6 +2071,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             'orientation' => 'vertical',
             'justifyContent' => $this->verticalNavigationJustification($style),
         );
+        $marker = 'blocks-engine-navigation-direction-' . substr(hash('sha256', SourceDom::elementSelector($element)), 0, 12);
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $marker);
+        $navigationContext->projectNavigationDirection($element, $marker);
 
         return $attrs;
     }
