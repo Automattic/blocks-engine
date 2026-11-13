@@ -5,8 +5,8 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
-// A bound captured control's artwork is a core image inside selectable core
-// boxes. The native button must not be an opaque contentParts companion.
+// A bound captured control owns its artwork, including block-wrapped icons.
+// It must not introduce a separate media replacement or raw HTML surface.
 $result = (new HtmlTransformer())->transform(
     '<div class="control-wrapper"><button id="opener" type="button" class="opener" aria-label="Menu" aria-controls="panel" '
     . 'data-blocks-engine-capture-dialog-ancestor-state="[]" '
@@ -17,14 +17,13 @@ $result = (new HtmlTransformer())->transform(
 )->toArray();
 $markup = (string) $result['serialized_blocks'];
 $checks = array(
-    !str_contains($markup, '/authored-button'),
+    str_contains($markup, '/authored-button'),
     !str_contains($markup, '<!-- wp:html'),
-    str_contains($markup, '<!-- wp:group '),
-    str_contains($markup, '"blocksEngineControlBox":{"id":"opener","type":"button"'),
+    !str_contains($markup, 'blocksEngineControlBox'),
     !str_contains($markup, '/layout-shell'),
-    str_contains($markup, 'blocksEngineControlBox'),
-    str_contains($markup, '<!-- wp:image '),
-    str_contains($markup, 'blocksEngineInlineSvg'),
+    !str_contains($markup, '<!-- wp:image '),
+    !str_contains($markup, '/svg-artwork'),
+    str_contains($markup, '<svg'),
     str_contains($markup, 'data-blocks-engine-capture-dialog-trigger'),
     'pass' === ($result['source_reports']['wp_block_validity']['status'] ?? ''),
 );
