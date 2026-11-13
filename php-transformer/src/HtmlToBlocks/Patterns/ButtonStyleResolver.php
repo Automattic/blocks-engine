@@ -113,6 +113,16 @@ final class ButtonStyleResolver
 
         $border = $this->mapper->paintedBorder($declarations);
         if ( array() !== $border ) {
+            // A side-specific source border leaves the other sides unpainted.
+            // Explicit widths also protect those sides from theme button chrome.
+            $sides = array( 'top', 'right', 'bottom', 'left' );
+            if ( array() !== array_intersect($sides, array_keys($border)) ) {
+                foreach ( $sides as $side ) {
+                    if ( ! isset($border[$side]) ) {
+                        $border[$side] = array( 'width' => '0' );
+                    }
+                }
+            }
             $style['border'] = $border;
         }
 
