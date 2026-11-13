@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -77,12 +78,12 @@ final class TextLeafElementConverter implements ElementConverter
             return null;
         }
 
-        return $this->createBlock->createBlock(
-            'core/paragraph',
-            array_merge($this->presentationResolver->presentationAttributes($element), array( 'content' => $content )),
-            array(),
-            $element
-        );
+        // <address> has no user-agent block margins; the emitted <p> would
+        // gain the paragraph's 1em on any side the author left unset.
+        $attrs = $this->presentationResolver->presentationAttributes($element);
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), HtmlCompilation::LOWERED_PARAGRAPH_CLASS);
+
+        return $this->createBlock->createBlock('core/paragraph', array_merge($attrs, array( 'content' => $content )), array(), $element);
     }
 
     /**

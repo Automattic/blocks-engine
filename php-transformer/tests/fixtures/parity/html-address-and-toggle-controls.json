@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/navigation" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about" } },
-    { "path": "blocks.1", "name": "core/paragraph", "attrs": { "className": "footer-address", "content": "48 Elm Street<br><a href=\"mailto:hello@example.com\">hello@example.com</a>" } }
+    { "path": "blocks.1", "name": "core/paragraph", "attrs": { "className": "footer-address blocks-engine-lowered-paragraph", "content": "48 Elm Street<br><a href=\"mailto:hello@example.com\">hello@example.com</a>" } }
   ],
   "expected_fallbacks": [],
   "expect": [
