@@ -275,6 +275,29 @@ final class CssRuleAnalyzer
         }
     }
 
+    /**
+     * Name/value pairs of a declaration list (a rule body or a `style`
+     * attribute) in source order. `;` splits only at top level, outside
+     * strings, comments and functions; a segment without `:` is skipped.
+     * Names are trimmed and lowercased, except case-sensitive custom
+     * properties; values are trimmed.
+     *
+     * @return list<array{name: string, value: string}>
+     */
+    public static function declarationList(string $css): array
+    {
+        $declarations = array();
+        foreach ( CssValueSplitter::splitTopLevel($css, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false === $colon ) {
+                continue;
+            }
+            $name = trim(substr($declaration, 0, $colon));
+            $declarations[] = array( 'name' => str_starts_with($name, '--') ? $name : strtolower($name), 'value' => trim(substr($declaration, $colon + 1)) );
+        }
+        return $declarations;
+    }
+
     /** Properties may include '*' to retain every declaration.
      * @return list<array{name: string, value: string}>
      */

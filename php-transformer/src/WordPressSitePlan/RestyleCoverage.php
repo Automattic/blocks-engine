@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 
 /**
  * Estimates `restyle_coverage`: of the text and background colours rendered
@@ -202,15 +202,13 @@ final class RestyleCoverage
     private function indexRule(string $prelude, string $body): void
     {
         $values = array();
-        foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
-            $parts = explode(':', $declaration, 2);
-            if (2 !== count($parts)) continue;
-            $property = match (strtolower(trim($parts[0]))) {
+        foreach (CssRuleAnalyzer::declarationList($body) as $declaration) {
+            $property = match ($declaration['name']) {
                 'color' => 'color',
                 'background-color', 'background' => 'background',
                 default => null,
             };
-            $value = trim((string) preg_replace('/!\s*important\s*$/i', '', $parts[1]));
+            $value = trim((string) preg_replace('/!\s*important\s*$/i', '', $declaration['value']));
             if (null === $property || 1 === preg_match('/^(?:inherit|initial|unset|revert|revert-layer|currentcolor|transparent|none)$/i', $value)) continue;
             if ('background' === $property && !str_contains($value, '--wp--preset--color--') && null === CssColor::parse($value)) continue;
             $values[$property] = ($values[$property] ?? true) && str_contains($value, '--wp--preset--color--');

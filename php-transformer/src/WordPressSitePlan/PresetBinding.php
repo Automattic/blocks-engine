@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -2166,13 +2167,7 @@ final class PresetBinding
 
     private static function declarations(string $style): array
     {
-        $declarations = array();
-        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
-            $parts = explode(':', $declaration, 2);
-            if (2 !== count($parts)) continue;
-            $declarations[] = array(strtolower(trim($parts[0])), trim($parts[1]));
-        }
-        return $declarations;
+        return array_map(static fn (array $declaration): array => array($declaration['name'], $declaration['value']), CssRuleAnalyzer::declarationList($style));
     }
 
     /** @param list<array{0:string,1:string}> $declarations */
