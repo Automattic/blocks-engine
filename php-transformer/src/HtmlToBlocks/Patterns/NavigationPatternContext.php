@@ -955,6 +955,9 @@ final class NavigationPatternContext
             foreach ($resting as $marker => $addresses) {
                 $resting[$marker] = array(' .wp-block-navigation-item' . (str_starts_with($marker, 'blocks-engine-navigation-box-') ? ' .' : '.') . $marker);
             }
+            // Subjects form a set: swapping the current item can change their
+            // discovery order without changing the menu that shared chrome keeps.
+            ksort($resting);
             $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             $this->recordCurrentItemPresentation($current, $scope, $source);
