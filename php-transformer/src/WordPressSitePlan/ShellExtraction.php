@@ -3557,6 +3557,12 @@ final class ShellExtraction
         foreach ($pages as $page) if (!empty($page['entrypoint'])) $entry = $page['route']['path'] ?? '/';
         if (null === $entry) return $pages;
         $subjectIndex = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::build($analysis['rules']);
+        $visibility = (new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer())->analyze(
+            array_values(array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))),
+            '', array('display'), 4000000, 50000, 100000, 16
+        );
+        if ($visibility['truncated']) return $pages;
+        $visibilityIndex = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::build($visibility['rules']);
         $fragments = array();
         $evidence = array(); $applicable = 0;
         foreach ($pages as $index => $page) {
@@ -3600,7 +3606,19 @@ final class ShellExtraction
                                 if ('' !== $style && !preg_match('/^(?:color|text-decoration(?:-line)?|font-size|font-family|font-style|font-weight|letter-spacing|line-height|text-transform)\s*:/', $style) && !preg_match('/^margin-(?:top|right|bottom|left):0$/', $style)) $styles[$style] = true;
                             }
                             $presentation = self::wordmarkPresentation($element, $presentation, $subjectIndex, $properties);
-                            if ('a' === $element->tagName) $links[] = html_entity_decode($element->getAttribute('href'));
+                            if ('a' === $element->tagName) {
+                                // Core's live title replaces this anchor. Conditional
+                                // visibility belongs to that source box, not its new
+                                // paragraph carrier; leave responsive wordmarks intact.
+                                foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::entries($element, $visibilityIndex) as $visibilityEntry) {
+                                    $rule = $visibilityEntry['rule'];
+                                    if (null === $rule['condition'] || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches']) continue;
+                                    foreach ($rule['declarations'] as $declaration) {
+                                        if ('display' === $declaration['name']) $valid = false;
+                                    }
+                                }
+                                $links[] = html_entity_decode($element->getAttribute('href'));
+                            }
                         }
                         ksort($classes); ksort($styles);
                         $fragments[$fragment] = array($text, $classes, $styles, $links, $presentation, $valid);
@@ -3806,6 +3824,7 @@ final class ShellExtraction
         foreach ($rules as $rule) {
             if (empty($rule['inline']) && (null !== $rule['condition'] || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches'])) continue;
             foreach ($rule['declarations'] as $declaration) {
+                if (!in_array($declaration['name'], $properties, true)) continue;
                 $value = $declaration['value'];
                 $important = (bool) preg_match('/\s*!important\s*$/i', $value);
                 $value = trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value);
