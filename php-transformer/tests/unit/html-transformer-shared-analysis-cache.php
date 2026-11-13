@@ -165,14 +165,10 @@ $assert(6 === $sourceSelectorCache->sourceSelectorMatchExecutions && 1 === $sour
 // reads its cached class tokens once more per element (Automattic/blocks-engine#3102).
 $assert(5 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 16 === $sourceSelectorCache->sourceSelectorClassTokenHits && 12 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
 $assert(4 === $sourceSelectorCache->sourceStructuralDeclarationBuilds && 8 === $sourceSelectorCache->sourceStructuralDeclarationHits, 'Structural declaration resolution builds each source state once and reuses repeated element results.');
-// style_rule_candidate_cache_hits is one higher than before native grid
-// child placement (Automattic/blocks-engine#2139 step 1): resolving whether
-// the `<p>` child's parent is a core grid container looks up the parent
-// `<section>`'s static-rule candidates once, an additional cache-eligible
-// lookup the parent's own presentation resolution had not already primed.
-// Conditional-only source margins also inspect the root's conditional candidates:
-// one extra candidate lookup reuses its immutable class tokens without rebuilding.
-$assert(1 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 6 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 2 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 10 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
+// Repeat lookups for an element and collection (the grid parent's static
+// rules, the root's conditional rules) are answered by the matched-rule memo,
+// so they never reach the candidate cache.
+$assert(1 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 6 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 0 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 10 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
 
 $candidateCache = new HtmlTransformerAnalysisCache();
 $noiseRules = array();
