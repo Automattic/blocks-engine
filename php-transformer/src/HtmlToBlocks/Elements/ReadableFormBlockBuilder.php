@@ -357,7 +357,15 @@ final class ReadableFormBlockBuilder
                 if ( 1 === count($inner) ) {
                     $inner = array($this->withoutShelledFieldBox($inner[0], $elements));
                 }
-                $shell = ($this->layoutShellBlockForElements)($elements, $inner, $element);
+                // Native groups retain class identity and resolved presentation for
+                // simple field rows. Control boxes must keep their shell contract.
+                $classOnlyGroup = 1 === count($inner) && 1 === count($elements)
+                    && 'div' === strtolower($element->tagName)
+                    && 1 === $element->attributes->length && $element->hasAttribute('class')
+                    && null === $controlBox;
+                $shell = $classOnlyGroup
+                    ? $this->createBlock->createBlock('core/group', $this->presentationAttributes($element), $inner, $element)
+                    : ($this->layoutShellBlockForElements)($elements, $inner, $element);
                 if ( null !== $controlBox && 1 === count($inner) && $controlBox === ($inner[0]['form_control_index'] ?? null) && ! isset($inner[0]['_form_control_box']) ) {
                     $shell['form_control_box'] = $controlBox;
                 }
@@ -561,7 +569,7 @@ final class ReadableFormBlockBuilder
     {
         if ( ! isset($block['form_control_index']) ) {
             $inner = $block['innerBlocks'] ?? array();
-            if ( 1 === count($inner) && str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell') ) {
+            if ( 1 === count($inner) && ('core/group' === ($block['blockName'] ?? '') || str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell')) ) {
                 $block['innerBlocks'] = array($this->withoutShelledFieldBox($inner[0], $elements));
             }
             return $block;
