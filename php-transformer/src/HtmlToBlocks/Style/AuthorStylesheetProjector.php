@@ -1287,6 +1287,7 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $markers = array();
+            $flattened = true;
             foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
                 $path = $element->getNodePath() ?? '';
                 $marker = $context->selectorProjections->controlMarker($path);
@@ -1294,17 +1295,22 @@ final class AuthorStylesheetProjector
                     continue;
                 }
                 $markers[] = $marker;
+                $flattened = $flattened && LayoutParticipation::resolve($element, $this->styleResolver)->neutralizeButtonWrapper();
             }
+            $arms = array();
             // Every native button carrier the context-free subject matches is
             // reached through the role and subject classes; `.button` stands
             // for the tag test the per-element list applied.
             $subject = array() !== $markers ? $this->contextFreeSubject('control', $this->withButtonSubject($parsed), $markers, $context) : null;
             if ( null !== $subject ) {
-                $projected[] = $this->nativeButtonControlTarget($subject['target'], $selector, $parsed, $context);
+                $arms[] = $this->nativeButtonControlTarget($subject['target'], $selector, $parsed, $context);
                 $markers = $subject['rest'];
             }
             foreach ( $markers as $marker ) {
-                $projected[] = $this->nativeButtonControlSelector($selector, $parsed, $marker, $context);
+                $arms[] = $this->nativeButtonControlSelector($selector, $parsed, $marker, $context);
+            }
+            foreach ( $arms as $arm ) {
+                $projected[] = array( $arm, $flattened ? $this->flattenedWrapperLinkArm($arm) : $arm );
             }
         }
         if ( array() === $projected ) {
@@ -1323,18 +1329,36 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $exclusion = $this->nativeButtonEditedPropertyExclusion($name);
-            $declarations[$exclusion][] = $name . ':' . $value;
+            $declarations[$exclusion][ButtonDeclarationRouting::isWrapperOwnedProperty($name) ? 1 : 0][] = $name . ':' . $value;
         }
         if ( array() === $declarations ) {
             return '';
         }
         $rules = array();
-        foreach ( $declarations as $exclusion => $properties ) {
-            foreach ( array_values(array_unique($projected)) as $selector ) {
-                $rules[] = $selector . $exclusion . '{' . implode(';', $properties) . '}';
+        foreach ( $declarations as $exclusion => $groups ) {
+            foreach ( $groups as $wrapperOwned => $properties ) {
+                foreach ( array_values(array_unique(array_column($projected, $wrapperOwned))) as $selector ) {
+                    $rules[] = $selector . $exclusion . '{' . implode(';', $properties) . '}';
+                }
             }
         }
         return implode('', $rules);
+    }
+
+    /**
+     * The link arm for wrapper geometry that reaches the link only because
+     * the core/button save wrapper is flattened (LayoutParticipation::
+     * neutralizeButtonWrapper()). The arm requires that flattened carrier, so
+     * a provider that saves its own core/button around the same control marker
+     * keeps a wrapper box and its own wrapper geometry; a percentage size then
+     * cannot resolve a second time against that wrapper.
+     */
+    private function flattenedWrapperLinkArm(string $arm): string
+    {
+        $at = strpos($arm, '> :where(.wp-block-button__link)');
+        return false === $at
+            ? $arm
+            : substr($arm, 0, $at) . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')' . substr($arm, $at);
     }
 
     private function nativeButtonControlSelector(string $selector, array $parsed, string $marker, AuthorStylesheetProjectionContext $context): string
@@ -1573,12 +1597,14 @@ final class AuthorStylesheetProjector
             function (string $selector, array $parsed, string $marker, DOMElement $element) use ($context): string {
                 // Layout-participating declarations follow the box that still
                 // generates a box after synthesized wrappers are neutralized.
-                $box = LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox();
+                $participation = LayoutParticipation::resolve($element, $this->styleResolver);
+                $box = $participation->participatingBox();
                 if ( LayoutParticipation::BOX_BUTTON_WRAPPER === $box ) {
                     return $this->projectButtonBoxSelector($selector, $parsed, $marker, $context);
                 }
                 if ( LayoutParticipation::BOX_LINK === $box ) {
-                    return $this->projectControlSelector($selector, $parsed, $marker, $context, false);
+                    $link = $this->projectControlSelector($selector, $parsed, $marker, $context, false);
+                    return $participation->neutralizeButtonWrapper() ? $this->flattenedWrapperLinkArm($link) : $link;
                 }
 
                 return $this->projectControlSelector($selector, $parsed, $marker, $context, true);

@@ -34,6 +34,12 @@ if (!str_contains($result['serialized_blocks'], 'wp:custom/authored-button') || 
 if (($result['source_reports']['wp_block_validity']['status'] ?? '') !== 'pass') {
     throw new RuntimeException('Actionless source form must retain a valid editable button.');
 }
+// A form provider can save its own core/button around the control marker. Its
+// wrapper keeps a box, so the source percentage must not reach the link too.
+preg_match_all('/[^{}]*wp-block-button__link[^{}]*\{[^{}]*max-width:\s*30%/', stripslashes(json_encode($result['assets'])), $linkCaps);
+if (array() === $linkCaps[0] || array() !== array_filter($linkCaps[0], static fn (string $arm): bool => !str_contains($arm, '.blocks-engine-layout-child-button'))) {
+    throw new RuntimeException('Percentage geometry reaches a core/button link only through a flattened save wrapper.');
+}
 $plain = (new HtmlTransformer())->transform('<form action="/subscribe"><input name="email"><button type="submit">Subscribe</button></form>')->toArray();
 if (!str_contains($plain['serialized_blocks'], 'wp-block-button__link')) throw new RuntimeException('Controls without relative sizes retain core/button.');
 echo "Percentage-sized form buttons keep their native containing block.\n";
