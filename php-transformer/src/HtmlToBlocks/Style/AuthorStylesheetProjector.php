@@ -3551,7 +3551,8 @@ final class AuthorStylesheetProjector
      * source rule. A selector whose subject is a bare `img` has nothing that
      * moves to the figure, so the source rule still paints the image itself:
      * inheriting the figure's corners there would replace the image's own
-     * radius at the same specificity, later in the cascade.
+     * radius at the same specificity, later in the cascade. A universal
+     * subject (`*`) matches the image the same way.
      *
      * @param array<string, string> $declarations
      */
@@ -3576,7 +3577,8 @@ final class AuthorStylesheetProjector
         }
         $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
 
-        return 'img' === strtolower((string) ($subject['type'] ?? ''))
+        // A universal subject matches the image itself, exactly like `img`.
+        return in_array(strtolower((string) ($subject['type'] ?? '*')), array( 'img', '*' ), true)
             && array() === ($subject['classes'] ?? array())
             && array() === ($subject['ids'] ?? array())
             && array() === ($subject['attributes'] ?? array());
