@@ -30,6 +30,10 @@ foreach ($posts as $post) {
     $markup = $post['canonical_block_markup'];
     if (1 !== preg_match('/Visit the shop.*Next: /s', $markup)) $failures[] = $post['source_path'] . ' keeps the shared link beside the varying link';
 }
+// The posts' own <h1> is not a link, so the single template's title is not one either.
+foreach ($plan['templates'] as $template) {
+    if (str_starts_with($template['slug'], 'single') && preg_match('/<!-- wp:post-title [^>]*"isLink":true/', $template['canonical_block_markup'])) $failures[] = $template['slug'] . ' keeps the unlinked source title unlinked';
+}
 foreach ($plan['diagnostics'] as $diagnostic) {
     if ('wordpress_site_plan_content_lost' === ($diagnostic['code'] ?? null) && in_array($diagnostic['source_path'] ?? '', array_column($posts, 'source_path'), true)) {
         $failures[] = 'no post text is lost: ' . json_encode($diagnostic['lost_text'] ?? null);

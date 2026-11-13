@@ -16,7 +16,10 @@ final class PostBlocks
 {
     public static function title(string $slice): string
     {
-        $attrs = array('isLink' => true);
+        // The title links to its post only where the source title is a link:
+        // listing cards link it, a post's own heading does not.
+        $linked = array() !== array_filter(HtmlMarkupParser::htmlMarkupNodes($slice), static fn(array $node): bool => 'a' === ($node['name'] ?? ''));
+        $attrs = $linked ? array('isLink' => true) : array();
         $blockAttrs = self::sourceAttributes($slice);
         if (is_array($blockAttrs['style'] ?? null)) $attrs['style'] = $blockAttrs['style'];
         $level = is_int($blockAttrs['level'] ?? null) ? $blockAttrs['level'] : self::headingLevel($slice);
@@ -29,7 +32,7 @@ final class PostBlocks
         }
         foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) if ('a' === ($node['name'] ?? '') && is_string($node['attributes']['class'] ?? null)) $attrs['metadata']['blocksEngineLinkClass'] = $node['attributes']['class'];
         self::keepBlockVisibility($attrs, $blockAttrs);
-        return '<!-- wp:post-title ' . BlockAttributes::encode($attrs) . ' /-->';
+        return '<!-- wp:post-title' . (array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs)) . ' /-->';
     }
 
     public static function date(string $slice): string
