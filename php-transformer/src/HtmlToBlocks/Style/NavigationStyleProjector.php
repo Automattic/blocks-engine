@@ -1468,7 +1468,7 @@ final class NavigationStyleProjector
         if ( $candidate['important'] !== $current['important'] ) {
             return $candidate['important'];
         }
-        $specificity = $this->styleResolver->compareMediaTextSpecificity($candidate['specificity'], $current['specificity']);
+        $specificity = $candidate['specificity'] <=> $current['specificity'];
         return 0 < $specificity || (0 === $specificity && $candidate['order'] >= $current['order']);
     }
 
