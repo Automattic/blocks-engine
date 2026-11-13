@@ -212,7 +212,7 @@
             "removed button": 1,
             "removed svg": 8,
             "removed ul": 2,
-            "retagged address>p": 2,
+            "retagged address>p [blocks-engine-lowered-paragraph]": 2,
             "retagged span>mark": 1,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 29
         },
@@ -371,7 +371,7 @@
             "removed tbody": 1,
             "removed thead": 1,
             "retagged a>div [wp-block-group]": 1,
-            "retagged address>p": 1,
+            "retagged address>p [blocks-engine-lowered-paragraph]": 1,
             "retagged caption>figcaption": 1,
             "retagged div>p [blocks-engine-synthetic-paragraph]": 1,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 35,
@@ -450,7 +450,7 @@
         "31-personal-cv-academic": {
             "added mark": 20,
             "removed nav": 1,
-            "retagged address>p": 1,
+            "retagged address>p [blocks-engine-lowered-paragraph]": 1,
             "retagged span>mark": 5,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 20
         },
@@ -579,7 +579,7 @@
             "removed button": 1,
             "removed nav": 3,
             "removed svg": 4,
-            "retagged address>p": 1,
+            "retagged address>p [blocks-engine-lowered-paragraph]": 1,
             "retagged div>p [blocks-engine-lowered-paragraph]": 6,
             "retagged span>mark": 10,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 17,
@@ -1146,7 +1146,7 @@
             "added div [blocks-engine-layout-neutral-buttons]": 1,
             "added p [blocks-engine-synthetic-paragraph]": 1,
             "removed nav": 2,
-            "retagged address>p": 2,
+            "retagged address>p [blocks-engine-lowered-paragraph]": 2,
             "retagged div>p [blocks-engine-lowered-paragraph]": 3,
             "retagged span>mark": 1
         },
@@ -1328,7 +1328,7 @@
             "removed button": 1,
             "removed svg": 26,
             "removed ul": 3,
-            "retagged address>p": 1,
+            "retagged address>p [blocks-engine-lowered-paragraph]": 1,
             "retagged span>div [blocks-engine-semantic]": 13,
             "retagged span>mark": 1,
             "retagged span>p [blocks-engine-synthetic-paragraph]": 17
