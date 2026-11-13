@@ -2808,40 +2808,7 @@ final class ArtifactCompiler
     /** @param array<int, array<string, mixed>> $files */
     private function stylesheetPathFromHref(string $href, string $sourcePath, array $files = array()): string
     {
-        $href = (string) preg_replace('/[?#].*$/', '', $href);
-        if ( ! str_starts_with($href, '/') ) {
-            return ArtifactPath::resolveRelativePath($href, $sourcePath);
-        }
-
-        return $this->artifactRootRelativePath($href, $sourcePath, array_fill_keys(array_column($files, 'path'), true));
-    }
-
-    /** @param array<string, true> $paths */
-    private function artifactRootRelativePath(string $reference, string $sourcePath, array $paths): string
-    {
-        // Root-relative URLs need the same segment decoding and traversal checks
-        // as document-relative references, before exact or suffix lookup.
-        $relative = ArtifactPath::resolveRelativePath(ltrim($reference, '/'));
-        if ( '' === $relative || isset($paths[$relative]) ) {
-            return $relative;
-        }
-
-        $sourceSegments = explode('/', dirname($sourcePath));
-        $matches = array();
-        foreach ( array_keys($paths) as $path ) {
-            if ( ! str_ends_with($path, '/' . $relative) ) {
-                continue;
-            }
-            $candidateSegments = explode('/', dirname($path));
-            $common = 0;
-            while ( isset($sourceSegments[$common], $candidateSegments[$common]) && $sourceSegments[$common] === $candidateSegments[$common] ) {
-                ++$common;
-            }
-            $matches[] = array( 'path' => $path, 'common' => $common );
-        }
-        usort($matches, static fn (array $left, array $right): int => $right['common'] <=> $left['common'] ?: strcmp($left['path'], $right['path']));
-
-        return isset($matches[0]) && $matches[0]['common'] > 0 ? (string) $matches[0]['path'] : $relative;
+        return ArtifactPath::resolveLinkedPath($href, $sourcePath, array_fill_keys(array_column($files, 'path'), true));
     }
 
     private function stylesheetOccurrencePath(string $path, int $occurrence): string
@@ -6181,7 +6148,7 @@ final class ArtifactCompiler
         }
 
         $path = str_starts_with($reference, '/')
-            ? $this->artifactRootRelativePath($reference, $entryPath, array_fill_keys(array_column($files, 'path'), true))
+            ? ArtifactPath::artifactRootRelativePath($reference, $entryPath, array_fill_keys(array_column($files, 'path'), true))
             : ArtifactPath::resolveRelativePath($reference, $entryPath);
         if ( '' === $path ) {
             return null;
