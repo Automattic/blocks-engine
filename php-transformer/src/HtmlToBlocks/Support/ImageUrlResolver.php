@@ -66,6 +66,14 @@ final class ImageUrlResolver
             if ( '' !== $source && $source !== SourceDom::attr($image, 'src') ) {
                 $image->setAttribute('src', $source);
             }
+            // A resolved source makes lazy-load attributes runtime metadata.
+            // Keep them on unresolved data placeholders so RichText still
+            // rejects those images rather than carrying the placeholder.
+            if ( '' !== $source && ! str_starts_with(strtolower($source), 'data:') && SourceDom::safeFallbackUrl($source, 'src', 'img') ) {
+                foreach ( array( 'data-src', 'data-lazy-src', 'data-original', 'data-image-src', 'data-srcset', 'data-lazy-srcset' ) as $attribute ) {
+                    $image->removeAttribute($attribute);
+                }
+            }
         }
     }
 
