@@ -307,6 +307,7 @@ final class AuthorStylesheetMaterialization
      */
     private function rewrite(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true, string $media = '', ?array &$nativeSelectors = null, ?ContentBoxRestatements $contentBoxRestatements = null): string
     {
+        $this->session->authorSelectorProjectionState()->reconcileRetainedControls($this->emittedStyleMarkup);
         $bindings = new ProjectedSelectorBindings();
         $media = trim($media);
         $projected = $this->projector->project(

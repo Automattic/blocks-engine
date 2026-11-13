@@ -2121,6 +2121,13 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
+            foreach ($matches as $element) {
+                if ($context->selectorProjections->isRetainedAuthoredControl($element->getNodePath() ?? '')
+                    && !($parsed['compounds'][count($parsed['compounds']) - 1]['universal'] ?? false)) {
+                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+                    break;
+                }
+            }
             if ( array() === $matches ) {
                 $dormantControls = $this->projectDormantAncestorControlSelector($selector, $parsed, $context, $controlWrapper, $subjectArms);
                 if ( array() !== $dormantControls ) {
