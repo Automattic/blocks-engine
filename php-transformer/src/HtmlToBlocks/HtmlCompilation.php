@@ -948,7 +948,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new ScrollStateConverter(
                 $this->session,
                 $this,
-                $this->styleResolver
+                $this->styleResolver,
+                fn (DOMElement $element, string $className): string => $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext(), $className)
             ),
             new ThemeToggleConverter(
                 $this->svgMaterializer,
