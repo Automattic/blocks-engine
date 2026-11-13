@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
@@ -7547,8 +7548,8 @@ final class StyleResolver implements ElementPresentationResolver
             $content = trim((string) ($declarations['content'] ?? ''));
             if (!preg_match('/^([\'"]).+\1$/s', $content)) continue;
             $family = (string) ($declarations['font-family'] ?? $this->resolvedSvgCascadeValue($element, 'font-family') ?? '');
-            foreach (explode(',', $family) as $name) {
-                if (isset($families[strtolower(trim($name, " \t\n\r\"'"))])) return true;
+            foreach (CssFontFamily::names($family) as $name) {
+                if (isset($families[strtolower($name)])) return true;
             }
         }
         return false;

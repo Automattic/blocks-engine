@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 
 /**
@@ -274,9 +275,8 @@ final class TypographyParityAnalyzer
 
     private function primaryFamily(string $declaration): string
     {
-        foreach ( explode(',', $declaration) as $candidate ) {
-            $family = $this->normalizeFamily($candidate);
-            if ( '' !== $family && ! $this->isWebSafeFamily($family) ) {
+        foreach ( CssFontFamily::names($declaration) as $family ) {
+            if ( ! $this->isWebSafeFamily($family) ) {
                 return $family;
             }
         }
