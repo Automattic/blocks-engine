@@ -666,7 +666,7 @@ JS;
             return $attribute;
         }
 
-        if ( $this->sourceElementClassifier->isRelativeIframeDimension($attribute) && $this->iframeHasBoundedAncestor($iframe, $styleResolver) ) {
+        if ( $this->sourceElementClassifier->isRelativeIframeDimension($attribute) && $this->relativeIframeDimensionIsBounded($iframe, $dimension, $styleResolver) ) {
             return $attribute;
         }
 
@@ -675,9 +675,23 @@ JS;
             return $declaration;
         }
 
-        return $this->sourceElementClassifier->isRelativeIframeDimension($declaration) && $this->iframeHasBoundedAncestor($iframe, $styleResolver)
+        return $this->sourceElementClassifier->isRelativeIframeDimension($declaration) && $this->relativeIframeDimensionIsBounded($iframe, $dimension, $styleResolver)
             ? $declaration
             : null;
+    }
+
+    private function relativeIframeDimensionIsBounded(DOMElement $iframe, string $dimension, StyleResolver $styleResolver): bool
+    {
+        // Container-relative width needs only an explicit height; relative height still needs a bounded ancestor.
+        if ( 'width' === $dimension ) {
+            $height = trim(SourceDom::attr($iframe, 'height'));
+            $declaredHeight = trim((string) ($styleResolver->presentationDeclarations($iframe)['height'] ?? ''));
+            if ( $this->sourceElementClassifier->isPositiveIframeDimension($height) || $this->sourceElementClassifier->isPositiveIframeDimension($declaredHeight) ) {
+                return true;
+            }
+        }
+
+        return $this->iframeHasBoundedAncestor($iframe, $styleResolver);
     }
 
     private function iframeHasBoundedAncestor(DOMElement $iframe, StyleResolver $styleResolver): bool
