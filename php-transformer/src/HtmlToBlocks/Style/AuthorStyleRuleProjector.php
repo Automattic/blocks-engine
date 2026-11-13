@@ -19,6 +19,9 @@ final class AuthorStyleRuleProjector
 {
     /** Bounded ancestor walk for stretch-derived percentage-height resolution. */
     private const MAX_STRETCH_ANCESTOR_DEPTH = 12;
+
+    /** @var list<string>|null Condition domain of the grid rule currently being projected. */
+    private ?array $gridConditions = null;
     /** Bounded ancestor walk proving an auto-width box's inline size is definite. */
     private const MAX_INLINE_SIZE_ANCESTOR_DEPTH = 32;
 
@@ -98,7 +101,7 @@ final class AuthorStyleRuleProjector
             $contentBox = $restated !== $body;
             $this->acceptProjectedBody($body, $declarations, $restated);
         }
-        $this->acceptProjectedBody($body, $declarations, $this->projectIntrinsicGridRowTracks($prelude, $body, $declarations, $authorStyles, $sourceStyles));
+        $this->acceptProjectedBody($body, $declarations, $this->projectIntrinsicGridRowTracks($prelude, $body, $declarations, $authorStyles, $sourceStyles, $conditions));
         return array('body' => $body, 'declarations' => $declarations, 'content_box' => $contentBox, 'content_box_order' => $contentBox ? $order : null, 'content_box_overrides' => $contentBox ? $overrides : array());
     }
 
@@ -516,7 +519,33 @@ final class AuthorStyleRuleProjector
     }
 
     /** @param array<string, string> $declarations */
-    private function projectIntrinsicGridRowTracks(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles): string
+    private function projectIntrinsicGridRowTracks(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles, array $conditions): string
+    {
+        $this->gridConditions = $conditions;
+        try {
+            return $this->projectIntrinsicGridRowTracksInDomain($prelude, $body, $declarations, $authorStyles, $sourceStyles);
+        } finally {
+            $this->gridConditions = null;
+        }
+    }
+
+    /** Read the ancestor cascade in the same domain as the projected grid rule. */
+    private function gridPresentationDeclarations(DOMElement $element): array
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( null === $this->gridConditions ) {
+            return $declarations;
+        }
+        foreach ( array( 'display', 'grid-template-rows' ) as $property ) {
+            $value = $this->presentationValueUnderConditions($element, $property, $this->gridConditions);
+            if ( '' !== $value ) {
+                $declarations[$property] = $value;
+            }
+        }
+        return $declarations;
+    }
+
+    private function projectIntrinsicGridRowTracksInDomain(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles): string
     {
         $rows = (string) ($declarations['grid-template-rows'] ?? '');
         if ( ! $this->gridTemplateRowsContainFractionalTrack($rows) || $this->gridTemplateRowsHaveUnequalFlexFactors($rows) ) {
@@ -559,7 +588,7 @@ final class AuthorStyleRuleProjector
     private function isIntrinsicallySizedGridContainer(DOMElement $element, array $ruleDeclarations): bool
     {
         $declarations = $this->styleResolver->mergeCssDeclarationMaps(
-            $this->styleResolver->structuralPresentationDeclarations($element),
+            $this->gridPresentationDeclarations($element),
             $ruleDeclarations
         );
         $display = strtolower(CssValueInspector::withoutImportant((string) ($declarations['display'] ?? '')));
@@ -677,7 +706,7 @@ final class AuthorStyleRuleProjector
     private function receivesDefiniteBlockSize(DOMElement $element, int $depth = 0, ?string $height = null, ?string $minHeight = null): bool
     {
         if ( null === $height || null === $minHeight ) {
-            $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+            $declarations = $this->gridPresentationDeclarations($element);
             $height = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['height'] ?? ''), $element);
             $minHeight = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['min-height'] ?? ''), $element);
         }
@@ -691,6 +720,20 @@ final class AuthorStyleRuleProjector
             return false;
         }
         $parent = $element->parentNode;
+        // Boxless wrappers neither establish percentage containing blocks nor
+        // interrupt grid/flex item participation. Follow the layout parent,
+        // not merely the DOM parent, when proving the available block size.
+        while ( null !== $this->gridConditions && $parent instanceof DOMElement ) {
+            $parentDeclarations = $this->gridPresentationDeclarations($parent);
+            $parentDisplay = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+                CssValueInspector::withoutImportant((string) ($parentDeclarations['display'] ?? '')),
+                $parent
+            ));
+            if ( 'contents' !== $parentDisplay ) {
+                break;
+            }
+            $parent = $parent->parentNode;
+        }
         if ( ! $parent instanceof DOMElement ) {
             return false;
         }
@@ -719,7 +762,7 @@ final class AuthorStyleRuleProjector
         // its own custom property is declared on the very same rule). Resolve
         // it against the parent so that indirection does not hide a real grid
         // container from this check.
-        $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
+        $parentDeclarations = $this->gridPresentationDeclarations($parent);
         $parentDisplayRaw = (string) ($parentDeclarations['display'] ?? '');
         $parentDisplay = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($parentDisplayRaw), $parent));
         if ( ! in_array($parentDisplay, array( 'grid', 'inline-grid', 'flex', 'inline-flex' ), true) ) {
@@ -738,7 +781,7 @@ final class AuthorStyleRuleProjector
             return $this->growsAlongFlexMainAxis($element)
                 && $this->receivesDefiniteBlockSize($parent, $depth + 1);
         }
-        $alignSelfRaw = (string) ($this->styleResolver->structuralPresentationDeclarations($element)['align-self'] ?? '');
+        $alignSelfRaw = (string) ($this->gridPresentationDeclarations($element)['align-self'] ?? '');
         $alignSelf = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($alignSelfRaw), $element));
         if ( '' !== $alignSelf && ! in_array($alignSelf, array( 'stretch', 'auto', 'normal' ), true) ) {
             // The element opted out of the default stretch alignment, so it
@@ -901,7 +944,7 @@ final class AuthorStyleRuleProjector
         if ( $this->aspectRatioDerivesBlockSize($element, $this->structuralReader()) ) {
             return true;
         }
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        $declarations = $this->gridPresentationDeclarations($element);
         $display = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['display'] ?? '')), $element));
         if ( ! in_array($display, array( 'grid', 'inline-grid' ), true) ) {
             return false;
