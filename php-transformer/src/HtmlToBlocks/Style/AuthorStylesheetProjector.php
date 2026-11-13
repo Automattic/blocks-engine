@@ -68,8 +68,7 @@ final class AuthorStylesheetProjector
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer,
         private readonly AuthorStyleRuleProjector $ruleBodyProjector,
-        private readonly SourceStyleResolutionState $sourceStyles,
-        private readonly SourceCascade $sourceCascade
+        private readonly SourceStyleResolutionState $sourceStyles
     ) {
         $this->buttonDeclarationRouting = new ButtonDeclarationRouting($styleResolver, $semanticPreparer);
     }
@@ -4869,7 +4868,7 @@ final class AuthorStylesheetProjector
      */
     private function packsInlineItems(DOMElement $list): bool
     {
-        $listDisplay = CssValueInspector::comparable($this->styleResolver->referenceViewportAuthorDeclarations($list, array( 'display' ))['display'] ?? '');
+        $listDisplay = CssValueInspector::comparable($this->styleResolver->authorViewport->reference($list, array( 'display' ))['display'] ?? '');
         if ( 1 === preg_match('/(?<![\w-])(?:inline-)?(?:flex|grid)(?![\w-])/', $listDisplay) ) {
             return false;
         }
@@ -4878,7 +4877,7 @@ final class AuthorStylesheetProjector
             if ( ! $item instanceof DOMElement ) {
                 continue;
             }
-            $own = $this->styleResolver->referenceViewportAuthorDeclarations($item, array( 'display', 'float', 'position' ));
+            $own = $this->styleResolver->authorViewport->reference($item, array( 'display', 'float', 'position' ));
             $float = CssValueInspector::comparable($own['float'] ?? '');
             $position = CssValueInspector::comparable($own['position'] ?? '');
             if ( ! $this->isInlineLevelDisplay((string) ( $own['display'] ?? '' )) || ! in_array($float, array( '', 'none' ), true) || in_array($position, array( 'absolute', 'fixed' ), true) ) {
@@ -5033,7 +5032,7 @@ final class AuthorStylesheetProjector
                 static fn ($condition): string => trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition)),
                 ArrayField::array($rule, 'conditions')
             )));
-            if ( array() !== $conditions && ! $this->sourceCascade->conditionsApplyAtViewport($conditions, StyleResolver::DESKTOP_REFERENCE_WIDTH) ) {
+            if ( array() !== $conditions && ! $this->styleResolver->cascade->conditionsApplyAtViewport($conditions, StyleResolver::DESKTOP_REFERENCE_WIDTH) ) {
                 continue;
             }
             foreach ( ArrayField::array($rule, 'selectors') as $record ) {
@@ -5086,7 +5085,7 @@ final class AuthorStylesheetProjector
         $own = function (DOMElement $element) use (&$declared): array {
             return $declared[$element->getNodePath() ?? ''] ??= array_map(
                 static fn (string $value): string => CssValueInspector::comparable($value),
-                $this->styleResolver->referenceViewportAuthorDeclarations($element, self::NAVIGATION_ITEM_SPACE_PROPERTIES)
+                $this->styleResolver->authorViewport->reference($element, self::NAVIGATION_ITEM_SPACE_PROPERTIES)
             );
         };
         // The first stated value up the ancestors. A value that restates the

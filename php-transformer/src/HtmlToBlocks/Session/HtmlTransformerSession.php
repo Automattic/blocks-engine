@@ -16,7 +16,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolutionCache;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceCascade;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
@@ -53,7 +52,6 @@ final class HtmlTransformerSession
     private ?\SplObjectStorage $capturedGlyphColors = null;
     private readonly PresentationResolutionCache $presentationResolutionCache;
     private readonly SourceStyleResolutionState $sourceStyleResolutionState;
-    private ?SourceCascade $sourceCascade = null;
     private ?LayoutGeometryState $layoutGeometryState = null;
     private readonly FallbackEmitter $fallbackEmitter;
 
@@ -154,11 +152,6 @@ final class HtmlTransformerSession
     public function sourceStyleResolutionState(): SourceStyleResolutionState
     {
         return $this->sourceStyleResolutionState;
-    }
-
-    public function sourceCascade(): SourceCascade
-    {
-        return $this->sourceCascade ??= new SourceCascade($this->sourceStyleResolutionState);
     }
 
     public function reusableComponentState(): ReusableComponentState

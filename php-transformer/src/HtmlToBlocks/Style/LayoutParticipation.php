@@ -327,7 +327,7 @@ final class LayoutParticipation
      */
     private static function cannotShareLine(DOMElement $element, StyleResolver $styleResolver): bool
     {
-        $declarations = $styleResolver->referenceViewportAuthorDeclarations($element, array( 'float', 'position' ));
+        $declarations = $styleResolver->authorViewport->reference($element, array( 'float', 'position' ));
         $float = CssValueInspector::declared($declarations, 'float');
         $position = CssValueInspector::declared($declarations, 'position');
         $width = CssValueInspector::comparable((string) (SourceDeclarations::parse($styleResolver->controlSurfaceResolvedStyle($element))['width'] ?? ''));

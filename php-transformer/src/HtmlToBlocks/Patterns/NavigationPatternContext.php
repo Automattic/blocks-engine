@@ -266,7 +266,7 @@ final class NavigationPatternContext
         for ($node = $element->parentNode; $node instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
             $properties += $this->styleResolver->consumedInlineCustomProperties($node);
         }
-        $properties = array_intersect_key($this->session->sourceCascade()->customProperties($element), $properties);
+        $properties = array_intersect_key($this->styleResolver->cascade->customProperties($element), $properties);
         return $this->styleResolver->cssDeclarationString($properties) . (array() === $properties ? '' : ';') . $style;
     }
 
@@ -405,7 +405,7 @@ final class NavigationPatternContext
 
     public function resolvedBoxSizing(DOMElement $element): string
     {
-        return (string) ($this->styleResolver?->referenceViewportAuthorDeclarations($element, array('box-sizing'))['box-sizing'] ?? 'content-box');
+        return (string) ($this->styleResolver?->authorViewport->reference($element, array('box-sizing'))['box-sizing'] ?? 'content-box');
     }
 
     /**
@@ -572,8 +572,8 @@ final class NavigationPatternContext
         $properties = array('margin', 'padding', 'border', 'border-width', 'width', 'height', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width', 'box-sizing');
         // A glyph directly inside the link has no box of its own: the link's
         // box is the label's, which core's content already carries.
-        $box = $container->isSameNode($anchor) ? array() : $this->styleResolver->referenceViewportAuthorDeclarations($container, $properties);
-        $glyph = $this->styleResolver->referenceViewportAuthorDeclarations($svg, $properties);
+        $box = $container->isSameNode($anchor) ? array() : $this->styleResolver->authorViewport->reference($container, $properties);
+        $glyph = $this->styleResolver->authorViewport->reference($svg, $properties);
         // CSS dimensions override the SVG's presentational width/height hints.
         foreach ( array('width', 'height') as $dimension ) {
             if ( ! isset($glyph[$dimension]) ) $glyph[$dimension] = $svg->getAttribute($dimension) . 'px';
@@ -625,7 +625,7 @@ final class NavigationPatternContext
      */
     private function outOfFlowSubmenuIconPlacement(DOMElement $item, DOMElement $container): array
     {
-        $read = fn(DOMElement $element, array $properties): array => $this->styleResolver->referenceViewportAuthorDeclarations($element, $properties);
+        $read = fn(DOMElement $element, array $properties): array => $this->styleResolver->authorViewport->reference($element, $properties);
         $own = $read($container, array('position', 'left', 'right', 'top', 'bottom', 'transform'));
         if ( 'absolute' !== strtolower(trim((string) ($own['position'] ?? ''))) ) return array();
 
@@ -1181,12 +1181,12 @@ final class NavigationPatternContext
      */
     private function absoluteLabelSizingWidth(DOMElement $anchor): string
     {
-        $anchorStyle = $this->styleResolver->referenceViewportAuthorDeclarations($anchor, array('width'));
+        $anchorStyle = $this->styleResolver->authorViewport->reference($anchor, array('width'));
         if (isset($anchorStyle['width']) && 'auto' !== $anchorStyle['width']) return '';
         $outOfFlow = false;
         if ($this->labelHasIntrinsicContent($anchor, $outOfFlow) || !$outOfFlow) return '';
         for ($node = $anchor; $node instanceof DOMElement; $node = $node->parentNode) {
-            $style = $this->styleResolver->referenceViewportAuthorDeclarations($node, array('display', 'width', 'position', 'left', 'right'));
+            $style = $this->styleResolver->authorViewport->reference($node, array('display', 'width', 'position', 'left', 'right'));
             $width = trim((string) ($style['width'] ?? ''));
             if (CssValueInspector::isAbsoluteLength($width)) return $width;
             if (!$this->isStretchingLabelBox($node, $style)) break;
@@ -1198,7 +1198,7 @@ final class NavigationPatternContext
             // exclusive sizing box for this item, even if it has a width.
             foreach ($parent->childNodes as $child) {
                 if ($child->isSameNode($node) || XML_COMMENT_NODE === $child->nodeType) continue;
-                if ($child instanceof DOMElement && 'none' === ($this->styleResolver->referenceViewportAuthorDeclarations($child, array('display'))['display'] ?? '')) continue;
+                if ($child instanceof DOMElement && 'none' === ($this->styleResolver->authorViewport->reference($child, array('display'))['display'] ?? '')) continue;
                 if ($child instanceof DOMElement || '' !== trim($child->textContent)) break 2;
             }
         }
@@ -1214,7 +1214,7 @@ final class NavigationPatternContext
                 if ('' !== trim($child->textContent)) return true;
                 continue;
             }
-            $style = $this->styleResolver->referenceViewportAuthorDeclarations($child, array('position', 'display'));
+            $style = $this->styleResolver->authorViewport->reference($child, array('position', 'display'));
             if ('none' === ($style['display'] ?? '')) continue;
             if (in_array($style['position'] ?? '', array('absolute', 'fixed'), true)) {
                 $outOfFlow = true;
@@ -1245,7 +1245,7 @@ final class NavigationPatternContext
         $widths = array();
         foreach ($node->childNodes as $child) {
             if (!$child instanceof DOMElement) continue;
-            $style = $this->styleResolver->referenceViewportAuthorDeclarations($child, array('width', 'position', 'display'));
+            $style = $this->styleResolver->authorViewport->reference($child, array('width', 'position', 'display'));
             if ('none' === ($style['display'] ?? '')) continue;
             $absolute = $outOfFlow || in_array($style['position'] ?? '', array('absolute', 'fixed'), true);
             $width = trim((string) ($style['width'] ?? ''));
@@ -1265,12 +1265,12 @@ final class NavigationPatternContext
     private function inlineAnchorCarriesPercentageHeight(DOMElement $anchor): bool
     {
         if ('a' !== strtolower($anchor->tagName)) return false;
-        $anchorStyle = $this->styleResolver->referenceViewportAuthorDeclarations($anchor, array('display', 'position'));
+        $anchorStyle = $this->styleResolver->authorViewport->reference($anchor, array('display', 'position'));
         if ('inline' !== ($anchorStyle['display'] ?? 'inline')
             || in_array($anchorStyle['position'] ?? 'static', array('absolute', 'fixed'), true)) return false;
         foreach ($anchor->childNodes as $child) {
             if (!$child instanceof DOMElement) continue;
-            $style = $this->styleResolver->referenceViewportAuthorDeclarations($child, array('height', 'display', 'position'));
+            $style = $this->styleResolver->authorViewport->reference($child, array('height', 'display', 'position'));
             $display = $style['display'] ?? (1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $child->tagName) ? 'block' : 'inline');
             if (in_array($display, array('block', 'flex', 'grid', 'flow-root'), true)
                 && !in_array($style['position'] ?? 'static', array('absolute', 'fixed'), true)
@@ -1637,7 +1637,7 @@ final class NavigationPatternContext
 
     public function isFloated(DOMElement $element): bool
     {
-        $float = $this->styleResolver?->referenceViewportAuthorDeclarations($element, array( 'float' ))['float'] ?? 'none';
+        $float = $this->styleResolver?->authorViewport->reference($element, array( 'float' ))['float'] ?? 'none';
         return ! in_array(strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', $float))), array( '', 'none' ), true);
     }
 
@@ -1787,7 +1787,7 @@ final class NavigationPatternContext
 
         $properties = array('backdrop-filter', '-webkit-backdrop-filter', 'filter', 'transform', 'translate', 'rotate', 'scale', 'perspective', 'contain', 'will-change');
         for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
-            $author = $this->styleResolver->referenceViewportAuthorDeclarations($ancestor, $properties);
+            $author = $this->styleResolver->authorViewport->reference($ancestor, $properties);
             $resets = array();
             foreach ($author as $property => $value) {
                 $value = strtolower(trim($value));
@@ -2012,7 +2012,7 @@ final class NavigationPatternContext
     {
         $scale = 1.0;
         for ( $node = $svg; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
-            $transform = trim((string) ($this->styleResolver->referenceViewportAuthorDeclarations($node, array( 'transform' ))['transform'] ?? ''));
+            $transform = trim((string) ($this->styleResolver->authorViewport->reference($node, array( 'transform' ))['transform'] ?? ''));
             $transform = trim(preg_replace('/\s*!\s*important\s*$/i', '', $this->styleResolver->resolveCssVariablesInValue($transform, $node)) ?? '');
             if ( '' === $transform || 'none' === strtolower($transform) ) {
                 continue;
