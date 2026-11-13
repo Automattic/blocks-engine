@@ -230,11 +230,12 @@ final class LayoutParticipation
      * alignment), rather than resolving core's percentage against the row.
      * `:where()` cannot outrank those selectors; these
      * declarations are therefore important. Author `!important` sizes that
-     * arrive later still win.
+     * arrive later still win. The width and height resets live in
+     * EngineSupportCss axis rules, which spare author-sized buttons.
      */
     public static function transferredItemDeclarations(): string
     {
-        return 'display:inline!important;width:fit-content!important;height:auto!important;word-break:normal!important';
+        return 'display:inline!important;word-break:normal!important';
     }
 
     /**
@@ -247,7 +248,7 @@ final class LayoutParticipation
      */
     public static function transferredFlexContainerDeclarations(): string
     {
-        return 'display:flex!important;align-items:inherit;justify-content:inherit;flex-direction:inherit;flex-wrap:inherit;gap:inherit;column-gap:inherit;row-gap:inherit;height:auto!important;width:fit-content!important;word-break:normal!important';
+        return 'display:flex!important;align-items:inherit;justify-content:inherit;flex-direction:inherit;flex-wrap:inherit;gap:inherit;column-gap:inherit;row-gap:inherit;word-break:normal!important';
     }
 
     /**
