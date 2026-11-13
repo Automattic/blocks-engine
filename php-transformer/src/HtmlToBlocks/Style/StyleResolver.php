@@ -48,7 +48,10 @@ final class StyleResolver implements ElementPresentationResolver
         private readonly StyleResolutionContext $context,
         private readonly HtmlTransformerAnalysisCache $analysisCache
     ) {
+        $this->cascade = $session->sourceCascade();
     }
+
+    private readonly SourceCascade $cascade;
 
     private ?StyleAttributeMapper $styleAttributeMapper = null;
 
@@ -379,7 +382,7 @@ final class StyleResolver implements ElementPresentationResolver
         // generic cascaded-value stream: matched resting author rules plus
         // the inline style, without media-conditional rules.
         $placementDeclarations = array_intersect_key(
-            $this->matchedCascadedDeclarations($element),
+            $this->cascade->declarations($element),
             array_fill_keys($geometry->gridItemPlacementProperties(), true)
         );
         if ( ! $geometry->declaresGridPlacement($placementDeclarations) ) {
@@ -691,10 +694,10 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function conditionalRuleCanOverrideRestingValue(DOMElement $element, array $rule, string $property, string $value): bool
     {
-        $candidate = $this->cascadeEntry($property, $value, false, $this->mediaTextSelectorSpecificity((string) $rule['selector']), (int) ($rule['cascadeOrder'] ?? 0), $rule['layerRank'] ?? null);
+        $candidate = SourceCascade::entry($property, $value, false, $this->cascade->specificity((string) $rule['selector']), (int) ($rule['cascadeOrder'] ?? 0), $rule['layerRank'] ?? null);
         foreach ($this->session->sourceStyleResolutionState()->matchingRules($element, 'static') as $base) {
             if (!isset($base['declarations'][$property])) continue;
-            $current = $this->cascadeEntry($property, $base['declarations'][$property], false, $this->mediaTextSelectorSpecificity((string) $base['selector']), (int) ($base['cascadeOrder'] ?? 0), $base['layerRank'] ?? null);
+            $current = SourceCascade::entry($property, $base['declarations'][$property], false, $this->cascade->specificity((string) $base['selector']), (int) ($base['cascadeOrder'] ?? 0), $base['layerRank'] ?? null);
             if (!CssCascade::wins($candidate, $current)) return false;
         }
         return true;
@@ -708,7 +711,7 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function conditionalValueMatchesRestingValue(DOMElement $element, string $property, string $value): bool
     {
-        $resting = $this->matchedCascadedDeclarations($element)[$property] ?? '';
+        $resting = $this->cascade->declarations($element)[$property] ?? '';
         if ('' === $resting || str_starts_with($property, '--')) {
             return false;
         }
@@ -721,7 +724,7 @@ final class StyleResolver implements ElementPresentationResolver
                 }
             }
         }
-        $customProperties = $this->cascadedCustomProperties($element, true);
+        $customProperties = $this->cascade->customProperties($element, true);
         $resolve = function (string $declared) use ($customProperties, $live): string {
             $declared = preg_replace('/\s*!\s*important\s*$/i', '', $declared) ?? $declared;
             return trim($this->expandCssVariableReferences($declared, $customProperties, $live));
@@ -1048,7 +1051,7 @@ final class StyleResolver implements ElementPresentationResolver
                     $conditions[] = $condition;
                 }
             }
-            if ( array() !== $conditions && ! $this->conditionsApplyAtViewport($conditions, $viewportWidth) ) {
+            if ( array() !== $conditions && ! $this->cascade->conditionsApplyAtViewport($conditions, $viewportWidth) ) {
                 continue;
             }
             $rules[] = array(
@@ -1109,7 +1112,7 @@ final class StyleResolver implements ElementPresentationResolver
                 if ('' === $selector || $this->selectorCarriesPseudoState($selector)) continue;
                 $match = $author->selectorMatchCache()->matches($element, $selector, $record['parsed'] ?? array());
                 if (!($match['supported'] ?? false) || !($match['matches'] ?? false)) continue;
-                $candidate = $this->mediaTextSelectorSpecificity($selector);
+                $candidate = $this->cascade->specificity($selector);
                 if (null === $specificity || $candidate > $specificity) $specificity = $candidate;
             }
             if (null === $specificity) continue;
@@ -1156,11 +1159,11 @@ final class StyleResolver implements ElementPresentationResolver
         $requested = array_flip($properties);
         $order = 0;
         foreach ( $rules as $rule ) {
-            if ( array() !== $rule['conditions'] && ! $this->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) ) continue;
+            if ( array() !== $rule['conditions'] && ! $this->cascade->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) ) continue;
             $specificity = null;
             foreach ( $rule['selectors'] as $selector ) {
                 if ( $matches($selector) ) {
-                    $candidate = $this->mediaTextSelectorSpecificity($selector);
+                    $candidate = $this->cascade->specificity($selector);
                     if ( null === $specificity || $candidate > $specificity ) $specificity = $candidate;
                 }
             }
@@ -1188,7 +1191,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
         uasort($facts, static fn(array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
         return array_replace(
-            array_intersect_key($this->presentationalHintDeclarations($element), $requested),
+            array_intersect_key(SourceCascade::presentationalHints($element), $requested),
             array_map(static fn(array $fact): string => $fact['value'], $facts)
         );
     }
@@ -1311,7 +1314,7 @@ final class StyleResolver implements ElementPresentationResolver
                 'applies' => array() === $conditions || $this->conditionsApplyAtReferenceViewport($conditions),
                 'important' => CssValueInspector::isImportant($declared),
                 'layerRank' => $rule['layerRank'] ?? null,
-                'specificity' => $this->mediaTextSelectorSpecificity((string) $rule['selector']),
+                'specificity' => $this->cascade->specificity((string) $rule['selector']),
                 'order' => (int) ($rule['cascadeOrder'] ?? $index),
             );
         }
@@ -1563,7 +1566,7 @@ final class StyleResolver implements ElementPresentationResolver
                 'layerRank' => $rule['layerRank'] ?? null,
                 'important' => CssValueInspector::isImportant($declared),
                 'order' => (int) ($rule['cascadeOrder'] ?? $index),
-                'specificity' => $this->mediaTextSelectorSpecificity($selector),
+                'specificity' => $this->cascade->specificity($selector),
             );
         }
 
@@ -1594,7 +1597,7 @@ final class StyleResolver implements ElementPresentationResolver
                 'layerRank' => $rule['layerRank'] ?? null,
                 'important' => CssValueInspector::isImportant($declared),
                 'order' => (int) ($rule['cascadeOrder'] ?? $index),
-                'specificity' => $this->mediaTextSelectorSpecificity($selector),
+                'specificity' => $this->cascade->specificity($selector),
             );
         }
 
@@ -1939,10 +1942,10 @@ final class StyleResolver implements ElementPresentationResolver
             $this->applyMediaTextCascadeDeclaration($cascade, $property, $kind . ':' . $value, $inline, $specificity, ++$sequence, $layer);
         };
         foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'static') as $rule ) {
-            if ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtViewport($rule['conditions'], self::DESKTOP_REFERENCE_WIDTH) ) {
+            if ( ! empty($rule['conditions']) && ! $this->cascade->conditionsApplyAtViewport($rule['conditions'], self::DESKTOP_REFERENCE_WIDTH) ) {
                 continue;
             }
-            $specificity = $this->mediaTextSelectorSpecificity((string) $rule['selector']);
+            $specificity = $this->cascade->specificity((string) $rule['selector']);
             // Apply the rule's shorthand and longhand in authored order.
             $entries = array();
             if ( isset($rule['declarations'][$property]) ) $entries[] = array( 'longhand', (string) $rule['declarations'][$property] );
@@ -2004,8 +2007,8 @@ final class StyleResolver implements ElementPresentationResolver
             if ( 1 === preg_match('/!\s*important\s*$/i', $value) ) {
                 return '';
             }
-            $specificity = $this->mediaTextSelectorSpecificity((string) ($rule['base_selector'] ?? ''));
-            if ( null === $winnerSpecificity || $this->compareMediaTextSpecificity($specificity, $winnerSpecificity) >= 0 ) {
+            $specificity = $this->cascade->specificity((string) ($rule['base_selector'] ?? ''));
+            if ( null === $winnerSpecificity || ($specificity <=> $winnerSpecificity) >= 0 ) {
                 $winner = $value;
                 $winnerSpecificity = $specificity;
             }
@@ -2985,8 +2988,8 @@ final class StyleResolver implements ElementPresentationResolver
                     || $important !== CssValueInspector::isImportant((string) $value) ) {
                     continue;
                 }
-                $specificity = $this->mediaTextSelectorSpecificity((string) ( $rule['selector'] ?? '' ));
-                if ( $this->compareMediaTextSpecificity($specificity, $highest) > 0 ) {
+                $specificity = $this->cascade->specificity((string) ( $rule['selector'] ?? '' ));
+                if ( ($specificity <=> $highest) > 0 ) {
                     $highest = $specificity;
                 }
                 break;
@@ -3089,7 +3092,7 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             $local = array(
-                CssValueInspector::comparable((string) ( $this->presentationalHintDeclarations($node)['text-align'] ?? '' )),
+                CssValueInspector::comparable((string) ( SourceCascade::presentationalHints($node)['text-align'] ?? '' )),
                 CssValueInspector::comparable((string) ( SourceDeclarations::inline($node)['text-align'] ?? '' )),
             );
             if ( ! in_array($value, $local, true)
@@ -4028,15 +4031,15 @@ final class StyleResolver implements ElementPresentationResolver
         $entries = array();
         $order = 0;
         foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'static') as $rule ) {
-            $specificity = $rule['mediaTextSpecificity'] ?? $this->mediaTextSelectorSpecificity((string) $rule['selector']);
+            $specificity = $rule['mediaTextSpecificity'] ?? $this->cascade->specificity((string) $rule['selector']);
             $ruleOrder = (int) ($rule['cascadeOrder'] ?? $order);
             foreach ( $rule['declarations'] as $property => $value ) {
-                $entries[] = $this->cascadeEntry((string) $property, (string) $value, false, $specificity, $ruleOrder, $rule['layerRank'] ?? null);
+                $entries[] = SourceCascade::entry((string) $property, (string) $value, false, $specificity, $ruleOrder, $rule['layerRank'] ?? null);
             }
             ++$order;
         }
         foreach ( SourceDeclarations::inline($element) as $property => $value ) {
-            $entries[] = $this->cascadeEntry((string) $property, (string) $value, true, array( 0, 0, 0 ), PHP_INT_MAX, null);
+            $entries[] = SourceCascade::entry((string) $property, (string) $value, true, array( 0, 0, 0 ), PHP_INT_MAX, null);
         }
         // Stable: equal facts (one rule's declarations) keep declaration order.
         usort($entries, static fn (array $left, array $right): int => CssCascade::wins($left, $right)
@@ -4545,57 +4548,6 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * @return array{int, int, int}
-     */
-    public function mediaTextSelectorSpecificity(string $selector): array
-    {
-        $parsed = $this->context->parsedCssSelector($selector);
-        if (! ($parsed['supported'] ?? false)) {
-            return array( 0, 0, 0 );
-        }
-
-        $ids = 0;
-        $classes = 0;
-        $elements = 0;
-        foreach ($parsed['compounds'] as $compound) {
-            if ( true === ($compound['forced_zero_specificity'] ?? false) ) {
-                continue;
-            }
-            $zeroSpecificity = $compound['zero_specificity'] ?? array();
-            $ids += count($compound['ids'] ?? array()) - (int) ($zeroSpecificity['ids'] ?? 0);
-            $classes += count($compound['classes'] ?? array()) + count($compound['attributes'] ?? array())
-                - (int) ($zeroSpecificity['classes'] ?? 0) - (int) ($zeroSpecificity['attributes'] ?? 0);
-            if (null !== ($compound['nth_child'] ?? null) || ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false)) {
-                ++$classes;
-            }
-            if (null !== ($compound['type'] ?? null) && 0 === (int) ($zeroSpecificity['types'] ?? 0)) {
-                ++$elements;
-            }
-            $listSpecificity = CssSelectorMatcher::selectorListArgumentSpecificity($compound);
-            $ids += $listSpecificity['ids'];
-            $classes += $listSpecificity['classes'];
-            $elements += $listSpecificity['types'];
-        }
-
-        return array( $ids, $classes, $elements );
-    }
-
-    /**
-     * @param array{int, int, int} $left
-     * @param array{int, int, int} $right
-     */
-    public function compareMediaTextSpecificity(array $left, array $right): int
-    {
-        foreach ( array( 0, 1, 2 ) as $index ) {
-            if ( $left[ $index ] !== $right[ $index ] ) {
-                return $left[ $index ] <=> $right[ $index ];
-            }
-        }
-
-        return 0;
-    }
-
-    /**
      * Resolve full authored layout style for media-text strict gates, including
      * low-value direct children that general presentation resolution skips.
      */
@@ -4994,7 +4946,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $inlineStyle = SourceDom::attr($element, 'style');
-        if ( array() === $this->presentationalHintDeclarations($element) && (array() === $this->session->sourceStyleResolutionState()->staticRules() || (! $this->isHighValueStyledElement($element) && ! $this->hasGenericRecognitionDemand($element))) ) {
+        if ( array() === SourceCascade::presentationalHints($element) && (array() === $this->session->sourceStyleResolutionState()->staticRules() || (! $this->isHighValueStyledElement($element) && ! $this->hasGenericRecognitionDemand($element))) ) {
             $cache->mergedStyles[$cacheKey] = $inlineStyle;
             return $inlineStyle;
         }
@@ -5179,13 +5131,13 @@ final class StyleResolver implements ElementPresentationResolver
         $cascade = array();
         $sequence = 0;
         foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, $collection) as $rule ) {
-            if ( ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) )
+            if ( ( ! empty($rule['conditions']) && ! $this->cascade->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) )
                 || ( null !== $excludeSelector && $excludeSelector((string) $rule['selector']) )
             ) {
                 continue;
             }
 
-            $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
+            $specificity = $this->cascade->specificity($rule['selector']);
             foreach ( $rule['declarations'] as $property => $value ) {
                 $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, false, $specificity, ++$sequence, $rule['layerRank'] ?? null);
             }
@@ -5208,38 +5160,9 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        return $this->cssDeclarationString(array_replace($this->presentationalHintDeclarations($element), $declarations));
+        return $this->cssDeclarationString(array_replace(SourceCascade::presentationalHints($element), $declarations));
     }
 
-    /**
-     * HTML presentational hints have zero specificity and precede every author
-     * rule (including layered rules). Merge them underneath the resolved author
-     * cascade, never as inline declarations, so ordinary inheritance applies.
-     *
-     * @return array<string, string>
-     */
-    private function presentationalHintDeclarations(DOMElement $element): array
-    {
-        $tag = strtolower($element->tagName);
-        $declarations = array();
-        // HTML maps the obsolete <center> element to centered, inherited text alignment.
-        if ('center' === $tag) {
-            $declarations['text-align'] = 'center';
-        }
-        if (in_array($tag, array('div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'td', 'th'), true)) {
-            $align = strtolower(trim(SourceDom::attr($element, 'align')));
-            if (in_array($align, array('left', 'center', 'right', 'justify'), true)) {
-                $declarations['text-align'] = $align;
-            }
-        }
-        if (in_array($tag, array('td', 'th', 'tr'), true)) {
-            $valign = strtolower(trim(SourceDom::attr($element, 'valign')));
-            if (in_array($valign, array('top', 'middle', 'bottom', 'baseline'), true)) {
-                $declarations['vertical-align'] = $valign;
-            }
-        }
-        return $declarations;
-    }
     /**
      * Return the authored cascade winner for an inherited property. Theme and
      * user-agent defaults are deliberately absent: callers use this only when
@@ -5348,7 +5271,7 @@ final class StyleResolver implements ElementPresentationResolver
                 if ($navigationEditor) {
                     // Preserve unresolved operands inside a fluid size while
                     // substituting the ancestor-scoped shorthand itself.
-                    $properties = $this->cascadedCustomProperties($element);
+                    $properties = $this->cascade->customProperties($element);
                     $resolvedFont = CssVariableExpander::expand($font, static fn(string $name): ?string => $properties[$name] ?? null, 0, static fn(string $name): bool => !isset($properties[$name])) ?? $resolvedFont;
                 }
                 $expanded = CssFontShorthand::expand($resolvedFont, $navigationEditor);
@@ -5377,7 +5300,7 @@ final class StyleResolver implements ElementPresentationResolver
                 $declarations = array_map(static fn(string $value): string => 'initial' . (CssValueInspector::isImportant($value) ? ' !important' : ''), $declarations);
                 if (null !== $font) $font = 'initial' . (CssValueInspector::isImportant($font) ? ' !important' : '');
             }
-            $apply($declarations, $font, $rule['pendingFontFollowingProperties'] ?? array(), false, $this->mediaTextSelectorSpecificity($rule['selector']), $rule['layerRank'] ?? null);
+            $apply($declarations, $font, $rule['pendingFontFollowingProperties'] ?? array(), false, $this->cascade->specificity($rule['selector']), $rule['layerRank'] ?? null);
         }
         $inline = SourceDeclarations::inline($element);
         $order = array_flip(array_keys($inline));
@@ -5399,7 +5322,7 @@ final class StyleResolver implements ElementPresentationResolver
         $cascade = array();
         $sequence = 0;
         foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'static') as $rule ) {
-            $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
+            $specificity = $this->cascade->specificity($rule['selector']);
             $entries = $rule['mediaTextDeclarations'] ?? array();
             foreach ( $rule['declarations'] ?? array() as $property => $value ) {
                 if ( ! in_array(strtolower((string) $property), array( 'gap', 'row-gap', 'column-gap' ), true) ) {
@@ -5601,7 +5524,7 @@ final class StyleResolver implements ElementPresentationResolver
         // `safeVisualDeclarations()` allow-list used for classification —
         // lets paint materialization resolve the same cascade a browser
         // would, including id/class-scoped custom-property indirection.
-        $cascadedValueDeclarations = $this->cascadeRelevantDeclarations($rawDeclarations);
+        $cascadedValueDeclarations = SourceCascade::relevantDeclarations($rawDeclarations);
         // Which custom properties this rule READS, taken from the same
         // unfiltered stream. Consumption is not confined to the
         // classification allow-list — `opacity`, `transform`, `filter`
@@ -5695,7 +5618,7 @@ final class StyleResolver implements ElementPresentationResolver
                     'selector' => $selector,
                     'declarations' => $declarations,
                     'mediaTextDeclarations' => $mediaTextDeclarations,
-                    'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
+                    'mediaTextSpecificity' => $this->cascade->specificity($selector),
                     'layer' => $layer,
                     'layerRank' => null === $layer ? null : ($layers[$layer] ?? null),
                 ));
@@ -5791,7 +5714,7 @@ final class StyleResolver implements ElementPresentationResolver
             CssCascade::apply($facts, $rule['property'], array(
                 'value' => $rule['value'],
                 'important' => CssValueInspector::isImportant($rule['value']),
-                'specificity' => $this->mediaTextSelectorSpecificity($rule['selector']), 'order' => $rule['order'], 'inline' => false, 'layer' => $rule['layer'] ?? null, 'conditions' => $rule['conditions'],
+                'specificity' => $this->cascade->specificity($rule['selector']), 'order' => $rule['order'], 'inline' => false, 'layer' => $rule['layer'] ?? null, 'conditions' => $rule['conditions'],
             ));
         }
         foreach ($this->imageShapeDeclarationEntries(SourceDom::attr($element, 'style')) as $order => $entry) {
@@ -5856,7 +5779,7 @@ final class StyleResolver implements ElementPresentationResolver
             CssCascade::apply($groups[$key]['facts'], $property, array(
                 'value' => (string) $rule['value'],
                 'important' => CssValueInspector::isImportant((string) $rule['value']),
-                'specificity' => $this->mediaTextSelectorSpecificity((string) $rule['selector']),
+                'specificity' => $this->cascade->specificity((string) $rule['selector']),
                 'order' => (int) $rule['order'],
                 'inline' => false,
                 'layer' => $rule['layer'] ?? null,
@@ -5944,7 +5867,7 @@ final class StyleResolver implements ElementPresentationResolver
         $carried = array();
         // A property no rule under these conditions defines falls back to the
         // resting cascade only, never to a value another viewport defines.
-        $static = $this->cascadedCustomProperties($element, true);
+        $static = $this->cascade->customProperties($element, true);
         $visited = array();
         // Resolve dependencies through the same source scope, with a bound
         // that also terminates cyclic custom-property references.
@@ -5961,7 +5884,7 @@ final class StyleResolver implements ElementPresentationResolver
                     if ( ($rule['conditions'] ?? array()) === $conditions && '' !== $value ) {
                         CssCascade::apply($facts, $name, array(
                             'value' => $value, 'important' => CssValueInspector::isImportant($value),
-                            'specificity' => $this->mediaTextSelectorSpecificity((string) $rule['selector']),
+                            'specificity' => $this->cascade->specificity((string) $rule['selector']),
                             'order' => (int) ($rule['cascadeOrder'] ?? $order),
                             'inline' => false, 'layer' => $rule['layerRank'] ?? null,
                         ));
@@ -6011,40 +5934,7 @@ final class StyleResolver implements ElementPresentationResolver
     /** @param list<string> $conditions */
     private function conditionsApplyAtReferenceViewport(array $conditions): bool
     {
-        return $this->conditionsApplyAtViewport($conditions, self::DESKTOP_REFERENCE_WIDTH);
-    }
-
-    /**
-     * Whether a declaration's at-rule conditions all hold at one viewport width.
-     *
-     * `@layer` only orders the cascade and never conditions. `@supports` holds
-     * when the allowlist knows the feature to be true. `@media` is evaluated
-     * at the given width, with `em`/`rem` read against the 16px media-query
-     * base. Any other at-rule, and any media feature the evaluator does not
-     * know, does not hold.
-     *
-     * @param list<string> $conditions
-     */
-    public function conditionsApplyAtViewport(array $conditions, float $viewportWidth): bool
-    {
-        foreach ($conditions as $condition) {
-            $condition = trim($condition);
-            if (preg_match('/^@layer\b/i', $condition)) continue;
-            if (preg_match('/^@supports\b/i', $condition)) {
-                if (!CssCascade::supportsConditionApplies((string) preg_replace('/^@supports\s*/i', '', $condition))) return false;
-            } elseif (preg_match('/^@media\b/i', $condition)) {
-                if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), $viewportWidth)) return false;
-            } elseif (preg_match('/^@container\b/i', $condition)) {
-                // A style query on a viewport-switched custom property holds
-                // wherever the viewport sets the queried value.
-                $applies = $this->session->sourceStyleResolutionState()->containerStyleQueries()->applies(
-                    $condition,
-                    fn (array $own): bool => $this->conditionsApplyAtViewport($own, $viewportWidth)
-                );
-                if (true !== $applies) return false;
-            } else return false;
-        }
-        return true;
+        return $this->cascade->conditionsApplyAtViewport($conditions, self::DESKTOP_REFERENCE_WIDTH);
     }
 
     /**
@@ -6176,66 +6066,6 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * The subset of a declaration map needed to resolve values outside the
-     * classification allow-list: SVG paint/layout, animation identity, and
-     * custom properties. Keeping this stream separate lets SVG materialization
-     * and structural `var()` resolution share the real matched cascade without
-     * changing general classification.
-     *
-     * @param array<string, string> $declarations
-     * @return array<string, string>
-     */
-    private function cascadeRelevantDeclarations(array $declarations): array
-    {
-        static $cascadeProperties = array(
-            'box-sizing' => true,
-            'color' => true,
-            // Keep paint readers before substitution for state-local token swaps.
-            'background-color' => true,
-            'background' => true,
-            // Anchor carriers must resolve authored decoration even when the
-            // general presentation demand filter skips an ordinary text link.
-            'text-decoration' => true,
-            'text-decoration-line' => true,
-            'fill' => true,
-            'fill-opacity' => true,
-            'stroke' => true,
-            'stroke-opacity' => true,
-            'stroke-width' => true,
-            'animation' => true,
-            'animation-name' => true,
-            'opacity' => true,
-            'transform' => true,
-            'transform-origin' => true,
-            'rotate' => true,
-            'scale' => true,
-            'translate' => true,
-            'transition-property' => true,
-            'transition-duration' => true,
-            'transition-timing-function' => true,
-            'transition-delay' => true,
-            // Grid-item placement: resolved for native core grid child
-            // layout (Automattic/blocks-engine#2139).
-            'grid-area' => true,
-            'grid-column' => true,
-            'grid-column-start' => true,
-            'grid-column-end' => true,
-            'grid-row' => true,
-            'grid-row-start' => true,
-            'grid-row-end' => true,
-        );
-
-        $filtered = array();
-        foreach ( $declarations as $name => $value ) {
-            if ( str_starts_with($name, '--') || isset($cascadeProperties[$name]) ) {
-                $filtered[$name] = $value;
-            }
-        }
-
-        return $filtered;
-    }
-
-    /**
      * @param array<string, string> $declarations
      */
     public function cssDeclarationString(array $declarations): string
@@ -6310,7 +6140,7 @@ final class StyleResolver implements ElementPresentationResolver
                         continue;
                     }
                     if ( $this->session->sourceStyleResolutionState()->matches($dialog, $selector) ) {
-                        $rest[] = array('specificity' => $this->mediaTextSelectorSpecificity($selector), 'order' => $order++, 'declarations' => $declarations);
+                        $rest[] = array('specificity' => $this->cascade->specificity($selector), 'order' => $order++, 'declarations' => $declarations);
                         continue;
                     }
                     $subject = substr($selector, (int) $span['start'], (int) $span['end'] - (int) $span['start']);
@@ -6750,13 +6580,13 @@ final class StyleResolver implements ElementPresentationResolver
     /** Resolve state-local tokens as well as the resting inherited tokens. */
     public function resolveStateCssVariablesInValue(string $value, DOMElement $element, string $state): string
     {
-        $properties = $this->cascadedCustomProperties($element, true);
+        $properties = $this->cascade->customProperties($element, true);
         $cascade = array();
         $sequence = 0;
         foreach ($this->session->sourceStyleResolutionState()->navigationStateRules() as $rule) {
             if ($state !== $rule['state'] || !$this->session->sourceStyleResolutionState()->matches($element, (string) $rule['base_selector'])) continue;
             foreach ($rule['customProperties'] ?? array() as $name => $declared) {
-                $this->applyMediaTextCascadeDeclaration($cascade, $name, $declared, false, $this->mediaTextSelectorSpecificity((string) $rule['selector']), ++$sequence, null);
+                $this->applyMediaTextCascadeDeclaration($cascade, $name, $declared, false, $this->cascade->specificity((string) $rule['selector']), ++$sequence, null);
             }
         }
         foreach ($cascade as $name => $winner) $properties[$name] = $winner['value'];
@@ -6770,7 +6600,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $customProperties = $element instanceof DOMElement
-            ? $this->cascadedCustomProperties($element)
+            ? $this->cascade->customProperties($element)
             : $this->session->sourceStyleResolutionState()->customProperties();
 
         // Conditional palette definitions are runtime values, not capture
@@ -6855,7 +6685,7 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function resolveDefaultSchemeCssVariablesInValue(string $value, DOMElement $element): string
     {
-        return false === strpos($value, 'var(') ? $value : $this->expandCssVariableReferences($value, $this->cascadedCustomProperties($element));
+        return false === strpos($value, 'var(') ? $value : $this->expandCssVariableReferences($value, $this->cascade->customProperties($element));
     }
 
     /**
@@ -6872,7 +6702,7 @@ final class StyleResolver implements ElementPresentationResolver
             return $value;
         }
 
-        $customProperties = $this->cascadedCustomProperties($element);
+        $customProperties = $this->cascade->customProperties($element);
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
             foreach ( $this->session->sourceStyleResolutionState()->matchingRules($node, 'conditional') as $rule ) {
                 foreach ( $rule['cascadedDeclarations'] ?? array() as $name => $declared ) {
@@ -6904,61 +6734,6 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Matched CSS and inline declarations from the generic cascaded-value
-     * stream. Unlike {@see presentationDeclarations()}, this is not limited to
-     * classification properties, so callers can resolve custom properties at
-     * an element's actual cascade scope.
-     *
-     * @return array<string, string>
-     */
-    public function matchedCascadedDeclarations(DOMElement $element): array
-    {
-        return $this->session->sourceStyleResolutionState()->cascadedDeclarations($element, $this->computeCascadedDeclarations(...))['declarations'];
-    }
-
-    /** @return array<string, string> */
-    private function computeCascadedDeclarations(DOMElement $element): array
-    {
-        // Fold declarations weakest first, in the shared cascade order
-        // (importance, inline, layer, specificity, source order), so the merge
-        // keeps the value a browser computes rather than the last one written.
-        $entries = array();
-        $order = 0;
-        foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'cascaded-values') as $rule ) {
-            $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
-            foreach ( $rule['declarations'] as $property => $value ) {
-                $entries[] = $this->cascadeEntry((string) $property, (string) $value, false, $specificity, ++$order, $rule['layerRank'] ?? null);
-            }
-        }
-        foreach ( $this->cascadeRelevantDeclarations(SourceDeclarations::inline($element)) as $property => $value ) {
-            $entries[] = $this->cascadeEntry((string) $property, (string) $value, true, array( 0, 0, 0 ), ++$order, null);
-        }
-        usort($entries, static fn (array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
-
-        // Presentational hints sit beneath every author declaration.
-        $declarations = $this->presentationalHintDeclarations($element);
-        foreach ( $entries as $entry ) {
-            $declarations = SourceDeclarations::merge($declarations, array( $entry['property'] => $entry['value'] ));
-        }
-
-        return $declarations;
-    }
-
-    /** @param array{0:int,1:int,2:int} $specificity @return array<string, mixed> */
-    private function cascadeEntry(string $property, string $value, bool $inline, array $specificity, int $order, ?int $layer): array
-    {
-        return array(
-            'property'    => $property,
-            'value'       => $value,
-            'important'   => 1 === preg_match('/!\s*important\s*$/i', $value),
-            'inline'      => $inline,
-            'specificity' => $specificity,
-            'order'       => $order,
-            'layer'       => $layer,
-        );
-    }
-
-    /**
      * Custom properties the stylesheets declare on `:root` or `html`.
      *
      * @return array<string, string>
@@ -6966,82 +6741,6 @@ final class StyleResolver implements ElementPresentationResolver
     public function rootCustomProperties(): array
     {
         return $this->session->sourceStyleResolutionState()->customProperties();
-    }
-
-    /**
-     * Custom properties visible to `$element` through the unfiltered cascade,
-     * scoped by ancestry rather than limited to `:root`/`html`. An id- or
-     * class-scoped `--token` an ancestor declares is a legitimate source.
-     * This supports any property that needs an element-scoped `var()` value,
-     * including SVG paint and structural layout declarations.
-     *
-     * Values resolve at the desktop reference viewport: a token an ancestor
-     * declares only under a media query that applies there (for example
-     * `@media (min-width:981px)`) fills in where no resting rule on that
-     * ancestor declares it. Pass `$resting = true` for the resting cascade
-     * alone, so a value conditioned on another viewport stays out of it.
-     *
-     * @return array<string, string>
-     */
-    public function cascadedCustomProperties(DOMElement $element, bool $resting = false): array
-    {
-        return $this->session->sourceStyleResolutionState()->cascadedCustomProperties(
-            $element,
-            $resting,
-            fn(array $ancestors): array => $this->computeCascadedCustomProperties($ancestors, $resting)
-        );
-    }
-
-    /**
-     * @param list<DOMElement> $ancestors The element followed by its ancestors, nearest first.
-     * @return array<string, string>
-     */
-    private function computeCascadedCustomProperties(array $ancestors, bool $resting): array
-    {
-        $sourceStyles = $this->session->sourceStyleResolutionState();
-        $customProperties = $sourceStyles->customProperties();
-        foreach ( array_reverse($ancestors) as $ancestor ) {
-            $declared = $sourceStyles->cascadedDeclarations($ancestor, $this->computeCascadedDeclarations(...))['custom'];
-            if ( ! $resting ) {
-                $declared += $this->desktopConditionedCustomProperties($ancestor);
-            }
-            foreach ( $declared as $name => $propertyValue ) {
-                $customProperties[$name] = $propertyValue;
-            }
-        }
-
-        return $customProperties;
-    }
-
-    /**
-     * Custom properties the element's own media-conditioned rules declare at
-     * the desktop reference viewport, cascade winner per name.
-     *
-     * @return array<string, string>
-     */
-    private function desktopConditionedCustomProperties(DOMElement $element): array
-    {
-        $facts = array();
-        foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'conditional') as $order => $rule ) {
-            $conditions = $rule['conditions'] ?? array();
-            if ( array() === $conditions || ! $this->conditionsApplyAtViewport($conditions, self::DESKTOP_REFERENCE_WIDTH) ) {
-                continue;
-            }
-            foreach ( $rule['cascadedDeclarations'] ?? array() as $name => $value ) {
-                $value = trim((string) $value);
-                if ( ! str_starts_with((string) $name, '--') || '' === $value ) {
-                    continue;
-                }
-                CssCascade::apply($facts, (string) $name, array(
-                    'value' => $value, 'important' => CssValueInspector::isImportant($value),
-                    'specificity' => $this->mediaTextSelectorSpecificity((string) $rule['selector']),
-                    'order' => (int) ($rule['cascadeOrder'] ?? $order),
-                    'inline' => false, 'layer' => $rule['layerRank'] ?? null,
-                ));
-            }
-        }
-
-        return array_map(static fn (array $fact): string => $fact['value'], $facts);
     }
 
     /**
@@ -7064,7 +6763,7 @@ final class StyleResolver implements ElementPresentationResolver
             return array();
         }
 
-        $customProperties = $this->cascadedCustomProperties($element);
+        $customProperties = $this->cascade->customProperties($element);
         $carried = array();
         foreach ( array_unique($matches[1]) as $name ) {
             $declared = trim((string) ( $customProperties[ $name ] ?? '' ));
@@ -7080,7 +6779,7 @@ final class StyleResolver implements ElementPresentationResolver
     /** @return array<string, string> */
     private function conditionalCascadedCustomProperties(DOMElement $element): array
     {
-        $customProperties = $this->cascadedCustomProperties($element);
+        $customProperties = $this->cascade->customProperties($element);
         $ancestors = array();
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
             $ancestors[] = $current;
@@ -7122,7 +6821,7 @@ final class StyleResolver implements ElementPresentationResolver
 
         return false === strpos($declared, 'var(')
             ? $declared
-            : $this->expandCssVariableReferences($declared, $this->cascadedCustomProperties($element));
+            : $this->expandCssVariableReferences($declared, $this->cascade->customProperties($element));
     }
 
     /** Resolve inherited SVG paint using the source cascade and presentation attributes. */
@@ -7211,7 +6910,7 @@ final class StyleResolver implements ElementPresentationResolver
     /**
      * Expand `var()` in an arbitrary structural declaration value (e.g.
      * `display`, `align-self`) against the unfiltered custom-property cascade
-     * {@see cascadedCustomProperties()} tracks. This avoids duplicating the
+     * {@see SourceCascade::customProperties()} tracks. This avoids duplicating the
      * element-scoped custom-property cascade for structural declarations.
      */
     public function resolveStructuralCssVariablesInValue(string $value, DOMElement $element): string
@@ -7220,7 +6919,7 @@ final class StyleResolver implements ElementPresentationResolver
             return $value;
         }
 
-        return $this->expandCssVariableReferences($value, $this->cascadedCustomProperties($element));
+        return $this->expandCssVariableReferences($value, $this->cascade->customProperties($element));
     }
 
     /** A `<br>` breaks a line only in flow: a flex or grid parent blockifies each run into its own item. */

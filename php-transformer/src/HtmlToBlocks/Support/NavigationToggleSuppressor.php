@@ -298,7 +298,7 @@ final class NavigationToggleSuppressor
                 return false;
             }
             $value = $this->styleResolver->declaredPresentation($node, 'display')->resolvedValueWhere(
-                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                fn (array $conditions): bool => $this->session->sourceCascade()->conditionsApplyAtViewport($conditions, $width)
             );
             $value = $this->styleResolver->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant(trim($value)), $node, $width);
             if ( 'none' === strtolower(trim($value)) ) {
@@ -1817,7 +1817,7 @@ final class NavigationToggleSuppressor
             }
             $display = $this->styleResolver->declaredPresentation($select, 'display');
             $at = fn (float $width): string => strtolower(CssValueInspector::withoutImportant(trim($display->resolvedValueWhere(
-                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                fn (array $conditions): bool => $this->session->sourceCascade()->conditionsApplyAtViewport($conditions, $width)
             ))));
             $menu = $navigation;
             if ( SourceDom::elementContains($navigation, $select) ) {
@@ -1830,7 +1830,7 @@ final class NavigationToggleSuppressor
             }
             $navDisplay = $this->styleResolver->declaredPresentation($menu, 'display');
             $navAt = fn (float $width): string => strtolower(CssValueInspector::withoutImportant(trim($navDisplay->resolvedValueWhere(
-                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                fn (array $conditions): bool => $this->session->sourceCascade()->conditionsApplyAtViewport($conditions, $width)
             ))));
             if ( 'none' === $at($boundary + 1) && '' !== $at($boundary) && 'none' !== $at($boundary)
                 && 'none' === $navAt($boundary) && 'none' !== $navAt($boundary + 1) ) {
@@ -2370,7 +2370,7 @@ final class NavigationToggleSuppressor
         $hiddenAt = function (array $path, float $width) use ($displayOf): bool {
             foreach ( $path as $element ) {
                 $value = $displayOf($element)->resolvedValueWhere(
-                    fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                    fn (array $conditions): bool => $this->session->sourceCascade()->conditionsApplyAtViewport($conditions, $width)
                 );
                 $value = $this->styleResolver->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant(trim($value)), $element, $width);
                 if ( 'none' === strtolower(trim($value)) ) {

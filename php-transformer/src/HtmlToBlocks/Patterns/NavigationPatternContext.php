@@ -266,7 +266,7 @@ final class NavigationPatternContext
         for ($node = $element->parentNode; $node instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
             $properties += $this->styleResolver->consumedInlineCustomProperties($node);
         }
-        $properties = array_intersect_key($this->styleResolver->cascadedCustomProperties($element), $properties);
+        $properties = array_intersect_key($this->session->sourceCascade()->customProperties($element), $properties);
         return $this->styleResolver->cssDeclarationString($properties) . (array() === $properties ? '' : ';') . $style;
     }
 

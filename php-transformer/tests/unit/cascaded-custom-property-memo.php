@@ -43,7 +43,7 @@ $session->sourceStyleResolutionState()->installStylesheetAnalysis(
     array(),
     ( new StylesheetAnalysisComposer($resolver, $analysisCache) )->composedStyleAnalysis(array( '.scope{--tone:red}.own{--tone:blue}' ))
 );
-$tone = static fn (DOMElement $element): string => $resolver->cascadedCustomProperties($element)['--tone'] ?? '';
+$tone = static fn (DOMElement $element): string => $session->sourceCascade()->customProperties($element)['--tone'] ?? '';
 
 $a = $dom->getElementById('a');
 $b = $dom->getElementById('b');

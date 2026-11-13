@@ -97,7 +97,7 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
         }
         $declarations = array_merge(
             $this->styleResolver->structuralPresentationDeclarations($element),
-            $this->styleResolver->matchedCascadedDeclarations($element),
+            $this->session->sourceCascade()->declarations($element),
             SourceDeclarations::inline($element)
         );
         $position = CssValueInspector::declared($declarations, 'position');

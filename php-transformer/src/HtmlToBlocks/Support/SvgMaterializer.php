@@ -58,7 +58,7 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     public function paintsNothing(DOMElement $element): bool
     {
-        return (new SvgPaintEmptiness($this->styleResolver))->paintsNothing($element);
+        return (new SvgPaintEmptiness($this->styleResolver, $this->session->sourceCascade()))->paintsNothing($element);
     }
 
     /**
@@ -1802,7 +1802,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( ! $descendant instanceof DOMElement ) {
                 continue;
             }
-            $declarations = $this->styleResolver->matchedCascadedDeclarations($descendant);
+            $declarations = $this->session->sourceCascade()->declarations($descendant);
             foreach ( array( 'animation', 'animation-name' ) as $property ) {
                 $value = strtolower(trim((string) ($declarations[$property] ?? '')));
                 $value = trim((string) preg_replace('/\s*!important\s*$/i', '', $value));

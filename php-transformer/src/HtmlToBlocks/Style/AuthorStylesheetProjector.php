@@ -68,7 +68,8 @@ final class AuthorStylesheetProjector
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer,
         private readonly AuthorStyleRuleProjector $ruleBodyProjector,
-        private readonly SourceStyleResolutionState $sourceStyles
+        private readonly SourceStyleResolutionState $sourceStyles,
+        private readonly SourceCascade $sourceCascade
     ) {
         $this->buttonDeclarationRouting = new ButtonDeclarationRouting($styleResolver, $semanticPreparer);
     }
@@ -5029,7 +5030,7 @@ final class AuthorStylesheetProjector
                 static fn ($condition): string => trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition)),
                 ArrayField::array($rule, 'conditions')
             )));
-            if ( array() !== $conditions && ! $this->styleResolver->conditionsApplyAtViewport($conditions, StyleResolver::DESKTOP_REFERENCE_WIDTH) ) {
+            if ( array() !== $conditions && ! $this->sourceCascade->conditionsApplyAtViewport($conditions, StyleResolver::DESKTOP_REFERENCE_WIDTH) ) {
                 continue;
             }
             foreach ( ArrayField::array($rule, 'selectors') as $record ) {

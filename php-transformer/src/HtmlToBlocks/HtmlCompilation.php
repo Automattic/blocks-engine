@@ -383,7 +383,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $linkWrapperPropagator = new LinkWrapperPropagator($this->styleResolver, $this->blockFactory);
         $generatedBlockStyleProjector = new GeneratedBlockStyleProjector($this->runtime, $this->styleResolver, $this->session);
-        $this->sourceBlockAttributeProjector = new SourceBlockAttributeProjector($this->styleResolver, $generatedBlockStyleProjector);
+        $this->sourceBlockAttributeProjector = new SourceBlockAttributeProjector($this->styleResolver, $generatedBlockStyleProjector, $this->session->sourceCascade());
         $this->stylesheetAnalysisComposer = new StylesheetAnalysisComposer($this->styleResolver, $this->analysisCache);
         $this->navigationStyleProjector = new NavigationStyleProjector($this->session,
             $this->createNavigationStyleProjectionContext(),
@@ -576,7 +576,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->styleResolver,
             $this->authorSelectorSemanticPreparer,
             $authorStyleRuleProjector,
-            $this->session->sourceStyleResolutionState()
+            $this->session->sourceStyleResolutionState(),
+            $this->session->sourceCascade()
         );
         $textLeafConverter = new TextLeafElementConverter($this->richTextMaterializer, $this->runtime, $this, $this->styleResolver, $this->sourceElementClassifier, $this->createTextLeafElementContext());
         $richTextConverter = new RichTextElementConverter($this, $this->styleResolver, $this->richTextMaterializer, $this->runtime, $this->createRichTextElementContext());
