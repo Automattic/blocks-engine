@@ -202,7 +202,7 @@ final class AuthorStylesheetMaterialization
         $bodyDeclarations = preg_match('/<(?:html|body)\b/i', $html)
             ? $this->styleResolver->authorStructuralDeclarations($this->session->authorStyleAnalysis()->sourceBody())
             : null;
-        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, ( new EditorCanvasBodyBackground() )->supportCss($settleableAuthorCss, $bodyDeclarations));
+        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, ( new EditorCanvasBodyBackground() )->supportCss($settleableAuthorCss, $bodyDeclarations, null !== $bodyDeclarations && $this->htmlOwnsCanvas($this->session->authorStyleAnalysis()->sourceBody())));
         // Engine support CSS may join an author cascade layer, and naming a
         // layer registers it. The editor injects author CSS after the enqueued
         // editor styles, so that registration would otherwise arrive first and
@@ -262,6 +262,28 @@ final class AuthorStylesheetMaterialization
         return false;
     }
 
+
+    /** Whether the source paints its canvas on `html` and never on `body`, under any condition. */
+    private function htmlOwnsCanvas(\DOMElement $body): bool
+    {
+        $html = $this->styleResolver->documentRoot($body);
+        if ( null === $html ) {
+            return false;
+        }
+        $properties = array( 'background', 'background-color', 'background-image' );
+        $paints = function ( \DOMElement $element ) use ( $properties ): bool {
+            $declarations = array_change_key_case($this->styleResolver->resolvedPresentationDeclarations($element));
+            foreach ( $properties as $property ) {
+                $value = strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? ''))));
+                if ( '' !== $value && ! in_array($value, array( 'none', 'transparent', 'initial', 'unset', 'inherit', 'revert', 'revert-layer' ), true) ) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        return $paints($html) && ! $paints($body)
+            && array() === $this->styleResolver->conditionalAuthorDeclaredPropertyValues($body, $properties);
+    }
 
     private function richTextMarkerResetCss(): string
     {

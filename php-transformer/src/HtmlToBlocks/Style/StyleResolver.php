@@ -4135,14 +4135,9 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function documentRootFontSize(DOMElement $context): ?float
     {
-        $document = $context->ownerDocument;
-        if ( null === $document ) {
+        $root = $this->documentRoot($context);
+        if ( null === $root ) {
             return null;
-        }
-
-        $root = $document->documentElement;
-        if ( ! $root instanceof DOMElement || 'html' !== strtolower($root->tagName) ) {
-            $root = $this->analysisDocumentRoot($document);
         }
         if (!$this->hasRootFontSizeRule($root) && !isset($this->inlineDeclarations($root)['font-size'])) {
             return 16.0;
@@ -4169,12 +4164,8 @@ final class StyleResolver implements ElementPresentationResolver
     /** Root author evidence, including html/:root rules in body-only analysis documents. */
     public function hasAuthoredHtmlFontSize(DOMElement $body): bool
     {
-        $document = $body->ownerDocument;
-        if (null === $document) return false;
-        $root = $document->documentElement;
-        if (!$root instanceof DOMElement || 'html' !== strtolower($root->tagName)) {
-            $root = $this->analysisDocumentRoot($document);
-        }
+        $root = $this->documentRoot($body);
+        if (null === $root) return false;
         if (isset($this->inlineDeclarations($root)['font-size'])) return true;
         return $this->hasRootFontSizeRule($root);
     }
@@ -4186,6 +4177,15 @@ final class StyleResolver implements ElementPresentationResolver
             if (isset($rule['declarations']['font-size'])) return true;
         }
         return false;
+    }
+
+    /** The source's `html` element, or its stand-in when analysis parsed only the body. */
+    public function documentRoot(DOMElement $context): ?DOMElement
+    {
+        $document = $context->ownerDocument;
+        if (null === $document) return null;
+        $root = $document->documentElement;
+        return $root instanceof DOMElement && 'html' === strtolower($root->tagName) ? $root : $this->analysisDocumentRoot($document);
     }
 
     private function analysisDocumentRoot(\DOMDocument $document): DOMElement
