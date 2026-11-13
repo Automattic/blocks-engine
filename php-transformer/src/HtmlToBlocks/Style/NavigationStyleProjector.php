@@ -101,6 +101,7 @@ final class NavigationStyleProjector
             // negative delay lands on an animation that never advances, and the
             // element stays on whatever keyframe its fill mode paints.
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important}';
+            $rules[] = ':root [' . \Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE . ']{animation:none!important;opacity:1!important;transform:none!important;clip-path:none!important}';
         }
         if ( $this->session->runtimeBehaviorState()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';

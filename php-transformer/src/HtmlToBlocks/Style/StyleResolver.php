@@ -3497,6 +3497,11 @@ final class StyleResolver implements ElementPresentationResolver
                 $authoredNames[strtolower($name)] ??= $name;
             }
         }
+        // Replay keyframes read custom properties outside ordinary style-rule
+        // matching. Retain their inline scope, which outranks author rules.
+        if ($element->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE)) {
+            $required += array_fill_keys(array_keys($authoredNames), true);
+        }
         $customProperties = array();
         foreach ($declarations as $property => $value) {
             if (str_starts_with($property, '--') && isset($required[$property])) {

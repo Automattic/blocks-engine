@@ -2057,6 +2057,37 @@ final class AuthorStylesheetProjector
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $structuralParsed, $context);
                 continue;
             }
+            // Captured entrance attributes are written by the engine replay,
+            // not by the removed source script. Project the resting subject but
+            // keep its live pose predicate rather than freezing the after pose
+            // into an attribute-state marker.
+            // Stylesheet selector arms can include whitespace before the brace.
+            if (preg_match('/(:not\(\s*\[\s*(data-[a-z0-9_-]+)(?:\s*[~|^$*]?=\s*(?:"[^"]*"|\'[^\']*\'|[^\]\\s]+))?\s*\]\s*\))$/i', rtrim($selector), $pose)) {
+                $base = substr(rtrim($selector), 0, -strlen($pose[1]));
+                $baseParsed = CssSelectorMatcher::parse($base);
+                $subjects = $this->matchingSourceElements($base, $baseParsed, $context);
+                // A custom source host may already have been normalized. Its
+                // descendant's retained ID still identifies the replay owner.
+                if (array() === $subjects && isset($baseParsed['rightmost_compound_span']['start'])) {
+                    $leaf = substr($base, (int) $baseParsed['rightmost_compound_span']['start']);
+                    $leafParsed = CssSelectorMatcher::parse($leaf);
+                    if (str_contains($leaf, '#')) {
+                        $base = $leaf;
+                        $subjects = $this->matchingSourceElements($base, $leafParsed, $context);
+                    }
+                }
+                $driven = array_filter($subjects, static function (DOMElement $element) use ($pose): bool {
+                    $state = json_decode($element->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true);
+                    return is_array($state) && array_key_exists($pose[2], $state['attributes'] ?? array());
+                });
+                if (array() !== $driven && count($driven) === count($subjects)) {
+                    $projected = $this->rewriteSelectorPreludeOnce($base, $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
+                    foreach (CssStylesheetTransformer::splitSelectorList($projected) ?? array() as $target) {
+                        $rewritten[] = $target . $pose[1];
+                    }
+                    continue;
+                }
+            }
             $runtimeProjection = $this->projectRuntimeAttributeSelector($selector, $context);
             if ( null !== $runtimeProjection ) {
                 array_push($rewritten, ...$runtimeProjection);
