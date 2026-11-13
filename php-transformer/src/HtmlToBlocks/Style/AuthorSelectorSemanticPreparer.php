@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
@@ -528,11 +529,12 @@ final class AuthorSelectorSemanticPreparer
             return;
         }
         $projections->installAttributeStateProjectionConditions($selector, array());
-        $rightmostStart = self::rightmostCompoundStart($selector);
-        if ( null === $rightmostStart || 1 === preg_match(self::PSEUDO_ELEMENT, $selector) ) {
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        if ( ! $tokens['supported'] || 1 === preg_match(self::PSEUDO_ELEMENT, $selector) ) {
             return;
         }
-        $ancestry = substr($selector, 0, $rightmostStart);
+        $compoundSpans = $tokens['compound_spans'];
+        $rightmostStart = $compoundSpans[ count($compoundSpans) - 1 ]['start'];
         if ( ! preg_match_all(self::ATTRIBUTE_CONDITION, $selector, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
             return;
         }
@@ -569,9 +571,7 @@ final class AuthorSelectorSemanticPreparer
             if ( ! $parsedCondition['supported'] ) {
                 return;
             }
-            $compoundSource = $isSubjectCondition ? substr($selector, $rightmostStart) : $ancestry;
-            $compoundOffset = $match[0][1] - ($isSubjectCondition ? $rightmostStart : 0);
-            $compound = self::staticSelector(self::enclosingCompound($compoundSource, $compoundOffset));
+            $compound = self::staticSelector(self::enclosingCompound($selector, $compoundSpans, $match[0][1]));
             $parsedCompound = CssSelectorMatcher::parse($compound);
             if ( ! $parsedCompound['supported'] ) {
                 return;
@@ -681,24 +681,19 @@ final class AuthorSelectorSemanticPreparer
         return trim((string) preg_replace(self::DYNAMIC_PSEUDO, '', $selector));
     }
 
-    /** The top-level compound of `$ancestry` containing byte `$offset`. */
-    private static function enclosingCompound(string $ancestry, int $offset): string
+    /**
+     * The top-level compound of `$selector` containing byte `$offset`.
+     *
+     * @param list<array{start: int, end: int}> $compoundSpans
+     */
+    private static function enclosingCompound(string $selector, array $compoundSpans, int $offset): string
     {
-        $start = self::rightmostCompoundStart(substr($ancestry, 0, $offset)) ?? 0;
-        $end = $offset;
-        $depth = 0;
-        $length = strlen($ancestry);
-        for ( ; $end < $length; ++$end ) {
-            $char = $ancestry[ $end ];
-            if ( '(' === $char || '[' === $char ) {
-                ++$depth;
-            } elseif ( ')' === $char || ']' === $char ) {
-                --$depth;
-            } elseif ( 0 === $depth && ( ctype_space($char) || '>' === $char || '+' === $char || '~' === $char ) ) {
-                break;
+        foreach ( $compoundSpans as $span ) {
+            if ( $span['start'] <= $offset && $offset < $span['end'] ) {
+                return substr($selector, $span['start'], $span['end'] - $span['start']);
             }
         }
-        return substr($ancestry, $start, $end - $start);
+        return '';
     }
 
     /**
@@ -748,43 +743,6 @@ final class AuthorSelectorSemanticPreparer
     }
 
     private const EXECUTABLE_SCRIPT_TYPES = array( 'module', 'text/javascript', 'application/javascript', 'application/x-javascript', 'text/ecmascript', 'application/ecmascript', 'text/jscript', 'text/livescript' );
-
-    /** Byte offset where the rightmost compound starts, or null when the selector cannot be split safely. */
-    private static function rightmostCompoundStart(string $selector): ?int
-    {
-        $start = 0;
-        $depth = 0;
-        $quote = '';
-        $length = strlen($selector);
-        for ( $offset = 0; $offset < $length; ++$offset ) {
-            $char = $selector[ $offset ];
-            if ( '' !== $quote ) {
-                if ( '\\' === $char ) {
-                    ++$offset;
-                } elseif ( $quote === $char ) {
-                    $quote = '';
-                }
-                continue;
-            }
-            if ( '"' === $char || "'" === $char ) {
-                $quote = $char;
-            } elseif ( '\\' === $char ) {
-                ++$offset;
-            } elseif ( '(' === $char || '[' === $char ) {
-                ++$depth;
-            } elseif ( ')' === $char || ']' === $char ) {
-                if ( 0 === $depth ) {
-                    return null;
-                }
-                --$depth;
-            } elseif ( 0 === $depth && ( ctype_space($char) || '>' === $char || '+' === $char || '~' === $char ) ) {
-                $start = $offset + 1;
-            } elseif ( 0 === $depth && ',' === $char ) {
-                return null;
-            }
-        }
-        return 0 === $depth && '' === $quote ? $start : null;
-    }
 
     /** @param array<string, mixed> $options */
     private function discoverRuntimeAttributeSelectorPaths(

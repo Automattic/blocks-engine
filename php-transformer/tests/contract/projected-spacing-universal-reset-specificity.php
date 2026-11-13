@@ -58,6 +58,7 @@ $control = (new ArtifactCompiler())->compile(array(
     ),
 ))->toArray();
 $assert(1 === preg_match('/<div\b[^>]*class="[^"]*header-layout[^>]*>/', $control['serialized_blocks'] ?? '', $group), 'Reset-only group survives.');
-$assert(str_contains($group[0], 'padding-top:0') && str_contains($group[0], 'padding-right:0') && str_contains($group[0], 'padding-bottom:0') && str_contains($group[0], 'padding-left:0'), 'Universal reset alone still projects zero padding.');
+$assets = implode("\n", array_column($control['assets'] ?? array(), 'content'));
+$assert(str_contains($group[0], 'blocks-engine-zero-core-group-padding') && str_contains($assets, '.blocks-engine-zero-core-group-padding.blocks-engine-zero-core-group-padding{padding:0}'), 'Universal reset alone projects shared zero padding.');
 
 fwrite(STDOUT, "Projected spacing universal reset specificity contract passed\n");

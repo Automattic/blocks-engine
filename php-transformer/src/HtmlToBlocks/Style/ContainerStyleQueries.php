@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 
 /**
  * Viewport truth of `@container style(--name: value)` conditions.
@@ -43,18 +43,13 @@ final class ContainerStyleQueries
             return;
         }
         (new CssStylesheetTransformer())->visitStyleRules($css, function (string $prelude, string $body, array $conditions) use ($names): void {
-            foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-                $colon = strpos($declaration, ':');
-                if ( false === $colon ) {
-                    continue;
-                }
-                $name = trim(substr($declaration, 0, $colon));
+            foreach ( CssRuleAnalyzer::declarationList($body) as [ 'name' => $name, 'value' => $value ] ) {
                 if ( ! isset($names[$name]) ) {
                     continue;
                 }
                 $this->declarations[$name][] = array(
                     'selector' => trim((string) preg_replace('/\s+/', ' ', $prelude)),
-                    'value' => trim((string) preg_replace('/\s*!\s*important\s*$/i', '', substr($declaration, $colon + 1))),
+                    'value' => trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)),
                     'conditions' => array_values(array_map('strval', $conditions)),
                 );
             }

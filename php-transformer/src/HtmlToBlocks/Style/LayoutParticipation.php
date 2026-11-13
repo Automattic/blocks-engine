@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -311,15 +311,8 @@ final class LayoutParticipation
         }
 
         $width = '';
-        foreach ( CssValueSplitter::splitTopLevel($resolvedStyle, array( ';' )) as $declaration ) {
-            if ( ! str_contains($declaration, ':') ) {
-                continue;
-            }
-            [ $name, $value ] = array_map('trim', explode(':', $declaration, 2));
-            if ( '' === $name || '' === $value ) {
-                continue;
-            }
-            if ( 'width' === strtolower($name) ) {
+        foreach ( CssRuleAnalyzer::declarationList($resolvedStyle) as [ 'name' => $name, 'value' => $value ] ) {
+            if ( 'width' === $name && '' !== $value ) {
                 $width = preg_replace('/\s+/', ' ', $value) ?? $value;
             }
         }

@@ -28,6 +28,27 @@ final class PageStylesheets
     private const PAGE_STYLESHEET_IDENTITY_FIELDS = array('source_path', 'target_path', 'token', 'reconciliation_identity', 'scopes', 'stylesheet_instances', 'references', 'frame_fallback');
 
     /**
+     * A page made later in WordPress renders in the generic page template but
+     * owns no stylesheet. The page that authored the frame lends its own as
+     * the fallback that routes without styles of their own already use. An
+     * entry shell renders on every native template, so its page lends the
+     * stylesheets that dress that chrome in the same way.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<string,mixed> $shellFrames
+     * @param array<int,array<string,mixed>> $parts
+     * @return array<int,array<string,mixed>>
+     */
+    public static function withFrameFallbacks(array $assets, array $shellFrames, array $parts): array
+    {
+        $fallbackSources = array();
+        if (isset($shellFrames['frames']['page']) && is_string($shellFrames['generic_source'])) $fallbackSources[$shellFrames['generic_source']] = true;
+        foreach ($parts as $part) if ('entry_shell' === ($part['placement']['kind'] ?? null)) $fallbackSources[substr((string) $part['source_path'], 0, (int) strrpos((string) $part['source_path'], '#'))] = true;
+        if (array() !== $fallbackSources) foreach ($assets as &$asset) if ('css' === ($asset['kind'] ?? null) && array() !== array_filter($asset['scopes'] ?? array(), static fn(array $scope): bool => 'page' === ($scope['kind'] ?? null) && isset($fallbackSources[$scope['source_path'] ?? '']))) $asset['frame_fallback'] = true; unset($asset);
+        return $assets;
+    }
+
+    /**
      * Place page stylesheets in document order: order each page's projections,
      * give shared projections a slot on every page that loads them, then fold
      * byte-identical page copies into one resource.

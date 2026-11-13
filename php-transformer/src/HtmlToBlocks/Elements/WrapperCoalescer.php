@@ -73,6 +73,10 @@ final class WrapperCoalescer
 
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
 
+    // Charge shared ancestry against the saved List View depth, not only
+    // against the length of each uninterrupted single-child run.
+    private const MAX_NATIVE_WRAPPER_DEPTH = 8;
+
     private bool $wrapperBudgetExceeded = false;
 
     /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
@@ -96,7 +100,8 @@ final class WrapperCoalescer
             $cursor = $cursor['innerBlocks'][0];
         }
         if (2 <= count($ancestorChain)
-            && $depth - 1 + $this->nativeBlockHeight($block) > EditabilityPolicy::THRESHOLDS['max_nesting_depth']) {
+            && ($depth - 1 + $this->nativeBlockHeight($block) > self::MAX_NATIVE_WRAPPER_DEPTH
+                || count($ancestorChain) >= self::MAX_NATIVE_WRAPPER_DEPTH)) {
             return $this->foldWrapperChain($ancestorChain, $this->normalizeWrapperChain($cursor, $depth + 1));
         }
 

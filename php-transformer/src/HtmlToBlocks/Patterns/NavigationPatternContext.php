@@ -955,6 +955,9 @@ final class NavigationPatternContext
             foreach ($resting as $marker => $addresses) {
                 $resting[$marker] = array(' .wp-block-navigation-item' . (str_starts_with($marker, 'blocks-engine-navigation-box-') ? ' .' : '.') . $marker);
             }
+            // Subjects form a set: swapping the current item can change their
+            // discovery order without changing the menu that shared chrome keeps.
+            ksort($resting);
             $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
             $this->recordCurrentItemPresentation($current, $scope, $source);
@@ -1443,6 +1446,22 @@ final class NavigationPatternContext
         return array_reverse($boxes);
     }
 
+    /** Empty item siblings still own flex gaps and authored divider paint. */
+    public function navigationItemEmptySiblings(DOMElement $anchor, DOMElement $item): array
+    {
+        $branch = $anchor;
+        while ($branch->parentNode instanceof DOMElement && !$branch->parentNode->isSameNode($item)) $branch = $branch->parentNode;
+        $result = array();
+        $after = false;
+        foreach ($item->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            if ($child->isSameNode($branch)) { $after = true; continue; }
+            if (!in_array(strtolower($child->tagName), array('span', 'div'), true) || $child->childElementCount || '' !== trim($child->textContent ?? '') || $child->hasAttribute('role') || $child->hasAttribute('tabindex')) continue;
+            $result[] = array('tag' => strtolower($child->tagName), 'after' => $after, 'className' => SourceDom::mergeClassNames($child->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($child))), 'style' => $child->getAttribute('style'));
+        }
+        return $result;
+    }
+
     /** A text-free, link-free sibling of the link that paints only an SVG glyph. */
     private static function isDisclosureGlyph(DOMElement $element, DOMElement $anchor): bool
     {
@@ -1461,7 +1480,7 @@ final class NavigationPatternContext
                 $text = (string) ($selector['selector'] ?? '');
                 // Route state is not item identity: the same item on every route
                 // carries one marker, whichever page the snapshot served.
-                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text, $element) && $this->styleResolver->matchesCssSelector($element, $text)) {
+                if ('' !== $text && $this->styleResolver->matchesCssSelector($element, $text) && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text, $element)) {
                     $rules[] = array($text, $rule['declarations'], $rule['conditions'] ?? array());
                 }
             }
@@ -1687,6 +1706,11 @@ final class NavigationPatternContext
     public function colorInteractionStates(DOMElement $element): array
     {
         return $this->navigationStyleProjector?->navigationColorInteractionStates($element) ?? array();
+    }
+
+    public function inlineMirrorMarker(DOMElement $element): string
+    {
+        return $this->navigationToggleSuppressor?->inlineMirrorMarker($element) ?? '';
     }
 
     public function overlayMenu(DOMElement $element): string
@@ -1957,6 +1981,18 @@ final class NavigationPatternContext
         }
 
         return $alignment;
+    }
+
+    /** Core's vertical layout must still follow authored breakpoint changes. */
+    public function projectNavigationDirection(DOMElement $element, string $marker): void
+    {
+        if (!$this->styleResolver instanceof StyleResolver) return;
+        $direction = $this->styleResolver->declaredPresentation($element, 'flex-direction');
+        if (!$direction->isConditional()) return;
+        $target = ':root .wp-block-navigation.' . $marker . ' .wp-block-navigation__container';
+        foreach ($direction->conditional() as $queries => $value) {
+            $this->sourceTargetProjection?->record(SourceDom::elementSelector($element), $target, 'flex-direction:' . preg_replace('/\s*!important\s*$/i', '', $value) . '!important', explode('{', $queries));
+        }
     }
 
     /** Record unsupported source residue on the native element replacing it. */

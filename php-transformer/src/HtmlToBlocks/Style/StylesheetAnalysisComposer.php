@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
@@ -273,47 +274,55 @@ final class StylesheetAnalysisComposer
     private function hasSafeStylesheetBoundaries(array $payloads): bool
     {
         foreach ( $payloads as $payload ) {
-            $depth = 0;
-            $quote = '';
-            $comment = false;
-            for ( $index = 0, $length = strlen($payload); $index < $length; ++$index ) {
-                $character = $payload[$index];
-                $next = $index + 1 < $length ? $payload[$index + 1] : '';
-                if ( $comment ) {
-                    if ( '*' === $character && '/' === $next ) {
-                        $comment = false;
-                        ++$index;
-                    }
-                    continue;
-                }
-                if ( '' !== $quote ) {
-                    if ( '\\' === $character ) {
-                        ++$index;
-                    } elseif ( $quote === $character ) {
-                        $quote = '';
-                    }
-                    continue;
-                }
-                if ( '/' === $character && '*' === $next ) {
-                    $comment = true;
-                    ++$index;
-                } elseif ( '"' === $character || "'" === $character ) {
-                    $quote = $character;
-                } elseif ( '{' === $character ) {
-                    ++$depth;
-                } elseif ( '}' === $character ) {
-                    --$depth;
-                    if ( $depth < 0 ) {
-                        return false;
-                    }
-                }
-            }
-            if ( $comment || '' !== $quote || 0 !== $depth ) {
+            // Shared stylesheets repeat on every page of a site compile.
+            $safe = $this->analysisCache->safeStylesheetBoundaries[hash('xxh128', $payload)] ??= self::hasSafeBoundaries($payload);
+            if ( ! $safe ) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    /** Whether a stylesheet closes every comment, string and block it opens. */
+    private static function hasSafeBoundaries(string $payload): bool
+    {
+        $depth = 0;
+        $quote = '';
+        $comment = false;
+        for ( $index = 0, $length = strlen($payload); $index < $length; ++$index ) {
+            $character = $payload[$index];
+            $next = $index + 1 < $length ? $payload[$index + 1] : '';
+            if ( $comment ) {
+                if ( '*' === $character && '/' === $next ) {
+                    $comment = false;
+                    ++$index;
+                }
+                continue;
+            }
+            if ( '' !== $quote ) {
+                if ( '\\' === $character ) {
+                    ++$index;
+                } elseif ( $quote === $character ) {
+                    $quote = '';
+                }
+                continue;
+            }
+            if ( '/' === $character && '*' === $next ) {
+                $comment = true;
+                ++$index;
+            } elseif ( '"' === $character || "'" === $character ) {
+                $quote = $character;
+            } elseif ( '{' === $character ) {
+                ++$depth;
+            } elseif ( '}' === $character ) {
+                --$depth;
+                if ( $depth < 0 ) {
+                    return false;
+                }
+            }
+        }
+        return ! $comment && '' === $quote && 0 === $depth;
     }
 
     /**
@@ -343,10 +352,8 @@ final class StylesheetAnalysisComposer
                     return $prelude;
                 }
             }
-            if ( preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER) ) {
-                foreach ( $matches as $match ) {
-                    $root[(string) $match[1]] = trim((string) $match[2]);
-                }
+            foreach ( CssRuleAnalyzer::customProperties($body) as $declaration ) {
+                $root[ $declaration['name'] ] = $declaration['value'];
             }
 
             return $prelude;
