@@ -38,11 +38,11 @@ $assert(str_contains($bootstrap, '.editor-styles-wrapper .blocks-engine-listing-
 $css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === $asset['kind']), 'content'));
 if (!str_contains($css, '.wp-block-post-template)>:where(li)')) fwrite(STDERR, $css . "\n");
 $assert(str_contains($css, '.blocks-engine-listing-query)>:where(.wp-block-post-template)>:where(li):not(:last-child)>:where(article)') && str_contains($css, 'margin-bottom:32px'), 'source child spacing and conditional cascade replay across native transport wrappers');
-$body = '<p>Full article body with <a href="https://example.test/reference">an external reference</a> and substantial independent text.</p>';
+$body = static fn(string $name): string => '<p>Full ' . $name . ' article body with <a href="https://example.test/reference">an external reference</a> and substantial independent text.</p>';
 $full = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
-    'index.html' => '<main><section>' . str_replace('</article>', $body . '</article>', $card('first', 'First', 'Jan 2, 2026', $first, 'Topic')) . str_replace('</article>', $body . '</article>', $card('second', 'Second', 'Jan 1, 2026', $second, 'Topic')) . '</section></main>',
-    'first.html' => str_replace('</main>', $body . '</main>', $article('First', $first, '2026-01-02T00:00:00Z')),
-    'second.html' => str_replace('</main>', $body . '</main>', $article('Second', $second, '2026-01-01T00:00:00Z')),
+    'index.html' => '<main><section>' . str_replace('</article>', $body('first') . '</article>', $card('first', 'First', 'Jan 2, 2026', $first, 'Topic')) . str_replace('</article>', $body('second') . '</article>', $card('second', 'Second', 'Jan 1, 2026', $second, 'Topic')) . '</section></main>',
+    'first.html' => str_replace('</main>', $body('first') . '</main>', $article('First', $first, '2026-01-02T00:00:00Z')),
+    'second.html' => str_replace('</main>', $body('second') . '</main>', $article('Second', $second, '2026-01-01T00:00:00Z')),
     'category/topic/index.html' => '<main><h1>Topic</h1></main>',
 )))->toArray();
 $fullPages = array_column((new WordPressSitePlan())->fromCompilerResult($full)['pages'], null, 'source_path');

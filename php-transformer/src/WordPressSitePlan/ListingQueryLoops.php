@@ -30,7 +30,7 @@ final class ListingQueryLoops
      * @param string $sourceOrigin The source site's origin, so absolute links to it count as routes.
      * @param \Closure(string):string $chromeIdentity The site plan's shared chrome identity of a block.
      */
-    public function __construct(private readonly string $sourceOrigin, private readonly \Closure $chromeIdentity)
+    public function __construct(private readonly string $sourceOrigin, private readonly \Closure $chromeIdentity, private readonly ?\Closure $recordFinding = null)
     {
     }
 
@@ -92,24 +92,30 @@ final class ListingQueryLoops
             }
             $sourceListingMarkup = $page['canonical_block_markup'];
             $fields = array();
+            $matchedCards = $this->cardRanges(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($sourceListingMarkup), $posts);
+            $decline = function (string $reason) use ($page, $matchedCards, $postChromeSettled): void {
+                if (!$postChromeSettled || count($matchedCards ?? array()) < 2 || null === $this->recordFinding) return;
+                ($this->recordFinding)(array('code' => 'wordpress_site_plan_listing_query_declined', 'source_path' => $page['source_path'], 'reason_code' => $reason, 'message' => 'Listing query declined: ' . $reason . '.'));
+            };
             if (null !== $sectionRoute) {
                 $cards = $this->cardRanges(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($sourceListingMarkup), $posts);
-                if (null === $cards || count($cards) !== count($posts)) continue;
+                if (null === $cards || count($cards) !== count($posts)) { $decline('incomplete_section_cards'); continue; }
                 $previous = null;
                 foreach ($cards as $cardIndex => $card) {
                     if ($cardIndex > 0) {
                         $last = $cards[$cardIndex - 1];
                         $gap = substr($sourceListingMarkup, $last['offset'] + $last['length'], $card['offset'] - $last['offset'] - $last['length']);
                         // Do not consume an interleaved curated card or other live content.
-                        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($gap))->topLevel() as $range) if (!in_array(PostBlocks::sourceBlockName(substr($gap, $range['offset'], $range['length'])), array('separator', 'spacer'), true)) continue 3;
+                        foreach ((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($gap))->topLevel() as $range) if (!in_array(PostBlocks::sourceBlockName(substr($gap, $range['offset'], $range['length'])), array('separator', 'spacer'), true)) { $decline('interleaved_content'); continue 3; }
                     }
                     $date = $card['post']['publication_timestamp'] ?? null;
-                    if (!is_string($date) || (null !== $previous && $date > $previous)) continue 2;
+                    if (!is_string($date) || (null !== $previous && $date > $previous)) { $decline('unproven_date_order'); continue 2; }
                     $previous = $date;
                 }
             }
             $replaced = $this->replaceMarkup($sourceListingMarkup, $posts, $fields, isset($postsByArchive[$page['source_path']]), null !== $sectionRoute ? $sections[$sectionRoute]['slug'] : null);
             if (null === $replaced || $replaced === $page['canonical_block_markup']) {
+                $decline('unsafe_card_template');
                 continue;
             }
             // A card that renders post content repeats whatever chrome the posts
@@ -120,15 +126,16 @@ final class ListingQueryLoops
             if ($postChromeSettled && substr_count($replaced, '<!-- wp:post-content') > substr_count($sourceListingMarkup, '<!-- wp:post-content')
                 && $this->postsRepeatChrome($sourceListingMarkup, $posts)
             ) {
+                $decline('repeated_post_chrome');
                 continue;
             }
             // A template cannot replace a source region that owns a live entity.
             foreach ($bindingsBySource[$page['source_path']] ?? array() as $anchor) {
-                if (substr_count($replaced, $anchor) !== substr_count($page['canonical_block_markup'], $anchor)) continue 2;
+                if (substr_count($replaced, $anchor) !== substr_count($page['canonical_block_markup'], $anchor)) { $decline('live_entity_binding'); continue 2; }
             }
             // The query loop repeats the first card. A card menu the loop does
             // not render would be lost, so the listing stays as captured.
-            if (array() !== array_diff_key(NavigationEntityProjection::renderedMenus($page['canonical_block_markup']), NavigationEntityProjection::renderedMenus($replaced))) continue;
+            if (array() !== array_diff_key(NavigationEntityProjection::renderedMenus($page['canonical_block_markup']), NavigationEntityProjection::renderedMenus($replaced))) { $decline('card_menu_loss'); continue; }
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = WordPressSitePlan::contentHash($replaced);
             $listingIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($sourceListingMarkup);
@@ -333,7 +340,6 @@ final class ListingQueryLoops
         $literalFields = $this->literalFields($markup, $templateCards, $fields);
         if (null === $literalFields) return null;
         $boundGroups += $literalFields;
-        $compact = !array_filter($cards, fn(array $card): bool => !$this->isExcerptCard($markup, $card));
         $sharedText = null;
         foreach ($cards as $card) {
             $texts = array();
@@ -345,6 +351,7 @@ final class ListingQueryLoops
             }
             $sharedText = null === $sharedText ? $texts : array_intersect_key($sharedText, $texts);
         }
+        $compact = !array_filter($cards, fn(array $card): bool => !$this->isExcerptCard($markup, $card, $sharedText ?? array()));
         $transformed = $this->transformRange($documentIndex, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($first['post']['canonical_block_markup']), $first, $first['post'], $first['route'], $compact ? ListingExcerptProjection::length($cards) : 0, $boundGroups, false, $sharedText ?? array());
         if (null === $transformed || !$transformed['title'] || '' === $transformed['markup']) {
             return null;
@@ -495,7 +502,7 @@ final class ListingQueryLoops
     }
 
     /** @param array<string,mixed> $card */
-    private function isExcerptCard(string $markup, array $card): bool
+    private function isExcerptCard(string $markup, array $card, array $sharedText = array()): bool
     {
         $description = false;
         $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup']);
@@ -504,7 +511,7 @@ final class ListingQueryLoops
             $paragraph = substr($slice, $range['offset'], $range['length']);
             if ('paragraph' !== PostBlocks::sourceBlockName($paragraph)) continue;
             if (ListingExcerptProjection::matches($paragraph, $card['post'])) { $description = true; continue; }
-            if ('body' === $this->classifyCardBlock($paragraph, $card['post'], $card['route'], $postIndex) && !ListingFieldProjection::isLinkedMetadata($paragraph)) return false;
+            if ('body' === $this->classifyCardBlock($paragraph, $card['post'], $card['route'], $postIndex, $sharedText) && !ListingFieldProjection::isLinkedMetadata($paragraph)) return false;
         }
         return $description;
     }
@@ -552,7 +559,7 @@ final class ListingQueryLoops
                 $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-authored-excerpt');
                 return array('markup' => '<!-- wp:post-excerpt ' . BlockAttributes::encode($attrs) . ' /-->', 'title' => false, 'content' => false);
             }
-            $kind = $this->classifyCardBlock($slice, $post, $route, $postIndex);
+            $kind = $this->classifyCardBlock($slice, $post, $route, $postIndex, $sharedText);
             // An unbound media leaf cannot be replaced by post-content: the
             // card may own media which the article body does not render.
             if ('body' === $kind && !in_array(PostBlocks::sourceBlockName($slice), array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true) && preg_match('/<(?:img|video|picture|audio)\b/i', $slice . (string) (PostBlocks::sourceAttributes($slice)['content'] ?? ''))) $kind = 'chrome';
@@ -691,7 +698,7 @@ final class ListingQueryLoops
     }
 
     /** @param array<string,mixed> $post */
-    public function classifyCardBlock(string $slice, array $post, string $route, \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $postIndex): string
+    public function classifyCardBlock(string $slice, array $post, string $route, \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $postIndex, array $sharedText = array()): string
     {
         $anchors = $this->anchors($slice);
         foreach ($anchors as $anchor) {
@@ -707,7 +714,7 @@ final class ListingQueryLoops
             }
         }
         $name = PostBlocks::sourceBlockName($slice);
-        if ($hasRouteLink && in_array($name, array('heading', 'post-title'), true)) {
+        if ($hasRouteLink && (in_array($name, array('heading', 'post-title'), true) || ('paragraph' === $name && ListingExcerptProjection::text($slice) === ($post['title'] ?? null)))) {
             return 'title';
         }
         $timestamp = is_string($post['publication_timestamp'] ?? null) ? $post['publication_timestamp'] : null;
@@ -754,6 +761,8 @@ final class ListingQueryLoops
         if ('' === $text || in_array($name, array('separator', 'spacer'), true) || (preg_match('/\bseparator\b/', (string) (PostBlocks::sourceAttributes($slice)['className'] ?? '')) && !preg_match('/[\p{L}\p{N}]/u', $text))) {
             return 'chrome';
         }
+        // Identical card text is chrome, even when the post repeats it.
+        if (isset($sharedText[self::leafIdentity($slice)])) return 'chrome';
         // Recognize actual article leaves before considering unbound card text.
         $postMarkup = $postIndex->markup;
         foreach ($postIndex->ranges() as $range) {
