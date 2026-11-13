@@ -434,7 +434,7 @@ final class ImageDimensionResolver
                 || $this->styles->imageAxisVariesByViewport($wrapper, $property) ) {
                 return null;
             }
-            $declarations = $this->styles->referenceViewportAuthorDeclarations(
+            $declarations = $this->styles->authorViewport->reference(
                 $wrapper,
                 array_merge(array( $property, 'display', 'position', 'float' ), $paddingProperties)
             );
@@ -488,7 +488,7 @@ final class ImageDimensionResolver
         if ( ! $container instanceof DOMElement ) {
             return false;
         }
-        $containerDisplay = CssValueInspector::comparable((string) ($this->styles->referenceViewportAuthorDeclarations($container, array( 'display' ))['display'] ?? ''));
+        $containerDisplay = CssValueInspector::comparable((string) ($this->styles->authorViewport->reference($container, array( 'display' ))['display'] ?? ''));
 
         return ! in_array($containerDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
     }
@@ -559,12 +559,12 @@ final class ImageDimensionResolver
             $document = $document->parentNode;
         }
         $displayed = false;
-        foreach ( array( 'referenceViewportAuthorDeclarations', 'collapsedViewportAuthorDeclarations' ) as $atViewport ) {
-            if ( $document instanceof DOMElement && 'none' === CssValueInspector::comparable(CssValueInspector::withoutImportant($this->styles->$atViewport($document, array( 'display' ))['display'] ?? '')) ) {
+        foreach ( array( 'reference', 'collapsed' ) as $atViewport ) {
+            if ( $document instanceof DOMElement && 'none' === CssValueInspector::comparable(CssValueInspector::withoutImportant($this->styles->authorViewport->$atViewport($document, array( 'display' ))['display'] ?? '')) ) {
                 continue;
             }
             $displayed = true;
-            if ( '' === $this->imageDimensionValue(CssValueInspector::withoutImportant($this->styles->$atViewport($image, array( 'width' ))['width'] ?? '')) ) {
+            if ( '' === $this->imageDimensionValue(CssValueInspector::withoutImportant($this->styles->authorViewport->$atViewport($image, array( 'width' ))['width'] ?? '')) ) {
                 return false;
             }
         }

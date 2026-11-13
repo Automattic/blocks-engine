@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceCascade;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use DOMElement;
@@ -11,10 +10,7 @@ use DOMElement;
 /** A proof of empty paint, not a general SVG renderer. Unknowns always survive. */
 final class SvgPaintEmptiness
 {
-    public function __construct(
-        private readonly StyleResolver $styles,
-        private readonly SourceCascade $cascade
-    ) {}
+    public function __construct(private readonly StyleResolver $styles) {}
 
     public function paintsNothing(DOMElement $svg): bool
     {
@@ -53,8 +49,8 @@ final class SvgPaintEmptiness
     {
         $declarations = array_merge(
             SourceDeclarations::parse($svg->getAttribute('style')),
-            $this->cascade->declarations($svg),
-            $this->styles->referenceViewportAuthorDeclarations($svg, array('position'))
+            $this->styles->cascade->declarations($svg),
+            $this->styles->authorViewport->reference($svg, array('position'))
         );
         $position = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $declarations['position'] ?? '') ?? ''));
         return in_array($position, array('absolute', 'fixed'), true);
@@ -67,11 +63,11 @@ final class SvgPaintEmptiness
         foreach (array('fill', 'fill-opacity', 'stroke', 'stroke-opacity', 'stroke-width', 'opacity', 'mask', 'filter') as $property) {
             if ($node->hasAttribute($property)) $result[$property] = $node->getAttribute($property);
         }
-        $result = array_merge($result, SourceDeclarations::parse($node->getAttribute('style')), $this->cascade->declarations($node));
+        $result = array_merge($result, SourceDeclarations::parse($node->getAttribute('style')), $this->styles->cascade->declarations($node));
         // URL-valued effects are deliberately absent from the paint cascade.
         // Query the existing full author resolver rather than treating absence
         // there as proof that a filter or CSS mask does not exist.
-        $result = array_merge($result, $this->styles->referenceViewportAuthorDeclarations($node, array('filter', 'mask', 'transition', 'animation')));
+        $result = array_merge($result, $this->styles->authorViewport->reference($node, array('filter', 'mask', 'transition', 'animation')));
         foreach ($result as $property => $value) {
             $value = trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value);
             $result[$property] = 'mask' === $property ? $value : strtolower($value);

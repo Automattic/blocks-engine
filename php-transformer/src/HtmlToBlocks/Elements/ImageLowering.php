@@ -50,7 +50,7 @@ final class ImageLowering
         $declarations = $this->styleResolver->presentationDeclarations($element);
         // The inline URL can be sized and positioned by author stylesheets,
         // including link/import media conditions active at the reference viewport.
-        $author = $this->styleResolver->referenceViewportAuthorDeclarations($element, array('background-size', 'background-position'));
+        $author = $this->styleResolver->authorViewport->reference($element, array('background-size', 'background-position'));
         foreach (array('background-size', 'background-position') as $property) {
             $value = $this->styleResolver->declaredPresentation($element, $property)->resolvedValue();
             if ('' !== $value) {

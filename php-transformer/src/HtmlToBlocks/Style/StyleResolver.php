@@ -27,10 +27,6 @@ final class StyleResolver implements ElementPresentationResolver
     /** @var array<string,true>|null */
     private ?array $scopedAnchorIdentities = null;
 
-    /** @var list<array<string, mixed>> */
-    private array $viewportAuthorRuleSource = array();
-    /** @var array<string, array{rules: list<array<string, mixed>>, parsed: array<string, array<string, mixed>>, declaring: array<string, list<array<string, mixed>>>}> */
-    private array $viewportAuthorRules = array();
     /** Viewport the desktop cascade is evaluated at: the capture's desktop reference. */
     public const DESKTOP_REFERENCE_WIDTH = 1440.0;
 
@@ -48,10 +44,15 @@ final class StyleResolver implements ElementPresentationResolver
         private readonly StyleResolutionContext $context,
         private readonly HtmlTransformerAnalysisCache $analysisCache
     ) {
-        $this->cascade = $session->sourceCascade();
+        $this->cascade = new SourceCascade($session->sourceStyleResolutionState());
+        $this->authorViewport = new AuthorViewportDeclarations($session, $this->cascade);
     }
 
-    private readonly SourceCascade $cascade;
+    /** The source document's cascade. */
+    public readonly SourceCascade $cascade;
+
+    /** Author declarations resolved at a reference viewport. */
+    public readonly AuthorViewportDeclarations $authorViewport;
 
     private ?StyleAttributeMapper $styleAttributeMapper = null;
 
@@ -736,61 +737,6 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * What the cascade declares for a family of properties at the mobile
-     * reference viewport, in the order the cascade last stated them.
-     *
-     * The desktop-anchored resolvers read the element as the capture rendered
-     * it at {@see self::DESKTOP_REFERENCE_WIDTH}; a menu's collapsed panel is
-     * painted only below the source breakpoint, so those resolvers never see
-     * it. This walks the same candidate rules but keeps every unconditional
-     * declaration plus the media/feature conditions that hold at
-     * {@see self::MOBILE_REFERENCE_WIDTH}, with a source inline declaration
-     * last. Shared cascade priority resolves importance, layers and specificity.
-     * The returned map is keyed by property and ordered by winning priority,
-     * so a caller resolving a shorthand against its longhand
-     * (`background` after `background-color`) takes the final key.
-     *
-     * @param list<string> $properties
-     * @return array<string, string>
-     */
-    public function collapsedViewportDeclarations(DOMElement $element, array $properties): array
-    {
-        $rules = ( function () use ($element): iterable {
-            foreach ( $this->session->sourceStyleResolutionState()->matchingRulesInCascadeOrder($element, 'static-conditional') as $rule ) {
-                yield array(
-                    'selectors' => array( (string) ( $rule['selector'] ?? '' ) ),
-                    'declarations' => ArrayField::array($rule, 'declarations'),
-                    'conditions' => ArrayField::array($rule, 'conditions'),
-                    'layer' => $rule['layerRank'] ?? null,
-                );
-            }
-        } )();
-
-        return $this->collapsedViewportDeclarationsFromRules($element, $properties, $rules, static fn (string $selector): bool => true);
-    }
-
-    /**
-     * {@see collapsedViewportDeclarations()} read from the author analysis
-     * instead of the source-style collections.
-     *
-     * The source-style collections keep only the classification allow-list,
-     * which leaves out the transform family (runtime-animatable, so kept out
-     * of the resting cascade) and the logical inset and margin properties. An
-     * element's placement needs those, and the author analysis keeps every
-     * declaration together with its condition stack. The cascade rules are
-     * the same: author importance, layer and specificity priority, authored
-     * declaration order, inline style last, conditions evaluated at
-     * {@see self::MOBILE_REFERENCE_WIDTH}.
-     *
-     * @param list<string> $properties
-     * @return array<string, string>
-     */
-    public function collapsedViewportAuthorDeclarations(DOMElement $element, array $properties): array
-    {
-        return $this->authorDeclarationsAtViewport($element, $properties, self::MOBILE_REFERENCE_WIDTH);
-    }
-
-    /**
      * Whether the element is still one horizontal, non-wrapping flex row at
      * the mobile reference viewport. Such a row never stacks its items, so a
      * core/columns standing in for it must not stack below core's breakpoint.
@@ -800,7 +746,7 @@ final class StyleResolver implements ElementPresentationResolver
         $direction = 'row';
         $wrap = 'nowrap';
         $display = '';
-        foreach ( $this->collapsedViewportAuthorDeclarations($element, array( 'display', 'flex-direction', 'flex-wrap', 'flex-flow' )) as $property => $value ) {
+        foreach ( $this->authorViewport->collapsed($element, array( 'display', 'flex-direction', 'flex-wrap', 'flex-flow' )) as $property => $value ) {
             $value = CssValueInspector::comparable($value);
             if ( 'display' === $property ) {
                 $display = $value;
@@ -825,26 +771,6 @@ final class StyleResolver implements ElementPresentationResolver
             && 'nowrap' === $wrap;
     }
 
-    /**
-     * The same author-analysis cascade as
-     * {@see collapsedViewportAuthorDeclarations()}, with conditions evaluated at
-     * the desktop reference viewport ({@see self::DESKTOP_REFERENCE_WIDTH}).
-     * Unlike the source-style collections it sees every authored property
-     * (`float`, `white-space`, `word-spacing`, …), so a caller can ask how an
-     * element lays out where the allow-list is silent. A value is the declared
-     * one, not an inherited one: a caller walks the ancestors itself.
-     *
-     * Capture disclosure CSS remains available for presentation, but callers
-     * judging source visibility can exclude the producer's runtime rules.
-     *
-     * @param list<string> $properties
-     * @return array<string, string>
-     */
-    public function referenceViewportAuthorDeclarations(DOMElement $element, array $properties, bool $excludeCaptureDisclosure = false): array
-    {
-        return $this->authorDeclarationsAtViewport($element, $properties, self::DESKTOP_REFERENCE_WIDTH, $excludeCaptureDisclosure);
-    }
-
     /** Preserve authored inline CSS except typography already supplied by the parent. */
     public function serializedInlineStyle(DOMElement $element): string
     {
@@ -865,7 +791,7 @@ final class StyleResolver implements ElementPresentationResolver
     public function richTextSerializationSource(DOMElement $element): DOMElement
     {
         $blockifiesChildren = function (DOMElement $container): bool {
-            $display = CssValueInspector::comparable($this->referenceViewportAuthorDeclarations($container, array( 'display' ))['display'] ?? '');
+            $display = CssValueInspector::comparable($this->authorViewport->reference($container, array( 'display' ))['display'] ?? '');
 
             return 1 === preg_match('/(?<![\w-])(?:inline-)?(?:flex|grid)(?![\w-])/', $display);
         };
@@ -882,7 +808,7 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ($sources as $index => $source) {
             $collapse = '';
             for ($ancestor = $source; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
-                $declarations = $this->referenceViewportAuthorDeclarations($ancestor, array('white-space', 'white-space-collapse'));
+                $declarations = $this->authorViewport->reference($ancestor, array('white-space', 'white-space-collapse'));
                 $collapse = CssValueInspector::comparable($declarations['white-space-collapse'] ?? $declarations['white-space'] ?? '');
                 if (!in_array($collapse, array('', 'inherit', 'unset'), true)) break;
             }
@@ -981,117 +907,6 @@ final class StyleResolver implements ElementPresentationResolver
         return $families;
     }
 
-    /**
-     * @param list<string> $properties
-     * @return array<string, string>
-     */
-    private function authorDeclarationsAtViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false): array
-    {
-        $authorStyles = $this->session->authorStyleAnalysis();
-        $styleRules = $authorStyles->styleRules();
-        if ( $excludeCaptureDisclosure ) {
-            $styleRules = array_values(array_filter($styleRules, static fn (array $rule): bool => empty($rule['capture_only'])));
-        }
-        ['parsed' => $parsedBySelector] = $this->viewportAuthorRules($styleRules, $viewportWidth);
-        $rules = $this->viewportAuthorRulesDeclaring($viewportWidth, $properties);
-        $selectorCache = $authorStyles->selectorMatchCache();
-        $matches = static function (string $selector) use ($element, $selectorCache, $parsedBySelector): bool {
-            $match = $selectorCache->matches($element, $selector, $parsedBySelector[ $selector ] ?? array());
-
-            return ( $match['supported'] ?? false ) && ( $match['matches'] ?? false );
-        };
-
-        return $this->collapsedViewportDeclarationsFromRules($element, $properties, $rules, $matches, $viewportWidth);
-    }
-
-    /**
-     * The author rules that apply at one viewport, in cascade order.
-     *
-     * Which rules apply depends only on the stylesheet and the viewport, never
-     * on the element being resolved, so the list is built once per author rule
-     * set and viewport instead of once per element. Conditions are already
-     * evaluated here, so each kept rule carries none.
-     *
-     * @param list<array<string, mixed>> $styleRules
-     * @return array{rules: list<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>, layer: mixed}>, parsed: array<string, array<string, mixed>>}
-     */
-    private function viewportAuthorRules(array $styleRules, float $viewportWidth): array
-    {
-        if ( $styleRules !== $this->viewportAuthorRuleSource ) {
-            $this->viewportAuthorRuleSource = $styleRules;
-            $this->viewportAuthorRules = array();
-        }
-        $key = (string) $viewportWidth;
-        if ( isset($this->viewportAuthorRules[ $key ]) ) {
-            return $this->viewportAuthorRules[ $key ];
-        }
-
-        $rules = array();
-        $parsedBySelector = array();
-        foreach ( $styleRules as $rule ) {
-            $selectors = array();
-            foreach ( ArrayField::array($rule, 'selectors') as $record ) {
-                $selector = (string) ( $record['selector'] ?? '' );
-                // Interaction states and generated content are not the
-                // resting element, as in the source-style collections.
-                if ( '' === $selector || $this->selectorCarriesPseudoState($selector) ) {
-                    continue;
-                }
-                $selectors[] = $selector;
-                $parsedBySelector[ $selector ] ??= ArrayField::array($record, 'parsed');
-            }
-            // The author analysis keeps at-rule preludes verbatim, so a
-            // comment written before `@media` travels with the condition
-            // (`/* tablet */ @media(max-width:1300px)`); the viewport
-            // evaluator reads the at-rule itself.
-            $conditions = array();
-            foreach ( ArrayField::array($rule, 'conditions') as $condition ) {
-                $condition = trim((string) preg_replace('#/\*.*?\*/#s', '', (string) $condition));
-                if ( '' !== $condition ) {
-                    $conditions[] = $condition;
-                }
-            }
-            if ( array() !== $conditions && ! $this->cascade->conditionsApplyAtViewport($conditions, $viewportWidth) ) {
-                continue;
-            }
-            $rules[] = array(
-                'selectors' => $selectors,
-                'declarations' => ArrayField::array($rule, 'declarations'),
-                'conditions' => array(),
-                'layer' => $rule['layer'] ?? null,
-            );
-        }
-
-        return $this->viewportAuthorRules[ $key ] = array( 'rules' => $rules, 'parsed' => $parsedBySelector, 'declaring' => array() );
-    }
-
-    /**
-     * The viewport rules that declare at least one requested property.
-     *
-     * A rule declaring none of them cannot contribute a fact, so matching its
-     * selectors against every element asked about is wasted work. Callers ask
-     * about a handful of fixed property sets, so each filtered list is built
-     * once per rule set, viewport and property set.
-     *
-     * @param list<string> $properties
-     * @return list<array<string, mixed>>
-     */
-    private function viewportAuthorRulesDeclaring(float $viewportWidth, array $properties): array
-    {
-        $key = (string) $viewportWidth;
-        $set = implode("\0", $properties);
-        if ( isset($this->viewportAuthorRules[ $key ]['declaring'][ $set ]) ) {
-            return $this->viewportAuthorRules[ $key ]['declaring'][ $set ];
-        }
-        $requested = array_flip($properties);
-        $rules = array_values(array_filter(
-            $this->viewportAuthorRules[ $key ]['rules'],
-            static fn(array $rule): bool => array() !== array_intersect_key($rule['declarations'], $requested)
-        ));
-
-        return $this->viewportAuthorRules[ $key ]['declaring'][ $set ] = $rules;
-    }
-
     /** Authored control correspondence, retaining query stacks and cascade winners.
      * Unlike the resting classification collection, author analysis includes
      * transforms and logical margins. Values stay conditional when the source
@@ -1140,60 +955,6 @@ final class StyleResolver implements ElementPresentationResolver
             $result[$condition] = array_map(static fn(array $fact): string => $fact['value'], $facts);
         }
         return $result;
-    }
-
-    /**
-     * The shared walk behind the collapsed-viewport readers: every rule whose
-     * selector matches and whose conditions hold at the given viewport (the
-     * mobile reference unless a caller names another) records its
-     * declarations in order, the inline style last.
-     *
-     * @param list<string> $properties
-     * @param iterable<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>, layer?:int|null}> $rules
-     * @param callable(string): bool $matches Whether one selector matches the element.
-     * @return array<string, string>
-     */
-    private function collapsedViewportDeclarationsFromRules(DOMElement $element, array $properties, iterable $rules, callable $matches, float $viewportWidth = self::MOBILE_REFERENCE_WIDTH): array
-    {
-        $facts = array();
-        $requested = array_flip($properties);
-        $order = 0;
-        foreach ( $rules as $rule ) {
-            if ( array() !== $rule['conditions'] && ! $this->cascade->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) ) continue;
-            $specificity = null;
-            foreach ( $rule['selectors'] as $selector ) {
-                if ( $matches($selector) ) {
-                    $candidate = $this->cascade->specificity($selector);
-                    if ( null === $specificity || $candidate > $specificity ) $specificity = $candidate;
-                }
-            }
-            if ( null === $specificity ) continue;
-            // Declaration order, not requested-property order, determines
-            // which shorthand or longhand must be restated last.
-            foreach ( $rule['declarations'] as $property => $value ) {
-                $value = trim((string) $value);
-                if ( ! isset($requested[$property]) || '' === $value ) continue;
-                CssCascade::apply($facts, $property, array(
-                    'value' => $value, 'important' => CssValueInspector::isImportant($value),
-                    'specificity' => $specificity, 'layer' => $rule['layer'] ?? null,
-                    'order' => $order++, 'inline' => false,
-                ));
-            }
-        }
-        $inline = SourceDeclarations::inline($element);
-        foreach ( $inline as $property => $value ) {
-            if ( ! isset($requested[$property]) || '' === trim($value) ) continue;
-            CssCascade::apply($facts, $property, array(
-                'value' => trim($value), 'important' => CssValueInspector::isImportant($value),
-                'specificity' => array(0, 0, 0), 'layer' => null,
-                'order' => $order++, 'inline' => true,
-            ));
-        }
-        uasort($facts, static fn(array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
-        return array_replace(
-            array_intersect_key(SourceCascade::presentationalHints($element), $requested),
-            array_map(static fn(array $fact): string => $fact['value'], $facts)
-        );
     }
 
     /**
@@ -2275,8 +2036,8 @@ final class StyleResolver implements ElementPresentationResolver
                 if (! preg_match('/^@layer\b/i', trim($condition))) return true;
             }
         }
-        $desktop = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->referenceViewportAuthorDeclarations($image, array( $property ))[$property] ?? ''));
-        $mobile = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->collapsedViewportAuthorDeclarations($image, array( $property ))[$property] ?? ''));
+        $desktop = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->authorViewport->reference($image, array( $property ))[$property] ?? ''));
+        $mobile = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->authorViewport->collapsed($image, array( $property ))[$property] ?? ''));
 
         return $desktop !== $mobile;
     }
@@ -2485,13 +2246,13 @@ final class StyleResolver implements ElementPresentationResolver
             || ($frame !== $figure && $frame->parentNode !== $figure) || 'div' !== strtolower($frame->tagName)) {
             return array();
         }
-        $fill = $this->referenceViewportAuthorDeclarations($image, array('width', 'height'));
+        $fill = $this->authorViewport->reference($image, array('width', 'height'));
         if ('100%' !== ($fill['width'] ?? '') || '100%' !== ($fill['height'] ?? '')) {
             return array();
         }
         $properties = array('position', 'aspect-ratio', 'overflow', 'overflow-x', 'overflow-y', 'box-sizing', 'background', 'background-color',
             'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left');
-        $box = $this->referenceViewportAuthorDeclarations($frame, $properties);
+        $box = $this->authorViewport->reference($frame, $properties);
         if (isset($box['padding'])) {
             foreach (CssValueInspector::expandBoxShorthand($box['padding']) as $side => $value) {
                 $box['padding-' . array('top', 'right', 'bottom', 'left')[$side]] ??= $value;
@@ -2504,7 +2265,7 @@ final class StyleResolver implements ElementPresentationResolver
             && 'hidden' === ($box['overflow'] ?? '')
             && preg_match('/^([0-9.]+)%$/', $box['padding-bottom'] ?? '', $ratio)
             && (float) $ratio[1] > 0
-            && 'absolute' === ($this->referenceViewportAuthorDeclarations($image, array('position'))['position'] ?? '')) {
+            && 'absolute' === ($this->authorViewport->reference($image, array('position'))['position'] ?? '')) {
             $box['aspect-ratio'] = '100 / ' . $ratio[1];
             unset($box['padding-bottom']);
             $box['position'] = 'static !important';
@@ -2540,8 +2301,8 @@ final class StyleResolver implements ElementPresentationResolver
             return false;
         }
         foreach (array(
-            $this->referenceViewportAuthorDeclarations($image, array('width', 'height')),
-            $this->collapsedViewportAuthorDeclarations($image, array('width', 'height')),
+            $this->authorViewport->reference($image, array('width', 'height')),
+            $this->authorViewport->collapsed($image, array('width', 'height')),
         ) as $declarations) {
             $width = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->resolveStructuralCssVariablesInValue($declarations['width'] ?? '', $image)));
             $height = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->resolveStructuralCssVariablesInValue($declarations['height'] ?? '', $image)));
@@ -6638,7 +6399,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
         $resolve = function (string $name) use ($element, $viewportWidth): ?string {
             for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-                $declared = CssValueInspector::withoutImportant(trim((string) ($this->authorDeclarationsAtViewport($node, array( $name ), $viewportWidth)[$name] ?? '')));
+                $declared = CssValueInspector::withoutImportant(trim((string) ($this->authorViewport->atViewport($node, array( $name ), $viewportWidth)[$name] ?? '')));
                 if ( '' !== $declared ) {
                     return in_array(strtolower($declared), array( 'unset', 'initial', 'inherit', 'revert', 'revert-layer' ), true) ? null : $declared;
                 }
@@ -6809,14 +6570,14 @@ final class StyleResolver implements ElementPresentationResolver
      * SVG-inheritance decision, not a CSS-cascade-resolution one).
      *
      * A materialized SVG is a standalone image, so its paint is baked once.
-     * It is read where {@see referenceViewportAuthorDeclarations()} reads the
+     * It is read where {@see AuthorViewportDeclarations::reference()} reads the
      * root fill and stroke: a responsive capture scopes each document's
      * stylesheet under a width query, and importance and specificity decide
      * the winner exactly as they do in the browser.
      */
     public function resolvedSvgCascadeValue(DOMElement $element, string $property): ?string
     {
-        $declared = trim((string) ($this->referenceViewportAuthorDeclarations($element, array($property))[$property] ?? ''));
+        $declared = trim((string) ($this->authorViewport->reference($element, array($property))[$property] ?? ''));
         $declared = trim(preg_replace('/\s*!\s*important\s*$/i', '', $declared) ?? $declared);
         if ( '' === $declared ) {
             return null;

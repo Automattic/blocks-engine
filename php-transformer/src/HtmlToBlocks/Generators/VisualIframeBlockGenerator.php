@@ -578,7 +578,7 @@ JS;
     private function inheritsPreservedWhitespace(DOMElement $surface, StyleResolver $styleResolver): bool
     {
         for ( $node = $surface->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $value = strtolower(trim((string) ($styleResolver->referenceViewportAuthorDeclarations($node, array( 'white-space' ))['white-space'] ?? '')));
+            $value = strtolower(trim((string) ($styleResolver->authorViewport->reference($node, array( 'white-space' ))['white-space'] ?? '')));
             if ( '' !== $value && 'inherit' !== $value ) {
                 return 1 === preg_match('/\b(?:pre|pre-wrap|pre-line|break-spaces|preserve)\b/', $value);
             }

@@ -92,8 +92,7 @@ final class SourceBlockAttributeProjector
 
     public function __construct(
         private readonly StyleResolver $styleResolver,
-        private readonly GeneratedBlockStyleProjector $generatedStyleProjector,
-        private readonly SourceCascade $cascade
+        private readonly GeneratedBlockStyleProjector $generatedStyleProjector
     ) {}
 
     /**
@@ -651,12 +650,12 @@ final class SourceBlockAttributeProjector
                             // The sized wrapper can contain the actual painted flex
                             // surface. Its content-box sizing and default zero padding
                             // must not turn into Core's border-box/padded button box.
-                            $paint = array_replace($this->cascade->declarations($sourceElement), $surface);
+                            $paint = array_replace($this->styleResolver->cascade->declarations($sourceElement), $surface);
                             $candidate = $sourceElement;
                             while ( 1 === $candidate->childElementCount ) {
                                 $child = $candidate->firstElementChild;
                                 if ( ! $child instanceof DOMElement || trim($child->textContent) !== trim($sourceElement->textContent) ) break;
-                                $childStyle = array_replace($this->cascade->declarations($child), SourceDeclarations::parse($this->styleResolver->mergedPresentationStyle($child)));
+                                $childStyle = array_replace($this->styleResolver->cascade->declarations($child), SourceDeclarations::parse($this->styleResolver->mergedPresentationStyle($child)));
                                 if ( in_array(CssValueInspector::declared($childStyle, 'display'), array( 'flex', 'inline-flex' ), true) ) {
                                     $paint = array_replace($childStyle, $this->styleResolver->authoredControlPresentation($child, array( 'box-sizing', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ))[''] ?? array());
                                     $paint = SourceDeclarations::parse($this->styleResolver->cssDeclarationString($paint));
@@ -928,7 +927,7 @@ final class SourceBlockAttributeProjector
         $declared = null;
         // Decoration determines the generated anchor carrier, even for an
         // otherwise ordinary link that the presentation fast path skips.
-        foreach ( $this->cascade->declarations($element) as $property => $value ) {
+        foreach ( $this->styleResolver->cascade->declarations($element) as $property => $value ) {
             if ( 'text-decoration' === $property || 'text-decoration-line' === $property ) {
                 $declared = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue($value));
             }

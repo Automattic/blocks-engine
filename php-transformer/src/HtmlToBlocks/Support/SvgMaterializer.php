@@ -58,7 +58,7 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     public function paintsNothing(DOMElement $element): bool
     {
-        return (new SvgPaintEmptiness($this->styleResolver, $this->session->sourceCascade()))->paintsNothing($element);
+        return (new SvgPaintEmptiness($this->styleResolver))->paintsNothing($element);
     }
 
     /**
@@ -921,7 +921,7 @@ final class SvgMaterializer implements SvgElementMaterializer
     /** Expand only proven overflow, leaving ordinary SVG asset identity untouched. */
     private function visibleOverflowGeometry(DOMElement $element): ?array
     {
-        $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($element, array('overflow'));
+        $declarations = $this->styleResolver->authorViewport->reference($element, array('overflow'));
         if ('visible' !== $this->plainDeclarationValue($declarations['overflow'] ?? SourceDom::attr($element, 'overflow'))) return null;
         $size = array();
         foreach (array('width', 'height') as $axis) {
@@ -932,7 +932,7 @@ final class SvgMaterializer implements SvgElementMaterializer
                     $this->styleResolver->authorStructuralDeclarations($node),
                     $this->styleResolver->structuralPresentationDeclarations($node),
                     $this->styleResolver->presentationDeclarations($node),
-                    $this->styleResolver->referenceViewportAuthorDeclarations($node, array('width', 'height', 'display', 'position', 'float'))
+                    $this->styleResolver->authorViewport->reference($node, array('width', 'height', 'display', 'position', 'float'))
                 );
                 $value = $this->plainDeclarationValue($style[$axis] ?? SourceDom::attr($node, $axis));
                 if (preg_match('/^([\d.]+)(?:px)?$/', $value, $m)) { $size[$axis] = (float) $m[1] * $scale; break; }
@@ -1138,7 +1138,7 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     private function sourceVerticalAlign(DOMElement $element): string
     {
-        $declared = CssValueInspector::withoutImportant((string) ($this->styleResolver->referenceViewportAuthorDeclarations($element, array( 'vertical-align' ))['vertical-align'] ?? ''));
+        $declared = CssValueInspector::withoutImportant((string) ($this->styleResolver->authorViewport->reference($element, array( 'vertical-align' ))['vertical-align'] ?? ''));
         $declared = strtolower(trim($declared));
 
         return 1 === preg_match('/^(?:baseline|sub|super|text-top|text-bottom|middle|top|bottom|-?\d*\.?\d+(?:px|em|rem|%))$/', $declared) ? $declared : 'baseline';
@@ -1802,7 +1802,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( ! $descendant instanceof DOMElement ) {
                 continue;
             }
-            $declarations = $this->session->sourceCascade()->declarations($descendant);
+            $declarations = $this->styleResolver->cascade->declarations($descendant);
             foreach ( array( 'animation', 'animation-name' ) as $property ) {
                 $value = strtolower(trim((string) ($declarations[$property] ?? '')));
                 $value = trim((string) preg_replace('/\s*!important\s*$/i', '', $value));

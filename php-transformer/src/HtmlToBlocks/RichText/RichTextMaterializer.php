@@ -248,7 +248,7 @@ final class RichTextMaterializer implements RichTextMaterialization
             return false;
         }
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array( 'white-space', 'white-space-collapse' ));
+            $declarations = $this->styleResolver->authorViewport->reference($node, array( 'white-space', 'white-space-collapse' ));
             $collapse = '';
             foreach ( $declarations as $property => $value ) {
                 $value = CssValueInspector::comparable($value);

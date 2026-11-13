@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use DOMElement;
 
 /**
@@ -308,5 +309,93 @@ final class SourceCascade
         }
 
         return array_map(static fn (array $fact): string => $fact['value'], $facts);
+    }
+
+    /**
+     * What the cascade declares for a family of properties at the mobile
+     * reference viewport, in the order the cascade last stated them.
+     *
+     * The desktop-anchored resolvers read the element as the capture rendered
+     * it at {@see self::DESKTOP_REFERENCE_WIDTH}; a menu's collapsed panel is
+     * painted only below the source breakpoint, so those resolvers never see
+     * it. This walks the same candidate rules but keeps every unconditional
+     * declaration plus the media/feature conditions that hold at
+     * {@see StyleResolver::MOBILE_REFERENCE_WIDTH}, with a source inline declaration
+     * last. Shared cascade priority resolves importance, layers and specificity.
+     * The returned map is keyed by property and ordered by winning priority,
+     * so a caller resolving a shorthand against its longhand
+     * (`background` after `background-color`) takes the final key.
+     *
+     * @param list<string> $properties
+     * @return array<string, string>
+     */
+    public function collapsedViewportDeclarations(DOMElement $element, array $properties): array
+    {
+        $rules = ( function () use ($element): iterable {
+            foreach ( $this->state->matchingRulesInCascadeOrder($element, 'static-conditional') as $rule ) {
+                yield array(
+                    'selectors' => array( (string) ( $rule['selector'] ?? '' ) ),
+                    'declarations' => ArrayField::array($rule, 'declarations'),
+                    'conditions' => ArrayField::array($rule, 'conditions'),
+                    'layer' => $rule['layerRank'] ?? null,
+                );
+            }
+        } )();
+
+        return $this->declarationsAtViewport($element, $properties, $rules, static fn (string $selector): bool => true);
+    }
+
+    /**
+     * The shared walk behind the collapsed-viewport readers: every rule whose
+     * selector matches and whose conditions hold at the given viewport (the
+     * mobile reference unless a caller names another) records its
+     * declarations in order, the inline style last.
+     *
+     * @param list<string> $properties
+     * @param iterable<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>, layer?:int|null}> $rules
+     * @param callable(string): bool $matches Whether one selector matches the element.
+     * @return array<string, string>
+     */
+    public function declarationsAtViewport(DOMElement $element, array $properties, iterable $rules, callable $matches, float $viewportWidth = StyleResolver::MOBILE_REFERENCE_WIDTH): array
+    {
+        $facts = array();
+        $requested = array_flip($properties);
+        $order = 0;
+        foreach ( $rules as $rule ) {
+            if ( array() !== $rule['conditions'] && ! $this->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) ) continue;
+            $specificity = null;
+            foreach ( $rule['selectors'] as $selector ) {
+                if ( $matches($selector) ) {
+                    $candidate = $this->specificity($selector);
+                    if ( null === $specificity || $candidate > $specificity ) $specificity = $candidate;
+                }
+            }
+            if ( null === $specificity ) continue;
+            // Declaration order, not requested-property order, determines
+            // which shorthand or longhand must be restated last.
+            foreach ( $rule['declarations'] as $property => $value ) {
+                $value = trim((string) $value);
+                if ( ! isset($requested[$property]) || '' === $value ) continue;
+                CssCascade::apply($facts, $property, array(
+                    'value' => $value, 'important' => CssValueInspector::isImportant($value),
+                    'specificity' => $specificity, 'layer' => $rule['layer'] ?? null,
+                    'order' => $order++, 'inline' => false,
+                ));
+            }
+        }
+        $inline = SourceDeclarations::inline($element);
+        foreach ( $inline as $property => $value ) {
+            if ( ! isset($requested[$property]) || '' === trim($value) ) continue;
+            CssCascade::apply($facts, $property, array(
+                'value' => trim($value), 'important' => CssValueInspector::isImportant($value),
+                'specificity' => array(0, 0, 0), 'layer' => null,
+                'order' => $order++, 'inline' => true,
+            ));
+        }
+        uasort($facts, static fn(array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
+        return array_replace(
+            array_intersect_key(self::presentationalHints($element), $requested),
+            array_map(static fn(array $fact): string => $fact['value'], $facts)
+        );
     }
 }
