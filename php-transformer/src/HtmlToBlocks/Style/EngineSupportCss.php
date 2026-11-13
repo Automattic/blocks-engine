@@ -491,6 +491,10 @@ final class EngineSupportCss
                 . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item;align-items:normal}'
                 . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation:not(.blocks-engine-anchor-items-navigation)) .wp-block-navigation-item__content{display:inline}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:var(--navigation-layout-wrap,wrap);list-style:none}';
+            if (str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation')) {
+                $parts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__responsive-container:not(.is-menu-open) :where(.wp-block-navigation__responsive-close,.wp-block-navigation__responsive-dialog,.wp-block-navigation__responsive-container-content){flex-direction:inherit}'
+                    . "\n" . '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__responsive-container:not(.is-menu-open){flex-direction:inherit}';
+            }
             // The navigation host owns the source list's layout box. Core's
             // duplicate list is transport only; retaining a second flex box
             // would change source inline/block item packing. Overlay lists keep

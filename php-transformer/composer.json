@@ -105,7 +105,8 @@
     "test:scripts": [
       "Composer\\Config::disableProcessTimeout",
       "php tests/run.php",
-      "php tests/contract/shared-trailing-newsletter-overlay.php"
+      "php tests/contract/shared-trailing-newsletter-overlay.php",
+      "php tests/contract/shared-responsive-wordmark.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
