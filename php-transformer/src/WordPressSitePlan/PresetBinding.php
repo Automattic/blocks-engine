@@ -1251,6 +1251,13 @@ final class PresetBinding
                 }
             }
         }
+        // Borders may carry a colour alongside width/style tokens, or several
+        // colours in a longhand. Reuse the author-CSS token binder so only
+        // the colour changes and its original bytes remain the fallback.
+        if (1 === preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-color)?$/', $property)) {
+            $bound = $this->bindColorTokens($value);
+            return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
+        }
         if ((str_starts_with($property, '--') || in_array($property, array('background', 'background-image'), true)) && null === CssColor::parse($this->resolve($value))) {
             $bound = $this->bindColorTokens($value);
             return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;

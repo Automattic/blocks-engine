@@ -521,7 +521,7 @@ final class DesignSystem
      *   (`textColor`, `fontSize`, `var:preset|…`) rather than literals. 1.0
      *   when blocks carry no such values. Zero lengths, `auto` and CSS-wide
      *   keywords (`inherit`, …) are not design values and are not counted.
-     * - `restyle_coverage`: of the text and background colours rendered on
+     * - `restyle_coverage`: of the text, background and border colours rendered on
      *   block-level content, the share that come from a preset reference,
      *   through the block's attributes, its classes' stylesheet rules, an
      *   ancestor, or the root styles; see RestyleCoverage. These follow a
@@ -529,7 +529,8 @@ final class DesignSystem
      *   per page, as a reader meets it on every route; engine templates count
      *   once. `restyle_text_elements`,
      *   `restyle_text_preset`, `restyle_backgrounds` and
-     *   `restyle_backgrounds_preset` are the counts behind it.
+     *   `restyle_backgrounds_preset`, `restyle_borders` and
+     *   `restyle_borders_preset` are the counts behind it.
      * - `refusal_reasons`: text and background colour values binding left
      *   as literals, by reason (see PresetBinding::REFUSAL_REASONS), and
      *   `refused_value_count` their total. Content that should not follow
@@ -625,6 +626,8 @@ final class DesignSystem
             'restyle_text_preset' => $restyle['text_preset'],
             'restyle_backgrounds' => $restyle['backgrounds'],
             'restyle_backgrounds_preset' => $restyle['backgrounds_preset'],
+            'restyle_borders' => $restyle['borders'],
+            'restyle_borders_preset' => $restyle['borders_preset'],
             'preset_value_count' => $preset,
             'literal_value_count' => $literal,
             'refused_value_count' => array_sum($refusals),

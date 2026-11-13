@@ -9,16 +9,17 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
 /**
- * Estimates `restyle_coverage`: of the text and background colours rendered
+ * Estimates `restyle_coverage`: of the text, background and border colours rendered
  * on block-level content, the share that come from a preset reference, so a
  * Global Styles palette edit restyles them.
  *
  * The estimate reads the emitted block markup and stylesheets, without a
  * browser. Each text element (a block with text of its own, and each
  * authored inline element in it that sets a colour) and each block that
- * paints a background is one count. A colour's source is, in cascade order:
+ * paints a background or sets border colours is one count per paint kind. A colour's source is, in cascade order:
  *
  * 1. the block's preset attribute (`textColor`, `backgroundColor`, a
  *    `var:preset|…` style value): a preset;
@@ -63,20 +64,22 @@ final class RestyleCoverage
     /**
      * @param list<string> $markups Every emitted block document.
      * @param array<int,array<string,mixed>> $assets
-     * @return array{share:float,text_elements:int,text_preset:int,backgrounds:int,backgrounds_preset:int}
+     * @return array{share:float,text_elements:int,text_preset:int,backgrounds:int,backgrounds_preset:int,borders:int,borders_preset:int}
      */
     public static function measure(array $markups, array $assets, bool $rootTextIsPreset): array
     {
         $coverage = new self($assets);
-        $counts = array('text' => 0, 'text_preset' => 0, 'background' => 0, 'background_preset' => 0);
+        $counts = array('text' => 0, 'text_preset' => 0, 'background' => 0, 'background_preset' => 0, 'border' => 0, 'border_preset' => 0);
         foreach ($markups as $markup) $coverage->walk($markup, $rootTextIsPreset, $counts);
-        $total = $counts['text'] + $counts['background'];
+        $total = $counts['text'] + $counts['background'] + $counts['border'];
         return array(
-            'share' => 0 === $total ? 1.0 : round(($counts['text_preset'] + $counts['background_preset']) / $total, 4),
+            'share' => 0 === $total ? 1.0 : round(($counts['text_preset'] + $counts['background_preset'] + $counts['border_preset']) / $total, 4),
             'text_elements' => $counts['text'],
             'text_preset' => $counts['text_preset'],
             'backgrounds' => $counts['background'],
             'backgrounds_preset' => $counts['background_preset'],
+            'borders' => $counts['border'],
+            'borders_preset' => $counts['border_preset'],
         );
     }
 
@@ -142,6 +145,19 @@ final class RestyleCoverage
             $counts['background']++;
             if ($background) $counts['background_preset']++;
         }
+        $border = $this->classSource($this->classes($attributes), 'border');
+        $borderStyles = $attributes['style']['border'] ?? array();
+        $borderValues = array();
+        if (is_string($attributes['borderColor'] ?? null)) $borderValues[] = true;
+        foreach (array($borderStyles, $borderStyles['top'] ?? array(), $borderStyles['right'] ?? array(), $borderStyles['bottom'] ?? array(), $borderStyles['left'] ?? array()) as $side) {
+            if (!is_string($side['color'] ?? null)) continue;
+            $borderValues[] = str_starts_with($side['color'], 'var:preset|') || str_contains($side['color'], '--wp--preset--color--');
+        }
+        if (array() !== $borderValues) $border = !in_array(false, $borderValues, true);
+        if (null !== $border) {
+            $counts['border']++;
+            if ($border) $counts['border_preset']++;
+        }
         if (!in_array($block['name'], self::TEXT_BLOCKS, true)) return;
         $own = (string) ($block['own'] ?? '');
         // Authored inline elements that set their own colour are text
@@ -203,12 +219,21 @@ final class RestyleCoverage
     {
         $values = array();
         foreach (CssRuleAnalyzer::declarationList($body) as $declaration) {
-            $property = match ($declaration['name']) {
+            $name = $declaration['name'];
+            $property = match ($name) {
                 'color' => 'color',
                 'background-color', 'background' => 'background',
                 default => null,
             };
             $value = trim((string) preg_replace('/!\s*important\s*$/i', '', $declaration['value']));
+            if (1 === preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-color)?$/', $name)) {
+                foreach (CssValueSplitter::splitTopLevelWhitespace($value) as $token) {
+                    $preset = str_contains($token, '--wp--preset--color--');
+                    if (!$preset && null === CssColor::parse($token)) continue;
+                    $values['border'] = ($values['border'] ?? true) && $preset;
+                }
+                continue;
+            }
             if (null === $property || 1 === preg_match('/^(?:inherit|initial|unset|revert|revert-layer|currentcolor|transparent|none)$/i', $value)) continue;
             if ('background' === $property && !str_contains($value, '--wp--preset--color--') && null === CssColor::parse($value)) continue;
             $values[$property] = ($values[$property] ?? true) && str_contains($value, '--wp--preset--color--');
