@@ -5266,6 +5266,30 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function isNavigationChromeElement(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
+        // Folder-history controls are replaced by native submenu close/back.
+        // Require an explicit action and removal from the tab order, not a
+        // builder class or the link's text/destination. A wrapper containing
+        // only that control is chrome too, but never swallow its child links.
+        $control = $element;
+        if ( ! in_array($tagName, array( 'a', 'button' ), true) ) {
+            $children = array();
+            foreach ( $element->childNodes as $child ) {
+                if ( XML_COMMENT_NODE === $child->nodeType
+                    || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                    continue;
+                }
+                $children[] = $child;
+            }
+            if ( 1 === count($children) && $children[0] instanceof DOMElement ) {
+                $control = $children[0];
+            }
+        }
+        if ( in_array(strtolower($control->tagName), array( 'a', 'button' ), true)
+            && 'back' === strtolower(SourceDom::attr($control, 'data-action'))
+            && '-1' === SourceDom::attr($control, 'tabindex')
+            && SourceDom::hasAncestorTag($element, array( 'nav' )) ) {
+            return true;
+        }
         if ( $this->isMenuToggleControl($element) ) {
             return true;
         }
