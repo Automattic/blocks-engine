@@ -402,6 +402,23 @@ final class TaxonomyProjection
         return $projection;
     }
 
+    /**
+     * Gives each archive the markup of the theme template that renders it.
+     *
+     * @param array<string,mixed> $projection
+     * @param array<int,array<string,mixed>> $templates
+     * @return array<string,mixed>
+     */
+    public static function withArchivePresentation(array $projection, array $templates): array
+    {
+        foreach ($projection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (isset($taxonomyEntity['archive']) && TemplateSlugs::forArchive($taxonomyEntity) === ($template['slug'] ?? null)) {
+            $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
+            continue 2;
+        }
+        unset($taxonomyEntity);
+        return $projection;
+    }
+
     /** Remove descendants if a parent's native query presentation was subsequently declined. */
     public static function retainProvenParents(array $entities, array &$diagnostics): array
     {

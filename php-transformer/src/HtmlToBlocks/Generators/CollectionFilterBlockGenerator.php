@@ -5,7 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use DOMElement;
 use DOMText;
 
@@ -424,11 +424,7 @@ JS;
     public function sourceStyle(string $style): array
     {
         $result = array();
-        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
-            $colon = strpos($declaration, ':');
-            if (false === $colon) continue;
-            $property = trim(substr($declaration, 0, $colon));
-            $value = trim(substr($declaration, $colon + 1));
+        foreach (CssRuleAnalyzer::declarationList($style) as ['name' => $property, 'value' => $value]) {
             if (1 !== preg_match('/^(?:--[A-Za-z0-9_-]+|[a-z-]+)$/', $property) || '' === $value || str_contains($value, '!important')) continue;
             $key = str_starts_with($property, '--') ? $property : preg_replace_callback('/-([a-z])/', static fn ($match): string => strtoupper($match[1]), $property);
             if (str_starts_with($property, '-ms-')) $key = lcfirst($key);

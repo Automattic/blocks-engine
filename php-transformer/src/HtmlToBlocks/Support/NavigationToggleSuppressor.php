@@ -189,8 +189,10 @@ final class NavigationToggleSuppressor
             return 1 === count($found)
                 && ! $this->isHiddenAtDefaultViewport($found[0])
                 && $this->hiddenBelowSharedAncestor($found[0], $scope, StyleResolver::MOBILE_REFERENCE_WIDTH)
+                && ! $this->isOutOfFlowNavigationPanel($control)
+                && ! $this->isOutOfFlowNavigationPanel($found[0])
+                && null !== $this->sourceCollapseBreakpoint($found[0], $control)
                 && $this->rowHoldsOtherContent($control, $scope)
-                && $this->rowHoldsOtherContent($found[0], $scope)
                 ? $found[0]
                 : null;
         }
@@ -484,9 +486,9 @@ final class NavigationToggleSuppressor
                     continue;
                 }
 
-                // Hidden items inside a menu the page shows belong to that menu
-                // (a "More" list, say); they are not this control's panel.
-                if ( $this->isInsideVisibleNavigation($candidate, $control) ) {
+                // A landmark's own dropdown belongs to that menu even when
+                // the entire landmark is hidden in a responsive row.
+                if ( $this->isInsideNavigation($candidate, $control) ) {
                     continue;
                 }
 
@@ -531,12 +533,11 @@ final class NavigationToggleSuppressor
         return null;
     }
 
-    private function isInsideVisibleNavigation(DOMElement $candidate, DOMElement $control): bool
+    private function isInsideNavigation(DOMElement $candidate, DOMElement $control): bool
     {
         for ( $node = $candidate->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( $this->isNavigationLandmark($node)
-                && ! SourceDom::elementContains($node, $control)
-                && ! $this->isHiddenAtDefaultViewport($node) ) {
+                && ! SourceDom::elementContains($node, $control) ) {
                 return true;
             }
         }
@@ -1740,8 +1741,23 @@ final class NavigationToggleSuppressor
      * Preserve a responsive overlay only when the source declares equivalent
      * desktop/mobile menus or an associated hamburger control.
      */
+    /** Keep the inline native occurrence out of the collapsed layout. */
+    public function inlineMirrorMarker(DOMElement $navigation): string
+    {
+        $state = $this->session->navigationProjectionState();
+        $control = $state->mirrorControlForNavigation($navigation);
+        if ($state->isBuildingMirror() || null === $control) return '';
+        $boundary = $this->sourceCollapseBreakpoint($navigation, $control);
+        if (null === $boundary) return '';
+        $marker = 'blocks-engine-navigation-inline-slot-' . substr(hash('sha256', (string) $boundary), 0, 12);
+        $this->session->generatedSupportStylesheetState()->registerNativeNavigationToggle($marker,
+            '@media(max-width:' . $boundary . 'px){.wp-block-navigation.' . $marker . ':not(.wp-block-navigation__container){display:none!important}}');
+        return $marker;
+    }
+
     public function navigationOverlayMenu(DOMElement $navigation): string
     {
+        if ('' !== $this->inlineMirrorMarker($navigation)) return 'never';
         if ( $this->hasEquivalentSourceNavigationVariant($navigation) ) {
             return 'mobile';
         }
@@ -1924,7 +1940,7 @@ final class NavigationToggleSuppressor
             return false;
         }
         for ( $node = $navigation; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            if ( SourceDom::documentVariantRoot($node) === $node ) {
+            if ( SourceDom::isDocumentVariantRoot($node) ) {
                 break;
             }
             if ( '#' === $match[1] ? $match[2] === SourceDom::attr($node, 'id') : in_array($match[2], preg_split('/\s+/', SourceDom::attr($node, 'class')) ?: array(), true) ) {
@@ -2013,10 +2029,11 @@ final class NavigationToggleSuppressor
             return false;
         }
 
+        $variantRoot = SourceDom::documentVariantRoot($navigationRoot);
         foreach ( $document->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement
                 || $candidate->isSameNode($navigationRoot)
-                || SourceDom::documentVariantRoot($candidate) !== SourceDom::documentVariantRoot($navigationRoot)
+                || SourceDom::documentVariantRoot($candidate) !== $variantRoot
                 || $this->isInsideProjectedNavigationSuppressed($candidate)
                 || $this->isInsideNativeDisclosure($candidate)
                 || SourceDom::elementContains($navigationRoot, $candidate)
@@ -2028,7 +2045,7 @@ final class NavigationToggleSuppressor
             if ( $signature === $this->sourceNavigationSignature($candidate)
                 && ($this->hasMobileNavigationSignal($navigationRoot)
                     || ($this->hasMobileNavigationSignal($candidate) && ! $this->isContentNavigationBesideChromeVariant($navigationRoot, $candidate)))
-                && (null === SourceDom::documentVariantRoot($navigationRoot) || $this->hasMenuVisibilityEvidence($navigationRoot) || $this->hasMenuVisibilityEvidence($candidate))
+                && (null === $variantRoot || $this->hasMenuVisibilityEvidence($navigationRoot) || $this->hasMenuVisibilityEvidence($candidate))
             ) {
                 return true;
             }
@@ -2124,7 +2141,7 @@ final class NavigationToggleSuppressor
             return true;
         }
         for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            if ( SourceDom::documentVariantRoot($node) === $node ) {
+            if ( SourceDom::isDocumentVariantRoot($node) ) {
                 break;
             }
             $identity = strtolower(trim(SourceDom::attr($node, 'id') . ' ' . SourceDom::attr($node, 'class') . ' ' . SourceDom::attr($node, 'aria-label')));
@@ -2140,7 +2157,7 @@ final class NavigationToggleSuppressor
     private function hasMenuVisibilityEvidence(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            if ( SourceDom::documentVariantRoot($node) === $node ) {
+            if ( SourceDom::isDocumentVariantRoot($node) ) {
                 break;
             }
             if ( $this->sourceElementIsHidden($node) ) {

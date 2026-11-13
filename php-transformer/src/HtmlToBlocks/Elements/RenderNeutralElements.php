@@ -95,7 +95,6 @@ final class RenderNeutralElements
             || '' !== trim(SourceDom::attr($element, 'class'))
             || '' !== trim(SourceDom::attr($element, 'id'))
             || $element->hasAttribute('hidden')
-            || '' === trim($element->textContent ?? '')
             || ! $this->isRenderNeutralWrapper($element)
             || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, false, true)
         ) {
@@ -113,7 +112,9 @@ final class RenderNeutralElements
             if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
                 continue;
             }
-            if ( ! $child instanceof DOMElement || ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($child) ) {
+            // Native buttons (including icon-only buttons) are ordinary light
+            // DOM content too; their own converter retains control semantics.
+            if ( ! $child instanceof DOMElement || ( 'button' !== strtolower($child->tagName) && ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($child) ) ) {
                 return false;
             }
             $children[] = $child;
@@ -121,7 +122,8 @@ final class RenderNeutralElements
 
         // Repeated siblings may be a cohesive component; retain that existing
         // disposition rather than reclassifying collections as wrappers.
-        return 1 === count($children);
+        return 1 === count($children)
+            && ( '' !== trim($element->textContent ?? '') || 'button' === strtolower($children[0]->tagName) );
     }
 
     /**

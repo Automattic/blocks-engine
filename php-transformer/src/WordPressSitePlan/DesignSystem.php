@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 
@@ -591,7 +593,7 @@ final class DesignSystem
         $variables = array();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || 'engine-support' === ($asset['source'] ?? null)) continue;
-            if (preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $asset['content'], $matches, PREG_SET_ORDER)) foreach ($matches as $match) $variables[$match[1]] ??= trim($match[2]);
+            foreach (CssRuleAnalyzer::customProperties($asset['content']) as $declaration) $variables[$declaration['name']] ??= $declaration['value'];
         }
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
@@ -1320,20 +1322,16 @@ final class DesignSystem
     /** The first family name of a stack, unquoted. */
     private static function primaryFamily(string $stack): string
     {
-        foreach (explode(',', $stack) as $part) {
-            $part = trim($part, " \t\n\r\0\x0B\"'");
-            if ('' !== $part) return (string) preg_replace('/\s+/', ' ', $part);
-        }
-        return '';
+        return (string) preg_replace('/\s+/', ' ', CssFontFamily::names($stack)[0] ?? '');
     }
 
     private static function familyName(string $stack): string
     {
-        foreach (explode(',', $stack) as $token) {
-            $token = trim($token, " \t\n\r\0\x0B\"'");
-            if ('' !== $token && !in_array(strtolower($token), self::GENERIC_FAMILIES, true) && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) return $token;
+        $names = CssFontFamily::names($stack);
+        foreach ($names as $token) {
+            if (!in_array(strtolower($token), self::GENERIC_FAMILIES, true) && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) return $token;
         }
-        return trim(explode(',', $stack)[0], " \t\n\r\0\x0B\"'");
+        return $names[0] ?? '';
     }
 
     /** Pixel size as rem when the document root is not the default 16px. */

@@ -5,6 +5,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use InvalidArgumentException;
 
@@ -634,11 +636,11 @@ final class FontMaterializationPlanBuilder
         $visitor = new CssStylesheetTransformer();
         foreach ( $stylesheets as $css ) {
             $visitor->visitStyleRules($css, static function (string $prelude, string $body) use (&$variables): void {
-                if ( str_starts_with(ltrim($prelude), '@') || ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER) ) {
+                if ( str_starts_with(ltrim($prelude), '@') ) {
                     return;
                 }
-                foreach ( $matches as $match ) {
-                    $variables[(string) $match[1]] = trim((string) $match[2]);
+                foreach ( CssRuleAnalyzer::customProperties($body) as $declaration ) {
+                    $variables[ $declaration['name'] ] = $declaration['value'];
                 }
             });
         }
@@ -709,9 +711,8 @@ final class FontMaterializationPlanBuilder
      */
     private function primaryFamily(string $declaration): string
     {
-        foreach ( explode(',', $declaration) as $candidate ) {
-            $family = $this->normalizeFamily($candidate);
-            if ( '' !== $family && ! $this->isWebSafeFontFamily($family) && ! $this->isInvalidFontFamily($family) ) {
+        foreach ( CssFontFamily::names(preg_replace('/\s*!important\s*$/i', '', $declaration) ?? $declaration) as $family ) {
+            if ( ! $this->isWebSafeFontFamily($family) && ! $this->isInvalidFontFamily($family) ) {
                 return $family;
             }
         }
@@ -790,16 +791,7 @@ final class FontMaterializationPlanBuilder
      */
     private function cssCustomProperties(string $css): array
     {
-        if ( ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        $vars = array();
-        foreach ( $matches as $match ) {
-            $vars[(string) $match[1]] = trim((string) $match[2]);
-        }
-
-        return $vars;
+        return array_column(CssRuleAnalyzer::customProperties($css), 'value', 'name');
     }
 
     /**

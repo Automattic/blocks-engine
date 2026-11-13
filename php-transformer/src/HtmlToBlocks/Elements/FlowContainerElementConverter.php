@@ -106,7 +106,7 @@ final class FlowContainerElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function lower(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
-        if ( SourceDom::documentVariantRoot($element) === $element ) {
+        if ( SourceDom::isDocumentVariantRoot($element) ) {
             return ConversionOutcome::handled($this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks));
         }
         if (in_array($tagName, array('header', 'footer'), true)

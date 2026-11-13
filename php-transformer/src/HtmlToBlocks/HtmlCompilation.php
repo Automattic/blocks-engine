@@ -948,7 +948,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new ScrollStateConverter(
                 $this->session,
                 $this,
-                $this->styleResolver
+                $this->styleResolver,
+                fn (DOMElement $element, string $className): string => $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext(), $className)
             ),
             new ThemeToggleConverter(
                 $this->svgMaterializer,
@@ -1254,6 +1255,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $timer->start('transform.source_normalization');
         SourceDom::removeIntegerKeyAttributes($body);
         SourceDom::unwrapLineBreakOnlyLinks($body);
+        SourceDom::normalizeHashbangPlaceholders($body);
         // Resolve before dispatch: controls, rich text, and preserved markup
         // serialize source images without passing through native image lowering.
         $this->imageUrls->resolveSourceImages($body);

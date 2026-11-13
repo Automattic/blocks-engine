@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
@@ -1530,6 +1532,24 @@ final class StyleResolver implements ElementPresentationResolver
             'specificity' => $entry['specificity'],
             'order' => $entry['order'],
         );
+    }
+
+    /** Whether an unconditional universal/type rule supplies a shared zero box.
+     * Class, state and responsive resets remain instance-owned.
+     */
+    public function hasGlobalZeroBox(DOMElement $element, string $box): bool
+    {
+        foreach ($this->styleRuleCandidates($element, 'static-conditional') as $rule) {
+            $selector = trim((string) ($rule['selector'] ?? ''));
+            if (1 !== preg_match('/^(?:\*|[a-zA-Z][a-zA-Z0-9-]*)$/D', $selector)
+                || !$this->matchesCssSelector($element, $selector)) continue;
+            foreach ($rule['conditions'] ?? array() as $condition) {
+                if (1 !== preg_match('/^@layer\b/i', trim($condition))) continue 2;
+            }
+            $value = CssValueInspector::withoutImportant((string) ($rule['declarations'][$box] ?? ''));
+            if (CssValueInspector::isZeroLength($value)) return true;
+        }
+        return false;
     }
 
     /** @return list<array{value:string,queries:list<string>,layer:string|null,layerRank:int|null,important:bool,order:int,specificity:array<int,int>}> */
@@ -4424,18 +4444,19 @@ final class StyleResolver implements ElementPresentationResolver
         // Keep stronger descendants, but serialize them after the shorthand.
         $longhands = self::WHITE_SPACE_SHORTHAND_LONGHANDS[$property] ?? self::BOX_SHORTHAND_LONGHANDS[$property] ?? array();
         $strongerLonghands = array();
-        foreach ($cascade as $existing => $entry) {
-            if (in_array($property, self::WHITE_SPACE_SHORTHAND_LONGHANDS[$existing] ?? self::BOX_SHORTHAND_LONGHANDS[$existing] ?? array(), true)
-                && $this->mediaTextCascadeEntryOutranks($entry, $incoming)) {
+        foreach (self::shorthandsOf($property) as $shorthand) {
+            if (isset($cascade[$shorthand]) && $this->mediaTextCascadeEntryOutranks($cascade[$shorthand], $incoming)) {
                 return;
             }
         }
-        foreach ($cascade as $existing => $entry) {
-            if (in_array($existing, $longhands, true)) {
-                if ($this->mediaTextCascadeEntryOutranks($entry, $incoming)) {
-                    $strongerLonghands[$existing] = $entry;
+        if (array() !== $longhands) {
+            foreach ($cascade as $existing => $entry) {
+                if (in_array($existing, $longhands, true)) {
+                    if ($this->mediaTextCascadeEntryOutranks($entry, $incoming)) {
+                        $strongerLonghands[$existing] = $entry;
+                    }
+                    unset($cascade[$existing]);
                 }
-                unset($cascade[$existing]);
             }
         }
         // Replacing a key must also replace its serialization position.
@@ -4451,6 +4472,24 @@ final class StyleResolver implements ElementPresentationResolver
         // Preserve relative order among surviving descendants (including nested
         // border shorthands), rather than the order of the family map.
         $cascade += $strongerLonghands;
+    }
+
+    /** @var array<string, list<string>>|null Shorthands, from both families below, keyed by each longhand they reset. */
+    private static ?array $shorthandsByLonghand = null;
+
+    /** @return list<string> */
+    private static function shorthandsOf(string $longhand): array
+    {
+        if (null === self::$shorthandsByLonghand) {
+            self::$shorthandsByLonghand = array();
+            foreach (self::WHITE_SPACE_SHORTHAND_LONGHANDS + self::BOX_SHORTHAND_LONGHANDS as $shorthand => $longhands) {
+                foreach ($longhands as $member) {
+                    self::$shorthandsByLonghand[$member][] = $shorthand;
+                }
+            }
+        }
+
+        return self::$shorthandsByLonghand[$longhand] ?? array();
     }
 
     /** Include the intermediate text-wrap shorthand as well as its longhands. */
@@ -4533,15 +4572,7 @@ final class StyleResolver implements ElementPresentationResolver
     private function mediaTextInlineDeclarationEntries(string $style): array
     {
         $entries = array();
-        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
-            $separator = strpos($declaration, ':');
-            if (false === $separator) {
-                continue;
-            }
-
-            $rawProperty = trim(substr($declaration, 0, $separator));
-            $property = str_starts_with($rawProperty, '--') ? $rawProperty : strtolower($rawProperty);
-            $rawValue = trim(substr($declaration, $separator + 1));
+        foreach (CssRuleAnalyzer::declarationList($style) as ['name' => $property, 'value' => $rawValue]) {
             $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
             $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
@@ -5853,12 +5884,7 @@ final class StyleResolver implements ElementPresentationResolver
     public function imageShapeDeclarationEntries(string $style): array
     {
         $entries = array();
-        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
-            if (! str_contains($declaration, ':')) {
-                continue;
-            }
-            [$property, $value] = array_map('trim', explode(':', $declaration, 2));
-            $property = strtolower($property);
+        foreach (CssRuleAnalyzer::declarationList($style) as ['name' => $property, 'value' => $value]) {
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
             if (in_array($property, array('width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
                 $entries[] = array('property' => $property, 'value' => $value);
@@ -6379,15 +6405,7 @@ final class StyleResolver implements ElementPresentationResolver
     private static function parseVerbatimCssDeclarations(string $style, bool $expandFont): array
     {
         $declarations = array();
-        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            if ( ! str_contains($declaration, ':') ) {
-                continue;
-            }
-            [$name, $value] = array_map('trim', explode(':', $declaration, 2));
-            // Custom property names are case-sensitive: `--btnBg` and
-            // `--btnbg` are distinct properties, and `var(--btnBg)` only
-            // reads the first.
-            $name = str_starts_with($name, '--') ? $name : strtolower($name);
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $name, 'value' => $value ] ) {
             // A browser drops `0: none`; its name would also be an int key.
             if ( CssPropertyName::startsLikeNumber($name) ) {
                 continue;
@@ -7309,12 +7327,21 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function cascadedCustomProperties(DOMElement $element, bool $resting = false): array
     {
+        return $this->session->sourceStyleResolutionState()->cascadedCustomProperties(
+            $element,
+            $resting,
+            fn(array $ancestors): array => $this->computeCascadedCustomProperties($ancestors, $resting)
+        );
+    }
+
+    /**
+     * @param list<DOMElement> $ancestors The element followed by its ancestors, nearest first.
+     * @return array<string, string>
+     */
+    private function computeCascadedCustomProperties(array $ancestors, bool $resting): array
+    {
         $sourceStyles = $this->session->sourceStyleResolutionState();
         $customProperties = $sourceStyles->customProperties();
-        $ancestors = array();
-        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-            $ancestors[] = $current;
-        }
         foreach ( array_reverse($ancestors) as $ancestor ) {
             $declared = $sourceStyles->cascadedDeclarations($ancestor, $this->computeCascadedDeclarations(...))['custom'];
             if ( ! $resting ) {
@@ -7501,8 +7528,8 @@ final class StyleResolver implements ElementPresentationResolver
             $content = trim((string) ($declarations['content'] ?? ''));
             if (!preg_match('/^([\'"]).+\1$/s', $content)) continue;
             $family = (string) ($declarations['font-family'] ?? $this->resolvedSvgCascadeValue($element, 'font-family') ?? '');
-            foreach (explode(',', $family) as $name) {
-                if (isset($families[strtolower(trim($name, " \t\n\r\"'"))])) return true;
+            foreach (CssFontFamily::names($family) as $name) {
+                if (isset($families[strtolower($name)])) return true;
             }
         }
         return false;
