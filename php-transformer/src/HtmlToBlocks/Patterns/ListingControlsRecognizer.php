@@ -27,7 +27,8 @@ use WeakMap;
  * - `sort`: a `select` whose options all read as orderings of the cards.
  * - `result_count`: a short text whose number is the card count.
  *
- * The region is the nearest common ancestor of the listing and its controls.
+ * The region is the common ancestor of the listing and each control's nearest
+ * placement. Equivalent placements outside that region still receive bindings.
  * A candidate is claimed only when it does not sit in a sibling branch that
  * holds another listing of the same shape — on a page that repeats one
  * category-group shape, each group's controls are its own.
@@ -94,13 +95,12 @@ final class ListingControlsRecognizer
         // controls beside the grid. Compare their common ancestors instead.
         $nearest = array();
         foreach ( $controls as $control ) {
-            $key = $control['kind'] . ':' . ($control['key'] ?? (isset($control['field']) ? $control['field'] . ':' . $control['bound'] : ''));
+            $key = $this->controlKey($control);
             $ancestor = $this->commonAncestor($listing, $control['element']);
             if ( ! isset($nearest[$key]) || $this->contains($this->commonAncestor($listing, $nearest[$key]['element']), $ancestor) ) {
                 $nearest[$key] = $control;
             }
         }
-        $controls = array_values($nearest);
 
         // Never let an outlying control pull page chrome into the collection.
         // The highest chrome-free ancestor is the limit of safe widening.
@@ -114,7 +114,12 @@ final class ListingControlsRecognizer
                 break;
             }
         }
-        $controls = array_values(array_filter($controls, fn (array $control): bool => $control['element'] === $limit || $this->contains($limit, $control['element'])));
+        $nearest = array_filter($nearest, fn (array $control): bool => $control['element'] === $limit || $this->contains($limit, $control['element']));
+        // Region ownership and placement ownership are separate: once a
+        // logical control is accepted, keep all its responsive placements.
+        // The publisher declares it once and binds every placement, including
+        // outlying modal forms that must not remain standalone form entities.
+        $controls = array_values(array_filter($controls, fn (array $control): bool => isset($nearest[$this->controlKey($control)])));
         foreach ( $controls as &$control ) {
             foreach ( $control['card_values'] ?? array() as $cardIndex => $value ) {
                 $cardFacets[$cardIndex][$control['key']] = $value;
@@ -131,7 +136,7 @@ final class ListingControlsRecognizer
         }
 
         $region = $listing;
-        foreach ( $controls as $control ) {
+        foreach ( $nearest as $control ) {
             $region = $this->commonAncestor($region, $control['element']);
         }
 
@@ -576,6 +581,12 @@ final class ListingControlsRecognizer
         }
 
         return $counts;
+    }
+
+    /** @param array<string,mixed> $control */
+    private function controlKey(array $control): string
+    {
+        return $control['kind'] . ':' . ($control['key'] ?? (isset($control['field']) ? $control['field'] . ':' . $control['bound'] : ''));
     }
 
     private function containsChrome(DOMElement $region): bool

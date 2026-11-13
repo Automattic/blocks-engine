@@ -127,18 +127,14 @@ foreach (array(2, 1, 0) as $count) {
         $assert($listing['grid_selector'] === $gridEntity['selector'] && !empty($listing['bindings']), 'Listing binds to its own device grid.');
         $kinds = array_count_values(array_column($listing['controls'], 'kind'));
         $assert(array('sort' => 1, 'facet' => 3, 'result_count' => 1) === $kinds, 'All facets, the shared sort and result count belong to the listing: ' . json_encode($kinds));
-        $assert(1 === count(array_filter($listing['bindings'], static fn (array $binding): bool => 'sort' === ($binding['control'] ?? null))), 'Only the nearest sort placement is claimed.');
+        $assert(2 === count(array_filter($listing['bindings'], static fn (array $binding): bool => 'sort' === ($binding['control'] ?? null))), 'Both sort placements stay anchored to the one sort control.');
         $keys = array_column(array_filter($listing['controls'], static fn (array $control): bool => 'facet' === $control['kind']), 'key');
         $assert(array('availability', 'color', 'size') === $keys && max(array_map('strlen', $keys)) <= 40, 'Facet keys use only their own group label.');
         foreach ($listing['controls'] as $control) {
             $assert(str_starts_with($control['selector'], 'div:nth-of-type(' . ($index + 1) . ') > '), 'Controls stay within their device copy.');
         }
     }
-    $remainingForms = $entities($result, 'forms');
-    $assert(2 === count($remainingForms), 'The two forms with unclaimed duplicate sorts remain standalone forms.');
-    foreach ($remainingForms as $form) {
-        $assert(str_contains($form['bindings'][0]['search_block_markup'] ?? '', 'FiltersFormMobile'), 'Only the mobile form retains an unclaimed sort.');
-    }
+    $assert(array() === $entities($result, 'forms'), 'Both filter_sort forms per device are claimed by the listing.');
     $findings = array_values(array_filter($result['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_product_grid_fallback' === ($finding['diagnostic_code'] ?? null)));
     $assert(2 === count($findings), 'Search drawer cards never create another grid.');
 }
