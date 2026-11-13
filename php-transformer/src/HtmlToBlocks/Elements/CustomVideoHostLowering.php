@@ -207,8 +207,8 @@ final class CustomVideoHostLowering implements ElementConverter
             return false;
         }
 
-        foreach ( $this->styleResolver->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) && array() !== ($rule['declarations'] ?? array()) ) {
+        foreach ( $this->styleResolver->matchingStyleRules($element, 'static-conditional') as $rule ) {
+            if ( array() !== ($rule['declarations'] ?? array()) ) {
                 return false;
             }
         }

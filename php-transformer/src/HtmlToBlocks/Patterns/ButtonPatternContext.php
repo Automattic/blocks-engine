@@ -397,8 +397,8 @@ final class ButtonPatternContext
         }
 
         $display = '';
-        foreach ( $this->styleResolver->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( isset($rule['declarations']['display']) && $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
+        foreach ( $this->styleResolver->matchingStyleRules($element, 'static') as $rule ) {
+            if ( isset($rule['declarations']['display']) ) {
                 $display = (string) $rule['declarations']['display'];
             }
         }
