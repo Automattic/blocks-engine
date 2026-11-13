@@ -119,14 +119,22 @@ final class ThemeTemplates
     public static function shareOverrides(array &$pages, array &$parts, array &$templates): array
     {
         $bySlug = array_column($templates, null, 'slug');
-        $groups = array();
+        $groups = array(); $renames = array(); $redundant = array();
         foreach ($pages as $index => $page) {
             $key = TemplateSlugs::forPage($page);
             $template = $bySlug[$key] ?? null;
             if ('single' === $key || !empty($page['entrypoint']) || !is_array($template) || isset($template['source_path'])) continue;
+            $generic = TemplateSlugs::genericForPage($page, array_keys($bySlug));
+            if ($key !== $generic && isset($bySlug[$generic]) && $template['canonical_block_markup'] === $bySlug[$generic]['canonical_block_markup']) {
+                $renames[$key] = $generic;
+                $redundant[$key] = true;
+                unset($pages[$index]['route_template'], $pages[$index]['metadata']['post_meta']['_wp_page_template']);
+                continue;
+            }
+            if ($key === $generic) continue;
             $groups[$page['post_type'] . "\0" . $template['canonical_block_markup']][] = $index;
         }
-        $renames = array(); $titles = array(); $shared = array(); $layouts = array();
+        $titles = array(); $shared = array(); $layouts = array();
         foreach ($groups as $indexes) {
             if (count($indexes) < 2) continue;
             $page = $pages[$indexes[0]];
@@ -143,6 +151,7 @@ final class ThemeTemplates
             $ordinal = $layouts[$page['post_type']] = ($layouts[$page['post_type']] ?? 0) + 1;
             $titles[$slug] = ucfirst(str_replace('_', ' ', $page['post_type'])) . ' (shared layout' . (1 < $ordinal ? ' ' . $ordinal : '') . ')';
         }
+        $templates = array_values(array_filter($templates, static fn(array $template): bool => !isset($redundant[$template['slug']])));
         foreach ($templates as &$template) {
             $slug = $renames[$template['slug']] ?? null;
             if (null === $slug || isset($shared[$slug])) continue;
