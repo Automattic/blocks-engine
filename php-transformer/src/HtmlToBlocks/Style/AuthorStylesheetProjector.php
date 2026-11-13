@@ -2440,8 +2440,13 @@ final class AuthorStylesheetProjector
             // lowering. A native block can keep that source hook and topology
             // instead; retain the authored arm wherever emitted markup still
             // answers it, alongside the possible carrier forms.
-            if ( $inlineLayoutCarriers && $this->matchesEmittedMarkup($parsed, $context->emittedMarkup) ) {
-                $hasNonProjected = true;
+            $groupCarrier = false;
+            if ( $inlineLayoutCarriers ) {
+                $subject = substr($selector, (int) $parsed['rightmost_compound_span']['start']);
+                $groupCarrier = $this->matchesEmittedMarkup(CssSelectorMatcher::parse($subject . ':where(.wp-block-group)'), $context->emittedMarkup);
+                if ( $groupCarrier || $this->matchesEmittedMarkup($parsed, $context->emittedMarkup) ) {
+                    $hasNonProjected = true;
+                }
             }
             if ( $hasNonProjected ) {
                 // Control, semantic and RichText carriers also carry their
@@ -2497,6 +2502,13 @@ final class AuthorStylesheetProjector
             }
             if ( $inlineLayoutCarriers ) {
                 $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed, $addressableInlineCarriers);
+                // Potential inline leaves can instead lower to a native group
+                // when their attached source cascade establishes a block box.
+                // Keep that hook addressable even when document context (such
+                // as a body class) is absent from the emitted fragment here.
+                if ( $groupCarrier ) {
+                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':where(.wp-block-group)');
+                }
             }
         }
         $projected = implode(',', array_values(array_unique($rewritten)));

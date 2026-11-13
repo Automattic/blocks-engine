@@ -127,10 +127,10 @@ final class RichTextMaterializer implements RichTextMaterialization
     }
 
     /** @param array<int, string> $excludedTags */
-    public function content(DOMElement $element, array $excludedTags = array()): string
+    public function content(DOMElement $element, array $excludedTags = array(), bool $includeElement = false): string
     {
         $serialized = $this->styleResolver->richTextSerializationSource($element);
-        $content = array() === $excludedTags ? SourceDom::innerHtml($serialized) : SourceDom::innerHtmlWithoutTags($serialized, $excludedTags);
+        $content = $includeElement ? SourceDom::outerHtml($serialized) : (array() === $excludedTags ? SourceDom::innerHtml($serialized) : SourceDom::innerHtmlWithoutTags($serialized, $excludedTags));
         // `<wbr>` is a void presentation hint, not editable RichText markup.
         // Browsers can serialize malformed source as a closing `</wbr>` too;
         // remove both forms so it cannot become structural HTML in a block.
@@ -160,7 +160,7 @@ final class RichTextMaterializer implements RichTextMaterialization
             return $content;
         }
 
-        $sourceInlines = array();
+        $sourceInlines = $includeElement && self::isMaterializedInline($element) ? array($element) : array();
         foreach ( $element->getElementsByTagName('*') as $sourceInline ) {
             if ( $sourceInline instanceof DOMElement && self::isMaterializedInline($sourceInline) ) {
                 for ( $parent = $sourceInline->parentNode; $parent instanceof DOMElement && $parent !== $element; $parent = $parent->parentNode ) {
