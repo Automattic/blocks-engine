@@ -16,6 +16,11 @@ final class SvgPathCoverage
     /** Cells across the viewBox: finer than the 24-48px an icon renders at. */
     private const CELLS = 64;
 
+    private const MEMO_LIMIT = 256;
+
+    /** @var array<string, float|null> */
+    private static array $differences = array();
+
     /** Samples per cell side; a cell's coverage is the share of its samples that are filled. */
     private const SUPERSAMPLE = 4;
 
@@ -27,6 +32,18 @@ final class SvgPathCoverage
      * @param array{0:float,1:float,2:float,3:float} $viewBox
      */
     public static function maxCellDifference(string $a, string $aRule, string $b, string $bRule, array $viewBox): ?float
+    {
+        // Pages repeat the same icons, so the same comparison recurs across
+        // documents. Results are scalars, so a small bounded memo is cheap.
+        $key = hash('xxh128', serialize(array($a, $aRule, $b, $bRule, $viewBox)));
+        if (array_key_exists($key, self::$differences)) return self::$differences[$key];
+        if (count(self::$differences) >= self::MEMO_LIMIT) self::$differences = array();
+
+        return self::$differences[$key] = self::computeMaxCellDifference($a, $aRule, $b, $bRule, $viewBox);
+    }
+
+    /** @param array{0:float,1:float,2:float,3:float} $viewBox */
+    private static function computeMaxCellDifference(string $a, string $aRule, string $b, string $bRule, array $viewBox): ?float
     {
         $first = self::polygons($a);
         $second = self::polygons($b);

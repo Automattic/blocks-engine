@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use DOMElement;
 use InvalidArgumentException;
 
@@ -327,6 +328,16 @@ final class FormControlTopologyBuilder
             $label = $this->accessibleName($element);
             if ( '' !== $label ) {
                 $presentation['group_label'] = $label;
+            }
+        }
+
+        $positionalLabel = FormControlLabel::choiceGroupLabel($element);
+        if ( ! isset($presentation['group_label']) && $positionalLabel instanceof DOMElement ) {
+            $caption = $this->legendCaption($positionalLabel);
+            if ( '' !== $caption ) {
+                $controls = FormControlClassifier::controlElements($element);
+                $presentation['group_role'] = 'radio' === FormControlClassifier::controlType($controls[0]) ? 'radiogroup' : 'group';
+                $presentation['group_label'] = $caption;
             }
         }
 

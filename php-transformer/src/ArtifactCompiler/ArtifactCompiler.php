@@ -1368,9 +1368,9 @@ final class ArtifactCompiler
                     }
                     unset($rawControls[$index]['_unresolved_description_candidates']);
                 }
-                // Copy sitting between two controls at the form's own level cannot
-                // be positioned either (see `inFormContext()`); it reaches here as
-                // named text instead of only a boolean flag.
+                // Context with no safe placement (for example an unassociated
+                // label heading several fields) stays named and loud. Positioned
+                // prose and resolved labels never enter this loss collection.
                 foreach ( is_array($fallback['form']['unrepresented_context'] ?? null) ? $fallback['form']['unrepresented_context'] : array() as $item ) {
                     if ( is_array($item) && is_string($item['text'] ?? null) && '' !== trim($item['text']) ) $unrepresentedText[] = array('selector' => $selector, 'text' => $item['text']);
                 }

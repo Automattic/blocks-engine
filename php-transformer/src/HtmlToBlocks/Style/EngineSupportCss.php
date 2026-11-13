@@ -74,6 +74,11 @@ final class EngineSupportCss
     public function beforeAuthorCss(string $serializedBlocks): array
     {
         $parts = array();
+        if ( str_contains($serializedBlocks, 'blocks-engine-image') ) {
+            // Keep the responsive fallback below every authored constraint,
+            // including when core/image inserts an anchor around the image.
+            $parts[] = ':where(figure.blocks-engine-image > img,figure.blocks-engine-image > a > img){max-width:100%}';
+        }
         if (str_contains($serializedBlocks, 'blocks-engine-stacked-buttons')) {
             // Preserve normal block flow even when the authored bar is inline-block.
             $parts[] = '.wp-block-buttons.blocks-engine-stacked-buttons>.wp-block-button{display:block;margin:0}';
@@ -135,7 +140,7 @@ final class EngineSupportCss
             // element min-content and flex-shrink behavior.
             $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}';
             // With no figure box there is nothing for the image to fit, so the
-            // `max-width:100%` that core and the image projection bridge put on
+            // `max-width:100%` that core and the base support rule put on
             // a core/image <img> is not the source's: its percentage zeroes the
             // replaced element's min-content contribution and lets the flex
             // item shrink below its own width. A max-width the author states
@@ -491,6 +496,10 @@ final class EngineSupportCss
                 . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item;align-items:normal}'
                 . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation:not(.blocks-engine-anchor-items-navigation)) .wp-block-navigation-item__content{display:inline}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:var(--navigation-layout-wrap,wrap);list-style:none}';
+            if (str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation')) {
+                $parts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__responsive-container:not(.is-menu-open) :where(.wp-block-navigation__responsive-close,.wp-block-navigation__responsive-dialog,.wp-block-navigation__responsive-container-content){flex-direction:inherit}'
+                    . "\n" . '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__responsive-container:not(.is-menu-open){flex-direction:inherit}';
+            }
             // The navigation host owns the source list's layout box. Core's
             // duplicate list is transport only; retaining a second flex box
             // would change source inline/block item packing. Overlay lists keep

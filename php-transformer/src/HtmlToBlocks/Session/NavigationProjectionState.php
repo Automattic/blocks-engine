@@ -73,6 +73,17 @@ final class NavigationProjectionState
         }
     }
 
+    /** The inline occurrence shares its menu with this separate toggle slot. */
+    public function mirrorControlForNavigation(DOMElement $navigation): ?DOMElement
+    {
+        foreach ($this->targetsByControlPath as $path => $target) {
+            if ($target->isSameNode($navigation) && array_key_exists($path, $this->mirrorPanelsByControlPath)) {
+                return (new \DOMXPath($navigation->ownerDocument))->query($path)->item(0);
+            }
+        }
+        return null;
+    }
+
     public function mirrorPanel(DOMElement $control): ?DOMElement
     {
         return $this->mirrorPanelsByControlPath[$control->getNodePath()] ?? null;

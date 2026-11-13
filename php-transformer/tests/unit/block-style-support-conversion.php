@@ -332,7 +332,7 @@ $resetHtml = '<header class="page-header"><div class="eyebrow">The Shop</div><h1
 $resetCss = '*,*::before,*::after{margin:0;padding:0}.eyebrow{display:inline-flex;align-items:center;gap:0.8rem;font-size:0.68rem;letter-spacing:0.22em;text-transform:uppercase}.eyebrow::before{content:"";display:block;width:2.2rem;height:1px}';
 $resetResult = ( new HtmlTransformer() )->transform($resetHtml, array('static_css' => $resetCss))->toArray();
 $resetMarkup = (string) ($resetResult['serialized_blocks'] ?? '');
-$assert(str_contains($resetMarkup, '<p class="eyebrow blocks-engine-lowered-paragraph">The Shop</p>'), '29b: a pure-text eyebrow under a universal zero reset collapses to a styled paragraph', $resetMarkup);
+$assert(1 === preg_match('~<p class="eyebrow blocks-engine-lowered-paragraph(?: blocks-engine-zero-[a-z-]+)*">The Shop</p>~', $resetMarkup), '29b: a pure-text eyebrow under a universal zero reset collapses to a styled paragraph', $resetMarkup);
 $assert(! preg_match('/<!-- wp:group[^>]*"className":"eyebrow"/', $resetMarkup), '29c: the zero-reset eyebrow does not round-trip as a one-child group', $resetMarkup);
 
 $stackHtml = '<div class="hero-content"><p>Eyebrow</p><h1>Low Tide Table</h1><div></div><p>Local shrimp.</p><div><p>Next Run</p></div><div><a href="#reserve">Reserve</a></div></div>';

@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
@@ -463,6 +464,13 @@ final class AuthorStylesheetProjector
         $body = $imagePlacement['body'];
         if ( '' !== $imagePlacement['rules'] ) {
             $declarations = array_filter($declarations, static fn (string $property): bool => ! NativeImageLeafPresentation::isPlacementProperty($property), ARRAY_FILTER_USE_KEY);
+            // Placement has already been emitted on the image leaf, with the
+            // synthetic figure excluded. Do not replay fixed margins on the
+            // wrapper as well. Horizontal auto margins still center a sized
+            // figure (the leaf cannot position its parent in normal flow).
+            $margins = array_intersect_key($margins, $declarations) + array_filter($margins, static fn (string $value, string $property): bool =>
+                in_array($property, array('margin-left', 'margin-right', 'margin-inline', 'margin-inline-start', 'margin-inline-end'), true)
+                && 'auto' === trim(str_replace('!important', '', $value)), ARRAY_FILTER_USE_BOTH);
         }
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
         $imageRule = '' === $imagePrelude
@@ -506,6 +514,7 @@ final class AuthorStylesheetProjector
             . $this->navigationListBoxRule($prelude, $declarations, $context)
             . $this->directNavigationHostRule($prelude, $declarations, $context)
             . $this->navigationItemFlexItemRule($prelude, $declarations, $context)
+            . $this->syntheticParagraphItemRule($prelude, $declarations, $context)
             . $this->navigationToggleRowRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
             $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
@@ -1064,12 +1073,7 @@ final class AuthorStylesheetProjector
     private function allowsSubjectArms(string $prelude, string $body): bool
     {
         $universalReset = $this->preludeIsUniversalReset($prelude);
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            if ( false === $colon ) {
-                continue;
-            }
-            $name = strtolower(trim(substr($declaration, 0, $colon)));
+        foreach ( CssRuleAnalyzer::declarationList($body) as [ 'name' => $name ] ) {
             if ( '' === $name ) {
                 continue;
             }
@@ -1318,13 +1322,7 @@ final class AuthorStylesheetProjector
         }
 
         $declarations = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            if ( false === $colon ) {
-                continue;
-            }
-            $name = trim(substr($declaration, 0, $colon));
-            $value = trim(substr($declaration, $colon + 1));
+        foreach ( CssRuleAnalyzer::declarationList($body) as [ 'name' => $name, 'value' => $value ] ) {
             if ( '' === $name || '' === $value || ( ! $this->isButtonLinkLayoutProperty($name) && ! $this->isButtonLinkPresentationProperty($name) ) ) {
                 continue;
             }
@@ -1435,14 +1433,8 @@ final class AuthorStylesheetProjector
         if ( preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)/i', $body) && preg_match('/(?:^|;)\s*(?:width|height)\s*:\s*0(?:[;\s]|$)/i', $body) ) {
             return true;
         }
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            if ( false === $colon ) {
-                continue;
-            }
+        foreach ( CssRuleAnalyzer::declarationList($body) as [ 'name' => $property, 'value' => $value ] ) {
             $controls = null === $element ? array() : array( $element );
-            $property = trim(substr($declaration, 0, $colon));
-            $value = trim(substr($declaration, $colon + 1));
             // A layout-item width release competes on the link and rides the
             // compatibility restatement; it does not specialize the button the
             // way wrapper-owned geometry does.
@@ -1531,7 +1523,7 @@ final class AuthorStylesheetProjector
             foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
                 $marker = $context->selectorProjections->controlMarker($element->getNodePath() ?? '');
                 if ( '' !== $marker ) {
-                    $rewritten[] = ':where(.' . $marker . '):where(.wp-block-buttons):not(.'
+                    $rewritten[] = ('*' === trim($selector) ? ':where(.blocks-engine-role-control)' : ':where(.' . $marker . ')') . ':where(.wp-block-buttons):not(.'
                         . $context->authorStyles->classSpecificityShim() . ')'
                         . $this->selectorSpecificityShims($parsed, $context);
                 }
@@ -1583,7 +1575,10 @@ final class AuthorStylesheetProjector
                 $markers[] = $marker;
             }
             foreach ( array_unique($markers) as $marker ) {
-                $rewritten[] = ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed, $context);
+                $universal = $this->universalControlSubject($selector, $parsed, $context);
+                $rewritten[] = null === $universal
+                    ? ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed, $context)
+                    : $universal['prefix'] . ':where(.blocks-engine-role-control)' . $this->selectorSpecificityShims($universal['parsed'], $context);
             }
         }
         return implode(',', $rewritten);
@@ -1617,10 +1612,20 @@ final class AuthorStylesheetProjector
         return $this->directButtonWrapperPrelude(
             $prelude,
             $context,
-            fn (string $selector, array $parsed, string $marker, DOMElement $element): string =>
-                LayoutParticipation::BOX_LINK === LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox()
-                    ? $this->projectControlSelector($selector, $parsed, $marker, $context)
-                    : $this->projectButtonBoxSelector($selector, $parsed, $marker, $context)
+            function (string $selector, array $parsed, string $marker, DOMElement $element) use ($context): string {
+                // Placement shifts the same box geometry sizes. It reaches the
+                // link only because the save wrapper is flattened, so it needs
+                // the flattened carrier like the geometry arm: a provider that
+                // saves its own core/button around the same control marker
+                // keeps a wrapper box and applies the source shift itself, and
+                // a second application on the link would double it.
+                $participation = LayoutParticipation::resolve($element, $this->styleResolver);
+                if ( LayoutParticipation::BOX_LINK !== $participation->participatingBox() ) {
+                    return $this->projectButtonBoxSelector($selector, $parsed, $marker, $context);
+                }
+                $link = $this->projectControlSelector($selector, $parsed, $marker, $context);
+                return $participation->neutralizeButtonWrapper() ? $this->flattenedWrapperLinkArm($link) : $link;
+            }
         );
     }
 
@@ -2126,7 +2131,7 @@ final class AuthorStylesheetProjector
             // The emitted tree is authoritative: add a zero-specificity hop
             // only when that topology actually exists, keeping the source arm
             // for matches that were not wrapped.
-            $carrierChild = $this->projectInlineLayoutCarrierChildSelector($selector, $parsed, $context);
+            $carrierChild = $this->projectParagraphCarrierChildSelector($selector, $parsed, $context);
             if ( null !== $carrierChild ) {
                 $rewritten[] = $carrierChild;
             }
@@ -2448,7 +2453,7 @@ final class AuthorStylesheetProjector
             // projection no longer depends on the page's other content. In
             // wrapper mode each control's arm shape depends on its own layout
             // participation, so those stay per element.
-            $controlSubject = $subjectArms && ! $controlWrapper && array() !== $controls
+            $controlSubject = $subjectArms && ! $controlWrapper && null === $this->universalControlSubject($selector, $parsed, $context) && array() !== $controls
                 ? $this->contextFreeSubject('control', $parsed, $controls, $context)
                 : null;
             if ( null !== $controlSubject ) {
@@ -3556,7 +3561,9 @@ final class AuthorStylesheetProjector
         foreach (array('min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio') as $property) {
             if (isset($declarations[$property])) $bridge[] = $property . ':' . $declarations[$property];
         }
-        if (!isset($declarations['max-width'])) $bridge[] = 'max-width:100%';
+        // The responsive max-width default belongs to zero-specificity base
+        // support, not this authored position: an unrelated later rule must
+        // not reset a cap declared by an earlier rule.
         foreach (array('width', 'height') as $property) {
             if ('auto' === CssValueInspector::declared($declarations, $property)) {
                 $bridge[] = $property . ':' . $declarations[$property];
@@ -3695,7 +3702,35 @@ final class AuthorStylesheetProjector
     /** @param array<string, mixed> $parsed */
     private function projectControlSelector(string $selector, array $parsed, string $marker, AuthorStylesheetProjectionContext $context, bool $wrapper = false): string
     {
+        $universal = $this->universalControlSubject($selector, $parsed, $context);
+        if (null !== $universal) {
+            return $universal['prefix'] . $this->projectControlTarget(':where(.blocks-engine-role-control)', $universal['selector'], $universal['parsed'], $context, $wrapper);
+        }
         return $this->projectControlTarget(':where(.' . $marker . ')', $selector, $parsed, $context, $wrapper);
+    }
+
+    /**
+     * Only an unrestricted subject can address every control carrier. Pseudo
+     * elements are projected through their host before reaching this method;
+     * identity, state and structural predicates must keep their marker arms.
+     * Keep ancestry live rather than freezing its captured matches into a list.
+     *
+     * @param array<string, mixed> $parsed
+     * @return array{prefix: string, selector: string, parsed: array<string, mixed>}|null
+     */
+    private function universalControlSubject(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?array
+    {
+        $span = $parsed['rightmost_compound_span'] ?? null;
+        if (!is_array($span)) return null;
+        $subject = substr($selector, (int) $span['start']);
+        // :is(*) and :where(*) impose no restriction on the originating element.
+        if (1 !== preg_match('/^\s*\*(?::(?:is|where)\(\s*\*\s*\))*\s*$/i', $subject)) return null;
+        $prefix = substr($selector, 0, (int) $span['start']);
+        return array(
+            'prefix' => $this->rewriteSourceTagTypes($prefix, $context->sourceStyles->parsedSelector($prefix), $context),
+            'selector' => $subject,
+            'parsed' => $context->sourceStyles->parsedSelector($subject),
+        );
     }
 
     /**
@@ -3829,7 +3864,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, mixed> $parsed */
-    private function projectInlineLayoutCarrierChildSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    private function projectParagraphCarrierChildSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, bool $itemSlot = false): ?string
     {
         $rightmost = $parsed['rightmost_compound_span'] ?? null;
         $combinators = $parsed['combinators'] ?? array();
@@ -3842,8 +3877,40 @@ final class AuthorStylesheetProjector
         if ( 1 === preg_match('/:(?:first|last|only|nth)-|:nth-/i', substr($selector, $start)) ) {
             return null;
         }
-        $projected = substr($selector, 0, $start) . ':where(.' . self::INLINE_LAYOUT_CARRIER_CLASS . ')>' . substr($selector, $start);
-        return $this->matchesEmittedMarkup(CssSelectorMatcher::parse($projected), $context->emittedMarkup) ? $projected : null;
+        $arms = array();
+        $classes = $itemSlot ? array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS) : array(self::INLINE_LAYOUT_CARRIER_CLASS, SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS);
+        foreach ( $classes as $class ) {
+            $carrier = ':where(.' . $class . ')';
+            $prefix = substr($selector, 0, $start);
+            $subject = substr($selector, $start);
+            $projected = $prefix . $carrier . '>' . $subject;
+            if ( ! $this->matchesEmittedMarkup(CssSelectorMatcher::parse($projected), $context->emittedMarkup) ) continue;
+            // The same subject predicate guards the item slot: unrelated
+            // synthetic paragraphs must not receive this item's placement.
+            $arms[] = $itemSlot ? $prefix . $carrier . ':has(>' . $subject . ')' : $projected;
+        }
+        return array() === $arms ? null : implode(',', $arms);
+    }
+
+    /**
+     * Restate only non-cumulative item placement on the inserted paragraph.
+     * Its source-box and synthetic-anchor variants share this carrier marker.
+     * The leaf still owns its typography, paint and inner layout.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function syntheticParagraphItemRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
+    {
+        $placement = array_filter($declarations, static fn (string $property): bool => in_array($property, array('flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'align-self', 'justify-self', 'place-self', 'order', 'grid-area', 'grid-row', 'grid-row-start', 'grid-row-end', 'grid-column', 'grid-column-start', 'grid-column-end'), true), ARRAY_FILTER_USE_KEY);
+        if ( array() === $placement ) return '';
+        $targets = array();
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] || array() === $this->matchingSourceElements($selector, $parsed, $context) ) continue;
+            $target = $this->projectParagraphCarrierChildSelector($selector, $parsed, $context, true);
+            if ( null !== $target ) $targets[] = $this->rewriteSourceTagTypes($target, CssSelectorMatcher::parse($target), $context);
+        }
+        return array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($placement) . '}';
     }
 
     /** @param array<string, mixed> $parsed */
@@ -5134,20 +5201,9 @@ final class AuthorStylesheetProjector
     private function typedItemRuleOutranks(DOMElement $element, array $parsed, AuthorStylesheetProjectionContext $context): bool
     {
         $own = array_values(CssSelectorMatcher::specificityCounts($parsed));
-        foreach ($context->authorStyles->styleRules() as $rule) {
-            foreach ((array) ($rule['selectors'] ?? array()) as $candidate) {
-                $typed = $candidate['parsed'] ?? array();
-                if (!($typed['supported'] ?? false) || str_contains((string) ($candidate['selector'] ?? ''), '::')
-                    || null === (CssSelectorCompoundInspector::rightmost($typed['compounds'])['type'] ?? null)
-                ) {
-                    continue;
-                }
-                $weight = CssSelectorMatcher::specificityCounts($typed);
-                if (array($weight['ids'], $weight['classes'], $weight['types']) >= $own
-                    && CssSelectorMatcher::matches($element, $typed)['matches']
-                ) {
-                    return true;
-                }
+        foreach ($context->authorStyles->typeSubjectSelectors() as $typed) {
+            if ($typed['weight'] >= $own && CssSelectorMatcher::matches($element, $typed['parsed'])['matches']) {
+                return true;
             }
         }
         return false;

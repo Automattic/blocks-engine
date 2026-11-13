@@ -138,7 +138,7 @@ final class InlineContentElementConverter implements ElementConverter
                     }
                 }
                 return ConversionOutcome::handled($this->group($element, array(
-                    $this->createBlock->createBlock('core/paragraph', array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element), array( 'content' => $content ))),
+                    $this->createBlock->createBlock('core/paragraph', array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element, true), array( 'content' => $content ))),
                 )));
             }
         }

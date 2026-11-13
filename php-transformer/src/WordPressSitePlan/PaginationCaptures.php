@@ -20,6 +20,25 @@ final class PaginationCaptures
      * @param array<string,string> $ownerBySource archive owners from the taxonomy projection
      * @return array{sources:array<string,bool>,owners:array<string,string>,diagnostics:list<array<string,mixed>>}
      */
+    /**
+     * A numbered capture's page assets belong to the archive that owns it.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<string,string> $ownerBySource archive owners from the taxonomy projection
+     * @return array<int,array<string,mixed>>
+     */
+    public static function withOwnedAssets(array $assets, array $ownerBySource): array
+    {
+        if (array() !== $ownerBySource) {
+            foreach ($assets as &$asset) {
+                $owner = $asset['compilation'] ?? null;
+                if ('page' === ($owner['scope'] ?? null) && isset($ownerBySource[$owner['id'] ?? ''])) $asset['compilation']['id'] = $ownerBySource[$owner['id']];
+            }
+            unset($asset);
+        }
+        return $assets;
+    }
+
     public static function select(array $pages, array $routeBySource, array $surfaces, array $ownerBySource): array
     {
         $sources = array();

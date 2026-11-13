@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 
@@ -187,16 +188,11 @@ final class CssValueInspector
 
     public static function hasDefiniteWidth(string $css): bool
     {
-        foreach ( CssValueSplitter::splitTopLevel($css, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            if ( false === $colon ) {
-                continue;
-            }
-            $name = strtolower(trim(substr($declaration, 0, $colon)));
+        foreach ( CssRuleAnalyzer::declarationList($css) as [ 'name' => $name, 'value' => $value ] ) {
             if ( 'width' !== $name && 'min-width' !== $name ) {
                 continue;
             }
-            $value = strtolower(self::withoutImportant(substr($declaration, $colon + 1)));
+            $value = strtolower(self::withoutImportant($value));
             if ( '' === $value || str_contains($value, 'var(') || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
                 continue;
             }
@@ -217,12 +213,11 @@ final class CssValueInspector
 
     private static function hasAuthoredLengthProperty(string $css, string $property): bool
     {
-        foreach ( CssValueSplitter::splitTopLevel($css, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            if ( false === $colon || $property !== strtolower(trim(substr($declaration, 0, $colon))) ) {
+        foreach ( CssRuleAnalyzer::declarationList($css) as [ 'name' => $name, 'value' => $value ] ) {
+            if ( $property !== $name ) {
                 continue;
             }
-            $value = strtolower(self::withoutImportant(substr($declaration, $colon + 1)));
+            $value = strtolower(self::withoutImportant($value));
             if ( '' === $value || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
                 continue;
             }
@@ -239,12 +234,8 @@ final class CssValueInspector
 
     public static function hasAutoHeight(string $css): bool
     {
-        foreach ( CssValueSplitter::splitTopLevel($css, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            if ( false !== $colon
-                && 'height' === strtolower(trim(substr($declaration, 0, $colon)))
-                && 'auto' === strtolower(self::withoutImportant(substr($declaration, $colon + 1)))
-            ) {
+        foreach ( CssRuleAnalyzer::declarationList($css) as $declaration ) {
+            if ( 'height' === $declaration['name'] && 'auto' === strtolower(self::withoutImportant($declaration['value'])) ) {
                 return true;
             }
         }
