@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -1990,18 +1991,7 @@ final class PresetBinding
     /** The selector's last compound, after its final combinator. */
     private static function subjectCompound(string $selector): string
     {
-        $selector = trim($selector);
-        $depth = 0;
-        $start = 0;
-        $length = strlen($selector);
-        for ($i = 0; $i < $length; $i++) {
-            $char = $selector[$i];
-            if ('\\' === $char) { $i++; continue; }
-            if ('(' === $char || '[' === $char) $depth++;
-            elseif (')' === $char || ']' === $char) $depth--;
-            elseif (0 === $depth && (ctype_space($char) || '>' === $char || '+' === $char || '~' === $char)) $start = $i + 1;
-        }
-        return substr($selector, $start);
+        return CssSelectorTokenizer::tokenize(trim($selector))['rightmost_compound'];
     }
 
     /**
