@@ -79,6 +79,26 @@ foreach (array(
     }
 }
 
+// #5686: a source that paints its canvas on html keeps a transparent body, so
+// a fixed z -1 body::before backdrop shows above the canvas instead of under
+// the theme background core paints on body. Any body background, class-bound
+// or conditional, keeps core's body paint.
+$backdrop = 'html{background:#14140a}body{margin:0}body:before{content:"";position:fixed;inset:0;z-index:-1;background:#c33}';
+foreach (array(
+    'html-owned canvas' => array('', '', true),
+    'body paints too' => array('body{background:#000}', '', false),
+    'class-bound body paint' => array('.site{background-color:#000}', ' class="site"', false),
+    'conditional body paint' => array('@media (max-width:600px){body{background-image:url(a.png)}}', '', false),
+) as $case => [$extraCss, $bodyAttributes, $transparent]) {
+    $import = (new HtmlTransformer())->transform('<!doctype html><html><head><style>' . $backdrop . $extraCss . '</style></head><body' . $bodyAttributes . '><main><p>Book a table</p></main></body></html>')->toArray();
+    $css = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($import['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? ''))));
+    $document = new DOMDocument();
+    $document->loadHTML('<html><body class="editor-styles-wrapper"><div>Band</div></body></html>');
+    // Core's global-styles root background, as WordPress prints it.
+    $resolved = (new StaticCssCascade($document, ':root :where(body){background-color:#14140a}' . $css))->resolve($document->getElementsByTagName('body')->item(0), array('background-color'), array());
+    $assert($transparent === in_array($resolved['background-color'] ?? '', array('transparent', 'none'), true), $case . ': body ' . ($transparent ? 'stays transparent over core\'s root background' : 'keeps a painted background') . ' (got ' . ($resolved['background-color'] ?? '') . ')');
+}
+
 if ($failures > 0) {
     fwrite(STDERR, "editor-canvas-body-background: {$failures} failure(s), {$passes} passed\n");
     exit(1);
