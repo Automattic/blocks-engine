@@ -757,7 +757,7 @@ final class StyleResolver implements ElementPresentationResolver
     public function collapsedViewportDeclarations(DOMElement $element, array $properties): array
     {
         $rules = ( function () use ($element): iterable {
-            foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $rule ) {
+            foreach ( $this->matchingRulesInCascadeOrder($element, 'static-conditional') as $rule ) {
                 yield array(
                     'selectors' => array( (string) ( $rule['selector'] ?? '' ) ),
                     'declarations' => ArrayField::array($rule, 'declarations'),
@@ -767,7 +767,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         } )();
 
-        return $this->collapsedViewportDeclarationsFromRules($element, $properties, $rules, fn (string $selector): bool => $this->matchesCssSelector($element, $selector));
+        return $this->collapsedViewportDeclarationsFromRules($element, $properties, $rules, static fn (string $selector): bool => true);
     }
 
     /**
@@ -1285,9 +1285,9 @@ final class StyleResolver implements ElementPresentationResolver
     public function declaredPresentation(DOMElement $element, string $property): DeclaredPresentation
     {
         $entries = array();
-        foreach ( $this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $index => $rule ) {
+        foreach ( $this->matchingRulesInCascadeOrder($element, 'static-conditional') as $index => $rule ) {
             $declared = trim((string) ( $rule['declarations'][ $property ] ?? ('vertical-align' === $property ? ($rule['sourceVerticalAlign'] ?? '') : '') ));
-            if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
+            if ( '' === $declared ) {
                 continue;
             }
 
@@ -1556,10 +1556,10 @@ final class StyleResolver implements ElementPresentationResolver
     private function declarationSequence(DOMElement $element, string $property): array
     {
         $entries = array();
-        foreach ($this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $index => $rule) {
+        foreach ($this->matchingRulesInCascadeOrder($element, 'static-conditional') as $index => $rule) {
             $declared = trim((string) ($rule['declarations'][$property] ?? ''));
             $selector = (string) ($rule['selector'] ?? '');
-            if ('' === $declared || ! $this->matchesCssSelector($element, $selector)) continue;
+            if ('' === $declared) continue;
             $conditions = array_map('trim', $rule['conditions'] ?? array());
             $entries[] = array(
                 'value' => $declared,
@@ -1600,10 +1600,10 @@ final class StyleResolver implements ElementPresentationResolver
     private function fontSizeSequence(DOMElement $element): array
     {
         $entries = array();
-        foreach ($this->rulesInCascadeOrder($this->styleRuleCandidates($element, 'static-conditional')) as $index => $rule) {
+        foreach ($this->matchingRulesInCascadeOrder($element, 'static-conditional') as $index => $rule) {
             $declared = trim((string) ($rule['declarations']['font-size'] ?? ''));
             $selector = (string) ($rule['selector'] ?? '');
-            if ('' === $declared || !$this->matchesCssSelector($element, $selector)) {
+            if ('' === $declared) {
                 continue;
             }
             $conditions = array_map('trim', $rule['conditions'] ?? array());
@@ -1928,7 +1928,7 @@ final class StyleResolver implements ElementPresentationResolver
         if ( array() !== $declarations ) {
             return $declarations;
         }
-        foreach ( $this->rulesInCascadeOrder(iterator_to_array($this->matchingStyleRules($element, 'conditional'), false)) as $rule ) {
+        foreach ( $this->matchingRulesInCascadeOrder($element, 'conditional') as $rule ) {
             $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
         }
 
@@ -6696,6 +6696,17 @@ final class StyleResolver implements ElementPresentationResolver
     private function matchingStyleRules(DOMElement $element, string $collection): array
     {
         return $this->session->sourceStyleResolutionState()->matchedRules($element, $collection, $this->computeMatchingStyleRules(...));
+    }
+
+    /**
+     * Matching rules sorted once per element and collection, sharing the
+     * matching-rule memo's node identity checks and invalidation.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function matchingRulesInCascadeOrder(DOMElement $element, string $collection): array
+    {
+        return $this->session->sourceStyleResolutionState()->matchedRules($element, $collection . "\0cascade", fn (DOMElement $element): array => $this->rulesInCascadeOrder($this->matchingStyleRules($element, $collection)));
     }
 
     /** @return list<array<string, mixed>> */
