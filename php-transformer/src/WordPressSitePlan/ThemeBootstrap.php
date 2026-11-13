@@ -22,7 +22,13 @@ use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
  */
 final class ThemeBootstrap
 {
-    public const EDITOR_CORE_IMAGE_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-image img{pointer-events:auto!important}';
+    public const EDITOR_CORE_IMAGE_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-image img{pointer-events:auto!important}'
+        // Synthetic figures have no frontend box, but Gutenberg selects the
+        // figure itself. Give that editing surface a box in the canvas only.
+        . ':root .editor-styles-wrapper .block-editor-block-list__block.wp-block-image:is(.blocks-engine-synthetic-image-figure-inline,.blocks-engine-synthetic-flex-image-figure){display:block!important}'
+        // Both captured document islands remain editable, regardless of the
+        // preview width. Their frontend breakpoint rules are left untouched.
+        . ':root .editor-styles-wrapper .block-editor-block-list__block:is(.' . CaptureEvidence::DESKTOP_ONLY_CLASS . ',.' . CaptureEvidence::MOBILE_ONLY_CLASS . '){display:block!important}';
 
     public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
 
