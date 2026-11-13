@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
@@ -761,9 +762,8 @@ final class ThemeJsonProjection
             $families = array_map(static fn(string $value, string $slug): array => array('slug' => $slug, 'name' => $names['font-family|' . $slug] ?? $slug, 'fontFamily' => $value), array_keys($presets['font-family']), $presets['font-family']);
             foreach ($families as $index => $family) {
                 $stack = (string) $family['fontFamily'];
-                foreach (explode(',', $stack) as $token) {
-                    $token = trim($token, " \t\n\r\0\x0B\"'");
-                    if (!isset($names['font-family|' . $family['slug']]) && '' !== $token && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) { $families[$index]['name'] = $token; break; }
+                foreach (CssFontFamily::names($stack) as $token) {
+                    if (!isset($names['font-family|' . $family['slug']]) && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) { $families[$index]['name'] = $token; break; }
                 }
                 $familyFaces = array_values(array_filter($faces, static fn(array $face): bool => self::stackReferencesFamily($stack, (string) ($face['family'] ?? ''))));
                 if (array() !== $familyFaces) $families[$index]['fontFace'] = $familyFaces;
@@ -834,8 +834,8 @@ final class ThemeJsonProjection
     private static function stackReferencesFamily(string $stack, string $family): bool
     {
         if ('' === $family) return false;
-        foreach (explode(',', $stack) as $token) {
-            if (0 === strcasecmp(trim($token, " \t\n\r\0\x0B\"'"), $family)) return true;
+        foreach (CssFontFamily::names($stack) as $token) {
+            if (0 === strcasecmp($token, $family)) return true;
         }
         return false;
     }
