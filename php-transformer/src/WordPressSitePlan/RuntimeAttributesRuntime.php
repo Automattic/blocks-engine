@@ -35,6 +35,18 @@ add_filter( 'render_block', static function ( string $content, array $block ): s
     if ( ! is_array( $attributes ) || array() === $attributes || '' === $content ) return $content;
     $processor = new WP_HTML_Tag_Processor( $content );
     if ( ! $processor->next_tag() ) return $content;
+    // Button motion is projected onto the link, not core's layout wrapper.
+    $entrance = $attributes['__VIEWPORT_ENTRANCE__'] ?? null;
+    if ( 'core/button' === ( $block['blockName'] ?? '' ) && is_string( $entrance ) ) {
+        $link = new WP_HTML_Tag_Processor( $content );
+        if ( $link->next_tag( array( 'class_name' => 'wp-block-button__link' ) ) ) {
+            $link->set_attribute( '__VIEWPORT_ENTRANCE__', $entrance );
+            $content = $link->get_updated_html();
+            $processor = new WP_HTML_Tag_Processor( $content );
+            $processor->next_tag();
+            unset( $attributes['__VIEWPORT_ENTRANCE__'] );
+        }
+    }
     foreach ( $attributes as $name => $value ) {
         if ( ! is_string( $name ) || ! is_string( $value ) || ! preg_match( '/^(?:data-[a-z0-9_.:-]+|aria-[a-z]+|role|hidden)$/D', $name ) || ( str_starts_with( $name, 'data-blocks-engine-' ) && ! in_array( $name, array( '__DEVICE_INLINE__', '__DEVICE_CLASS__', '__VIEWPORT_ENTRANCE__', '__RESPONSIVE_FRAGMENT__' ), true ) ) ) continue;
         if ( null === $processor->get_attribute( $name ) ) $processor->set_attribute( $name, '' === $value ? true : $value );

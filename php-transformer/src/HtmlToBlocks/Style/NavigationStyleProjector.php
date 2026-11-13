@@ -101,6 +101,17 @@ final class NavigationStyleProjector
             // negative delay lands on an animation that never advances, and the
             // element stays on whatever keyframe its fill mode paints.
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important}';
+            // Editable roots do not carry render-time capture attributes.
+            // Address only replay owners through their editor identity, and
+            // leave their authored resting geometry intact.
+            $body = $this->session->authorStyleAnalysis()->sourceBody();
+            $xpath = new \DOMXPath($body->ownerDocument);
+            foreach ($xpath->query('//*[@' . \Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE . ']') ?: array() as $owner) {
+                $id = $owner->getAttribute('id');
+                if ('' === $id) continue;
+                $selector = $this->projectAnchorIds('#' . \Automattic\BlocksEngine\PhpTransformer\Css\CssIdent::escape($id), array($id => true));
+                $rules[] = ':root ' . $selector . '{animation:none!important;visibility:visible!important}';
+            }
         }
         if ( $this->session->runtimeBehaviorState()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';

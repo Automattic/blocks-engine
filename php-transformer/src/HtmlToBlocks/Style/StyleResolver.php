@@ -3517,6 +3517,19 @@ final class StyleResolver implements ElementPresentationResolver
                 $authoredNames[strtolower($name)] ??= $name;
             }
         }
+        // Keyframes are not ordinary selector consumers. Preserve only the
+        // variables they read, not unrelated capture layout variables.
+        if ($element->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE)) {
+            $readers = array();
+            (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->visitKeyframeRules(
+                $this->session->authorStyleAnalysis()->combinedCss(),
+                static function (string $name, string $body) use (&$readers): void { $readers[] = $body; }
+            );
+            $required = $this->inlineCustomPropertiesRequired(
+                $declarations,
+                $required + $this->customPropertiesReferencedByValues($readers)
+            );
+        }
         $customProperties = array();
         foreach ($declarations as $property => $value) {
             if (str_starts_with($property, '--') && isset($required[$property])) {
