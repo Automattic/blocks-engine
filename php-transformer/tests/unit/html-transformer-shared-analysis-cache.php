@@ -219,7 +219,7 @@ $assert(
 // Every `<p class="pressure">` has the same tag and attributes, so the
 // subject-only `.pressure` result and each collection's candidate list are
 // shared by signature (Automattic/blocks-engine#3102): the 4,099 selector
-// lookups execute twice (the root and one paragraph) and the 12,301 candidate
+// lookups execute twice (the root and one paragraph) and the 12,296 candidate
 // lookups build one list per collection and signature, without evicting. Each
 // element's matching rules are remembered per collection, so a repeated
 // request for the same element skips both lookups.
@@ -234,7 +234,7 @@ $assert(
 );
 $assert(
     8 === ($pressureMetrics['style_rule_candidate_cache_misses'] ?? null)
-    && 12293 === ($pressureMetrics['style_rule_candidate_cache_hits'] ?? null)
+    && 12288 === ($pressureMetrics['style_rule_candidate_cache_hits'] ?? null)
     && 0 === ($pressureMetrics['style_rule_candidate_cache_evictions'] ?? null)
     && 8 === ($pressureMetrics['style_rule_candidate_cache_peak_entries'] ?? null)
     && 2 === ($pressureMetrics['style_rule_candidate_cache_peak_rule_references'] ?? null),
