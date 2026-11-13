@@ -270,7 +270,7 @@ foreach (array(false, true) as $wrapped) {
     WordPressSitePlan::assertValid($reduced);
     $parts = array_column($reduced['template_parts'], null, 'area');
     $header = (string) ($parts['header']['canonical_block_markup'] ?? '');
-    $assert(2 === count($reduced['template_parts']) && isset($parts['footer']) && str_contains($header, 'site-title') && str_contains($header, 'navigation') && !str_contains($header, 'Welcome') && !str_contains($header, 'banner'), 'Only invariant logo/navigation belongs in the header: ' . $header);
+    $assert(2 === count($reduced['template_parts']) && isset($parts['footer']) && str_contains($header, 'Acme</a>') && !str_contains($header, 'wp:site-title') && str_contains($header, 'navigation') && !str_contains($header, 'Welcome') && !str_contains($header, 'banner'), 'Only invariant logo/navigation belongs in the header: ' . $header);
     foreach ($reduced['templates'] as $template) {
         $markup = $template['canonical_block_markup'];
         $assert(str_contains($markup, '"slug":"header"') && str_contains($markup, '"slug":"footer"'), 'Every template references both shared parts: ' . $markup);
