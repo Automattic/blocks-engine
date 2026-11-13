@@ -752,12 +752,10 @@ foreach (array(
 $reducedFormDiagnostics = array_values(array_filter($reducedFormResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'form_field_context_unrepresented' === ($diagnostic['code'] ?? null)));
 $assert(array('One.', 'Two.') === ($reducedFormDiagnostics[0]['unrepresented_text'] ?? null), 'Ambiguous submit-button copy remains available to the unrepresented-text diagnostic.');
 
-// Copy that sits between two controls at the form's own level cannot be
-// positioned either; it is named by the same diagnostic rather than only
-// flipping a boolean flag.
+// Copy between controls is positioned context, not an unrepresented loss.
 $interleavedCopyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form method="post" action="/apply"><input type="text" name="a"><h3>Second section</h3><input type="text" name="b"><input type="submit" value="Go"></form></main>')))->toArray();
 $interleavedCopyDiagnostics = array_values(array_filter($interleavedCopyResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'form_field_context_unrepresented' === ($diagnostic['code'] ?? null)));
-$assert(1 === count($interleavedCopyDiagnostics) && array('Second section') === ($interleavedCopyDiagnostics[0]['unrepresented_text'] ?? null), 'Copy interleaved between two controls is named by a diagnostic instead of only recording a boolean flag.');
+$assert(array() === $interleavedCopyDiagnostics, 'Copy interleaved between two controls is positioned without an unrepresented-text diagnostic.');
 
 // Widget-heavy booking forms retain all visible buttons within the graph bounds.
 $bookingFields = '<div><label>Name<input name="name"></label></div><div><label>Email<input type="email" name="email"></label></div><div><label>Phone<input type="tel" name="phone"></label></div>';

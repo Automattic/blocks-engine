@@ -178,11 +178,9 @@ final class FormControlMetadataBuilder
      * not a control, so nothing in the control manifest carries it. Record it
      * against the controls it sits around so a materialized form can keep it.
      *
-     * Copy that sits between two controls cannot be placed by position alone
-     * (see `interleaved_context`), but the text itself is still reported —
-     * bounded, under `unrepresented_context` — instead of being discarded
-     * outright, so a caller can turn it into a named diagnostic rather than a
-     * silent loss.
+     * Prose between controls is context_after anchored to the preceding
+     * control selector. Unassociated labels without a unique owner remain
+     * unrepresented: treating those as prose would hide an ambiguous field name.
      *
      * @return array{context_before: array<int, array<string, mixed>>, context_after: array<int, array<string, mixed>>, interleaved_context: bool, unrepresented_context: array<int, array<string, mixed>>}
      */
@@ -194,6 +192,7 @@ final class FormControlMetadataBuilder
         $interleaved = false;
         $seenControls = 0;
         $totalControls = 0;
+        $precedingControl = null;
 
         // Copy a control already owns — its label, its field description — is
         // carried by the control manifest, so it must not also surface here.
@@ -227,6 +226,14 @@ final class FormControlMetadataBuilder
             }
         }
 
+        foreach ( $form->getElementsByTagName('*') as $group ) {
+            if ( ! $group instanceof DOMElement ) continue;
+            $groupLabel = FormControlLabel::choiceGroupLabel($group);
+            if ( $groupLabel instanceof DOMElement && '' !== trim($groupLabel->textContent) && strlen(trim($groupLabel->textContent)) <= 200 ) {
+                $claimedLabels[] = $groupLabel;
+            }
+        }
+
         $recorded = array();
         foreach ( $form->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
@@ -235,6 +242,7 @@ final class FormControlMetadataBuilder
             if ( FormControlClassifier::isControlElement($node) ) {
                 if ( ! FormControlClassifier::isNonAuthoredControl($node) ) {
                     ++$seenControls;
+                    $precedingControl = $node;
                 }
                 continue;
             }
@@ -254,7 +262,12 @@ final class FormControlMetadataBuilder
                 $after[] = $item;
             } else {
                 $interleaved = true;
-                $unrepresented[] = $item;
+                if ( 'label' !== strtolower($node->tagName) && $precedingControl instanceof DOMElement ) {
+                    $item['after_control_selector'] = SourceDom::elementSelector($precedingControl);
+                    $after[] = $item;
+                } else {
+                    $unrepresented[] = $item;
+                }
             }
         }
 
