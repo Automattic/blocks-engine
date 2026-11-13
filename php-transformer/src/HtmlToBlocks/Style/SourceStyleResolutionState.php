@@ -514,23 +514,6 @@ final class SourceStyleResolutionState
         return array() !== $this->layerNames;
     }
 
-    /**
-     * Whether a static rule addresses one of the element's classes through
-     * ancestor context (`.page .card .name`). Detached RichText cannot match
-     * those ancestors, so this reads the subject compound only.
-     */
-    public function classHookHasContextualRule(DOMElement $element): bool
-    {
-        $classes = SourceDom::tokens(SourceDom::attr($element, 'class'));
-        if ( array() === $classes ) return false;
-        foreach ( $this->candidateRules($element, 'static') as $rule ) {
-            $compounds = $this->parsedSelector((string) ($rule['selector'] ?? ''))['compounds'] ?? array();
-            if ( count($compounds) < 2 ) continue;
-            if ( array() !== array_intersect($classes, $compounds[array_key_last($compounds)]['classes'] ?? array()) ) return true;
-        }
-        return false;
-    }
-
     /** @return array<string, mixed> */
     public function parsedSelector(string $selector): array
     {

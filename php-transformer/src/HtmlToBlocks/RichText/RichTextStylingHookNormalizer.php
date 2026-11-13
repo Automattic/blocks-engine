@@ -164,7 +164,7 @@ final class RichTextStylingHookNormalizer
         $hasStyling = false;
         foreach ( $element->attributes ?? array() as $attribute ) {
             $attributeName = strtolower($attribute->nodeName);
-            if ( 'class' !== $attributeName && 'style' !== $attributeName ) {
+            if ( ! in_array($attributeName, array( 'class', 'style', 'data-blocks-engine-richtext-marker' ), true) ) {
                 return false;
             }
             if ( '' !== trim($attribute->nodeValue ?? '') ) {
@@ -309,7 +309,6 @@ final class RichTextStylingHookNormalizer
         $carrierReplacesSource = in_array(strtolower($element->tagName), array( 'span', 'font', 'mark' ), true) || RichTextInlineTags::isUnknownHtmlElement($element);
 
         $declarations = $this->richTextMaterializer->inlineVisualDeclarations($element);
-        $contextualHook = $this->session->sourceStyleResolutionState()->classHookHasContextualRule($element);
         if ( $carrierReplacesSource ) {
             // The mark keeps the author's classes, and an inline declaration
             // out-ranks every stylesheet rule — a base value projected here
@@ -338,6 +337,11 @@ final class RichTextStylingHookNormalizer
         }
 
         if ( '' !== $marker ) {
+            // Marker-backed content was resolved against its attached source.
+            // Do not refill responsive properties from this detached fragment.
+            if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
+                $declarations = $existingDeclarations;
+            }
             $declarations['--blocks-engine-richtext-marker'] = $marker;
         }
 
@@ -358,16 +362,6 @@ final class RichTextStylingHookNormalizer
         $mark = $document->createElement('mark');
         foreach ( $sourceIsLink ? array() : $this->richTextSafeIdentityAttributes($element) as $name => $value ) {
             $mark->setAttribute($name, $value);
-        }
-        if ( $contextualHook && ! $sourceIsLink && '' === $marker ) {
-            $inferred = array_diff_key($declarations, $existingDeclarations);
-            if ( array() !== $inferred ) {
-                $body = '{' . $this->styleResolver->cssDeclarationString($inferred) . '}';
-                $className = $this->session->layoutGeometryState()->allocateCarrier('rich-text-cascade' . "\n" . $body);
-                $this->session->layoutGeometryState()->registerRule($className, ':where(mark.' . $className . ')' . $body);
-                $mark->setAttribute('class', SourceDom::mergeClassNames($mark->getAttribute('class'), $className));
-            }
-            $declarations = array_intersect_key($declarations, $existingDeclarations);
         }
         $mark->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
         if ( ! $sourceTagWasMark ) {
