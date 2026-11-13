@@ -730,7 +730,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
             if ( $requireOrdinaryFlow && (
                 $candidate->hasAttribute('slot')
                 || $candidate->hasAttribute('hidden')
-                || in_array(strtolower($candidate->tagName), array( 'slot', 'shadow', 'content', 'template', 'script', 'style', 'svg', 'math', 'img', 'picture', 'video', 'audio', 'iframe', 'object', 'embed', 'canvas', 'details', 'dialog', 'form', 'input', 'select', 'textarea', 'button' ), true)
+                || in_array(strtolower($candidate->tagName), array( 'slot', 'shadow', 'content', 'template', 'script', 'style', 'math', 'img', 'picture', 'video', 'audio', 'iframe', 'object', 'embed', 'canvas', 'details', 'dialog', 'form', 'input', 'select', 'textarea' ), true)
                 || ( $candidate !== $element && \Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags::isUnknownHtmlElement($candidate) )
             ) ) {
                 return false;
