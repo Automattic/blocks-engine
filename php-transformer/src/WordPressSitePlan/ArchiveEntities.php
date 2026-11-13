@@ -39,11 +39,14 @@ final class ArchiveEntities
     }
 
     /** Presentation may retain captured static blocks or an inherited archive query. */
+    /** The largest archive presentation a plan carries; larger archives use the theme's default archive template. */
+    public const PRESENTATION_MAX_BYTES = 1000000;
+
     private static function validPresentation(array $archive): bool
     {
         if (!array_key_exists('presentation_markup', $archive)) return true;
         $markup = $archive['presentation_markup'];
-        return is_string($markup) && '' !== trim($markup) && strlen($markup) <= 1000000
+        return is_string($markup) && '' !== trim($markup) && strlen($markup) <= self::PRESENTATION_MAX_BYTES
             && (!str_contains($markup, '<!-- wp:query ') || (
                 str_contains($markup, '"inherit":true')
                 && str_contains($markup, '<!-- wp:query-pagination ')
