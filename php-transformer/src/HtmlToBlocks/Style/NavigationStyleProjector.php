@@ -998,32 +998,7 @@ final class NavigationStyleProjector
      */
     private function navigationSelectorSpecificity(array $parsed, string $pseudo): array
     {
-        $specificity = array( 0, 0, 0 );
-        $addCompound = function (array $compound) use (&$addCompound, &$specificity): void {
-            $specificity[0] += count($compound['ids'] ?? array());
-            $specificity[1] += count($compound['classes'] ?? array()) + count($compound['attributes'] ?? array());
-            if ( null !== ($compound['nth_child'] ?? null) || ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false) ) {
-                ++$specificity[1];
-            }
-            if ( null !== ($compound['type'] ?? null) ) {
-                ++$specificity[2];
-            }
-            foreach ( $compound['not'] ?? array() as $negated ) {
-                foreach ( $negated['compounds'] ?? array() as $negatedCompound ) {
-                    $addCompound($negatedCompound);
-                }
-            }
-            foreach ( $compound['has'] ?? array() as $group ) {
-                foreach ( $group['alternatives'] ?? array() as $alternative ) {
-                    foreach ( $alternative['compounds'] ?? array() as $hasCompound ) {
-                        $addCompound($hasCompound);
-                    }
-                }
-            }
-        };
-        foreach ( $parsed['compounds'] ?? array() as $compound ) {
-            $addCompound($compound);
-        }
+        $specificity = array_values(CssSelectorMatcher::specificityCounts($parsed, false));
         $specificity[1] += preg_match_all('/:[a-z-]+/i', $pseudo);
         return $specificity;
     }
