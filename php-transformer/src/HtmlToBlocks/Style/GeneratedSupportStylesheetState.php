@@ -322,6 +322,14 @@ final class GeneratedSupportStylesheetState
         $this->accordionTogglePresentation[$className] = $declarations;
     }
 
+    /** @var array<string, bool> */
+    private array $accordionNativeSummaries = array();
+
+    public function registerAccordionNativeSummaryPresentation(string $className): void
+    {
+        $this->accordionNativeSummaries[$className] = true;
+    }
+
     public function registerAccordionTitlePresentation(string $className, string $declarations): void
     {
         $this->accordionTitlePresentation[$className] = $declarations;
@@ -555,6 +563,15 @@ final class GeneratedSupportStylesheetState
             if (str_contains($serializedBlocks, $className)) {
                 $parts[] = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle>.wp-block-accordion-heading__toggle-title{' . $declarations . '}';
             }
+        }
+        foreach ($this->accordionNativeSummaries as $className => $_native) {
+            $heading = '.wp-block-accordion-heading.' . $className;
+            // Core heading lacks margin support; keep its valid save shape and
+            // neutralize only the wrapper introduced for a native summary.
+            $parts[] = $heading . '{margin:0}';
+            $toggle = $heading . '>.wp-block-accordion-heading__toggle';
+            $parts[] = $toggle . '>.wp-block-accordion-heading__toggle-icon{display:none}';
+            $parts[] = $toggle . '[aria-expanded="true"]{list-style-type:disclosure-open}';
         }
         foreach ($this->accordionIconPresentation as $className => $states) {
             if (!str_contains($serializedBlocks, $className)) continue;
