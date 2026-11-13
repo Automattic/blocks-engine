@@ -65,6 +65,30 @@ final class ThemeTemplates
     }
 
     /**
+     * Templates whose block-theme chrome was extracted render inside that
+     * chrome's shell frame; when any was extracted, the single template
+     * takes the first.
+     *
+     * @param array<int,array<string,mixed>> $templates
+     * @param array<string,mixed> $blockThemeChrome
+     * @return array<int,array<string,mixed>>
+     */
+    public static function withBlockThemeShellFrames(array $templates, array $blockThemeChrome): array
+    {
+        foreach ($templates as &$template) {
+            $chrome = $blockThemeChrome['templates'][$template['slug']] ?? null;
+            if (!is_string($chrome)) continue;
+            $template['shell_frame'] = array_values(array_unique(array_merge($template['shell_frame'] ?? array(), $blockThemeChrome['shells'][$template['slug']] ?? array())));
+        }
+        unset($template);
+        if (array() !== $blockThemeChrome['templates']) foreach ($templates as &$template) {
+            if ('single' === $template['slug']) $template['shell_frame'] = reset($blockThemeChrome['shells']);
+        }
+        unset($template);
+        return $templates;
+    }
+
+    /**
      * Share generated route overrides only after their final markup is known.
      * Keep placement keys aligned with TemplateSlugs::forPage() for binding validation.
      *

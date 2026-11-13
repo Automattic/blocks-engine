@@ -257,24 +257,7 @@ final class SitePlanRun
         $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
         $assets = $themeProjection['assets'];
         $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
-        // Font binding waited for the scoped defaults; do not pin a block to
-        // a preset when the written Global Styles already owns its family.
-        // Shell candidates hold the page's bytes and block offsets, so a page
-        // whose markup binding changes has them read again from the bound page.
-        $documentsBySource = array_column($documents, null, 'source_path');
-        foreach ($pages as &$page) {
-            $bound = $this->presetBinding?->bind($page['canonical_block_markup']);
-            if (null === $bound || $bound === $page['canonical_block_markup']) continue;
-            $page['canonical_block_markup'] = $bound;
-            $page['content_hash'] = WordPressSitePlan::contentHash($bound);
-            $document = $documentsBySource[$page['source_path']] ?? null;
-            if (!is_array($document) || !isset($page['shell_candidates'])) continue;
-            foreach ($document['shell_artifacts'] ?? array() as $key => $artifact) {
-                if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup']);
-            }
-            $page['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $this->references, $this->routeMap, $bound);
-        }
-        unset($page);
+        $pages = $this->presetBoundPages($pages, $documents);
         $routes = RouteTable::forPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
         // canonical plan rebuilds them from full page shell candidates.
@@ -386,16 +369,7 @@ final class SitePlanRun
         $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
         ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
         $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $this->routeMap, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome'], $blockThemeChrome['templates']);
-        foreach ($templates as &$template) {
-            $chrome = $blockThemeChrome['templates'][$template['slug']] ?? null;
-            if (!is_string($chrome)) continue;
-            $template['shell_frame'] = array_values(array_unique(array_merge($template['shell_frame'] ?? array(), $blockThemeChrome['shells'][$template['slug']] ?? array())));
-        }
-        unset($template);
-        if (array() !== $blockThemeChrome['templates']) foreach ($templates as &$template) {
-            if ('single' === $template['slug']) $template['shell_frame'] = reset($blockThemeChrome['shells']);
-        }
-        unset($template);
+        $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
         $sharedTemplateTitles = ThemeTemplates::shareOverrides($pages, $parts, $templates);
         $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates);
         $pages = $articleChrome['pages'];
@@ -618,6 +592,35 @@ final class SitePlanRun
         }
         unset($diagnostic);
         return $diagnostics;
+    }
+    /**
+     * Binds each page's markup to the design-system presets. Font binding
+     * waited for the scoped defaults, so a block is not pinned to a preset
+     * when the written Global Styles already owns its family. Shell
+     * candidates hold the page's bytes and block offsets, so a page whose
+     * markup binding changes has them read again from the bound page.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $documents
+     * @return array<int,array<string,mixed>>
+     */
+    private function presetBoundPages(array $pages, array $documents): array
+    {
+        $documentsBySource = array_column($documents, null, 'source_path');
+        foreach ($pages as &$page) {
+            $bound = $this->presetBinding?->bind($page['canonical_block_markup']);
+            if (null === $bound || $bound === $page['canonical_block_markup']) continue;
+            $page['canonical_block_markup'] = $bound;
+            $page['content_hash'] = WordPressSitePlan::contentHash($bound);
+            $document = $documentsBySource[$page['source_path']] ?? null;
+            if (!is_array($document) || !isset($page['shell_candidates'])) continue;
+            foreach ($document['shell_artifacts'] ?? array() as $key => $artifact) {
+                if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup']);
+            }
+            $page['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $this->references, $this->routeMap, $bound);
+        }
+        unset($page);
+        return $pages;
     }
     /** @param mixed $documents @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
     private function documents(mixed $documents, bool $part, array $tokens, AssetReferenceCanonicalizer $references, array $routes): array
