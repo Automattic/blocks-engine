@@ -847,6 +847,9 @@ final class StyleAttributeMapper
                 if ( $resolved === $value || str_contains($resolved, 'var(') || '' === $this->cssColor($resolved) ) {
                     return '';
                 }
+                // Carry the colour computed at the source element's scope so
+                // preset matching does not need to reconstruct its ancestors.
+                return $resolved;
             }
             return $value;
         }

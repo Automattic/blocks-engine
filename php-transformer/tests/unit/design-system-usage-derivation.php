@@ -49,6 +49,18 @@ $assert('1.6rem' === $readableSize, 'builder root: base typography comes from re
 $assert('1.5' === $readableTheme['styles']['typography']['lineHeight'], 'builder root: readable body leading is preserved');
 $assert('var(--ink)' === $readableTheme['styles']['color']['text'] && 'var(--paper)' === $readableTheme['styles']['color']['background'], 'scheme palette: editor root retains live source variables');
 $assert(!isset($readableTheme['styles']['elements']['heading']['color']['text']), 'section heading colours are not global element defaults');
+// Root and ancestor tokens must produce the same editable colour bindings.
+$scopedTokens = file_get_contents(dirname(__DIR__) . '/fixtures/design-system/scoped-tokens.html');
+foreach (array('ancestor' => $scopedTokens, 'root' => str_replace('#view{--brand:', ':root{--brand:', $scopedTokens)) as $scope => $html) {
+    [$tokenPlan, $tokenTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)));
+    $palette = array_column($tokenTheme['settings']['color']['palette'] ?? array(), 'slug', 'color');
+    $markup = implode('', array_column($tokenPlan['pages'], 'canonical_block_markup'));
+    foreach (array('heading' => '#3e559b', 'paragraph' => '#636c80') as $block => $color) {
+        $slug = $palette[$color] ?? '';
+        $assert('' !== $slug && 1 === preg_match('/<!-- wp:' . $block . ' [^>]*"textColor":"' . preg_quote($slug, '/') . '"/', $markup), "$scope tokens: $block binds to its resolved palette colour");
+    }
+}
+
 // Reduced heading case: class-owned typography becomes editable without
 // changing the source declarations' values, including at a breakpoint.
 foreach (array(false, true) as $responsive) {
@@ -239,10 +251,10 @@ foreach ($borderGroups[1] as $json) {
 }
 foreach (array('top' => array('#3e559b', '7px'), 'bottom' => array('#d56741', '4px')) as $side => [$color, $width]) {
     $slug = array_search($color, $borderPalette, true);
-    $expected = false === $slug ? 'var(--accent)' : 'var:preset|color|' . $slug;
-    $assert($expected === ($border[$side]['color'] ?? null), "border tokens: $side binds only when its resolved color is in the palette");
+    $expected = false === $slug ? $color : 'var:preset|color|' . $slug;
+    $assert($expected === ($border[$side]['color'] ?? null), "border tokens: $side binds to a preset when its resolved color is in the palette, else carries that color");
     $assert($width === ($border[$side]['width'] ?? null) && 'solid' === ($border[$side]['style'] ?? null), "border tokens: $side retains width and style");
-    $cssColor = false === $slug ? 'var(--accent)' : 'var(--wp--preset--color--' . $slug . ')';
+    $cssColor = false === $slug ? $color : 'var(--wp--preset--color--' . $slug . ')';
     $assert(str_contains($borderMarkup, 'border-' . $side . '-color:' . $cssColor), "border tokens: $side saved HTML agrees with the attribute");
 }
 
