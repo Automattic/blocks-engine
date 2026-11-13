@@ -216,19 +216,7 @@ final class SitePlanRun
             $data['fallbacks'],
             static fn (mixed $fallback): bool => is_array($fallback) && 'native_conversion' !== ($fallback['conversion_classification'] ?? '')
         ));
-        // Restore the semantic shell candidates before deriving binding positions.
-        // Extracted parts intentionally contain only their inner markup; the page
-        // representation owns the landmark wrapper until extraction is accepted.
-        foreach ($pages as &$page) {
-            foreach ($page['shell_candidates'] ?? array() as $candidate) {
-                // A leading-chrome candidate still owns its original landmark
-                // until extraction accepts it; restoring the pruned part loses content.
-                $restored = $this->shellExtraction->replaceTopLevelShell($page['canonical_block_markup'], (string) ($candidate['area'] ?? ''), (string) ($candidate['shared_leading']['markup'] ?? $candidate['markup'] ?? ''));
-                if (null !== $restored) $page['canonical_block_markup'] = $restored;
-            }
-            $page['content_hash'] = WordPressSitePlan::contentHash($page['canonical_block_markup']);
-        }
-        unset($page);
+        $pages = $this->shellExtraction->withRestoredCandidates($pages);
         // Bindings anchor on the final canonical page markup before any shell
         // extraction. Asset and route projection can make source anchors equal,
         // so assign occurrences only after that shared projection is complete.
@@ -468,25 +456,7 @@ final class SitePlanRun
             $unitFindings = array_merge($unitFindings, $droppedDeclarations);
             $recoveryDiagnostics = array_merge($recoveryDiagnostics, $droppedDeclarations);
         }
-        // Shell extraction already knows the final part markup. Locate the
-        // emitted identity there, not via source-document structural paths.
-        foreach ($data['diagnostics'] as &$diagnostic) {
-            if ('author_layout_topology_changed' !== ($diagnostic['code'] ?? '') || empty($diagnostic['block_class_names'])) continue;
-            $slugs = array();
-            foreach ($parts as $part) {
-                preg_match_all('/\bclass="([^"]*)"/', (string) ($part['canonical_block_markup'] ?? ''), $matches);
-                foreach ($matches[1] as $classes) {
-                    $classTokens = preg_split('/\s+/', html_entity_decode($classes, ENT_QUOTES | ENT_HTML5)) ?: array();
-                    if (array() === array_diff($diagnostic['block_class_names'], $classTokens)) {
-                        $slugs[] = $part['slug'];
-                        break;
-                    }
-                }
-            }
-            $slugs = array_values(array_unique($slugs));
-            if (1 === count($slugs)) $diagnostic['template_part'] = $slugs[0];
-        }
-        unset($diagnostic);
+        $data['diagnostics'] = self::withTemplatePartAttribution($data['diagnostics'], $parts);
         $commentEntities = array();
         foreach ($pages as &$page) {
             array_push($commentEntities, ...($page['document_metadata']['comment_entities'] ?? array()));
@@ -618,6 +588,36 @@ final class SitePlanRun
         }
         unset($asset);
         return $assets;
+    }
+    /**
+     * Shell extraction already knows the final part markup, so a layout
+     * topology change is attributed to the one part that emits its classes,
+     * located in that markup rather than through source-document paths.
+     *
+     * @param array<int,mixed> $diagnostics
+     * @param array<int,array<string,mixed>> $parts
+     * @return array<int,mixed>
+     */
+    private static function withTemplatePartAttribution(array $diagnostics, array $parts): array
+    {
+        foreach ($diagnostics as &$diagnostic) {
+            if ('author_layout_topology_changed' !== ($diagnostic['code'] ?? '') || empty($diagnostic['block_class_names'])) continue;
+            $slugs = array();
+            foreach ($parts as $part) {
+                preg_match_all('/\bclass="([^"]*)"/', (string) ($part['canonical_block_markup'] ?? ''), $matches);
+                foreach ($matches[1] as $classes) {
+                    $classTokens = preg_split('/\s+/', html_entity_decode($classes, ENT_QUOTES | ENT_HTML5)) ?: array();
+                    if (array() === array_diff($diagnostic['block_class_names'], $classTokens)) {
+                        $slugs[] = $part['slug'];
+                        break;
+                    }
+                }
+            }
+            $slugs = array_values(array_unique($slugs));
+            if (1 === count($slugs)) $diagnostic['template_part'] = $slugs[0];
+        }
+        unset($diagnostic);
+        return $diagnostics;
     }
     /** @param mixed $documents @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
     private function documents(mixed $documents, bool $part, array $tokens, AssetReferenceCanonicalizer $references, array $routes): array
