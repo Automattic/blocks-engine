@@ -557,8 +557,7 @@ final class GeneratedBlockStyleProjector
     {
         $minWidth = null;
         $maxWidth = null;
-        foreach ( $this->styleResolver->styleRuleCandidates($sourceControl, 'conditional') as $rule ) {
-            if ( ! $this->styleResolver->matchesCssSelector($sourceControl, (string) ($rule['selector'] ?? '')) ) continue;
+        foreach ( $this->styleResolver->matchingStyleRules($sourceControl, 'conditional') as $rule ) {
             $hasPaint = false;
             foreach ( array('background', 'background-color') as $property ) {
                 $value = CssValueInspector::comparable((string) ($rule['declarations'][$property] ?? ''));
@@ -594,8 +593,7 @@ final class GeneratedBlockStyleProjector
      */
     private function sourceControlSurfaceIsFilled(DOMElement $sourceControl): bool
     {
-        foreach ( $this->styleResolver->styleRuleCandidates($sourceControl, 'static') as $rule ) {
-            if ( ! $this->styleResolver->matchesCssSelector($sourceControl, (string) ($rule['selector'] ?? '')) ) continue;
+        foreach ( $this->styleResolver->matchingStyleRules($sourceControl, 'static') as $rule ) {
             foreach ( array('background', 'background-color') as $property ) {
                 $value = CssValueInspector::comparable((string) ($rule['declarations'][$property] ?? ''));
                 if ( '' !== $value && ! self::isTransparentBackgroundValue($value) ) return true;

@@ -135,10 +135,8 @@ final class RichTextStylingHookNormalizer
             return true;
         }
 
-        foreach ( $this->styleResolver->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
-                return true;
-            }
+        if ( array() !== $this->styleResolver->matchingStyleRules($element, 'static') ) {
+            return true;
         }
 
         return false;

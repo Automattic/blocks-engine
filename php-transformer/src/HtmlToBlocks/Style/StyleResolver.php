@@ -475,10 +475,7 @@ final class StyleResolver implements ElementPresentationResolver
     private function hasConditionalDeclarationForProperties(DOMElement $element, array $properties): bool
     {
         $wanted = array_fill_keys(array_map('strtolower', $properties), true);
-        foreach ( $this->styleRuleCandidates($element, 'conditional') as $rule ) {
-            if ( ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
-                continue;
-            }
+        foreach ( $this->matchingStyleRules($element, 'conditional') as $rule ) {
             // Classification properties live in `declarations`; properties
             // outside that allow-list (grid-item placement) ride the
             // conditional rule's `cascadedDeclarations` stream.
@@ -599,9 +596,9 @@ final class StyleResolver implements ElementPresentationResolver
     private function responsiveClassFamiliesInPlay(DOMElement $element, array $classes): array
     {
         $families = array();
-        foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
+        foreach ($this->matchingStyleRules($element, 'conditional') as $rule) {
             $selector = (string) ($rule['selector'] ?? '');
-            if (! $this->matchesCssSelector($element, $selector) || ! $this->selectorNamesAnyRetainedClass($selector, $classes)) {
+            if (! $this->selectorNamesAnyRetainedClass($selector, $classes)) {
                 continue;
             }
             foreach ($rule['declarations'] as $property => $value) {
@@ -1209,9 +1206,9 @@ final class StyleResolver implements ElementPresentationResolver
     public function conditionalDeclaration(DOMElement $element, string $property): string
     {
         $value = '';
-        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
+        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
             $declared = trim((string) ( $rule['declarations'][$property] ?? '' ));
-            if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
+            if ( '' === $declared ) {
                 continue;
             }
             // A condition that never holds at the reference viewport (`@media
@@ -1539,10 +1536,9 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function hasGlobalZeroBox(DOMElement $element, string $box): bool
     {
-        foreach ($this->styleRuleCandidates($element, 'static-conditional') as $rule) {
+        foreach ($this->matchingStyleRules($element, 'static-conditional') as $rule) {
             $selector = trim((string) ($rule['selector'] ?? ''));
-            if (1 !== preg_match('/^(?:\*|[a-zA-Z][a-zA-Z0-9-]*)$/D', $selector)
-                || !$this->matchesCssSelector($element, $selector)) continue;
+            if (1 !== preg_match('/^(?:\*|[a-zA-Z][a-zA-Z0-9-]*)$/D', $selector)) continue;
             foreach ($rule['conditions'] ?? array() as $condition) {
                 if (1 !== preg_match('/^@layer\b/i', trim($condition))) continue 2;
             }
@@ -2037,8 +2033,8 @@ final class StyleResolver implements ElementPresentationResolver
     private function computeStateStyleFamilies(DOMElement $element): array
     {
         $families = array();
-        foreach ( $this->styleRuleCandidates($element, 'state-families') as $rule ) {
-            if ( array() !== array_diff_key($rule['families'], $families) && $this->matchesCssSelector($element, (string) $rule['selector']) ) {
+        foreach ( $this->matchingStyleRules($element, 'state-families') as $rule ) {
+            if ( array() !== array_diff_key($rule['families'], $families) ) {
                 $families += $rule['families'];
             }
         }
@@ -2325,8 +2321,8 @@ final class StyleResolver implements ElementPresentationResolver
         // Sampling two viewports misses intermediate breakpoints and cannot
         // evaluate container/supports queries. Any conditional declaration owns
         // this axis in CSS; it must never become a native inline dimension.
-        foreach ($this->styleRuleCandidates($image, 'image-shape') as $rule) {
-            if ($property !== ($rule['property'] ?? '') || ! $this->matchesCssSelector($image, $rule['selector'])) continue;
+        foreach ($this->matchingStyleRules($image, 'image-shape') as $rule) {
+            if ($property !== ($rule['property'] ?? '')) continue;
             foreach ($rule['conditions'] ?? array() as $condition) {
                 if (! preg_match('/^@layer\b/i', trim($condition))) return true;
             }
@@ -5936,7 +5932,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $wanted = array_fill_keys($properties, true);
         $groups = array();
-        foreach ( $this->styleRuleCandidates($element, 'image-shape') as $rule ) {
+        foreach ( $this->matchingStyleRules($element, 'image-shape') as $rule ) {
             $property = (string) ($rule['property'] ?? '');
             $conditions = ArrayField::array($rule, 'conditions');
             if ( ! isset($wanted[$property]) || array() === $conditions ) {
@@ -5958,7 +5954,7 @@ final class StyleResolver implements ElementPresentationResolver
                 }
                 $media[] = $condition;
             }
-            if ( ! $hasMedia || ! $this->matchesCssSelector($element, (string) $rule['selector']) ) {
+            if ( ! $hasMedia ) {
                 continue;
             }
             $key = implode("\n", $media);
@@ -6687,13 +6683,14 @@ final class StyleResolver implements ElementPresentationResolver
      * confirmed against the real selector. Every caller remembered to do that,
      * each with its own copy of the guard, so the distinction between "might
      * match" and "does match" lived in eighteen places instead of a name.
+     * The superset stays private; every reader takes matched rules here.
      *
      * Each element's matches per collection are found once and remembered
      * with the selector match cache that decided them.
      *
      * @return list<array<string, mixed>>
      */
-    private function matchingStyleRules(DOMElement $element, string $collection): array
+    public function matchingStyleRules(DOMElement $element, string $collection): array
     {
         return $this->session->sourceStyleResolutionState()->matchedRules($element, $collection, $this->computeMatchingStyleRules(...));
     }
@@ -6724,15 +6721,10 @@ final class StyleResolver implements ElementPresentationResolver
     /** Whether any rule in the static or conditional collection selects the element. */
     public function matchesStaticConditionalRule(DOMElement $element): bool
     {
-        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-            if ( $this->matchesCssSelector($element, (string) $rule['selector']) ) {
-                return true;
-            }
-        }
-        return false;
+        return array() !== $this->matchingStyleRules($element, 'static-conditional');
     }
 
-    public function styleRuleCandidates(DOMElement $element, string $collection): array
+    private function styleRuleCandidates(DOMElement $element, string $collection): array
     {
         $cache = $this->session->sourceStyleResolutionState();
         $index = $cache->ruleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
