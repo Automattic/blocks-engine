@@ -155,7 +155,7 @@ final class DisclosureControlPresentation
         // particular, copying summary's UA list-item display creates a second
         // line below the native marker.
         $carrierDeclarations = $hasContentCarrier
-            ? $this->styles->cssDeclarations($this->disclosureControlCarriedCss($control, true, true))
+            ? SourceDeclarations::parse($this->disclosureControlCarriedCss($control, true, true))
             : array();
         $carrierCss = $this->styles->cssDeclarationString(array_filter(
             $carrierDeclarations,
@@ -227,7 +227,7 @@ final class DisclosureControlPresentation
      */
     private function accordionToggleBoxCss(DOMElement $control, ?DOMElement $row, ?DOMElement $iconSource, string $css): string
     {
-        $carried = $this->styles->cssDeclarations($css);
+        $carried = SourceDeclarations::parse($css);
         if ( 'summary' === strtolower($control->tagName) ) {
             // A button cannot be a list item, so the toggle is a plain block
             // and its title carries the summary's native marker.
@@ -330,7 +330,7 @@ final class DisclosureControlPresentation
         }
         $clone = $svg->cloneNode(true);
         if ( ! $clone instanceof DOMElement ) return array();
-        $inline = $this->styles->cssDeclarations($clone->getAttribute('style'));
+        $inline = SourceDeclarations::parse($clone->getAttribute('style'));
         unset($inline['transform'], $inline['rotate']);
         $color = (string) ($declarations['color'] ?? $this->styles->authoredInheritedPropertyWinner($svg, 'color'));
         if ( '' !== $color ) {

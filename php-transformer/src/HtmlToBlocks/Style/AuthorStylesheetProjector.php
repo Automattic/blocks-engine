@@ -174,7 +174,7 @@ final class AuthorStylesheetProjector
             // this escape. Never install a document-wide author reset.
             if ( ! preg_match('/\\.(?:wp-block-|blocks-engine-)/', $selector) ) return;
             $properties = array();
-            foreach ( $this->styleResolver->verbatimCssDeclarations($body) as $property => $value ) {
+            foreach ( SourceDeclarations::verbatim($body) as $property => $value ) {
                 if ( str_starts_with($property, '--') || str_contains($value, '!important') ) continue;
                 $family = explode('-', $property)[0];
                 // Shorthands and their longhands must veto each other. Custom
@@ -319,7 +319,7 @@ final class AuthorStylesheetProjector
                 }
             }
         }
-        foreach ( $this->styleResolver->verbatimCssDeclarations($body) as $property => $value ) {
+        foreach ( SourceDeclarations::verbatim($body) as $property => $value ) {
             if ( 'background' !== $property && 'background-image' !== $property ) {
                 continue;
             }
@@ -613,7 +613,7 @@ final class AuthorStylesheetProjector
 
     private function visuallyHiddenSourceSelectorRule(string $prelude, string $projectedCss, string $body): string
     {
-        if ( ! CssValueInspector::isVisuallyClippedBox($this->styleResolver->cssDeclarations($body)) ) {
+        if ( ! CssValueInspector::isVisuallyClippedBox(SourceDeclarations::parse($body)) ) {
             return '';
         }
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
@@ -649,7 +649,7 @@ final class AuthorStylesheetProjector
         return ( new CssStylesheetTransformer() )->transformStyleRules(
             $css,
             function (string $prelude, string $body) use ($ids): string {
-                $declarations = $this->styleResolver->cssDeclarations($body);
+                $declarations = SourceDeclarations::parse($body);
                 $position = trim((string) ($declarations['position'] ?? ''));
                 $whiteSpace = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $declarations['white-space'] ?? '') ?? ''));
                 $nowrap = in_array($whiteSpace, array('nowrap', 'pre'), true);
@@ -2885,7 +2885,7 @@ final class AuthorStylesheetProjector
             'visibility', 'white-space', 'word-spacing', 'writing-mode',
         );
         $declarations = array_filter(
-            $this->styleResolver->cssDeclarations($body),
+            SourceDeclarations::parse($body),
             static fn (string $name): bool => str_starts_with($name, '--')
                 || 'font' === $name
                 || str_starts_with($name, 'font-')
@@ -3334,7 +3334,7 @@ final class AuthorStylesheetProjector
             return false;
         }
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->mediaTextPresentationStyle($parent));
+            $declarations = SourceDeclarations::parse($this->styleResolver->mediaTextPresentationStyle($parent));
             if ( in_array(CssValueInspector::declared($declarations, 'display'), array( 'flex', 'grid' ), true)
                 && $this->hasMediaTextBranches($parent, $element) ) {
                 return true;

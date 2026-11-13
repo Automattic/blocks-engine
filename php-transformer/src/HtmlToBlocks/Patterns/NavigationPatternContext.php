@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -286,7 +287,7 @@ final class NavigationPatternContext
         }
         $declarations = $hasElementChildren
             ? $this->styleResolver->presentationDeclarations($element)
-            : $this->styleResolver->withoutRedundantInheritedTypography($element, $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element)));
+            : $this->styleResolver->withoutRedundantInheritedTypography($element, SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element)));
         foreach ( array( 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'text-transform', 'color', 'line-height', 'font-style' ) as $property ) {
             if ( '' !== trim((string) ($declarations[ $property ] ?? '')) ) {
                 return true;
@@ -318,7 +319,7 @@ final class NavigationPatternContext
     /** @return array<string, string> */
     public function resolvedDeclarations(DOMElement $element): array
     {
-        return $this->styleResolver?->cssDeclarations($this->resolvedStyle($element)) ?? array();
+        return SourceDeclarations::parse($this->resolvedStyle($element));
     }
 
     /** The element's own presentation as block style attributes (colors, spacing, border). */
@@ -505,7 +506,7 @@ final class NavigationPatternContext
 
         // A side with media variants stays with the author rule: core renders
         // the source class on the item, where those variants still win.
-        $declarations = $this->styleResolver->classOwnedResponsiveDeclarations($anchor, $this->styleResolver->cssDeclarations($style($anchor)));
+        $declarations = $this->styleResolver->classOwnedResponsiveDeclarations($anchor, SourceDeclarations::parse($style($anchor)));
         $content = array();
         $paddingSides = array();
         $background = trim((string) ($declarations['background-color'] ?? ''));
@@ -527,7 +528,7 @@ final class NavigationPatternContext
         $reset = array();
         $itemDeclarations = null === $sourceItem
             ? array()
-            : $this->styleResolver->cssDeclarations($style($sourceItem));
+            : SourceDeclarations::parse($style($sourceItem));
         foreach ( $paddingSides as $side ) {
             $itemValue = trim((string) ( $itemDeclarations[$side] ?? '' ));
             $reset[] = $side . ':' . ( $this->safeNavigationBoxValue($side, $itemValue) ? $itemValue : '0' );
@@ -814,7 +815,7 @@ final class NavigationPatternContext
     public function formControlTextResets(DOMElement $control): string
     {
         if ( ! $this->styleResolver instanceof StyleResolver ) return '';
-        $own = $this->styleResolver->cssDeclarations($this->resolvedStyle($control));
+        $own = SourceDeclarations::parse($this->resolvedStyle($control));
         $resets = array();
         foreach ( array( 'text-transform' => 'none', 'letter-spacing' => 'normal', 'word-spacing' => 'normal', 'text-indent' => '0', 'text-shadow' => 'none' ) as $property => $initial ) {
             if ( ! isset($own[$property]) && '' === $this->styleResolver->conditionalDeclaration($control, $property) ) $resets[] = $property . ':' . $initial;
@@ -1029,7 +1030,7 @@ final class NavigationPatternContext
     public function currentItemBox(DOMElement $anchor, ?DOMElement $sourceItem): array
     {
         $box = function (string $style): array {
-            $declarations = $this->styleResolver?->cssDeclarations($style) ?? array();
+            $declarations = SourceDeclarations::parse($style);
             $sides = array( 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' );
             if ( isset($declarations['padding']) ) {
                 $declarations += array_combine($sides, CssValueInspector::expandBoxShorthand((string) $declarations['padding']));
@@ -1378,7 +1379,7 @@ final class NavigationPatternContext
         // one marker always names one declaration list.
         $declarations = array();
         if ($this->styleResolver instanceof StyleResolver && '' !== trim($item->getAttribute('style'))) {
-            foreach ($this->styleResolver->cssDeclarations($item->getAttribute('style')) as $property => $value) {
+            foreach (SourceDeclarations::parse($item->getAttribute('style')) as $property => $value) {
                 $value = trim(CssValueInspector::withoutImportant((string) $value));
                 if (!preg_match('/^-{0,2}[a-z][a-z0-9-]*$/i', (string) $property) || '' === $value || preg_match('/[{};<>\\@]|url\s*\(/i', $value)) continue;
                 // Inline declarations outrank every normal author rule.
@@ -1547,7 +1548,7 @@ final class NavigationPatternContext
             }
             $value = '';
             for ($node = $anchor; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
-                $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($node));
+                $declarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($node));
                 if (isset($declarations['line-height'])) {
                     $value = trim((string) $declarations['line-height']);
                     break;
@@ -1688,7 +1689,7 @@ final class NavigationPatternContext
             return false;
         }
 
-        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($element));
+        $declarations = SourceDeclarations::parse($this->styleResolver->controlSurfaceResolvedStyle($element));
         $display = CssValueInspector::declared($declarations, 'display');
         if ( 'none' === $display ) {
             return true;
@@ -2249,7 +2250,7 @@ final class NavigationPatternContext
                 // an earlier document having converted the same DOM path.
                 $path = $node->getNodePath() ?? '';
                 if (!isset($this->pendingNavigationSubjects[$path]) && '' === $this->session->authorSelectorProjectionState()->navigationSubject($path)) continue;
-                foreach ($this->styleResolver->cssDeclarations($node->getAttribute('style')) as $name => $value) {
+                foreach (SourceDeclarations::parse($node->getAttribute('style')) as $name => $value) {
                     if (in_array($name, $properties, true) && !in_array(strtolower(trim($value)), array('inherit', 'unset', 'revert', 'revert-layer'), true)) return true;
                 }
                 foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
@@ -2467,7 +2468,7 @@ final class NavigationPatternContext
                 $this->styleResolver->specificityResolvedPresentationStyle($node),
                 $node
             );
-            $declarations = $this->styleResolver->cssDeclarations($resolved);
+            $declarations = SourceDeclarations::parse($resolved);
             $value        = trim((string) ($declarations[$property] ?? ''));
             if ( '' === $value ) {
                 $value = $this->styleResolver->conditionalDeclaration($node, $property);

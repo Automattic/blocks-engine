@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
@@ -598,7 +599,7 @@ JS;
         if ( array() !== $styleResolver->authorDeclaredPropertyValues($iframe, array( 'width', 'height', 'aspect-ratio', 'position' )) ) {
             return null;
         }
-        $declarations = array_change_key_case($styleResolver->cssDeclarations(SourceDom::attr($iframe, 'style')));
+        $declarations = array_change_key_case(SourceDeclarations::parse(SourceDom::attr($iframe, 'style')));
         $value = static fn (string $property): string => strtolower(trim((string) ($declarations[ $property ] ?? '')));
         if ( '100%' !== $value('width') || ! in_array($value('height'), array( '', 'auto' ), true) || ! in_array($value('position'), array( '', 'static' ), true) ) {
             return null;

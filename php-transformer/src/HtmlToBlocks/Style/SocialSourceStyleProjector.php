@@ -44,7 +44,7 @@ final class SocialSourceStyleProjector
         $fontGlyph = false;
         (new CssStylesheetTransformer())->visitStyleRules($author->combinedCss(), function (string $prelude, string $body) use ($anchor, &$glyph, &$fontGlyph): void {
             if ($fontGlyph) return;
-            $content = $this->styles->verbatimCssDeclarations($body)['content'] ?? '';
+            $content = SourceDeclarations::verbatim($body)['content'] ?? '';
             if (in_array(strtolower(trim($content)), array('', 'none', 'normal', 'initial', 'unset', '""', "''"), true)) return;
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                 if (!preg_match('/::?before$/', $selector)) continue;
@@ -89,7 +89,7 @@ final class SocialSourceStyleProjector
             // setting, so a colour the source set on the glyph itself is not copied.
             $glyphOwnsColor = false;
             (new CssStylesheetTransformer())->visitStyleRules($author->combinedCss(), function (string $prelude, string $body, array $conditions) use ($glyph, $marker, $nativeGlyph, $fontGlyph, $properties, $author, $targets, $scope, $artwork, &$glyphOwnsColor): void {
-                $declarations = array_intersect_key($this->styles->verbatimCssDeclarations($body), $properties);
+                $declarations = array_intersect_key(SourceDeclarations::verbatim($body), $properties);
                 if ($artwork && isset($declarations['color'])) {
                     $matches = false;
                     foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
@@ -116,7 +116,7 @@ final class SocialSourceStyleProjector
                     $targets->record(SourceDom::elementSelector($glyph), $target, $this->styles->cssDeclarationString($projected), $conditions);
                 }
             });
-            $inline = array_intersect_key($this->styles->verbatimCssDeclarations($glyph->getAttribute('style')), $properties);
+            $inline = array_intersect_key(SourceDeclarations::verbatim($glyph->getAttribute('style')), $properties);
             if ($artwork && isset($inline['color'])) {
                 $glyphOwnsColor = true;
                 unset($inline['color']);

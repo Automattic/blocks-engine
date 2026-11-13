@@ -391,7 +391,7 @@ final class StylesheetAnalysisComposer
                 }
             }
             if ( array() !== $ruleSelectors ) {
-                $rule = array('order' => count($rules), 'declarations' => $this->styleResolver->cssDeclarations($body), 'selectors' => $ruleSelectors);
+                $rule = array('order' => count($rules), 'declarations' => SourceDeclarations::parse($body), 'selectors' => $ruleSelectors);
                 if ( array() !== $conditions ) {
                     $rule['conditions'] = $conditions;
                 }

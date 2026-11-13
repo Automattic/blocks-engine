@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -28,7 +28,6 @@ final class CustomWrapperConventions
     private const WRAPPER_CONTENT_SHAPE_DEPTH = 2;
 
     public function __construct(
-        private readonly StyleResolver $styleResolver,
         private readonly RenderNeutralElements $renderNeutral
     ) {
     }
@@ -178,7 +177,7 @@ final class CustomWrapperConventions
             if ( 1 !== preg_match($pattern, $rule['selector']) ) {
                 continue;
             }
-            foreach ( $this->styleResolver->cssDeclarations($rule['declarations']) as $property => $value ) {
+            foreach ( SourceDeclarations::parse($rule['declarations']) as $property => $value ) {
                 if ( 'display' !== strtolower(trim($property)) || 'contents' !== strtolower(trim($value)) ) {
                     return false;
                 }

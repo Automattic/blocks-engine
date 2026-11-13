@@ -330,14 +330,14 @@ final class LayoutParticipation
         $declarations = $styleResolver->referenceViewportAuthorDeclarations($element, array( 'float', 'position' ));
         $float = CssValueInspector::declared($declarations, 'float');
         $position = CssValueInspector::declared($declarations, 'position');
-        $width = CssValueInspector::comparable((string) ($styleResolver->cssDeclarations($styleResolver->controlSurfaceResolvedStyle($element))['width'] ?? ''));
+        $width = CssValueInspector::comparable((string) (SourceDeclarations::parse($styleResolver->controlSurfaceResolvedStyle($element))['width'] ?? ''));
 
         return ( '' !== $float && 'none' !== $float ) || in_array($position, array( 'absolute', 'fixed' ), true) || 100 === self::widthPreset('width:' . $width);
     }
 
     private static function resolvedDisplay(DOMElement $element, StyleResolver $styleResolver): string
     {
-        $declarations = $styleResolver->cssDeclarations($styleResolver->controlSurfaceResolvedStyle($element));
+        $declarations = SourceDeclarations::parse($styleResolver->controlSurfaceResolvedStyle($element));
         // A declared `var(--d)` (Wix states container display this way) classifies
         // only after expansion against the element's cascaded custom properties;
         // the raw reference matches neither flex nor grid.

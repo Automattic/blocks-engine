@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
@@ -321,7 +322,7 @@ final class TableAttributesBuilder
                     continue;
                 }
                 ++$cellIndex;
-                $declarations = $this->styleResolver->inlineDeclarations($cell);
+                $declarations = SourceDeclarations::inline($cell);
                 $geometry = array();
                 $width = trim((string) ($declarations['width'] ?? ''));
                 if ( '' !== $width && preg_match('/^(?:\d+(?:\.\d+)?(?:%|px|em|rem|vw|ch)|calc\(.+\)|var\(.+\))$/i', $width) ) {

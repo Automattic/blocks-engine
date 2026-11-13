@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
@@ -371,7 +372,7 @@ final class WrapperCoalescer
             foreach ($this->inheritedWrapperDeclarations($node) as $name => $value) {
                 if (! $this->isInheritedTextProperty($name)) continue;
                 if (in_array(CssValueInspector::comparable($value), array('inherit', 'unset'), true)) continue;
-                $values = $this->styleResolver->mergeCssDeclarationMaps($values, array($name => $value));
+                $values = SourceDeclarations::merge($values, array($name => $value));
             }
         }
         $attrs = ArrayField::array($childBlock, 'attrs');
@@ -393,9 +394,9 @@ final class WrapperCoalescer
     /** @return array<string, string> */
     private function inheritedWrapperDeclarations(DOMElement $element): array
     {
-        return $this->styleResolver->mergeCssDeclarationMaps(
+        return SourceDeclarations::merge(
             $this->matchingAuthorDeclarations($element),
-            $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element))
+            SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element))
         );
     }
 
@@ -799,7 +800,7 @@ final class WrapperCoalescer
 
     public function hasOnlyRenderNeutralInlineGeometry(DOMElement $element): bool
     {
-        foreach ($this->styleResolver->inlineDeclarations($element) as $property => $value) {
+        foreach (SourceDeclarations::inline($element) as $property => $value) {
             if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
         }
         return true;
@@ -807,7 +808,7 @@ final class WrapperCoalescer
 
     private function hasOnlyFullWidthTransparentInlineGeometry(DOMElement $element): bool
     {
-        $declarations = $this->styleResolver->inlineDeclarations($element);
+        $declarations = SourceDeclarations::inline($element);
         if ( '100%' !== strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['width'] ?? '')))) ) {
             return false;
         }
@@ -906,7 +907,7 @@ final class WrapperCoalescer
             }
             if ( $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $selector['selector'], $selector['parsed'], true)['matches'] ) {
                 $matchedRules[$ruleOrder] = true;
-                $declarations = $this->styleResolver->mergeCssDeclarationMaps($declarations, $selector['declarations']);
+                $declarations = SourceDeclarations::merge($declarations, $selector['declarations']);
             }
         }
         return $declarations;

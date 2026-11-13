@@ -174,7 +174,7 @@ final class ImageDimensionResolver
     /** Whether the emitted dimensions came only from the image file metadata. */
     private function imageDimensionsAreIntrinsicAttributes(DOMElement $image): bool
     {
-        $declarations = $this->styles->inlineDeclarations($image);
+        $declarations = SourceDeclarations::inline($image);
         foreach (array( 'width', 'height' ) as $property) {
             $value = trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
             if ('' !== $value && !in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
@@ -186,7 +186,7 @@ final class ImageDimensionResolver
 
     public function imageDimensionIsIntrinsicAttribute(DOMElement $image, string $property): bool
     {
-        $declarations = $this->styles->inlineDeclarations($image);
+        $declarations = SourceDeclarations::inline($image);
         $inline = trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
         return ('' === $inline || in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true))
             && '' === $this->imageStylesheetDimension($image, $property)
@@ -195,7 +195,7 @@ final class ImageDimensionResolver
 
     private function imageHasNonPositiveDimension(DOMElement $image, string $property): bool
     {
-        $inline = trim(CssValueInspector::withoutImportant((string) ($this->styles->inlineDeclarations($image)[ $property ] ?? '')));
+        $inline = trim(CssValueInspector::withoutImportant((string) (SourceDeclarations::inline($image)[ $property ] ?? '')));
         $value = $inline;
         if ('' === $value || in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
             $value = trim(CssValueInspector::withoutImportant((string) ($this->styles->presentationDeclarations($image)[ $property ] ?? '')));
@@ -214,7 +214,7 @@ final class ImageDimensionResolver
 
     public function imageDisplayDimension(DOMElement $image, string $property): string
     {
-        $declarations = $this->styles->inlineDeclarations($image);
+        $declarations = SourceDeclarations::inline($image);
         $inline = trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? '')));
         $other = 'width' === $property ? 'height' : 'width';
         $otherInline = trim(CssValueInspector::withoutImportant((string) ($declarations[ $other ] ?? '')));
@@ -652,7 +652,7 @@ final class ImageDimensionResolver
 
     public function fillParentImageViewportPair(DOMElement $image): void
     {
-        $declarations = $this->styles->inlineDeclarations($image);
+        $declarations = SourceDeclarations::inline($image);
         $width = trim(CssValueInspector::withoutImportant((string) ($declarations['width'] ?? '')));
         $height = trim(CssValueInspector::withoutImportant((string) ($declarations['height'] ?? '')));
         if ( ! $this->imageViewportPairFillsParent($width, $height) ) {

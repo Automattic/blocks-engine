@@ -46,7 +46,7 @@ final class EmptyElementFootprint
                 case 'drop':
                     return false;
                 case 'hidden':
-                    $inline = $this->styleResolver->inlineDeclarations($element);
+                    $inline = SourceDeclarations::inline($element);
                     $opacity = CssValueInspector::declared($inline, 'opacity');
                     $paintDeclarations = array_merge($this->styleResolver->structuralPresentationDeclarations($element), $inline);
                     $authoredPaint = array() !== array_intersect_key($paintDeclarations, array_flip(array( 'background', 'background-color', 'background-image' )));
@@ -120,8 +120,8 @@ final class EmptyElementFootprint
         }
         $parentBase = $this->styleResolver->structuralPresentationDeclarations($parent);
         $base = $this->styleResolver->structuralPresentationDeclarations($element);
-        $parentInline = $this->styleResolver->inlineDeclarations($parent);
-        $inline = $this->styleResolver->inlineDeclarations($element);
+        $parentInline = SourceDeclarations::inline($parent);
+        $inline = SourceDeclarations::inline($element);
         foreach ($conditions as $stack) {
             // Read both boxes in the same responsive state. Never combine a
             // phone flex parent with a size declared only for desktop (#4276).
@@ -255,7 +255,7 @@ final class EmptyElementFootprint
     public function cssDeclarationsPaintOrOccupySpace(string $declarations): bool
     {
         $declared = array();
-        foreach ( $this->styleResolver->cssDeclarations($declarations) as $property => $value ) {
+        foreach ( SourceDeclarations::parse($declarations) as $property => $value ) {
             $declared[strtolower(trim((string) $property))] = trim((string) $value);
         }
 
@@ -392,7 +392,7 @@ final class EmptyElementFootprint
         }
         $declarations = array_merge(
             $this->styleResolver->structuralPresentationDeclarations($element),
-            $this->styleResolver->inlineDeclarations($element)
+            SourceDeclarations::inline($element)
         );
         return ! in_array(CssValueInspector::declared($declarations, 'display'), array( 'none', 'contents' ), true)
             && ! $this->isOutOfFlow($declarations);

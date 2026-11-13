@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -1584,7 +1585,7 @@ final class ProjectedNavigationConverter implements ElementConverter
                 $parentResolved = $this->styleResolver->resolveCssVariablesInValue(
                     $this->styleResolver->specificityResolvedPresentationStyle($parent)
                 );
-                $padding = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($parentResolved)['padding'] ?? '')));
+                $padding = CssValueInspector::withoutImportant(trim((string) (SourceDeclarations::parse($parentResolved)['padding'] ?? '')));
                 if ( $this->nativeNavigationTogglePaddingIsUsable($padding) ) {
                     $item['padding'] = $padding;
                 }
@@ -1624,7 +1625,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         $resolved = $this->styleResolver->resolveCssVariablesInValue(
             $this->styleResolver->specificityResolvedPresentationStyle($target)
         );
-        $height = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($resolved)['height'] ?? '')));
+        $height = CssValueInspector::withoutImportant(trim((string) (SourceDeclarations::parse($resolved)['height'] ?? '')));
         if ( 1 === preg_match('/^\d+(?:\.\d+)?px$/', $height) ) {
             return $height;
         }
@@ -1632,7 +1633,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             $parentResolved = $this->styleResolver->resolveCssVariablesInValue(
                 $this->styleResolver->specificityResolvedPresentationStyle($bar->parentNode)
             );
-            $parentHeight = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($parentResolved)['height'] ?? '')));
+            $parentHeight = CssValueInspector::withoutImportant(trim((string) (SourceDeclarations::parse($parentResolved)['height'] ?? '')));
             if ( 1 === preg_match('/^\d+(?:\.\d+)?px$/', $parentHeight) ) {
                 return $parentHeight;
             }

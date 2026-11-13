@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
@@ -1656,7 +1657,7 @@ final class NavigationToggleSuppressor
      */
     private function hidesTextVisually(DOMElement $element, bool $isLabelDescendant): bool
     {
-        $resolved = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        $resolved = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element));
         if ( $isLabelDescendant && 1 === preg_match('/^none(?:\s*!important)?$/i', trim((string) ($resolved['display'] ?? ''))) ) {
             return true;
         }
