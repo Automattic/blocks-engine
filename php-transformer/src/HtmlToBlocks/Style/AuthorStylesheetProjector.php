@@ -1618,10 +1618,20 @@ final class AuthorStylesheetProjector
         return $this->directButtonWrapperPrelude(
             $prelude,
             $context,
-            fn (string $selector, array $parsed, string $marker, DOMElement $element): string =>
-                LayoutParticipation::BOX_LINK === LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox()
-                    ? $this->projectControlSelector($selector, $parsed, $marker, $context)
-                    : $this->projectButtonBoxSelector($selector, $parsed, $marker, $context)
+            function (string $selector, array $parsed, string $marker, DOMElement $element) use ($context): string {
+                // Placement shifts the same box geometry sizes. It reaches the
+                // link only because the save wrapper is flattened, so it needs
+                // the flattened carrier like the geometry arm: a provider that
+                // saves its own core/button around the same control marker
+                // keeps a wrapper box and applies the source shift itself, and
+                // a second application on the link would double it.
+                $participation = LayoutParticipation::resolve($element, $this->styleResolver);
+                if ( LayoutParticipation::BOX_LINK !== $participation->participatingBox() ) {
+                    return $this->projectButtonBoxSelector($selector, $parsed, $marker, $context);
+                }
+                $link = $this->projectControlSelector($selector, $parsed, $marker, $context);
+                return $participation->neutralizeButtonWrapper() ? $this->flattenedWrapperLinkArm($link) : $link;
+            }
         );
     }
 
