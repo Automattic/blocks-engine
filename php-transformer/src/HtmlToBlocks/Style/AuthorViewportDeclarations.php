@@ -72,7 +72,7 @@ final class AuthorViewportDeclarations
      * @param list<string> $properties
      * @return array<string, string>
      */
-    private function atViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false): array
+    public function atViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false): array
     {
         $authorStyles = $this->session->authorStyleAnalysis();
         $styleRules = $authorStyles->styleRules();

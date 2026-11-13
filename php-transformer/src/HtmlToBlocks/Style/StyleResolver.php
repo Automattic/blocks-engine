@@ -6396,7 +6396,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
         $resolve = function (string $name) use ($element, $viewportWidth): ?string {
             for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-                $declared = CssValueInspector::withoutImportant(trim((string) ($this->authorDeclarationsAtViewport($node, array( $name ), $viewportWidth)[$name] ?? '')));
+                $declared = CssValueInspector::withoutImportant(trim((string) ($this->authorViewport->atViewport($node, array( $name ), $viewportWidth)[$name] ?? '')));
                 if ( '' !== $declared ) {
                     return in_array(strtolower($declared), array( 'unset', 'initial', 'inherit', 'revert', 'revert-layer' ), true) ? null : $declared;
                 }
