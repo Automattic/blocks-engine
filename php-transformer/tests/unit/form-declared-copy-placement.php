@@ -11,6 +11,10 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGr
 $cases = array(
     'group' => '<input name="n"><label>About you</label><div><input type="radio" name="w" id="a" value="A"><label for="a">Author</label><input type="radio" name="w" id="b" value="B"><label for="b">Other</label></div>',
     'field' => '<input name="n"><div><label>Upload manuscript</label><input type="file" name="f"><button type="button">Upload File</button></div>',
+    'checkbox group' => '<input name="n"><label>Cover (select all)</label><div><input type="checkbox" name="c" id="p" value="P"><label for="p">Paperback</label><input type="checkbox" name="c" id="h" value="H"><label for="h">Hardcover</label></div>',
+    'label for hidden' => '<input name="n"><div><label for="u">Upload manuscript</label><input type="file" id="f" name="f"><input type="hidden" id="u" name="u"><button type="button">Upload File</button></div>',
+    'label for authored trigger' => '<input name="n"><div><label for="u">Upload manuscript</label><input type="file" id="f" name="f"><button type="button" id="u">Upload File</button></div>',
+    'mixed choices' => '<input name="n"><label>Which field?</label><div><input type="radio" name="c"><input type="checkbox" name="c"></div>',
     'context' => '<input name="n"><p>We will email you a quote.</p>',
     'ambiguous' => '<input name="n"><label>Which field?</label><div><input name="a"><input name="b"></div>',
 );
@@ -26,7 +30,7 @@ foreach ( $cases as $case => $html ) {
         foreach ( $node as $child ) $walk($child);
     };
     $walk($result);
-    if ( ! is_array($entity) || $diagnostic !== ('ambiguous' === $case) ) {
+    if ( ! is_array($entity) || $diagnostic !== in_array($case, array('ambiguous', 'mixed choices'), true) ) {
         $failures[] = $case . ': declaration/diagnostic';
         continue;
     }
@@ -34,8 +38,12 @@ foreach ( $cases as $case => $html ) {
     FormLayoutGraphBuilder::assertValid($entity['layout_graph']);
     FormPresentationGraphBuilder::assertValid($entity['presentation_graph']);
     $placed = match ($case) {
-        'group' => in_array('About you', array_column($entity['control_topology']['nodes'], 'group_label'), true),
-        'field' => 'Upload manuscript' === ($entity['controls'][1]['label'] ?? null),
+        'group', 'checkbox group' => 1 === count(array_filter($entity['control_topology']['nodes'], static fn (array $node): bool =>
+            ('group' === $case ? 'About you' : 'Cover (select all)') === ($node['group_label'] ?? null)
+            && ('group' === $case ? 'radiogroup' : 'group') === ($node['group_role'] ?? null))),
+        'field', 'label for hidden' => 'Upload manuscript' === ($entity['controls'][1]['label'] ?? null),
+        'label for authored trigger' => 'Upload manuscript' !== ($entity['controls'][1]['label'] ?? null)
+            && 'Upload manuscript' === ($entity['controls'][2]['label'] ?? null),
         'context' => 'We will email you a quote.' === ($entity['form']['context_after'][0]['text'] ?? null)
             && $entity['controls'][0]['selector'] === ($entity['form']['context_after'][0]['after_control_selector'] ?? null),
         default => true,

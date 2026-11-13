@@ -65,7 +65,7 @@ final class FormControlLabel
         return $label;
     }
 
-    /** An unassociated caption immediately preceding one same-name radio group. */
+    /** An unassociated caption immediately preceding one same-name radio or checkbox group. */
     public static function choiceGroupLabel(DOMElement $group): ?DOMElement
     {
         $label = $group->previousElementSibling;
@@ -76,9 +76,10 @@ final class FormControlLabel
         $controls = FormControlClassifier::controlElements($group);
         if ( count($controls) < 2 ) return null;
         $name = SourceDom::attr($controls[0], 'name');
-        if ( '' === $name ) return null;
+        $type = FormControlClassifier::controlType($controls[0]);
+        if ( '' === $name || ! in_array($type, array( 'radio', 'checkbox' ), true) ) return null;
         foreach ( $controls as $control ) {
-            if ( 'input' !== strtolower($control->tagName) || 'radio' !== FormControlClassifier::controlType($control)
+            if ( 'input' !== strtolower($control->tagName) || $type !== FormControlClassifier::controlType($control)
                 || $name !== SourceDom::attr($control, 'name') ) return null;
         }
         return $label;
@@ -88,9 +89,9 @@ final class FormControlLabel
      * Markup rendered by a client framework routinely states the association
      * by position alone: one label and one control inside the same field
      * wrapper, with no `for`, or with a `for` that names no element (matching
-     * is case-sensitive). That is the only association the source makes, so
-     * read it instead of reporting the control as unlabelled. A `for` that
-     * resolves to another element opts the label out.
+     * is case-sensitive), or targets a non-authored control. That is the only
+     * authored association the source makes, so read it instead of reporting
+     * the control as unlabelled. A `for` resolving to an authored element wins.
      */
     private static function fieldWrapperLabel(DOMElement $control): ?DOMElement
     {
@@ -120,7 +121,8 @@ final class FormControlLabel
             foreach ( $wrapper->getElementsByTagName('label') as $label ) {
                 if ( $label instanceof DOMElement ) {
                     $targetId = SourceDom::attr($label, 'for');
-                    if ( '' === $targetId || null === $label->ownerDocument->getElementById($targetId) ) {
+                    $target = '' !== $targetId ? $label->ownerDocument->getElementById($targetId) : null;
+                    if ( null === $target || (FormControlClassifier::isControlElement($target) && FormControlClassifier::isNonAuthoredControl($target)) ) {
                         $labels[] = $label;
                     }
                 }

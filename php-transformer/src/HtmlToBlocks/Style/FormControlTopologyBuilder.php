@@ -335,7 +335,8 @@ final class FormControlTopologyBuilder
         if ( ! isset($presentation['group_label']) && $positionalLabel instanceof DOMElement ) {
             $caption = $this->legendCaption($positionalLabel);
             if ( '' !== $caption ) {
-                $presentation['group_role'] = 'radiogroup';
+                $controls = FormControlClassifier::controlElements($element);
+                $presentation['group_role'] = 'radio' === FormControlClassifier::controlType($controls[0]) ? 'radiogroup' : 'group';
                 $presentation['group_label'] = $caption;
             }
         }
