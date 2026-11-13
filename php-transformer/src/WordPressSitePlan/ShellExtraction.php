@@ -460,6 +460,29 @@ final class ShellExtraction
     }
 
     /**
+     * Restores each page's semantic shell candidates before binding positions
+     * are derived. Extracted parts contain only their inner markup; the page
+     * owns the landmark wrapper until extraction is accepted.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<int,array<string,mixed>>
+     */
+    public function withRestoredCandidates(array $pages): array
+    {
+        foreach ($pages as &$page) {
+            foreach ($page['shell_candidates'] ?? array() as $candidate) {
+                // A leading-chrome candidate still owns its original landmark
+                // until extraction accepts it; restoring the pruned part loses content.
+                $restored = $this->replaceTopLevelShell($page['canonical_block_markup'], (string) ($candidate['area'] ?? ''), (string) ($candidate['shared_leading']['markup'] ?? $candidate['markup'] ?? ''));
+                if (null !== $restored) $page['canonical_block_markup'] = $restored;
+            }
+            $page['content_hash'] = WordPressSitePlan::contentHash($page['canonical_block_markup']);
+        }
+        unset($page);
+        return $pages;
+    }
+
+    /**
      * Resolve manifest declarations once per extraction so the bindings their
      * records hold are read like inline ones.
      *
