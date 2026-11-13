@@ -4168,20 +4168,20 @@ final class ArtifactCompiler
                     $siteContexts[] = $document['rows'][$area][$variant]['context'] ?? array();
                 }
                 $siteContext = self::sharedSourceShellAncestorContext($siteContexts);
-                $siteProjections = array();
+                $contextMatches = null;
                 if ($context !== $siteContext) {
                     $siteOpen = ''; $siteClose = '';
                     foreach (array_slice($siteContext, 2) as $ancestor) { $siteOpen .= '<' . $ancestor['tag'] . self::sourceShellAttributes($ancestor['attributes']) . '>'; $siteClose = '</' . $ancestor['tag'] . '>' . $siteClose; }
                     $siteSynthetic = '<!doctype html><html' . self::sourceShellAttributes($siteContext[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . self::sourceShellAttributes($siteContext[1]['attributes'] ?? array()) . '>' . $siteOpen . $canonicalMarkup . $siteClose . '</body></html>';
-                    $siteCompiled = $this->compileHtmlDocumentBlocks($siteSynthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($siteContext) - 2));
-                    foreach ($siteCompiled['author_stylesheet_projections'] as $projection) {
-                        $siteProjections[$projection['path']] = $projection['content'];
-                    }
+                    $contextMatches = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex(array(
+                        'member' => HtmlSerialization::parseDocument($synthetic),
+                        'site' => HtmlSerialization::parseDocument($siteSynthetic),
+                    ));
                 }
                 foreach ($compiled['author_stylesheet_projections'] as $projection) {
                     // Only scope stylesheets whose projection actually depends
                     // on the additional member context, not unrelated resets.
-                    if ($context !== $siteContext && ($siteProjections[$projection['path']] ?? null) !== $projection['content']) $projection['member_owners'] = array_keys($members);
+                    if (null !== $contextMatches && $this->sharedShellStylesheetDependsOnContext($projection, $synthetic, $sourcePath, $files, $contextMatches)) $projection['member_owners'] = array_keys($members);
                     $authorStylesheetProjections[] = $projection;
                 }
                 $runtimeScriptProjections = array_merge($runtimeScriptProjections, $compiled['runtime_script_projections']);
@@ -4194,6 +4194,32 @@ final class ArtifactCompiler
             'author_stylesheet_projections' => $authorStylesheetProjections,
             'runtime_script_projections' => $runtimeScriptProjections,
         );
+    }
+
+    /**
+     * Compare rule reachability in the two source contexts, not a second block
+     * compilation. Visit the original stylesheet (including imports): projected
+     * selectors may already have replaced the ancestor with a generated marker.
+     * The existing selector index handles functional selectors and interaction
+     * states; no declarations or cascade are resolved here.
+     */
+    private function sharedShellStylesheetDependsOnContext(array $projection, string $html, string $sourcePath, array $files, \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex $matches): bool
+    {
+        $depends = false;
+        $transformer = new CssStylesheetTransformer();
+        $assets = $this->authorStylesheetAssetsWithImports($this->stylesheetAssetsForSource($html, $sourcePath, $files, true), $files);
+        foreach ($assets as $asset) {
+            if (($asset['path'] ?? null) !== $projection['path']) continue;
+            $transformer->visitStyleRules($asset['content'], static function (string $prelude) use ($matches, &$depends): void {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    $member = $matches->matchedElements($selector, 'member');
+                    $site = $matches->matchedElements($selector, 'site');
+                    // An arm the index cannot evaluate cannot disprove context dependence.
+                    if (null === $member || null === $site || count($member) !== count($site)) $depends = true;
+                }
+            });
+        }
+        return $depends;
     }
 
     /**

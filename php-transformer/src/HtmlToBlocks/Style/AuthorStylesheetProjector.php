@@ -2071,7 +2071,10 @@ final class AuthorStylesheetProjector
                 // Project the originating element through the same subject
                 // pipeline as a non-pseudo rule, then restore the suffix on
                 // every arm (including RichText marker arms).
-                $projectedHost = $this->rewriteSelectorPreludeOnce($host['selector'], $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
+                $projectedHost = $this->rewriteSelectorPreludeOnce(
+                    preg_match('/[\s>+~]$/', $host['selector']) ? $host['selector'] . '*' : $host['selector'],
+                    $context, $controlWrapper, $subjectArms, $semanticSubjectArms
+                );
                 $targets = CssStylesheetTransformer::splitSelectorList($projectedHost) ?? array();
                 foreach ($targets as $target) {
                     $rewritten[] = $target . $host['suffix'];
@@ -2964,6 +2967,34 @@ final class AuthorStylesheetProjector
             for ($root = $context->authorStyles->sourceBody(); $root instanceof DOMElement; $root = $root->parentNode) {
                 if (CssSelectorMatcher::matches($root, $predicate)['matches']) return null;
             }
+        }
+        // A device gate survives lowering. If this arm still owns every
+        // source match, keep its live selector instead of binding the gate to
+        // one identity per element. A subset must retain the exclusions below.
+        $allMatches = $this->matchingSourceElements($selector, $parsed, $context);
+        $deviceOnly = true;
+        $hasDevice = false;
+        foreach ($parsed['compounds'] ?? array() as $compound) {
+            foreach ($compound['attributes'] ?? array() as $attribute) {
+                if (in_array($attribute['name'], array(CaptureEvidence::DEVICE_DOCUMENT, EngineMarker::DEVICE_SCOPE_ATTRIBUTE), true)) $hasDevice = true;
+                else $deviceOnly = false;
+            }
+        }
+        $plainSubjects = true;
+        foreach ($matches as $element) {
+            $path = $element->getNodePath() ?? '';
+            if ('' !== $context->selectorProjections->navigationSubject($path)
+                || '' !== $context->selectorProjections->controlMarker($path)
+                || '' !== $context->selectorProjections->imageWrapperMarker($path)
+                || null !== $context->selectorProjections->imageFigure($path)) $plainSubjects = false;
+        }
+        $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
+        $resetSubject = array() === array_merge($subject['classes'] ?? array(), $subject['ids'] ?? array(), $subject['attributes'] ?? array());
+        foreach ($parsed['compounds'] as $compound) {
+            if (array() !== ($compound['ids'] ?? array())) $resetSubject = false;
+        }
+        if ($hasDevice && $deviceOnly && $plainSubjects && $resetSubject && $matches === $allMatches) {
+            return array($this->rewriteSourceTagTypes($selector, $parsed, $context));
         }
         $projected = array();
         $scope = '';
