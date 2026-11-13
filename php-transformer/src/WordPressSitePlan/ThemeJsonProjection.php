@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
@@ -315,10 +316,8 @@ final class ThemeJsonProjection
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$variables, &$conflicts, &$coverage, &$scoped, $asset): void {
-                if (str_starts_with(ltrim($prelude), '@') || !preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER)) return;
-                foreach ($matches as $match) {
-                    $name = (string) $match[1];
-                    $value = trim((string) $match[2]);
+                if (str_starts_with(ltrim($prelude), '@')) return;
+                foreach (CssRuleAnalyzer::customProperties($body) as ['name' => $name, 'value' => $value]) {
                     // Identical scoped copies (including editor mirrors) do
                     // not change a root value. Different copies still veto it.
                     if (!in_array(strtolower(trim($prelude)), array(':root', 'html'), true)) {

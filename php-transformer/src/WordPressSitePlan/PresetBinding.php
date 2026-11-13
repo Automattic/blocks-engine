@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
@@ -1611,12 +1612,11 @@ final class PresetBinding
     /** @param list<string> $ancestors */
     private function indexVariables(string $prelude, string $body, array $ancestors): void
     {
-        if (!preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER)) return;
+        $declarations = CssRuleAnalyzer::customProperties($body);
+        if (array() === $declarations) return;
         $selectors = array_map(static fn(string $selector): string => strtolower(trim($selector)), CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude));
         $root = array() === array_diff($selectors, array(':root', 'html', ':host')) && array() === array_filter($ancestors, static fn(string $ancestor): bool => 1 !== preg_match('/^@layer(?:\s|$)/', $ancestor));
-        foreach ($matches as $match) {
-            $name = (string) $match[1];
-            $value = trim((string) $match[2]);
+        foreach ($declarations as ['name' => $name, 'value' => $value]) {
             // Any definition with another value, wherever it applies, could
             // give the variable that value under some block. Repeating the
             // root value (editor mirrors such as `:root :root.editor-styles-wrapper`)
