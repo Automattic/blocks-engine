@@ -432,7 +432,7 @@ final class AuthoredMarqueeRecognizer
         foreach ( $this->authorStyles()->styleRules() as $rule ) {
             foreach ( $rule['selectors'] ?? array() as $selector ) {
                 $value = (string) ($selector['selector'] ?? '');
-                if ( '' !== $value && $this->styleResolver->matchesCssSelector($element, $value) ) {
+                if ( '' !== $value && $this->session->sourceStyleResolutionState()->matches($element, $value) ) {
                     $this->applyAuthoredAnimationCascade(
                         $cascade,
                         $rule['declarations'] ?? array(),

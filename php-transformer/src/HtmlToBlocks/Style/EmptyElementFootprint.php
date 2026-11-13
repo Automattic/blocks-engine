@@ -28,7 +28,8 @@ final class EmptyElementFootprint
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly SourceElementClassifier $sourceElementClassifier,
-        private readonly HostBlockGapEncoder $sourceMargins
+        private readonly HostBlockGapEncoder $sourceMargins,
+        private readonly SourceStyleResolutionState $sourceStyles
     ) {
     }
 
@@ -243,7 +244,7 @@ final class EmptyElementFootprint
         }
 
         foreach ( $pseudoRules as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($figure, $rule['selector']) && $this->hasVisibleEmptyVisualPaint($rule['declarations'], $figure) ) {
+            if ( $this->sourceStyles->matches($figure, $rule['selector']) && $this->hasVisibleEmptyVisualPaint($rule['declarations'], $figure) ) {
                 return true;
             }
         }
@@ -307,7 +308,7 @@ final class EmptyElementFootprint
                 continue;
             }
             foreach ( $nodes as $node ) {
-                if ( $this->styleResolver->matchesCssSelector($node, $selector) ) {
+                if ( $this->sourceStyles->matches($node, $selector) ) {
                     return true;
                 }
             }

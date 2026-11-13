@@ -184,7 +184,7 @@ final class ButtonPatternContext
             }
         }
         foreach ( $this->session?->sourceStyleResolutionState()->pseudoElementRules() ?? array() as $rule ) {
-            if ( $this->styleResolver?->matchesCssSelector($element, $rule['selector']) ) {
+            if ( $this->session?->sourceStyleResolutionState()->matches($element, $rule['selector']) ) {
                 return true;
             }
         }
@@ -397,7 +397,7 @@ final class ButtonPatternContext
         }
 
         $display = '';
-        foreach ( $this->styleResolver->matchingStyleRules($element, 'static') as $rule ) {
+        foreach ( $this->session?->sourceStyleResolutionState()->matchingRules($element, 'static') ?? array() as $rule ) {
             if ( isset($rule['declarations']['display']) ) {
                 $display = (string) $rule['declarations']['display'];
             }

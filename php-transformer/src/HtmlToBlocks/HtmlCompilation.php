@@ -378,7 +378,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementClassifier
         );
         $this->emptyElementFootprint = new EmptyElementFootprint($this->styleResolver, $this->sourceElementClassifier,
-            new HostBlockGapEncoder($this->styleResolver, $this->blockFactory, $this->session)
+            new HostBlockGapEncoder($this->styleResolver, $this->blockFactory, $this->session),
+            $this->session->sourceStyleResolutionState()
         );
         $linkWrapperPropagator = new LinkWrapperPropagator($this->styleResolver, $this->blockFactory);
         $generatedBlockStyleProjector = new GeneratedBlockStyleProjector($this->runtime, $this->styleResolver, $this->session);
@@ -574,7 +575,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->authorStylesheetProjector = new AuthorStylesheetProjector(
             $this->styleResolver,
             $this->authorSelectorSemanticPreparer,
-            $authorStyleRuleProjector
+            $authorStyleRuleProjector,
+            $this->session->sourceStyleResolutionState()
         );
         $textLeafConverter = new TextLeafElementConverter($this->richTextMaterializer, $this->runtime, $this, $this->styleResolver, $this->sourceElementClassifier, $this->createTextLeafElementContext());
         $richTextConverter = new RichTextElementConverter($this, $this->styleResolver, $this->richTextMaterializer, $this->runtime, $this->createRichTextElementContext());
@@ -1228,7 +1230,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $styleAnalysis = $this->stylesheetAnalysisComposer->composedStyleAnalysis(
             $this->stylesheetAnalysisComposer->stylesheetPayloads($html, $staticCss, $options)
         );
-        $this->session->sourceStyleResolutionState()->installStylesheetAnalysis(StaticClassPromotions::detect($html), $styleAnalysis);
+        $this->session->sourceStyleResolutionState()->installStylesheetAnalysis(StaticClassPromotions::detect($html), $styleAnalysis, $this->styleResolver->hiddenStateStyleRules(...));
         $provenance               = array(
             array_merge(array(
                 'source_format' => 'html',
@@ -1295,7 +1297,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $paymentWidgetFindings = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PaymentProcessorWidgetPruner::prune($body);
         // Saved block markup re-enters as source; invert save shapes that moved
         // source identity onto synthesized wrappers before anything reads them.
-        OwnSaveShapeInverter::invert($body, $this->styleResolver->matchesStaticConditionalRule(...));
+        OwnSaveShapeInverter::invert($body, fn (DOMElement $element): bool => array() !== $this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional'));
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         DeclarativeCounterMaterializer::materialize($body, (string) ($options['declarative_state_html'] ?? ''));
         // Remove wrapper-convention custom elements before author selectors are
@@ -1478,7 +1480,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $headMetadata = HeadMetadataReport::fromHtml($html);
         $authorLayoutTopologyFindings = $classIdentity->rewrite($authorLayoutTopologyFindings, $classReplacements);
-        $this->styleResolver->recordSourceSelectorMatchWork();
+        $this->session->sourceStyleResolutionState()->recordMatchWork($this->analysisCache);
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
         $bundledSnapshotBlocks = $this->runtime->bundledCoreBlockNames();
         $runtimeRegisteredBlocks = $this->runtime->runtimeRegisteredCoreBlockNames();
@@ -1944,7 +1946,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $anchor = 'a' === strtolower($sourceElement->tagName) ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
             if ($anchor instanceof DOMElement) {
                 $this->session->authorSelectorProjectionState()->markSocialAnchor($anchor);
-                $attrs = (new SocialSourceStyleProjector($this->styleResolver))->project($attrs, $anchor, $this->session->authorStyleAnalysis(), $this->session->sourceTargetProjectionState(), !str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item'));
+                $attrs = (new SocialSourceStyleProjector($this->styleResolver, $this->session->sourceStyleResolutionState()))->project($attrs, $anchor, $this->session->authorStyleAnalysis(), $this->session->sourceTargetProjectionState(), !str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item'));
             }
         }
         if ( 'core/cover' === $name && $sourceElement instanceof DOMElement && in_array(CoverPattern::CONSUMED_BACKGROUND_CLASS, preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ) {

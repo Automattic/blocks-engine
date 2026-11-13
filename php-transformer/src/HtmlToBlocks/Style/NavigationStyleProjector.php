@@ -620,7 +620,7 @@ final class NavigationStyleProjector
                 // same-class links in another menu cannot affect its winners.
                 $sourceAnchors = array_values(array_filter(
                     $sourceAnchors,
-                    fn (DOMElement $anchor): bool => $this->styleResolver->matchesCssSelector($anchor, $selector)
+                    fn (DOMElement $anchor): bool => $this->session->sourceStyleResolutionState()->matches($anchor, $selector)
                 ));
             }
             if ( array() === $sourceAnchors ) {
@@ -1506,7 +1506,7 @@ final class NavigationStyleProjector
             $conditions = ArrayField::array($rule, 'conditions');
             if ( (array() !== $conditions && ! $this->navigationConditionsAreProjectable($conditions))
                 || ! isset($rule['declarations']['color'])
-                || ! $this->styleResolver->matchesCssSelector($element, $rule['base_selector'])
+                || ! $this->session->sourceStyleResolutionState()->matches($element, $rule['base_selector'])
             ) {
                 continue;
             }
@@ -1910,7 +1910,7 @@ final class NavigationStyleProjector
     {
         foreach ( $anchors as $anchor ) {
             $item = $anchor->parentNode;
-            if ( ! $item instanceof DOMElement || ! $this->styleResolver->matchesCssSelector($item, $itemSelector) ) {
+            if ( ! $item instanceof DOMElement || ! $this->session->sourceStyleResolutionState()->matches($item, $itemSelector) ) {
                 return false;
             }
         }

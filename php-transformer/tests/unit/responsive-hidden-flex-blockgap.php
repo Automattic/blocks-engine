@@ -8,7 +8,7 @@ declare(strict_types=1);
  * Root cause: `StyleResolver::classOwnedResponsiveDeclarations()` keeps a
  * static (unconditional) declaration under author-stylesheet ownership
  * whenever ANY conditional (media-scoped) rule matching the same element
- * touches a property in the same `responsivePropertyFamily()` bucket. That
+ * touches a property in the same `ResponsivePropertyFamily::of()` bucket. That
  * bucket used to fold `gap`/`row-gap`/`column-gap` into the same `layout`
  * family as `display`/`justify-content`/`align-*`/`flex-*`/`grid-*`. A
  * container authored as `display:none` at rest and `display:flex` only at a
@@ -76,7 +76,7 @@ $findBlocks = static function (array $blocks, string $name) use (&$findBlocks): 
 //    not depend on navigation, or on any particular class-naming scheme.
 // ---------------------------------------------------------------------
 $resolver = ( new ReflectionClass(StyleResolver::class) )->newInstanceWithoutConstructor();
-$family = static fn (string $property): string => $resolver->responsivePropertyFamily($property);
+$family = static fn (string $property): string => \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ResponsivePropertyFamily::of($property);
 
 $assert('gap' !== $family('display'), 'display does not share gap\'s responsive family', $family('display'));
 $assert($family('gap') === $family('row-gap') && $family('gap') === $family('column-gap'), 'gap/row-gap/column-gap remain one family', $family('gap') . '/' . $family('row-gap') . '/' . $family('column-gap'));

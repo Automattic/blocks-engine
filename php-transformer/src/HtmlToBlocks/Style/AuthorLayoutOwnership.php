@@ -183,7 +183,7 @@ final class AuthorLayoutOwnership
             return true;
         }
 
-        foreach ( $this->styleResolver->matchingStyleRules($element, 'conditional') as $rule ) {
+        foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'conditional') as $rule ) {
             if ( in_array(CssValueInspector::comparable((string) ($rule['declarations']['display'] ?? '')), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
                 return true;
             }
@@ -444,7 +444,7 @@ final class AuthorLayoutOwnership
     public function authoredDisplay(DOMElement $element): string
     {
         $display = '';
-        foreach ( $this->styleResolver->matchingStyleRules($element, 'static') as $rule ) {
+        foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'static') as $rule ) {
             if ( isset($rule['declarations']['display']) ) {
                 $display = (string) $rule['declarations']['display'];
             }
