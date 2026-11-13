@@ -75,32 +75,8 @@ final class TemplatePartStickyContainment
         if ('' === $selector || str_contains($selector, '::') || 1 === preg_match('/^(html|body|:root)\b/i', $selector)) {
             return null;
         }
-        $depth = 0;
-        $quote = null;
-        $length = strlen($selector);
-        for ($i = 0; $i < $length; $i++) {
-            $char = $selector[$i];
-            if (null !== $quote) {
-                if ('\\' === $char) {
-                    $i++;
-                } elseif ($char === $quote) {
-                    $quote = null;
-                }
-                continue;
-            }
-            if ('\\' === $char) {
-                $i++;
-            } elseif ('"' === $char || "'" === $char) {
-                $quote = $char;
-            } elseif ('(' === $char || '[' === $char) {
-                $depth++;
-            } elseif (')' === $char || ']' === $char) {
-                $depth--;
-            } elseif (0 === $depth && (ctype_space($char) || '>' === $char || '+' === $char || '~' === $char || ',' === $char)) {
-                return null;
-            }
-        }
+        $tokens = CssSelectorTokenizer::tokenize($selector);
 
-        return $selector;
+        return $tokens['supported'] && 1 === count($tokens['compounds']) ? $selector : null;
     }
 }
