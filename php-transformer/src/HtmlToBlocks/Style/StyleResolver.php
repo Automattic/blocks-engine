@@ -4442,18 +4442,19 @@ final class StyleResolver implements ElementPresentationResolver
         // Keep stronger descendants, but serialize them after the shorthand.
         $longhands = self::WHITE_SPACE_SHORTHAND_LONGHANDS[$property] ?? self::BOX_SHORTHAND_LONGHANDS[$property] ?? array();
         $strongerLonghands = array();
-        foreach ($cascade as $existing => $entry) {
-            if (in_array($property, self::WHITE_SPACE_SHORTHAND_LONGHANDS[$existing] ?? self::BOX_SHORTHAND_LONGHANDS[$existing] ?? array(), true)
-                && $this->mediaTextCascadeEntryOutranks($entry, $incoming)) {
+        foreach (self::shorthandsOf($property) as $shorthand) {
+            if (isset($cascade[$shorthand]) && $this->mediaTextCascadeEntryOutranks($cascade[$shorthand], $incoming)) {
                 return;
             }
         }
-        foreach ($cascade as $existing => $entry) {
-            if (in_array($existing, $longhands, true)) {
-                if ($this->mediaTextCascadeEntryOutranks($entry, $incoming)) {
-                    $strongerLonghands[$existing] = $entry;
+        if (array() !== $longhands) {
+            foreach ($cascade as $existing => $entry) {
+                if (in_array($existing, $longhands, true)) {
+                    if ($this->mediaTextCascadeEntryOutranks($entry, $incoming)) {
+                        $strongerLonghands[$existing] = $entry;
+                    }
+                    unset($cascade[$existing]);
                 }
-                unset($cascade[$existing]);
             }
         }
         // Replacing a key must also replace its serialization position.
@@ -4469,6 +4470,24 @@ final class StyleResolver implements ElementPresentationResolver
         // Preserve relative order among surviving descendants (including nested
         // border shorthands), rather than the order of the family map.
         $cascade += $strongerLonghands;
+    }
+
+    /** @var array<string, list<string>>|null Shorthands, from both families below, keyed by each longhand they reset. */
+    private static ?array $shorthandsByLonghand = null;
+
+    /** @return list<string> */
+    private static function shorthandsOf(string $longhand): array
+    {
+        if (null === self::$shorthandsByLonghand) {
+            self::$shorthandsByLonghand = array();
+            foreach (self::WHITE_SPACE_SHORTHAND_LONGHANDS + self::BOX_SHORTHAND_LONGHANDS as $shorthand => $longhands) {
+                foreach ($longhands as $member) {
+                    self::$shorthandsByLonghand[$member][] = $shorthand;
+                }
+            }
+        }
+
+        return self::$shorthandsByLonghand[$longhand] ?? array();
     }
 
     /** Include the intermediate text-wrap shorthand as well as its longhands. */
