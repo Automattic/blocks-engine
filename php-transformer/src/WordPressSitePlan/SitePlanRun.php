@@ -318,16 +318,8 @@ final class SitePlanRun
         // Template-group lifting settles post bodies and can add featured images.
         $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
         $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
-        $registeredTemplates = array();
-        foreach ($pages as $page) if (isset($page['route_template']) && !isset($registeredTemplates[$page['route_template']])) {
-            $registeredTemplates[$page['route_template']] = true;
-            $themeProjection['theme']['customTemplates'][] = array('name' => $page['route_template'], 'title' => $sharedTemplateTitles[$page['route_template']] ?? $page['title'], 'postTypes' => array($page['post_type']));
-        }
-        foreach ($taxonomyProjection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (isset($taxonomyEntity['archive']) && TemplateSlugs::forArchive($taxonomyEntity) === ($template['slug'] ?? null)) {
-            $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
-            continue 2;
-        }
-        unset($taxonomyEntity);
+        $themeProjection = ThemeTemplates::withCustomTemplates($themeProjection, $pages, $sharedTemplateTitles);
+        $taxonomyProjection = TaxonomyProjection::withArchivePresentation($taxonomyProjection, $templates);
         $this->timer?->start('compose.site_plan.asset_writes');
         $routes = RouteTable::forPages($pages);
         $emittedMarkup = implode("\n", self::markups(array_merge($pages, $parts, $templates, $syncedPatterns)));
