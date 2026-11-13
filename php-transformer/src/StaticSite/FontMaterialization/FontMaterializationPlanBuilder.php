@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use InvalidArgumentException;
 
@@ -709,9 +710,8 @@ final class FontMaterializationPlanBuilder
      */
     private function primaryFamily(string $declaration): string
     {
-        foreach ( explode(',', $declaration) as $candidate ) {
-            $family = $this->normalizeFamily($candidate);
-            if ( '' !== $family && ! $this->isWebSafeFontFamily($family) && ! $this->isInvalidFontFamily($family) ) {
+        foreach ( CssFontFamily::names(preg_replace('/\s*!important\s*$/i', '', $declaration) ?? $declaration) as $family ) {
+            if ( ! $this->isWebSafeFontFamily($family) && ! $this->isInvalidFontFamily($family) ) {
                 return $family;
             }
         }

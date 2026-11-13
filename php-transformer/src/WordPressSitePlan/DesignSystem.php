@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 
@@ -1320,20 +1321,16 @@ final class DesignSystem
     /** The first family name of a stack, unquoted. */
     private static function primaryFamily(string $stack): string
     {
-        foreach (explode(',', $stack) as $part) {
-            $part = trim($part, " \t\n\r\0\x0B\"'");
-            if ('' !== $part) return (string) preg_replace('/\s+/', ' ', $part);
-        }
-        return '';
+        return (string) preg_replace('/\s+/', ' ', CssFontFamily::names($stack)[0] ?? '');
     }
 
     private static function familyName(string $stack): string
     {
-        foreach (explode(',', $stack) as $token) {
-            $token = trim($token, " \t\n\r\0\x0B\"'");
-            if ('' !== $token && !in_array(strtolower($token), self::GENERIC_FAMILIES, true) && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) return $token;
+        $names = CssFontFamily::names($stack);
+        foreach ($names as $token) {
+            if (!in_array(strtolower($token), self::GENERIC_FAMILIES, true) && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) return $token;
         }
-        return trim(explode(',', $stack)[0], " \t\n\r\0\x0B\"'");
+        return $names[0] ?? '';
     }
 
     /** Pixel size as rem when the document root is not the default 16px. */
