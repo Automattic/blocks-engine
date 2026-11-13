@@ -545,7 +545,7 @@ foreach (array(2, 6, 10) as $count) {
     $assert(1 === count($site['assets']) && !str_contains($text, 'be-r-') && !$fallbacks, $count . ' private marker pages: unscoped shared asset without fallback');
 }
 $markerText = implode('', $site['assets']);
-$assert(1 === count(array_unique(preg_match_all('/blocks-engine-control-[a-f0-9]{12}-\d+/', $markerText, $m) ? $m[0] : array('', 'x'))), 'identical page-local controls share one declaration address', json_encode(array_values(array_unique($m[0] ?? array()))));
+$assert(!str_contains($markerText, 'blocks-engine-control-') && str_contains($markerText, '.blocks-engine-role-control'), 'universal row subjects use the shared control role instead of page-local declaration addresses', $markerText);
 // Growth is limited to marker names, not route scopes or cascade copies.
 $assert($markerSizes[10] < 1.2 * $markerSizes[2] && $markerSizes[10] - $markerSizes[6] < 1.2 * ($markerSizes[6] - $markerSizes[2]) + 512, 'site-wide sheet bytes stay roughly constant in the page count', json_encode($markerSizes));
 $markerProbe = static function (array $plan, array $row): array {

@@ -227,6 +227,24 @@ final class FormFallbackFindingBuilder
      */
     private function encloseInBox(array $block, array $shell): array
     {
+        // A field box framed by one class-only element (a `<label class>` or
+        // `<div class>` around a control) is a native group: same element,
+        // same class identity, one editable core block instead of a shell.
+        $wrappers = $shell['attrs']['wrappers'] ?? null;
+        if ( ! isset($shell['form_control_box']) && str_ends_with((string) ($shell['blockName'] ?? ''), '/layout-shell')
+            && is_array($wrappers) && 1 === count($wrappers) && 'div' === ($wrappers[0]['tagName'] ?? null)
+            && array( 'class' ) === array_keys((array) ($wrappers[0]['attributes'] ?? array()))
+            && '' !== trim((string) $wrappers[0]['attributes']['class']) ) {
+            $class = trim((string) $wrappers[0]['attributes']['class']);
+            $open = '<div class="wp-block-group ' . htmlspecialchars($class, ENT_QUOTES) . '">';
+            return array_replace(array_diff_key($shell, array( 'attrs' => true )), array(
+                'blockName' => 'core/group',
+                'attrs' => array( 'className' => $class ),
+                'innerBlocks' => array( $block ),
+                'innerHTML' => $open . '</div>',
+                'innerContent' => array( $open, null, '</div>' ),
+            ));
+        }
         $shell['innerBlocks'] = array($block);
         $shell['innerContent'] = array($shell['innerContent'][0] ?? '', null, $shell['innerContent'][1] ?? '');
         return $shell;

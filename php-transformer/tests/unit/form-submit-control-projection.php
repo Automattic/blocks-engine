@@ -24,7 +24,7 @@ $css = implode("\n", array_column(array_filter($result['assets'], static fn (arr
 // The universal font rule must skip both inserted wrappers, not merely
 // recognize a marker string in an unused selector arm.
 $selector = substr($css, 0, strpos($css, '{'));
-$assert('*:not(:where(.blocks-engine-role-control)),:where(.blocks-engine-role-control.blocks-engine-subject)> :where(.wp-block-button__link):not(be-t-0)' === $selector, 'Universal font rule excludes control wrappers and addresses their link surface');
+$assert('*:not(:where(.blocks-engine-role-control)),:where(.blocks-engine-role-control)> :where(.wp-block-button__link):not(be-t-0)' === $selector, 'Universal font rule excludes control wrappers and addresses their link surface');
 $linkClasses = array();
 $visit = static function (array $node) use (&$visit, &$linkClasses): void {
     if ('core/button' === ($node['blockName'] ?? $node['name'] ?? null)) {
