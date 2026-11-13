@@ -3554,7 +3554,12 @@ final class ShellExtraction
         );
         if ($analysis['truncated']) return $pages;
         $entry = null;
-        foreach ($pages as $page) if (!empty($page['entrypoint'])) $entry = $page['route']['path'] ?? '/';
+        $entryTitle = '';
+        foreach ($pages as $page) {
+            if (empty($page['entrypoint'])) continue;
+            $entry = $page['route']['path'] ?? '/';
+            $entryTitle = trim(preg_replace('/\s+/u', ' ', (string) ($page['document_metadata']['title'] ?? '')) ?? '');
+        }
         if (null === $entry) return $pages;
         $subjectIndex = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::build($analysis['rules']);
         $fragments = array();
@@ -3630,7 +3635,7 @@ final class ShellExtraction
                     // colour or underline after moving presentation to the title.
                     $attrs['style']['elements']['link']['color']['text'] = 'inherit';
                     $attrs['style']['elements']['link']['typography']['textDecoration'] = $presentation['text-decoration-line'] ?? 'none';
-                    $evidence[$signature][$index][] = array('candidate' => $candidateIndex, 'offset' => $node['offset'], 'length' => $node['end'] - $node['offset'], 'leaf_offset' => $leaf['offset'], 'leaf_length' => $leaf['end'] - $leaf['offset'], 'attributes' => $attrs, 'entrypoint_heading' => !empty($page['entrypoint']) && 'heading' === $leaf['name']);
+                    $evidence[$signature][$index][] = array('candidate' => $candidateIndex, 'offset' => $node['offset'], 'length' => $node['end'] - $node['offset'], 'leaf_offset' => $leaf['offset'], 'leaf_length' => $leaf['end'] - $leaf['offset'], 'attributes' => $attrs, 'entrypoint_heading' => !empty($page['entrypoint']) && 'heading' === $leaf['name'], 'matches_site_title' => '' !== $entryTitle && $text === $entryTitle);
                 }
             }
         }
@@ -3652,6 +3657,13 @@ final class ShellExtraction
                 $identity = substr_replace($markup, '<!-- shared-wordmark:' . $signature . ' -->', $match['offset'], $match['length']);
                 $candidate['identity_markup'] = ChromeIdentity::markup($identity);
                 $candidate['wordmark_route_state'] = true;
+                // Shared branding establishes shell identity even when its label
+                // is not the configured site title. Keep that authored leaf:
+                // core/site-title would replace it with the entry document title.
+                if (!$match['matches_site_title']) {
+                    unset($candidate);
+                    continue;
+                }
                 $part = substr_replace($markup, $replacement, $match['leaf_offset'], $match['leaf_length']);
                 $candidate['template_part_markup'] = self::landmarkPartMarkup(RestingNavigation::markup($part), 'header');
                 unset($candidate);
