@@ -4,13 +4,17 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceCascade;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use DOMElement;
 
 /** A proof of empty paint, not a general SVG renderer. Unknowns always survive. */
 final class SvgPaintEmptiness
 {
-    public function __construct(private readonly SourceCascade $cascade) {}
+    public function __construct(
+        private readonly StyleResolver $styles,
+        private readonly SourceCascade $cascade
+    ) {}
 
     public function paintsNothing(DOMElement $svg): bool
     {

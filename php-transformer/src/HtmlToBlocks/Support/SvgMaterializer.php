@@ -58,7 +58,7 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     public function paintsNothing(DOMElement $element): bool
     {
-        return (new SvgPaintEmptiness($this->session->sourceCascade()))->paintsNothing($element);
+        return (new SvgPaintEmptiness($this->styleResolver, $this->session->sourceCascade()))->paintsNothing($element);
     }
 
     /**
