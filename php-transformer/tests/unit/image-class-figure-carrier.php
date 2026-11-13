@@ -92,10 +92,12 @@ $rules = static function (string $css, string $selectorPattern, array $declarati
 $dead = $rules($frontEnd, '/img\.(?:pic|other)\b|img#photo\b/', array());
 $assert(array() === $dead, 'no emitted rule keeps an img.class or img#id subject the markup cannot match', implode(' | ', $dead));
 
-// 2. The float, the margin and the box reach the figure that carries the class…
+// 2. The float and box reach the figure; fixed placement margins belong
+// only to the image leaf, even when its source identity moved to the figure.
 $figure = '/^#hero\s+:where\(figure\)[^{,]*\.pic\.wp-block-image(?::not\([^)]*\))*$/';
 $assert(array() !== $rules($frontEnd, $figure, array( 'float:left', 'width:250px', 'height:200px', 'border:1pxsolid#ccc', 'padding:3px', 'background:#eee' )), 'the box and paint of the class rule land on the figure that carries the class', $frontEnd);
-$assert(array() !== $rules($frontEnd, $figure, array( 'margin:2.3em' )), 'the margin of the class rule lands on the figure');
+$assert(array() === $rules($frontEnd, $figure, array( 'margin:2.3em' )), 'the fixed margin is not replayed on the synthetic figure');
+$assert(array() !== $rules($frontEnd, '/^:where\(\s*#hero\s+:where\(figure\).*\.pic\.wp-block-image\s*>\s*img\s*\)/', array( 'margin:2.3em' )), 'the fixed margin follows the source class onto the image leaf', $frontEnd);
 // …and the <img> inside keeps filling that box through the existing bridge.
 $assert(array() !== $rules($frontEnd, '/^#hero\s+:where\(figure\)[^{,]*\.pic\.wp-block-image\s*>\s*img/', array( 'display:block', 'width:100%', 'height:100%' )), 'the image bridge still makes the <img> fill the figure box');
 

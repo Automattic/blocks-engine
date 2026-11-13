@@ -3611,20 +3611,9 @@ final class ShellExtraction
                             if ('a' === $element->tagName && '' !== trim($element->getAttribute('class')) && self::wordmarkAnchorNeedsPresentation($element, $subjectIndex, $properties)) { $valid = false; break; }
                             $presentation = self::wordmarkPresentation($element, $presentation, $subjectIndex, $properties);
                             if ('a' === $element->tagName) {
-                                // Core's site-title creates its own anchor; it cannot
-                                // carry the source anchor's responsive identity or box.
-                                foreach ($element->attributes as $attribute) {
-                                    if (!in_array($attribute->name, array('href', 'class', 'style'), true)) { $valid = false; break; }
-                                }
-                                foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::entries($element, $subjectIndex) as $conditionalEntry) {
-                                    $rule = $conditionalEntry['rule'];
-                                    if (null !== $rule['condition'] && \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches']) {
-                                        $valid = false;
-                                        break;
-                                    }
-                                }
-                                // Conditional visibility belongs to the source anchor,
-                                // not to the new paragraph carrier.
+                                // Core's live title replaces this anchor. Conditional
+                                // visibility belongs to that source box, not its new
+                                // paragraph carrier; leave responsive wordmarks intact.
                                 foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::entries($element, $visibilityIndex) as $visibilityEntry) {
                                     $rule = $visibilityEntry['rule'];
                                     if (null === $rule['condition'] || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches']) continue;
