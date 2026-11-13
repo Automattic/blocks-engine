@@ -275,6 +275,24 @@ final class CssRuleAnalyzer
         }
     }
 
+    /**
+     * Every `--name: value` custom-property declaration in `$css`, in source
+     * order with values trimmed. Reads a rule body or a whole stylesheet.
+     *
+     * @return list<array{name: string, value: string}>
+     */
+    public static function customProperties(string $css): array
+    {
+        if ( ! str_contains($css, '--') || ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+        $properties = array();
+        foreach ( $matches as $match ) {
+            $properties[] = array( 'name' => $match[1], 'value' => trim($match[2]) );
+        }
+        return $properties;
+    }
+
     /** Properties may include '*' to retain every declaration.
      * @return list<array{name: string, value: string}>
      */
