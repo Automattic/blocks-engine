@@ -64,6 +64,7 @@ final class FormControlMetadataBuilder
         $controls = array();
         $emittedElements = array();
         $order = 0;
+        $panels = (new FormWorkflowPanelDetector())->panels($form, FormRuntimeRequirementAnalyzer::intentControls($form));
         foreach ( $manifestControls ?? FormControlClassifier::controlElements($form, $additionalControls) as $control ) {
             $metadata = $this->control($control, in_array($control, $additionalControls, true));
             if ( array() !== $metadata ) {
@@ -87,7 +88,25 @@ final class FormControlMetadataBuilder
                 // `display: none` is not judged: a custom checkbox hides its input
                 // and stays operable through its visible label.
                 $wrapper = $control->parentNode;
-                $hidden = ! $wrapper instanceof DOMElement || $wrapper->isSameNode($form) ? null : $this->hiddenState($wrapper, $form);
+                $boundary = $form;
+                $step = null;
+                foreach ( $panels as $index => $panel ) {
+                    if ( ! in_array($control, $panel['controls'], true) ) continue;
+                    $metadata['workflow_step'] = array('panel' => $index, 'rendered' => ! $panel['hidden']);
+                    if ( $panel['hidden'] ) {
+                        $boundary = $panel['element'];
+                        $step = $boundary;
+                    }
+                }
+                // Only the panel's own hiding is step gating. Declarations
+                // below it (including a decoy input's own display:none) remain
+                // unconditional. Custom checkbox/radio inputs can be hidden
+                // while their visible label still operates them.
+                $start = null !== $step && ! in_array(FormControlClassifier::controlType($control), array('checkbox', 'radio'), true) ? $control : $wrapper;
+                $hidden = ! $start instanceof DOMElement || $start->isSameNode($boundary) ? null : $this->hiddenState($start, $boundary);
+                if ( null === $hidden && null !== $step && $step->parentNode instanceof DOMElement && ! $step->parentNode->isSameNode($form) ) {
+                    $hidden = $this->hiddenState($step->parentNode, $form);
+                }
                 if ( is_array($hidden) ) {
                     $metadata['hidden'] = $hidden;
                 }
