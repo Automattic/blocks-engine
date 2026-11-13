@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Home</title>
+<style>
+body{margin:0;font-family:sans-serif}
+.header{position:relative}
+.header-inner{padding:16px 24px}
+.header-display-desktop{display:flex;justify-content:space-between;align-items:center}
+.header-display-mobile{display:none;justify-content:space-between;align-items:center}
+.header-nav-list{display:flex;gap:16px}
+.header-nav-item--folder{position:relative}
+.header-nav-folder-title{border:0;background:none;font:inherit;padding:0;cursor:pointer}
+.header-nav .header-nav-item--folder .header-nav-folder-content{display:none;position:absolute;top:100%;left:0;background:#fff;padding:8px;min-width:160px}
+.header-nav .header-nav-item--folder:hover .header-nav-folder-content{display:block}
+.header-nav-list a{color:#222;text-decoration:none}
+.header-burger{display:none;flex:0 0 50px}
+.burger{width:35px;height:35px;border:0;background:none;padding:0;position:relative;cursor:pointer}
+.burger-inner div{position:absolute;left:0;width:35px;height:1px;background:#222}
+.top-bun{top:12px}.bottom-bun{top:22px}
+.header-menu{position:fixed;inset:0;background:#fff;visibility:hidden;opacity:0;padding:80px 24px}
+.header--menu-open .header-menu{visibility:visible;opacity:1}
+.header-menu-nav-item a{display:block;font-size:28px;padding:8px 0;color:#222;text-decoration:none}
+@media (max-width:799px){
+  .header-display-desktop{display:none}
+  .header-display-mobile{display:flex}
+  .header-display-mobile .header-nav{display:none}
+  .header-display-mobile .header-burger{display:flex}
+}
+</style></head>
+<body>
+<header id="header" class="header">
+ <div class="header-inner">
+  <div class="header-display-desktop">
+   <p class="header-title"><a href="/">Example</a></p>
+   <div class="header-nav"><nav class="header-nav-list"><a href="/">Home</a><div class="header-nav-item header-nav-item--folder"><button class="header-nav-folder-title" aria-expanded="false" aria-controls="services">Services</button><div class="header-nav-folder-content" id="services"><div class="header-nav-folder-item"><a href="/design/">Design</a></div><div class="header-nav-folder-item"><a href="/web/">Web</a></div></div></div><a href="/about/">About</a><a href="/contact/">Contact</a></nav></div>
+   <div class="header-burger"><button class="header-burger-btn burger"><span class="visually-hidden" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Open menu</span><div class="burger-inner"><div class="top-bun"></div><div class="bottom-bun"></div></div></button></div>
+  </div>
+  <div class="header-display-mobile">
+   <p class="header-title"><a href="/">Example</a></p>
+   <div class="header-nav"><nav class="header-nav-list"><a href="/">Home</a><div class="header-nav-item header-nav-item--folder"><button class="header-nav-folder-title" aria-expanded="false" aria-controls="services">Services</button><div class="header-nav-folder-content" id="services"><div class="header-nav-folder-item"><a href="/design/">Design</a></div><div class="header-nav-folder-item"><a href="/web/">Web</a></div></div></div><a href="/about/">About</a><a href="/contact/">Contact</a></nav></div>
+   <div class="header-burger"><button class="header-burger-btn burger"><span class="visually-hidden" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Open menu</span><div class="burger-inner"><div class="top-bun"></div><div class="bottom-bun"></div></div></button></div>
+  </div>
+ </div>
+ <div class="header-menu">
+  <nav class="header-menu-nav-list">
+   <div class="header-menu-nav-item"><a href="/">Home</a></div>
+   <div class="header-menu-nav-folder"><div class="header-menu-nav-folder-content"><div class="header-menu-controls container header-menu-nav-item"><a class="header-menu-controls-control" data-action="back" href="/" tabindex="-1">Back</a></div><div class="header-menu-nav-item"><a href="/design/">Design</a></div><div class="header-menu-nav-item"><a href="/web/">Web</a></div></div></div>
+   <div class="header-menu-nav-item"><a href="/about/">About</a></div>
+   <div class="header-menu-nav-item"><a href="/contact/">Contact</a></div>
+  </nav>
+ </div>
+</header>
+<main><h1>Home</h1><p>Body text.</p></main>
+<footer><p>Footer text</p></footer>
+<script>document.querySelectorAll('.burger').forEach(b=>b.addEventListener('click',()=>document.body.classList.toggle('header--menu-open')));</script>
+</body></html>

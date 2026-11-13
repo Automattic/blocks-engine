@@ -208,6 +208,13 @@ final class SourceBlockAttributeProjector
                 }
             }
         }
+        if ('core/group' === $name && $facts->isInlineSourceElement
+            && 'inherit' === ($innerBlocks[0]['attrs']['style']['typography']['fontSize'] ?? null)
+            && str_contains((string) ($innerBlocks[0]['attrs']['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS)) {
+            // The group owns the source wrapper's selector and typography;
+            // it is no longer an inline RichText/layout carrier.
+            $context->selectorProjections->adoptAsSemanticBlock($sourceElement->getNodePath() ?? '');
+        }
         $baseClassName = (string) ($attrs['className'] ?? '');
         // A RichText marker is already the selector projection of this source
         // element. Its paragraph is only a validity carrier, not a second box.
@@ -852,11 +859,25 @@ final class SourceBlockAttributeProjector
         return 'none' === $this->resolvedTextDecorationLine($anchor, true);
     }
 
-    /** @return array<string,string> */
-    public function syntheticInlineParagraphAttributes(DOMElement $container): array
+    /** @return array<string,mixed> */
+    public function syntheticInlineParagraphAttributes(DOMElement $container, bool $inheritsWrapperTypography = false): array
     {
-        // This carrier adds no source box, regardless of its links.
+        // This carrier adds neither a source box nor a typography boundary.
+        // In particular, a theme's paragraph rules must not interrupt the
+        // typography of an inline source wrapper lowered to a group. Keep
+        // inheritance live so responsive wrapper declarations still apply.
         $attrs = array('className' => self::SYNTHETIC_PARAGRAPH_CLASS);
+        if ($inheritsWrapperTypography) {
+            $attrs['style'] = array(
+                'typography' => array(
+                    'fontSize' => 'inherit',
+                    'fontWeight' => 'inherit',
+                    'lineHeight' => 'inherit',
+                    'fontFamily' => 'inherit',
+                ),
+                'color' => array('text' => 'inherit'),
+            );
+        }
         $anchors = $container->getElementsByTagName('a');
         if (0 === $anchors->length) return $attrs;
         foreach ($anchors as $anchor) if (!$anchor instanceof DOMElement || !$this->sourceAnchorHasNoTextDecoration($anchor)) return $attrs;

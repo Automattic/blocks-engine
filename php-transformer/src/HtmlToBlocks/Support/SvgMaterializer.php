@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
@@ -1782,8 +1783,8 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
         foreach ( $matches[1] as $stack ) {
-            foreach ( explode(',', html_entity_decode($stack, ENT_QUOTES | ENT_HTML5, 'UTF-8')) as $family ) {
-                if ( isset($faces[strtolower(trim($family, " \t\n\r\"'"))]) ) {
+            foreach ( CssFontFamily::names(html_entity_decode($stack, ENT_QUOTES | ENT_HTML5, 'UTF-8')) as $family ) {
+                if ( isset($faces[strtolower($family)]) ) {
                     return true;
                 }
             }

@@ -11,7 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RouteStateProjector;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InertScaffoldingSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -1920,13 +1920,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             return preg_match('/^(-?[0-9]*\.?[0-9]+)px$/i', $value, $match) ? (int) round((float) $match[1]) : null;
         };
 
-        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            $parts = explode(':', $declaration, 2);
-            if ( 2 !== count($parts) ) {
-                continue;
-            }
-            $property = strtolower(trim($parts[0]));
-            $value = trim(preg_replace('/!important\s*$/i', '', $parts[1]) ?? $parts[1]);
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $property, 'value' => $value ] ) {
+            $value = trim(preg_replace('/!important\s*$/i', '', $value) ?? $value);
 
             if ( 'margin-top' === $property || 'margin-bottom' === $property ) {
                 $resolved = $pixels($value);
@@ -2273,14 +2268,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function resolvedNavigationSpacing(string $style): array
     {
         $declarations = array();
-        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            $separator = strpos($declaration, ':');
-            if ( false === $separator ) {
-                continue;
-            }
-
-            $property = strtolower(trim(substr($declaration, 0, $separator)));
-            $value = trim(substr($declaration, $separator + 1));
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $property, 'value' => $value ] ) {
             if ( '' === $property || '' === $value || CssPropertyName::startsLikeNumber($property) ) {
                 continue;
             }
@@ -5266,6 +5254,30 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function isNavigationChromeElement(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
+        // Folder-history controls are replaced by native submenu close/back.
+        // Require an explicit action and removal from the tab order, not a
+        // builder class or the link's text/destination. A wrapper containing
+        // only that control is chrome too, but never swallow its child links.
+        $control = $element;
+        if ( ! in_array($tagName, array( 'a', 'button' ), true) ) {
+            $children = array();
+            foreach ( $element->childNodes as $child ) {
+                if ( XML_COMMENT_NODE === $child->nodeType
+                    || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                    continue;
+                }
+                $children[] = $child;
+            }
+            if ( 1 === count($children) && $children[0] instanceof DOMElement ) {
+                $control = $children[0];
+            }
+        }
+        if ( in_array(strtolower($control->tagName), array( 'a', 'button' ), true)
+            && 'back' === strtolower(SourceDom::attr($control, 'data-action'))
+            && '-1' === SourceDom::attr($control, 'tabindex')
+            && SourceDom::hasAncestorTag($element, array( 'nav' )) ) {
+            return true;
+        }
         if ( $this->isMenuToggleControl($element) ) {
             return true;
         }

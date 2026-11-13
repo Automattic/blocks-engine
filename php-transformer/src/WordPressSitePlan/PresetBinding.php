@@ -6,6 +6,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -1610,12 +1612,11 @@ final class PresetBinding
     /** @param list<string> $ancestors */
     private function indexVariables(string $prelude, string $body, array $ancestors): void
     {
-        if (!preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER)) return;
+        $declarations = CssRuleAnalyzer::customProperties($body);
+        if (array() === $declarations) return;
         $selectors = array_map(static fn(string $selector): string => strtolower(trim($selector)), CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude));
         $root = array() === array_diff($selectors, array(':root', 'html', ':host')) && array() === array_filter($ancestors, static fn(string $ancestor): bool => 1 !== preg_match('/^@layer(?:\s|$)/', $ancestor));
-        foreach ($matches as $match) {
-            $name = (string) $match[1];
-            $value = trim((string) $match[2]);
+        foreach ($declarations as ['name' => $name, 'value' => $value]) {
             // Any definition with another value, wherever it applies, could
             // give the variable that value under some block. Repeating the
             // root value (editor mirrors such as `:root :root.editor-styles-wrapper`)
@@ -1990,18 +1991,7 @@ final class PresetBinding
     /** The selector's last compound, after its final combinator. */
     private static function subjectCompound(string $selector): string
     {
-        $selector = trim($selector);
-        $depth = 0;
-        $start = 0;
-        $length = strlen($selector);
-        for ($i = 0; $i < $length; $i++) {
-            $char = $selector[$i];
-            if ('\\' === $char) { $i++; continue; }
-            if ('(' === $char || '[' === $char) $depth++;
-            elseif (')' === $char || ']' === $char) $depth--;
-            elseif (0 === $depth && (ctype_space($char) || '>' === $char || '+' === $char || '~' === $char)) $start = $i + 1;
-        }
-        return substr($selector, $start);
+        return CssSelectorTokenizer::tokenize(trim($selector))['rightmost_compound'];
     }
 
     /**
@@ -2166,13 +2156,7 @@ final class PresetBinding
 
     private static function declarations(string $style): array
     {
-        $declarations = array();
-        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
-            $parts = explode(':', $declaration, 2);
-            if (2 !== count($parts)) continue;
-            $declarations[] = array(strtolower(trim($parts[0])), trim($parts[1]));
-        }
-        return $declarations;
+        return array_map(static fn (array $declaration): array => array($declaration['name'], $declaration['value']), CssRuleAnalyzer::declarationList($style));
     }
 
     /** @param list<array{0:string,1:string}> $declarations */

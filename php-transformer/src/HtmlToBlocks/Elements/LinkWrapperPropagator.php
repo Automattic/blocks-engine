@@ -284,6 +284,12 @@ final class LinkWrapperPropagator
             'rel'             => (string) ($linkAttrs['rel'] ?? ''),
         ), static fn (string $value): bool => '' !== trim($value));
 
+        // The image had no immediate source link. The synthesized anchor must
+        // carry navigation without introducing Core's inline-block line box.
+        $attrs['className'] = SourceDom::mergeClassNames(
+            (string) ($attrs['className'] ?? ''),
+            self::PROPAGATED_LINK_CARRIER_CLASS
+        );
         $block = $this->blockFactory->rebuild($block, array_merge($attrs, $imageLink));
         return true;
     }

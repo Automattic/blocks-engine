@@ -486,9 +486,9 @@ final class NavigationToggleSuppressor
                     continue;
                 }
 
-                // Hidden items inside a menu the page shows belong to that menu
-                // (a "More" list, say); they are not this control's panel.
-                if ( $this->isInsideVisibleNavigation($candidate, $control) ) {
+                // A landmark's own dropdown belongs to that menu even when
+                // the entire landmark is hidden in a responsive row.
+                if ( $this->isInsideNavigation($candidate, $control) ) {
                     continue;
                 }
 
@@ -533,12 +533,11 @@ final class NavigationToggleSuppressor
         return null;
     }
 
-    private function isInsideVisibleNavigation(DOMElement $candidate, DOMElement $control): bool
+    private function isInsideNavigation(DOMElement $candidate, DOMElement $control): bool
     {
         for ( $node = $candidate->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( $this->isNavigationLandmark($node)
-                && ! SourceDom::elementContains($node, $control)
-                && ! $this->isHiddenAtDefaultViewport($node) ) {
+                && ! SourceDom::elementContains($node, $control) ) {
                 return true;
             }
         }

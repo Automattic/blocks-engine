@@ -206,6 +206,9 @@ final class DisclosureControlPresentation
         if ( array() !== $icon ) {
             $this->support->registerAccordionIconPresentation($marker, array_diff_key($icon, array('svg' => true)));
         }
+        if ( $isAccordionToggle && 'summary' === strtolower($control->tagName) ) {
+            $this->support->registerAccordionNativeSummaryPresentation($marker);
+        }
 
         return array('className' => $marker, 'iconSvg' => $icon['svg'] ?? '');
     }
@@ -216,16 +219,24 @@ final class DisclosureControlPresentation
      * Core lays the toggle out as a flex row (title, then icon) and pads it
      * through the destination theme's `spacing-20` preset. The source header's
      * own padding is therefore always stated — `0` when the source has none —
-     * so row height never depends on the destination spacing scale. Core's flex
-     * display stays: a source `display:block` would push the icon under the
-     * title. With a carried source icon, the source row's gap and cross-axis
+     * so row height never depends on the destination spacing scale. Native
+     * summaries recover their list-item marker; other controls keep core's flex
+     * row so the icon stays beside the title. With a carried source icon, the gap and cross-axis
      * alignment ride on the toggle so the icon sits at the row's inline end
      * after the same gap, and the label wraps where it did in the source.
      */
     private function accordionToggleBoxCss(DOMElement $control, ?DOMElement $row, ?DOMElement $iconSource, string $css): string
     {
         $carried = $this->styles->cssDeclarations($css);
-        unset($carried['display']);
+        if ( 'summary' === strtolower($control->tagName) ) {
+            // A button cannot be a list item, so the toggle is a plain block
+            // and its title carries the summary's native marker.
+            unset($carried['list-style-position'], $carried['list-style-type']);
+            $carried['display'] = 'block';
+            $carried['text-align'] = $carried['text-align'] ?? 'start';
+        } else {
+            unset($carried['display']);
+        }
         $isPadding = static fn (string $property): bool => 1 === preg_match('/^padding(?:-[a-z-]+)?$/', $property);
         $hasPadding = array() !== array_filter(array_keys($carried), $isPadding);
         if ( ! $hasPadding && $row instanceof DOMElement && ! $row->isSameNode($control) ) {
