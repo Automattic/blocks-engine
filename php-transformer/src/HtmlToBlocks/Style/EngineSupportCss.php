@@ -74,6 +74,11 @@ final class EngineSupportCss
     public function beforeAuthorCss(string $serializedBlocks): array
     {
         $parts = array();
+        if ( str_contains($serializedBlocks, 'blocks-engine-image') ) {
+            // Keep the responsive fallback below every authored constraint,
+            // including when core/image inserts an anchor around the image.
+            $parts[] = ':where(figure.blocks-engine-image > img,figure.blocks-engine-image > a > img){max-width:100%}';
+        }
         if (str_contains($serializedBlocks, 'blocks-engine-stacked-buttons')) {
             // Preserve normal block flow even when the authored bar is inline-block.
             $parts[] = '.wp-block-buttons.blocks-engine-stacked-buttons>.wp-block-button{display:block;margin:0}';
@@ -135,7 +140,7 @@ final class EngineSupportCss
             // element min-content and flex-shrink behavior.
             $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}';
             // With no figure box there is nothing for the image to fit, so the
-            // `max-width:100%` that core and the image projection bridge put on
+            // `max-width:100%` that core and the base support rule put on
             // a core/image <img> is not the source's: its percentage zeroes the
             // replaced element's min-content contribution and lets the flex
             // item shrink below its own width. A max-width the author states

@@ -3577,7 +3577,9 @@ final class AuthorStylesheetProjector
         foreach (array('min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio') as $property) {
             if (isset($declarations[$property])) $bridge[] = $property . ':' . $declarations[$property];
         }
-        if (!isset($declarations['max-width'])) $bridge[] = 'max-width:100%';
+        // The responsive max-width default belongs to zero-specificity base
+        // support, not this authored position: an unrelated later rule must
+        // not reset a cap declared by an earlier rule.
         foreach (array('width', 'height') as $property) {
             if ('auto' === CssValueInspector::declared($declarations, $property)) {
                 $bridge[] = $property . ':' . $declarations[$property];
