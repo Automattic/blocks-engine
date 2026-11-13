@@ -4214,7 +4214,8 @@ final class ArtifactCompiler
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     $member = $matches->matchedElements($selector, 'member');
                     $site = $matches->matchedElements($selector, 'site');
-                    if (null !== $member && null !== $site && count($member) !== count($site)) $depends = true;
+                    // An arm the index cannot evaluate cannot disprove context dependence.
+                    if (null === $member || null === $site || count($member) !== count($site)) $depends = true;
                 }
             });
         }
