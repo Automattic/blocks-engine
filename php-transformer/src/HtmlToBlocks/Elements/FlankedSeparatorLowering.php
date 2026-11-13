@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -43,7 +44,7 @@ final class FlankedSeparatorLowering
                 return null;
             }
 
-            $declarations = $this->styleResolver->inlineDeclarations($flank);
+            $declarations = SourceDeclarations::inline($flank);
             if ( array() !== array_diff(array_keys($declarations), array( 'height', 'overflow', 'width' ))
                 || 'hidden' !== strtolower(trim((string) ($declarations['overflow'] ?? '')))
                 || ! in_array(strtolower(trim((string) ($declarations['width'] ?? ''))), array( '', '100%' ), true)

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -14,7 +15,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMateria
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMElement;
@@ -33,7 +33,6 @@ final class AuthoredMarqueeRecognizer
 {
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier,
-        private readonly StyleResolver $styleResolver,
         private readonly RichTextMaterializer $richTextMaterializer,
         private readonly Runtime $runtime,
         private readonly HtmlTransformerSession $session
@@ -260,7 +259,7 @@ final class AuthoredMarqueeRecognizer
     {
         $frames = array( 'start' => null, 'end' => null );
         ( new CssStylesheetTransformer() )->visitStyleRules($body, function (string $prelude, string $declarations) use (&$frames): void {
-            $transform = $this->styleResolver->cssDeclarations($declarations)['transform'] ?? '';
+            $transform = SourceDeclarations::parse($declarations)['transform'] ?? '';
             $offsets = CssStylesheetTransformer::splitSelectorList($prelude) ?? array();
             foreach ( $offsets as $offset ) {
                 $offset = strtolower(trim($offset));
@@ -328,9 +327,9 @@ final class AuthoredMarqueeRecognizer
         $this->generatedBlocks()->register(AuthoredMarqueeBlockGenerator::class, ( new AuthoredMarqueeBlockGenerator() )->definition($this->generatedBlocks()->namespace()));
 
         $duration = 40.0;
-        $durationCandidates = array( $this->styleResolver->inlineDeclarations($track)['--marquee-duration'] ?? '' );
+        $durationCandidates = array( SourceDeclarations::inline($track)['--marquee-duration'] ?? '' );
         for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode instanceof DOMElement ? $carrier->parentNode : null ) {
-            $durationCandidates[] = $this->styleResolver->inlineDeclarations($carrier)['--marquee-duration'] ?? '';
+            $durationCandidates[] = SourceDeclarations::inline($carrier)['--marquee-duration'] ?? '';
         }
         foreach ( $durationCandidates as $value ) {
             if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)s$/', trim((string) $value), $matches) ) {
@@ -445,7 +444,7 @@ final class AuthoredMarqueeRecognizer
         }
         $this->applyAuthoredAnimationCascade(
             $cascade,
-            $this->styleResolver->inlineDeclarations($element),
+            SourceDeclarations::inline($element),
             PHP_INT_MAX,
             $sequence
         );

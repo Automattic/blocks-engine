@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use DOMElement;
 
 /** A proof of empty paint, not a general SVG renderer. Unknowns always survive. */
@@ -47,7 +48,7 @@ final class SvgPaintEmptiness
     private function outOfFlow(DOMElement $svg): bool
     {
         $declarations = array_merge(
-            $this->styles->cssDeclarations($svg->getAttribute('style')),
+            SourceDeclarations::parse($svg->getAttribute('style')),
             $this->styles->matchedCascadedDeclarations($svg),
             $this->styles->referenceViewportAuthorDeclarations($svg, array('position'))
         );
@@ -62,7 +63,7 @@ final class SvgPaintEmptiness
         foreach (array('fill', 'fill-opacity', 'stroke', 'stroke-opacity', 'stroke-width', 'opacity', 'mask', 'filter') as $property) {
             if ($node->hasAttribute($property)) $result[$property] = $node->getAttribute($property);
         }
-        $result = array_merge($result, $this->styles->cssDeclarations($node->getAttribute('style')), $this->styles->matchedCascadedDeclarations($node));
+        $result = array_merge($result, SourceDeclarations::parse($node->getAttribute('style')), $this->styles->matchedCascadedDeclarations($node));
         // URL-valued effects are deliberately absent from the paint cascade.
         // Query the existing full author resolver rather than treating absence
         // there as proof that a filter or CSS mask does not exist.

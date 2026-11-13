@@ -60,8 +60,8 @@ $parses = static function () use ($styles): array {
         foreach (array(array(';'), array(','), array(':', ';'), array()) as $delimiters) {
             $results[] = \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($source, $delimiters);
         }
-        $results[] = $styles->verbatimCssDeclarations($source);
-        $results[] = $styles->verbatimCssDeclarations($source, true);
+        $results[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations::verbatim($source);
+        $results[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations::verbatim($source, true);
     }
     foreach (array('screen', 'print', '(min-width: 40em)', '(width > 600px)', 'not screen, (max-width: 10px)') as $source) {
         foreach (array(320.0, 640.0, 640.00001, 1200.0) as $width) {

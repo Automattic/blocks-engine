@@ -421,7 +421,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime
         );
         $this->patternRecognizers = PatternRecognizerRegistry::createDefault($this, $this->runtime, $this->sourceElementClassifier, $this->richTextMaterializer);
-        $this->authoredMarqueeRecognizer = new AuthoredMarqueeRecognizer($this->sourceElementClassifier, $this->styleResolver, $this->richTextMaterializer, $this->runtime, $this->session);
+        $this->authoredMarqueeRecognizer = new AuthoredMarqueeRecognizer($this->sourceElementClassifier, $this->richTextMaterializer, $this->runtime, $this->session);
         $this->patternProbeContext = $this->createProbePatternContext();
         $this->navigationToggleSuppressor = new NavigationToggleSuppressor($this->session,
             $this->createNavigationToggleSuppressionContext(),
@@ -452,7 +452,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $pseudoFormAnalyzer = new PseudoFormAnalyzer($formControlMetadataBuilder);
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->session, $this->sourceElementClassifier, $pseudoFormAnalyzer);
         $this->generatedComponents = new Elements\GeneratedComponentLowering($this->session, $this->runtimeIslands, $this, $this);
-        $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
+        $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
         $styledClassBoundaries = new Support\StyledSourceClassBoundary($this->session);
         $this->emptyVisualRetention = new Elements\EmptyVisualRetentionPolicy(
             $this->styleResolver,
@@ -526,7 +526,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
         $this->emptyInlineGeometry = new Elements\EmptyInlineGeometryLowering($this, $this->session, $this->sourceElementClassifier, $this->emptyElementFootprint, $authoredStateButtons, $this->layoutShells, $this->runtimeIslands);
-        $this->wrapperConventions = new Elements\CustomWrapperConventions($this->styleResolver, $this->renderNeutral);
+        $this->wrapperConventions = new Elements\CustomWrapperConventions($this->renderNeutral);
         $emptyVisualSpacers = new Elements\EmptyVisualSpacerLowering($this, $this, $this->session, $this->styleResolver, $this->emptyElementFootprint, $this->runtimeIslands);
         $this->fallbackReconciliation = new Diagnostics\FallbackReconciliation($this->runtimeIslands);
         $inlineCheckableControls = new Elements\InlineCheckableControlLowering($this, $this->runtime, $this->session, $this->sourceElementClassifier, $this->richTextMaterializer, $authoredStateButtons, $this->runtimeIslands, $this->layoutShells);

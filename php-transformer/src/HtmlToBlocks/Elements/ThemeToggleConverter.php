@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeScriptEvidenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -421,10 +422,10 @@ final class ThemeToggleConverter implements ElementConverter
     private function themeControlPresentation(DOMElement $element): array
     {
         $presentation = $this->styles->presentationAttributes($element);
-        $inline = $this->styles->inlineDeclarations($element);
+        $inline = SourceDeclarations::inline($element);
         $mapped = $this->styles->styleAttributeMapper()->map($inline);
         $css = (string) ($this->styles->styleAttributeMapper()->serialize($mapped['style'] ?? array())['style'] ?? '');
-        $declarations = $this->styles->cssDeclarations($css);
+        $declarations = SourceDeclarations::parse($css);
         foreach ( array('display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'gap', 'row-gap', 'column-gap', 'grid-template-columns', 'grid-template-rows') as $layoutProperty ) {
             if ( isset($inline[$layoutProperty]) ) $declarations[$layoutProperty] = $inline[$layoutProperty];
         }

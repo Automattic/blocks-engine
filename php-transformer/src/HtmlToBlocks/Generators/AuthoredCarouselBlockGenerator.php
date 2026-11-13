@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -1163,7 +1164,7 @@ JS;
             $item->removeAttribute('hidden');
             $display = $item->getAttribute(CaptureEvidence::GALLERY_DISPLAY);
             if (preg_match('/^[a-z-]+$/D', $display)) {
-                $declarations = $styleResolver->cssDeclarations($item->getAttribute('style'));
+                $declarations = SourceDeclarations::parse($item->getAttribute('style'));
                 $declarations['display'] = $display;
                 $item->setAttribute('style', $styleResolver->cssDeclarationString($declarations));
             }
@@ -1276,12 +1277,12 @@ JS;
         $transitionDuration = 0;
         $autoplayInterval = 0;
         foreach ( $items as $item ) {
-            $transitionDuration = max($transitionDuration, $durationMilliseconds((string) ($styleResolver->cssDeclarations(SourceDom::attr($item, 'style'))['animation-duration'] ?? '')));
+            $transitionDuration = max($transitionDuration, $durationMilliseconds((string) (SourceDeclarations::parse(SourceDom::attr($item, 'style'))['animation-duration'] ?? '')));
             foreach ( $item->getElementsByTagName('*') as $descendant ) {
                 if ( ! $descendant instanceof DOMElement ) {
                     continue;
                 }
-                $autoplayInterval = max($autoplayInterval, $durationMilliseconds((string) ($styleResolver->cssDeclarations(SourceDom::attr($descendant, 'style'))['animation-duration'] ?? '')));
+                $autoplayInterval = max($autoplayInterval, $durationMilliseconds((string) (SourceDeclarations::parse(SourceDom::attr($descendant, 'style'))['animation-duration'] ?? '')));
             }
         }
         if ( $autoplayInterval <= $transitionDuration ) {
@@ -1301,7 +1302,7 @@ JS;
         $height = 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', trim($listHeight)) ? $listHeight : $rootHeight;
         $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($height), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
         $stageMinHeight = $this->safeCssDimension((string) ($geometryDeclarations['min-height'] ?? ''));
-        $rootDeclarations = $styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $rootDeclarations = SourceDeclarations::parse(SourceDom::attr($element, 'style'));
         $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
         $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
             && 1 === preg_match('/^-\s*(?:[0-9]+|[0-9]*\.[0-9]+)(?:px|rem|em|%)$/', strtolower(trim((string) ($rootDeclarations['left'] ?? ''))));
@@ -2215,7 +2216,7 @@ JS;
             }
         }
         foreach ( $candidates as $candidate ) {
-            $declarations = $styleResolver->cssDeclarations(SourceDom::attr($candidate, 'style'));
+            $declarations = SourceDeclarations::parse(SourceDom::attr($candidate, 'style'));
             $width = $this->pixelLength((string) ($declarations['width'] ?? ''));
             $left = $this->pixelLength((string) ($declarations['left'] ?? ''));
             $top = $this->pixelLength((string) ($declarations['top'] ?? ''));
@@ -2519,7 +2520,7 @@ JS;
         foreach ($elements as $element) {
             $oldStyle = $element->hasAttribute('style') ? $element->getAttribute('style') : null;
             $snapshot[] = array('element' => $element, 'style' => $oldStyle);
-            $inline = $styleResolver->cssDeclarations($oldStyle ?? '');
+            $inline = SourceDeclarations::parse($oldStyle ?? '');
             $missing = array_fill_keys(array_diff_key($allowed, $inline), true);
             if (array() === $missing) {
                 continue;

@@ -112,7 +112,7 @@ final class SourceElementVisibility
             if ( SourceDom::isDocumentVariantRoot($candidate) ) {
                 return false;
             }
-            $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($candidate));
+            $declarations = SourceDeclarations::parse($this->styleResolver->controlSurfaceResolvedStyle($candidate));
             $display = CssValueInspector::declared($declarations, 'display');
             if ( 'none' === $display ) {
                 return true;

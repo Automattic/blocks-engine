@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -263,7 +264,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
     private function occupiesAuthorLayoutSlot(DOMElement $element): bool
     {
         $positions = $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array( 'position' ))['position'] ?? array();
-        $inlinePosition = $this->styleResolver->inlineDeclarations($element)['position'] ?? '';
+        $inlinePosition = SourceDeclarations::inline($element)['position'] ?? '';
         if ( '' !== $inlinePosition ) {
             $positions[] = $inlinePosition;
         }
@@ -363,7 +364,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
             && 'hidden' === CssValueInspector::comparable($declarations['visibility'] ?? '')
             && in_array(CssValueInspector::comparable($declarations['position'] ?? ''), array( 'absolute', 'fixed' ), true);
         if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
-            || ( ! $hiddenOutOfFlow && 'none' !== CssValueInspector::comparable((string) ($this->styleResolver->inlineDeclarations($element)['display'] ?? '')) ) ) {
+            || ( ! $hiddenOutOfFlow && 'none' !== CssValueInspector::comparable((string) (SourceDeclarations::inline($element)['display'] ?? '')) ) ) {
             return false;
         }
 

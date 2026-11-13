@@ -38,7 +38,7 @@ final class GeneratedBlockStyleProjector
         // use the same primitives as other source presentation.
         if ( in_array($name, array( 'core/paragraph', 'core/heading', 'core/list', 'core/columns' ), true)
             && (isset($attrs['style']['color']['background']) || isset($attrs['style']['color']['gradient'])) ) {
-            $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($sourceElement));
+            $declarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($sourceElement));
             $mapped = $this->styleResolver->styleAttributeMapper()->map(
                 $declarations,
                 fn (string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $sourceElement)
@@ -58,7 +58,7 @@ final class GeneratedBlockStyleProjector
         $fallback = $normalized['fallbackStyle'];
         $attrs = $normalized['attrs'];
         $submenuBackground = 'core/navigation-submenu' === $name ? trim((string) ($fallback['color']['background'] ?? '')) : '';
-        if ( '' !== $submenuBackground && array() !== $this->styleResolver->cssDeclarations('background-color:' . $submenuBackground) ) {
+        if ( '' !== $submenuBackground && array() !== SourceDeclarations::parse('background-color:' . $submenuBackground) ) {
             $className = 'blocks-engine-navigation-submenu-background-' . hash('sha256', $submenuBackground);
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $className);
             $generatedStyles->registerNavigationSubmenuBackground($className, $submenuBackground);
@@ -119,10 +119,10 @@ final class GeneratedBlockStyleProjector
         }
 
         $fallbackStyle = $this->styleResolver->styleAttributeMapper()->serialize($fallback)['style'];
-        $fallbackDeclarations = $this->styleResolver->cssDeclarations($fallbackStyle);
-        $inlineDeclarations = $this->styleResolver->cssDeclarations($sourceElement->getAttribute('style'));
+        $fallbackDeclarations = SourceDeclarations::parse($fallbackStyle);
+        $inlineDeclarations = SourceDeclarations::parse($sourceElement->getAttribute('style'));
         $inlineMapped = $this->styleResolver->styleAttributeMapper()->map($inlineDeclarations);
-        $inlineFallbackDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->styleAttributeMapper()->serialize($inlineMapped['style'] ?? array())['style']);
+        $inlineFallbackDeclarations = SourceDeclarations::parse($this->styleResolver->styleAttributeMapper()->serialize($inlineMapped['style'] ?? array())['style']);
         foreach ( array_keys($fallbackDeclarations) as $property ) {
             if ( 'core/button' === $name
                 && 'border-radius' === $property
@@ -238,7 +238,7 @@ final class GeneratedBlockStyleProjector
         $logicalCorners = array( 'border-start-start-radius', 'border-start-end-radius', 'border-end-start-radius', 'border-end-end-radius' );
         $hasLogicalCorners = $sourceControl instanceof DOMElement && (
             array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, $logicalCorners)
-            || array() !== array_intersect_key($this->styleResolver->cssDeclarations($sourceControl->getAttribute('style')), array_flip($logicalCorners))
+            || array() !== array_intersect_key(SourceDeclarations::parse($sourceControl->getAttribute('style')), array_flip($logicalCorners))
         );
         // Core serializes the button's own color, border, typography and spacing
         // attributes inline on the link, where they already outrank every
@@ -246,7 +246,7 @@ final class GeneratedBlockStyleProjector
         // copy froze the imported paint and silently defeated the owner's own
         // button controls in the editor and on the frontend.
         if ( $sourceControl instanceof DOMElement ) {
-            $sourceDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($sourceControl));
+            $sourceDeclarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($sourceControl));
             $sourceStructuralDeclarations = $this->styleResolver->classOwnedResponsiveDeclarations(
                 $sourceControl,
                 $this->styleResolver->structuralPresentationDeclarations($sourceControl)
@@ -263,7 +263,7 @@ final class GeneratedBlockStyleProjector
                     $declarations[] = $property . ':' . $value . '!important';
                 }
             }
-            $inlineDeclarations = $this->styleResolver->cssDeclarations($sourceControl->getAttribute('style'));
+            $inlineDeclarations = SourceDeclarations::parse($sourceControl->getAttribute('style'));
             $hasAuthoredWidth = isset($inlineDeclarations['width'])
                 || array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
             $definiteAncestorWidth = $hasAuthoredWidth ? '' : $this->definiteAncestorWidth($sourceControl, $sourceDeclarations);
@@ -420,7 +420,7 @@ final class GeneratedBlockStyleProjector
             // layout. Inline control layout has no stylesheet rule to project;
             // keep it on the saved link, not its synthetic formatting wrappers.
             $inlineLayout = array_intersect_key(
-                $this->styleResolver->cssDeclarations($sourceControl->getAttribute('style')),
+                SourceDeclarations::parse($sourceControl->getAttribute('style')),
                 array_flip(array( 'display', 'flex-direction', 'flex-wrap', 'align-items', 'justify-content', 'gap', 'column-gap', 'row-gap', 'width', 'min-width', 'max-width' ))
             );
             if ( array() !== $inlineLayout ) {
@@ -499,7 +499,7 @@ final class GeneratedBlockStyleProjector
         $resolved = array();
         foreach ( $sourceControl->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement || trim($element->textContent ?? '') !== $label ) continue;
-            $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+            $declarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element));
             foreach ( $declarations as $property => $value ) {
                 if ( ! in_array($property, $family, true) ) continue;
                 $value = trim(preg_replace('/\s*!important\s*$/i', '', (string) $value) ?? '');
@@ -523,7 +523,7 @@ final class GeneratedBlockStyleProjector
     public function registerNativeButtonDefaultBackgroundGuard(string $marker, DOMElement $sourceControl, GeneratedSupportStylesheetState $generatedStyles, bool $blockHasInlineBackground = false): bool
     {
         if ( $blockHasInlineBackground ) return false;
-        $sourceDeclarations = $this->styleResolver->cssDeclarations(
+        $sourceDeclarations = SourceDeclarations::parse(
             $this->styleResolver->specificityResolvedPresentationStyle($sourceControl)
         );
         if ( ! $this->sourceControlNeedsDefaultButtonBackgroundGuard($sourceControl, $sourceDeclarations) ) {
@@ -599,7 +599,7 @@ final class GeneratedBlockStyleProjector
                 if ( '' !== $value && ! self::isTransparentBackgroundValue($value) ) return true;
             }
         }
-        $declarations = $this->styleResolver->cssDeclarations(
+        $declarations = SourceDeclarations::parse(
             $this->styleResolver->controlSurfaceResolvedStyle($sourceControl)
         );
         foreach ( array( 'background', 'background-color' ) as $property ) {
@@ -656,7 +656,7 @@ final class GeneratedBlockStyleProjector
         // as cross-axis stretched, and a content-sized control gets pinned to
         // `width:100%` for a column it is not in at the width being rendered.
         $parentStyle = $parent instanceof DOMElement
-            ? $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($parent))
+            ? SourceDeclarations::parse($this->styleResolver->controlSurfaceResolvedStyle($parent))
             : array();
         $isColumn = str_starts_with(strtolower(trim((string) ($parentStyle['flex-direction'] ?? 'row'))), 'column');
         $stretchesCrossAxis = $isColumn && $this->columnFlexChildStretches($parentStyle, $control);
@@ -688,7 +688,7 @@ final class GeneratedBlockStyleProjector
         }
         $isFlex = (bool) array_intersect(array_map(CssValueInspector::comparable(...), $parentDisplays), array('flex', 'inline-flex'));
         $isGrid = in_array(CssValueInspector::declared($parentStyle, 'display'), array('grid', 'inline-grid'), true);
-        $controlStyle = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($control));
+        $controlStyle = SourceDeclarations::parse($this->styleResolver->controlSurfaceResolvedStyle($control));
         $alignment = CssValueInspector::comparable((string) ($controlStyle['align-self'] ?? 'auto'));
         if ( 'auto' === $alignment ) $alignment = CssValueInspector::comparable((string) ($parentStyle['align-items'] ?? 'normal'));
         $stretchesHeight = $isGrid
@@ -971,7 +971,7 @@ final class GeneratedBlockStyleProjector
         if ( ! $parent instanceof DOMElement ) {
             return false;
         }
-        $parentDisplay = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? 'block'));
+        $parentDisplay = CssValueInspector::comparable((string) (SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? 'block'));
         return in_array($parentDisplay, array( '', 'block', 'flow-root', 'list-item' ), true);
     }
 
@@ -981,7 +981,7 @@ final class GeneratedBlockStyleProjector
         if ( ! $parent instanceof DOMElement ) {
             return false;
         }
-        $display = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? ''));
+        $display = CssValueInspector::comparable((string) (SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? ''));
 
         return in_array($display, array( '', 'block', 'flow-root', 'list-item', 'inline-block', 'table-cell' ), true);
     }
@@ -1001,7 +1001,7 @@ final class GeneratedBlockStyleProjector
         if ( ! $parent instanceof DOMElement ) {
             return false;
         }
-        $parentDisplay = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? ''));
+        $parentDisplay = CssValueInspector::comparable((string) (SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($parent))['display'] ?? ''));
 
         return 'grid' === $parentDisplay;
     }
