@@ -506,6 +506,18 @@ final class SourceBlockAttributeProjector
             // must survive the shrink-to-fit reset.
             $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-width';
         }
+        // A size the author states only under a condition (a phone-width
+        // `.card .btn{width:100%}`) is projected under that condition. The
+        // control rests shrink-to-fit, but through a default that projected
+        // rule can outrank (see EngineSupportCss).
+        $conditional = $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array( 'width', 'height' ));
+        foreach ( array( 'width', 'height' ) as $property ) {
+            $modifier = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-' . $property;
+            $stated = array_filter($conditional[$property] ?? array(), static fn (string $value): bool => ! in_array(CssValueInspector::comparable($value), array( '', 'auto' ), true));
+            if ( array() !== $stated && ! in_array($modifier, $classes, true) ) {
+                $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-conditional-' . $property;
+            }
+        }
         return implode(' ', $classes);
     }
 

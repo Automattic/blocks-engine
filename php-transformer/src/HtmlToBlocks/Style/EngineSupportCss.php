@@ -322,13 +322,24 @@ final class EngineSupportCss
             foreach ( $rules as $selector => $declarations ) {
                 $axisRules = '';
                 foreach ( array( 'width' => 'fit-content', 'height' => 'auto' ) as $property => $default ) {
-                    $modifier = $neutralButton . '-author-' . $property;
-                    if ( ! str_contains($serializedBlocks, $modifier) ) {
+                    $modifiers = array_values(array_filter(
+                        array( $neutralButton . '-author-' . $property, $neutralButton . '-conditional-' . $property ),
+                        static fn (string $modifier): bool => str_contains($serializedBlocks, $modifier)
+                    ));
+                    if ( array() === $modifiers ) {
                         continue;
                     }
                     $declarations = str_replace($property . ':' . $default . '!important;', '', $declarations);
-                    $axisSelectors = implode(',', array_map(static fn (string $item): string => $item . ':not(.' . $modifier . ')', explode(',', $selector)));
+                    $axisSelectors = implode(',', array_map(static fn (string $item): string => $item . ':not(.' . implode(',.', $modifiers) . ')', explode(',', $selector)));
                     $axisRules .= ':where(' . $axisSelectors . ')>.wp-block-button__link{' . $property . ':' . $default . '!important}';
+                    $conditional = $neutralButton . '-conditional-' . $property;
+                    if ( in_array($conditional, $modifiers, true) ) {
+                        // Equal to core's `.wp-block-buttons .wp-block-button__link`
+                        // and later, so it beats core; the author projection
+                        // (one type selector more) still wins under its condition.
+                        $conditionalSelectors = implode(',', array_map(static fn (string $item): string => $item . '.' . $conditional, explode(',', $selector)));
+                        $axisRules .= ':where(' . $conditionalSelectors . ')>.wp-block-button__link.wp-block-button__link{' . $property . ':' . $default . '}';
+                    }
                 }
                 $buttonCss .= ':where(' . $selector . ')>.wp-block-button__link{' . $declarations . '}' . $axisRules;
             }
