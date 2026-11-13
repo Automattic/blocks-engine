@@ -311,7 +311,7 @@ final class NavigationPatternContext
             $anchor,
             fn (DOMElement $element): array => $this->styleResolver->presentationDeclarations($element),
             $this->session?->sourceStyleResolutionState()->pseudoElementRules() ?? array(),
-            fn (DOMElement $element, string $selector): bool => $this->styleResolver->matchesCssSelector($element, $selector)
+            fn (DOMElement $element, string $selector): bool => $this->session->sourceStyleResolutionState()->matches($element, $selector)
         );
     }
 
@@ -349,7 +349,7 @@ final class NavigationPatternContext
             if ( '' === $content || in_array(strtolower($content), array( 'none', 'normal' ), true) ) {
                 continue;
             }
-            if ( ! $this->styleResolver->matchesCssSelector($element, (string) ($rule['selector'] ?? '')) ) {
+            if ( ! $this->session->sourceStyleResolutionState()->matches($element, (string) ($rule['selector'] ?? '')) ) {
                 continue;
             }
             return self::decodeCssContent($content);
@@ -746,8 +746,8 @@ final class NavigationPatternContext
             if ( ! in_array((string) ($rule['state'] ?? ''), array( 'hover', 'focus', 'focus-within' ), true) ) continue;
             $revealed = array_intersect_key((array) ($rule['declarations'] ?? array()), array_flip(array( 'display', 'visibility', 'height', 'max-height', 'opacity' )));
             if ( array() === $revealed
-                || ! $this->styleResolver->matchesCssSelector($submenu, (string) ($rule['base_selector'] ?? ''))
-                || ! $this->styleResolver->matchesCssSelector($item, (string) ($rule['state_subject_selector'] ?? '')) ) continue;
+                || ! $this->session->sourceStyleResolutionState()->matches($submenu, (string) ($rule['base_selector'] ?? ''))
+                || ! $this->session->sourceStyleResolutionState()->matches($item, (string) ($rule['state_subject_selector'] ?? '')) ) continue;
             return true;
         }
         return false;
@@ -772,7 +772,7 @@ final class NavigationPatternContext
         foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
             if ( ! in_array((string) ($rule['pseudo'] ?? ''), array( 'before', 'after' ), true) || ! $this->paintsGeneratedIndicator($rule['declarations'] ?? array()) ) continue;
             foreach ( $targets as $target ) {
-                if ( $this->styleResolver->matchesCssSelector($target, (string) ($rule['selector'] ?? '')) ) {
+                if ( $this->session->sourceStyleResolutionState()->matches($target, (string) ($rule['selector'] ?? '')) ) {
                     $this->submenuToggleIndicators[$toggle->getNodePath() ?? ''] = true;
                     return;
                 }
@@ -1289,7 +1289,7 @@ final class NavigationPatternContext
                 if (is_array($suffix)) $text = substr($text, 0, (int) $suffix['start']);
                 // Current-only paint does not make an item a presented subject;
                 // its resting peers decide, so every route shapes it alike.
-                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text, $element) && $this->styleResolver->matchesCssSelector($element, $text)) return true;
+                if ('' !== $text && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text, $element) && $this->session->sourceStyleResolutionState()->matches($element, $text)) return true;
             }
         }
         return false;
@@ -1480,7 +1480,7 @@ final class NavigationPatternContext
                 $text = (string) ($selector['selector'] ?? '');
                 // Route state is not item identity: the same item on every route
                 // carries one marker, whichever page the snapshot served.
-                if ('' !== $text && $this->styleResolver->matchesCssSelector($element, $text) && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text, $element)) {
+                if ('' !== $text && $this->session->sourceStyleResolutionState()->matches($element, $text) && !$this->session->authorSelectorProjectionState()->selectsCurrentNavigationState($text, $element)) {
                     $rules[] = array($text, $rule['declarations'], $rule['conditions'] ?? array());
                 }
             }
@@ -2257,7 +2257,7 @@ final class NavigationPatternContext
                     if (array() === $owned) continue;
                     foreach ($rule['selectors'] as $selector) {
                         $text = (string) ($selector['selector'] ?? '');
-                        if (!preg_match('/::?(?:before|after)\b/i', $text) && $this->styleResolver->matchesCssSelector($node, $text)) return true;
+                        if (!preg_match('/::?(?:before|after)\b/i', $text) && $this->session->sourceStyleResolutionState()->matches($node, $text)) return true;
                     }
                 }
             }

@@ -135,7 +135,7 @@ final class RichTextStylingHookNormalizer
             return true;
         }
 
-        if ( array() !== $this->styleResolver->matchingStyleRules($element, 'static') ) {
+        if ( array() !== $this->session->sourceStyleResolutionState()->matchingRules($element, 'static') ) {
             return true;
         }
 
@@ -204,7 +204,7 @@ final class RichTextStylingHookNormalizer
             ) {
                 continue;
             }
-            if ( $this->styleResolver->matchesCssSelector($element, $selector) ) {
+            if ( $this->session->sourceStyleResolutionState()->matches($element, $selector) ) {
                 return true;
             }
         }

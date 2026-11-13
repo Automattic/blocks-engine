@@ -21,7 +21,10 @@ final class SocialSourceStyleProjector
     private const ARTWORK_SHAPES = array('svg', 'g', 'path', 'circle', 'ellipse', 'rect', 'polygon', 'title', 'desc');
     private const ARTWORK_ATTRIBUTES = array('viewbox', 'x', 'y', 'width', 'height', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'points', 'transform', 'fill-rule', 'clip-rule');
 
-    public function __construct(private readonly StyleResolver $styles) {}
+    public function __construct(
+        private readonly StyleResolver $styles,
+        private readonly SourceStyleResolutionState $sourceStyles
+    ) {}
 
     /** @param array<string,mixed> $attrs @return array<string,mixed> */
     public function project(array $attrs, DOMElement $anchor, AuthorStyleAnalysis $author, SourceTargetProjectionState $targets, bool $fontOnly = false): array
@@ -48,7 +51,7 @@ final class SocialSourceStyleProjector
                 $subject = preg_replace('/::?before$/', '', $selector) ?? '';
                 foreach ($anchor->getElementsByTagName('*') as $candidate) {
                     if (!in_array(strtolower($candidate->tagName), array('i', 'span'), true)) continue;
-                    if (!$this->styles->matchesCssSelector($candidate, $subject)) continue;
+                    if (!$this->sourceStyles->matches($candidate, $subject)) continue;
                     $glyph = $candidate;
                     $fontGlyph = true;
                     return;
@@ -90,7 +93,7 @@ final class SocialSourceStyleProjector
                 if ($artwork && isset($declarations['color'])) {
                     $matches = false;
                     foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
-                        $matches = $matches || $this->styles->matchesCssSelector($glyph, $selector);
+                        $matches = $matches || $this->sourceStyles->matches($glyph, $selector);
                     }
                     $glyphOwnsColor = $glyphOwnsColor || $matches;
                     unset($declarations['color']);
@@ -98,7 +101,7 @@ final class SocialSourceStyleProjector
                 if (array() === $declarations) return;
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     $subject = $fontGlyph ? preg_replace('/::?before$/', '', $selector) ?? $selector : $selector;
-                    if (!$this->styles->matchesCssSelector($glyph, $subject)) continue;
+                    if (!$this->sourceStyles->matches($glyph, $subject)) continue;
                     $parsed = CssSelectorMatcher::parse($subject);
                     if (!$parsed['supported']) continue;
                     $ownPseudo = $fontGlyph && $subject !== $selector;

@@ -67,7 +67,8 @@ final class AuthorStylesheetProjector
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer,
-        private readonly AuthorStyleRuleProjector $ruleBodyProjector
+        private readonly AuthorStyleRuleProjector $ruleBodyProjector,
+        private readonly SourceStyleResolutionState $sourceStyles
     ) {
         $this->buttonDeclarationRouting = new ButtonDeclarationRouting($styleResolver, $semanticPreparer);
     }
@@ -5037,7 +5038,7 @@ final class AuthorStylesheetProjector
                     continue;
                 }
                 foreach ( $items as $item ) {
-                    if ( $this->styleResolver->matchesCssSelector($item, $subject[1]) ) {
+                    if ( $this->sourceStyles->matches($item, $subject[1]) ) {
                         return true;
                     }
                 }

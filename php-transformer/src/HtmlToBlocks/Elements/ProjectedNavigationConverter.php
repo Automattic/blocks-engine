@@ -1678,7 +1678,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             $selector = (string) ($rule['selector'] ?? '');
             $matched = false;
             foreach ( $targets as $target ) {
-                if ( $this->styleResolver->matchesCssSelector($target, $selector) ) {
+                if ( $this->session->sourceStyleResolutionState()->matches($target, $selector) ) {
                     $matched = true;
                     break;
                 }

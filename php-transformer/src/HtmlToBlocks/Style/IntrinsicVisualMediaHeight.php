@@ -21,7 +21,7 @@ final class IntrinsicVisualMediaHeight
             if ( 'height' === $property && $unsafeFixedHeightTopologyChange ) {
                 continue;
             }
-            $family = $this->styleResolver->responsivePropertyFamily($property);
+            $family = ResponsivePropertyFamily::of($property);
             if ( array() !== $this->sourceStyleResolutionState->conditionalRules()
                 && $this->styleResolver->hasConditionalStyleFamily($element, $family)
                 && ! $this->styleResolver->inlineOwnsResponsiveProperty($property, $family, $inline)

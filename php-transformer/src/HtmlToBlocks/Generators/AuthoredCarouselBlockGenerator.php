@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ResponsivePropertyFamily;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
@@ -2010,7 +2011,7 @@ JS;
         $resolved = $styleResolver->structuralPresentationDeclarations($control);
         $result = array();
         foreach (array('width' => 'width', 'height' => 'height', 'padding' => 'padding', 'border' => 'border', 'border-radius' => 'border-radius', 'background' => 'background', 'background-color' => 'background-color', 'color' => 'color', 'font' => 'font') as $property => $key) {
-            if ($styleResolver->hasConditionalStyleFamily($control, $styleResolver->responsivePropertyFamily($property))) {
+            if ($styleResolver->hasConditionalStyleFamily($control, ResponsivePropertyFamily::of($property))) {
                 continue;
             }
             $value = trim((string) ($resolved[$property] ?? ''));

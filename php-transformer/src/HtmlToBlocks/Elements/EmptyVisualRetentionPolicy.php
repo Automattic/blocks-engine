@@ -255,7 +255,7 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
     private function hasStaticPseudoElementRule(DOMElement $element): bool
     {
         foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
+            if ( $this->session->sourceStyleResolutionState()->matches($element, $rule['selector']) ) {
                 return true;
             }
         }

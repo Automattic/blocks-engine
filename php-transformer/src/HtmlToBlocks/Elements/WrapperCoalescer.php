@@ -791,7 +791,7 @@ final class WrapperCoalescer
     private function authorSemanticDeclarations(DOMElement $element): array
     {
         $declarations = array();
-        foreach ( $this->styleResolver->matchingStyleRules($element, 'static') as $rule ) {
+        foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'static') as $rule ) {
             $declarations = array_merge($declarations, $rule['declarations']);
         }
         return $declarations;
