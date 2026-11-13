@@ -249,45 +249,7 @@ final class SitePlanRun
         // canonical plan rebuilds them from full page shell candidates.
         $compiledParts = is_array($this->compiled['template_parts'] ?? null) ? array_values(array_filter($this->compiled['template_parts'], static fn(mixed $part): bool => !is_array($part) || 'entry_shell' !== ($part['placement']['kind'] ?? null))) : null;
         $this->timer?->start('compose.site_plan.shell_extraction');
-        $existingParts = $this->documents($compiledParts, true, $tokens, $this->references, $this->routeMap);
-        $explicitBindings = $this->shellExtraction->bindExplicitParts($pages, $existingParts, $runtimeDeclarations, $runtimeEntityRecords);
-        $pages = $explicitBindings['pages'];
-        $existingParts = $explicitBindings['parts'];
-        $reservedPartSlugs = array_fill_keys(array_column($existingParts, 'slug'), true);
-        $canonicalInlineParts = $this->documents(ArrayField::array($this->compiled, 'inline_shell_artifacts'), true, $tokens, $this->references, $this->routeMap);
-        $pages = $this->shellExtraction->withSourceSharedShellIdentity($pages, $canonicalInlineParts, $runtimeDeclarations, $runtimeEntityRecords);
-        $inlineShells = $this->shellExtraction->inlineSharedShells($pages, $reservedPartSlugs, $runtimeDeclarations, $canonicalInlineParts, $runtimeEntityRecords, $assets);
-        $reservedPartSlugs += array_fill_keys(array_column($inlineShells['parts'], 'slug'), true);
-        $edgeShells = $this->shellExtraction->edgeShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations']);
-        $inlineShells['pages'] = $edgeShells['pages'];
-        $inlineShells['parts'] = array_merge($inlineShells['parts'], $edgeShells['parts']);
-        $inlineShells['diagnostics'] = array_merge($inlineShells['diagnostics'], $edgeShells['diagnostics']);
-        // Variant parts settle their area: no single part is bound in templates.
-        $reservedPartSlugs += array_fill_keys(array_column($edgeShells['parts'], 'slug'), true) + array_fill_keys(array_column($edgeShells['parts'], 'area'), true);
-        $shells = $this->shellExtraction->sharedShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations'], $runtimeEntityRecords, true, true, $assets);
-        $inlineAreas = array_fill_keys(array_column($inlineShells['parts'], 'area'), true);
-        $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
-        $trailingChrome = $this->shellExtraction->withSharedFooterTrailingChrome($pages, $shells['pages'], $shells['parts'], $shells['runtime_declarations'], $runtimeEntityRecords, $assets);
-        $shells['runtime_declarations'] = $trailingChrome['runtime_declarations'];
-        $runtimeEntityRecords = $trailingChrome['runtime_entity_records'];
-        $shells['pages'] = $trailingChrome['pages'];
-        $shells['parts'] = $trailingChrome['parts'];
-        $footerContent = $this->shellExtraction->factorSharedFooterContent($shells['pages'], $shells['parts'], $shells['runtime_declarations'], $runtimeEntityRecords);
-        $shells['pages'] = $footerContent['pages'];
-        $shells['parts'] = $footerContent['parts'];
-        $shells['diagnostics'] = array_merge($shells['diagnostics'], $footerContent['diagnostics']);
-        $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
-        $documentChrome = $this->shellExtraction->separateCaptureDocumentChrome($shells['pages'], $shells['runtime_declarations'], $runtimeEntityRecords);
-        $shells['diagnostics'] = array_merge($shells['diagnostics'], $documentChrome['diagnostics']);
-        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($documentChrome['pages'], $parts, $shells['runtime_declarations']);
-        $pages = $shellFrames['pages'];
-        $folded = $this->shellExtraction->foldFrameTrailingChrome($shellFrames['frames'], $parts, $pages);
-        $shellFrames['frames'] = $folded['frames'];
-        $parts = $folded['parts'];
-        // The generic page template is shared by routes that did not author it,
-        // so the rules aimed at its markers are site-wide chrome rules.
-        $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
-        foreach ($documentChrome['chrome'] as $chrome) $frameParts[] = array('slug' => 'document-chrome', 'placement' => array('kind' => 'shared_shell', 'template_slugs' => array('single')), 'canonical_block_markup' => $chrome);
+        ['pages' => $pages, 'parts' => $parts, 'frame_parts' => $frameParts, 'shell_frames' => $shellFrames, 'document_chrome' => $documentChrome, 'runtime_declarations' => $shellDeclarations, 'runtime_entity_records' => $runtimeEntityRecords, 'diagnostics' => $shellDiagnostics] = $this->extractedShells($pages, $compiledParts, $tokens, $runtimeDeclarations, $runtimeEntityRecords, $assets);
         $assetTargetCollisions = array();
         // Element markers some emitted markup still carries. A rule naming
         // any other marker names an element extraction replaced (one route's
@@ -296,7 +258,7 @@ final class SitePlanRun
         // route's projected source markup from before its chrome was extracted.
         $emitted = static fn (array $rows): array => array_map(static fn (mixed $row): mixed => is_array($row) ? array_filter($row, static fn (int|string $key): bool => !is_string($key) || !str_starts_with($key, '_'), ARRAY_FILTER_USE_KEY) : $row, $rows);
         $this->timer?->start('compose.site_plan.stylesheets');
-        $liveElementMarkers = preg_match_all(DeadElementMarkers::PATTERN, (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shells['runtime_declarations'] ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
+        $liveElementMarkers = preg_match_all(DeadElementMarkers::PATTERN, (string) json_encode(array($emitted($pages), $emitted($parts), $frameParts, $shellFrames['frames'] ?? array(), $shellDeclarations ?? array(), $runtimeEntityRecords)), $liveMatches) ? array_fill_keys($liveMatches[0], true) : array();
         $assets = SharedChromeStylesheets::project($assets, array_merge($parts, $frameParts), $pages, $this->references, $assetTargetCollisions, $liveElementMarkers);
         $assets = DeadElementMarkers::withoutDeadSelectors($assets, $liveElementMarkers);
         // Removing dead selectors can consume a generated sheet's last rule.
@@ -318,7 +280,7 @@ final class SitePlanRun
         $assets = StylesheetScopes::foldSupport($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments), StylesheetScopes::canonicalDocuments(StylesheetScopes::documentsBySource($assetPages, $rootDocuments)), implode("\n", array_column(array_merge($parts, $frameParts), 'canonical_block_markup')));
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
-        $runtimeDeclarations = $shells['runtime_declarations'];
+        $runtimeDeclarations = $shellDeclarations;
         $this->timer?->start('compose.site_plan.templates');
         $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $this->routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $bindingTemplates), $assets);
@@ -346,7 +308,7 @@ final class SitePlanRun
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
         $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
         ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
-        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $this->routeMap, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome['chrome'], $blockThemeChrome['templates']);
+        $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $this->routeMap, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates']);
         $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
         $sharedTemplateTitles = ThemeTemplates::shareOverrides($pages, $parts, $templates);
         $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates);
@@ -437,10 +399,10 @@ final class SitePlanRun
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
             'runtime_entity_records' => $runtimeEntityRecords,
-            'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics),
+            'diagnostics' => array_merge($data['diagnostics'], $shellDiagnostics, $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics),
             // A dropped or rewritten unit is a warning on the plan, the same as withFindings().
             'quality' => array('status' => UnitFindings::status($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true, 'step_timings' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $this->input->coreHtmlFallbackEvidence, 'editability_policy' => $this->editabilityPolicy),
-            'reporting' => PlanReporting::summary($pages, $data, $this->input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), array_merge($this->surfaces, array_values(array_column(array_filter($templates, static fn(array $template): bool => isset($archiveSources[$template['source_path'] ?? ''])), null, 'source_path')))),
+            'reporting' => PlanReporting::summary($pages, $data, $this->input->coreHtmlFallbackEvidence, array_merge($shellDiagnostics, $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), array_merge($this->surfaces, array_values(array_column(array_filter($templates, static fn(array $template): bool => isset($archiveSources[$template['source_path'] ?? ''])), null, 'source_path')))),
         );
         $plan['reference_semantics']['navigation_entities'] = NavigationEntityProjection::REFERENCE_CONTRACT;
         if (array() !== $syncedPatterns) {
@@ -619,6 +581,72 @@ final class SitePlanRun
         }
         unset($page);
         return $pages;
+    }
+    /**
+     * Extracts the shared shells: explicit parts first, then inline shared
+     * shells, edge shells, shared shells with their trailing footer chrome
+     * and footer content, capture document chrome, and the hoisted shell
+     * frames. Returns the pages and parts that carry them.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param mixed $compiledParts
+     * @param array<int,array<string,string>> $tokens
+     * @param array<int,array<string,mixed>> $runtimeDeclarations
+     * @param array<int,array<string,mixed>> $runtimeEntityRecords
+     * @param array<int,array<string,mixed>> $assets
+     * @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,frame_parts:list<array<string,mixed>>,shell_frames:array<string,mixed>,document_chrome:array<int,string>,runtime_declarations:mixed,runtime_entity_records:array<int,array<string,mixed>>,diagnostics:array<int,mixed>}
+     */
+    private function extractedShells(array $pages, mixed $compiledParts, array $tokens, array $runtimeDeclarations, array $runtimeEntityRecords, array $assets): array
+    {
+        $existingParts = $this->documents($compiledParts, true, $tokens, $this->references, $this->routeMap);
+        $explicitBindings = $this->shellExtraction->bindExplicitParts($pages, $existingParts, $runtimeDeclarations, $runtimeEntityRecords);
+        $pages = $explicitBindings['pages'];
+        $existingParts = $explicitBindings['parts'];
+        $reservedPartSlugs = array_fill_keys(array_column($existingParts, 'slug'), true);
+        $canonicalInlineParts = $this->documents(ArrayField::array($this->compiled, 'inline_shell_artifacts'), true, $tokens, $this->references, $this->routeMap);
+        $pages = $this->shellExtraction->withSourceSharedShellIdentity($pages, $canonicalInlineParts, $runtimeDeclarations, $runtimeEntityRecords);
+        $inlineShells = $this->shellExtraction->inlineSharedShells($pages, $reservedPartSlugs, $runtimeDeclarations, $canonicalInlineParts, $runtimeEntityRecords, $assets);
+        $reservedPartSlugs += array_fill_keys(array_column($inlineShells['parts'], 'slug'), true);
+        $edgeShells = $this->shellExtraction->edgeShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations']);
+        $inlineShells['pages'] = $edgeShells['pages'];
+        $inlineShells['parts'] = array_merge($inlineShells['parts'], $edgeShells['parts']);
+        $inlineShells['diagnostics'] = array_merge($inlineShells['diagnostics'], $edgeShells['diagnostics']);
+        // Variant parts settle their area: no single part is bound in templates.
+        $reservedPartSlugs += array_fill_keys(array_column($edgeShells['parts'], 'slug'), true) + array_fill_keys(array_column($edgeShells['parts'], 'area'), true);
+        $shells = $this->shellExtraction->sharedShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations'], $runtimeEntityRecords, true, true, $assets);
+        $inlineAreas = array_fill_keys(array_column($inlineShells['parts'], 'area'), true);
+        $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
+        $trailingChrome = $this->shellExtraction->withSharedFooterTrailingChrome($pages, $shells['pages'], $shells['parts'], $shells['runtime_declarations'], $runtimeEntityRecords, $assets);
+        $shells['runtime_declarations'] = $trailingChrome['runtime_declarations'];
+        $runtimeEntityRecords = $trailingChrome['runtime_entity_records'];
+        $shells['pages'] = $trailingChrome['pages'];
+        $shells['parts'] = $trailingChrome['parts'];
+        $footerContent = $this->shellExtraction->factorSharedFooterContent($shells['pages'], $shells['parts'], $shells['runtime_declarations'], $runtimeEntityRecords);
+        $shells['pages'] = $footerContent['pages'];
+        $shells['parts'] = $footerContent['parts'];
+        $shells['diagnostics'] = array_merge($shells['diagnostics'], $footerContent['diagnostics']);
+        $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
+        $documentChrome = $this->shellExtraction->separateCaptureDocumentChrome($shells['pages'], $shells['runtime_declarations'], $runtimeEntityRecords);
+        $shells['diagnostics'] = array_merge($shells['diagnostics'], $documentChrome['diagnostics']);
+        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($documentChrome['pages'], $parts, $shells['runtime_declarations']);
+        $pages = $shellFrames['pages'];
+        $folded = $this->shellExtraction->foldFrameTrailingChrome($shellFrames['frames'], $parts, $pages);
+        $shellFrames['frames'] = $folded['frames'];
+        $parts = $folded['parts'];
+        // The generic page template is shared by routes that did not author it,
+        // so the rules aimed at its markers are site-wide chrome rules.
+        $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
+        foreach ($documentChrome['chrome'] as $chrome) $frameParts[] = array('slug' => 'document-chrome', 'placement' => array('kind' => 'shared_shell', 'template_slugs' => array('single')), 'canonical_block_markup' => $chrome);
+        return array(
+            'pages' => $pages,
+            'parts' => $parts,
+            'frame_parts' => $frameParts,
+            'shell_frames' => $shellFrames,
+            'document_chrome' => $documentChrome['chrome'],
+            'runtime_declarations' => $shells['runtime_declarations'],
+            'runtime_entity_records' => $runtimeEntityRecords,
+            'diagnostics' => array_merge($inlineShells['diagnostics'], $shells['diagnostics']),
+        );
     }
     /** @param mixed $documents @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
     private function documents(mixed $documents, bool $part, array $tokens, AssetReferenceCanonicalizer $references, array $routes): array
