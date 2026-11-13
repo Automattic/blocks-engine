@@ -119,7 +119,9 @@ final class EngineSupportCss
                 // that onto the carrier's <a> -- the UA default `inline` would
                 // otherwise win and shrink its line height (see
                 // SourceBlockAttributeProjector::sourceAnchorResolvesToBlockDisplay()).
-                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS . ')>a{display:block}';
+                // Leave hidden links to the UA stylesheet, including when script
+                // toggles the attribute after compilation.
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS . ')>a:not([hidden]){display:block}';
         }
         if (str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS)) {
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
