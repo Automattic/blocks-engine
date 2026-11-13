@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 
@@ -163,7 +164,11 @@ final class ResponsiveDocumentVariants
 
             foreach ($this->styles($variantHtml) as $style) {
                 $css = $this->scopeDocumentStylesheet($style['css'], $variantClass);
-                $media = '' !== $style['media'] ? $variant['media'] . ' and ' . $style['media'] : $variant['media'];
+                $media = MediaCondition::combine($variant['media'], $style['media']);
+                if (null === $media) {
+                    $css = MediaCondition::wrap($css, array($style['media']));
+                    $media = $variant['media'];
+                }
                 $variantStyles .= '<style media="' . htmlspecialchars($media, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '">' . $css . '</style>';
             }
         }

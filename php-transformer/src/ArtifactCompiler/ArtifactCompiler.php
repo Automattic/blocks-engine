@@ -30,6 +30,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
@@ -2607,6 +2608,14 @@ final class ArtifactCompiler
                     $importsByPath[$path] = $import;
                     continue;
                 }
+                if ($importsByPath[$path]['content'] !== $import['content']) {
+                    // Nested intersections may differ between occurrences of
+                    // one target. Preserve their union as separately gated CSS.
+                    $importsByPath[$path]['content'] = MediaCondition::wrap($importsByPath[$path]['content'], array($importsByPath[$path]['media']))
+                        . MediaCondition::wrap($import['content'], array($import['media']));
+                    $importsByPath[$path]['media'] = '';
+                    continue;
+                }
                 $media = array($importsByPath[$path]['media'], $import['media']);
                 $importsByPath[$path]['media'] = in_array('', $media, true) ? '' : implode(', ', array_unique($media));
             }
@@ -2614,7 +2623,7 @@ final class ArtifactCompiler
         return array_merge($assets, array_values($importsByPath));
     }
 
-    private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false, ?array &$imports = null, string $inheritedMedia = ''): string
+    private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false, ?array &$imports = null, string $inheritedMedia = '', array $nestedMedia = array()): string
     {
         if (isset($ancestors[$path])) return '';
         $ancestors[$path] = true;
@@ -2645,11 +2654,16 @@ final class ArtifactCompiler
                 array_shift($conditions);
             }
             $media = implode(' ', $conditions);
-            $projectionMedia = '' === $inheritedMedia ? $media : ('' === $media ? $inheritedMedia : $inheritedMedia . ' and ' . $media);
-            if (null !== $imports && !isset($ancestors[$importPath])) {
-                $imports[] = array('path' => $importPath, 'source_path' => $importPath, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])), 'media' => $projectionMedia, 'cascade_content' => '');
+            $projectionMedia = MediaCondition::combine($inheritedMedia, $media);
+            $projectionNestedMedia = $nestedMedia;
+            if (null === $projectionMedia) {
+                $projectionNestedMedia[] = $inheritedMedia;
+                $projectionMedia = $media;
             }
-            $content = $this->compatibilityStylesheetContent($file['content'], $importPath, $files, $ancestors, $importedLayer || '' !== $layer, $imports, $projectionMedia);
+            if (null !== $imports && !isset($ancestors[$importPath])) {
+                $imports[] = array('path' => $importPath, 'source_path' => $importPath, 'content' => MediaCondition::wrap($file['content'], $projectionNestedMedia), 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])), 'media' => $projectionMedia, 'cascade_content' => '');
+            }
+            $content = $this->compatibilityStylesheetContent($file['content'], $importPath, $files, $ancestors, $importedLayer || '' !== $layer, $imports, $projectionMedia, $projectionNestedMedia);
             if (array() !== $conditions) $content = '@media ' . $media . '{' . $content . '}';
             if ('' !== $supports) $content = $supports . '{' . $content . '}';
             if ('' !== $layer) $content = $layer . '{' . $content . '}';
