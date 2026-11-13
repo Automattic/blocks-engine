@@ -26,6 +26,25 @@ final class HtmlTransformer
      */
     public function transform(string $html, array $options = array()): TransformerResult
     {
+        // Each document builds an HtmlCompilation whose services hold the
+        // compilation, so its whole graph is cyclic and only the cycle
+        // collector frees it. Collector runs inside a document re-scan that
+        // live graph without freeing it, so collect once per document instead.
+        if ( ! gc_enabled() ) {
+            return $this->transformDocument($html, $options);
+        }
+        gc_disable();
+        try {
+            return $this->transformDocument($html, $options);
+        } finally {
+            gc_enable();
+            gc_collect_cycles();
+        }
+    }
+
+    /** @param array<string, mixed> $options */
+    private function transformDocument(string $html, array $options): TransformerResult
+    {
         if ( BlockMarkupInputCompilation::containsBlockDelimiters($html) ) {
             return (new BlockMarkupInputCompilation(
                 $this->runtime,
