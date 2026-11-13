@@ -321,7 +321,7 @@ foreach ( $blockifiedAnchorProbes as $probe ) {
     }
 }
 $blockifiedAnchorValidity = ( new HtmlTransformer() )->transform('<style>.social-row{display:flex;gap:1rem}.grid-row{display:grid}</style><div class="social-row"><a href="/spotify">Open in Spotify</a><a href="/apple">Apple Music</a></div><div class="grid-row"><a href="/grid">Grid child</a></div><div class="prose-row"><a href="/plain">Plain link</a></div>')->toArray();
-$assert(str_contains($blockifiedAnchorCss, ':where(p.blocks-engine-synthetic-paragraph.blocks-engine-synthetic-anchor-block-display)>a{display:block}')
+$assert(str_contains($blockifiedAnchorCss, ':where(p.blocks-engine-synthetic-paragraph.blocks-engine-synthetic-anchor-block-display)>a:not([hidden]){display:block}')
     && 6 === substr_count($blockifiedAnchorMarkup, 'blocks-engine-synthetic-anchor-block-display')
     && str_contains($blockifiedAnchorMarkup, '<p class="blocks-engine-synthetic-paragraph"><a href="/plain">Plain link</a></p>')
     && 'block' === ($blockifiedAnchorDisplays['Open in Spotify'] ?? '')
