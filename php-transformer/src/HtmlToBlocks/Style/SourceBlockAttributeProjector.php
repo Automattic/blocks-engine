@@ -329,6 +329,24 @@ final class SourceBlockAttributeProjector
                 $attrs['metadata']['blocksEngineSocialAnchor'] = $identity;
             }
         }
+        foreach (array('padding', 'margin') as $box) {
+            $sides = $attrs['style']['spacing'][$box] ?? array();
+            if (!is_array($sides) || !$this->styleResolver->hasGlobalZeroBox($sourceElement, $box)) continue;
+            if (array() === $sides) {
+                $resolved = $this->styleResolver->styleAttributeMapper()->map($this->styleResolver->resolvedPresentationDeclarations($sourceElement));
+                $computed = $resolved['style']['spacing'][$box] ?? array();
+                if (array() === $computed || array() !== array_filter($computed, static fn(string $value): bool => !CssValueInspector::isZeroLength($value))) continue;
+            }
+            $marker = 'blocks-engine-zero-' . str_replace('/', '-', $name) . '-' . $box;
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $marker);
+            $context->generatedStyles->registerGlobalZeroBox($marker, $box);
+            foreach ($sides as $side => $value) {
+                if (is_string($value) && CssValueInspector::isZeroLength($value)) unset($attrs['style']['spacing'][$box][$side]);
+            }
+            if (array() === ($attrs['style']['spacing'][$box] ?? null)) unset($attrs['style']['spacing'][$box]);
+        }
+        if (array() === ($attrs['style']['spacing'] ?? null)) unset($attrs['style']['spacing']);
+        if (array() === ($attrs['style'] ?? null)) unset($attrs['style']);
         return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
     }
 

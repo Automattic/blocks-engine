@@ -1532,6 +1532,24 @@ final class StyleResolver implements ElementPresentationResolver
         );
     }
 
+    /** Whether an unconditional universal/type rule supplies a shared zero box.
+     * Class, state and responsive resets remain instance-owned.
+     */
+    public function hasGlobalZeroBox(DOMElement $element, string $box): bool
+    {
+        foreach ($this->styleRuleCandidates($element, 'static-conditional') as $rule) {
+            $selector = trim((string) ($rule['selector'] ?? ''));
+            if (1 !== preg_match('/^(?:\*|[a-zA-Z][a-zA-Z0-9-]*)$/D', $selector)
+                || !$this->matchesCssSelector($element, $selector)) continue;
+            foreach ($rule['conditions'] ?? array() as $condition) {
+                if (1 !== preg_match('/^@layer\b/i', trim($condition))) continue 2;
+            }
+            $value = CssValueInspector::withoutImportant((string) ($rule['declarations'][$box] ?? ''));
+            if (CssValueInspector::isZeroLength($value)) return true;
+        }
+        return false;
+    }
+
     /** @return list<array{value:string,queries:list<string>,layer:string|null,layerRank:int|null,important:bool,order:int,specificity:array<int,int>}> */
     private function declarationSequence(DOMElement $element, string $property): array
     {
