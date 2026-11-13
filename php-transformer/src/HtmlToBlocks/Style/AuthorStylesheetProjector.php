@@ -2120,6 +2120,13 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
+            foreach ($matches as $element) {
+                if ($context->selectorProjections->isRetainedAuthoredControl($element->getNodePath() ?? '')
+                    && !($parsed['compounds'][count($parsed['compounds']) - 1]['universal'] ?? false)) {
+                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+                    break;
+                }
+            }
             if ( array() === $matches ) {
                 $dormantControls = $this->projectDormantAncestorControlSelector($selector, $parsed, $context, $controlWrapper, $subjectArms);
                 if ( array() !== $dormantControls ) {
@@ -3599,6 +3606,10 @@ final class AuthorStylesheetProjector
         foreach (array('width', 'height') as $property) {
             if ('auto' === CssValueInspector::declared($declarations, $property)) {
                 $bridge[] = $property . ':' . $declarations[$property];
+            } elseif (! $ownsBox && ! in_array($position, array('absolute', 'fixed'), true) && isset($declarations[$property])) {
+                // A responsive rule can change only one axis. The figure owns
+                // that declaration; its leaf must follow the new value too.
+                $bridge[] = $property . ':inherit';
             }
         }
         $objectFit = $this->explicitObjectFit($declarations);

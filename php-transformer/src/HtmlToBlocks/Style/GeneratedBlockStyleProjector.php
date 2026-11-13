@@ -576,10 +576,10 @@ final class GeneratedBlockStyleProjector
         }
         if ( null === $minWidth && null === $maxWidth ) return '';
         if ( null !== $minWidth && null !== $maxWidth && $minWidth > $maxWidth ) return null;
-        $conditions = array();
-        if ( null !== $minWidth ) $conditions[] = '(min-width:' . $minWidth . 'px)';
-        if ( null !== $maxWidth ) $conditions[] = '(max-width:' . $maxWidth . 'px)';
-        return implode(' and ', $conditions);
+        return \Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition::combine(
+            null !== $minWidth ? '(min-width:' . $minWidth . 'px)' : '',
+            null !== $maxWidth ? '(max-width:' . $maxWidth . 'px)' : ''
+        );
     }
 
 

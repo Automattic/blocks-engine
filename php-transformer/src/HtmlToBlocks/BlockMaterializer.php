@@ -54,9 +54,10 @@ final class BlockMaterializer
                 }
             }
             // Preserve native hidden state without changing the block identity.
-            // The generic render filter restores it on the materialized root,
-            // where page scripts can remove it again.
-            if ('core/group' === $name && 'form' === ($attrs['tagName'] ?? '') && $sourceFacts->sourceElement->hasAttribute('hidden')) {
+            // A block cannot save `hidden`, so the generic render filter
+            // restores it on the materialized root, where page scripts can
+            // remove it again (`row.hidden = !phone`).
+            if ($sourceFacts->sourceElement->hasAttribute('hidden')) {
                 $runtimeAttributes['hidden'] = $sourceFacts->sourceElement->getAttribute('hidden');
             }
             if ( array() !== $runtimeAttributes ) {

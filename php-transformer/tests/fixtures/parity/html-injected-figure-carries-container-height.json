@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-injected-figure-carries-container-height",
-  "description": "A bare source <img> whose authored CSS drives a percentage height (including behind a media query) must carry height:100% on the injected wp-block-image figure. Without the carry the authored img{height:100%} resolves against the auto-height figure instead of the source container and the image collapses to a short intrinsic-ratio strip.",
+  "description": "A bare source image with responsive percentage sizing carries its height through projected author rules on the figure and image, not a permanent important figure height that overrides other breakpoints.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-injected-figure-carries-container-height.json",
@@ -20,8 +20,8 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image blocks-engine-synthetic-image-figure" },
     { "path": "serialized_blocks", "assert": "contains", "value": "hero-media" },
-    { "path": "assets.0.content", "assert": "contains", "value": "{height:100% !important}" }
+    { "path": "assets.0.content", "assert": "contains", "value": "height:100%" }
   ]
 }
