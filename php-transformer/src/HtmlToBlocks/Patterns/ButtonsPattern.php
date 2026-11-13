@@ -997,13 +997,20 @@ final class ButtonsPattern
             }
         }
 
+        // A partial border is decoration, not an outline box. Even a name
+        // signal must not introduce Core's default border on the missing sides.
+        $border = $this->styleResolver->paintedBorder($style);
+        unset($border['radius']);
+        if ( ! isset($border['style']) && array() !== $border
+            && count(array_intersect(array( 'top', 'right', 'bottom', 'left' ), array_keys($border))) < 4 ) {
+            return false;
+        }
+
         if ( $this->hasAnyToken($element, array( 'outline', 'ghost', 'hollow', 'bordered' )) ) {
             return true;
         }
 
         // Corner geometry and zero-width resets are not outline paint.
-        $border = $this->styleResolver->paintedBorder($style);
-        unset($border['radius']);
         if ( array() === $border ) {
             return false;
         }
