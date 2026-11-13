@@ -1427,6 +1427,15 @@ final class ProjectedNavigationConverter implements ElementConverter
             // offsets have to resolve against the ancestor the toggle's did.
             $placesOpenButton ? 'position:static!important' : 'position:relative!important',
             'overflow:visible!important',
+            // The source panel's closed state (faded, offset, inert) lands on
+            // this host too. The host is the toggle's slot and Core's overlay
+            // renders inside it, so that state would hide both the opener and
+            // the opened menu.
+            'inset:auto!important',
+            'opacity:1!important',
+            'visibility:visible!important',
+            'pointer-events:auto!important',
+            'clip-path:none!important',
         );
         if ( $always && 'table-cell' === $display ) {
             $host[] = 'display:table-cell!important';
