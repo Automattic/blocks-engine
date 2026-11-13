@@ -277,6 +277,25 @@ final class ReadableFormBlockBuilder
             }
 
             $element = $entry['element'];
+            // A control nested below a label's phrasing wrapper cannot be
+            // reconstructed as caption + control: the caption contains that
+            // same wrapper and control, and moving the wrapper outside the
+            // label reverses its source ownership. Preserve this whole native
+            // subtree once, before walking any of its painted descendants.
+            if ('label' === strtolower($element->tagName)) {
+                foreach (FormControlClassifier::controlElements($element) as $control) {
+                    $path = $control;
+                    for ($wrapper = $control->parentNode; $wrapper instanceof DOMElement && !$wrapper->isSameNode($element); $wrapper = $wrapper->parentNode) {
+                        foreach ($wrapper->childNodes as $sibling) {
+                            if (!$sibling->isSameNode($path) && '' !== trim($sibling->textContent ?? '')) {
+                                $blocks[] = $this->createBlock->htmlPreservationBlock($element);
+                                continue 4;
+                            }
+                        }
+                        $path = $wrapper;
+                    }
+                }
+            }
             if ( ! $this->holdsControl($entry['id'], $children) ) {
                 if ( $this->isFlowContent($element) ) {
                     $this->pushFlowContent($blocks, $element, $fallbacks);
