@@ -207,10 +207,7 @@ final class SitePlanRun
         // extraction. Asset and route projection can make source anchors equal,
         // so assign occurrences only after that shared projection is complete.
         $this->timer?->start('compose.site_plan.entity_bindings');
-        $bindingTemplates = ThemeTemplates::build($this->links, array(), array(), $this->surfaces, $tokens, $this->references, $this->routeMap);
-        $surfaceMarkup = array_column($this->surfaces, 'block_markup', 'source_path');
-        foreach ($bindingTemplates as &$template) if (isset($surfaceMarkup[$template['source_path'] ?? ''])) $template['_projected_source_block_markup'] = $surfaceMarkup[$template['source_path']];
-        unset($template);
+        $bindingTemplates = $this->bindingTemplates($tokens);
         $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $this->routeMap, $pages, $bindingTemplates, $paginationOwners);
         // A form provider rebuilds a form from its fallback's readable blocks.
         foreach ($data['fallbacks'] as &$fallback) {
@@ -220,23 +217,8 @@ final class SitePlanRun
         unset($fallback);
         $pages = $this->routeTable->hierarchy($pages, $this->routeMap);
         $pages = TemplateSlugs::qualifyColliding($pages);
-        $surfaceSources = array_fill_keys(array_column($this->surfaces, 'source_path'), true);
-        foreach ($assets as &$asset) {
-            if ('page' === ($asset['compilation']['scope'] ?? null) && isset($surfaceSources[$asset['compilation']['id'] ?? ''])) $asset['compilation'] = array('scope' => 'shared');
-        }
-        unset($asset);
-        // Root selector context belongs to captured documents, not only to
-        // entities that survive as pages (terms, authors and dates do not).
-        $rootDocuments = array();
-        $nativeArchiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
-        $assetPages = array_values(array_filter($pages, static fn(array $page): bool => !isset($nativeArchiveSources[$page['source_path']])));
-        $pageSources = array_fill_keys(array_column($assetPages, 'source_path'), true);
-        foreach ($this->compiled['pages'] as $document) {
-            if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
-            $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $this->entryRoot);
-            $metadata = $document['document_metadata'] ?? array();
-            $rootDocuments[] = array('source_path' => $document['source_path'], 'reconciliation_identity' => WordPressSitePlan::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
-        }
+        $assets = StylesheetScopes::withSharedSurfaces($assets, $this->surfaces);
+        ['asset_pages' => $assetPages, 'root_documents' => $rootDocuments] = $this->rootDocuments($pages, $taxonomyProjection, $routeBySource, $paginationOwners, $paginationSources);
         $this->timer?->start('compose.site_plan.theme_json');
         $assets = StylesheetScopes::assign($assets, StylesheetScopes::documentsBySource($assetPages, $rootDocuments));
         $projector = new ThemeJsonProjection();
@@ -643,6 +625,51 @@ final class SitePlanRun
             'diagnostics' => array_merge($inlineShells['diagnostics'], $shells['diagnostics']),
         );
     }
+    /**
+     * Theme templates for the captured surfaces alone, before any page or
+     * part exists, for anchoring entity bindings. Each carries its surface's
+     * projected source markup.
+     *
+     * @param array<int,array<string,string>> $tokens
+     * @return array<int,array<string,mixed>>
+     */
+    private function bindingTemplates(array $tokens): array
+    {
+        $bindingTemplates = ThemeTemplates::build($this->links, array(), array(), $this->surfaces, $tokens, $this->references, $this->routeMap);
+        $surfaceMarkup = array_column($this->surfaces, 'block_markup', 'source_path');
+        foreach ($bindingTemplates as &$template) if (isset($surfaceMarkup[$template['source_path'] ?? ''])) $template['_projected_source_block_markup'] = $surfaceMarkup[$template['source_path']];
+        unset($template);
+        return $bindingTemplates;
+    }
+
+    /**
+     * Root selector context belongs to captured documents, not only to
+     * entities that survive as pages (terms, authors and dates do not).
+     * Returns the pages whose stylesheets are scoped (native archives are
+     * excluded) and the captured documents no such page carries.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<string,mixed> $taxonomyProjection
+     * @param array<string,string> $routeBySource
+     * @param array<string,mixed> $paginationOwners
+     * @param array<string,mixed> $paginationSources
+     * @return array{asset_pages:list<array<string,mixed>>,root_documents:list<array<string,mixed>>}
+     */
+    private function rootDocuments(array $pages, array $taxonomyProjection, array $routeBySource, array $paginationOwners, array $paginationSources): array
+    {
+        $rootDocuments = array();
+        $nativeArchiveSources = array_fill_keys(array_column(array_column($taxonomyProjection['entities'], 'archive'), 'source_path'), true);
+        $assetPages = array_values(array_filter($pages, static fn(array $page): bool => !isset($nativeArchiveSources[$page['source_path']])));
+        $pageSources = array_fill_keys(array_column($assetPages, 'source_path'), true);
+        foreach ($this->compiled['pages'] as $document) {
+            if (isset($pageSources[$document['source_path']]) || isset($paginationOwners[$document['source_path']]) || isset($paginationSources[$document['source_path']])) continue;
+            $path = $routeBySource[$document['source_path']] ?? $document['metadata']['route_path'] ?? PageRoute::fromSource($document['source_path'], $this->entryRoot);
+            $metadata = $document['document_metadata'] ?? array();
+            $rootDocuments[] = array('source_path' => $document['source_path'], 'reconciliation_identity' => WordPressSitePlan::identity('page', $document['source_path'], $document['source_path']), 'route' => array('path' => $path), 'document_metadata' => array_intersect_key($metadata, array('root_attributes' => true, 'body_attributes' => true)));
+        }
+        return array('asset_pages' => $assetPages, 'root_documents' => $rootDocuments);
+    }
+
     /** @param mixed $documents @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
     private function documents(mixed $documents, bool $part, array $tokens, AssetReferenceCanonicalizer $references, array $routes): array
     {

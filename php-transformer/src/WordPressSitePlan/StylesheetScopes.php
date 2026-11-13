@@ -19,6 +19,24 @@ use InvalidArgumentException;
 final class StylesheetScopes
 {
     /**
+     * A page-scoped stylesheet compiled from a captured surface is shared:
+     * the surface renders on more than one route.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $surfaces
+     * @return array<int,array<string,mixed>>
+     */
+    public static function withSharedSurfaces(array $assets, array $surfaces): array
+    {
+        $surfaceSources = array_fill_keys(array_column($surfaces, 'source_path'), true);
+        foreach ($assets as &$asset) {
+            if ('page' === ($asset['compilation']['scope'] ?? null) && isset($surfaceSources[$asset['compilation']['id'] ?? ''])) $asset['compilation'] = array('scope' => 'shared');
+        }
+        unset($asset);
+        return $assets;
+    }
+
+    /**
      * The documents a stylesheet scope can name, by source path: canonical
      * pages, then root documents that are not pages.
      *
