@@ -4912,7 +4912,9 @@ final class AuthorStylesheetProjector
      * item in a 12px menu). The space comes back as a no-break space after
      * every rendered item but the last: it has the advance of a space but does
      * not collapse at the end of the item, and because it trails the item it
-     * never starts a wrapped line, as in the source.
+     * never starts a wrapped line, as in the source. The carrier item is an
+     * inline flex row so this advance stays beside even a block-level link,
+     * rather than creating a second line below it.
      *
      * The rule follows the authored rule that makes the items inline: the same
      * projected item selector, emitted inside the same at-rules, with the same
@@ -4948,14 +4950,15 @@ final class AuthorStylesheetProjector
                 continue;
             }
             if ( $this->sourceItemsAreSpaceSeparated($matches, $context) && ! $this->authorsItemAfterContent($matches, $context) ) {
-                $carriers[] = $item . ':not(:last-child)::after';
+                $carriers[] = $item . ':not(:last-child)';
             }
         }
         if ( array() === $carriers ) {
             return '';
         }
 
-        return implode(',', $carriers) . '{content:"\\a0"' . ( CssValueInspector::isImportant($display) ? '!important' : '' ) . '}';
+        return implode(',', $carriers) . '{display:inline-flex' . ( CssValueInspector::isImportant($display) ? '!important' : '' ) . '}'
+            . implode(',', array_map(static fn (string $carrier): string => $carrier . '::after', $carriers)) . '{content:"\\a0"' . ( CssValueInspector::isImportant($display) ? '!important' : '' ) . '}';
     }
 
     /**

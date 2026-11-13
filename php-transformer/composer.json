@@ -46,6 +46,7 @@
     "parity": "@test:parity",
     "static-parity": "php tools/static-parity/run.php",
     "live-wp-parity": "php tools/live-wp-parity/run.php",
+    "visual:navigation-item-space": "node tools/visual-parity/tests/navigation-item-space.mjs",
     "visual:image-custom-host-promotion": "node tools/visual-parity/tests/image-custom-host-promotion.mjs",
     "visual:empty-destination-anchor": "node tools/visual-parity/tests/empty-destination-anchor.mjs",
     "visual:empty-css-sized-paint": "node tools/visual-parity/tests/empty-css-sized-paint.mjs",

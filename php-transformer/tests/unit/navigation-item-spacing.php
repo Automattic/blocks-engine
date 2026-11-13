@@ -190,6 +190,14 @@ $assert(1 === count($resetFont), 'a reset that restates the list font on the ite
 $commented = $separators($transform($inlineMenu('#menu li{display:inline;padding-right:15px}', 'id="menu"', "\n<!-- item -->\n")));
 $assert(1 === count($commented), 'a comment between the items does not hide the whitespace around it', json_encode($commented));
 
+$blockLinks = $transform($inlineMenu('#menu{font-size:17px}#menu li{display:inline-block!important}#menu li a{display:block;padding:38px 10px}'));
+$blockLinkCarriers = $selectorsDeclaring($rules($authorCss($blockLinks)), 'display:inline-flex!important');
+$assert(
+    1 === count($blockLinkCarriers) && str_ends_with($blockLinkCarriers[0], ':not(:last-child)'),
+    'a horizontal flex carrier keeps the space beside block links with the source display importance',
+    json_encode($blockLinkCarriers)
+);
+
 $inlineBlock = $separators($transform($inlineMenu('#menu{font-size:13px}#menu li{display:inline-block;margin-right:10px}')));
 $assert(1 === count($inlineBlock), 'inline-block items separated by whitespace keep the space too', json_encode($inlineBlock));
 
