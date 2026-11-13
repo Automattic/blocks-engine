@@ -138,9 +138,9 @@ final class ProjectedNavigationConverter implements ElementConverter
 
     /**
      * Put a navigation in the slot of a toggle whose row swaps with the row
-     * that holds the links. Core's overlay opens at every width here, and the
-     * toggle's source row decides where the block shows, so there is no
-     * breakpoint to carry over and the links stay in their own row.
+     * that holds the links. Core's overlay is always enabled on this occurrence;
+     * source visibility and the collapse boundary decide when its slot shows.
+     * The inline occurrence keeps the links in their original row.
      *
      * @param array<int, mixed> $fallbacks
      */
@@ -166,6 +166,19 @@ final class ProjectedNavigationConverter implements ElementConverter
                 null === $panel ? array() : array_intersect_key($this->responsiveNavigationOverlayAttributes($panel), array_flip(array('customOverlayBackgroundColor', 'customOverlayTextColor')))
             );
             $block['attrs'] = $this->withSourceOpener($block['attrs'], $navigation);
+            $boundary = $this->navigationToggleSuppressor->sourceCollapseBreakpoint($navigation, $control);
+            if (null !== $boundary) {
+                $marker = 'blocks-engine-navigation-toggle-slot-' . substr(hash('sha256', (string) $boundary), 0, 12);
+                // The source nav's identity belongs only to the inline occurrence.
+                $classes = array_filter(SourceDom::tokens($block['attrs']['className']), static fn (string $class): bool => str_starts_with($class, 'blocks-engine-'));
+                $block['attrs']['className'] = SourceDom::mergeClassNames(implode(' ', $classes), $marker);
+                unset($block['attrs']['anchor']);
+                $host = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker . ':not(.wp-block-navigation__container)';
+                $this->session->generatedSupportStylesheetState()->registerNativeNavigationToggle($marker,
+                    '@media(max-width:' . $boundary . 'px){' . $host . '{display:flex!important}}'
+                    . '@media(min-width:' . ($boundary + 1) . 'px){' . $host . '{display:none!important}}');
+            }
+            $block['attrs']['metadata'][NavigationOpenerPresentation::METADATA_KEY]['className'] = SourceDom::attr($control, 'class');
         } finally {
             $this->navigationToggleSuppressor->setBuildingMirror(false);
         }
