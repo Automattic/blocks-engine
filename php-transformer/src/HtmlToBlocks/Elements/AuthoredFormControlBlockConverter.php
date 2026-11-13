@@ -249,7 +249,7 @@ final class AuthoredFormControlBlockConverter
         $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredInputBlockGenerator::class, $generator->definition($registry->namespace()));
         $isImage = 'image' === FormControlClassifier::controlType($input);
-        $indicator = in_array(strtolower($input->tagName), array('progress', 'meter'), true);
+        $indicator = in_array(strtolower($input->tagName), array('progress', 'meter', 'output'), true);
         $attrs = array_filter(array(
             'tagName' => $indicator ? strtolower($input->tagName) : '',
             'fallbackText' => $indicator ? $input->textContent : '',

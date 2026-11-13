@@ -40,7 +40,7 @@ final class AuthoredInputBlockGenerator
 __CONTROL_HELPERS__
     function styleObject(value){return value?String(value).split(';').reduce(function(output,declaration){var separator=declaration.indexOf(':');if(separator<1)return output;var name=declaration.slice(0,separator).trim();output[name.indexOf('--')===0?name:name.replace(/-([a-z])/g,function(_,letter){return letter.toUpperCase();})]=declaration.slice(separator+1).trim();return output;},{}):undefined;}
     var indicatorPolicy=__INDICATOR_POLICY__;
-    function indicatorTag(attrs){return ['progress','meter'].includes(attrs.tagName)?attrs.tagName:'';}
+    function indicatorTag(attrs){return ['progress','meter','output'].includes(attrs.tagName)?attrs.tagName:'';}
     function indicatorAttributes(attrs){
         var safe={},pattern=new RegExp(indicatorPolicy.pattern);
         Object.keys(attrs.indicatorAttributes||{}).sort().forEach(function(name){
@@ -133,7 +133,7 @@ JS;
     public function markup(array $attrs): string
     {
         $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        if (in_array($attrs['tagName'] ?? '', array('progress', 'meter'), true)) {
+        if (in_array($attrs['tagName'] ?? '', array('progress', 'meter', 'output'), true)) {
             $tag = $attrs['tagName'];
             $html = '<' . $tag;
             foreach (array('id', 'value', 'ariaLabel', 'className', 'style', 'min', 'max', 'low', 'high', 'optimum') as $key) {
