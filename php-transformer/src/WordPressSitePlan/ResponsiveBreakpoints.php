@@ -5,7 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 
 /**
  * The source's dominant responsive breakpoints for theme.json `settings.viewport`.
@@ -227,11 +227,7 @@ final class ResponsiveBreakpoints
     private static function declarations(string $body): array
     {
         $declarations = array();
-        foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
-            $parts = explode(':', $declaration, 2);
-            if (2 !== count($parts)) continue;
-            $name = strtolower(trim($parts[0]));
-            $value = trim($parts[1]);
+        foreach (CssRuleAnalyzer::declarationList($body) as ['name' => $name, 'value' => $value]) {
             if ('' !== $name && '' !== $value && !CssPropertyName::startsLikeNumber($name)) $declarations[$name] = $value;
         }
         return $declarations;

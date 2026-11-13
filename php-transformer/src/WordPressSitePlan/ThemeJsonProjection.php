@@ -11,7 +11,6 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 
@@ -223,10 +222,8 @@ final class ThemeJsonProjection
     private function contendingProperties(string $body): array
     {
         $properties = array();
-        foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
-            $parts = explode(':', $declaration, 2);
-            if (2 !== count($parts) || '' === trim($parts[1])) continue;
-            $name = strtolower(trim($parts[0]));
+        foreach (CssRuleAnalyzer::declarationList($body) as ['name' => $name, 'value' => $value]) {
+            if ('' === $value) continue;
             $expanded = match ($name) {
                 'all' => array('color', 'background-color', 'font-family', 'font-size', 'line-height', 'font-weight', 'letter-spacing', 'text-transform', 'font-style', 'padding', 'margin', 'gap', 'max-width'),
                 'font' => array('font-family', 'font-size', 'line-height', 'font-weight', 'font-style'),
@@ -394,9 +391,8 @@ final class ThemeJsonProjection
             $cssPath = (string) ($asset['source_path'] ?? $asset['path'] ?? '');
             foreach ($matches[1] as $body) {
                 $properties = array();
-                foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
-                    $parts = explode(':', $declaration, 2);
-                    if (2 === count($parts) && !CssPropertyName::startsLikeNumber(trim($parts[0]))) $properties[strtolower(trim($parts[0]))] = trim($parts[1]);
+                foreach (CssRuleAnalyzer::declarationList($body) as ['name' => $name, 'value' => $value]) {
+                    if (!CssPropertyName::startsLikeNumber($name)) $properties[$name] = $value;
                 }
                 $family = isset($properties['font-family']) ? trim($properties['font-family'], " \t\n\r\0\x0B\"'") : '';
                 if ('' === $family || !isset($properties['src'])) continue;
@@ -458,10 +454,7 @@ final class ThemeJsonProjection
     private function declarations(string $body): array
     {
         $declarations = array();
-        foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
-            $parts = explode(':', $declaration, 2);
-            if (2 !== count($parts)) continue;
-            $name = strtolower(trim($parts[0])); $value = trim($parts[1]);
+        foreach (CssRuleAnalyzer::declarationList($body) as ['name' => $name, 'value' => $value]) {
             if ('' !== $name && '' !== $value && !CssPropertyName::startsLikeNumber($name) && !str_contains(strtolower($value), '!important')) $declarations[$name] = $value;
         }
         return $declarations;
