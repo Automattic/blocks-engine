@@ -10,7 +10,18 @@ final class NavigationOpenerRuntime
     {
         return <<<'PHP'
 add_filter( 'render_block_core/navigation', static function ( string $content, array $block ): string {
-    $svg = $block['attrs']['metadata']['blocksEngineNavigationOpener']['svg'] ?? null;
+    $presentation = $block['attrs']['metadata']['blocksEngineNavigationOpener'] ?? array();
+    $classes = $presentation['className'] ?? '';
+    if ( is_string( $classes ) && '' !== $classes ) {
+        $processor = new WP_HTML_Tag_Processor( $content );
+        while ( $processor->next_tag( 'BUTTON' ) ) {
+            if ( ! $processor->has_class( 'wp-block-navigation__responsive-container-open' ) ) continue;
+            foreach ( preg_split( '/\s+/', trim( $classes ) ) as $class ) $processor->add_class( sanitize_html_class( $class ) );
+            break;
+        }
+        $content = $processor->get_updated_html();
+    }
+    $svg = $presentation['svg'] ?? null;
     if ( ! is_string( $svg ) || '' === $svg ) return $content;
     $attributes = array_fill_keys( array( 'xmlns', 'width', 'height', 'viewbox', 'fill', 'fill-rule', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-opacity', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'points', 'transform', 'class', 'style' ), true );
     $allowed = array_fill_keys( array( 'svg', 'g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon' ), $attributes );

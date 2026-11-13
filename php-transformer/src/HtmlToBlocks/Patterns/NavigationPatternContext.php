@@ -1689,6 +1689,11 @@ final class NavigationPatternContext
         return $this->navigationStyleProjector?->navigationColorInteractionStates($element) ?? array();
     }
 
+    public function inlineMirrorMarker(DOMElement $element): string
+    {
+        return $this->navigationToggleSuppressor?->inlineMirrorMarker($element) ?? '';
+    }
+
     public function overlayMenu(DOMElement $element): string
     {
         $overlayMenu = $this->navigationToggleSuppressor?->navigationOverlayMenu($element) ?? 'never';

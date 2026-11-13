@@ -189,8 +189,10 @@ final class NavigationToggleSuppressor
             return 1 === count($found)
                 && ! $this->isHiddenAtDefaultViewport($found[0])
                 && $this->hiddenBelowSharedAncestor($found[0], $scope, StyleResolver::MOBILE_REFERENCE_WIDTH)
+                && ! $this->isOutOfFlowNavigationPanel($control)
+                && ! $this->isOutOfFlowNavigationPanel($found[0])
+                && null !== $this->sourceCollapseBreakpoint($found[0], $control)
                 && $this->rowHoldsOtherContent($control, $scope)
-                && $this->rowHoldsOtherContent($found[0], $scope)
                 ? $found[0]
                 : null;
         }
@@ -1740,8 +1742,23 @@ final class NavigationToggleSuppressor
      * Preserve a responsive overlay only when the source declares equivalent
      * desktop/mobile menus or an associated hamburger control.
      */
+    /** Keep the inline native occurrence out of the collapsed layout. */
+    public function inlineMirrorMarker(DOMElement $navigation): string
+    {
+        $state = $this->session->navigationProjectionState();
+        $control = $state->mirrorControlForNavigation($navigation);
+        if ($state->isBuildingMirror() || null === $control) return '';
+        $boundary = $this->sourceCollapseBreakpoint($navigation, $control);
+        if (null === $boundary) return '';
+        $marker = 'blocks-engine-navigation-inline-slot-' . substr(hash('sha256', (string) $boundary), 0, 12);
+        $this->session->generatedSupportStylesheetState()->registerNativeNavigationToggle($marker,
+            '@media(max-width:' . $boundary . 'px){.wp-block-navigation.' . $marker . ':not(.wp-block-navigation__container){display:none!important}}');
+        return $marker;
+    }
+
     public function navigationOverlayMenu(DOMElement $navigation): string
     {
+        if ('' !== $this->inlineMirrorMarker($navigation)) return 'never';
         if ( $this->hasEquivalentSourceNavigationVariant($navigation) ) {
             return 'mobile';
         }

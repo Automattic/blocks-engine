@@ -455,6 +455,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             // its resolved layout: landmark positioning says nothing about orientation.
             $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
         }
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->inlineMirrorMarker($element) ?? '');
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'never' === $navigationAttrs['overlayMenu'] && ! $label instanceof DOMElement ) {
             $navigationAttrs = $this->withStackedBlockListLayout($navigationAttrs, $navigationSource, $listSource, $navigationContext);
