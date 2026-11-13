@@ -463,6 +463,13 @@ final class AuthorStylesheetProjector
         $body = $imagePlacement['body'];
         if ( '' !== $imagePlacement['rules'] ) {
             $declarations = array_filter($declarations, static fn (string $property): bool => ! NativeImageLeafPresentation::isPlacementProperty($property), ARRAY_FILTER_USE_KEY);
+            // Placement has already been emitted on the image leaf, with the
+            // synthetic figure excluded. Do not replay fixed margins on the
+            // wrapper as well. Horizontal auto margins still center a sized
+            // figure (the leaf cannot position its parent in normal flow).
+            $margins = array_intersect_key($margins, $declarations) + array_filter($margins, static fn (string $value, string $property): bool =>
+                in_array($property, array('margin-left', 'margin-right', 'margin-inline', 'margin-inline-start', 'margin-inline-end'), true)
+                && 'auto' === trim(str_replace('!important', '', $value)), ARRAY_FILTER_USE_BOTH);
         }
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
         $imageRule = '' === $imagePrelude
