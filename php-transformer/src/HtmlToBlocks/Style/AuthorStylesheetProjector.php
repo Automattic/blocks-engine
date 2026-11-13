@@ -5177,20 +5177,9 @@ final class AuthorStylesheetProjector
     private function typedItemRuleOutranks(DOMElement $element, array $parsed, AuthorStylesheetProjectionContext $context): bool
     {
         $own = array_values(CssSelectorMatcher::specificityCounts($parsed));
-        foreach ($context->authorStyles->styleRules() as $rule) {
-            foreach ((array) ($rule['selectors'] ?? array()) as $candidate) {
-                $typed = $candidate['parsed'] ?? array();
-                if (!($typed['supported'] ?? false) || str_contains((string) ($candidate['selector'] ?? ''), '::')
-                    || null === (CssSelectorCompoundInspector::rightmost($typed['compounds'])['type'] ?? null)
-                ) {
-                    continue;
-                }
-                $weight = CssSelectorMatcher::specificityCounts($typed);
-                if (array($weight['ids'], $weight['classes'], $weight['types']) >= $own
-                    && CssSelectorMatcher::matches($element, $typed)['matches']
-                ) {
-                    return true;
-                }
+        foreach ($context->authorStyles->typeSubjectSelectors() as $typed) {
+            if ($typed['weight'] >= $own && CssSelectorMatcher::matches($element, $typed['parsed'])['matches']) {
+                return true;
             }
         }
         return false;
