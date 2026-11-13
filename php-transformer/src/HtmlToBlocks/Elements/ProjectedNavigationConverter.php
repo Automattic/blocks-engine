@@ -380,6 +380,16 @@ final class ProjectedNavigationConverter implements ElementConverter
         // A toggle carried by its own padding, border and an icon child keeps
         // that intrinsic box; the touch-target floor is for boxes with none.
         $hasIntrinsicBox = ! $isJumpMenu && $this->nativeNavigationToggleHasIntrinsicBox($toggle);
+        if ($hasIntrinsicBox && null === $source) {
+            foreach ($toggle->getElementsByTagName('*') as $child) {
+                $box = $this->styleResolver->collapsedViewportDeclarations($child, array('width', 'height'));
+                if ($this->nativeNavigationToggleDimensionIsUsable($box['width'] ?? '') && $this->nativeNavigationToggleDimensionIsUsable($box['height'] ?? '')) {
+                    if (!$hasUsableWidth) $declarations[] = 'width:' . $box['width'] . '!important';
+                    if (!$hasUsableHeight) $declarations[] = 'height:' . $box['height'] . '!important';
+                    break;
+                }
+            }
+        }
         if ( ! $hasUsableWidth && null === $source && ! $hasIntrinsicBox ) {
             $declarations[] = 'min-width:44px!important';
         }
@@ -1657,7 +1667,7 @@ final class ProjectedNavigationConverter implements ElementConverter
     private function nativeNavigationToggleHasIntrinsicBox(DOMElement $toggle): bool
     {
         foreach ( $toggle->getElementsByTagName('*') as $child ) {
-            $declarations = $this->styleResolver->resolvedPresentationDeclarations($child);
+            $declarations = $this->styleResolver->collapsedViewportDeclarations($child, array('width', 'height'));
             $fontSize = null;
             $lengths = array();
             foreach ( array( 'width', 'height' ) as $property ) {

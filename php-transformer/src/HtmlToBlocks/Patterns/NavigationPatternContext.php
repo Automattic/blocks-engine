@@ -1443,6 +1443,22 @@ final class NavigationPatternContext
         return array_reverse($boxes);
     }
 
+    /** Empty item siblings still own flex gaps and authored divider paint. */
+    public function navigationItemEmptySiblings(DOMElement $anchor, DOMElement $item): array
+    {
+        $branch = $anchor;
+        while ($branch->parentNode instanceof DOMElement && !$branch->parentNode->isSameNode($item)) $branch = $branch->parentNode;
+        $result = array();
+        $after = false;
+        foreach ($item->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            if ($child->isSameNode($branch)) { $after = true; continue; }
+            if (!in_array(strtolower($child->tagName), array('span', 'div'), true) || $child->childElementCount || '' !== trim($child->textContent ?? '') || $child->hasAttribute('role') || $child->hasAttribute('tabindex')) continue;
+            $result[] = array('tag' => strtolower($child->tagName), 'after' => $after, 'className' => SourceDom::mergeClassNames($child->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($child))), 'style' => $child->getAttribute('style'));
+        }
+        return $result;
+    }
+
     /** A text-free, link-free sibling of the link that paints only an SVG glyph. */
     private static function isDisclosureGlyph(DOMElement $element, DOMElement $anchor): bool
     {
