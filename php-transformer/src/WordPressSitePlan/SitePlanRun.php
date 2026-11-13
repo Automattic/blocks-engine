@@ -161,7 +161,35 @@ final class SitePlanRun
         $this->initialTaxonomyProjection = $taxonomyProjection;
     }
 
-    /** @return array<string,mixed> */
+    /**
+     * Runs the plan stages in order. Each stage is named by its timer:
+     *
+     * - pages (begun by the constructor): routes the pages, selects
+     *   pagination captures, adds event declarations and instances page
+     *   stylesheets.
+     * - entity_bindings: anchors runtime declarations on the final page
+     *   markup before shell extraction, settles the route hierarchy, and
+     *   pairs root documents with the asset pages.
+     * - theme_json: scopes stylesheets, projects theme.json and binds
+     *   presets on the pages.
+     * - shell_extraction: extractedShells() moves shared chrome out of the
+     *   pages into template parts and frames.
+     * - stylesheets: projects shared chrome stylesheets, drops selectors
+     *   no emitted markup matches, then places and folds them.
+     * - templates: projects navigation, post chrome, listings and synced
+     *   patterns, then builds the theme templates.
+     * - asset_writes: plans page operations, the final stylesheets, asset
+     *   writes, document integrity and script loading.
+     * - plan_assembly: factors runtime declarations and assembles the plan.
+     * - asset_consumers: assigns asset consumers and checks content
+     *   conservation.
+     *
+     * A step belongs in the stage whose values it reads and rewrites.
+     * EntityBindings::canonical() runs again after each pass that rewrites
+     * page markup, so runtime anchors follow the final documents.
+     *
+     * @return array<string,mixed>
+     */
     public function plan(): array
     {
         $data = $this->data;
