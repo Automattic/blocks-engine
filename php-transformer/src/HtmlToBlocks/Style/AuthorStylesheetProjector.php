@@ -464,6 +464,14 @@ final class AuthorStylesheetProjector
         if ( '' !== $imagePlacement['rules'] ) {
             $declarations = array_filter($declarations, static fn (string $property): bool => ! NativeImageLeafPresentation::isPlacementProperty($property), ARRAY_FILTER_USE_KEY);
         }
+        // Placement projection already preserves non-image subjects with a
+        // synthetic-figure guard. Do not replay vertical margins through the
+        // generic outer-box route: that doubles the image's flow spacing.
+        // Inline-axis margins still place the figure's authored width box.
+        if ( '' !== $imagePlacement['rules'] ) {
+            $margins = array_filter($margins, static fn (string $property): bool =>
+                ! in_array($property, array('margin-top', 'margin-bottom', 'margin-block', 'margin-block-start', 'margin-block-end'), true), ARRAY_FILTER_USE_KEY);
+        }
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
         $imageRule = '' === $imagePrelude
             ? ''
