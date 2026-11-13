@@ -9,6 +9,16 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 final class GeneratedSupportStylesheetState
 {
     /** @var array<string, string> */
+    private array $globalZeroBoxRules = array();
+
+    public function registerGlobalZeroBox(string $marker, string $declarations): void
+    {
+        // Beat core block margins and layout block-gap selectors, but let
+        // nonzero inline instance values continue to override the shared reset.
+        $this->globalZeroBoxRules[$marker] = 'body .' . $marker . '.' . $marker . '{' . $declarations . '}';
+    }
+
+    /** @var array<string, string> */
     private array $nativeSearchTriggerRules = array();
 
     /** @var array<string, string> */
@@ -470,6 +480,9 @@ final class GeneratedSupportStylesheetState
     public function conditionalAfterAuthorCss(string $serializedBlocks): array
     {
         $parts = array();
+        foreach ($this->globalZeroBoxRules as $marker => $rule) {
+            if (str_contains($serializedBlocks, $marker)) $parts[] = $rule;
+        }
         foreach ($this->navigationSubmenuIconGeometry as $className => $geometry) {
             if (str_contains($serializedBlocks, $className)) {
                 // Core owns overlay spacing; this bridge is only for the
