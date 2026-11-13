@@ -297,6 +297,22 @@ final class SourceDom
         }
     }
 
+    /** Normalize inert CTA placeholders while the whole source document is available. */
+    public static function normalizeHashbangPlaceholders(DOMElement $root): void
+    {
+        $xpath = new \DOMXPath($root->ownerDocument);
+        // Do not rewrite a real authored section named "!".
+        if ( 0 !== $xpath->query('//*[@id="!"] | //a[@name="!"]')->length ) {
+            return;
+        }
+        foreach ( $root->getElementsByTagName('a') as $anchor ) {
+            if ( '#!' === trim($anchor->getAttribute('href')) ) {
+                // Keep the link editable without publishing a dangling target.
+                $anchor->setAttribute('href', '#');
+            }
+        }
+    }
+
     public static function canonicalizeLinkUrls(DOMElement $element): void
     {
         $anchors = 'a' === strtolower($element->tagName) ? array( $element ) : array();
