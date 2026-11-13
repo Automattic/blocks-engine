@@ -1964,6 +1964,18 @@ final class NavigationPatternContext
         return $alignment;
     }
 
+    /** Core's vertical layout must still follow authored breakpoint changes. */
+    public function projectNavigationDirection(DOMElement $element, string $marker): void
+    {
+        if (!$this->styleResolver instanceof StyleResolver) return;
+        $direction = $this->styleResolver->declaredPresentation($element, 'flex-direction');
+        if (!$direction->isConditional()) return;
+        $target = ':root .wp-block-navigation.' . $marker . ' .wp-block-navigation__container';
+        foreach ($direction->conditional() as $queries => $value) {
+            $this->sourceTargetProjection?->record(SourceDom::elementSelector($element), $target, 'flex-direction:' . preg_replace('/\s*!important\s*$/i', '', $value) . '!important', explode('{', $queries));
+        }
+    }
+
     /** Record unsupported source residue on the native element replacing it. */
     public function projectSourceToNativeTarget(DOMElement $element, string $targetSelector, string $declarations): void
     {
