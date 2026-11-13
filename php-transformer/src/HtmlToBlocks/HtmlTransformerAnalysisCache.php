@@ -52,6 +52,9 @@ final class HtmlTransformerAnalysisCache
 
     public int $styleEvictedBytes = 0;
 
+    /** @var array<string, bool> Whether a stylesheet payload, by content hash, closes every comment, string and block it opens. */
+    public array $safeStylesheetBoundaries = array();
+
     /** @var array<string, array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>, rules: list<array<string, mixed>}>} */
     public array $authorSelectorAnalyses = array();
 
