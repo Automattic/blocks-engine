@@ -6,6 +6,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -73,7 +75,10 @@ final class RenderNeutralElements
         // (including conditional rules) as well as the inline declarations.
         $declarations = $this->styleResolver->inlineDeclarations($element);
         foreach ($this->session->authorStyleRuleCandidates($element) as $candidate) {
-            if (! ($candidate['parsed']['supported'] ?? false)) return false;
+            if (! ($candidate['parsed']['supported'] ?? false)) {
+                if ($this->unsupportedRuleMayAffectWrapper($element, $candidate['selector'])) return false;
+                continue;
+            }
             if ($this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']) {
                 $declarations = array_merge($declarations, $candidate['declarations']);
             }
@@ -83,6 +88,29 @@ final class RenderNeutralElements
             if (!in_array($property, $inheritedText, true) && !('display' === $property && 'contents' === trim($value))) {
                 return false;
             }
+        }
+        return true;
+    }
+
+    /** Unsupported selectors veto neutrality unless their pseudo-element host provably cannot match. */
+    private function unsupportedRuleMayAffectWrapper(DOMElement $element, string $selector): bool
+    {
+        $state = CssSyntaxScanner::state();
+        for ($offset = 0, $length = strlen($selector); $offset < $length;) {
+            if (CssSyntaxScanner::isTopLevel($state) && ':' === $selector[$offset]
+                && (':' === ($selector[$offset + 1] ?? '') || 1 === preg_match('/^:(?:before|after|first-line|first-letter)(?![a-z0-9_-])/i', substr($selector, $offset)))
+            ) {
+                // Keep the full host selector, including ancestor constraints.
+                // A bare pseudo-element in a compound has an implicit universal host.
+                $host = substr($selector, 0, $offset);
+                if ('' === $host || 1 === preg_match('/[\s>+~]$/', $host)) $host .= '*';
+                $parsed = CssSelectorMatcher::parse($host);
+                if (! $parsed['supported']) return true;
+                return $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $host, $parsed, true)['matches'];
+            }
+            $next = CssSyntaxScanner::consume($selector, $offset, $state);
+            if (null === $next) return true;
+            $offset = $next;
         }
         return true;
     }
