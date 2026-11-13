@@ -113,6 +113,8 @@ $frames = [];
 $frameWalk = static function (array $blocks, array $classes) use (&$frameWalk, &$frames): void {
     foreach ($blocks as $block) {
         $own = array_map(static fn (array $wrapper): string => $wrapper['attributes']['class'] ?? '', $block['attrs']['wrappers'] ?? []);
+        // A class-only field box frames the control as a native group.
+        if ('core/group' === ($block['blockName'] ?? '') && '' !== ($block['attrs']['className'] ?? '')) $own[] = $block['attrs']['className'];
         if (isset($block['form_control_index'])) $frames[$block['form_control_index']] = array_merge($classes, $own);
         $frameWalk($block['innerBlocks'] ?? [], array_merge($classes, $own));
     }

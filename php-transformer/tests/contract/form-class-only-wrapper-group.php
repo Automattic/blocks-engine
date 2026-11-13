@@ -14,6 +14,7 @@ $cases = array(
 );
 $html = '<html><body><form method="post">';
 foreach ($cases as $class => $case) $html .= '<div class="' . $class . '"' . $case['attributes'] . '>' . $case['control'] . '</div>';
+$html .= '<label class="agree" for="agree"><input id="agree" type="checkbox" name="agree" required> I agree</label>';
 $html .= '<button type="submit">Send</button></form></body></html>';
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
 $assert = static function (bool $ok, string $message): void {
@@ -53,4 +54,8 @@ foreach ($cases as $class => $case) {
         $assert(str_contains($block['innerContent'][0] ?? '', $case['attributes']), $class . ' retains its source attribute in readable markup.');
     }
 }
+// A class-only label framing its own checkbox is the control's field box.
+$agree = $blocks['agree'] ?? array();
+$assert('core/group' === ($agree['blockName'] ?? null) && !str_contains(json_encode($agree), 'layout-shell'), 'A class-only label field box becomes a native group.');
+$assert(isset($agree['innerBlocks'][0]['form_control_index']) && str_contains($agree['innerContent'][0] ?? '', 'wp-block-group agree'), 'The label field box group keeps its class and the SSI control index.');
 echo "Class-only form wrapper group contract passed.\n";
