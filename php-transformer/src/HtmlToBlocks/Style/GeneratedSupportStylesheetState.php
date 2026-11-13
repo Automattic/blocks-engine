@@ -571,7 +571,9 @@ final class GeneratedSupportStylesheetState
             $parts[] = $heading . '{margin:0}';
             $toggle = $heading . '>.wp-block-accordion-heading__toggle';
             $parts[] = $toggle . '>.wp-block-accordion-heading__toggle-icon{display:none}';
-            $parts[] = $toggle . '[aria-expanded="true"]{list-style-type:disclosure-open}';
+            $title = $toggle . '>.wp-block-accordion-heading__toggle-title';
+            $parts[] = $title . '{display:list-item;list-style:inside disclosure-closed}';
+            $parts[] = $toggle . '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-title{list-style-type:disclosure-open}';
         }
         foreach ($this->accordionIconPresentation as $className => $states) {
             if (!str_contains($serializedBlocks, $className)) continue;

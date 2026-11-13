@@ -39,11 +39,13 @@ foreach (array('issue fixture' => $fixture, 'alternate accordion container' => s
         $assert(str_contains($css, '.wp-block-accordion-heading.' . $match[0] . '{margin:0}'), 'synthesized heading adds no margins');
         $toggle = '.wp-block-accordion-heading.' . $match[0] . '>.wp-block-accordion-heading__toggle';
         $assert(1 === preg_match('/' . preg_quote($toggle, '/') . '\{([^}]+)\}/', $css, $rule), 'toggle presentation emitted');
-        foreach (array('padding:0', 'font-size:18px', 'font-weight:500', 'font-family:Georgia,serif', 'line-height:normal', 'display:list-item', 'list-style-position:inside', 'list-style-type:disclosure-closed') as $declaration) {
+        foreach (array('padding:0', 'font-size:18px', 'font-weight:500', 'font-family:Georgia,serif', 'line-height:normal', 'display:block') as $declaration) {
             $assert(str_contains($rule[1], $declaration), 'toggle ' . $declaration);
         }
         $assert(str_contains($css, $toggle . '>.wp-block-accordion-heading__toggle-icon{display:none}'), 'core right plus is hidden');
-        $assert(str_contains($css, $toggle . '[aria-expanded="true"]{list-style-type:disclosure-open}'), 'left marker follows native open state');
+        // A <button> cannot render a list marker; the title inside it does.
+        $assert(str_contains($css, $toggle . '>.wp-block-accordion-heading__toggle-title{display:list-item;list-style:inside disclosure-closed}'), 'title carries the native left marker');
+        $assert(str_contains($css, $toggle . '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-title{list-style-type:disclosure-open}'), 'left marker follows native open state');
     }
     $assert(2 === substr_count($markup, 'padding-top:20px;padding-right:0;padding-bottom:20px;padding-left:0'), 'rendered row padding');
     $assert(2 === substr_count($markup, '<button type="button" class="wp-block-accordion-heading__toggle">'), 'core save button has no extra attributes');

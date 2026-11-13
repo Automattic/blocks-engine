@@ -229,10 +229,10 @@ final class DisclosureControlPresentation
     {
         $carried = $this->styles->cssDeclarations($css);
         if ( 'summary' === strtolower($control->tagName) ) {
-            // Reserve space for the native left marker inside the button box.
-            $carried['display'] = $carried['display'] ?? 'list-item';
-            $carried['list-style-position'] = $carried['list-style-position'] ?? 'inside';
-            $carried['list-style-type'] = $carried['list-style-type'] ?? 'disclosure-closed';
+            // A button cannot be a list item, so the toggle is a plain block
+            // and its title carries the summary's native marker.
+            unset($carried['list-style-position'], $carried['list-style-type']);
+            $carried['display'] = 'block';
             $carried['text-align'] = $carried['text-align'] ?? 'start';
         } else {
             unset($carried['display']);
