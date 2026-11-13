@@ -31,4 +31,28 @@ for ($i = 0; $i < 12; ++$i) {
 if (!str_contains($markup, '<!-- wp:paragraph')) {
     throw new RuntimeException('The content must remain a native editable paragraph.');
 }
+// Neither run alone reaches eight levels. Shared ancestry still counts
+// when a wrapper branches into independently editable content trees.
+$branch = '<p>Branch content</p>';
+for ($i = 4; $i >= 0; --$i) {
+    $branch = '<div id="branch-' . $i . '">' . $branch . '</div>';
+}
+$html = $branch . str_replace('branch-', 'sibling-', $branch);
+for ($i = 4; $i >= 0; --$i) {
+    $html = '<div id="ancestor-' . $i . '">' . $html . '</div>';
+}
+$result = (new HtmlTransformer())->transform($html)->toArray();
+if ($height($result['blocks']) > 8) {
+    throw new RuntimeException('Shared ancestry must count toward List View depth.');
+}
+foreach (array('ancestor', 'branch', 'sibling') as $prefix) {
+    for ($i = 0; $i < 5; ++$i) {
+        if (!str_contains($result['serialized_blocks'], 'id="' . $prefix . '-' . $i . '"')) {
+            throw new RuntimeException('Branch normalization lost a source wrapper.');
+        }
+    }
+}
+if (2 !== substr_count($result['serialized_blocks'], '<!-- wp:paragraph')) {
+    throw new RuntimeException('Both branches must retain native editable paragraphs.');
+}
 echo "list-view-wrapper-depth: passed\n";
