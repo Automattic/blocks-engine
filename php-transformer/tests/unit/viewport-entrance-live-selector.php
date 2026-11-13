@@ -44,4 +44,16 @@ foreach ($inline['assets'] ?? array() as $asset) {
     if (str_contains($asset['content'] ?? '', '--clip-start:inset(100%)')) $carried = true;
 }
 if (!$carried) throw new RuntimeException('Keyframe custom properties must retain their inline scope.');
+// The static editor has no replay driver or render-time data attributes.
+// Its repair must use the owner's editor identity without resetting authored
+// transforms/clip paths on other captured content.
+$editor = '';
+foreach ($result['assets'] ?? array() as $asset) {
+    if (str_contains($asset['path'] ?? '', 'editor-static-state')) $editor .= $asset['content'] ?? '';
+}
+if (!str_contains($editor, 'blocks-engine-editor-anchor-title')
+    || !str_contains($editor, 'visibility:visible!important')
+    || str_contains($editor, 'transform:none!important;clip-path:none!important')) {
+    throw new RuntimeException('Editor replay owners need an identity-scoped visible resting state, not a geometry reset.');
+}
 echo "Viewport entrance live selector passed.\n";

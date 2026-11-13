@@ -3497,10 +3497,18 @@ final class StyleResolver implements ElementPresentationResolver
                 $authoredNames[strtolower($name)] ??= $name;
             }
         }
-        // Replay keyframes read custom properties outside ordinary style-rule
-        // matching. Retain their inline scope, which outranks author rules.
+        // Keyframes are not ordinary selector consumers. Preserve only the
+        // variables they read, not unrelated capture layout variables.
         if ($element->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE)) {
-            $required += array_fill_keys(array_keys($authoredNames), true);
+            $readers = array();
+            (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->visitKeyframeRules(
+                $this->session->authorStyleAnalysis()->combinedCss(),
+                static function (string $name, string $body) use (&$readers): void { $readers[] = $body; }
+            );
+            $required = $this->inlineCustomPropertiesRequired(
+                $declarations,
+                $required + $this->customPropertiesReferencedByValues($readers)
+            );
         }
         $customProperties = array();
         foreach ($declarations as $property => $value) {
