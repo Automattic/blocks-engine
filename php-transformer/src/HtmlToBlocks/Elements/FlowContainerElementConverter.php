@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
@@ -119,6 +121,14 @@ final class FlowContainerElementConverter implements ElementConverter
         $runtimeAppShell = $this->context->runtimeAppShellBlock($element, $fallbacks);
         if ( null !== $runtimeAppShell ) {
             return ConversionOutcome::handled($runtimeAppShell);
+        }
+        // Hidden is a box boundary, even without a disclosure controller.
+        // Keep it before pattern lowering and wrapper coalescing expose its children.
+        // Script-addressed shells above retain their own runtime state instead.
+        if ( $element->hasAttribute('hidden') && ! $this->runtimeIslands->isRuntimeDomTarget($element) && ! $this->hasDeclaredController($element) ) {
+            $attrs = $this->presentationResolver->presentationAttributes($element);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS);
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/group', $attrs, $this->context->convertChildren($element, $fallbacks), $element));
         }
         if ( $this->emptyFeatureShells->isEmptyInteractiveFeatureShell($element) ) {
             return ConversionOutcome::handled(null);
@@ -614,6 +624,31 @@ final class FlowContainerElementConverter implements ElementConverter
     private function group(DOMElement $element, array $children): array
     {
         return $this->createBlock->createBlock('core/group', $this->presentationResolver->presentationAttributes($element), $children, $element);
+    }
+
+    /** Declared panels keep their existing disclosure/navigation lowering. */
+    private function hasDeclaredController(DOMElement $element): bool
+    {
+        // Dialogs and captured components already own their state contract.
+        if ( in_array(strtolower(SourceDom::attr($element, 'role')), array('dialog', 'alertdialog'), true) ) {
+            return true;
+        }
+        foreach ( $element->attributes as $attribute ) {
+            if ( str_starts_with($attribute->nodeName, CaptureEvidence::ATTRIBUTE_PREFIX) ) {
+                return true;
+            }
+        }
+        $id = trim(SourceDom::attr($element, 'id'));
+        if ( '' === $id || null === $element->ownerDocument ) {
+            return false;
+        }
+        foreach ( $element->ownerDocument->getElementsByTagName('*') as $control ) {
+            if ( $id === trim(SourceDom::attr($control, 'popovertarget'))
+                || in_array($id, preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array(), true) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function hasInlineFormWrapper(DOMElement $element): bool
