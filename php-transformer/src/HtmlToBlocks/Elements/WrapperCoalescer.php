@@ -75,8 +75,9 @@ final class WrapperCoalescer
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
 
     // Charge shared ancestry against the saved List View depth, not only
-    // against the length of each uninterrupted single-child run.
-    private const MAX_NATIVE_WRAPPER_DEPTH = 8;
+    // against the length of each uninterrupted single-child run. Use the
+    // document policy: a stricter local cap creates needless non-core shells.
+    private const MAX_NATIVE_WRAPPER_DEPTH = EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
 
     private bool $wrapperBudgetExceeded = false;
 

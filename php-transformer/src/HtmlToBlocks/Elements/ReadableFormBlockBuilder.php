@@ -383,9 +383,25 @@ final class ReadableFormBlockBuilder
                     && 'div' === strtolower($element->tagName)
                     && 1 === $element->attributes->length && $element->hasAttribute('class')
                     && null === $controlBox;
-                $shell = $classOnlyGroup
-                    ? $this->createBlock->createBlock('core/group', $this->presentationAttributes($element), $inner, $element)
-                    : ($this->layoutShellBlockForElements)($elements, $inner, $element);
+                // An unowned chain of ordinary class-only div boxes has a
+                // native representation too. Keep control-box transport intact:
+                // providers replace that box together with its control.
+                $nativeChain = null === $controlBox && count($elements) > 1;
+                foreach ($elements as $source) {
+                    $nativeChain = $nativeChain && 'div' === strtolower($source->tagName)
+                        && 1 === $source->attributes->length && $source->hasAttribute('class');
+                }
+                if ($nativeChain) {
+                    $nested = $inner;
+                    foreach (array_reverse($elements) as $source) {
+                        $nested = array($this->createBlock->createBlock('core/group', $this->presentationAttributes($source), $nested, $source));
+                    }
+                    $shell = $nested[0];
+                } else {
+                    $shell = $classOnlyGroup
+                        ? $this->createBlock->createBlock('core/group', $this->presentationAttributes($element), $inner, $element)
+                        : ($this->layoutShellBlockForElements)($elements, $inner, $element);
+                }
                 if ( null !== $controlBox && 1 === count($inner) && $controlBox === ($inner[0]['form_control_index'] ?? null) && ! isset($inner[0]['_form_control_box']) ) {
                     $shell['form_control_box'] = $controlBox;
                 }

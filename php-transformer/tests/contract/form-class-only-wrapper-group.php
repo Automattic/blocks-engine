@@ -14,6 +14,7 @@ $cases = array(
 );
 $html = '<html><body><form method="post">';
 foreach ($cases as $class => $case) $html .= '<div class="' . $class . '"' . $case['attributes'] . '>' . $case['control'] . '</div>';
+$html .= '<div class="outer"><div class="inner"><label for="nested">Nested</label><input id="nested" name="nested"></div></div>';
 $html .= '<label class="agree" for="agree"><input id="agree" type="checkbox" name="agree" required> I agree</label>';
 $html .= '<button type="submit">Send</button></form></body></html>';
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
@@ -54,6 +55,17 @@ foreach ($cases as $class => $case) {
         $assert(str_contains($block['innerContent'][0] ?? '', $case['attributes']), $class . ' retains its source attribute in readable markup.');
     }
 }
+// Consecutive source boxes must remain independently editable through the
+// public artifact compiler, without changing their parent-child edge.
+$outer = $blocks['outer'] ?? array();
+$inner = $outer['innerBlocks'][0] ?? array();
+$assert('core/group' === ($outer['blockName'] ?? null) && 'core/group' === ($inner['blockName'] ?? null), 'Class-only form chains use native groups.');
+$assert(str_contains($inner['attrs']['className'] ?? '', 'inner'), 'The inner source box remains directly inside the outer box.');
+$assert(isset($inner['innerBlocks'][0]['form_control_index']), 'The native chain retains its control binding.');
+$assert(!str_contains(json_encode($outer), 'layout-shell'), 'No generated shell remains anywhere in the native chain.');
+$assert(str_contains($outer['innerContent'][0] ?? '', 'wp-block-group outer')
+    && str_contains($inner['innerContent'][0] ?? '', 'wp-block-group inner'), 'Both source classes survive in saved native wrapper markup.');
+$assert(!isset($inner['innerBlocks'][0]['_form_field_box']), 'The consumed inner field box is not duplicated below the native chain.');
 // A class-only label framing its own checkbox is the control's field box.
 $agree = $blocks['agree'] ?? array();
 $assert('core/group' === ($agree['blockName'] ?? null) && !str_contains(json_encode($agree), 'layout-shell'), 'A class-only label field box becomes a native group.');
