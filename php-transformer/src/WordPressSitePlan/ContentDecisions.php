@@ -450,6 +450,10 @@ final class ContentDecisions
         $identities = array('url' => array(), 'datePublished' => array());
         $collect = static function (mixed $value) use (&$collect, &$identities): void {
             if (!is_array($value)) return;
+            if (array_is_list($value)) {
+                foreach ($value as $child) $collect($child);
+                return;
+            }
             foreach ((array) ($value['@type'] ?? array()) as $type) {
                 if (!is_string($type)) continue;
                 $type = (string) preg_replace('~^https?://schema\.org/~', '', $type);
@@ -459,7 +463,7 @@ final class ContentDecisions
                 }
                 break;
             }
-            foreach ($value as $child) if (is_array($child)) $collect($child);
+            if (isset($value['@graph'])) $collect($value['@graph']);
         };
         foreach (HtmlMarkupParser::htmlMarkupNodes((string) ($document['html'] ?? '')) as $node) {
             if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) $collect(json_decode($node['content'], true));
