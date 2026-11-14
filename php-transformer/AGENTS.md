@@ -39,6 +39,7 @@ declarations through the `Css` readers.
 | To read | Use |
 | --- | --- |
 | An element's `style` attribute as a property map | `SourceDeclarations::inline($element)` |
+| One property's value, lowercased and without `!important` | `CssValueInspector::declared(SourceDeclarations::parse($style), 'display')` |
 | Any declaration list as a property map (physical sides, font longhands) | `SourceDeclarations::parse($css)` |
 | A declaration list with authored property names kept verbatim | `SourceDeclarations::verbatim($css)` |
 | Declarations in source order, from any layer | `CssRuleAnalyzer::declarationList($css)` |
