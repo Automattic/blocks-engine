@@ -243,6 +243,11 @@ final class PostChrome
                     unset($attrs['url']);
                     return '<!-- wp:social-link ' . BlockAttributes::encode($attrs) . ' /-->';
                 }, $identityMarkup) ?? $identityMarkup;
+                // URL values are per-post data, not layout. Normalize both
+                // rendered attributes and their serialized block counterparts;
+                // keep element names, classes and tree shape significant.
+                $identityMarkup = preg_replace('/(\s(?:src|href|srcset|poster|action|formaction|cite|data|xlink:href)\s*=\s*)(?:"[^"]*"|\'[^\']*\'|[^\s>]+)/i', '$1""', $identityMarkup) ?? $identityMarkup;
+                $identityMarkup = preg_replace('/("(?:url|src|href|srcset|poster|action|formaction|cite|data|xlink:href)"\s*:\s*)"(?:\\\\.|[^"\\\\])*"/i', '$1""', $identityMarkup) ?? $identityMarkup;
                 $identity = ChromeIdentity::markup($identityMarkup);
                 $groups[$identity][$index] = $post;
             }
