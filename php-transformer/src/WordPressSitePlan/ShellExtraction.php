@@ -1858,6 +1858,8 @@ final class ShellExtraction
                 if (null === $partitioned) {
                     $reason = array() === $clusters ? 'incomplete' : 'non_equivalent';
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_' . ('incomplete' === $reason ? 'incomplete' : 'ambiguous'), 'severity' => 'info', 'message' => "{$area} shell candidates do not establish a dominant semantic cluster.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', $reason, $candidates));
+                    $native = $partitionTypes && $partitionHeaders && $area === $partSlug ? $this->nativeTemplateShell($clusters, $clusterIdentities, $pages, $applicable, $area, $partSlug, $candidates) : null;
+                    if (null !== $native) { $parts[] = $native; $diagnostics[] = array('code' => 'wordpress_site_plan_shell_native_template_fallback', 'severity' => 'info', 'message' => "Routes keep their own {$area}; templates without a source route use the {$area} from {$native['placement']['source_path']}.", 'area' => $area, 'source_path' => $native['placement']['source_path']); }
                     continue;
                 }
                 foreach ($partitioned['pages'] as $index => $withoutShell) {
@@ -2024,6 +2026,59 @@ final class ShellExtraction
         }
         foreach ($pages as &$page) unset($page['shell_candidates'], $page['_source_shared_variant_identities']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * Routes whose chrome differs only in where its internal links point
+     * (the home page links its own sections as `#about` and leaves out its
+     * own nav item; inner pages link `/` and `/#about`) keep that chrome
+     * page-owned, but it is still one site design. Templates with no source
+     * route (404, search, archives, plugin templates that include the theme's
+     * header and footer parts) get it from an inner route, whose links already
+     * leave the page they sit on. The part binds only to native templates no
+     * source route renders, so no page shows it next to its own copy. Chrome
+     * that differs in anything else (text, external URLs, ids, classes,
+     * styles) is route content, and native templates stay without it.
+     *
+     * @param array<string,array<string,mixed>> $clusters
+     * @param array<int,string> $identities
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $applicable
+     * @param array<int,list<array<string,mixed>>> $candidates
+     * @return array<string,mixed>|null
+     */
+    private function nativeTemplateShell(array $clusters, array $identities, array $pages, array $applicable, string $area, string $partSlug, array $candidates): ?array
+    {
+        if (array() === $clusters) return null;
+        $designs = array();
+        foreach ($clusters as $cluster) $designs[self::withoutInternalLinkTargets((string) ($identities[$cluster['indexes'][0]] ?? ''))] = true;
+        if (1 !== count($designs)) return null;
+        $size = count(reset($clusters)['indexes']);
+        $donor = null;
+        foreach ($clusters as $identity => $cluster) {
+            if (count($cluster['indexes']) < $size) break;
+            $inner = array_values(array_filter($cluster['indexes'], static fn(int $index): bool => empty($pages[$index]['entrypoint'])));
+            if (array() === $inner) continue;
+            $donor = array('identity' => $identity, 'index' => $inner[0], 'indexes' => $cluster['indexes']);
+            break;
+        }
+        if (null === $donor) return null;
+        $candidate = $candidates[$donor['index']][0];
+        $routeTemplates = array();
+        foreach ($applicable as $page) $routeTemplates[] = TemplateSlugs::genericForPage($page, array());
+        $templateSlugs = array_values(array_diff(WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS, $routeTemplates));
+        if (array() === $templateSlugs || !is_string($candidate['template_part_markup'] ?? null)) return null;
+        $sourcePath = (string) $pages[$donor['index']]['source_path'];
+        $markup = $candidate['template_part_markup'];
+        return array('source_path' => 'wordpress-site-plan/shared/' . $partSlug . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array('kind' => 'shared_shell', 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs), 'canonical_block_markup' => $markup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => 'wordpress-site-plan/shared/' . $partSlug . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'native_template_fallback', array_intersect_key($candidates, array_flip($donor['indexes'])), $donor['identity']), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', 'wordpress-site-plan/shared/' . $partSlug . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($markup)) + (is_array($candidate['ancestor_context'] ?? null) ? array('ancestor_context' => $candidate['ancestor_context']) : array());
+    }
+
+    /** Shell identity markup without the route state of its internal links. */
+    private static function withoutInternalLinkTargets(string $markup): string
+    {
+        $internal = '(?:#|/(?!/)|\.\.?/)[^"]*';
+        $markup = (string) preg_replace('~<!-- wp:navigation-link \{(?:(?!-->).)*?"url":"' . $internal . '"(?:(?!-->).)*?/-->~s', '', str_replace('\\/', '/', $markup));
+        return (string) preg_replace(array('~\bhref="' . $internal . '"~', '~"url":"' . $internal . '"~'), array('href=""', '"url":""'), $markup);
     }
 
     /**
