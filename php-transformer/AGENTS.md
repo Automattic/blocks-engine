@@ -13,7 +13,7 @@ and reuses the readers listed below.
 | Recognizing larger patterns (navigation, carousels, forms, galleries) | `src/HtmlToBlocks/Patterns/*`, `src/HtmlToBlocks/Generators/*` |
 | Computed style of a source element | `StyleResolver` and the owners it exposes as public readonly properties: `$styleResolver->cascade` (`SourceCascade`), `$styleResolver->authorViewport` (`AuthorViewportDeclarations`) and `$styleResolver->customProperties` (`CustomPropertyResolver`) |
 | Resolve `var()` in a value | `$styleResolver->customProperties`: `resolve()` (reference viewport), `resolveCascaded()` (unconditional cascade), `resolveAtViewport()` |
-| Re-emitting author stylesheets | `src/HtmlToBlocks/Style/AuthorStylesheetProjector.php` |
+| Re-emitting author stylesheets | `src/HtmlToBlocks/Style/AuthorStylesheetProjector.php` (rules and declarations) and `AuthorSelectorProjector.php` (rewriting a source selector onto converted block markup) |
 | Site plan composition | `src/WordPressSitePlan/*`; `SitePlanRun` holds the state of one composition |
 | Orchestration | `src/ArtifactCompiler/*`, the composition root |
 | Shared primitives with no conversion knowledge | `src/Css/*`, `src/Support/*`, `src/Contract/*` |
