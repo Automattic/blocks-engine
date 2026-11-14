@@ -30,6 +30,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
@@ -2607,6 +2608,14 @@ final class ArtifactCompiler
                     $importsByPath[$path] = $import;
                     continue;
                 }
+                if ($importsByPath[$path]['content'] !== $import['content']) {
+                    // Nested intersections may differ between occurrences of
+                    // one target. Preserve their union as separately gated CSS.
+                    $importsByPath[$path]['content'] = MediaCondition::wrap($importsByPath[$path]['content'], array($importsByPath[$path]['media']))
+                        . MediaCondition::wrap($import['content'], array($import['media']));
+                    $importsByPath[$path]['media'] = '';
+                    continue;
+                }
                 $media = array($importsByPath[$path]['media'], $import['media']);
                 $importsByPath[$path]['media'] = in_array('', $media, true) ? '' : implode(', ', array_unique($media));
             }
@@ -2614,7 +2623,7 @@ final class ArtifactCompiler
         return array_merge($assets, array_values($importsByPath));
     }
 
-    private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false, ?array &$imports = null, string $inheritedMedia = ''): string
+    private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false, ?array &$imports = null, string $inheritedMedia = '', array $nestedMedia = array()): string
     {
         if (isset($ancestors[$path])) return '';
         $ancestors[$path] = true;
@@ -2645,11 +2654,16 @@ final class ArtifactCompiler
                 array_shift($conditions);
             }
             $media = implode(' ', $conditions);
-            $projectionMedia = '' === $inheritedMedia ? $media : ('' === $media ? $inheritedMedia : $inheritedMedia . ' and ' . $media);
-            if (null !== $imports && !isset($ancestors[$importPath])) {
-                $imports[] = array('path' => $importPath, 'source_path' => $importPath, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])), 'media' => $projectionMedia, 'cascade_content' => '');
+            $projectionMedia = MediaCondition::combine($inheritedMedia, $media);
+            $projectionNestedMedia = $nestedMedia;
+            if (null === $projectionMedia) {
+                $projectionNestedMedia[] = $inheritedMedia;
+                $projectionMedia = $media;
             }
-            $content = $this->compatibilityStylesheetContent($file['content'], $importPath, $files, $ancestors, $importedLayer || '' !== $layer, $imports, $projectionMedia);
+            if (null !== $imports && !isset($ancestors[$importPath])) {
+                $imports[] = array('path' => $importPath, 'source_path' => $importPath, 'content' => MediaCondition::wrap($file['content'], $projectionNestedMedia), 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])), 'media' => $projectionMedia, 'cascade_content' => '');
+            }
+            $content = $this->compatibilityStylesheetContent($file['content'], $importPath, $files, $ancestors, $importedLayer || '' !== $layer, $imports, $projectionMedia, $projectionNestedMedia);
             if (array() !== $conditions) $content = '@media ' . $media . '{' . $content . '}';
             if ('' !== $supports) $content = $supports . '{' . $content . '}';
             if ('' !== $layer) $content = $layer . '{' . $content . '}';
@@ -2808,40 +2822,7 @@ final class ArtifactCompiler
     /** @param array<int, array<string, mixed>> $files */
     private function stylesheetPathFromHref(string $href, string $sourcePath, array $files = array()): string
     {
-        $href = (string) preg_replace('/[?#].*$/', '', $href);
-        if ( ! str_starts_with($href, '/') ) {
-            return ArtifactPath::resolveRelativePath($href, $sourcePath);
-        }
-
-        return $this->artifactRootRelativePath($href, $sourcePath, array_fill_keys(array_column($files, 'path'), true));
-    }
-
-    /** @param array<string, true> $paths */
-    private function artifactRootRelativePath(string $reference, string $sourcePath, array $paths): string
-    {
-        // Root-relative URLs need the same segment decoding and traversal checks
-        // as document-relative references, before exact or suffix lookup.
-        $relative = ArtifactPath::resolveRelativePath(ltrim($reference, '/'));
-        if ( '' === $relative || isset($paths[$relative]) ) {
-            return $relative;
-        }
-
-        $sourceSegments = explode('/', dirname($sourcePath));
-        $matches = array();
-        foreach ( array_keys($paths) as $path ) {
-            if ( ! str_ends_with($path, '/' . $relative) ) {
-                continue;
-            }
-            $candidateSegments = explode('/', dirname($path));
-            $common = 0;
-            while ( isset($sourceSegments[$common], $candidateSegments[$common]) && $sourceSegments[$common] === $candidateSegments[$common] ) {
-                ++$common;
-            }
-            $matches[] = array( 'path' => $path, 'common' => $common );
-        }
-        usort($matches, static fn (array $left, array $right): int => $right['common'] <=> $left['common'] ?: strcmp($left['path'], $right['path']));
-
-        return isset($matches[0]) && $matches[0]['common'] > 0 ? (string) $matches[0]['path'] : $relative;
+        return ArtifactPath::resolveLinkedPath($href, $sourcePath, array_fill_keys(array_column($files, 'path'), true));
     }
 
     private function stylesheetOccurrencePath(string $path, int $occurrence): string
@@ -4168,20 +4149,20 @@ final class ArtifactCompiler
                     $siteContexts[] = $document['rows'][$area][$variant]['context'] ?? array();
                 }
                 $siteContext = self::sharedSourceShellAncestorContext($siteContexts);
-                $siteProjections = array();
+                $contextMatches = null;
                 if ($context !== $siteContext) {
                     $siteOpen = ''; $siteClose = '';
                     foreach (array_slice($siteContext, 2) as $ancestor) { $siteOpen .= '<' . $ancestor['tag'] . self::sourceShellAttributes($ancestor['attributes']) . '>'; $siteClose = '</' . $ancestor['tag'] . '>' . $siteClose; }
                     $siteSynthetic = '<!doctype html><html' . self::sourceShellAttributes($siteContext[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . self::sourceShellAttributes($siteContext[1]['attributes'] ?? array()) . '>' . $siteOpen . $canonicalMarkup . $siteClose . '</body></html>';
-                    $siteCompiled = $this->compileHtmlDocumentBlocks($siteSynthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($siteContext) - 2));
-                    foreach ($siteCompiled['author_stylesheet_projections'] as $projection) {
-                        $siteProjections[$projection['path']] = $projection['content'];
-                    }
+                    $contextMatches = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex(array(
+                        'member' => HtmlSerialization::parseDocument($synthetic),
+                        'site' => HtmlSerialization::parseDocument($siteSynthetic),
+                    ));
                 }
                 foreach ($compiled['author_stylesheet_projections'] as $projection) {
                     // Only scope stylesheets whose projection actually depends
                     // on the additional member context, not unrelated resets.
-                    if ($context !== $siteContext && ($siteProjections[$projection['path']] ?? null) !== $projection['content']) $projection['member_owners'] = array_keys($members);
+                    if (null !== $contextMatches && $this->sharedShellStylesheetDependsOnContext($projection, $synthetic, $sourcePath, $files, $contextMatches)) $projection['member_owners'] = array_keys($members);
                     $authorStylesheetProjections[] = $projection;
                 }
                 $runtimeScriptProjections = array_merge($runtimeScriptProjections, $compiled['runtime_script_projections']);
@@ -4194,6 +4175,32 @@ final class ArtifactCompiler
             'author_stylesheet_projections' => $authorStylesheetProjections,
             'runtime_script_projections' => $runtimeScriptProjections,
         );
+    }
+
+    /**
+     * Compare rule reachability in the two source contexts, not a second block
+     * compilation. Visit the original stylesheet (including imports): projected
+     * selectors may already have replaced the ancestor with a generated marker.
+     * The existing selector index handles functional selectors and interaction
+     * states; no declarations or cascade are resolved here.
+     */
+    private function sharedShellStylesheetDependsOnContext(array $projection, string $html, string $sourcePath, array $files, \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex $matches): bool
+    {
+        $depends = false;
+        $transformer = new CssStylesheetTransformer();
+        $assets = $this->authorStylesheetAssetsWithImports($this->stylesheetAssetsForSource($html, $sourcePath, $files, true), $files);
+        foreach ($assets as $asset) {
+            if (($asset['path'] ?? null) !== $projection['path']) continue;
+            $transformer->visitStyleRules($asset['content'], static function (string $prelude) use ($matches, &$depends): void {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    $member = $matches->matchedElements($selector, 'member');
+                    $site = $matches->matchedElements($selector, 'site');
+                    // An arm the index cannot evaluate cannot disprove context dependence.
+                    if (null === $member || null === $site || count($member) !== count($site)) $depends = true;
+                }
+            });
+        }
+        return $depends;
     }
 
     /**
@@ -6155,7 +6162,7 @@ final class ArtifactCompiler
         }
 
         $path = str_starts_with($reference, '/')
-            ? $this->artifactRootRelativePath($reference, $entryPath, array_fill_keys(array_column($files, 'path'), true))
+            ? ArtifactPath::artifactRootRelativePath($reference, $entryPath, array_fill_keys(array_column($files, 'path'), true))
             : ArtifactPath::resolveRelativePath($reference, $entryPath);
         if ( '' === $path ) {
             return null;

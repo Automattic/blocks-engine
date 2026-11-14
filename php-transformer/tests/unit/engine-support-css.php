@@ -91,13 +91,13 @@ $assert(
 
 $neutralButton = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS, 'blocks-engine/layout-shell');
 $assert(1 === count($neutralButton), 'layout-neutral inner button wrapper emits one before-author rule');
+$inner = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
 $assert(
-    ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){display:contents!important}'
-        . LayoutParticipation::transferredFlexContainerPaddingRule('.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.flex,.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.inline-flex')
-        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}'
-        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.flex,.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.inline-flex)>.wp-block-button__link{' . LayoutParticipation::transferredFlexContainerDeclarations() . '}'
-    === $neutralButton[0],
-    'neutralizing the inner wrapper transfers shrink-to-fit onto the first box that still generates, and restores a source flex container onto the link'
+    str_starts_with($neutralButton[0], ':where(.' . $inner . '){display:contents!important}')
+        && str_contains($neutralButton[0], ':where(.' . $inner . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}')
+        && str_contains($neutralButton[0], ':where(.' . $inner . ':not(.' . $inner . '-author-width):not(.' . $inner . '-conditional-width))>.wp-block-button__link{width:fit-content!important}')
+        && str_contains($neutralButton[0], ':where(.' . $inner . ':not(.' . $inner . '-author-height):not(.' . $inner . '-conditional-height))>.wp-block-button__link{height:auto!important}'),
+    'neutralizing the inner wrapper transfers shrink-to-fit onto the first box that still generates, and every page spares author-sized buttons'
 );
 
 $listNavRules = $css->listNavigationHostRepairCss('blocks-engine-list-navigation blocks-engine-native-responsive-navigation', '');

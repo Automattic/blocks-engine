@@ -321,7 +321,7 @@ foreach ( $blockifiedAnchorProbes as $probe ) {
     }
 }
 $blockifiedAnchorValidity = ( new HtmlTransformer() )->transform('<style>.social-row{display:flex;gap:1rem}.grid-row{display:grid}</style><div class="social-row"><a href="/spotify">Open in Spotify</a><a href="/apple">Apple Music</a></div><div class="grid-row"><a href="/grid">Grid child</a></div><div class="prose-row"><a href="/plain">Plain link</a></div>')->toArray();
-$assert(str_contains($blockifiedAnchorCss, ':where(p.blocks-engine-synthetic-paragraph.blocks-engine-synthetic-anchor-block-display)>a{display:block}')
+$assert(str_contains($blockifiedAnchorCss, ':where(p.blocks-engine-synthetic-paragraph.blocks-engine-synthetic-anchor-block-display)>a:not([hidden]){display:block}')
     && 6 === substr_count($blockifiedAnchorMarkup, 'blocks-engine-synthetic-anchor-block-display')
     && str_contains($blockifiedAnchorMarkup, '<p class="blocks-engine-synthetic-paragraph"><a href="/plain">Plain link</a></p>')
     && 'block' === ($blockifiedAnchorDisplays['Open in Spotify'] ?? '')
@@ -537,7 +537,7 @@ $imageCss = (string) ($imageStylesheet['content'] ?? '');
 $assert(str_contains($imageCss, '.photo{position:absolute;width:123px;height:106px;object-fit:cover}') && str_contains($imageCss, '.relative-photo{width:86.356%;height:auto;aspect-ratio:727.431 / 593.583}'), 'source image geometry remains on the canonical core/image wrapper');
 $assert(str_contains($imageCss, '{display:block;width:100%;height:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}') && ! str_contains($imageCss, '> img{width:123px') && ! str_contains($imageCss, '> img{width:86.356%'), 'canonical nested images fill explicitly owned wrapper geometry instead of applying source dimensions twice');
 $assert(str_contains($imageCss, '{display:block;object-fit:inherit;object-position:inherit;border-radius:inherit}') && ! preg_match('/source-tag-img[^,{]*\.wp-block-image > img\{[^}]*width:100%/', $imageCss), 'generic image presentation selectors do not impose nested image geometry');
-$assert(preg_match('/where\(figure\).*\.photo\.wp-block-image > img,[^{]*\.wp-block-image > a > img\{display:block;object-fit:inherit/', $imageCss) && preg_match('/blocks-engine-root-child-.*\.wp-block-image > img,[^{]*\.wp-block-image > a > img\{display:block;object-fit:inherit/', $imageCss), 'type and root-child image selectors project the canonical nested-image bridge without inventing dimensions');
+$assert(preg_match('/where\(figure\).*\.photo\.wp-block-image > img,[^{]*\.wp-block-image > a > img\{display:block;object-fit:inherit/', $imageCss) && preg_match('/blocks-engine-root-child-.*\.wp-block-image > img,[^{]*\.wp-block-image > a > img\{display:block;height:inherit;object-fit:inherit/', $imageCss), 'type selectors avoid invented dimensions while the root-child image inherits its authored single-axis height');
 $assert('text' === ($imageStylesheet['content_encoding'] ?? '') && ! isset($imageStylesheet['content_base64']) && '' !== $imageCss, 'stylesheet projection drops the stale base64 twin and keeps the rewritten text as the sole payload representation');
 $assert(1 === preg_match('/<!-- wp:image [\s\S]*<figure[^>]*photo[^>]*><img/', (string) ($image['serialized_blocks'] ?? '')), 'image projection preserves canonical core/image figure markup');
 
@@ -561,6 +561,7 @@ foreach (array(
     'descendant img subject' => array('<div class="avatar"><img src="p.jpg" alt="a"></div>', '.avatar img{width:120px;height:120px;border-radius:50%}'),
     'later radius-less breakpoint rule' => array('<div class="avatar"><img src="p.jpg" alt="a"></div>', '.avatar img{width:120px;height:120px;border-radius:50%}@media (min-width:1px){.avatar img{width:100px;height:100px}}'),
     'mixed selector list' => array('<img class="photo" src="p.jpg" alt="a"><div class="avatar"><img src="p.jpg" alt="b"></div>', '.photo,.avatar img{width:120px;height:120px;border-radius:50%}'),
+    'universal rule over a linked logo' => array('<a class="brand" href="/"><img src="p.jpg" alt="a"></a>', '*{box-sizing:border-box}.brand img{height:58px;width:auto;border-radius:50%}'),
 ) as $case => [$radiusHtml, $radiusCss]) {
     $radius = ( new ArtifactCompiler() )->compile(array(
         'files' => array(

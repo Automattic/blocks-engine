@@ -119,7 +119,9 @@ final class EngineSupportCss
                 // that onto the carrier's <a> -- the UA default `inline` would
                 // otherwise win and shrink its line height (see
                 // SourceBlockAttributeProjector::sourceAnchorResolvesToBlockDisplay()).
-                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS . ')>a{display:block}';
+                // Leave hidden links to the UA stylesheet, including when script
+                // toggles the attribute after compilation.
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS . ')>a:not([hidden]){display:block}';
         }
         if (str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS)) {
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
@@ -321,14 +323,20 @@ final class EngineSupportCss
                 . LayoutParticipation::transferredFlexContainerPaddingRule($flexContainers);
             foreach ( $rules as $selector => $declarations ) {
                 $axisRules = '';
+                // Engine support CSS is shared by every page of a site, so the
+                // shrink-to-fit reset must not depend on which modifiers this
+                // page happens to use: one page's narrower `:not()` would
+                // override another page's author-sized buttons.
                 foreach ( array( 'width' => 'fit-content', 'height' => 'auto' ) as $property => $default ) {
-                    $modifier = $neutralButton . '-author-' . $property;
-                    if ( ! str_contains($serializedBlocks, $modifier) ) {
-                        continue;
-                    }
-                    $declarations = str_replace($property . ':' . $default . '!important;', '', $declarations);
-                    $axisSelectors = implode(',', array_map(static fn (string $item): string => $item . ':not(.' . $modifier . ')', explode(',', $selector)));
+                    $author = $neutralButton . '-author-' . $property;
+                    $conditional = $neutralButton . '-conditional-' . $property;
+                    $axisSelectors = implode(',', array_map(static fn (string $item): string => $item . ':not(.' . $author . '):not(.' . $conditional . ')', explode(',', $selector)));
                     $axisRules .= ':where(' . $axisSelectors . ')>.wp-block-button__link{' . $property . ':' . $default . '!important}';
+                    // Equal to core's `.wp-block-buttons .wp-block-button__link`
+                    // and later, so it beats core; the author projection (one
+                    // type selector more) still wins under its condition.
+                    $conditionalSelectors = implode(',', array_map(static fn (string $item): string => $item . '.' . $conditional, explode(',', $selector)));
+                    $axisRules .= ':where(' . $conditionalSelectors . ')>.wp-block-button__link.wp-block-button__link{' . $property . ':' . $default . '}';
                 }
                 $buttonCss .= ':where(' . $selector . ')>.wp-block-button__link{' . $declarations . '}' . $axisRules;
             }

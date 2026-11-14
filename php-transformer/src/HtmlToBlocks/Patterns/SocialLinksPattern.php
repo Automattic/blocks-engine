@@ -67,7 +67,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         }
         $anchors = $this->anchors($element);
         $explicit = $explicit || self::isExplicitSocialCluster($element);
-        if ( array() === $anchors || (! $explicit && ! $this->isSocialCluster($element, $anchors)) ) {
+        if ( array() === $anchors || (! $explicit && ! $this->isSocialCluster($element, $anchors, $context)) ) {
             return null;
         }
 
@@ -508,7 +508,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     }
 
     /** @param array<int,DOMElement> $anchors */
-    private function isSocialCluster(DOMElement $element, array $anchors): bool
+    private function isSocialCluster(DOMElement $element, array $anchors, PatternContext $context): bool
     {
         if ( self::isExplicitSocialCluster($element) ) {
             return true;
@@ -517,8 +517,13 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         if ( count($anchors) < 2 ) {
             return false;
         }
+        // Without a named social region, a visible text label with no icon
+        // makes the links a text list ("Instagram", "Facebook"), not a social
+        // row: core/social-link always paints its service glyph, so it would
+        // gain artwork and brand pills the source never had.
         foreach ( $anchors as $anchor ) {
-            if ( null === self::serviceForUrl(LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'))) ) {
+            if ( null === self::serviceForUrl(LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href')))
+                || ('' !== $this->visibleText($anchor, $context) && ! $this->hasIcon($anchor) && ! $this->hasIconHook($anchor)) ) {
                 return false;
             }
         }
@@ -638,6 +643,15 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             if ($this->isFontGlyph($glyph)) return true;
         }
         return '' === trim((string) $anchor->textContent) && 0 < $anchor->getElementsByTagName('span')->length;
+    }
+
+    /** An empty element named as an icon, painted by CSS (`.icon-facebook::before`). */
+    private function hasIconHook(DOMElement $anchor): bool
+    {
+        foreach ($anchor->getElementsByTagName('*') as $hook) {
+            if ('' === trim($hook->textContent) && 1 === preg_match('/icon|glyph|(?:^|\s)fa[bsrl]?(?:\s|$|-)/i', $hook->getAttribute('class'))) return true;
+        }
+        return false;
     }
 
     /** @param array<int,DOMElement> $anchors */

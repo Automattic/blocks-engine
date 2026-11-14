@@ -1308,7 +1308,7 @@ final class FormControlMetadataBuilder
             if ( $node->hasAttribute('hidden') ) {
                 return '';
             }
-            $declarations = $this->styleResolver?->collapsedViewportAuthorDeclarations($node, array( 'display', 'visibility' )) ?? array();
+            $declarations = $this->styleResolver?->authorViewport->collapsed($node, array( 'display', 'visibility' )) ?? array();
             $display = strtolower(trim(CssValueInspector::withoutImportant($declarations['display'] ?? '')));
             $visibility = strtolower(trim(CssValueInspector::withoutImportant($declarations['visibility'] ?? '')));
             if ( 'none' === $display || 'hidden' === $visibility ) {

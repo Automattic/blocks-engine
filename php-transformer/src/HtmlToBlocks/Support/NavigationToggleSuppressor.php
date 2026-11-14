@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
@@ -297,7 +298,7 @@ final class NavigationToggleSuppressor
                 return false;
             }
             $value = $this->styleResolver->declaredPresentation($node, 'display')->resolvedValueWhere(
-                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                fn (array $conditions): bool => $this->styleResolver->cascade->conditionsApplyAtViewport($conditions, $width)
             );
             $value = $this->styleResolver->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant(trim($value)), $node, $width);
             if ( 'none' === strtolower(trim($value)) ) {
@@ -328,7 +329,7 @@ final class NavigationToggleSuppressor
     /** A collapsed panel cannot host the replacement opener in the header row. */
     private function isOutOfFlowNavigationPanel(DOMElement $target): bool
     {
-        $declarations = $this->styleResolver->collapsedViewportAuthorDeclarations($target, array('position'));
+        $declarations = $this->styleResolver->authorViewport->collapsed($target, array('position'));
         $position = strtolower(CssValueInspector::withoutImportant(trim((string) ($declarations['position'] ?? ''))));
 
         return in_array($position, array('absolute', 'fixed'), true);
@@ -340,7 +341,7 @@ final class NavigationToggleSuppressor
         if ( $this->isSemanticDialog($target) || ! $this->isOutOfFlowNavigationPanel($target) ) {
             return false;
         }
-        $declarations = $this->styleResolver->collapsedViewportAuthorDeclarations($target, array('visibility', 'max-height'));
+        $declarations = $this->styleResolver->authorViewport->collapsed($target, array('visibility', 'max-height'));
         foreach ( $declarations as $property => $value ) {
             $value = strtolower(CssValueInspector::withoutImportant(trim($value)));
             if ( ('visibility' === $property && 'hidden' === $value)
@@ -631,7 +632,7 @@ final class NavigationToggleSuppressor
     private function hiddenAtCollapsedViewport(DOMElement $element, bool $includeAncestors = false): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $values = $this->styleResolver->collapsedViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'));
+            $values = $this->styleResolver->authorViewport->collapsed($node, array('display', 'visibility', 'opacity'));
             $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport($values['display'] ?? '', $node, StyleResolver::MOBILE_REFERENCE_WIDTH));
             $visibility = CssValueInspector::comparable($values['visibility'] ?? '');
             $opacity = CssValueInspector::comparable($values['opacity'] ?? '');
@@ -655,7 +656,7 @@ final class NavigationToggleSuppressor
         $authorPanel = ! $this->insideOwnedNavigationPanel($target)
             && ! $this->isInsideAdoptedRestingPanel($target)
             && $this->isOutOfFlowNavigationPanel($target)
-            && 'hidden' === CssValueInspector::comparable($this->styleResolver->collapsedViewportAuthorDeclarations($target, array('visibility'))['visibility'] ?? '');
+            && 'hidden' === CssValueInspector::comparable($this->styleResolver->authorViewport->collapsed($target, array('visibility'))['visibility'] ?? '');
         if ( ! $this->sourceElementIsHidden($target) && ! $this->isCollapsedOutOfFlowPanel($target)
             && ! ( $authorPanel && $this->hiddenAtCollapsedViewport($target) ) ) {
             return null;
@@ -728,7 +729,7 @@ final class NavigationToggleSuppressor
             || $this->isHiddenAtDefaultViewport($target) ) {
             return false;
         }
-        $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($target, array('position'), true);
+        $declarations = $this->styleResolver->authorViewport->reference($target, array('position'), true);
         $position = CssValueInspector::declared($declarations, 'position');
 
         return ! in_array($position, array('absolute', 'fixed'), true);
@@ -1656,7 +1657,7 @@ final class NavigationToggleSuppressor
      */
     private function hidesTextVisually(DOMElement $element, bool $isLabelDescendant): bool
     {
-        $resolved = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        $resolved = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element));
         if ( $isLabelDescendant && 1 === preg_match('/^none(?:\s*!important)?$/i', trim((string) ($resolved['display'] ?? ''))) ) {
             return true;
         }
@@ -1816,7 +1817,7 @@ final class NavigationToggleSuppressor
             }
             $display = $this->styleResolver->declaredPresentation($select, 'display');
             $at = fn (float $width): string => strtolower(CssValueInspector::withoutImportant(trim($display->resolvedValueWhere(
-                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                fn (array $conditions): bool => $this->styleResolver->cascade->conditionsApplyAtViewport($conditions, $width)
             ))));
             $menu = $navigation;
             if ( SourceDom::elementContains($navigation, $select) ) {
@@ -1829,7 +1830,7 @@ final class NavigationToggleSuppressor
             }
             $navDisplay = $this->styleResolver->declaredPresentation($menu, 'display');
             $navAt = fn (float $width): string => strtolower(CssValueInspector::withoutImportant(trim($navDisplay->resolvedValueWhere(
-                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                fn (array $conditions): bool => $this->styleResolver->cascade->conditionsApplyAtViewport($conditions, $width)
             ))));
             if ( 'none' === $at($boundary + 1) && '' !== $at($boundary) && 'none' !== $at($boundary)
                 && 'none' === $navAt($boundary) && 'none' !== $navAt($boundary + 1) ) {
@@ -2369,7 +2370,7 @@ final class NavigationToggleSuppressor
         $hiddenAt = function (array $path, float $width) use ($displayOf): bool {
             foreach ( $path as $element ) {
                 $value = $displayOf($element)->resolvedValueWhere(
-                    fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                    fn (array $conditions): bool => $this->styleResolver->cascade->conditionsApplyAtViewport($conditions, $width)
                 );
                 $value = $this->styleResolver->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant(trim($value)), $element, $width);
                 if ( 'none' === strtolower(trim($value)) ) {
@@ -2472,7 +2473,7 @@ final class NavigationToggleSuppressor
             if ( SourceDom::isDocumentVariantRoot($node) || in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
                 break;
             }
-            $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'), true);
+            $declarations = $this->styleResolver->authorViewport->reference($node, array('display', 'visibility', 'opacity'), true);
             $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport((string) ($declarations['display'] ?? ''), $node, StyleResolver::DESKTOP_REFERENCE_WIDTH));
             $visibility = CssValueInspector::declared($declarations, 'visibility');
             $opacity = CssValueInspector::declared($declarations, 'opacity');

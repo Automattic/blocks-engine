@@ -3692,7 +3692,9 @@ final class ShellExtraction
      *
      * A submenu whose descendant link names the served route is its current
      * ancestor and can carry an active look of its own; on the routes outside
-     * it, the same submenu rests, so it is given that resting look too. Links
+     * it, the same submenu rests, so it is given that resting look too. A link
+     * naming an ancestor of the served route (a section above its post) can
+     * wear the current look as well, so it is no evidence of a resting look. Links
      * and submenus are compared by area, label, URL and occurrence, so a menu
      * repeated in one header (a bar and its drawer) keeps each copy's look.
      * Resting looks are read among candidates of one design, the same markup
@@ -3712,8 +3714,10 @@ final class ShellExtraction
             if (array() === $kept) unset($attrs['className']); else $attrs['className'] = implode(' ', $kept);
             return $attrs;
         };
-        $names = static fn (array $attrs, string $route): bool => is_string($attrs['url'] ?? null) && !str_contains($attrs['url'], '#')
-            && ('' === ($path = rtrim(explode('?', $attrs['url'])[0], '/')) ? '/' : $path) === $route;
+        $urlPath = static fn (array $attrs): ?string => is_string($attrs['url'] ?? null) && !str_contains($attrs['url'], '#')
+            ? ('' === ($path = rtrim(explode('?', $attrs['url'])[0], '/')) ? '/' : $path) : null;
+        $names = static fn (array $attrs, string $route): bool => $urlPath($attrs) === $route;
+        $namesAncestor = static fn (array $attrs, string $route): bool => !in_array($urlPath($attrs), array(null, '/'), true) && str_starts_with($route, $urlPath($attrs) . '/');
         // An item's attributes as the shell identity sees them, without
         // generated markers (a label's per-document semantic class).
         $asIdentity = static fn (array $attrs): array => json_decode(preg_replace('/^<!-- wp:navigation-submenu (.*) -->$/s', '$1', ChromeIdentity::markup('<!-- wp:navigation-submenu ' . BlockAttributes::encode($attrs) . ' -->')) ?? '', true) ?: array();
@@ -3746,7 +3750,7 @@ final class ShellExtraction
             $route = (string) ($page['route']['path'] ?? '');
             foreach ($page['shell_candidates'] ?? array() as $candidate) {
                 foreach ($items($candidate['markup'], $design($candidate) . "\0" . $candidate['area'], $route) as $row) {
-                    if (!$row['valid'] || $row['current']) continue;
+                    if (!$row['valid'] || $row['current'] || $namesAncestor($row['attrs'], $route)) continue;
                     $rest = $atRest($row['attrs']);
                     // One look is one presentation: per-document generated markers
                     // (an item's anchor or label semantic class) do not split it.

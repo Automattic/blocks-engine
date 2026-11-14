@@ -95,6 +95,56 @@ final class ArtifactPath
         return strtok($reference, '?#') ?: '';
     }
 
+    /**
+     * A root-relative reference resolved against the artifact: an exact path,
+     * else the path ending in it that shares the most leading directories
+     * with the referring document (a capture rooted under `website/`).
+     *
+     * @param array<string, true> $paths
+     */
+    public static function artifactRootRelativePath(string $reference, string $sourcePath, array $paths): string
+    {
+        // Root-relative URLs need the same segment decoding and traversal checks
+        // as document-relative references, before exact or suffix lookup.
+        $relative = self::resolveRelativePath(ltrim($reference, '/'));
+        if ( '' === $relative || isset($paths[$relative]) ) {
+            return $relative;
+        }
+
+        $sourceSegments = explode('/', dirname($sourcePath));
+        $matches = array();
+        foreach ( array_keys($paths) as $path ) {
+            if ( ! str_ends_with($path, '/' . $relative) ) {
+                continue;
+            }
+            $candidateSegments = explode('/', dirname($path));
+            $common = 0;
+            while ( isset($sourceSegments[$common], $candidateSegments[$common]) && $sourceSegments[$common] === $candidateSegments[$common] ) {
+                ++$common;
+            }
+            $matches[] = array( 'path' => $path, 'common' => $common );
+        }
+        usort($matches, static fn (array $left, array $right): int => $right['common'] <=> $left['common'] ?: strcmp($left['path'], $right['path']));
+
+        return isset($matches[0]) && $matches[0]['common'] > 0 ? (string) $matches[0]['path'] : $relative;
+    }
+
+    /**
+     * The artifact path a document's link (stylesheet, import) names, with
+     * query and fragment removed.
+     *
+     * @param array<string, true> $paths
+     */
+    public static function resolveLinkedPath(string $href, string $sourcePath, array $paths): string
+    {
+        $href = (string) preg_replace('/[?#].*$/', '', $href);
+        if ( ! str_starts_with($href, '/') ) {
+            return self::resolveRelativePath($href, $sourcePath);
+        }
+
+        return self::artifactRootRelativePath($href, $sourcePath, $paths);
+    }
+
     private static function cleanInput(string $path): string
     {
         return str_replace('\\', '/', trim($path));

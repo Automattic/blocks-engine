@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
@@ -91,7 +92,7 @@ final class ButtonPatternContext
     /** @return array<string, string> */
     public function resolvedDeclarations(DOMElement $element): array
     {
-        return $this->styleResolver?->cssDeclarations($this->resolvedStyle($element)) ?? array();
+        return SourceDeclarations::parse($this->resolvedStyle($element));
     }
 
     public function controlSurfaceStyle(DOMElement $element): string
@@ -113,7 +114,7 @@ final class ButtonPatternContext
             return '';
         }
 
-        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        $declarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element));
         // Read before conditional/class-owned declarations are filtered: an
         // authored line-height must stay owned by its projected selector.
         $uaLineHeight = $this->styleResolver->buttonUserAgentLineHeight($element, $declarations);
@@ -184,7 +185,7 @@ final class ButtonPatternContext
             }
         }
         foreach ( $this->session?->sourceStyleResolutionState()->pseudoElementRules() ?? array() as $rule ) {
-            if ( $this->styleResolver?->matchesCssSelector($element, $rule['selector']) ) {
+            if ( $this->session?->sourceStyleResolutionState()->matches($element, $rule['selector']) ) {
                 return true;
             }
         }
@@ -397,13 +398,13 @@ final class ButtonPatternContext
         }
 
         $display = '';
-        foreach ( $this->styleResolver->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( isset($rule['declarations']['display']) && $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
+        foreach ( $this->session?->sourceStyleResolutionState()->matchingRules($element, 'static') ?? array() as $rule ) {
+            if ( isset($rule['declarations']['display']) ) {
                 $display = (string) $rule['declarations']['display'];
             }
         }
 
-        $inline = $this->styleResolver->inlineDeclarations($element);
+        $inline = SourceDeclarations::inline($element);
 
         return CssValueInspector::comparable((string) ($inline['display'] ?? $display));
     }
