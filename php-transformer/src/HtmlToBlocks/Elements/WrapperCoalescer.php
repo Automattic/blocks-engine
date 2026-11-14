@@ -74,8 +74,6 @@ final class WrapperCoalescer
 
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
 
-    // Charge shared ancestry against the saved List View depth, not only
-    // against the length of each uninterrupted single-child run.
     private const MAX_NATIVE_WRAPPER_DEPTH = 8;
 
     private bool $wrapperBudgetExceeded = false;
@@ -106,8 +104,11 @@ final class WrapperCoalescer
             && array() !== array_filter($ancestorChain, static fn (array $entry): bool => 'nav' === $entry['descriptor']['tagName'])
             && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'], array('div', 'nav'), true))
             && $depth - 1 + $this->nativeBlockHeight($block) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
+        // Total saved depth and uninterrupted wrapper runs have different
+        // budgets: a short chain above branching content is not an eight-box
+        // chain. Keep the run limit without charging descendant blocks to it.
         if (! $nativeNavigationChain && 2 <= count($ancestorChain)
-            && ($depth - 1 + $this->nativeBlockHeight($block) > self::MAX_NATIVE_WRAPPER_DEPTH
+            && ($depth - 1 + $this->nativeBlockHeight($block) > EditabilityPolicy::THRESHOLDS['max_nesting_depth']
                 || count($ancestorChain) >= self::MAX_NATIVE_WRAPPER_DEPTH)) {
             return $this->foldWrapperChain($ancestorChain, $this->normalizeWrapperChain($cursor, $depth + 1));
         }
