@@ -605,7 +605,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         $attrs = array();
         $panels = $this->overlayPanelBoxes($navigation);
         foreach ( $panels as $panel ) {
-            $values = $this->styleResolver->authorViewport->collapsed($panel, array('background', 'background-color', 'color', 'text-align', 'align-items', 'flex-direction'));
+            $values = $this->styleResolver->authorViewport->collapsed($panel, array('background', 'background-color', 'color', 'text-align', 'align-items', 'flex-direction'), self::openStateClasses($panel));
             $background = '';
             foreach ( $values as $property => $value ) {
                 if ( in_array($property, array('background', 'background-color'), true) ) {
@@ -651,6 +651,24 @@ final class ProjectedNavigationConverter implements ElementConverter
     }
 
     /** Include only full-bleed, passive backdrop children of the controlled panel chain. */
+    /**
+     * The classes script adds to a panel when its menu opens, named by its
+     * WordPress Interactivity class directives (`data-wp-class--is-menu-open`).
+     * The overlay is the opened panel, so its paint is read in that state.
+     *
+     * @return list<string>
+     */
+    private static function openStateClasses(DOMElement $panel): array
+    {
+        $classes = array();
+        foreach ( $panel->attributes as $attribute ) {
+            if ( str_starts_with($attribute->name, 'data-wp-class--') && '' !== substr($attribute->name, 15) ) {
+                $classes[] = substr($attribute->name, 15);
+            }
+        }
+        return $classes;
+    }
+
     private function overlayPanelBoxes(DOMElement $navigation): array
     {
         $boxes = array_merge($this->navigationToggleSuppressor->controlledPanelBoxes($navigation), $this->collapsedPanelChain($navigation));
