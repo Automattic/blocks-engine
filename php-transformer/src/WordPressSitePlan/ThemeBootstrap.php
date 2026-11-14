@@ -494,6 +494,11 @@ PHP;
         if (self::markupContains($documentsWithMenus, 'blocksEngineRuntimeAttributes')) {
             $lines[] = RuntimeAttributesRuntime::source();
         }
+        foreach (EditorRestingStateRuntime::MARKERS as $marker) {
+            if (!self::markupContains($documentsWithMenus, $marker)) continue;
+            $lines[] = EditorRestingStateRuntime::source();
+            break;
+        }
         if (self::markupContains($documents, NavigationEntityProjection::ITEMS_KEY)) {
             $lines[] = NavigationReferenceItemsRuntime::source();
         }
