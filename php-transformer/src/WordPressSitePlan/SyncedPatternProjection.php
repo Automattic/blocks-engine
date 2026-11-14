@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use InvalidArgumentException;
 
 /**
@@ -233,7 +234,7 @@ final class SyncedPatternProjection
             foreach ($pairs as $pair) {
                 $name = strtolower($pair[1]);
                 $value = html_entity_decode(trim($pair[2] ?? '', '"\''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-                if ('hidden' === $name || ('style' === $name && preg_match('/(?:^|;)\s*display\s*:\s*none\b/i', $value))
+                if ('hidden' === $name || ('style' === $name && self::declaresDisplayNone($value))
                     || ('class' === $name && array() !== array_intersect(preg_split('/\s+/', $value) ?: array(), $hiding))) return true;
             }
         }
@@ -254,7 +255,7 @@ final class SyncedPatternProjection
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             preg_match_all('/([^{}]+)\{([^{}]*)\}/', (string) preg_replace('~/\*.*?\*/~s', '', $asset['content']), $rules, PREG_SET_ORDER);
             foreach ($rules as $rule) {
-                if (!preg_match('/(?:^|;)\s*display\s*:\s*none\s*(?:!important\s*)?(?:;|$)/i', trim($rule[2]))) continue;
+                if (!self::declaresDisplayNone($rule[2])) continue;
                 foreach (explode(',', $rule[1]) as $selector) {
                     // The subject compound's classes, outside any :not()/:where() argument.
                     do $selector = (string) preg_replace('/\([^()]*\)/', '', $selector, -1, $stripped); while ($stripped > 0);
@@ -364,5 +365,13 @@ final class SyncedPatternProjection
             $entities[$token] = true;
         }
         if (str_contains((string) preg_replace($pattern, '', $markup), WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX)) throw new InvalidArgumentException('WordPress site plan synced pattern references must belong to core/block blocks.');
+    }
+
+    private static function declaresDisplayNone(string $style): bool
+    {
+        foreach (CssRuleAnalyzer::declarations($style, array('display')) as ['value' => $value]) {
+            if (1 === preg_match('/^none\b/i', $value)) return true;
+        }
+        return false;
     }
 }
