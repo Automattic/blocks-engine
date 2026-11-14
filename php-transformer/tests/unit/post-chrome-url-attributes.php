@@ -22,6 +22,9 @@ if (1 !== count($templates)) $failures[] = 'one shared single-post template';
 $template = $templates[0]['canonical_block_markup'] ?? '';
 if (!str_contains($template, '<!-- wp:post-content')) $failures[] = 'shared template contains core/post-content';
 if (!str_contains($template, '<!-- wp:post-title')) $failures[] = 'shared template factors article chrome';
+foreach (array('1001', '1002') as $id) {
+    if (str_contains($template, 'post=' . $id)) $failures[] = 'shared template excludes frame URL for ' . $id;
+}
 foreach ($posts as $post) {
     $slug = basename(dirname($post['source_path']));
     $content = $post['canonical_block_markup'];
@@ -29,7 +32,13 @@ foreach ($posts as $post) {
     foreach (array('opening', 'middle', 'closing') as $paragraph) {
         if (!str_contains($content, $titles[$slug] . ' ' . $paragraph . ' paragraph.')) $failures[] = $slug . ' retains its ' . $paragraph . ' paragraph';
     }
-    if (preg_match('/Shared header|Footer text|Comments|<iframe|comment-frame|comments\.example\.test|site-header|site-footer/', $content)) $failures[] = $slug . ' post_content excludes header, footer and comments iframe';
+    if (preg_match('/Shared header|Footer text|site-header|site-footer/', $content)) $failures[] = $slug . ' post_content excludes header and footer';
+    $rendered = preg_replace('/<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->/', $content, $template);
+    $id = 'alpha' === $slug ? '1001' : '1002';
+    $otherId = 'alpha' === $slug ? '1002' : '1001';
+    if (1 !== substr_count($rendered, '<iframe') || 1 !== preg_match_all('~<iframe\\b[^>]*src="https://comments\\.example\\.test/frame\\?post=' . $id . '"~', $rendered)) $failures[] = $slug . ' renders its own frame URL exactly once';
+    if (str_contains($rendered, 'post=' . $otherId)) $failures[] = $slug . ' does not render another post\'s frame URL';
+    if (!preg_match('~closing paragraph\..*<iframe~s', $content)) $failures[] = $slug . ' retains the frame after its body';
 }
 if (array() !== $failures) {
     fwrite(STDERR, 'FAIL: ' . implode("\nFAIL: ", $failures) . "\n");

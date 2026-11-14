@@ -437,8 +437,8 @@ final class PostChrome
     private function sharedIdentities(array $posts): array
     {
         // Identity normalization rewrites attributes and block comments, never
-        // rendered text. A range whose text is not common to every post cannot
-        // be shared chrome, so only ranges with common text are normalized:
+        // rendered text. A range whose text or URL values differ cannot be
+        // shared chrome, so only ranges with common content are normalized:
         // that skips every container holding a post's own article.
         $indexes = array();
         $texts = null;
@@ -466,11 +466,19 @@ final class PostChrome
         return $shared ?? array();
     }
 
-    /** Rendered text of block markup, whitespace-insensitive, hashed. */
+    /** URL-bearing subtrees are per-post unless their full identity is shared. */
+    private function hasVaryingUrlAttributes(string $markup, array $shared): bool
+    {
+        return !isset($shared[($this->chromeIdentity)($markup)])
+            && 1 === preg_match('/(?:\\s(?:src|href|srcset|poster|action|formaction|cite|data|xlink:href)\\s*=|"(?:url|src|href|srcset|poster|action|formaction|cite|data|xlink:href)"\\s*:)/i', $markup);
+    }
+
+    /** Rendered text and URL attributes, which must agree before chrome normalization. */
     private static function chromeTextKey(string $markup): string
     {
         $text = strip_tags(preg_replace('/<!--.*?-->/s', '', $markup) ?? $markup);
-        return hash('xxh128', trim(preg_replace('/\s+/u', ' ', html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $text));
+        preg_match_all('/\\s(?:src|href|srcset|poster|action|formaction|cite|data|xlink:href)\\s*=\\s*(?:"[^"]*"|\'[^\']*\'|[^\\s>]+)|"(?:url|src|href|srcset|poster|action|formaction|cite|data|xlink:href)"\\s*:\\s*"(?:\\\\.|[^"\\\\])*"/i', $markup, $urls);
+        return hash('xxh128', trim(preg_replace('/\s+/u', ' ', html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $text) . json_encode($urls[0]));
     }
 
     /**
@@ -491,7 +499,7 @@ final class PostChrome
             $kind = $this->classifyBlock($slice, $post, $route, $index);
             if ('title' === $kind) $titleEnd = $range['offset'] + $range['length'];
             if ($range['offset'] === $featuredOffset) continue;
-            if (isset($shared[($this->chromeIdentity)($slice)]) || in_array($kind, array('title', 'date', 'comments', 'chrome', 'share', 'skip'), true)) continue;
+            if (isset($shared[($this->chromeIdentity)($slice)]) || (!$this->hasVaryingUrlAttributes($slice, $shared) && in_array($kind, array('title', 'date', 'comments', 'chrome', 'share', 'skip'), true))) continue;
             $varying[] = $range;
         }
         if (null === $titleEnd) return $fallback;
@@ -727,7 +735,8 @@ final class PostChrome
         $attrs = PostBlocks::sourceAttributes($slice);
         $className = (string) ($attrs['className'] ?? '');
         $anchor = (string) ($attrs['anchor'] ?? '');
-        if (preg_match('/\b(?:social|share-button|twitter-share)\b/', $className) || preg_match('/\bcomments?\b/i', $className) || preg_match('/comment/i', $anchor)) {
+        $varyingUrls = $this->hasVaryingUrlAttributes($slice, $shared);
+        if (!$varyingUrls && (preg_match('/\b(?:social|share-button|twitter-share)\b/', $className) || preg_match('/\bcomments?\b/i', $className) || preg_match('/comment/i', $anchor))) {
             return $empty;
         }
         $identity = ($this->chromeIdentity)($slice);
@@ -758,7 +767,7 @@ final class PostChrome
             if ('date' === $kind) {
                 return array('template' => PostBlocks::date($slice), 'body' => '', 'title' => false, 'date' => true, 'shared' => false, 'content' => false, 'retained' => array());
             }
-            if ('comments' === $kind || 'chrome' === $kind || 'share' === $kind || 'skip' === $kind) {
+            if (!$varyingUrls && ('comments' === $kind || 'chrome' === $kind || 'share' === $kind || 'skip' === $kind)) {
                 return $empty;
             }
             if (null !== $contentRange) return $empty;
