@@ -333,7 +333,7 @@ final class ButtonPatternContext
         $this->retainSourceDescendants($sourceAnchor);
         // Linked artwork must stay inline: a RichText span changes selector
         // topology and an external image cannot inherit hover/focus paint.
-        $contentMode = $sourceArtwork || 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : 'rich-text';
+        $contentMode = $sourceArtwork || 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : ($wrapper instanceof DOMElement ? 'rich-text' : 'inline-rich-text');
         if ( 'raw-source' === $contentMode ) {
             $wrapper = null;
         }
