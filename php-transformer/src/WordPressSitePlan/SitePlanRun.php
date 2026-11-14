@@ -71,8 +71,8 @@ final class SitePlanRun
     {
         $sourceUrl = RouteLinks::sourceUrl($data['provenance'] ?? array());
         $this->sourceOrigin = RouteLinks::origin($sourceUrl);
-        $this->listings = new ListingQueryLoops($this->sourceOrigin, $this->chromeIdentityKey(...));
         $this->unitFindings = new UnitFindings();
+        $this->listings = new ListingQueryLoops($this->sourceOrigin, $this->chromeIdentityKey(...), $this->unitFindings->record(...));
         $this->postChrome = new PostChrome($this->listings, $this->chromeIdentityKey(...), $this->unitFindings->record(...));
         $this->editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($this->editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($this->editabilityPolicy['schema'] ?? null) || 'required' !== ($this->editabilityPolicy['enforcement'] ?? null) || !in_array($this->editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
