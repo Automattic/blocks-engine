@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -629,27 +631,24 @@ final class FlowContainerElementConverter implements ElementConverter
 
     private function isClippedHorizontalTrack(DOMElement $element): bool
     {
-        $inline = strtolower(SourceDom::attr($element, 'style'));
-        if ( 1 !== preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $inline) ) {
+        if ( ! in_array(CssValueInspector::declared(SourceDeclarations::inline($element), 'display'), array( 'flex', 'inline-flex' ), true) ) {
             return false;
         }
-        $style = $this->structuralDeclarationString($element);
-        if ( 1 === preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
-            || 1 === preg_match('/(?:^|;)\s*flex-wrap\s*:\s*wrap(?:-reverse)?\b/', $style)
+        $structural = $this->presentationResolver->structuralPresentationDeclarations($element);
+        if ( in_array(CssValueInspector::declared($structural, 'flex-direction'), array( 'column', 'column-reverse' ), true)
+            || in_array(CssValueInspector::declared($structural, 'flex-wrap'), array( 'wrap', 'wrap-reverse' ), true)
         ) {
             return false;
         }
 
+        // A strip item keeps its width: it refuses to shrink or fixes a pixel width.
+        $isStripItem = static fn (array $declarations): bool => '0' === CssValueInspector::declared($declarations, 'flex-shrink')
+            || 1 === preg_match('/^[1-9]\d*(?:\.\d+)?px$/D', CssValueInspector::declared($declarations, 'width'));
         $stripChildren = 0;
         foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            $childStyle = strtolower(SourceDom::attr($child, 'style'));
-            if ( 1 !== preg_match('/(?:^|;)\s*(?:flex-shrink\s*:\s*0\b|width\s*:\s*[1-9]\d*(?:\.\d+)?px\b)/', $childStyle) ) {
-                $childStyle = $this->structuralDeclarationString($child);
-            }
-            if ( 1 === preg_match('/(?:^|;)\s*(?:flex-shrink\s*:\s*0\b|width\s*:\s*[1-9]\d*(?:\.\d+)?px\b)/', $childStyle) ) {
+            if ( $child instanceof DOMElement
+                && ( $isStripItem(SourceDeclarations::inline($child)) || $isStripItem($this->presentationResolver->structuralPresentationDeclarations($child)) )
+            ) {
                 ++$stripChildren;
             }
         }
@@ -658,35 +657,17 @@ final class FlowContainerElementConverter implements ElementConverter
         }
 
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( 1 === preg_match('/(?:^|;)\s*overflow(?:-x)?\s*:\s*(?:hidden|clip)\b/', $this->clipDeclarationString($node)) ) {
-                return true;
+            $declarations = array_merge(
+                $this->presentationResolver->authorStructuralDeclarations($node),
+                $this->presentationResolver->structuralPresentationDeclarations($node)
+            );
+            foreach ( array( 'overflow', 'overflow-x' ) as $property ) {
+                if ( in_array(CssValueInspector::declared($declarations, $property), array( 'hidden', 'clip' ), true) ) {
+                    return true;
+                }
             }
         }
 
         return false;
-    }
-
-    private function structuralDeclarationString(DOMElement $element): string
-    {
-        return $this->declarationString($this->presentationResolver->structuralPresentationDeclarations($element));
-    }
-
-    private function clipDeclarationString(DOMElement $element): string
-    {
-        return $this->declarationString(array_merge(
-            $this->presentationResolver->authorStructuralDeclarations($element),
-            $this->presentationResolver->structuralPresentationDeclarations($element)
-        ));
-    }
-
-    /** @param array<string, string> $declarations */
-    private function declarationString(array $declarations): string
-    {
-        $parts = array();
-        foreach ( $declarations as $property => $value ) {
-            $parts[] = strtolower((string) $property) . ':' . strtolower(trim((string) $value));
-        }
-
-        return implode(';', $parts);
     }
 }
