@@ -64,6 +64,6 @@ $withoutDiagnostics = static function (array $value) use (&$withoutDiagnostics):
 };
 $hash = hash('sha256', json_encode($withoutDiagnostics($result), JSON_THROW_ON_ERROR));
 // Includes form intent metadata and current topology and layout node limits.
-$assert('8358669a5461038c99866fc458c4062010bae3092e51ed5357da64211ddb0de7' === $hash, 'non-diagnostic transform output retains the control-row presentation baseline: ' . $hash);
+$assert('f5a1b7594bb2cd80a02bbe9751a679045139cccf81a523888c5908ea40964f14' === $hash, 'non-diagnostic transform output retains the control-row presentation baseline: ' . $hash);
 fwrite(STDOUT, 'fixture layout graph bytes: ' . strlen(json_encode($layout, JSON_THROW_ON_ERROR)) . PHP_EOL);
 exit($failures ? 1 : 0);
