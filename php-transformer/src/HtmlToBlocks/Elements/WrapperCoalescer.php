@@ -100,6 +100,13 @@ final class WrapperCoalescer
             $ancestorChain[] = array('block' => $cursor, 'descriptor' => $descriptor);
             $cursor = $cursor['innerBlocks'][0];
         }
+        // The branching wrapper is also transportable: its children become
+        // the shell's editable children. Stopping before it misses chains made
+        // of short runs separated by branches, despite their shared depth.
+        if (1 === count($ancestorChain) && null !== ($descriptor = $this->foldableWrapperDescriptor($cursor))) {
+            $ancestorChain[] = array('block' => $cursor, 'descriptor' => $descriptor);
+            $cursor = array('blockName' => 'core/freeform', 'innerBlocks' => ArrayField::array($cursor, 'innerBlocks'));
+        }
         if (2 <= count($ancestorChain)
             && ($depth - 1 + $this->nativeBlockHeight($block) > self::MAX_NATIVE_WRAPPER_DEPTH
                 || count($ancestorChain) >= self::MAX_NATIVE_WRAPPER_DEPTH)) {
