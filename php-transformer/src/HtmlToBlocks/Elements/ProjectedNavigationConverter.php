@@ -344,6 +344,15 @@ final class ProjectedNavigationConverter implements ElementConverter
             'padding-bottom',
             'padding-left',
         );
+        // The replacement opener occupies the collapsed control's box, not
+        // its desktop box. Resolve mobile variables before testing whether the
+        // authored dimensions make a synthetic touch-target floor unnecessary.
+        $sourceDeclarations = array_replace($sourceDeclarations, $this->styleResolver->authorViewport->collapsed($toggle, $geometryProperties));
+        foreach ( $geometryProperties as $property ) {
+            if ( isset($sourceDeclarations[$property]) ) {
+                $sourceDeclarations[$property] = $this->styleResolver->resolveCssVariablesAtViewport($sourceDeclarations[$property], $toggle, StyleResolver::MOBILE_REFERENCE_WIDTH);
+            }
+        }
         // Button presentation already owns its margins; a select only supplies geometry.
         if ( $isJumpMenu ) {
             $geometryProperties = array_merge($geometryProperties, array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left'));
@@ -384,6 +393,9 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ($hasIntrinsicBox && null === $source) {
             foreach ($toggle->getElementsByTagName('*') as $child) {
                 $box = $this->styleResolver->cascade->collapsedViewportDeclarations($child, array('width', 'height'));
+                foreach ( $box as $property => $value ) {
+                    $box[$property] = $this->styleResolver->resolveCssVariablesAtViewport($value, $child, StyleResolver::MOBILE_REFERENCE_WIDTH);
+                }
                 if ($this->nativeNavigationToggleDimensionIsUsable($box['width'] ?? '') && $this->nativeNavigationToggleDimensionIsUsable($box['height'] ?? '')) {
                     if (!$hasUsableWidth) $declarations[] = 'width:' . $box['width'] . '!important';
                     if (!$hasUsableHeight) $declarations[] = 'height:' . $box['height'] . '!important';
@@ -1758,6 +1770,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             $lengths = array();
             foreach ( array( 'width', 'height' ) as $property ) {
                 $value = CssValueInspector::withoutImportant(trim((string) ($declarations[$property] ?? '')));
+                $value = $this->styleResolver->resolveCssVariablesAtViewport($value, $child, StyleResolver::MOBILE_REFERENCE_WIDTH);
                 if ( 1 === preg_match('/^(\d+(?:\.\d+)?|\.\d+)(em|rem)$/i', $value, $matches) ) {
                     $fontSize ??= $this->nativeNavigationToggleFontSize($child);
                     $value = rtrim(rtrim(sprintf('%.3F', (float) $matches[1] * ( 'rem' === strtolower($matches[2]) ? 16.0 : $fontSize )), '0'), '.') . 'px';
@@ -1799,6 +1812,13 @@ final class ProjectedNavigationConverter implements ElementConverter
 
     private function nativeNavigationToggleDimensionIsUsable(string $value): bool
     {
+        // Variable resolution can leave a definite CSS math length. Preserve
+        // that authored box rather than imposing a larger fallback minimum.
+        if ( preg_match('/^(?:max|min|clamp|calc)\(/', $value)
+            && str_contains($value, 'px')
+            && ! preg_match('/[^0-9.\s()+*,\/%pxvwhremintacl-]/', $value) ) {
+            return true;
+        }
         if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)px$/', $value, $matches) ) {
             return false;
         }
