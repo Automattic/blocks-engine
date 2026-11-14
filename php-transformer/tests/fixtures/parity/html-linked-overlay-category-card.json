@@ -16,27 +16,114 @@
     "content": "<div class=\"category-grid\"><a class=\"category-card overlay-card\" href=\"/category/design\" aria-label=\"Read design category\"><div class=\"card__bg\"><img src=\"/images/design.jpg\" alt=\"Design desk\"></div><div class=\"overlay\"><p class=\"category-card__label\">Design</p><h2>Sharp Visual Systems</h2><p>Patterns for expressive page sections.</p></div></a><a class=\"category-card overlay-card\" href=\"/category/build\"><div class=\"card__bg\"><img src=\"/images/build.jpg\" alt=\"Build tools\"></div><div class=\"content\"><p class=\"category-card__label\">Build</p><h2>Production Workflows</h2><p>Ship reliable experiences from compiled artifacts.</p></div></a></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "category-grid" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "custom/layout-shell", "attrs": { "wrappers": [{ "tagName": "a", "attributes": { "aria-label": "Read design category", "class": "category-card overlay-card", "href": "/category/design" } }] } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "card__bg" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "overlay" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "custom/layout-shell" },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "card__bg" } },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/group", "attrs": { "className": "content" } }
+    {
+      "path": "blocks.0",
+      "name": "core/group",
+      "attrs": {
+        "className": "category-grid"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/group",
+      "attrs": {
+        "className": "category-card overlay-card blocks-engine-stretched-link"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.0.innerBlocks.0",
+      "name": "core/group",
+      "attrs": {
+        "className": "card__bg"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.0.innerBlocks.1",
+      "name": "core/group",
+      "attrs": {
+        "className": "overlay"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.1",
+      "name": "core/group"
+    },
+    {
+      "path": "blocks.0.innerBlocks.1.innerBlocks.0",
+      "name": "core/group",
+      "attrs": {
+        "className": "card__bg"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.1.innerBlocks.1",
+      "name": "core/group",
+      "attrs": {
+        "className": "content"
+      }
+    }
   ],
   "expected_fallbacks": [],
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "Sharp Visual Systems" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "Production Workflows" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "card__bg" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a aria-label=\"Read design category\" class=\"category-card overlay-card\" href=\"/category/design\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"category-card overlay-card\" href=\"/category/build\">" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "<a href=\"/category/design\"><img" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"ariaLabel\"" },
-    { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "blocks",
+      "assert": "count",
+      "count": 1
+    },
+    {
+      "path": "blocks.0.innerBlocks",
+      "assert": "count",
+      "count": 2
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "Sharp Visual Systems"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "Production Workflows"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "card__bg"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<a href=\"/category/design\">"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<a href=\"/category/build\">"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "<a href=\"/category/design\"><img"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "\"ariaLabel\""
+    },
+    {
+      "path": "fallbacks",
+      "assert": "count",
+      "count": 0
+    },
+    {
+      "path": "coverage.0.fallback_count",
+      "assert": "equals",
+      "value": 0
+    }
   ]
 }

@@ -576,6 +576,14 @@ final class EngineSupportCss
                 . "\n" . ':root .blocks-engine-layout-table-cell .blocks-engine-synthetic-image-figure-inline{display:contents;margin:0}'
                 . "\n" . '.blocks-engine-layout-table-cell :where(.blocks-engine-synthetic-image-figure-inline) img{display:inline;max-width:none;vertical-align:baseline}';
         }
+        if ( str_contains($serializedBlocks, LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS) ) {
+            // One shared rule per site, independent of the number of cards.
+            $group = '.' . LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS;
+            $link = '.' . LinkWrapperPropagator::STRETCHED_LINK_CARRIER_CLASS . '>a';
+            $parts[] = $group . '{position:relative}'
+                . $link . '{color:inherit;text-decoration:inherit}'
+                . $link . '::after{content:"";position:absolute;inset:0}';
+        }
         if ( str_contains($serializedBlocks, LinkWrapperPropagator::PROPAGATED_LINK_CARRIER_CLASS) ) {
             // A propagated card link wraps all of the block's source children.
             // Layout-transparent, so the source element's flex/grid row still

@@ -339,7 +339,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
     }
 
     /**
-     * Preserve a flow-content link as an existing layout shell around editable
+     * Preserve a flow-content link as a stretched native card, or a layout shell around editable
      * inner blocks. Bare divs keep their line-box boundaries rather than being
      * coalesced across media. Phrasing-only buttons are handled upstream.
      * Media-only wrappers retain native image-link/lightbox handling; if no
@@ -350,7 +350,18 @@ final class AnchorLowering implements ButtonLinkLeftovers
      */
     public function convertLinkWrapperGroup(DOMElement $anchor, array &$fallbacks): ?array
     {
-        $children = $this->tree->children($anchor, $fallbacks, true, $this->sourceElementClassifier->isFlowContentAnchor($anchor));
+        $interactive = false;
+        foreach ( array('a', 'button', 'input', 'select', 'textarea') as $tag ) {
+            if ( 0 < $anchor->getElementsByTagName($tag)->length ) {
+                $interactive = true;
+                break;
+            }
+        }
+        $preserveContainers = $interactive || '' === LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'));
+        $children = $this->tree->children($anchor, $fallbacks, true, $preserveContainers && $this->sourceElementClassifier->isFlowContentAnchor($anchor));
+        if ( array() === $children && $this->sourceElementClassifier->isFlowContentAnchor($anchor) ) {
+            $children = $this->tree->children($anchor, $fallbacks, true, true);
+        }
         if ( array() === $children ) {
             return null;
         }
@@ -363,10 +374,18 @@ final class AnchorLowering implements ButtonLinkLeftovers
         if ( $this->imageLowering->imageLinkOpensNativeLightbox($anchor) && $this->imageLowering->enableNativeLightboxOnImages($children) ) {
             return $this->blocks->createBlock('core/group', $this->styleResolver->presentationAttributes($anchor), $children, $anchor);
         }
-        // Keep a flow-content anchor as one clickable container. The existing
-        // layout shell saves exact wrapper attributes around editable blocks;
-        // unlike link propagation it also retains ancestor selectors and hitbox.
+        // Native cards use one RichText destination and a stretched hitbox.
+        // Retain the exact wrapper when another control needs its own hitbox,
+        // or when there is no editable text that can own the destination.
+        $stretched = false;
         if ( $this->sourceElementClassifier->isFlowContentAnchor($anchor) ) {
+            $stretched = ! $interactive && array() !== $linkAttrs
+                && $this->linkWrapperPropagator->propagateStretchedLink($children, $linkAttrs);
+        }
+        if ( $this->sourceElementClassifier->isFlowContentAnchor($anchor) && ! $stretched ) {
+            if ( ! $preserveContainers ) {
+                $children = $this->tree->children($anchor, $fallbacks, true, true);
+            }
             $href = LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'));
             if ( '' === $href ) {
                 $anchor->removeAttribute('href');
@@ -375,13 +394,16 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
             return $this->layoutShells->blockForElements(array($anchor), $children, $anchor);
         }
-        if ( array() !== $linkAttrs && ! $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs) ) {
+        if ( ! $stretched && array() !== $linkAttrs && ! $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs) ) {
             $this->recordDroppedLinkWrapper($anchor);
         }
         // The link now lives on the children, so the group is the anchor's box.
         // An author rule that selects the anchor (a card link laid out as a
         // flex column) must follow it onto the group via a semantic marker.
         $attrs = $this->styleResolver->presentationAttributes($anchor);
+        if ( $stretched ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS);
+        }
         $path = $anchor->getNodePath() ?? '';
         $projections = $this->session->authorSelectorProjectionState();
         if ( '' !== $path && $projections->isControlPath($path) ) {

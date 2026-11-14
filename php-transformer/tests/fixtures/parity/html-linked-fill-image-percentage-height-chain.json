@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<html><head><style>.card-grid{display:grid;grid-template-columns:1fr 1fr;grid-column-gap:32px}.card{display:flex;flex-flow:column;grid-row-gap:16px;text-decoration:none}.media{position:relative;width:100%;min-height:300px;border-radius:10px;overflow:hidden}.fill{position:absolute;inset:0%;width:100%;height:100%;object-fit:cover}.fill.top-crop{object-position:50% 0%}</style></head><body><div class=\"card-grid\"><a class=\"card\" href=\"/venues\"><div class=\"media\"><img src=\"https://example.com/venue.jpg\" width=\"2400\" height=\"1350\" alt=\"Venue\" class=\"fill top-crop\"></div><div class=\"card-body\"><h3>Global Partner Venues</h3></div></a><div class=\"card\"><div class=\"media\"><img src=\"https://example.com/offsite.jpg\" width=\"2400\" height=\"1350\" alt=\"Off-sites\" class=\"fill top-crop\"></div><div class=\"card-body\"><h3>Off-Sites</h3></div></div></div></body></html>"
+    "content": "<html><head><style>.card-grid{display:grid;grid-template-columns:1fr 1fr;grid-column-gap:32px}.card{display:flex;flex-flow:column;grid-row-gap:16px;text-decoration:none}.media{position:relative;width:100%;min-height:300px;border-radius:10px;overflow:hidden}.fill{position:absolute;inset:0%;width:100%;height:100%;object-fit:cover}.fill.top-crop{object-position:50% 0%}</style></head><body><div class=\"card-grid\"><a href=\"/venues\"><div class=\"media\"><img src=\"https://example.com/venue.jpg\" width=\"2400\" height=\"1350\" alt=\"Venue\" class=\"fill top-crop\"></div><div class=\"card-body\"><h3>Global Partner Venues</h3></div></a><div class=\"card\"><div class=\"media\"><img src=\"https://example.com/offsite.jpg\" width=\"2400\" height=\"1350\" alt=\"Off-sites\" class=\"fill top-crop\"></div><div class=\"card-body\"><h3>Off-Sites</h3></div></div></div></body></html>"
   },
   "expected_fallbacks": [],
   "expect": [
@@ -30,7 +30,7 @@
     {
       "path": "serialized_blocks",
       "assert": "contains",
-      "value": "<a class=\"card\" href=\"/venues\">"
+      "value": "<a href=\"/venues\">"
     },
     {
       "path": "serialized_blocks",
