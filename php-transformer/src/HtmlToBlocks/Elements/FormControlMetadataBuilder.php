@@ -1006,7 +1006,13 @@ final class FormControlMetadataBuilder
                     continue;
                 }
             }
-            if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden')) ) {
+            // Provider help text is always rendered. Copy hidden by the source
+            // (for example, validation feedback) must stay in its original
+            // context, not become a permanently visible field description.
+            if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden'))
+                || $this->styleResolver?->isVisuallyHiddenAtRest($node)
+                || null !== $this->hiddenState($node, $wrapper)
+            ) {
                 continue;
             }
             $alreadyCounted = false;
