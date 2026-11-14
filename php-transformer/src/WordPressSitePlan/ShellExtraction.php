@@ -2036,7 +2036,7 @@ final class ShellExtraction
             foreach ($partIndex->tokens() as $token) {
                 if ($token['closing']) continue;
                 $attrs = json_decode($token['attributes'], true);
-                if ('header' === ($attrs['tagName'] ?? null) && !empty($attrs['anchor'])) $anchors[$attrs['anchor']] = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
+                if ('header' === ($attrs['tagName'] ?? null) && !empty($attrs['anchor'])) $anchors[$attrs['anchor']] = true;
             }
             if (array() === $anchors) continue;
             foreach ($pages as $index => $page) {
@@ -2050,10 +2050,10 @@ final class ShellExtraction
                 $row = $rows[0];
                 $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($row['markup']))->tokens();
                 $attrs = json_decode($tokens[0]['attributes'] ?? '', true);
-                // Descendant state (for example the selected navigation item)
-                // is not a new landmark design. Only lift a variant when the
-                // landmark box itself has a different compiled presentation.
-                if (!isset($anchors[$attrs['anchor'] ?? '']) || array($attrs['style'] ?? array(), $attrs['className'] ?? '') === $anchors[$attrs['anchor']]) continue;
+                // Descendant presentation also belongs to this route's shell.
+                // Preserve the entire compiled landmark rather than normalizing
+                // its paint against the dominant route.
+                if (!isset($anchors[$attrs['anchor'] ?? ''])) continue;
                 if (self::textRuns($row['markup']) !== self::textRuns($part['canonical_block_markup'])) continue;
                 $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
                 if ($bindings['blocked'] || array() !== $bindings['refs']) continue;

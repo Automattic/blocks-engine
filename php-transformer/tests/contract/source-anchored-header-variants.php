@@ -25,17 +25,23 @@ foreach ($plan['pages'] as $page) {
     if (null === $part || !str_contains($part['canonical_block_markup'], 'padding-top:')) throw new RuntimeException('The route-specific header retains its exact presentation at its authored position.');
     if (array('about.html') !== $part['placement']['source_paths']) throw new RuntimeException('The variant applies only to its source route.');
 }
-// A matching source anchor alone does not prove a route-local landmark
-// design. Paint on a descendant must keep the existing page-owned fallback.
+// Route-specific descendant paint is still site chrome. Extract it without
+// substituting the dominant header or changing its authored presentation.
 foreach ($files as $source => &$html) {
     $html = str_replace(' style="padding:37px;background:#123456"', '', $html);
     $html = str_replace('<p>Our site</p>', '<section class="bar' . ('about.html' === $source ? ' is-pinned' : '') . '"><p>Our site</p></section>', $html);
     $html = str_replace('<body>', '<head><style>.bar{background:#123}.bar.is-pinned{background:#900}</style></head><body>', $html);
 }
 unset($html);
-$negative = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
-$headers = array_filter($negative['template_parts'], static fn(array $part): bool => 'header' === $part['area']);
-if (1 !== count($headers)) throw new RuntimeException('Descendant state must not manufacture another header part.');
-$about = array_column($negative['pages'], 'canonical_block_markup', 'source_path')['about.html'];
-if (!str_contains($about, 'Our site')) throw new RuntimeException('Descendant-only paint retains its page-owned fallback.');
+$descendant = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+WordPressSitePlan::assertValid($descendant);
+$headers = array_filter($descendant['template_parts'], static fn(array $part): bool => 'header' === $part['area']);
+if (2 !== count($headers)) throw new RuntimeException('Descendant paint needs a route-local header part.');
+$about = array_column($descendant['pages'], 'canonical_block_markup', 'source_path')['about.html'];
+if (str_contains($about, 'Our site') || str_contains($about, '<header')) throw new RuntimeException('Route-local site chrome must not remain page-owned.');
+$variants = array_values(array_filter($headers, static fn(array $part): bool => array('about.html') === ($part['placement']['source_paths'] ?? array())));
+if (1 !== count($variants) || !str_contains($variants[0]['canonical_block_markup'], 'is-pinned')) throw new RuntimeException('The route-local descendant class must survive extraction.');
+foreach ($headers as $header) {
+    if ($header['slug'] !== $variants[0]['slug'] && str_contains($header['canonical_block_markup'], 'is-pinned')) throw new RuntimeException('Route-local paint must not leak into the dominant header.');
+}
 echo "source-anchored header variants passed\n";
