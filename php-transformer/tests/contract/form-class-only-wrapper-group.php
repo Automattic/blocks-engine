@@ -15,6 +15,7 @@ $cases = array(
 $html = '<html><body><form method="post">';
 foreach ($cases as $class => $case) $html .= '<div class="' . $class . '"' . $case['attributes'] . '>' . $case['control'] . '</div>';
 $html .= '<div class="outer"><div class="inner"><label for="nested">Nested</label><input id="nested" name="nested"></div></div>';
+$html .= '<label for="phone">Phone</label><div class="phone-root"><div class="phone-frame"><button type="button" aria-label="Select a country code" aria-haspopup="listbox">+1</button><input id="phone" name="phone" type="tel"></div></div>';
 $html .= '<label class="agree" for="agree"><input id="agree" type="checkbox" name="agree" required> I agree</label>';
 $html .= '<button type="submit">Send</button></form></body></html>';
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
@@ -66,6 +67,9 @@ $assert(!str_contains(json_encode($outer), 'layout-shell'), 'No generated shell 
 $assert(str_contains($outer['innerContent'][0] ?? '', 'wp-block-group outer')
     && str_contains($inner['innerContent'][0] ?? '', 'wp-block-group inner'), 'Both source classes survive in saved native wrapper markup.');
 $assert(!isset($inner['innerBlocks'][0]['_form_field_box']), 'The consumed inner field box is not duplicated below the native chain.');
+$phone = $blocks['phone-root'] ?? array();
+$assert(str_ends_with($phone['blockName'] ?? '', '/layout-shell'), 'Composite phone frames retain the provider shell transport.');
+$assert(2 === count($phone['attrs']['wrappers'] ?? array()), 'The phone shell transports both source frames together.');
 // A class-only label framing its own checkbox is the control's field box.
 $agree = $blocks['agree'] ?? array();
 $assert('core/group' === ($agree['blockName'] ?? null) && !str_contains(json_encode($agree), 'layout-shell'), 'A class-only label field box becomes a native group.');

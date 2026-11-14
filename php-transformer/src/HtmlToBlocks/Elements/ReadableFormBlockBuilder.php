@@ -385,8 +385,10 @@ final class ReadableFormBlockBuilder
                     && null === $controlBox;
                 // An unowned chain of ordinary class-only div boxes has a
                 // native representation too. Keep control-box transport intact:
-                // providers replace that box together with its control.
-                $nativeChain = null === $controlBox && count($elements) > 1;
+                // providers replace that box together with its control. Multiple
+                // children can be a composite control (country trigger + phone),
+                // whose shared frame must remain in the shell transport.
+                $nativeChain = null === $controlBox && 1 === count($inner) && count($elements) > 1;
                 foreach ($elements as $source) {
                     $nativeChain = $nativeChain && 'div' === strtolower($source->tagName)
                         && 1 === $source->attributes->length && $source->hasAttribute('class');
