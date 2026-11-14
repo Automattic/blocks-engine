@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -41,11 +42,7 @@ final class SpacerPattern implements PatternRecognizerInterface
     }
     public static function heightFromStyle(string $style): string
     {
-        if ( ! preg_match('/(?:^|;)\s*height\s*:\s*([^;]+)/i', $style, $matches) ) {
-            return '';
-        }
-
-        $height = trim($matches[1]);
+        $height = SourceDeclarations::parse($style)['height'] ?? '';
         if ( '' === $height || preg_match('/[{}]/', $height) || strlen($height) > 80 ) {
             return '';
         }

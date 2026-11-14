@@ -206,7 +206,9 @@ final class ColumnsPattern implements PatternRecognizerInterface
         // the wrong direction. Decline here so the host transformer routes the
         // element to a vertical core/group instead, preserving its classes and
         // styles. Horizontal flex (row / row-reverse / default) remains eligible.
-        if ( $this->isVerticalFlexContainer($style) ) {
+        // flex-direction only has meaning on a flex container; a vertical one
+        // stacks its children, so it is not a horizontal columns row.
+        if ( CssValueInspector::isFlexColumn(SourceDeclarations::parse($style)) ) {
             return false;
         }
 

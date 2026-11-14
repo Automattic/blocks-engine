@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -149,8 +150,9 @@ final class FormControlMetadataBuilder
                 $output['id'] = $status->getAttribute('id');
             }
             foreach ( array('top', 'bottom') as $side ) {
-                if ( preg_match('/(?:^|;)\s*margin-' . $side . '\s*:\s*(-?[0-9]+(?:\.[0-9]+)?(?:px|em|rem|vh|vw|%)|0)\s*(?:;|$)/i', $status->getAttribute('style'), $match) ) {
-                    $output['margin_' . $side] = $match[1];
+                $margin = SourceDeclarations::inline($status)['margin-' . $side] ?? '';
+                if ( preg_match('/^(?:-?[0-9]+(?:\.[0-9]+)?(?:px|em|rem|vh|vw|%)|0)$/Di', $margin) ) {
+                    $output['margin_' . $side] = $margin;
                 }
             }
             $metadata['trailing_status'] = $output;

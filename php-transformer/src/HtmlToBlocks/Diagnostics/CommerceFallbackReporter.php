@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -1304,7 +1306,7 @@ final class CommerceFallbackReporter
                 return '';
             }
             $hidden = $hidden || $node->hasAttribute('hidden')
-                || 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i', SourceDom::attr($node, 'style'));
+                || CssValueInspector::hidesBox(SourceDeclarations::inline($node));
         }
 
         return $hidden ? 'site_chrome' : '';

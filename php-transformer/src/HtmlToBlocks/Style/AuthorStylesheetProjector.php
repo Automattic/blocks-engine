@@ -989,7 +989,7 @@ final class AuthorStylesheetProjector
         // Centered source dropdown boxes are desktop presentation, not Core's
         // open-overlay stack. Keep the authored rule outside that stack rather
         // than relying on a later, higher-specificity alignment override.
-        if ( preg_match('/(?:^|;)\s*(?:text-align|align-items|justify-content)\s*:\s*center\b/i', $body) ) {
+        if ( self::anyDeclaredAs($body, array( 'text-align', 'align-items', 'justify-content' ), array( 'center' )) ) {
             $submenuOnly = true;
             $found = false;
             foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
@@ -1429,9 +1429,24 @@ final class AuthorStylesheetProjector
         return $this->hasNativeButtonGeometryDeclaration($body, $element);
     }
 
+    /**
+     * @param list<string> $properties
+     * @param list<string> $values
+     */
+    private static function anyDeclaredAs(string $body, array $properties, array $values): bool
+    {
+        foreach ( CssRuleAnalyzer::declarations($body, $properties) as [ 'value' => $value ] ) {
+            if ( in_array(CssValueInspector::comparable($value), $values, true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function hasNativeButtonGeometryDeclaration(string $body, ?DOMElement $element = null): bool
     {
-        if ( preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)/i', $body) && preg_match('/(?:^|;)\s*(?:width|height)\s*:\s*0(?:[;\s]|$)/i', $body) ) {
+        if ( self::anyDeclaredAs($body, array( 'position' ), array( 'absolute', 'fixed' )) && self::anyDeclaredAs($body, array( 'width', 'height' ), array( '0' )) ) {
             return true;
         }
         foreach ( CssRuleAnalyzer::declarationList($body) as [ 'name' => $property, 'value' => $value ] ) {

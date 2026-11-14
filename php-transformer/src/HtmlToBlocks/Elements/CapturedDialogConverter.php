@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
@@ -102,7 +105,7 @@ final class CapturedDialogConverter implements ElementConverter
             return $style;
         }
         foreach ( $this->styleResolver->capturedDialogOpenStateValues($element) as $property => $value ) {
-            if ( 1 === preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:/i', $style) ) {
+            if ( array() !== CssRuleAnalyzer::declarations($style, array( $property )) ) {
                 continue;
             }
             $style = rtrim($style, "; \t\n") . ('' === $style ? '' : ';') . $property . ':' . $value;
@@ -124,7 +127,9 @@ final class CapturedDialogConverter implements ElementConverter
             return '';
         }
 
-        return 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/i', $this->styleResolver->specificityResolvedPresentationStyle($element)) ? 'source' : '';
+        $position = CssValueInspector::declared(SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element)), 'position');
+
+        return in_array($position, array( 'fixed', 'absolute' ), true) ? 'source' : '';
     }
 
     /**

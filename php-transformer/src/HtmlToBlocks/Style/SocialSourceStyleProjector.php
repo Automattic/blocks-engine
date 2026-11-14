@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -143,7 +144,7 @@ final class SocialSourceStyleProjector
         foreach ($nodes as $node) {
             if (!in_array(strtolower($node->tagName), self::ARTWORK_SHAPES, true)) return false;
             $stroke = strtolower(trim($node->getAttribute('stroke')));
-            if (('' !== $stroke && 'none' !== $stroke) || 1 === preg_match('/(?:^|;)\s*stroke\s*:\s*(?!none)/i', $node->getAttribute('style'))) return false;
+            if (('' !== $stroke && 'none' !== $stroke) || array() !== array_filter(CssRuleAnalyzer::declarations($node->getAttribute('style'), array('stroke')), static fn (array $declaration): bool => ! str_starts_with(CssValueInspector::comparable($declaration['value']), 'none'))) return false;
             $fill = self::artworkFill($node);
             if (str_starts_with($fill, 'url(')) return false;
             if (!in_array($fill, array('', 'currentcolor', 'none', 'inherit'), true)) $paints[$fill] = true;
@@ -154,7 +155,8 @@ final class SocialSourceStyleProjector
     /** The element's own fill; a style declaration wins over the attribute. */
     private static function artworkFill(DOMElement $node): string
     {
-        if (1 === preg_match('/(?:^|;)\s*fill\s*:\s*([^;!]+)/i', $node->getAttribute('style'), $match)) return strtolower(trim($match[1]));
+        $declaration = CssRuleAnalyzer::declarations($node->getAttribute('style'), array('fill'))[0] ?? null;
+        if (null !== $declaration) return CssValueInspector::comparable($declaration['value']);
         return strtolower(trim($node->getAttribute('fill')));
     }
 
