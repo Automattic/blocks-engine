@@ -46,11 +46,12 @@ final class ListingQueryLoops
 
     /**
      * @param array<int,array<string,mixed>> $pages
+     * @param array<string,list<string>> $foldedListingRoutes Captured numbered routes by owning source.
      * @param bool $postChromeSettled Whether shared shells and article chrome
      *        have been factored out, so post content is final.
      * @return array<int,array<string,mixed>>
      */
-    public function materialize(array $pages, array $runtimeDeclarations = array(), array $taxonomyEntities = array(), bool $postChromeSettled = false): array
+    public function materialize(array $pages, array $runtimeDeclarations = array(), array $taxonomyEntities = array(), bool $postChromeSettled = false, array $foldedListingRoutes = array()): array
     {
         $postsByParent = array();
         $postsByArchive = array();
@@ -113,7 +114,8 @@ final class ListingQueryLoops
                     $previous = $date;
                 }
             }
-            $replaced = $this->replaceMarkup($sourceListingMarkup, $posts, $fields, isset($postsByArchive[$page['source_path']]), null !== $sectionRoute ? $sections[$sectionRoute]['slug'] : null);
+            $consumedMenus = array();
+            $replaced = $this->replaceMarkup($sourceListingMarkup, $posts, $fields, isset($postsByArchive[$page['source_path']]), null !== $sectionRoute ? $sections[$sectionRoute]['slug'] : null, $foldedListingRoutes[$page['source_path']] ?? array(), $consumedMenus);
             if (null === $replaced || $replaced === $page['canonical_block_markup']) {
                 $decline('unsafe_card_template');
                 continue;
@@ -135,7 +137,7 @@ final class ListingQueryLoops
             }
             // The query loop repeats the first card. A card menu the loop does
             // not render would be lost, so the listing stays as captured.
-            if (array() !== array_diff_key(NavigationEntityProjection::renderedMenus($page['canonical_block_markup']), NavigationEntityProjection::renderedMenus($replaced))) { $decline('card_menu_loss'); continue; }
+            if (array() !== array_diff_key(NavigationEntityProjection::renderedMenus($page['canonical_block_markup']), NavigationEntityProjection::renderedMenus($replaced), $consumedMenus)) { $decline('card_menu_loss'); continue; }
             $page['canonical_block_markup'] = $replaced;
             $page['content_hash'] = WordPressSitePlan::contentHash($replaced);
             $listingIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($sourceListingMarkup);
@@ -217,7 +219,7 @@ final class ListingQueryLoops
     }
 
     /** @param array<int,array<string,mixed>> $posts */
-    private function replaceMarkup(string $markup, array $posts, array &$fields = array(), bool $inheritQuery = false, ?string $sectionSlug = null): ?string
+    private function replaceMarkup(string $markup, array $posts, array &$fields = array(), bool $inheritQuery = false, ?string $sectionSlug = null, array $foldedRoutes = array(), array &$consumedMenus = array()): ?string
     {
         $documentIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $cards = $this->cardRanges($documentIndex, $posts, $inheritQuery ? 1 : 2);
@@ -230,13 +232,73 @@ final class ListingQueryLoops
         }
         $start = $cards[0]['offset'];
         $end = $cards[count($cards) - 1]['offset'] + $cards[count($cards) - 1]['length'];
-        $query = PostBlocks::query(count($cards), $template, $inheritQuery, $sectionSlug);
+        $pager = $this->sourcePagination($documentIndex, $foldedRoutes, $start, $end);
+        foreach ($pager['replacements'] as $replacement) $consumedMenus += NavigationEntityProjection::renderedMenus(substr($markup, $replacement['offset'], $replacement['length']));
+        $query = PostBlocks::query(count($cards), $template, $inheritQuery, $sectionSlug, $pager['markup']);
         $parent = $documentIndex->parent($cards[0]);
         if (is_array($parent) && 'columns' === PostBlocks::sourceBlockName(substr($markup, $parent['offset'], $parent['length']))) {
             $query = '<!-- wp:column --><div class="wp-block-column">' . $query . '</div><!-- /wp:column -->';
         }
-        $replaced = substr($markup, 0, $start) . $query . substr($markup, $end);
+        $replacements = $pager['replacements'];
+        $replacements[] = array('offset' => $start, 'length' => $end - $start, 'markup' => $query);
+        usort($replacements, static fn(array $a, array $b): int => $b['offset'] <=> $a['offset']);
+        $replaced = $markup;
+        foreach ($replacements as $replacement) $replaced = substr_replace($replaced, $replacement['markup'], $replacement['offset'], $replacement['length']);
         return $this->replaceArchives($replaced, $posts);
+    }
+
+    /**
+     * Consume only pager-only regions, and only alongside a native replacement.
+     *
+     * @param list<string> $foldedRoutes
+     * @return array{markup:string,replacements:list<array{offset:int,length:int,markup:string}>}
+     */
+    private function sourcePagination(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $foldedRoutes, int $start, int $end): array
+    {
+        $replacements = array();
+        $parts = array();
+        $labels = array();
+        $presentation = array('paginationArrow' => 'arrow', 'layout' => array('type' => 'flex'));
+        foreach ($index->ranges() as $range) {
+            if (array() === $foldedRoutes || ($range['offset'] < $end && $range['offset'] + $range['length'] > $start)) continue;
+            foreach ($replacements as $existing) if ($range['offset'] >= $existing['offset'] && $range['offset'] < $existing['offset'] + $existing['length']) continue 2;
+            $slice = substr($index->markup, $range['offset'], $range['length']);
+            $source = PostBlocks::sourceAttributes($slice);
+            $name = PostBlocks::sourceBlockName($slice);
+            // Do not consume an arbitrary surrounding group with unrelated copy.
+            if (!in_array($name, array('list', 'navigation', 'paragraph'), true) && 'nav' !== ($source['tagName'] ?? null)) continue;
+            $anchors = $this->anchors($slice);
+            $folded = false;
+            foreach ($anchors as $anchor) {
+                $matches = array_intersect(self::routeKeys($anchor['href']), $foldedRoutes);
+                $parent = PageRoute::paginationParent($foldedRoutes[0]);
+                if (array() === $matches && !in_array($parent, self::routeKeys($anchor['href']), true)) continue 2;
+                $folded = $folded || array() !== $matches;
+            }
+            if (!$folded) continue;
+            $text = implode(' ', array_column($anchors, 'text')) . ' ' . html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if (preg_match('/\b(?:previous|prev)\b|[«‹←]/iu', $text)) $parts['previous'] = true;
+            if (preg_match('/\b[0-9]+\b/u', $text)) $parts['numbers'] = true;
+            if (preg_match('/\bnext\b|[»›→]/iu', $text)) $parts['next'] = true;
+            foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
+                $rel = $node['attributes']['rel'] ?? '';
+                if ('prev' === $rel) $parts['previous'] = true;
+                if ('next' === $rel) $parts['next'] = true;
+            }
+            // The native control keeps the source's own previous/next wording.
+            foreach ($anchors as $anchor) {
+                $label = trim(preg_replace('/\s+/u', ' ', (string) $anchor['text']) ?? '');
+                if ('' === $label || preg_match('/^[0-9]+$/', $label)) continue;
+                if (preg_match('/\bnext\b|[»›→]/iu', $label)) $labels['next'] ??= $label;
+                elseif (preg_match('/\b(?:previous|prev)\b|[«‹←]/iu', $label)) $labels['previous'] ??= $label;
+            }
+            foreach (array('className', 'style', 'layout', 'metadata') as $key) if (isset($source[$key])) $presentation[$key] = $source[$key];
+            $replacements[] = array('offset' => $range['offset'], 'length' => $range['length'], 'markup' => '');
+        }
+        if (array() === $parts) return array('markup' => '', 'replacements' => array());
+        $markup = '<!-- wp:query-pagination ' . BlockAttributes::encode($presentation) . ' -->';
+        foreach (array('previous', 'numbers', 'next') as $part) if (isset($parts[$part])) $markup .= '<!-- wp:query-pagination-' . $part . (isset($labels[$part]) ? ' ' . BlockAttributes::encode(array('label' => $labels[$part])) : '') . ' /-->';
+        return array('markup' => $markup . '<!-- /wp:query-pagination -->', 'replacements' => $replacements);
     }
 
     /**
@@ -843,6 +905,10 @@ final class ListingQueryLoops
     {
         $anchors = array();
         foreach (HtmlMarkupParser::htmlMarkupNodes($html) as $node) {
+            if ('comment' === ($node['kind'] ?? null) && str_starts_with(trim((string) ($node['content'] ?? '')), 'wp:navigation-link ')) {
+                $attrs = BlockAttributes::decodeComment((string) $node['content']);
+                if (is_string($attrs['url'] ?? null)) $anchors[] = array('href' => $attrs['url'], 'text' => (string) ($attrs['label'] ?? ''));
+            }
             if ('tag' !== ($node['kind'] ?? null) || 'a' !== ($node['name'] ?? null) || !is_string($node['attributes']['href'] ?? null)) {
                 continue;
             }
