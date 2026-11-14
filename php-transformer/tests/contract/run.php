@@ -920,7 +920,7 @@ $assert('github' === ($socialLinksBlock['innerBlocks'][0]['attrs']['service'] ??
 $assert('GitHub' === ($socialLinksBlock['innerBlocks'][0]['attrs']['label'] ?? null) && 'Instagram' === ($socialLinksBlock['innerBlocks'][1]['attrs']['label'] ?? null), 'icon-only social links retain accessible profile labels');
 $socialLinksMarkup = (string) ($socialLinksResult['serialized_blocks'] ?? '');
 $assert(str_contains((string) ($socialLinksBlock['className'] ?? $socialLinksBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'image-backed social clusters use core logos-only presentation instead of adding provider backgrounds');
-$assert('normal' === ($socialLinksBlock['attrs']['size'] ?? null) && str_contains($socialLinksMarkup, 'normal has-normal-icon-size'), 'explicit source icon dimensions select the nearest core Social Links size preset');
+$assert('has-normal-icon-size' === ($socialLinksBlock['attrs']['size'] ?? null) && str_contains($socialLinksMarkup, 'has-normal-icon-size'), 'explicit source icon dimensions select the nearest core Social Links size preset');
 $assert('social-item' === ($socialLinksBlock['innerBlocks'][0]['attrs']['className'] ?? null), 'social-link children retain their structural item class where core renders it');
 $assert(str_contains((string) ($socialLinksBlock['attrs']['className'] ?? ''), 'blocks-engine-source-social-item-spacing'), 'structural social items mark the wrapper so source item spacing remains authoritative');
 $socialLinksCss = implode("\n", array_column($socialLinksResult['assets'] ?? array(), 'content'));
@@ -930,7 +930,7 @@ $assert(! str_contains($socialLinksMarkup, 'style="gap:') && ! str_contains($soc
 $assert('pass' === ($socialLinksResult['source_reports']['wp_block_validity']['status'] ?? ''), 'dynamic social-link children and their static parent remain WordPress-valid');
 
 $visibleSocialLabels = ( new HtmlTransformer() )->transform('<div class="social-links"><a href="https://github.com/Automattic/blocks-engine">Blocks Engine</a><a href="https://github.com/Automattic/static-site-importer">Static Site Importer</a></div>')->toArray();
-$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links blocks-engine-social-source-cluster has-visible-labels social-links blocks-engine-social-source-non-list"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
+$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links has-visible-labels social-links blocks-engine-social-source-non-list blocks-engine-social-source-cluster"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
 
 $spanSocialSource = '<span class="wsite-social wsite-social-default"><a class="wsite-social-item wsite-social-facebook" href="https://www.facebook.com/tasteandtravelitaly" aria-label="Facebook"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-twitter" href="//#" aria-label="Twitter"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-instagram" href="https://instagram.com/tasteandtravel_italy" aria-label="Instagram"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-mail" href="mailto:hello@example.com" aria-label="Mail"><span class="wsite-social-item-inner"></span></a></span>';
 $spanSocialResult = ( new HtmlTransformer() )->transform($spanSocialSource)->toArray();
@@ -939,7 +939,7 @@ $spanSocialServices = array_map(static fn(array $link): string => (string) ($lin
 $assert('core/social-links' === ($spanSocialBlock['blockName'] ?? null), 'inline social clusters convert to core/social-links instead of empty mark hooks');
 $assert(array( 'facebook', 'twitter', 'instagram', 'mail' ) === $spanSocialServices, 'explicit labeled social placeholders infer their service while mailto maps to mail', json_encode($spanSocialServices));
 $assert(str_contains((string) ($spanSocialBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'empty generated-content inners count as icon-only social presentation');
-$assert('small' === ($spanSocialBlock['attrs']['size'] ?? null), 'icon-font social clusters default to compact core size when source icons are not measured bitmaps');
+$assert('has-small-icon-size' === ($spanSocialBlock['attrs']['size'] ?? null), 'icon-font social clusters default to compact core size when source icons are not measured bitmaps');
 $assert(! str_contains((string) ($spanSocialResult['serialized_blocks'] ?? ''), '<mark'), 'icon-font inner spans are not lowered to mark');
 
 $placeholderSocialSource = '<style>.footer-social{display:flex;gap:14px}.footer-social a{display:inline-flex;width:32px;height:32px}</style><div class="footer-social"><a href="#" aria-label="LinkedIn"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="X / Twitter"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="YouTube"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="GitHub"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a></div>';

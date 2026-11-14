@@ -59,6 +59,31 @@ final class SocialSourceStyleProjector
                 }
             }
         });
+        // Literal private-use characters are icon-font artwork too. Keep the
+        // native provider SVG (the source font may not be installed), but move
+        // the glyph's painted box onto its native anchor.
+        if (!$fontGlyph) {
+            foreach ($anchor->getElementsByTagName('*') as $candidate) {
+                if (1 !== preg_match('/^[\s\x{E000}-\x{F8FF}]+$/u', $candidate->textContent) || '' === trim($candidate->textContent)) continue;
+                $properties = array_fill_keys(array('font-size', 'color', 'background-color', 'background', 'width', 'height', 'border-radius', 'display', 'justify-content', 'align-items'), true);
+                $target = ':root .' . $marker . '>a';
+                $source = SourceDom::elementSelector($candidate);
+                $targets->record($source, $target, 'padding:0');
+                $targets->record($source, $target . '>svg', 'width:1em;height:1em');
+                (new CssStylesheetTransformer())->visitStyleRules($author->combinedCss(), function (string $prelude, string $body, array $conditions) use ($candidate, $properties, $target, $source, $targets): void {
+                    $declarations = array_intersect_key(SourceDeclarations::verbatim($body), $properties);
+                    if (array() === $declarations) return;
+                    foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                        if ($this->sourceStyles->matches($candidate, $selector)) {
+                            $targets->record($source, $target, $this->styles->cssDeclarationString($declarations), $conditions);
+                        }
+                    }
+                });
+                $inline = array_intersect_key(SourceDeclarations::verbatim($candidate->getAttribute('style')), $properties);
+                if (array() !== $inline) $targets->record($source, $target, $this->styles->cssDeclarationString($inline));
+                return $attrs;
+            }
+        }
         if ($fontOnly && !$fontGlyph) return $originalAttrs;
         if ($glyph instanceof DOMElement) {
             if ($fontGlyph) {
