@@ -16,6 +16,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
 /**
@@ -339,6 +340,72 @@ final class AnchorLowering implements ButtonLinkLeftovers
     }
 
     /**
+     * Only editorial cards with a separate summary (or a visual and text-only
+     * label) opt into stretching. Keep media-led cards on the existing path:
+     * downstream listing and featured-image recognition needs their anchor.
+     * Header/navigation labels and icon rows are not editorial cards either.
+     */
+    private function isStretchedLinkCard(DOMElement $anchor): bool
+    {
+        if ( '' === LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'))
+            || ! $this->sourceElementClassifier->isFlowContentAnchor($anchor)
+            || str_contains(strtolower(SourceDom::attr($anchor, 'style')), 'text-decoration') ) {
+            return false;
+        }
+        for ( $parent = $anchor; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( in_array(strtolower($parent->tagName), array('header', 'nav', 'footer'), true)
+                || $parent->hasAttribute('itemscope') || $parent->hasAttribute('itemtype') ) {
+                return false;
+            }
+        }
+        foreach ( array('img', 'picture', 'video', 'audio', 'time') as $tag ) {
+            if ( 0 < $anchor->getElementsByTagName($tag)->length ) {
+                return false;
+            }
+        }
+        // An icon row leads with its SVG, and a heading may be drawn as one;
+        // a decorative icon inside the card's text (a "Read more" arrow) is
+        // neither, so it does not disqualify the card.
+        foreach ( $anchor->getElementsByTagName('svg') as $svg ) {
+            for ( $parent = $svg->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+                if ( $parent === $anchor || 1 === preg_match('/^h[1-6]$/', strtolower($parent->tagName)) ) {
+                    return false;
+                }
+                if ( $parent->parentNode === $anchor ) {
+                    break;
+                }
+            }
+        }
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p'), true) ) {
+                return false;
+            }
+        }
+        $hasSummary = false;
+        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant->hasAttribute('role') && in_array(strtolower($descendant->getAttribute('role')), array('button', 'link', 'checkbox', 'textbox', 'combobox'), true) ) {
+                return false;
+            }
+            if ( 'p' === strtolower($descendant->tagName)
+                && ! str_contains(SourceDom::attr($descendant, 'class'), 'blocks-engine-synthetic-paragraph') ) {
+                $hasSummary = true;
+            }
+        }
+        if ( ! $hasSummary ) {
+            return false;
+        }
+        // A lone wrapped label is not a card. Text-only cards need a heading;
+        // heading-less cards need a separate direct visual container.
+        foreach ( array('h2', 'h3', 'h4', 'h5', 'h6') as $tag ) {
+            if ( 0 < $anchor->getElementsByTagName($tag)->length ) {
+                return true;
+            }
+        }
+        return null !== SourceDom::firstChildElement($anchor, 'div')
+            && null !== SourceDom::firstChildElement($anchor, 'p');
+    }
+
+    /**
      * Preserve a flow-content link as a stretched native card, or a layout shell around editable
      * inner blocks. Bare divs keep their line-box boundaries rather than being
      * coalesced across media. Phrasing-only buttons are handled upstream.
@@ -357,7 +424,8 @@ final class AnchorLowering implements ButtonLinkLeftovers
                 break;
             }
         }
-        $preserveContainers = $interactive || '' === LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'));
+        $eligible = ! $interactive && $this->isStretchedLinkCard($anchor);
+        $preserveContainers = ! $eligible;
         $children = $this->tree->children($anchor, $fallbacks, true, $preserveContainers && $this->sourceElementClassifier->isFlowContentAnchor($anchor));
         if ( array() === $children && $this->sourceElementClassifier->isFlowContentAnchor($anchor) ) {
             $children = $this->tree->children($anchor, $fallbacks, true, true);
@@ -379,7 +447,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
         // or when there is no editable text that can own the destination.
         $stretched = false;
         if ( $this->sourceElementClassifier->isFlowContentAnchor($anchor) ) {
-            $stretched = ! $interactive && array() !== $linkAttrs
+            $stretched = $eligible && array() !== $linkAttrs
                 && $this->linkWrapperPropagator->propagateStretchedLink($children, $linkAttrs);
         }
         if ( $this->sourceElementClassifier->isFlowContentAnchor($anchor) && ! $stretched ) {
@@ -402,6 +470,10 @@ final class AnchorLowering implements ButtonLinkLeftovers
         // flex column) must follow it onto the group via a semantic marker.
         $attrs = $this->styleResolver->presentationAttributes($anchor);
         if ( $stretched ) {
+            $id = SourceDom::safeAnchor(SourceDom::attr($anchor, 'id'));
+            if ( '' !== $id ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), EngineMarker::editorAnchorClass($id));
+            }
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS);
         }
         $path = $anchor->getNodePath() ?? '';

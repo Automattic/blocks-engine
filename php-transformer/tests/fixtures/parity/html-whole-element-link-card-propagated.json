@@ -7,102 +7,27 @@
     "path": "tests/fixtures/parity/html-whole-element-link-card-propagated.json",
     "notes": "The source link and heading semantics survive without unsupported group href attributes."
   },
-  "legacy_comparison": {
-    "skip": true,
-    "reason": "This upstream primitive fixture has no downstream legacy comparison."
-  },
+  "legacy_comparison": { "skip": true, "reason": "This upstream primitive fixture has no downstream legacy comparison." },
   "operation": "html_transformer.transform",
-  "input": {
-    "content": "<a class=\"feature-card\" href=\"https://example.com/feature/\"><img src=\"/img/feature.jpg\" alt=\"Feature\"><h3>Feature Title</h3><p>Feature description text.</p></a>"
-  },
+  "input": { "content": "<a class=\"feature-card\" href=\"https://example.com/feature/\"><img src=\"/img/feature.jpg\" alt=\"Feature\"><h3>Feature Title</h3><p>Feature description text.</p></a>" },
   "expected_blocks": [
-    {
-      "path": "blocks.0",
-      "name": "core/group",
-      "attrs": {
-        "className": "feature-card blocks-engine-stretched-link"
-      }
-    },
-    {
-      "path": "blocks.0.innerBlocks.0",
-      "name": "core/image",
-      "attrs": {
-        "url": "/img/feature.jpg",
-        "alt": "Feature"
-      }
-    },
-    {
-      "path": "blocks.0.innerBlocks.1",
-      "name": "core/heading",
-      "attrs": {
-        "content": "<a href=\"https://example.com/feature/\">Feature Title</a>",
-        "level": 3
-      }
-    },
-    {
-      "path": "blocks.0.innerBlocks.2",
-      "name": "core/paragraph",
-      "attrs": {
-        "content": "Feature description text."
-      }
-    }
+    { "path": "blocks.0", "name": "custom/layout-shell", "attrs": { "wrappers": [{ "tagName": "a", "attributes": { "class": "feature-card", "href": "https://example.com/feature/" } }] } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "/img/feature.jpg", "alt": "Feature" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Feature Title", "level": 3 } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "content": "Feature description text." } }
   ],
   "expected_fallbacks": [],
   "expect": [
-    {
-      "path": "status",
-      "assert": "equals",
-      "value": "success"
-    },
-    {
-      "path": "blocks",
-      "assert": "count",
-      "count": 1
-    },
-    {
-      "path": "blocks.0.innerBlocks",
-      "assert": "count",
-      "count": 3
-    },
-    {
-      "path": "blocks.0.innerBlocks.0.attrs.href",
-      "assert": "equals",
-      "value": null
-    },
-    {
-      "path": "serialized_blocks",
-      "assert": "contains",
-      "value": "<a href=\"https://example.com/feature/\">"
-    },
-    {
-      "path": "serialized_blocks",
-      "assert": "not_contains",
-      "value": "<a href=\"https://example.com/feature/\"><img"
-    },
-    {
-      "path": "serialized_blocks",
-      "assert": "contains",
-      "value": "<a href=\"https://example.com/feature/\">Feature Title</a>"
-    },
-    {
-      "path": "serialized_blocks",
-      "assert": "contains",
-      "value": "<p>Feature description text.</p>"
-    },
-    {
-      "path": "source_reports.html.dropped_link_wrappers",
-      "assert": "count",
-      "count": 0
-    },
-    {
-      "path": "fallbacks",
-      "assert": "count",
-      "count": 0
-    },
-    {
-      "path": "coverage.0.fallback_count",
-      "assert": "equals",
-      "value": 0
-    }
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.0.attrs.href", "assert": "equals", "value": null },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"feature-card\" href=\"https://example.com/feature/\">" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<a href=\"https://example.com/feature/\"><img" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<h3 class=\"wp-block-heading\">Feature Title</h3>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p>Feature description text.</p>" },
+    { "path": "source_reports.html.dropped_link_wrappers", "assert": "count", "count": 0 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }
