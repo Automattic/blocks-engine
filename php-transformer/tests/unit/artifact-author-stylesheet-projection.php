@@ -561,6 +561,7 @@ foreach (array(
     'descendant img subject' => array('<div class="avatar"><img src="p.jpg" alt="a"></div>', '.avatar img{width:120px;height:120px;border-radius:50%}'),
     'later radius-less breakpoint rule' => array('<div class="avatar"><img src="p.jpg" alt="a"></div>', '.avatar img{width:120px;height:120px;border-radius:50%}@media (min-width:1px){.avatar img{width:100px;height:100px}}'),
     'mixed selector list' => array('<img class="photo" src="p.jpg" alt="a"><div class="avatar"><img src="p.jpg" alt="b"></div>', '.photo,.avatar img{width:120px;height:120px;border-radius:50%}'),
+    'universal rule over a linked logo' => array('<a class="brand" href="/"><img src="p.jpg" alt="a"></a>', '*{box-sizing:border-box}.brand img{height:58px;width:auto;border-radius:50%}'),
 ) as $case => [$radiusHtml, $radiusCss]) {
     $radius = ( new ArtifactCompiler() )->compile(array(
         'files' => array(
