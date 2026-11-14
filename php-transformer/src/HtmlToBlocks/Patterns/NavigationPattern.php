@@ -12,6 +12,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InertScaffoldingSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
@@ -1656,8 +1658,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $boundary = $navigationContext->menuCollapseBreakpoint($row, $fold->triggers[0]);
         $below = null === $boundary || $boundary <= 600 ? 599 : (int) floor($boundary);
         $display = 'flex';
-        if ( 1 === preg_match('/(?:^|;)\s*display\s*:\s*(flex|inline-flex|grid|block)\b/i', $navigationContext->resolvedStyle($row), $match) ) {
-            $display = strtolower($match[1]);
+        $declaredDisplay = CssValueInspector::declared(SourceDeclarations::parse($navigationContext->resolvedStyle($row)), 'display');
+        if ( in_array($declaredDisplay, array( 'flex', 'inline-flex', 'grid', 'block' ), true) ) {
+            $display = $declaredDisplay;
         }
         $hostRule = '.wp-block-group.%s{display:' . $display . '!important}'
             . '.wp-block-group.%s>.' . self::MENU_FOLD_HIDE_CLASS . '{display:none!important}';
@@ -1785,8 +1788,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $attrs;
         }
 
-        $style = $navigationContext->resolvedStyle($element);
-        if ( 1 === preg_match('/(?:^|;)\s*display\s*:\s*inline(?:-block|-flex)?(?:\s*!important)?\s*(?:;|$)/i', $style) ) {
+        $display = CssValueInspector::declared(SourceDeclarations::parse($navigationContext->resolvedStyle($element)), 'display');
+        if ( in_array($display, array( 'inline', 'inline-block', 'inline-flex' ), true) ) {
             return $this->withClassName($attrs, self::INLINE_NAVIGATION_CLASS);
         }
 
@@ -2056,8 +2059,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $style = $navigationContext->resolvedStyle($element);
-        if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style)
-            || ! preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style) ) {
+        if ( ! self::isFlexColumn(SourceDeclarations::parse($style)) ) {
             return $attrs;
         }
 
@@ -2116,7 +2118,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function isResolvedNavigationRow(DOMElement $list, NavigationPatternContext $navigationContext): bool
     {
         if ( in_array($navigationContext->resolvedDisplay($list), array( 'flex', 'inline-flex' ), true) ) {
-            return ! preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $navigationContext->resolvedStyle($list));
+            return ! in_array(CssValueInspector::declared(SourceDeclarations::parse($navigationContext->resolvedStyle($list)), 'flex-direction'), array( 'column', 'column-reverse' ), true);
         }
 
         $items = 0;
@@ -2136,8 +2138,8 @@ final class NavigationPattern implements PatternRecognizerInterface
     /** The source column's cross-axis alignment, in core's vertical-flex vocabulary. */
     private function verticalNavigationJustification(string $style): string
     {
-        if ( preg_match('/(?:^|;)\s*align-items\s*:\s*([^;]+)/', $style, $match) ) {
-            $value = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($match[1]))));
+        $value = CssValueInspector::declared(SourceDeclarations::parse($style), 'align-items');
+        if ( '' !== $value ) {
             if ( str_contains($value, 'flex-end') || preg_match('/(?:^|\s|,)(?:end|self-end)(?:\s|$|,)/', $value) ) {
                 return 'right';
             }
@@ -2205,7 +2207,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
             if ( '' !== $scope ) {
                 $declarations = 'flex-direction:row!important;justify-content:' . $justify . '!important';
-                if ( 1 === preg_match('/(?:^|;)\s*white-space\s*:\s*nowrap\b/i', $style) ) {
+                if ( 'nowrap' === CssValueInspector::declared(SourceDeclarations::parse($style), 'white-space') ) {
                     $declarations .= ';flex-wrap:nowrap!important';
                 }
                 $navigationContext->projectSourceToNativeTarget(
@@ -2221,17 +2223,12 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function listPackingJustification(string $style): string
     {
-        if ( 1 === preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/i', $style)
-            && 1 === preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/i', $style) ) {
+        $declarations = SourceDeclarations::parse($style);
+        if ( self::isFlexColumn($declarations) ) {
             return '';
         }
 
-        $declared = '';
-        if ( 1 === preg_match('/(?:^|;)\s*justify-content\s*:\s*([^;]+)/i', $style, $match) ) {
-            $declared = $this->cssDeclarationValue($match[1]);
-        } elseif ( 1 === preg_match('/(?:^|;)\s*text-align\s*:\s*([^;]+)/i', $style, $match) ) {
-            $declared = $this->cssDeclarationValue($match[1]);
-        }
+        $declared = CssValueInspector::declared($declarations, isset($declarations['justify-content']) ? 'justify-content' : 'text-align');
         if ( '' === $declared ) {
             return '';
         }
@@ -2248,9 +2245,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         return '';
     }
 
-    private function cssDeclarationValue(string $value): string
+    /** @param array<string, string> $declarations */
+    private static function isFlexColumn(array $declarations): bool
     {
-        return strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($value))));
+        return in_array(CssValueInspector::declared($declarations, 'display'), array( 'flex', 'inline-flex' ), true)
+            && in_array(CssValueInspector::declared($declarations, 'flex-direction'), array( 'column', 'column-reverse' ), true);
     }
 
     private function resolvedStyleDeclaresFamily(string $style, string $family): bool
@@ -2258,10 +2257,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         $property = match ( $family ) {
             'margin' => 'margin(?:-(?:top|right|bottom|left|inline|inline-start|inline-end|block|block-start|block-end))?',
             'padding' => 'padding(?:-(?:top|right|bottom|left|inline|inline-start|inline-end|block|block-start|block-end))?',
+            'clip' => 'clip(?:-path)?',
             default => preg_quote($family, '/'),
         };
 
-        return 1 === preg_match('/(?:^|;)\s*' . $property . '\s*:/i', $style);
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $name ] ) {
+            if ( 1 === preg_match('/^' . $property . '$/D', $name) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return array<string, mixed> */
@@ -2897,15 +2903,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         // not support: only display hidden everywhere proves the sibling inert,
         // unless it holds the navigation's recognized toggle (a mirrored jump
         // menu), which the native responsive navigation supersedes.
-        $displayHidden = 1 === preg_match('/(?:^|;)\s*display\s*:\s*none\s*(?:!important)?\s*(?:;|$)/', $style)
+        $declarations = SourceDeclarations::parse($style);
+        $declared = static fn (string $property): string => CssValueInspector::declared($declarations, $property);
+        $displayHidden = 'none' === $declared('display')
             && ( $navigationContext->isDisplayNoneAtEveryViewport($element)
                 || $navigationContext->holdsNavigationToggle($navigation, $element) );
         if ( $displayHidden
-            || 1 === preg_match('/(?:^|;)\s*visibility\s*:\s*hidden\s*(?:!important)?\s*(?:;|$)/', $style)
+            || 'hidden' === $declared('visibility')
             || (
-                1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\s*(?:!important)?\s*(?:;|$)/', $style)
-                && 1 === preg_match('/(?:^|;)\s*overflow\s*:\s*hidden\s*(?:!important)?\s*(?:;|$)/', $style)
-                && 1 === preg_match('/(?:^|;)\s*clip(?:-path)?\s*:/', $style)
+                in_array($declared('position'), array( 'absolute', 'fixed' ), true)
+                && 'hidden' === $declared('overflow')
+                && $this->resolvedStyleDeclaresFamily($style, 'clip')
             )
         ) {
             return true;
@@ -3769,7 +3777,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // rules instead; colours core keeps inline stay on the anchor.
         if (null !== $navigationContext && '' !== $subjectMarker
             && 0 !== $this->navigationColorStateMask($anchor, $navigationContext)
-            && preg_match('/(?:^|;)\s*color\s*:[^;]*\(/i', $anchor->getAttribute('style'))
+            && str_contains(SourceDeclarations::inline($anchor)['color'] ?? '', '(')
         ) {
             $resolvedTextColor = $this->navigationTextColorFromStyle($navigationContext->resolvedStyle($anchor));
             if ('' !== $resolvedTextColor) $itemAttrs['style']['color']['text'] = $resolvedTextColor;
@@ -4076,21 +4084,14 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function navigationTextColorFromStyle(string $style): string
     {
-        if ( 1 !== preg_match('/(?:^|;)\s*color\s*:\s*([^;]+)/i', $style, $match) ) {
-            return '';
-        }
-
-        return trim(preg_replace('/\s*!\s*important\s*$/i', '', $match[1]) ?? $match[1]);
+        return CssValueInspector::withoutImportant(SourceDeclarations::parse($style)['color'] ?? '');
     }
 
     private function navigationBackgroundColorFromStyle(string $style): string
     {
+        $declarations = SourceDeclarations::parse($style);
         foreach ( array( 'background-color', 'background' ) as $property ) {
-            if ( 1 !== preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:\s*([^;]+)/i', $style, $match) ) {
-                continue;
-            }
-
-            $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $match[1]) ?? $match[1]);
+            $value = CssValueInspector::withoutImportant($declarations[$property] ?? '');
             if ( preg_match('/^(?:#[0-9a-f]{3,8}|rgba?\([^;]+\)|hsla?\([^;]+\)|var\([^;]+\)|[a-z]+)$/i', $value) ) {
                 return $value;
             }
