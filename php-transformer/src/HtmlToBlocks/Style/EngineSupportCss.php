@@ -578,11 +578,14 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS) ) {
             // One shared rule per site, independent of the number of cards.
-            $group = '.' . LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS;
+            // The card's own author position wins (zero specificity), and the
+            // hitbox exists only on the front end so the editor keeps every
+            // inner block selectable.
+            $frontEnd = ':where(body:not(.editor-styles-wrapper):not(.wp-admin)) ';
             $link = '.' . LinkWrapperPropagator::STRETCHED_LINK_CARRIER_CLASS . '>a';
-            $parts[] = $group . '{position:relative}'
+            $parts[] = ':where(.' . LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS . '){position:relative}'
                 . $link . '{color:inherit;text-decoration:inherit}'
-                . $link . '::after{content:"";position:absolute;inset:0}';
+                . $frontEnd . $link . '::after{content:"";position:absolute;inset:0}';
         }
         if ( str_contains($serializedBlocks, LinkWrapperPropagator::PROPAGATED_LINK_CARRIER_CLASS) ) {
             // A propagated card link wraps all of the block's source children.

@@ -33,8 +33,8 @@ foreach ($cases as $name => [$content, $carrier, $shell]) {
         throw new RuntimeException($name . ': card identity and single preferred text destination must survive');
     }
     $css = implode("\n", array_column($out['assets'], 'content'));
-    if (1 !== substr_count($css, '.blocks-engine-stretched-link-carrier>a::after{content:"";position:absolute;inset:0}')
-        || !str_contains($css, '.blocks-engine-stretched-link{position:relative}')) {
+    if (1 !== substr_count($css, ':where(body:not(.editor-styles-wrapper):not(.wp-admin)) .blocks-engine-stretched-link-carrier>a::after{content:"";position:absolute;inset:0}')
+        || !str_contains($css, ':where(.blocks-engine-stretched-link){position:relative}')) {
         throw new RuntimeException($name . ': multi-card pages must share one stretch rule');
     }
 }
