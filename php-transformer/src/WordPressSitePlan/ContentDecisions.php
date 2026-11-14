@@ -186,7 +186,11 @@ final class ContentDecisions
             // publication and must not vote in listing or dated-site inference.
             $evidenceByIndex[$index] = null === PageRoute::paginationParent($routes[$index]) && !TaxonomyProjection::isTermRoute($routes[$index]) && !isset($declaredByIndex[$index]['term_archive']) ? self::publicationEvidence($document, $localTimesByIndex[$index], $dateSlotsByIndex[$index]) : array();
             $pageTypes = array_intersect(array('WebPage', 'AboutPage', 'ContactPage', 'CollectionPage'), $structuredTypes[$index]);
-            if (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && $pageTypes) {
+            if (self::hasDistinctJsonLdArticles($document)) {
+                // These dates describe listed entries, not this document.
+                $evidenceByIndex[$index] = array();
+                $pageEvidenceByIndex[$index] = array(array('source' => 'json-ld:CollectionPage'));
+            } elseif (!array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $structuredTypes[$index]) && $pageTypes) {
                 $evidenceByIndex[$index] = array();
                 $pageEvidenceByIndex[$index] = array_values(array_map(static fn(string $type): array => array('source' => 'json-ld:' . $type), $pageTypes));
             }
@@ -438,6 +442,29 @@ final class ContentDecisions
             if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) $collect(json_decode($node['content'], true));
         }
         return 1 === count($descriptions) ? $descriptions[0] : null;
+    }
+
+    /** @param array<string,mixed> $document */
+    private static function hasDistinctJsonLdArticles(array $document): bool
+    {
+        $identities = array('url' => array(), 'datePublished' => array());
+        $collect = static function (mixed $value) use (&$collect, &$identities): void {
+            if (!is_array($value)) return;
+            foreach ((array) ($value['@type'] ?? array()) as $type) {
+                if (!is_string($type)) continue;
+                $type = (string) preg_replace('~^https?://schema\.org/~', '', $type);
+                if (!str_ends_with($type, 'Article') && !in_array($type, array('BlogPosting', 'LiveBlogPosting', 'SocialMediaPosting', 'DiscussionForumPosting', 'Report'), true)) continue;
+                foreach (array_keys($identities) as $key) {
+                    if (is_string($value[$key] ?? null) && '' !== trim($value[$key])) $identities[$key][trim($value[$key])] = true;
+                }
+                break;
+            }
+            foreach ($value as $child) if (is_array($child)) $collect($child);
+        };
+        foreach (HtmlMarkupParser::htmlMarkupNodes((string) ($document['html'] ?? '')) as $node) {
+            if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) $collect(json_decode($node['content'], true));
+        }
+        return count($identities['url']) > 1 || count($identities['datePublished']) > 1;
     }
 
     /** @param array<string,mixed> $document @return list<string> */
