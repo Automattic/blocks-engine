@@ -134,7 +134,8 @@ foreach (array('h1', 'h2', 'h3') as $level) {
 $assert('inherit' !== ($cascadeTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'authored heading cascade: no heading inheritance reset overrides source families');
 
 // Channel custom properties are colours only in the consuming function, not
-// standalone palette values. Keep the authored expression as the CSS fallback.
+// standalone palette values. Root paint yields to Global Styles; compound
+// uses keep the authored expression as the CSS fallback.
 foreach (array('hsl(var(--foreground))', 'hsl(var(--foreground) / 1)', 'rgb(var(--channels))', 'rgb(var(--channels) / 100%)') as $expression) {
     [$channelPlan, $channelTheme] = $compile(array(
         'entrypoint' => 'index.html',
@@ -147,7 +148,7 @@ foreach (array('hsl(var(--foreground))', 'hsl(var(--foreground) / 1)', 'rgb(var(
     $assert('var:preset|color|' . $channelSlug === ($channelTheme['styles']['color']['text'] ?? null), $expression . ': root text references its matching preset');
     $assert('var:preset|color|base' === ($channelTheme['styles']['color']['background'] ?? null), $expression . ': root background references its matching preset');
     $channelCss = implode("\n", array_column($channelPlan['assets'], 'content'));
-    $assert(str_contains($channelCss, 'color:var(--wp--preset--color--' . $channelSlug . ',' . $expression . ')'), $expression . ': CSS binds with the original expression as fallback');
+    $assert(!str_contains($channelCss, 'body{color:'), $expression . ': matching body paint yields to Global Styles');
     $assert(str_contains($channelCss, 'linear-gradient(var(--wp--preset--color--' . $channelSlug . ',' . $expression . '),var(--wp--preset--color--base,rgb(var(--paper) / 100%)))'), $expression . ': compound colour tokens resolve and retain their original fallbacks too');
 }
 
