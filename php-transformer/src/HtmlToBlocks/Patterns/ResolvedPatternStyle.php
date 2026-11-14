@@ -14,7 +14,7 @@ trait ResolvedPatternStyle
             return '';
         }
 
-        return $this->styleResolver->resolveCssVariablesInValue(
+        return $this->styleResolver->customProperties->resolve(
             $this->styleResolver->specificityResolvedPresentationStyle($element),
             $element
         );

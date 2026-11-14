@@ -64,7 +64,7 @@ final class LayoutParticipation
             $displays = '' === $base ? array() : array( $base );
             foreach ( array_merge($displays, array_values($styleResolver->conditionalDisplayRules($parent))) as $display ) {
                 $parentDisplays[] = CssValueInspector::comparable(
-                    $styleResolver->resolveCssVariablesInValue($display, $parent)
+                    $styleResolver->customProperties->resolve($display, $parent)
                 );
             }
         }
@@ -343,14 +343,14 @@ final class LayoutParticipation
         // only after expansion against the element's cascaded custom properties;
         // the raw reference matches neither flex nor grid.
         $display = CssValueInspector::comparable(
-            $styleResolver->resolveCssVariablesInValue((string) ($declarations['display'] ?? ''), $element)
+            $styleResolver->customProperties->resolve((string) ($declarations['display'] ?? ''), $element)
         );
         if ( '' !== $display ) {
             return $display;
         }
 
         return CssValueInspector::comparable(
-            $styleResolver->resolveCssVariablesInValue(
+            $styleResolver->customProperties->resolve(
                 (string) ($styleResolver->structuralPresentationDeclarations($element)['display'] ?? ''),
                 $element
             )

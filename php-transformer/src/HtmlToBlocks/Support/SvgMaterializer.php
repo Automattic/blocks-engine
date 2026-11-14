@@ -821,7 +821,7 @@ final class SvgMaterializer implements SvgElementMaterializer
     private function carriedCustomPropertyDeclarations(DOMElement $element, string $value): string
     {
         $declarations = array();
-        foreach ( $this->styleResolver->carriedCustomProperties($value, $element) as $name => $declared ) {
+        foreach ( $this->styleResolver->customProperties->carried($value, $element) as $name => $declared ) {
             $declarations[] = $name . ':' . $declared;
         }
 
@@ -1006,7 +1006,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         if ( ! $this->declarationsPinInsetBox($parentPresentation) ) {
             return false;
         }
-        $resolve = fn (string $value): string => $this->styleResolver->resolveStructuralCssVariablesInValue($value, $element);
+        $resolve = fn (string $value): string => $this->styleResolver->customProperties->resolveCascaded($value, $element);
 
         return $this->resolvesToFullAxis($sourceWidth, $resolve) && $this->resolvesToFullAxis($sourceHeight, $resolve);
     }
@@ -1109,7 +1109,7 @@ final class SvgMaterializer implements SvgElementMaterializer
                 $value,
                 static fn (string $name): ?string => isset($customProperties[$name]) && '' !== trim($customProperties[$name]) ? trim($customProperties[$name]) : null
             ) ?? $value;
-            $resolveAll = fn (string $value): string => $this->styleResolver->resolveStructuralCssVariablesInValue($resolve($value), $element);
+            $resolveAll = fn (string $value): string => $this->styleResolver->customProperties->resolveCascaded($resolve($value), $element);
             $width = (string) ($group['values']['width'] ?? ($presentation['width'] ?? ''));
             $height = (string) ($group['values']['height'] ?? ($presentation['height'] ?? ''));
             $declarations = array();
@@ -1461,7 +1461,7 @@ final class SvgMaterializer implements SvgElementMaterializer
                     return $match[0];
                 }
 
-                $resolved = $this->styleResolver->resolveCssVariablesInValue($decoded, $element);
+                $resolved = $this->styleResolver->customProperties->resolve($decoded, $element);
                 if ( $resolved === $decoded ) {
                     return $match[0];
                 }
@@ -1472,7 +1472,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         ) ?? $html;
 
         if ( false !== strpos($html, 'var(') ) {
-            $html = $this->styleResolver->resolveCssVariablesInValue($html, $element);
+            $html = $this->styleResolver->customProperties->resolve($html, $element);
         }
 
         return $html;
@@ -1604,7 +1604,7 @@ final class SvgMaterializer implements SvgElementMaterializer
                     // color is itself inherited by currentColor artwork. Unlike
                     // fill/stroke, leaving its attribute in markup does not tell
                     // the materializer which color to bake into that artwork.
-                    $resolved = $this->styleResolver->resolveCssVariablesInValue($attribute, $current);
+                    $resolved = $this->styleResolver->customProperties->resolve($attribute, $current);
                 } elseif ( $current === $element && '' !== $attribute ) {
                     // The element's own presentation attribute already carries
                     // this paint into the materialized markup verbatim.
@@ -1753,7 +1753,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
         $boxProperties = array_flip(array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ));
         foreach ( SourceDeclarations::inline($element) as $property => $value ) {
-            $resolved = $this->styleResolver->resolveCssVariablesInValue($value, $element);
+            $resolved = $this->styleResolver->customProperties->resolve($value, $element);
             if ( preg_match('/var\s*\(/i', $resolved) && ! isset($boxProperties[strtolower($property)]) ) {
                 return false;
             }

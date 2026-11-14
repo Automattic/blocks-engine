@@ -98,9 +98,9 @@ final class StandaloneBreakLowering
             $declarations = $this->styleResolver->authorViewport->reference($node, array($property, 'font'));
             $value = CssValueInspector::withoutImportant($declarations[$property] ?? '');
             if ( '' === trim($value) && isset($declarations['font']) ) {
-                $value = CssFontShorthand::expand($this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($declarations['font']), $node))[$property] ?? '';
+                $value = CssFontShorthand::expand($this->styleResolver->customProperties->resolve(CssValueInspector::withoutImportant($declarations['font']), $node))[$property] ?? '';
             }
-            $value = trim($this->styleResolver->resolveCssVariablesInValue(trim($value), $node));
+            $value = trim($this->styleResolver->customProperties->resolve(trim($value), $node));
             $keyword = strtolower($value);
             if ( in_array($keyword, array('', 'inherit', 'unset'), true) ) continue;
             return in_array($keyword, array('initial', 'revert', 'revert-layer'), true) ? '' : $value;
