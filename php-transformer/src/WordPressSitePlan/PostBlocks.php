@@ -143,6 +143,7 @@ final class PostBlocks
 
     private static function headingLevel(string $slice): int
     {
+        if ('paragraph' === self::sourceBlockName($slice)) return 0;
         foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
             if ('tag' === ($node['kind'] ?? null) && preg_match('/^h([1-6])$/', (string) ($node['name'] ?? ''), $match)) {
                 return (int) $match[1];
