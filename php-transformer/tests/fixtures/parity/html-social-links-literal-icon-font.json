@@ -1,0 +1,27 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-social-links-literal-icon-font",
+  "description": "Literal icon-font social link has a core-save-compatible wrapper and projected painted circle.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/social-links-literal-icon-font.html",
+    "notes": "Neutral reduced page for issue 6025."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Core save validity regression."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><meta charset=\"utf-8\"><title>Icon font social link</title><style>\n.w-inline-block{max-width:100%;display:inline-block}\n.social-icon-box{margin-top:30px;display:block}\n.social-icon-link{text-decoration:none}\n.social-icon{background-color:#e85a1c;width:70px;height:70px;color:#fff;border-radius:50%;display:flex;justify-content:center;align-items:center;font-family:\"Fa Brands 400\",Arial,sans-serif;font-size:24px}\n</style></head><body><main><h1>Icon font social link</h1>\n<div class=\"social-icon-box\"><a href=\"https://www.instagram.com/example/\" class=\"social-icon-link w-inline-block\"><div class=\"social-icon\">&#xf16d;</div></a></div></main>\n</body></html>\n"
+  },
+  "expected_blocks": [],
+  "expected_fallbacks": [],
+  "expect": [
+    {
+      "path": "serialized_blocks",
+      "assert": "equals",
+      "value": "<!-- wp:group {\"tagName\":\"main\",\"metadata\":{\"name\":\"Main\"}} --><main class=\"wp-block-group\"><!-- wp:heading {\"level\":1} --><h1 class=\"wp-block-heading\">Icon font social link</h1><!-- /wp:heading --><!-- wp:group {\"className\":\"social-icon-box\"} --><div class=\"wp-block-group social-icon-box\"><!-- wp:social-links {\"size\":\"has-normal-icon-size\",\"iconColorValue\":\"#ffffff\",\"customIconColor\":\"#ffffff\",\"className\":\"blocks-engine-social-source-row is-style-logos-only blocks-engine-social-source-cluster\"} --><ul class=\"wp-block-social-links has-normal-icon-size has-icon-color blocks-engine-social-source-row is-style-logos-only blocks-engine-social-source-cluster\"><!-- wp:social-link {\"className\":\"blocks-engine-social-source-item blocks-engine-social-source-item-563c9bec2829\",\"url\":\"https://www.instagram.com/example/\",\"service\":\"instagram\",\"metadata\":{\"blocksEngineSocialAnchor\":{\"data-blocks-engine-social-source-class\":\"social-icon-link w-inline-block\",\"class\":\"social-icon-link w-inline-block blocks-engine-semantic-d98268ecd267-0 blocks-engine-role-semantic\"}}} --><!-- /wp:social-link --></ul><!-- /wp:social-links --></div><!-- /wp:group --></main><!-- /wp:group -->"
+    }
+  ]
+}

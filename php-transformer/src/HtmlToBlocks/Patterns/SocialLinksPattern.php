@@ -260,15 +260,6 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             if ( ! $nativeArtwork ) {
                 $attrs['size'] = $this->iconSize($anchors, $element, $context) ?? 'small';
             }
-            $glyphSizes = array();
-            foreach ($anchors as $anchor) {
-                foreach ($anchor->getElementsByTagName('*') as $glyph) {
-                    if (!$this->isFontGlyph($glyph)) continue;
-                    $size = $context->socialPresentationDeclarations($glyph)['font-size'] ?? '';
-                    if (preg_match('/^\d+(?:\.\d+)?px$/', $size)) $glyphSizes[$size] = true;
-                }
-            }
-            if (1 === count($glyphSizes)) $attrs['inlineGeometryStyle'] = 'font-size:' . array_key_first($glyphSizes);
             $iconColor = $this->uniformIconColor($linkAnchors, $context);
             if ( '' !== $iconColor ) {
                 $attrs['iconColorValue'] = $iconColor;
