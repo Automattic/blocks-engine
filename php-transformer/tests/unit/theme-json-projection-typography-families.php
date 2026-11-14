@@ -295,6 +295,35 @@ $assert(
     json_encode( $withMono['styles'] ?? null )
 );
 
+// Equal-specificity unconditional definitions follow source order, but
+// conditional, selector-dependent and route-dependent values remain ambiguous.
+$override = ':root{--body-font:"Arno Pro",Georgia,serif}';
+$initial = ':root{--body-font:"Space Grotesk",sans-serif}body{font-family:var(--body-font)}';
+$framework = ':root{--fw-font:system-ui,sans-serif}body{font-family:var(--fw-font)}';
+foreach ( array(
+    'later :root override' => array( $cssAsset( $initial ), $cssAsset( $override, 'assets/fonts.css' ) ),
+    'same stylesheet override' => array( $cssAsset( $initial . $override ) ),
+    'same rule override' => array( $cssAsset( ':root{--body-font:serif;--body-font:"Arno Pro",Georgia,serif}body{font-family:var(--body-font)}' ) ),
+    'framework body rule first' => array( $cssAsset( $framework, 'assets/framework.css' ), $cssAsset( $initial ), $cssAsset( $override, 'assets/fonts.css' ) ),
+    'literal body rules' => array( $cssAsset( 'body{font-family:system-ui,sans-serif}body{font-family:"Arno Pro",Georgia,serif}' ) ),
+) as $name => $assets ) {
+    $theme = $project( $assets )['theme'];
+    $families = array_column( $theme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug' );
+    $slug = str_replace( 'var:preset|font-family|', '', $theme['styles']['typography']['fontFamily'] ?? '' );
+    $assert( '"Arno Pro",Georgia,serif' === ( $families[$slug] ?? null ), $name, json_encode( $theme ) );
+}
+foreach ( array(
+    'different selector' => array( $cssAsset( $initial . str_replace( ':root', 'html', $override ) ) ),
+    'scoped selector' => array( $cssAsset( $initial . str_replace( ':root', '.article', $override ) ) ),
+    'conditional override' => array( $cssAsset( $initial . '@media(min-width:600px){' . $override . '}' ) ),
+    'layered override' => array( $cssAsset( $initial . '@layer base{' . $override . '}' ) ),
+    'route-dependent override' => array( $cssAsset( $initial ), array_merge( $cssAsset( $override ), array( 'scopes' => array( array( 'kind' => 'document', 'source_path' => 'about.html' ) ) ) ) ),
+    'conditional body' => array( $cssAsset( 'body{font-family:serif}@media(min-width:600px){body{font-family:"Arno Pro",Georgia,serif}}' ) ),
+) as $name => $assets ) {
+    $theme = $project( $assets )['theme'];
+    $assert( ! isset( $theme['styles']['typography']['fontFamily'] ), $name, json_encode( $theme ) );
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "ThemeJsonProjection typography-family unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
