@@ -377,14 +377,17 @@ final class ReadableFormBlockBuilder
                 if ( 1 === count($inner) ) {
                     $inner = array($this->withoutShelledFieldBox($inner[0], $elements));
                 }
-                // Native groups retain class identity and resolved presentation for
-                // simple field rows. Control boxes must keep their shell contract.
-                $classOnlyGroup = 1 === count($inner) && 1 === count($elements)
+                // Native Groups retain ordinary container identity regardless of
+                // child count. A row or a field's error/help content does not
+                // require a generated block. Provider control boxes and wrappers
+                // with attributes outside this native contract still need shells.
+                $classOnlyGroup = 1 === count($elements)
                     && 'div' === strtolower($element->tagName)
-                    && 1 === $element->attributes->length && $element->hasAttribute('class')
+                    && (0 === $element->attributes->length
+                        || (1 === $element->attributes->length && $element->hasAttribute('class')))
                     && null === $controlBox;
                 $shell = $classOnlyGroup
-                    ? $this->createBlock->createBlock('core/group', $this->presentationAttributes($element), $inner, $element)
+                    ? $this->createBlock->createBlock('core/group', $this->nativeContainerAttributes($element), $inner, $element)
                     : ($this->layoutShellBlockForElements)($elements, $inner, $element);
                 if ( null !== $controlBox && 1 === count($inner) && $controlBox === ($inner[0]['form_control_index'] ?? null) && ! isset($inner[0]['_form_control_box']) ) {
                     $shell['form_control_box'] = $controlBox;
@@ -402,6 +405,27 @@ final class ReadableFormBlockBuilder
         }
 
         return $blocks;
+    }
+
+    /**
+     * Form frames replace literal DOM wrappers, not WordPress flow layouts.
+     * Keep author layout and spacing in charge even when a frame has no
+     * explicit grid/flex declaration; core's default block gap would otherwise
+     * add space between the control and its help/error siblings.
+     *
+     * @return array<string, mixed>
+     */
+    private function nativeContainerAttributes(DOMElement $element): array
+    {
+        $attrs = $this->presentationAttributes($element);
+        if (! isset($attrs['layout'])) {
+            $attrs['className'] = SourceDom::mergeClassNames(
+                (string) ($attrs['className'] ?? ''),
+                AuthorLayoutOwnership::CSS_OWNED_LAYOUT_CLASS
+            );
+            $attrs = AuthorLayoutOwnership::withCssOwnedFlow($attrs);
+        }
+        return $attrs;
     }
 
     /**

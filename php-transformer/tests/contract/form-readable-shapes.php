@@ -121,7 +121,7 @@ $frameWalk = static function (array $blocks, array $classes) use (&$frameWalk, &
 };
 $frameWalk($form['readable_blocks'], []);
 foreach ([0, 1] as $index) {
-    $assert(['row', 'lab', 'wrap'] === ($frames[$index] ?? null), 'Control ' . $index . ' keeps its frames in source order: row > lab > wrap.');
+    $assert(['row', 'lab', 'wrap'] === array_values(array_intersect(preg_split('/\s+/', implode(' ', $frames[$index] ?? [])), ['row', 'lab', 'wrap'])),  'Control ' . $index . ' keeps its frames in source order: row > lab > wrap.');
 }
 // The caption level bounds the field box: the field shell holds one inner
 // block, the control's own wrapper shell, which alone holds the control.
