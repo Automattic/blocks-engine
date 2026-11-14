@@ -2036,7 +2036,7 @@ final class ShellExtraction
             foreach ($partIndex->tokens() as $token) {
                 if ($token['closing']) continue;
                 $attrs = json_decode($token['attributes'], true);
-                if ('header' === ($attrs['tagName'] ?? null) && !empty($attrs['anchor'])) $anchors[$attrs['anchor']] = true;
+                if ('header' === ($attrs['tagName'] ?? null) && !empty($attrs['anchor'])) $anchors[$attrs['anchor']] = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
             }
             if (array() === $anchors) continue;
             foreach ($pages as $index => $page) {
@@ -2050,7 +2050,10 @@ final class ShellExtraction
                 $row = $rows[0];
                 $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($row['markup']))->tokens();
                 $attrs = json_decode($tokens[0]['attributes'] ?? '', true);
-                if (!isset($anchors[$attrs['anchor'] ?? ''])) continue;
+                // Descendant state (for example the selected navigation item)
+                // is not a new landmark design. Only lift a variant when the
+                // landmark box itself has a different compiled presentation.
+                if (!isset($anchors[$attrs['anchor'] ?? '']) || array($attrs['style'] ?? array(), $attrs['className'] ?? '') === $anchors[$attrs['anchor']]) continue;
                 if (self::textRuns($row['markup']) !== self::textRuns($part['canonical_block_markup'])) continue;
                 $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
                 if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
@@ -2261,7 +2264,10 @@ final class ShellExtraction
                 if (array() !== $this->runtimeBindingsInRanges($runtimeDeclarations, $pages[$index], array($ranges[$index]))['refs']) continue 2;
             }
             $first = $group['indexes'][0];
-            $markup = self::landmarkPartMarkup(self::withoutEdgeCurrentState(substr((string) $pages[$first]['canonical_block_markup'], $ranges[$first]['offset'], $ranges[$first]['length']), $pages[$first]), $area);
+            $sourceMarkup = substr((string) $pages[$first]['canonical_block_markup'], $ranges[$first]['offset'], $ranges[$first]['length']);
+            // A route-local landmark is already compiled in its resting page
+            // context. Edge normalization would strip its authored paint.
+            $markup = null !== $routeSlug ? $sourceMarkup : self::landmarkPartMarkup(self::withoutEdgeCurrentState($sourceMarkup, $pages[$first]), $area);
             $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
             // Replace from the end of each page so earlier offsets stay valid.
             foreach ($group['indexes'] as $index) {
