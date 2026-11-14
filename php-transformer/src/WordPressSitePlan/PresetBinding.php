@@ -126,6 +126,8 @@ final class PresetBinding
     private const GENERATED_CLASS = '/^(?:' . CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX . '|' . ResponsiveCorrespondence::TOKEN_CLASS_PREFIX . '|wp-|has-|is-layout-|is-content-justification-|is-nowrap$|is-vertical$|blocks-engine-|align(?:wide|full|left|right|center)$)/';
 
     private const SPACING_SIDES = array('top', 'right', 'bottom', 'left');
+    /** Attributes binding writes, in the one order it emits them (see withBoundOrder()). */
+    private const BOUND_ATTRIBUTES = array('style', 'textColor', 'backgroundColor', 'borderColor', 'fontSize', 'fontFamily');
 
     /** Element-token marker: the element's start-tag attributes are listed as `attr:` tokens. */
     private const KNOWN_ATTRIBUTES = 'attrs:known';
@@ -706,6 +708,7 @@ final class PresetBinding
     private function bindBlock(string $name, string $json, string $markup, int $after): ?array
     {
         $attributes = json_decode($json, false);
+        $authoredKeys = $attributes instanceof \stdClass ? array_keys(get_object_vars($attributes)) : array();
         if (!$attributes instanceof \stdClass || BlockAttributes::encode($attributes) !== $json) {
             $this->refuseLiteralColors($attributes);
             return null;
@@ -953,6 +956,7 @@ final class PresetBinding
         $this->bound += $bound;
         if (array() !== get_object_vars($style)) $attributes->style = $style;
         if (isset($attributes->style)) self::prune($attributes);
+        $attributes = self::withBoundOrder($attributes, $authoredKeys);
         $newStyle = self::declarationText($declarations);
         $newHtml = self::withAttribute($html, 'style', '' === $newStyle ? null : $newStyle);
         if (array() !== $addClasses || array() !== $dropClasses) {
@@ -2206,6 +2210,29 @@ final class PresetBinding
         if (!self::replaceDeclaration($declarations, $property, $literal, 'var(--wp--preset--' . $type . '--' . $slug . ')')) return false;
         $group->{$key} = 'var:preset|' . $type . '|' . $slug;
         return true;
+    }
+
+    /**
+     * Font families bind only once the theme defaults are known, so a block
+     * can be bound in two passes. The attributes binding writes take one
+     * order, at the place the first of them was authored, so the bytes do not
+     * depend on how many passes bound the block: a runtime anchor bound once
+     * still finds the page block bound twice.
+     *
+     * @param list<string> $authoredKeys
+     */
+    private static function withBoundOrder(\stdClass $attributes, array $authoredKeys): \stdClass
+    {
+        $keys = array_keys(get_object_vars($attributes));
+        $bound = array_values(array_intersect(self::BOUND_ATTRIBUTES, $keys));
+        $order = array();
+        foreach (array_merge(array_intersect($authoredKeys, $keys), array_diff($keys, $authoredKeys)) as $key) {
+            if (!in_array($key, $bound, true)) $order[] = $key;
+            elseif (!in_array($bound[0], $order, true)) array_push($order, ...$bound);
+        }
+        $result = new \stdClass();
+        foreach ($order as $key) $result->{$key} = $attributes->{$key};
+        return $result;
     }
 
     /** Drop style groups the rewrite emptied, as core's serializer would never emit them. */
