@@ -55,16 +55,19 @@ final class SourceBlockAttributeProjector
      * engine class is re-derived from structure, never carried.
      */
     private const SELF_DESCRIBING_MARKERS = array(
+        'core/group'     => array('blocks-engine-stretched-link'),
         'core/paragraph' => array(
             self::SYNTHETIC_PARAGRAPH_CLASS,
             self::SOURCE_BOX_PARAGRAPH_CLASS,
             self::SYNTHETIC_SVG_PARAGRAPH_CLASS,
+            'blocks-engine-stretched-link-carrier',
             self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS,
             self::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS,
             self::PROPAGATED_LINK_CLASS,
             self::PROPAGATED_LINK_COLOR_CLASS,
         ),
         'core/heading'   => array(
+            'blocks-engine-stretched-link-carrier',
             self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS,
             self::PROPAGATED_LINK_CLASS,
             self::PROPAGATED_LINK_COLOR_CLASS,

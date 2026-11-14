@@ -576,6 +576,17 @@ final class EngineSupportCss
                 . "\n" . ':root .blocks-engine-layout-table-cell .blocks-engine-synthetic-image-figure-inline{display:contents;margin:0}'
                 . "\n" . '.blocks-engine-layout-table-cell :where(.blocks-engine-synthetic-image-figure-inline) img{display:inline;max-width:none;vertical-align:baseline}';
         }
+        if ( str_contains($serializedBlocks, LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS) ) {
+            // One shared rule per site, independent of the number of cards.
+            // The card's own author position wins (zero specificity), and the
+            // hitbox exists only on the front end so the editor keeps every
+            // inner block selectable.
+            $frontEnd = ':where(body:not(.editor-styles-wrapper):not(.wp-admin)) ';
+            $link = '.' . LinkWrapperPropagator::STRETCHED_LINK_CARRIER_CLASS . '>a';
+            $parts[] = ':where(.' . LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS . '){position:relative}'
+                . $link . '{color:inherit;text-decoration:inherit}'
+                . $frontEnd . $link . '::after{content:"";position:absolute;inset:0}';
+        }
         if ( str_contains($serializedBlocks, LinkWrapperPropagator::PROPAGATED_LINK_CARRIER_CLASS) ) {
             // A propagated card link wraps all of the block's source children.
             // Layout-transparent, so the source element's flex/grid row still
