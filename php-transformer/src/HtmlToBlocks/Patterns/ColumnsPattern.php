@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -124,7 +125,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
         // core/columns replaces that model with flex and cannot preserve it.
         foreach ( $elementChildren as $child ) {
             $childStyle = strtolower(trim($resolvedStyle($child) . ';' . SourceDom::attr($child, 'style')));
-            if ( preg_match('/(?:^|;)\s*grid-(?:column|row|area)\s*:/', $childStyle) ) {
+            if ( array() !== CssRuleAnalyzer::declarations($childStyle, array( 'grid-column', 'grid-row', 'grid-area' )) ) {
                 return null;
             }
         }
@@ -182,9 +183,12 @@ final class ColumnsPattern implements PatternRecognizerInterface
         // resolvedStyle() is the structural projection and can intentionally
         // omit inline properties outside its allow-list (including position).
         // Keep the explicit inline participation signal alongside it.
-        if ( preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\b/', $style . ';' . $inlineStyle) ) {
-            return false;
+        foreach ( CssRuleAnalyzer::declarations($style . ';' . $inlineStyle, array( 'position' )) as [ 'value' => $position ] ) {
+            if ( in_array(CssValueInspector::comparable($position), array( 'absolute', 'fixed' ), true) ) {
+                return false;
+            }
         }
+        $display = CssValueInspector::declared(SourceDeclarations::parse($style), 'display');
 
         if ( SourceDom::hasClass($element, 'wp-block-columns') ) {
             return true;
@@ -192,7 +196,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
 
         $className = strtolower(SourceDom::attr($element, 'class'));
 
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style) && null !== SourceDom::firstChildElement($element, 'svg') ) {
+        if ( in_array($display, array( 'flex', 'inline-flex' ), true) && null !== SourceDom::firstChildElement($element, 'svg') ) {
             return false;
         }
 
@@ -208,13 +212,13 @@ final class ColumnsPattern implements PatternRecognizerInterface
 
         // Semantic sidebar/content names can suggest a split layout only when
         // author CSS does not explicitly retain normal document flow.
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:block|inline|flow-root|contents)\b/', $style) ) {
+        if ( in_array($display, array( 'block', 'inline', 'flow-root', 'contents' ), true) ) {
             return false;
         }
 
         // core/columns is a flex layout. Preserve resolved grid containers as
         // groups so their source classes continue to control track geometry.
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?grid\b/', $style) ) {
+        if ( in_array($display, array( 'grid', 'inline-grid' ), true) ) {
             return false;
         }
 
@@ -226,7 +230,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
             || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::childElementCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element, $referenceViewportStyle) )
             || $this->hasSidebarAndContentChildren($element, $referenceViewportStyle)
-            || preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex/', $inlineStyle);
+            || in_array(CssValueInspector::declared(SourceDeclarations::parse($inlineStyle), 'display'), array( 'flex', 'inline-flex' ), true);
     }
 
     private function looksLikeSplitLayout(DOMElement $element): bool
@@ -370,16 +374,17 @@ final class ColumnsPattern implements PatternRecognizerInterface
      */
     private function isLaidOutInFlow(DOMElement $element, string $resolvedStyle): bool
     {
-        $style = strtolower($resolvedStyle);
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*none\b/', $style) ) {
+        $declarations = SourceDeclarations::parse($resolvedStyle);
+        $display = CssValueInspector::declared($declarations, 'display');
+        if ( 'none' === $display ) {
             return false;
         }
 
-        if ( $element->hasAttribute('hidden') && ! preg_match('/(?:^|;)\s*display\s*:/', $style) ) {
+        if ( $element->hasAttribute('hidden') && '' === $display ) {
             return false;
         }
 
-        return ! preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\b/', $style);
+        return ! in_array(CssValueInspector::declared($declarations, 'position'), array( 'absolute', 'fixed' ), true);
     }
 
 }
