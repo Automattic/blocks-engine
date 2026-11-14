@@ -317,6 +317,17 @@ final class RouteLinks
             $value = is_array($absolute) && is_string($absolute['path'] ?? null) && '' !== $absolute['path'] ? $absolute['path'] : '/';
         }
         if (str_contains($value, '\\')) return null;
+        // The capture URL can name a deployed entry directory that is absent
+        // from the artifact paths (for example /portfolio -> website/index.html).
+        // Treat that URL as an alias of the recorded entry route, not a new slug.
+        $entryPath = parse_url($this->sourceUrl, PHP_URL_PATH);
+        if (str_starts_with($value, '/') && is_string($entryPath) && rtrim($value, '/') === rtrim($entryPath, '/')) {
+            foreach ($routes as $route) {
+                if ((!empty($route['entrypoint']) || 'entrypoint' === ($route['source_relation'] ?? null)) && isset($this->routeSources[$route['source_path'] ?? ''])) {
+                    return $this->routeSources[$route['source_path']] . $suffix;
+                }
+            }
+        }
         if (str_starts_with($value, '/')) {
             $routePath = '/' . trim($value, '/');
             if ('/' === $value) $routePath = '/';
