@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -319,13 +320,7 @@ final class ButtonDeclarationRouting
     private function buttonPlacementCustomProperties(string $body): array
     {
         $referenced = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            if ( false === $colon ) {
-                continue;
-            }
-            $name = strtolower(trim(substr($declaration, 0, $colon)));
-            $value = trim(substr($declaration, $colon + 1));
+        foreach ( CssRuleAnalyzer::declarationList($body) as [ 'name' => $name, 'value' => $value ] ) {
             if ( ! $this->isButtonPlacementProperty($name) ) {
                 continue;
             }
@@ -397,11 +392,8 @@ final class ButtonDeclarationRouting
         $direction = strtolower(($flow['flex-direction'] ?? '') . ' ' . ($flow['flex-flow'] ?? ''));
         $sides = str_contains($direction, 'column') ? array( 0, 2 ) : array( 3, 1 );
         $declared = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $item ) {
-            $colon = strpos($item, ':');
-            if ( false !== $colon ) {
-                $declared[strtolower(trim(substr($item, 0, $colon)))] = trim(substr($item, $colon + 1));
-            }
+        foreach ( CssRuleAnalyzer::declarationList($body) as $declaration ) {
+            $declared[ $declaration['name'] ] = $declaration['value'];
         }
         $source = array_merge($resolved, $declared);
         $padding = CssValueInspector::expandBoxShorthand(CssValueInspector::withoutImportant($source['padding'] ?? '0'));

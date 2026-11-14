@@ -247,7 +247,18 @@ final class StylesheetScopes
             $scopes = array();
             foreach ($run as $member) foreach ($member['asset']['scopes'] as $scope) $scopes['global' === $scope['kind'] ? '' : $scope['source_path']] = $scope;
             $sources = array_diff(array_keys($scopes), array(''));
-            $asset = CompiledAssets::withRewrittenTextContent($asset, implode("\n", array_column($run, 'content')));
+            // Members allocated under one layer order each restate it; the
+            // fold states each leading order once, ahead of its first use.
+            $stated = array();
+            $contents = array_map(static function (array $member) use (&$stated): string {
+                return (string) preg_replace_callback('/^(?:\s*@layer\s+[\w-]+(?:\s*,\s*[\w-]+)*\s*;)+/', static function (array $match) use (&$stated): string {
+                    preg_match_all('/@layer\s+[\w-]+(?:\s*,\s*[\w-]+)*\s*;/', $match[0], $orders);
+                    $kept = '';
+                    foreach ($orders[0] as $order) if (!isset($stated[$order])) { $stated[$order] = true; $kept .= $order; }
+                    return $kept;
+                }, $member['content']);
+            }, $run);
+            $asset = CompiledAssets::withRewrittenTextContent($asset, implode("\n", $contents));
             $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', serialize(array_keys($scopes)) . $asset['content']), 0, 16) . '.css';
             $asset['source_path'] = $path;
             $asset['target_path'] = 'assets/' . $path;
@@ -293,18 +304,25 @@ final class StylesheetScopes
             if (false !== stripos($withoutDataUrls, 'url(')) continue;
             $tree = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($content);
             if (!$tree->wellFormed) continue;
-            $parts = array();
+            $parts = $layerOrder = array();
             foreach ($tree->rules() as $rule) {
                 $text = trim(substr($content, $rule['start'], $rule['end'] - $rule['start'] + 1));
-                if (';' === $content[$rule['boundary']]) { $parts = array(); break; }
+                if (';' === $content[$rule['boundary']]) {
+                    // A leading layer-order statement heads the sheet: it
+                    // travels with every rule allocated from it, and sheets
+                    // only share rules under the same order.
+                    if (array() === $parts && 1 === preg_match('/^@layer\s+[\w-]+(?:\s*,\s*[\w-]+)*\s*;$/', $text)) { $layerOrder[] = $text; continue; }
+                    $parts = array();
+                    break;
+                }
                 $parts[] = $text;
             }
             if (array() === $parts) continue;
             $eligible[$index] = true;
-            $delivery = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? ''));
+            $delivery = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? '', $layerOrder));
             foreach ($parts as $text) {
                 $key = $delivery . "\0" . $text;
-                if (!isset($rules[$key])) $rules[$key] = array('text' => $text, 'asset' => $asset, 'index' => $index, 'scopes' => array());
+                if (!isset($rules[$key])) $rules[$key] = array('text' => $text, 'asset' => $asset, 'index' => $index, 'scopes' => array(), 'layer_order' => $layerOrder);
                 foreach ($asset['scopes'] as $scope) $rules[$key]['scopes'][$scope['source_path']] = $scope;
             }
         }
@@ -312,8 +330,8 @@ final class StylesheetScopes
         foreach ($rules as $rule) {
             ksort($rule['scopes']);
             $asset = $rule['asset'];
-            $key = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? '', $rule['scopes']));
-            if (!isset($groups[$key])) $groups[$key] = array('asset' => $asset, 'index' => $rule['index'], 'scopes' => array_values($rule['scopes']), 'rules' => array());
+            $key = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? '', $rule['layer_order'], $rule['scopes']));
+            if (!isset($groups[$key])) $groups[$key] = array('asset' => $asset, 'index' => $rule['index'], 'scopes' => array_values($rule['scopes']), 'rules' => $rule['layer_order']);
             $groups[$key]['rules'][] = $rule['text'];
         }
         // Each allocated sheet takes the slot of the first sheet it draws

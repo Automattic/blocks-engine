@@ -275,62 +275,85 @@ final class CssRuleAnalyzer
         }
     }
 
-    /** Properties may include '*' to retain every declaration.
+    /**
+     * Name/value pairs of a declaration list (a rule body or a `style`
+     * attribute) in source order. `;` splits only at top level, outside
+     * strings, comments and functions; a segment without `:` is skipped.
+     * Names are trimmed and lowercased, except case-sensitive custom
+     * properties; values are trimmed.
+     *
+     * @return list<array{name: string, value: string}>
+     */
+    public static function declarationList(string $css): array
+    {
+        $declarations = array();
+        foreach ( CssValueSplitter::splitTopLevel($css, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false === $colon ) {
+                continue;
+            }
+            $name = trim(substr($declaration, 0, $colon));
+            $declarations[] = array( 'name' => str_starts_with($name, '--') ? $name : strtolower($name), 'value' => trim(substr($declaration, $colon + 1)) );
+        }
+        return $declarations;
+    }
+
+    /**
+     * Every `--name: value` custom-property declaration in `$css`, in source
+     * order with values trimmed. Reads a rule body or a whole stylesheet.
+     *
+     * @return list<array{name: string, value: string}>
+     */
+    public static function customProperties(string $css): array
+    {
+        if ( ! str_contains($css, '--') || ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+        $properties = array();
+        foreach ( $matches as $match ) {
+            $properties[] = array( 'name' => $match[1], 'value' => trim($match[2]) );
+        }
+        return $properties;
+    }
+
+    /**
+     * The declarations of `$body` named in `$properties`, values with
+     * whitespace collapsed. Properties may include '*' for every declaration
+     * and '--*' for every custom property. An unterminated string, comment or
+     * function makes the whole list unreadable.
+     *
+     * @param list<string> $properties
      * @return list<array{name: string, value: string}>
      */
     public static function declarations(string $body, array $properties): array
     {
-        $declarations = array();
-        $start = 0;
-        $state = CssSyntaxScanner::state();
-        $length = strlen($body);
-        for ( $offset = 0; $offset <= $length; ++$offset ) {
-            $offset = CssSyntaxScanner::inertEnd($body, $offset, $state, ';');
-            $boundary = $offset === $length || ( ';' === $body[ $offset ] && CssSyntaxScanner::isTopLevel($state) );
-            if ( $boundary ) {
-                $declaration = trim(substr($body, $start, $offset - $start));
-                $start = $offset + 1;
-                $colon = self::topLevelColon($declaration);
-                if ( null !== $colon ) {
-                    $name = trim(substr($declaration, 0, $colon));
-                    // Custom property names are case-sensitive; ordinary CSS property
-                    // names retain their case-insensitive normalization.
-                    if ( ! str_starts_with($name, '--') ) {
-                        $name = strtolower($name);
-                    }
-                    $value = trim(substr($declaration, $colon + 1));
-                    if ( ( in_array('*', $properties, true) || in_array($name, $properties, true) || ( in_array('--*', $properties, true) && str_starts_with($name, '--') ) ) && '' !== $value ) {
-                        $declarations[] = array( 'name' => $name, 'value' => preg_replace('/\s+/', ' ', $value) ?? $value );
-                    }
-                }
-                continue;
-            }
-            $next = CssSyntaxScanner::consume($body, $offset, $state);
-            if ( null === $next ) {
-                return array();
-            }
-            $offset = $next - 1;
+        if ( ! self::isComplete($body) ) {
+            return array();
         }
-        return CssSyntaxScanner::isComplete($state) ? $declarations : array();
+        $all = in_array('*', $properties, true);
+        $custom = in_array('--*', $properties, true);
+        $declarations = array();
+        foreach ( self::declarationList($body) as [ 'name' => $name, 'value' => $value ] ) {
+            if ( '' !== $value && ( $all || in_array($name, $properties, true) || ( $custom && str_starts_with($name, '--') ) ) ) {
+                $declarations[] = array( 'name' => $name, 'value' => preg_replace('/\s+/', ' ', $value) ?? $value );
+            }
+        }
+        return $declarations;
     }
 
-    private static function topLevelColon(string $value): ?int
+    private static function isComplete(string $css): bool
     {
         $state = CssSyntaxScanner::state();
-        for ( $offset = 0, $length = strlen($value); $offset < $length; ) {
-            $offset = CssSyntaxScanner::inertEnd($value, $offset, $state, ':');
+        for ( $offset = 0, $length = strlen($css); $offset < $length; ) {
+            $offset = CssSyntaxScanner::inertEnd($css, $offset, $state);
             if ( $offset >= $length ) break;
-            $topLevel = CssSyntaxScanner::isTopLevel($state);
-            $next = CssSyntaxScanner::consume($value, $offset, $state);
+            $next = CssSyntaxScanner::consume($css, $offset, $state);
             if ( null === $next ) {
-                return null;
-            }
-            if ( ':' === $value[ $offset ] && $topLevel ) {
-                return $offset;
+                return false;
             }
             $offset = $next;
         }
-        return null;
+        return CssSyntaxScanner::isComplete($state);
     }
 
     /** @return array{name: string, query: string}|null */

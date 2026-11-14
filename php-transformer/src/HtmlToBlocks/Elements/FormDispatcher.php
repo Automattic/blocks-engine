@@ -97,8 +97,14 @@ final class FormDispatcher
         }
 
         $hasChoiceGroups = FormControlClassifier::hasCapturedChoiceGroups($element);
-        // A control without a prose summary (date, time, ...) keeps the exact
-        // preserved form on the page; the finding still carries the readable tree.
+        // Nested wrapping labels have a native source-owned subtree even
+        // when their control has no prose summary (for example a date input).
+        $nativeWrappingLabel = false;
+        foreach ($element->getElementsByTagName('label') as $label) {
+            foreach (FormControlClassifier::controlElements($label) as $control) {
+                if (!$control->parentNode->isSameNode($label)) $nativeWrappingLabel = true;
+            }
+        }
         $summarizable = FormControlClassifier::controlsHaveProseSummaries($element);
         if ( $summarizable && ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) ) {
             $composition = $this->context->compose($element, $fallbacks);
@@ -110,6 +116,15 @@ final class FormDispatcher
                 $fallbacks[] = $this->context->buildFallbackFinding($element, $readable, $composition['slot']);
                 $this->context->recordForm($element, $composition['block']);
                 return $composition['block'];
+            }
+        }
+
+        if (!$summarizable && $nativeWrappingLabel) {
+            $readable = $this->context->buildReadableFormBlock($element, true, $fallbacks);
+            if (null !== $readable) {
+                $fallbacks[] = $this->context->buildFallbackFinding($element, $readable);
+                $this->context->recordForm($element, $readable);
+                return $readable;
             }
         }
 

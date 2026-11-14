@@ -45,7 +45,7 @@ $cache = $authorStyles->selectorMatchCache();
 
 $results = array();
 foreach ($body->getElementsByTagName('div') as $element) {
-    $results[] = $resolver->collapsedViewportAuthorDeclarations($element, array('display'));
+    $results[] = $resolver->authorViewport->collapsed($element, array('display'));
 }
 $lookups = $cache->matchHits + $cache->matchMisses;
 

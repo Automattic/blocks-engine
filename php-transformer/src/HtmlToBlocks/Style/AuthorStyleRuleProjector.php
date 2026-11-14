@@ -82,7 +82,7 @@ final class AuthorStyleRuleProjector
         TransformationEvidenceState $evidence,
         array $conditions = array()
     ): array {
-        $declarations = $this->styleResolver->verbatimCssDeclarations($body);
+        $declarations = SourceDeclarations::verbatim($body);
         $authored = $body;
         $this->acceptProjectedBody($body, $declarations, $this->projectResponsiveCanvasMinimumWidth($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence));
         // A desktop canvas minimum replaced by a fluid `max-width:100%` bound
@@ -109,7 +109,7 @@ final class AuthorStyleRuleProjector
             return;
         }
         $body = $projected;
-        $declarations = $this->styleResolver->verbatimCssDeclarations($body);
+        $declarations = SourceDeclarations::verbatim($body);
     }
 
     /**
@@ -260,7 +260,7 @@ final class AuthorStyleRuleProjector
                 CssCascade::apply($facts, (string) $property, array( 'value' => $value, 'important' => CssValueInspector::isImportant($value), 'inline' => false, 'specificity' => $fact['specificity'], 'order' => $fact['order'] ));
             }
         }
-        $inline = array_intersect_key($this->styleResolver->inlineDeclarations($element), self::boxModelProperties());
+        $inline = array_intersect_key(SourceDeclarations::inline($element), self::boxModelProperties());
         foreach ( $inline as $property => $value ) {
             CssCascade::apply($facts, (string) $property, array( 'value' => $value, 'important' => CssValueInspector::isImportant($value), 'inline' => true, 'specificity' => array( 0, 0, 0 ), 'order' => PHP_INT_MAX ));
         }
@@ -404,7 +404,7 @@ final class AuthorStyleRuleProjector
                         return;
                     }
                 }
-                $boxSizing = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($body)['box-sizing'] ?? ''));
+                $boxSizing = CssValueInspector::comparable((string) (SourceDeclarations::parse($body)['box-sizing'] ?? ''));
                 if ( ! in_array($boxSizing, array( 'border-box', 'inherit' ), true) ) {
                     return;
                 }
@@ -558,7 +558,7 @@ final class AuthorStyleRuleProjector
     /** @param array<string, string> $ruleDeclarations */
     private function isIntrinsicallySizedGridContainer(DOMElement $element, array $ruleDeclarations): bool
     {
-        $declarations = $this->styleResolver->mergeCssDeclarationMaps(
+        $declarations = SourceDeclarations::merge(
             $this->styleResolver->structuralPresentationDeclarations($element),
             $ruleDeclarations
         );
@@ -1315,7 +1315,7 @@ final class AuthorStyleRuleProjector
                 return false;
             }
         );
-        $inline = $this->styleResolver->inlineDeclarations($element);
+        $inline = SourceDeclarations::inline($element);
         if ( isset($inline[$property]) && CssCascade::wins(
             array( 'important' => CssValueInspector::isImportant($inline[$property]), 'inline' => true, 'specificity' => 0, 'order' => 1 ),
             array( 'important' => CssValueInspector::isImportant($value), 'inline' => false, 'specificity' => 0, 'order' => 0 )
