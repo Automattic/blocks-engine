@@ -418,7 +418,9 @@ final class ReadableFormBlockBuilder
     private function nativeContainerAttributes(DOMElement $element): array
     {
         $attrs = $this->presentationAttributes($element);
-        if (! isset($attrs['layout'])) {
+        // CSS-owned grids and responsive layouts need not expose a native
+        // layout attribute. Preserve their existing spacing contract too.
+        if (! isset($attrs['layout']) && ! $this->authorLayoutOwnership->isAuthorOwnedLayout($element)) {
             $attrs['className'] = SourceDom::mergeClassNames(
                 (string) ($attrs['className'] ?? ''),
                 AuthorLayoutOwnership::CSS_OWNED_LAYOUT_CLASS

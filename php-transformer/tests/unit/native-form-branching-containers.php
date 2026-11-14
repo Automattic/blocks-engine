@@ -41,4 +41,21 @@ foreach (array('', ' class="field"') as $attributes) {
         throw new RuntimeException('Native form Groups must preserve readable field ancestry and authored siblings.');
     }
 }
+// Authored layouts (including responsive-only ones) already own their child
+// geometry. Adding a flow reset would override grid gaps and margins.
+foreach (array(
+    '.row{display:grid;gap:2rem}',
+    '@media(min-width:600px){.row{display:grid;gap:2rem}}',
+) as $css) {
+    $result = (new HtmlTransformer())->transform(
+        '<form><div class="row"><input name="name"><div>Help</div></div></form>',
+        array('static_css' => $css)
+    )->toArray();
+    $row = $result['fallbacks'][0]['readable_blocks'][0]['innerBlocks'][0];
+    if ('core/group' !== $row['blockName']
+        || str_contains($row['attrs']['className'] ?? '', 'blocks-engine-css-owned-flow')
+        || '0' === ($row['attrs']['style']['spacing']['blockGap'] ?? null)) {
+        throw new RuntimeException('Authored form layouts must not acquire a synthetic flow reset: ' . json_encode($row));
+    }
+}
 echo "Native branching form containers passed\n";
