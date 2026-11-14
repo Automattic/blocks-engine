@@ -661,7 +661,7 @@ final class SharedChromeStylesheets
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $selector, string $body, array $context) use ($elements, $layoutRules, &$result): void {
-                if (!preg_match('/(?:^|;)\s*min-height\s*:\s*([^;]*(?:vh|svh|dvh|lvh))\s*(?:;|$)/i', $body, $minimum)) return;
+                if (array() === array_filter(CssRuleAnalyzer::declarations($body, array('min-height')), static fn (array $declaration): bool => 1 === preg_match('/vh$/Di', $declaration['value']))) return;
                 $rules = array();
                 foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $candidate) {
                     $parsed = CssSelectorMatcher::parse(trim($candidate));

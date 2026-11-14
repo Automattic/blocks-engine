@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -1652,7 +1654,7 @@ final class CapturedDialogProjector
             'has_close_control' => $hasCloseControl,
             'self_positioned' => $sourceRoot instanceof DOMElement && (
                 1 === preg_match('/(?:^|\s)(?:absolute|fixed|sticky)(?:\s|$)/', $sourceRoot->getAttribute('class'))
-                || 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed|sticky)/i', $sourceRoot->getAttribute('style'))
+                || in_array(CssValueInspector::declared(SourceDeclarations::inline($sourceRoot), 'position'), array( 'absolute', 'fixed', 'sticky' ), true)
             ),
         );
     }
