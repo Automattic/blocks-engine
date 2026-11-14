@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { setupDomGlobals } from '../dom-globals.js';
 
-const require = createRequire(import.meta.url);
+const require = createRequire(import.meta.url) as { (id: string): any };
 let wp: any;
 beforeAll(() => {
   setupDomGlobals();
