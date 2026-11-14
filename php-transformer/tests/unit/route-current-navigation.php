@@ -108,6 +108,9 @@ foreach (array(
     array('/a/b', array('/a/', '/a/b/'), '/a/b/', false),
     array('/unlinked', array('/'), null, false),
     array(null, $links, null, false),
+    // Section links on a one-page site target part of the page, not the page.
+    array('/', array('/', '/#about', '/#contact'), '/', false),
+    array('/about', array('/#about', '/about/#team'), null, false),
 ) as [$navigationServed, $urls, $expected, $ancestor]) {
     foreach (array('product', 'page') as $navigationPostType) {
         foreach (array('navigation-link', 'navigation-submenu') as $itemType) {
