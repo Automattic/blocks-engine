@@ -162,8 +162,9 @@ $sourceSelectorResult = (new HtmlTransformer(analysisCache: $sourceSelectorCache
 // list nor the element-selector results again.
 $assert(6 === $sourceSelectorCache->sourceSelectorMatchExecutions && 1 === $sourceSelectorCache->sourceSelectorMatchHits, 'Indexed general style resolution executes six matcher calls and reuses one repeated element-selector result.');
 // Candidate lists are keyed by each element's selector signature, which
-// reads its cached class tokens once more per element (Automattic/blocks-engine#3102).
-$assert(5 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 16 === $sourceSelectorCache->sourceSelectorClassTokenHits && 12 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
+// reads its cached class tokens once more per element, the html root included
+// (Automattic/blocks-engine#3102).
+$assert(6 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 17 === $sourceSelectorCache->sourceSelectorClassTokenHits && 14 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
 $assert(4 === $sourceSelectorCache->sourceStructuralDeclarationBuilds && 8 === $sourceSelectorCache->sourceStructuralDeclarationHits, 'Structural declaration resolution builds each source state once and reuses repeated element results.');
 // Repeat lookups for an element and collection (the grid parent's static
 // rules, the root's conditional rules) are answered by the matched-rule memo,

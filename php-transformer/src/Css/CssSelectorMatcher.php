@@ -1171,9 +1171,7 @@ final class CssSelectorMatcher
         if ( $compound['last_child'] && self::hasNextElementSibling($element) ) {
             return false;
         }
-        // A document rooted at anything but `html` is a body-only fragment of a
-        // larger document; its real root is outside it, so nothing in it is `:root`.
-        if ( ($compound['root'] ?? false) && ( $element !== $element->ownerDocument?->documentElement || 'html' !== strtolower($element->tagName) ) ) {
+        if ( ($compound['root'] ?? false) && ( null === $element->ownerDocument || $element !== $element->ownerDocument->documentElement ) ) {
             return false;
         }
         return true;

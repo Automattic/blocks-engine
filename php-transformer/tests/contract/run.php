@@ -3172,7 +3172,7 @@ $repeatingTexture = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/texture.png);background-repeat:repeat"><h2>Pricing</h2><p>Plans</p></div>'
 )->toArray();
 $repeatingTextureSerialized = (string) ($repeatingTexture['serialized_blocks'] ?? '');
-$expectedRepeatingTextureSerialized = '<!-- wp:group {"className":"be-inline-geometry-f4d07b1703db9de9"} --><div class="wp-block-group be-inline-geometry-f4d07b1703db9de9"><!-- wp:heading {"level":2} --><h2 class="wp-block-heading">Pricing</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Plans</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
+$expectedRepeatingTextureSerialized = '<!-- wp:group {"className":"be-inline-geometry-7b4994b3af996108"} --><div class="wp-block-group be-inline-geometry-7b4994b3af996108"><!-- wp:heading {"level":2} --><h2 class="wp-block-heading">Pricing</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Plans</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
 $assert($expectedRepeatingTextureSerialized === $repeatingTextureSerialized, 'repeating texture preserves byte-identical trunk core/group serialization', $repeatingTextureSerialized);
 $assert('core/group' === ($repeatingTexture['blocks'][0]['blockName'] ?? null) && ! str_contains($repeatingTextureSerialized, '<!-- wp:cover'), 'repeating texture is rejected from core/cover');
 
