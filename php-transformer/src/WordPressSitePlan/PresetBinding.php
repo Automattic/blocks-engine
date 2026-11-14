@@ -35,7 +35,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  *   matching inline declaration. The inline declaration is removed (or, for
  *   spacing, rewritten to the preset variable) so the saved markup is what
  *   core's save function produces for the new attributes. A `var()` literal is
- *   resolved through custom properties set once, unconditionally, on the
+ *   resolved through unambiguous custom properties on the
  *   document root, or else through the value the source rendered for the
  *   block's class list.
  * - Class-driven: the block carries the author's classes and an author rule
@@ -211,6 +211,8 @@ final class PresetBinding
     private array $fontRules = array();
     /** @var array<string,string|false> Root custom properties; false when a value is scoped or conditional. */
     private array $variables = array();
+    /** @var array<string,array<string,string>> Last unconditional value per root selector. */
+    private array $rootVariables = array();
     /** @var array<string,array<string,true>> Values custom properties take outside the root. */
     private array $scopedVariables = array();
     /** @var array<string,string> Custom properties every definition, all outside the root, sets to one value. */
@@ -253,6 +255,10 @@ final class PresetBinding
                     }
                 }
             });
+        }
+        foreach ($this->rootVariables as $name => $values) {
+            if (false === ($this->variables[$name] ?? null)) continue;
+            $this->variables[$name] = 1 === count(array_unique($values)) ? (string) reset($values) : false;
         }
         foreach ($this->scopedVariables as $name => $values) {
             if (!array_key_exists($name, $this->variables) && 1 === count($values)) $this->uniformVariables[$name] = (string) array_key_first($values);
@@ -1593,7 +1599,7 @@ final class PresetBinding
 
     /**
      * A value with its `var(--name)` references resolved through custom
-     * properties that are set once, unconditionally, on the document root
+     * properties with an unambiguous cascaded value on the document root
      * (`:root`, `html`, `:host`). Any other definition could give the
      * variable a different value under some block, so a value that reads
      * such a property stays as written, except that a fallback
@@ -1628,13 +1634,13 @@ final class PresetBinding
         $selectors = array_map(static fn(string $selector): string => strtolower(trim($selector)), CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude));
         $root = array() === array_diff($selectors, array(':root', 'html', ':host')) && array() === array_filter($ancestors, static fn(string $ancestor): bool => 1 !== preg_match('/^@layer(?:\s|$)/', $ancestor));
         foreach ($declarations as ['name' => $name, 'value' => $value]) {
-            // Any definition with another value, wherever it applies, could
-            // give the variable that value under some block. Repeating the
-            // root value (editor mirrors such as `:root :root.editor-styles-wrapper`)
-            // changes nothing.
-            if (str_contains(strtolower($value), '!important') || (array_key_exists($name, $this->variables) && $this->variables[$name] !== $value)) $this->variables[$name] = false;
-            elseif ($root) $this->variables[$name] = $value;
-            else $this->scopedVariables[$name][$value] = true;
+            // Source order settles only the same unconditional selector.
+            // Keep layered roots and scoped copies as independent contenders.
+            if (str_contains(strtolower($value), '!important')) $this->variables[$name] = false;
+            elseif ($root && array() === $ancestors) $this->rootVariables[$name][implode(',', $selectors)] = $value;
+            elseif ($root) {
+                $this->rootVariables[$name]['@layer:' . $value] = $value;
+            } else $this->scopedVariables[$name][$value] = true;
         }
     }
 

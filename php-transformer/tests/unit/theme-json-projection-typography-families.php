@@ -295,6 +295,42 @@ $assert(
     json_encode( $withMono['styles'] ?? null )
 );
 
+// ---------------------------------------------------------------------------
+// 11. Equal-selector unconditional custom properties follow source order;
+//     conditional and differently scoped values remain ambiguous.
+// ---------------------------------------------------------------------------
+$framework = ':root{--body-font:"Space Grotesk",sans-serif}body{font-family:var(--body-font)}';
+$override = ':root{--body-font:"Arno Pro",Georgia,serif}';
+foreach ( array(
+    'later stylesheet' => array( $cssAsset( $framework, 'assets/framework.css' ), $cssAsset( $override, 'assets/fonts.css' ) ),
+    'later rule' => array( $cssAsset( $framework . $override ) ),
+    'later declaration' => array( $cssAsset( ':root{--body-font:"Space Grotesk",sans-serif;--body-font:"Arno Pro",Georgia,serif}body{font-family:var(--body-font)}' ) ),
+) as $case => $assets ) {
+    $result = $project( $assets );
+    $stack = '"Arno Pro",Georgia,serif';
+    $slug = $result['presets']['font-family'][ $stack ] ?? null;
+    $assert(
+        is_string( $slug ) && 'var:preset|font-family|' . $slug === ( $result['theme']['styles']['typography']['fontFamily'] ?? null ),
+        '11: ' . $case . ' binds the body to the later Arno Pro stack',
+        json_encode( $result['theme'] )
+    );
+}
+foreach ( array(
+    'different root selector' => 'html{--body-font:Georgia,serif}',
+    'scoped selector' => '.card{--body-font:Georgia,serif}',
+    'media rule' => '@media (min-width:600px){:root{--body-font:Georgia,serif}}',
+    'layer rule' => '@layer base{:root{--body-font:Georgia,serif}}',
+) as $case => $contender ) {
+    foreach ( array( $contender . $framework . $override, $framework . $override . $contender ) as $css ) {
+        $theme = $project( array( $cssAsset( $css ) ) )['theme'];
+        $assert(
+            ! isset( $theme['styles']['typography']['fontFamily'] ),
+            '11b: ' . $case . ' remains ambiguous regardless of source order',
+            json_encode( $theme )
+        );
+    }
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "ThemeJsonProjection typography-family unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

@@ -309,10 +309,11 @@ final class ThemeJsonProjection
         $conflicts = array();
         $coverage = array();
         $scoped = array();
+        $unconditional = array();
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$variables, &$conflicts, &$coverage, &$scoped, $asset): void {
+            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$variables, &$conflicts, &$coverage, &$scoped, &$unconditional, $asset): void {
                 if (str_starts_with(ltrim($prelude), '@')) return;
                 foreach (CssRuleAnalyzer::customProperties($body) as ['name' => $name, 'value' => $value]) {
                     // Identical scoped copies (including editor mirrors) do
@@ -321,7 +322,14 @@ final class ThemeJsonProjection
                         $scoped[$name][$value] = true;
                         continue;
                     }
-                    if (isset($variables[$name]) && $variables[$name] !== $value) $conflicts[$name] = true;
+                    // Only equal-selector declarations outside at-rules can
+                    // supersede an earlier value by source order. Keep other
+                    // contexts as contenders, even if a later root follows.
+                    if (array() === $ancestors) {
+                        $context = strtolower(trim($prelude)) . ':' . json_encode($asset['scopes'] ?? array(array('kind' => 'global')));
+                        $unconditional[$name][$context] = $value;
+                    }
+                    else $scoped[$name][$value] = true;
                     $variables[$name] = $value;
                     foreach ($ancestors as $ancestor) if (1 !== preg_match('/^@layer(?:\s|$)/', $ancestor)) $conflicts[$name] = true;
                     foreach ($asset['scopes'] ?? array(array('kind' => 'global')) as $scope) {
@@ -330,6 +338,10 @@ final class ThemeJsonProjection
                     }
                 }
             });
+        }
+        foreach ($unconditional as $name => $values) {
+            $variables[$name] = (string) reset($values);
+            if (1 !== count(array_unique($values))) $conflicts[$name] = true;
         }
         foreach ($variables as $name => $value) {
             foreach ($scoped[$name] ?? array() as $other => $_) if ($other !== $value) $conflicts[$name] = true;
