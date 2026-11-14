@@ -389,6 +389,19 @@ $withSpacing = DesignSystem::fromUsage(array('a.html' => array_replace($usage(ar
 $assert(null !== $withSpacing, 'a system with a spacing step derives');
 $padded = (new PresetBinding($withSpacing, array(), $classUsage(array(array('classes' => 'p-4', 'properties' => array('padding-top' => array('16px'), 'padding-right' => array('16px'), 'padding-bottom' => array('16px'), 'padding-left' => array('16px')))))))->bind('<!-- wp:group {"className":"p-4"} --><div class="wp-block-group p-4"></div><!-- /wp:group -->');
 $assert('<!-- wp:group {"className":"p-4","style":{"spacing":{"padding":{"top":"var:preset|spacing|20","right":"var:preset|spacing|20","bottom":"var:preset|spacing|20","left":"var:preset|spacing|20"}}}} --><div class="wp-block-group p-4" style="padding-top:var(--wp--preset--spacing--20);padding-right:var(--wp--preset--spacing--20);padding-bottom:var(--wp--preset--spacing--20);padding-left:var(--wp--preset--spacing--20)"></div><!-- /wp:group -->' === $padded, 'padding set by an author class becomes inline spacing presets');
+// Font families bind only once theme defaults are known. A block bound in
+// one pass and the same block bound in two must be the same bytes: runtime
+// anchors are bound once and matched against twice-bound pages.
+$fontRows = array_replace($usage(array($row('#111111', 50), array_replace($row('#222222', 30), array('font_family' => 'Lora, serif')))), array('spacing' => array(array('value' => '1rem', 'px' => 16, 'count' => 4, 'weight' => 4)), 'class_styles' => array(array('classes' => 'x', 'properties' => array('padding-top' => array('16px'), 'font-family' => array('Lora, serif'))))));
+$fontSystem = DesignSystem::fromUsage(array('a.html' => $fontRows));
+$fontTheme = array('settings' => array('typography' => array('fontFamilies' => array(array('slug' => 'body', 'fontFamily' => 'Inter, sans-serif')))), 'styles' => array('typography' => array('fontFamily' => 'var:preset|font-family|body')));
+$twoPass = new PresetBinding($fontSystem, array(), array('a.html' => $fontRows));
+$firstPass = $twoPass->bind('<!-- wp:group {"className":"x"} --><div class="wp-block-group x"></div><!-- /wp:group -->');
+$twoPass->useThemeDefaults($fontTheme);
+$onePass = new PresetBinding($fontSystem, array(), array('a.html' => $fontRows));
+$onePass->useThemeDefaults($fontTheme);
+$once = $onePass->bind('<!-- wp:group {"className":"x"} --><div class="wp-block-group x"></div><!-- /wp:group -->');
+$assert(str_contains($once, '"fontFamily":"') && str_contains($once, 'var:preset|spacing|') && $once === $twoPass->bind($firstPass), 'a block bound in one pass equals the block bound in two: ' . $once);
 $refused = array(
     'elements with the class list disagree' => array(array('classes' => 'text-rose', 'properties' => array('color' => array('!')))),
     'a breakpoint gives another token' => array(array('classes' => 'text-rose', 'properties' => array('color' => array('#e11d48;#111111')))),
