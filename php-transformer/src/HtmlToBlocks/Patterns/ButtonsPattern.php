@@ -78,7 +78,7 @@ final class ButtonsPattern
         }
 
         $text = $this->buttonText($anchor, $buttons->richTextInnerHtml($anchor), $buttons);
-        if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
+        if ( '' !== $this->plainText($text) && $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
             // The companion's RichText element replaces the anchor's single
             // wrapper child, so its content is that wrapper's label.
             $wrapper = $this->accessibleLinkContentWrapper($anchor);
@@ -252,6 +252,12 @@ final class ButtonsPattern
     private function buttonBlockFromAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons, ?DOMElement $presentationElement = null, ?DOMElement $nativeWrapper = null): array
     {
         $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
+        $title = $this->buttonTitleForAnchor($anchor, $text);
+        // Core's title attribute names icon-only links without a companion block.
+        // Empty controls also need non-empty RichText or core/button omits them.
+        if ( '' === trim($text) && '' !== $this->buttonAccessibleTitle($anchor) ) {
+            $text = SourceDom::visuallyHiddenLabel($this->buttonAccessibleTitle($anchor));
+        }
         $retainsDescendants = $this->rendersSourceDescendants($anchor, $text);
         // A static native button is unwrapped by buttonHtml(), so its box
         // becomes the link surface even when its label retains an icon.
@@ -298,7 +304,7 @@ final class ButtonsPattern
         return $this->createBlock->createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,
             'url'        => $buttons->attribute($anchor, 'href'),
-            'title'      => $this->buttonTitleForAnchor($anchor, $text),
+            'title'      => $title,
             'linkTarget' => $buttons->attribute($anchor, 'target'),
             'rel'        => $buttons->attribute($anchor, 'rel'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
