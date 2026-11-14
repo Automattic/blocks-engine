@@ -41,7 +41,7 @@ final class GeneratedBlockStyleProjector
             $declarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($sourceElement));
             $mapped = $this->styleResolver->styleAttributeMapper()->map(
                 $declarations,
-                fn (string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $sourceElement)
+                fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $sourceElement)
             );
             $padding = $mapped['style']['spacing']['padding'] ?? array();
             foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
@@ -188,7 +188,7 @@ final class GeneratedBlockStyleProjector
             // already walks ancestors with), so the walk sees it too.
             $declarations = $this->styleResolver->structuralPresentationDeclarations($ancestor);
             if ( '' === $inheritedColor && $anchorColorInherits && isset($declarations['color']) ) {
-                $inheritedColor = $this->styleResolver->resolveCssVariablesInValue((string) $declarations['color'], $ancestor);
+                $inheritedColor = $this->styleResolver->customProperties->resolve((string) $declarations['color'], $ancestor);
             }
             if ( '' === $inheritedTextAlignment && $anchorTextAlignmentInherits && isset($declarations['text-align']) ) {
                 $inheritedTextAlignment = strtolower(trim((string) $declarations['text-align']));
@@ -428,7 +428,7 @@ final class GeneratedBlockStyleProjector
                     $this->styleResolver->authoredControlPresentation($sourceControl, array_keys($inlineLayout))[''] ?? array(),
                     $inlineLayout
                 );
-                $inlineLayout = array_map(fn (string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $sourceControl), $inlineLayout);
+                $inlineLayout = array_map(fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $sourceControl), $inlineLayout);
                 $inlineLayout = $this->styleResolver->safeVisualDeclarations($inlineLayout);
             }
             foreach ( $inlineLayout as $property => $value ) {
@@ -506,7 +506,7 @@ final class GeneratedBlockStyleProjector
                 // Custom properties resolve on the source element; one that does not
                 // resolve there is invalid at computed-value time and would only reset
                 // the family on the link, so it is not presentation.
-                if ( str_contains($value, 'var(') ) $value = trim($this->styleResolver->resolveCssVariablesInValue($value, $element));
+                if ( str_contains($value, 'var(') ) $value = trim($this->styleResolver->customProperties->resolve($value, $element));
                 if ( str_contains($value, 'var(') ) continue;
                 if ( '' === $value || preg_match('/[{}<>;]/', $value) || in_array(strtolower($value), array( 'inherit', 'unset', 'revert', 'revert-layer' ), true) ) continue;
                 foreach ( $resets[$property] ?? array() as $longhand ) unset($resolved[$longhand]);

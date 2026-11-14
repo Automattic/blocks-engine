@@ -593,7 +593,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             (new Elements\ForeignObjectFitTextLowering($this, $richTextConverter, $this->styleResolver, $this->blockFactory))->block(...)
         ), $this->svgMaterializer, new SvgTextRunLowering(
             $this->styleResolver,
-            $this->styleResolver->resolveCssVariablesInValue(...),
+            $this->styleResolver->customProperties->resolve(...),
             $this,
             $this->session
         ));
@@ -646,7 +646,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtimeIslands->runtimeDomSelectorsForElement(...),
             $this->sourceElementDescription,
             $blockBindings->binding(...),
-            fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
+            fn (DOMElement $element, string $value): string => $this->styleResolver->customProperties->resolve($value, $element),
             $this->svgMaterializer->inlineSvgMarkup(...)
         );
         $this->commerceReporter = new CommerceFallbackReporter(
@@ -1927,7 +1927,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Retain conditional rules rather than testing only the resting viewport.
         foreach ( $this->styleResolver->authoredControlPresentation($button, $sizes) as $declarations ) {
             foreach ( $declarations as $value ) {
-                if ( str_contains($this->styleResolver->resolveCssVariablesInValue($value, $button), '%') ) {
+                if ( str_contains($this->styleResolver->customProperties->resolve($value, $button), '%') ) {
                     return true;
                 }
             }

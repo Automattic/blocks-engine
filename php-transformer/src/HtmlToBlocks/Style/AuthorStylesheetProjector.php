@@ -915,7 +915,7 @@ final class AuthorStylesheetProjector
                     foreach ( $subjects as $element ) {
                         $resolved = $this->buttonDeclarationRouting->isButtonControlBoxSize($name, $value, array( $element ))
                             ? $value
-                            : $this->styleResolver->resolveCssVariablesInValue($value, $element);
+                            : $this->styleResolver->customProperties->resolve($value, $element);
                         $resolvedGroups[$resolved][] = $element;
                     }
                     // Resolve at the source element, before its custom properties
@@ -3464,7 +3464,7 @@ final class AuthorStylesheetProjector
     /** @param array<string, string> $declarations */
     private function svgFillDimension(DOMElement $element, array $declarations, string $dimension): bool
     {
-        return '100%' === trim($this->styleResolver->resolveCssVariablesInValue((string) ($declarations[$dimension] ?? ''), $element));
+        return '100%' === trim($this->styleResolver->customProperties->resolve((string) ($declarations[$dimension] ?? ''), $element));
     }
 
     /** @param array<string, string> $declarations */

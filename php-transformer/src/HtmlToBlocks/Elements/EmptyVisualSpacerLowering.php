@@ -140,8 +140,8 @@ final class EmptyVisualSpacerLowering
         }
 
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $attrs['height'] = $this->styleResolver->resolveCssVariablesInValue($declarations['height']);
-        $attrs['width'] = $this->styleResolver->resolveCssVariablesInValue($declarations['width']);
+        $attrs['height'] = $this->styleResolver->customProperties->resolve($declarations['height']);
+        $attrs['width'] = $this->styleResolver->customProperties->resolve($declarations['width']);
 
         return $this->blocks->createBlock('core/spacer', $attrs, array(), $element);
     }

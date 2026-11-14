@@ -1341,7 +1341,7 @@ JS;
             ? $this->stageBoxForItems($items, $styleResolver)
             : array('ratio' => '', 'width' => 0);
 
-        $declaredRatio = $styleResolver->resolveStructuralCssVariablesInValue((string) ($geometryDeclarations['aspect-ratio'] ?? ''), $geometryList);
+        $declaredRatio = $styleResolver->customProperties->resolveCascaded((string) ($geometryDeclarations['aspect-ratio'] ?? ''), $geometryList);
         $declaredRatio = $this->normalizedAspectRatio(preg_replace('/\s+/', '', $declaredRatio));
         if ('' !== $declaredRatio && 0 === $viewportHeight) {
             $stageBox['ratio'] = $declaredRatio;
@@ -1353,7 +1353,7 @@ JS;
             foreach (array('thumbnailWidth' => array($pagerItems[0], 'width'), 'thumbnailGap' => array($pagerRoot, in_array($thumbnailPosition, array('left', 'right'), true) ? 'row-gap' : 'column-gap'), 'stageGap' => array($layoutRoot, in_array($thumbnailPosition, array('left', 'right'), true) ? 'column-gap' : 'row-gap')) as $name => [$target, $property]) {
                 if (!$target instanceof DOMElement) continue;
                 $declarations = $styleResolver->structuralPresentationDeclarations($target);
-                $value = $styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations[$property] ?? ($property !== 'width' ? ($declarations['gap'] ?? '') : '')), $target);
+                $value = $styleResolver->customProperties->resolveCascaded((string) ($declarations[$property] ?? ($property !== 'width' ? ($declarations['gap'] ?? '') : '')), $target);
                 if (preg_match('/^[0-9]+(?:\.[0-9]+)?(?:px|rem|em|%)$/D', trim($value))) $thumbnailGeometry[$name] = trim($value);
             }
         }

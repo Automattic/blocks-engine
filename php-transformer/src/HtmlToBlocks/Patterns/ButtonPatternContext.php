@@ -101,7 +101,7 @@ final class ButtonPatternContext
             return '';
         }
 
-        return $this->styleResolver->resolveCssVariablesInValue(
+        return $this->styleResolver->customProperties->resolve(
             $this->styleResolver->controlSurfaceResolvedStyle($element),
             $element
         );

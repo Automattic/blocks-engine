@@ -56,7 +56,7 @@ final class ImageDimensionResolver
         // normalizedAspectRatio, or the keyword never matches the allowlist below
         // and the whole promotion silently declines.
         $scale        = strtolower(CssValueInspector::withoutImportant(
-            $this->styles->resolveCssVariablesInValue(
+            $this->styles->customProperties->resolve(
                 (string) ($declarations['object-fit']['value'] ?? ''),
                 $image
             )
