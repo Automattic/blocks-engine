@@ -350,7 +350,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         $sourceDeclarations = array_replace($sourceDeclarations, $this->styleResolver->authorViewport->collapsed($toggle, $geometryProperties));
         foreach ( $geometryProperties as $property ) {
             if ( isset($sourceDeclarations[$property]) ) {
-                $sourceDeclarations[$property] = $this->styleResolver->resolveCssVariablesAtViewport($sourceDeclarations[$property], $toggle, StyleResolver::MOBILE_REFERENCE_WIDTH);
+                $sourceDeclarations[$property] = $this->styleResolver->customProperties->resolveAtViewport($sourceDeclarations[$property], $toggle, StyleResolver::MOBILE_REFERENCE_WIDTH);
             }
         }
         // Button presentation already owns its margins; a select only supplies geometry.
@@ -394,7 +394,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             foreach ($toggle->getElementsByTagName('*') as $child) {
                 $box = $this->styleResolver->cascade->collapsedViewportDeclarations($child, array('width', 'height'));
                 foreach ( $box as $property => $value ) {
-                    $box[$property] = $this->styleResolver->resolveCssVariablesAtViewport($value, $child, StyleResolver::MOBILE_REFERENCE_WIDTH);
+                    $box[$property] = $this->styleResolver->customProperties->resolveAtViewport($value, $child, StyleResolver::MOBILE_REFERENCE_WIDTH);
                 }
                 if ($this->nativeNavigationToggleDimensionIsUsable($box['width'] ?? '') && $this->nativeNavigationToggleDimensionIsUsable($box['height'] ?? '')) {
                     if (!$hasUsableWidth) $declarations[] = 'width:' . $box['width'] . '!important';
@@ -1770,7 +1770,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             $lengths = array();
             foreach ( array( 'width', 'height' ) as $property ) {
                 $value = CssValueInspector::withoutImportant(trim((string) ($declarations[$property] ?? '')));
-                $value = $this->styleResolver->resolveCssVariablesAtViewport($value, $child, StyleResolver::MOBILE_REFERENCE_WIDTH);
+                $value = $this->styleResolver->customProperties->resolveAtViewport($value, $child, StyleResolver::MOBILE_REFERENCE_WIDTH);
                 if ( 1 === preg_match('/^(\d+(?:\.\d+)?|\.\d+)(em|rem)$/i', $value, $matches) ) {
                     $fontSize ??= $this->nativeNavigationToggleFontSize($child);
                     $value = rtrim(rtrim(sprintf('%.3F', (float) $matches[1] * ( 'rem' === strtolower($matches[2]) ? 16.0 : $fontSize )), '0'), '.') . 'px';

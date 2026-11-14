@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifes
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
 /**
  * Sole owner of header/footer shell-candidate location and removal.
@@ -3654,7 +3655,7 @@ final class ShellExtraction
                             foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
                                 if ('' !== $class && !str_starts_with($class, 'wp-block-') && !str_starts_with($class, 'blocks-engine-synthetic-') && !str_starts_with($class, 'blocks-engine-propagated-') && !preg_match('/^has-(?:.+-font-(?:size|family)|text-color|.+-color)$/', $class)) $classes[$class] = true;
                             }
-                            foreach (explode(';', $element->getAttribute('style')) as $style) {
+                            foreach (CssValueSplitter::splitTopLevel($element->getAttribute('style'), array(';')) as $style) {
                                 $style = trim($style);
                                 // Bare links are lowered to a zero-margin paragraph;
                                 // typography is compared through the resolved presentation.
