@@ -215,6 +215,11 @@ final class SitePlanRun
         $paginationSources = $pagination['sources'];
         $paginationDiagnostics = $pagination['diagnostics'];
         $paginationOwners = $pagination['owners'];
+        $foldedListingRoutes = array();
+        foreach ($paginationOwners as $source => $owner) {
+            $route = $routeBySource[$source] ?? '';
+            if (isset($paginationSources[$source]) && str_contains($route, '/page/')) $foldedListingRoutes[$owner][] = $route;
+        }
         $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($paginationSources[$page['source_path']])));
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($paginationSources[$document['source_path']])));
         $assets = array_values(array_filter($assets, static fn(array $asset): bool => 'page' !== ($asset['compilation']['scope'] ?? null) || !isset($paginationSources[$asset['compilation']['id'] ?? ''])));
@@ -293,15 +298,15 @@ final class SitePlanRun
         $this->timer?->start('compose.site_plan.templates');
         $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $this->routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $bindingTemplates), $assets);
-         $navigation = NavigationEntityProjection::project($pages, $parts, $this->input->menus, $runtimeDeclarations, $runtimeEntityRecords);
-         $pages = $navigation['pages'];
-         $parts = $navigation['parts'];
-         $menus = $navigation['menus'];
         $pages = $this->postChrome->extractCommentForms($pages);
         $blockThemeChrome = $this->postChrome->extractBlockThemeChrome($pages, $runtimeDeclarations, $runtimeEntityRecords);
         $pages = $blockThemeChrome['pages'];
         $singleContent = array() !== $blockThemeChrome['templates'] ? reset($blockThemeChrome['templates']) : null;
-          $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
+          $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true, $foldedListingRoutes);
+         $navigation = NavigationEntityProjection::project($pages, $parts, $this->input->menus, $runtimeDeclarations, $runtimeEntityRecords);
+         $pages = $navigation['pages'];
+         $parts = $navigation['parts'];
+         $menus = $navigation['menus'];
           $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
           $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
          // Content every panel of one tabs block repeats is declared once.
@@ -325,7 +330,7 @@ final class SitePlanRun
         $templates = $articleChrome['templates'];
         $parts = $articleChrome['parts'];
         // Template-group lifting settles post bodies and can add featured images.
-        $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
+        $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true, $foldedListingRoutes);
         $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
         $themeProjection = ThemeTemplates::withCustomTemplates($themeProjection, $pages, $sharedTemplateTitles);
         $taxonomyProjection = TaxonomyProjection::withArchivePresentation($taxonomyProjection, $templates);

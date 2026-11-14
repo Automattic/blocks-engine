@@ -66,7 +66,7 @@ final class PostBlocks
         return '<!-- wp:post-featured-image ' . BlockAttributes::encode($attrs) . ' /-->';
     }
 
-    public static function query(int $perPage, string $template, bool $inherit = false, ?string $sectionSlug = null): string
+    public static function query(int $perPage, string $template, bool $inherit = false, ?string $sectionSlug = null, string $sourcePagination = ''): string
     {
         $attrs = array(
             'queryId' => 1,
@@ -87,9 +87,9 @@ final class PostBlocks
         );
         if (null !== $sectionSlug) $attrs['query']['taxQuery'] = array('category' => array('{{wordpress-site-plan:term:category:' . $sectionSlug . '}}'));
         $encoded = BlockAttributes::encode($attrs);
-        $pagination = $inherit
+        $pagination = '' !== $sourcePagination ? $sourcePagination : ($inherit
             ? '<!-- wp:query-pagination {"paginationArrow":"arrow","layout":{"type":"flex","justifyContent":"space-between"}} --><!-- wp:query-pagination-previous /--><!-- wp:query-pagination-next /--><!-- /wp:query-pagination --><!-- wp:query-no-results --><!-- wp:paragraph --><p>No posts found.</p><!-- /wp:paragraph --><!-- /wp:query-no-results -->'
-            : '';
+            : '');
         return '<!-- wp:query ' . $encoded . ' -->' . '<div class="wp-block-query ' . WordPressSitePlan::LISTING_QUERY_CLASS . '"><!-- wp:post-template -->' . $template . '<!-- /wp:post-template -->' . $pagination . '</div>' . '<!-- /wp:query -->';
     }
 
