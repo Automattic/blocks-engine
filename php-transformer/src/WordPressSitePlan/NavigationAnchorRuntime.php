@@ -81,6 +81,14 @@ $blocks_engine_navigation_anchor = static function ( string $content, array $blo
         $close = '</' . $box['tag'] . '>' . $close;
     }
     if ( '' === $open ) return $content;
+    $before = ''; $after = '';
+    foreach ( is_array( $presentation['siblings'] ?? null ) ? $presentation['siblings'] : array() as $sibling ) {
+        if ( ! is_array( $sibling ) || ! in_array( $sibling['tag'] ?? null, array( 'div', 'span' ), true ) ) continue;
+        $html = '<' . $sibling['tag'] . ' class="' . esc_attr( $sibling['className'] ?? '' ) . '" style="' . esc_attr( safecss_filter_attr( $sibling['style'] ?? '' ) ) . '"></' . $sibling['tag'] . '>';
+        if ( ! empty( $sibling['after'] ) ) $after .= $html; else $before .= $html;
+    }
+    $open = $before . $open;
+    $close .= $after;
     return preg_replace_callback( '/(<(a|button)\b[^>]*\bclass="[^"]*\bwp-block-navigation-item__content\b[^"]*"[^>]*>.*?<\/\2>)/s', static fn ( array $match ): string => $open . $match[1] . $close, $content, 1 ) ?? $content;
 };
 add_filter( 'render_block_core/navigation-link', $blocks_engine_navigation_anchor, 10, 2 );

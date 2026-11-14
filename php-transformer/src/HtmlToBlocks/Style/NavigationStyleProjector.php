@@ -337,7 +337,7 @@ final class NavigationStyleProjector
 
     private function templatePartGridItemDeclarations(string $body): string
     {
-        $declarations = $this->styleResolver->cssDeclarations($body);
+        $declarations = SourceDeclarations::parse($body);
         $placement = array_filter(
             $declarations,
             static fn (string $name): bool => 'order' === $name
@@ -464,7 +464,7 @@ final class NavigationStyleProjector
             foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
                 $property = 'padding-' . $side;
                 $value = trim((string) ($padding[$side] ?? ''));
-                $safe = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations($property . ':' . $value));
+                $safe = $this->styleResolver->safeVisualDeclarations(SourceDeclarations::parse($property . ':' . $value));
                 if ( '' !== $value
                     && ($safe[$property] ?? null) === $value
                     && ! $this->navigationDeclarationIsImportant($value)
@@ -620,7 +620,7 @@ final class NavigationStyleProjector
                 // same-class links in another menu cannot affect its winners.
                 $sourceAnchors = array_values(array_filter(
                     $sourceAnchors,
-                    fn (DOMElement $anchor): bool => $this->styleResolver->matchesCssSelector($anchor, $selector)
+                    fn (DOMElement $anchor): bool => $this->session->sourceStyleResolutionState()->matches($anchor, $selector)
                 ));
             }
             if ( array() === $sourceAnchors ) {
@@ -1129,7 +1129,7 @@ final class NavigationStyleProjector
             }
 
             if ( array() === ($candidate['conditions'] ?? array()) && '' === ($candidate['pseudo'] ?? '') ) {
-                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->inlineDeclarations($anchor));
+                $inline = $this->styleResolver->safeVisualDeclarations(SourceDeclarations::inline($anchor));
                 if ( array_key_exists($property, $inline) ) {
                     $entry = array(
                         'id' => -1,
@@ -1312,7 +1312,7 @@ final class NavigationStyleProjector
             }
 
             $itemDeclarations = $this->styleResolver->safeVisualDeclarations(
-                $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($item))
+                SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($item))
             );
             foreach ( $itemDeclarations as $itemProperty => $_itemValue ) {
                 if ( $itemProperty !== $property && $this->navigationPropertiesOverlap($property, $itemProperty) ) {
@@ -1367,7 +1367,7 @@ final class NavigationStyleProjector
             }
 
             $wrapperDeclarations = $this->styleResolver->safeVisualDeclarations(
-                $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($node))
+                SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($node))
             );
             foreach ( $wrapperDeclarations as $wrapperProperty => $wrapperValue ) {
                 if ( $this->navigationPropertiesOverlap($property, (string) $wrapperProperty)
@@ -1468,7 +1468,7 @@ final class NavigationStyleProjector
         if ( $candidate['important'] !== $current['important'] ) {
             return $candidate['important'];
         }
-        $specificity = $this->styleResolver->compareMediaTextSpecificity($candidate['specificity'], $current['specificity']);
+        $specificity = $candidate['specificity'] <=> $current['specificity'];
         return 0 < $specificity || (0 === $specificity && $candidate['order'] >= $current['order']);
     }
 
@@ -1506,7 +1506,7 @@ final class NavigationStyleProjector
             $conditions = ArrayField::array($rule, 'conditions');
             if ( (array() !== $conditions && ! $this->navigationConditionsAreProjectable($conditions))
                 || ! isset($rule['declarations']['color'])
-                || ! $this->styleResolver->matchesCssSelector($element, $rule['base_selector'])
+                || ! $this->session->sourceStyleResolutionState()->matches($element, $rule['base_selector'])
             ) {
                 continue;
             }
@@ -1755,7 +1755,7 @@ final class NavigationStyleProjector
             }
             if ( '' === $color
                 || preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $color)
-                || array() === $this->styleResolver->cssDeclarations('color:' . $color)
+                || array() === SourceDeclarations::parse('color:' . $color)
             ) {
                 continue;
             }
@@ -1910,7 +1910,7 @@ final class NavigationStyleProjector
     {
         foreach ( $anchors as $anchor ) {
             $item = $anchor->parentNode;
-            if ( ! $item instanceof DOMElement || ! $this->styleResolver->matchesCssSelector($item, $itemSelector) ) {
+            if ( ! $item instanceof DOMElement || ! $this->session->sourceStyleResolutionState()->matches($item, $itemSelector) ) {
                 return false;
             }
         }

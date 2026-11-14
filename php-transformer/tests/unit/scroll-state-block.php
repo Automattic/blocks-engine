@@ -57,4 +57,20 @@ $assert(str_contains($view, "data-blocks-engine-scroll-state=\"true\"") && str_c
 $plain = (new HtmlTransformer())->transform('<html><body><header id="ordinary" class="hdr"><img id="logo-2" src="logo.png" alt="logo"></header></body></html>', array())->toArray();
 $assert('blocks-engine/scroll-state' !== ($plain['blocks'][0]['blockName'] ?? null), 'an unmarked header converts through the ordinary generic path');
 
+// A scroll-state header is a converted block like any other: rules that
+// target it by projection marker (here, releasing the backdrop-filter that
+// would trap the native navigation overlay inside the header) must find it.
+$header = '<style>.site-header{position:sticky;top:0;backdrop-filter:blur(14px)}.nav-wrap{display:flex;justify-content:space-between}.nav-toggle{display:none}'
+    . '@media(max-width:800px){.nav-toggle{display:flex}.nav{position:absolute;top:80px;opacity:0;pointer-events:none}.nav.open{opacity:1;pointer-events:auto}}</style>'
+    . '<header class="site-header" data-blocks-engine-scroll-state="true" data-blocks-engine-scroll-state-config="' . $configAttr . '"><div class="nav-wrap"><a href="/">Brand</a>'
+    . '<nav class="nav" id="menu"><a href="/a/">A</a><a href="/b/">B</a></nav><button class="nav-toggle" aria-controls="menu" aria-expanded="false">Menu</button></div></header>'
+    . '<script>document.querySelector(".nav-toggle").onclick=()=>document.getElementById("menu").classList.toggle("open")</script>';
+$headerResult = (new HtmlTransformer())->transform($header, array())->toArray();
+$headerCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($headerResult['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? ''))));
+$assert(1 === preg_match('/\.(blocks-engine-semantic-[a-f0-9]+-\d+):has\(\.wp-block-navigation__responsive-container\.is-menu-open\)\{backdrop-filter:none/', $headerCss, $release), 'the open overlay releases the header backdrop-filter');
+$headerBlock = $headerResult['blocks'][0] ?? array();
+$assert(str_ends_with((string) ($headerBlock['blockName'] ?? ''), '/scroll-state'), 'the header stays a scroll-state block');
+$assert(in_array($release[1], explode(' ', (string) ($headerBlock['attrs']['className'] ?? '')), true) && str_contains((string) ($headerResult['serialized_blocks'] ?? ''), $release[1]), 'the scroll-state header carries the marker its release rule targets');
+$assert('pass' === ($headerResult['source_reports']['wp_block_validity']['status'] ?? null), 'the projected scroll-state header stays editor-valid');
+
 fwrite(STDOUT, "Scroll state companion tests passed\n");

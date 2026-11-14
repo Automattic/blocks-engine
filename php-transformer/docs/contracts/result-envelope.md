@@ -76,6 +76,12 @@ Classification uses source semantics, not platform, theme, or vendor class names
 
 Native form conversions include search forms (`core/search`) and plain password sign-in forms (`core/loginout` with `displayLoginAsForm: true`). Sign-in admission requires exactly one password input, one text/email username input, an optional single remember-me checkbox, one submit control, and only hidden inputs otherwise. The destination WordPress owns authentication: source actions, field names, hidden submission data, and captured control state are dropped. Registration/sign-up submit semantics, additional passwords or free-text fields, selects, and textareas decline this conversion and retain existing form fallback handling. Surrounding content stays in ordinary blocks; converted sign-in forms emit no fallback or loss finding.
 
+### Declared form copy (`generic/forms/v1`)
+
+Native field labels remain in `controls[].label`. A positional field-wrapper label can name its sole fillable input, select or textarea even when an action button shares the wrapper. An unassociated label immediately preceding a wrapper containing only same-name radios names that choice group through the existing `control_topology.nodes[].group_role: radiogroup` and `group_label`, not through each option's label.
+
+Form copy uses `form.context_before` and `form.context_after`. A `context_after` item with the optional **`after_control_selector`** string is positioned immediately after the `controls[]` entry with that source selector, rather than after the entire form. This additive anchor is necessary for between-control prose; the existing unanchored arrays only express leading and trailing copy. Items retain their text, source selector, RichText and presentation metadata, in source order. `interleaved_context` still signals between-control copy, including successfully positioned copy; it alone is not evidence of loss. Genuinely ambiguous labels remain in `unrepresented_context` and produce `form_field_context_unrepresented`.
+
 `context` contains normalized per-call behavior flags. The stable keys are `strict` and `allow_fallbacks`. Callers may pass these keys at the top level of the options array or under `context`.
 
 `provenance` entries identify the transformer-owned operation and may include caller-supplied `source` and `scope` strings. These fields are generic metadata for wrappers and product integrations; canonical fixtures should avoid downstream package names.

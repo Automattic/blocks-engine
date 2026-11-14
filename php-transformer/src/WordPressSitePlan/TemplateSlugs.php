@@ -19,6 +19,14 @@ final class TemplateSlugs
         return $page['route_template'] ?? (!empty($page['entrypoint']) ? 'front-page' : ('page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug']));
     }
 
+    /** The generic hierarchy template used without a route override. */
+    public static function genericForPage(array $page, array $templateSlugs): string
+    {
+        if ('page' === $page['post_type']) return 'page';
+        $typed = 'single-' . $page['post_type'];
+        return in_array($typed, $templateSlugs, true) ? $typed : 'single';
+    }
+
     /** @param array<string,mixed> $part */
     public static function partAppliesToOverride(array $part, string $slug): bool
     {

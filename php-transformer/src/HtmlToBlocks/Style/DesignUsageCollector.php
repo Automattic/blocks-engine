@@ -245,7 +245,7 @@ final class DesignUsageCollector
     private function shownAtReference(DOMElement $element): bool
     {
         if (1 === preg_match('/(?:^|;)\s*display\s*:/i', $element->getAttribute('style')) || !$this->resolver->hasConditionalStyleFamily($element, 'layout')) return false;
-        $display = $this->resolver->referenceViewportAuthorDeclarations($element, array('display'))['display'] ?? null;
+        $display = $this->resolver->authorViewport->reference($element, array('display'))['display'] ?? null;
         return null !== $display && 'none' !== strtolower(self::clean($display));
     }
 
@@ -359,7 +359,7 @@ final class DesignUsageCollector
         elseif ('a' === $tag && $element->hasAttribute('href') && 'button' !== $parent['role']) $context['role'] = 'link';
         elseif ('button' === $tag) $context['role'] = 'button';
 
-        $fontDeclarations = $this->resolver->referenceViewportAuthorDeclarations($element, array('font', 'font-size'));
+        $fontDeclarations = $this->resolver->authorViewport->reference($element, array('font', 'font-size'));
         $sizeValue = $declarations['font-size'] ?? $fontDeclarations['font-size'] ?? null;
         $size = $this->fontSize($sizeValue, $parent['size']);
         // Keep a numeric estimate for usage mass, but never present that
@@ -414,7 +414,7 @@ final class DesignUsageCollector
             // Pending shorthands in media rules are absent from the resting
             // classified cascade. The author declarations retain them and
             // order shorthand/longhand winners by cascade precedence.
-            $referenceFont = $this->resolver->referenceViewportAuthorDeclarations($element, array('font', 'font-family'));
+            $referenceFont = $this->resolver->authorViewport->reference($element, array('font', 'font-family'));
             if ('font' === array_key_last($referenceFont)) {
                 $value = $referenceFont['font'];
                 if (!in_array(strtolower(self::clean($value)), array('inherit', 'unset'), true)) $shorthand = $value;
@@ -825,7 +825,7 @@ final class DesignUsageCollector
             if ((array() === array_intersect_key($declarations, array_flip($properties)) || ($headingReference && in_array($family, array('font-size', 'font-weight', 'line-height'), true))) && $this->resolver->hasConditionalStyleFamily($element, $family)) array_push($conditional, ...$properties);
         }
         if (array() === $conditional) return $declarations;
-        foreach ($this->resolver->referenceViewportAuthorDeclarations($element, $conditional) as $property => $value) {
+        foreach ($this->resolver->authorViewport->reference($element, $conditional) as $property => $value) {
             $declarations[strtolower((string) $property)] = $this->resolver->resolveCssVariablesInValue((string) $value, $element);
         }
         return $declarations;

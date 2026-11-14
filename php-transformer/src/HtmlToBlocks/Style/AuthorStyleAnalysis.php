@@ -45,6 +45,8 @@ final class AuthorStyleAnalysis
     private ?array $styleRuleCandidateIndex = null;
     /** @var array<string, true>|null */
     private ?array $captureOnlySelectors = null;
+    /** @var list<array{parsed: array<string, mixed>, weight: list<int>}>|null */
+    private ?array $typeSubjectSelectors = null;
     private readonly string $markerSeed;
     private int $markerCounter = 0;
     /** @var array{string, string} */
@@ -165,6 +167,7 @@ final class AuthorStyleAnalysis
         $this->styleRules = $rules;
         $this->styleRuleCandidateIndex = null;
         $this->captureOnlySelectors = null;
+        $this->typeSubjectSelectors = null;
         $this->positionalParents = null;
         $this->contextHashes = null;
     }
@@ -173,6 +176,31 @@ final class AuthorStyleAnalysis
     public function styleRules(): array
     {
         return $this->styleRules;
+    }
+
+    /**
+     * Supported, non-pseudo-element selectors whose subject compound names an
+     * element type, in rule order, with their (ids, classes, types) weight.
+     *
+     * @return list<array{parsed: array<string, mixed>, weight: list<int>}>
+     */
+    public function typeSubjectSelectors(): array
+    {
+        if ( null !== $this->typeSubjectSelectors ) return $this->typeSubjectSelectors;
+        $selectors = array();
+        foreach ( $this->styleRules as $rule ) {
+            foreach ( (array) ( $rule['selectors'] ?? array() ) as $candidate ) {
+                $parsed = $candidate['parsed'] ?? array();
+                if ( ! ( $parsed['supported'] ?? false ) || str_contains((string) ( $candidate['selector'] ?? '' ), '::')
+                    || null === ( CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type'] ?? null )
+                ) {
+                    continue;
+                }
+                $weight = CssSelectorMatcher::specificityCounts($parsed);
+                $selectors[] = array( 'parsed' => $parsed, 'weight' => array( $weight['ids'], $weight['classes'], $weight['types'] ) );
+            }
+        }
+        return $this->typeSubjectSelectors = $selectors;
     }
 
     /**

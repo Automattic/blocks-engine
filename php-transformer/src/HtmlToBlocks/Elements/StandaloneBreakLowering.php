@@ -95,7 +95,7 @@ final class StandaloneBreakLowering
         $value = $this->styleResolver->authoredInheritedPropertyWinner($element, $property);
         if ( '' !== $value ) return $value;
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array($property, 'font'));
+            $declarations = $this->styleResolver->authorViewport->reference($node, array($property, 'font'));
             $value = CssValueInspector::withoutImportant($declarations[$property] ?? '');
             if ( '' === trim($value) && isset($declarations['font']) ) {
                 $value = CssFontShorthand::expand($this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($declarations['font']), $node))[$property] ?? '';

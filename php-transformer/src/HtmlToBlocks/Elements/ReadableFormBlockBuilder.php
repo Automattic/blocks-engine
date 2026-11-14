@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButto
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
@@ -56,6 +57,9 @@ final class ReadableFormBlockBuilder
     private array $presentedControls = array();
 
     private ?DOMElement $form = null;
+
+    /** @var list<DOMElement> */
+    private array $controlElements = array();
 
     /** @var array<string, true> Node paths of the labels that name a control. */
     private array $controlLabels = array();
@@ -125,7 +129,8 @@ final class ReadableFormBlockBuilder
         $this->fieldBoxes = array();
         $this->controlBoxes = array();
         $this->form = $form;
-        foreach ( FormControlClassifier::controlElements($form) as $index => $control ) {
+        $this->controlElements = FormWorkflowControlInventory::elements($form, $this->metadataBuilder, $this->session);
+        foreach ( $this->controlElements as $index => $control ) {
             $this->controlIndices[(string) $control->getNodePath()] = $index;
             $presenter = FormControlClassifier::presentingElement($control);
             $this->presentedControls[(string) $presenter->getNodePath()] = $control;
@@ -199,7 +204,7 @@ final class ReadableFormBlockBuilder
     private function groupedContentBlocks(DOMElement $form, array &$fallbacks): array
     {
         $structure = array();
-        $this->layoutGraph = (new FormLayoutGraphBuilder())->build(
+        $this->layoutGraph = (new FormLayoutGraphBuilder($this->controlElements))->build(
             $form,
             $this->session->authorStyleAnalysis()->stylesheetAssets(),
             $this->session->sourceStyleResolutionState()->formLayoutCss(),
@@ -273,6 +278,25 @@ final class ReadableFormBlockBuilder
             }
 
             $element = $entry['element'];
+            // A control nested below a label's phrasing wrapper cannot be
+            // reconstructed as caption + control: the caption contains that
+            // same wrapper and control, and moving the wrapper outside the
+            // label reverses its source ownership. Preserve this whole native
+            // subtree once, before walking any of its painted descendants.
+            if ('label' === strtolower($element->tagName)) {
+                foreach (FormControlClassifier::controlElements($element) as $control) {
+                    $path = $control;
+                    for ($wrapper = $control->parentNode; $wrapper instanceof DOMElement && !$wrapper->isSameNode($element); $wrapper = $wrapper->parentNode) {
+                        foreach ($wrapper->childNodes as $sibling) {
+                            if (!$sibling->isSameNode($path) && '' !== trim($sibling->textContent ?? '')) {
+                                $blocks[] = $this->nativeLabelSubtree($element);
+                                continue 4;
+                            }
+                        }
+                        $path = $wrapper;
+                    }
+                }
+            }
             if ( ! $this->holdsControl($entry['id'], $children) ) {
                 if ( $this->isFlowContent($element) ) {
                     $this->pushFlowContent($blocks, $element, $fallbacks);
@@ -353,7 +377,15 @@ final class ReadableFormBlockBuilder
                 if ( 1 === count($inner) ) {
                     $inner = array($this->withoutShelledFieldBox($inner[0], $elements));
                 }
-                $shell = ($this->layoutShellBlockForElements)($elements, $inner, $element);
+                // Native groups retain class identity and resolved presentation for
+                // simple field rows. Control boxes must keep their shell contract.
+                $classOnlyGroup = 1 === count($inner) && 1 === count($elements)
+                    && 'div' === strtolower($element->tagName)
+                    && 1 === $element->attributes->length && $element->hasAttribute('class')
+                    && null === $controlBox;
+                $shell = $classOnlyGroup
+                    ? $this->createBlock->createBlock('core/group', $this->presentationAttributes($element), $inner, $element)
+                    : ($this->layoutShellBlockForElements)($elements, $inner, $element);
                 if ( null !== $controlBox && 1 === count($inner) && $controlBox === ($inner[0]['form_control_index'] ?? null) && ! isset($inner[0]['_form_control_box']) ) {
                     $shell['form_control_box'] = $controlBox;
                 }
@@ -370,6 +402,44 @@ final class ReadableFormBlockBuilder
         }
 
         return $blocks;
+    }
+
+    /**
+     * Keep mixed label content in source order. The walk owns every wrapper
+     * here, so controls must not carry a second copy of their label or boxes.
+     *
+     * @return array<string, mixed>
+     */
+    private function nativeLabelSubtree(DOMElement $element): array
+    {
+        $blocks = array();
+        foreach ($element->childNodes as $child) {
+            if (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) {
+                $blocks[] = $this->createBlock->createBlock('core/paragraph', array(
+                    'content' => htmlspecialchars($child->textContent, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                    'className' => SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS,
+                ));
+            } elseif ($child instanceof DOMElement) {
+                if (! FormControlClassifier::isControlElement($child)) {
+                    $blocks[] = $this->nativeLabelSubtree($child);
+                    continue;
+                }
+                $block = $this->controlBlockConverter->convert($child, null, true);
+                if (null !== $block) {
+                    $index = $this->controlIndices[(string) $child->getNodePath()];
+                    $block['form_control_index'] = $index;
+                    $label = $this->metadataBuilder->labelElement($child);
+                    $block['form_field'] = array(
+                        'kind' => 'control',
+                        'label' => null !== $label ? $this->controlBlockConverter->labelMarkup($label) : '',
+                    );
+                    $this->fieldBoxes[$index] = array();
+                    $this->controlBoxes[$index] = array();
+                    $blocks[] = $block;
+                }
+            }
+        }
+        return ($this->layoutShellBlockForElements)(array($element), $blocks, $element);
     }
 
     /**
@@ -557,7 +627,7 @@ final class ReadableFormBlockBuilder
     {
         if ( ! isset($block['form_control_index']) ) {
             $inner = $block['innerBlocks'] ?? array();
-            if ( 1 === count($inner) && str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell') ) {
+            if ( 1 === count($inner) && ('core/group' === ($block['blockName'] ?? '') || str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell')) ) {
                 $block['innerBlocks'] = array($this->withoutShelledFieldBox($inner[0], $elements));
             }
             return $block;
@@ -603,7 +673,7 @@ final class ReadableFormBlockBuilder
         $own = array();
         $path = $control;
         for ($node = $control->parentNode; $node instanceof DOMElement && ! $node->isSameNode($this->form); $node = $node->parentNode) {
-            if ('fieldset' === strtolower($node->tagName) || 1 !== count(FormControlClassifier::controlElements($node))) {
+            if ('fieldset' === strtolower($node->tagName) || 1 !== count(array_filter($this->controlElements, fn (DOMElement $element): bool => $this->contains($node, $element)))) {
                 break;
             }
             // A label's own children are its caption; a wrapper's must be the path or the label.

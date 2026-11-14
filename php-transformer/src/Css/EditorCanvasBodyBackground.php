@@ -22,14 +22,24 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  * when a layered author rule paints `body` and no unlayered author rule does:
  * an unlayered author background already beats the zero-specificity fallback,
  * and without any layered background the fallback is the right answer.
+ *
+ * A source may paint the canvas on `html` and leave `body` transparent. Core
+ * still paints the theme's root background on `body`; the html background then
+ * no longer propagates past it, so body's box covers every negative-z layer of
+ * the root stacking context (a fixed `body::before` backdrop). The source body
+ * stays transparent, on the frontend and on the editor's canvas body.
  */
 final class EditorCanvasBodyBackground
 {
     public const RULE = ':root body.editor-styles-wrapper{background-color:revert-layer}';
+    public const TRANSPARENT_BODY_RULE = ':root body{background-color:transparent;background-image:none}';
 
     /** @param array<string, string>|null $bodyDeclarations Resolved source author declarations. */
-    public function supportCss(string $stylesheet, ?array $bodyDeclarations = null): string
+    public function supportCss(string $stylesheet, ?array $bodyDeclarations = null, bool $htmlOwnedCanvas = false): string
     {
+        if ($htmlOwnedCanvas) {
+            return self::TRANSPARENT_BODY_RULE . $this->supportCss($stylesheet, $bodyDeclarations);
+        }
         $layered = false;
         $unlayered = false;
         (new CssStylesheetTransformer())->visitStyleRules($stylesheet, static function (string $prelude, string $body, array $ancestors) use (&$layered, &$unlayered): void {

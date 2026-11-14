@@ -254,6 +254,12 @@ jobs:
           BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/neutral-button-fixed-height-browser.mjs
 
+      - name: Verify a centred submit carrier keeps its source position
+        working-directory: php-transformer
+        run: |
+          php tests/unit/form-submit-centred-carrier.php
+          PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/form-submit-centred-carrier-browser.mjs
+
       - name: Verify a propagated card link keeps its author layout
         working-directory: php-transformer
         env:

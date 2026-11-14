@@ -178,14 +178,14 @@ $neutral = $compile('<main><form method="post" action="/contact">'
 $neutralEntity = $formEntity($neutral);
 $assert(is_array($neutralEntity) && array('first', 'last') === $fieldNames($neutralEntity), 'neutral trap is not a control');
 $assert(
-    array('We reply within a day.') === array_column($neutralEntity['form']['unrepresented_context'] ?? array(), 'text'),
-    'only genuine interleaved copy is unrepresented',
+    array('We reply within a day.') === array_column($neutralEntity['form']['context_after'] ?? array(), 'text'),
+    'only genuine interleaved copy is positioned',
     $extractedJson($neutralEntity)
 );
 $assert(! str_contains($extractedJson($neutralEntity), 'Decoy'), 'no decoy label or container copy reaches extracted metadata');
 $assert(
-    1 === count($unrepresentedDiagnostics($neutral)) && ! str_contains((string) json_encode($unrepresentedDiagnostics($neutral)), 'Decoy'),
-    'only genuine copy raises an unrepresented diagnostic',
+    array() === $unrepresentedDiagnostics($neutral),
+    'positioned genuine copy and decoys raise no unrepresented diagnostic',
     json_encode($unrepresentedDiagnostics($neutral))
 );
 

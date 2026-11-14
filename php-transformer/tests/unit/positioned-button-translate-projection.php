@@ -168,7 +168,7 @@ foreach ( array( '*', 'button' ) as $reset ) {
     )->toArray();
     $centredCss = $cssOf($centred);
     $assert(
-        (bool) preg_match('/:where\(\.blocks-engine-control-[^)]+\):where\(\.wp-block-buttons\):not\(\.be-c-\d+\)[^{]*\{margin:0\}/', $centredCss),
+        (bool) preg_match('/:where\(\.blocks-engine-' . ('*' === $reset ? 'role-control' : 'control-[^)]+') . '\):where\(\.wp-block-buttons\):not\(\.be-c-\d+\)[^{]*\{margin:0\}/', $centredCss),
         'centred submit retains the ' . $reset . ' margin reset on its buttons carrier',
         $centredCss
     );

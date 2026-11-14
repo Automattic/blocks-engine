@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConv
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Closure;
 use DOMElement;
 use LogicException;
 
@@ -18,7 +19,9 @@ final class ScrollStateConverter implements ElementConverter
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly PatternTreeConverter $tree,
-        private readonly StyleResolver $styleResolver
+        private readonly StyleResolver $styleResolver,
+        /** @var Closure(DOMElement, string): string Source projection classes, as on any converted block. */
+        private readonly Closure $sourceProjectionClassName
     ) {
     }
 
@@ -65,7 +68,10 @@ final class ScrollStateConverter implements ElementConverter
                 $toggled = array_merge($toggled, array_map('strtolower', array_map('strval', array_keys($target['properties']))));
             }
         }
-        $className = trim(SourceDom::attr($element, 'class') . ' ' . $this->styleResolver->inlineGeometryClassName($element, $toggled));
+        // Children first: converting them can mark this wrapper (for example a
+        // header that releases a native navigation overlay's containing block).
+        $children = $this->tree->children($element, $fallbacks, true);
+        $className = ($this->sourceProjectionClassName)($element, trim(SourceDom::attr($element, 'class') . ' ' . $this->styleResolver->inlineGeometryClassName($element, $toggled)));
 
         $attrs = array_filter(array(
             'tagName' => 'div' === $tagName ? '' : $tagName,
@@ -74,7 +80,6 @@ final class ScrollStateConverter implements ElementConverter
             'config' => '{}' === $config ? '' : $config,
         ), static fn(mixed $value): bool => '' !== $value);
 
-        $children = $this->tree->children($element, $fallbacks, true);
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $opening = '<' . $tagName;
         if ('' !== $anchor) $opening .= ' id="' . $escape($anchor) . '"';

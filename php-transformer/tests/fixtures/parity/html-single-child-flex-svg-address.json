@@ -19,7 +19,7 @@
     { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image" },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "contact-card", "content": "214 Maple Street<br>Benton Harbor, MI<br><a href=\"tel:+12695550193\">(269) 555-0193</a>" } }
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "contact-card blocks-engine-lowered-paragraph", "content": "214 Maple Street<br>Benton Harbor, MI<br><a href=\"tel:+12695550193\">(269) 555-0193</a>" } }
   ],
   "expected_fallbacks": [],
   "expect": [

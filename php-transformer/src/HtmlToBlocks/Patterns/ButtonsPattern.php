@@ -448,7 +448,8 @@ final class ButtonsPattern
             $html
         ) ?? $html;
         $html = $buttons->materializeSvgImages($element, $html, $this->outOfFlowDecorationImage($element, $buttons)) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
-        $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
+        // aria-hidden controls accessibility, not paint. Keep decorative label
+        // boxes and their wrapper topology so projected author CSS can paint them.
         $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
         $html = $this->unwrapPresentationalSpan(trim($html));
         if ( '' !== trim($this->plainText($html)) || preg_match('/<img\b[^>]*>/i', $html) ) {
@@ -997,13 +998,20 @@ final class ButtonsPattern
             }
         }
 
+        // A partial border is decoration, not an outline box. Even a name
+        // signal must not introduce Core's default border on the missing sides.
+        $border = $this->styleResolver->paintedBorder($style);
+        unset($border['radius']);
+        if ( ! isset($border['style']) && array() !== $border
+            && count(array_intersect(array( 'top', 'right', 'bottom', 'left' ), array_keys($border))) < 4 ) {
+            return false;
+        }
+
         if ( $this->hasAnyToken($element, array( 'outline', 'ghost', 'hollow', 'bordered' )) ) {
             return true;
         }
 
         // Corner geometry and zero-width resets are not outline paint.
-        $border = $this->styleResolver->paintedBorder($style);
-        unset($border['radius']);
         if ( array() === $border ) {
             return false;
         }

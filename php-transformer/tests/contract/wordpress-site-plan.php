@@ -542,7 +542,7 @@ $galleryResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'contac
 $galleryEntry = current(array_filter($galleryResult['source_reports']['compiled_site']['pages'] ?? array(), static fn(array $page): bool => 'contact.html' === ($page['source_path'] ?? null)));
 $galleryPlanEntry = current(array_filter($galleryResult['source_reports']['wordpress_site_plan']['pages'] ?? array(), static fn(array $page): bool => 'contact.html' === ($page['source_path'] ?? null)));
 $galleryHeader = current(array_filter($galleryEntry['shell_artifacts'] ?? array(), static fn(array $shell): bool => 'header' === ($shell['area'] ?? null)));
-$assert(1 === substr_count((string) ($galleryEntry['block_markup'] ?? ''), '<header class="wp-block-group site-header"') && !str_contains((string) ($galleryPlanEntry['canonical_block_markup'] ?? ''), 'site-header') && in_array('wordpress_site_plan_shell_extracted', array_column($galleryResult['source_reports']['wordpress_site_plan']['diagnostics'] ?? array(), 'code'), true), 'Fixture 37 keeps its entry header exactly once in compiled-site markup and extracts it as shared chrome once route-current navigation state is normalized out of shell identity.');
+$assert(1 === preg_match_all('/<header class="wp-block-group site-header[" ]/', (string) ($galleryEntry['block_markup'] ?? '')) && !str_contains((string) ($galleryPlanEntry['canonical_block_markup'] ?? ''), 'site-header') && in_array('wordpress_site_plan_shell_extracted', array_column($galleryResult['source_reports']['wordpress_site_plan']['diagnostics'] ?? array(), 'code'), true), 'Fixture 37 keeps its entry header exactly once in compiled-site markup and extracts it as shared chrome once route-current navigation state is normalized out of shell identity.');
 $galleryPages = array_column($galleryResult['source_reports']['wordpress_site_plan']['pages'] ?? array(), 'canonical_block_markup', 'source_path');
 $galleryCurrentExhibition = (string) ($galleryPages['current-exhibition.html'] ?? '');
 $assert(2 === substr_count($galleryCurrentExhibition, '<!-- wp:custom/description-list') && str_contains($galleryCurrentExhibition, '<div><dt>Opening date</dt><dd><time datetime="2026-04-19">19 April 2026</time></dd></div>') && str_contains($galleryCurrentExhibition, '<dl class="pub__meta"><div><dt>Publisher</dt><dd>Spector Books, Leipzig</dd></div>'), 'Fixture 37 sidebar and publication grouped description lists retain companion blocks, div row topology, and source ordering in canonical site-plan markup.');
@@ -752,12 +752,10 @@ foreach (array(
 $reducedFormDiagnostics = array_values(array_filter($reducedFormResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'form_field_context_unrepresented' === ($diagnostic['code'] ?? null)));
 $assert(array('One.', 'Two.') === ($reducedFormDiagnostics[0]['unrepresented_text'] ?? null), 'Ambiguous submit-button copy remains available to the unrepresented-text diagnostic.');
 
-// Copy that sits between two controls at the form's own level cannot be
-// positioned either; it is named by the same diagnostic rather than only
-// flipping a boolean flag.
+// Copy between controls is positioned context, not an unrepresented loss.
 $interleavedCopyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form method="post" action="/apply"><input type="text" name="a"><h3>Second section</h3><input type="text" name="b"><input type="submit" value="Go"></form></main>')))->toArray();
 $interleavedCopyDiagnostics = array_values(array_filter($interleavedCopyResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'form_field_context_unrepresented' === ($diagnostic['code'] ?? null)));
-$assert(1 === count($interleavedCopyDiagnostics) && array('Second section') === ($interleavedCopyDiagnostics[0]['unrepresented_text'] ?? null), 'Copy interleaved between two controls is named by a diagnostic instead of only recording a boolean flag.');
+$assert(array() === $interleavedCopyDiagnostics, 'Copy interleaved between two controls is positioned without an unrepresented-text diagnostic.');
 
 // Widget-heavy booking forms retain all visible buttons within the graph bounds.
 $bookingFields = '<div><label>Name<input name="name"></label></div><div><label>Email<input type="email" name="email"></label></div><div><label>Phone<input type="tel" name="phone"></label></div>';
