@@ -1101,11 +1101,11 @@ $assert(str_contains((string) ($sameSourceGroupChainSelectorEdge['serialized_blo
 $semanticWrapperChain = $transform('<section class="feature"><div class="copy"><div class="rich"><h2>Editable heading</h2></div></div></section>');
 $semanticWrapperBlock = $semanticWrapperChain['blocks'][0] ?? array();
 $assert(
-    str_ends_with((string) ($semanticWrapperBlock['blockName'] ?? ''), '/layout-shell')
-    && array('section', 'div') === array_column($semanticWrapperBlock['attrs']['wrappers'] ?? array(), 'tagName')
-    && str_contains((string) ($semanticWrapperBlock['attrs']['wrappers'][1]['attributes']['class'] ?? ''), 'copy rich')
-    && array('core/heading') === array_column($semanticWrapperBlock['innerBlocks'] ?? array(), 'blockName'),
-    'a unary semantic wrapper chain becomes one labeled layout shell while retaining native editable text leaves'
+    'core/group' === ($semanticWrapperBlock['blockName'] ?? '')
+    && 'section' === ($semanticWrapperBlock['attrs']['tagName'] ?? '')
+    && str_contains((string) ($semanticWrapperBlock['innerBlocks'][0]['attrs']['className'] ?? ''), 'copy rich')
+    && array('core/heading') === array_column($semanticWrapperBlock['innerBlocks'][0]['innerBlocks'] ?? array(), 'blockName'),
+    'a unary semantic wrapper chain retains native Groups and editable text leaves'
 );
 
 $siblingSemanticSections = $transform('<main><section><h2>First</h2></section><section><h2>Second</h2></section></main>');

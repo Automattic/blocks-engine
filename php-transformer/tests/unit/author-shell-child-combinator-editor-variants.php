@@ -9,7 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EditorShellBoundar
 
 $files = array();
 foreach (array('index', 'about') as $page) {
-    $files[] = array('path' => "website/$page.html", 'content' => '<html><head><title>' . $page . '</title><style>.a > .b{color:red}</style></head><body><main><div class="outer"><section class="middle"><div class="a"><p class="b">Copy</p><p>Second</p></div></section></div></main></body></html>');
+    $files[] = array('path' => "website/$page.html", 'content' => '<html><head><title>' . $page . '</title><style>.a > .b{color:red}</style></head><body><main><div id="depth1"><div id="depth2"><div id="depth3"><div id="depth4"><div id="depth5"><div id="depth6"><div id="depth7"><div class="outer"><section class="middle"><div class="a"><p class="b">Copy</p><p>Second</p></div></section></div></div></div></div></div></div></div></div></main></body></html>');
 }
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $files))->toWordPressSitePlanView();
 $plan = $result['wordpress_site_plan'];
