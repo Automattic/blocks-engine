@@ -31,7 +31,8 @@ Layers depend in one direction, enforced by
 ## Reading CSS
 
 Use these readers rather than writing a regex, `explode(';')` or a local parse
-helper. They handle strings, comments, functions, `!important` and shorthand
+helper; `tests/contract/declaration-readers.php` fails on a new
+`(?:^|;)\s*property:` probe. They handle strings, comments, functions, `!important` and shorthand
 order. Each has one implementation, so a fix in it reaches every caller.
 `SourceDeclarations` lives in `HtmlToBlocks`; code in the lower layers reads
 declarations through the `Css` readers.
@@ -40,6 +41,7 @@ declarations through the `Css` readers.
 | --- | --- |
 | An element's `style` attribute as a property map | `SourceDeclarations::inline($element)` |
 | One property's value, lowercased and without `!important` | `CssValueInspector::declared(SourceDeclarations::parse($style), 'display')` |
+| Whether declarations hide the box, or lay out a flex column | `CssValueInspector::hidesBox($declarations)`, `CssValueInspector::isFlexColumn($declarations)` |
 | Any declaration list as a property map (physical sides, font longhands) | `SourceDeclarations::parse($css)` |
 | A declaration list with authored property names kept verbatim | `SourceDeclarations::verbatim($css)` |
 | Declarations in source order, from any layer | `CssRuleAnalyzer::declarationList($css)` |
