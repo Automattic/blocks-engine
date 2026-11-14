@@ -11,7 +11,8 @@ and reuses the readers listed below.
 | --- | --- |
 | Converting one element kind to blocks | `src/HtmlToBlocks/Elements/*` (an `ElementConverter`, registered in `HtmlCompilation`'s ordered converter registry) |
 | Recognizing larger patterns (navigation, carousels, forms, galleries) | `src/HtmlToBlocks/Patterns/*`, `src/HtmlToBlocks/Generators/*` |
-| Computed style of a source element | `StyleResolver` and the owners it exposes as public readonly properties: `$styleResolver->cascade` (`SourceCascade`) and `$styleResolver->authorViewport` (`AuthorViewportDeclarations`) |
+| Computed style of a source element | `StyleResolver` and the owners it exposes as public readonly properties: `$styleResolver->cascade` (`SourceCascade`), `$styleResolver->authorViewport` (`AuthorViewportDeclarations`) and `$styleResolver->customProperties` (`CustomPropertyResolver`) |
+| Resolve `var()` in a value | `$styleResolver->customProperties`: `resolve()` (reference viewport), `resolveCascaded()` (unconditional cascade), `resolveAtViewport()` |
 | Re-emitting author stylesheets | `src/HtmlToBlocks/Style/AuthorStylesheetProjector.php` |
 | Site plan composition | `src/WordPressSitePlan/*`; `SitePlanRun` holds the state of one composition |
 | Orchestration | `src/ArtifactCompiler/*`, the composition root |
