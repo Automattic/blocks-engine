@@ -8,19 +8,19 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 $html = <<<'HTML'
 <!doctype html><html><head><title>Background carousel</title><style>
 .slider{position:absolute;inset:0;min-height:100vh}
-.w-slider-mask{height:900px;overflow:hidden}
-.w-slide{width:1440px;height:900px}
+.slider-mask{height:900px;overflow:hidden}
+.slide{width:1440px;height:900px}
 .slide-a{background-image:linear-gradient(#ffffff12,#ffffff12),url("/media/a.avif");background-size:auto,cover}
 .slide-b{background-image:linear-gradient(#000a7c0a,#000a7c0a),url("/media/b.avif");background-size:auto,cover}
 </style></head><body><main>
-<div class="slider w-slider" data-animation="fade" role="region" aria-label="carousel">
-<div class="mask w-slider-mask">
-<div class="slide-a w-slide" aria-label="1 of 2" role="group" style="opacity:1;z-index:2"></div>
-<div class="slide-b w-slide" aria-label="2 of 2" role="group" aria-hidden="true"></div>
-<div aria-live="off" aria-atomic="true" class="w-slider-aria-label">Slide 1 of 2.</div>
+<div class="slider" role="region" aria-label="carousel">
+<div class="slider-mask">
+<div class="slide-a slide" aria-label="1 of 2" role="group" style="opacity:1;z-index:2"></div>
+<div class="slide-b slide" aria-label="2 of 2" role="group" aria-hidden="true"></div>
+<div aria-live="off" aria-atomic="true" class="slider-status">Slide 1 of 2.</div>
 </div>
-<div class="w-slider-arrow-left" role="button" tabindex="0" aria-label="previous slide"></div>
-<div class="w-slider-arrow-right" role="button" tabindex="0" aria-label="next slide"></div>
+<div class="arrow-prev" role="button" tabindex="0" aria-label="previous slide"></div>
+<div class="arrow-next" role="button" tabindex="0" aria-label="next slide"></div>
 </div></main></body></html>
 HTML;
 $find = static function (array $blocks, string $name) use (&$find): array {

@@ -1223,8 +1223,7 @@ JS;
         $listIdentity = strtolower(implode(' ', array($list->tagName, SourceDom::attr($list, 'class'), SourceDom::attr($list, 'role'), SourceDom::attr($list, 'data-hook'))));
         $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slider)(?:[^a-z0-9]|$)/', $listIdentity);
-        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity)
-            || 'fade' === SourceDom::attr($element, 'data-animation') ? 'slideshow' : 'track';
+        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
         if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousMediaSlideList($list) ) {
             $visible = 0;
             $hidden = 0;
@@ -1245,6 +1244,14 @@ JS;
             ) {
                 $presentation = 'slideshow';
             }
+        }
+        // Stacked frames: one item exposed, the rest hidden from assistive
+        // technology, layered by z-index — one slide is on stage at a time.
+        $exposed = array_filter($items, static fn (DOMElement $item): bool => 'true' !== strtolower(SourceDom::attr($item, 'aria-hidden')));
+        if ( 1 < count($items) && 1 === count($exposed)
+            && '' !== CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations(reset($exposed))['z-index'] ?? ''))
+        ) {
+            $presentation = 'slideshow';
         }
         // Selecting a slide from a thumbnail means one slide is on stage.
         if ( 1 < count($pagerItems) ) {
@@ -2707,16 +2714,14 @@ JS;
     private function isSlideStatus(DOMElement $element): bool
     {
         return 'status' === SourceDom::role($element)
-            || in_array('w-slider-aria-label', SourceDom::boundedClassTokens(SourceDom::attr($element, 'class')), true)
+            || $element->hasAttribute('aria-live')
             || 1 === preg_match('~^\s*[0-9]+\s*/\s*[0-9]+\s*$~', $element->textContent ?? '');
     }
 
     private function slideStatus(DOMElement $list): ?DOMElement
     {
         foreach ($list->childNodes as $child) {
-            if ($child instanceof DOMElement && $this->isSlideStatus($child)
-                && ! in_array('w-slider-aria-label', SourceDom::boundedClassTokens(SourceDom::attr($child, 'class')), true)
-            ) return $child;
+            if ($child instanceof DOMElement && $this->isSlideStatus($child) && 'off' !== SourceDom::attr($child, 'aria-live')) return $child;
         }
         return null;
     }
