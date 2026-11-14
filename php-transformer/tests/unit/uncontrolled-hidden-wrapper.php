@@ -37,4 +37,19 @@ $assert(str_contains($markup, '>Menu</h2>') && str_contains($markup, '>After</p>
 $assert(str_contains($hidden[0]['innerHTML'], $marker), 'Saved Group markup carries the class as well as its block attributes');
 $assets = json_encode($result, JSON_UNESCAPED_SLASHES);
 $assert(str_contains($assets, ':root :where(.' . $marker . '){display:none!important}'), 'Theme-owned support CSS hides the saved wrapper');
+foreach (array(
+    'label' => array('<label class="tz-food-search" hidden><span>Search</span><input type="search"></label>', '<label class="tz-food-search" hidden="">', false),
+    'display override' => array('<style>.shown{display:flex}</style><div class="shown" hidden><p>Visible</p></div>', '<div class="shown" hidden="">', false),
+    'semantic group' => array('<section hidden><div class="chips"><button>All</button><button>Pots</button></div></section>', '<section', true),
+) as $name => [$html, $tag, $projected]) {
+    $variation = (new HtmlTransformer())->transform($html)->toArray();
+    $saved = $variation['serialized_blocks'];
+    $assert(str_contains($saved, $tag), $name . ': source tag survives');
+    $assert($projected === str_contains($saved, $marker), $name . ': only lost hidden state needs the marker');
+    $assert('pass' === (new BlockValidityValidator())->validateBlocks($runtime->parseBlocks($saved))['status'], $name . ': valid blocks');
+    $assert(!str_contains($saved, 'wp:html'), $name . ': no fallback');
+    if ('display override' === $name) {
+        $assert(str_contains(json_encode($variation), 'display:flex'), 'Author display override remains visible');
+    }
+}
 echo "Uncontrolled hidden wrapper passed.\n";

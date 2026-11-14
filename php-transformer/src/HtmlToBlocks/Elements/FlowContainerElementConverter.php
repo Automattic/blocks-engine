@@ -31,6 +31,9 @@ final class FlowContainerElementConverter implements ElementConverter
 {
     private readonly NavigationPattern $navigationPattern;
 
+    /** @var \WeakMap<\DOMDocument, array<string, true>> */
+    private \WeakMap $controllerIds;
+
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator $createBlock,
@@ -57,6 +60,7 @@ final class FlowContainerElementConverter implements ElementConverter
     )
     {
         $this->navigationPattern = new NavigationPattern($this->createBlock);
+        $this->controllerIds = new \WeakMap();
     }
 
     public function handles(string $tagName): bool
@@ -110,6 +114,55 @@ final class FlowContainerElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function lower(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
+        $outcome = $this->lowerContainer($element, $tagName, $fallbacks);
+        if ( ! $element->hasAttribute('hidden')
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || $this->hasDeclaredController($element)
+        ) {
+            return $outcome;
+        }
+        // Author display wins over the UA hidden rule. With no author display,
+        // the native attribute supplies display:none (except hidden=until-found).
+        $display = CssValueInspector::declared($this->presentationResolver->structuralPresentationDeclarations($element), 'display');
+        if ( '' === $display && 'until-found' !== strtolower(SourceDom::attr($element, 'hidden')) ) {
+            $display = 'none';
+        }
+        if ( 'none' !== $display ) {
+            return $outcome;
+        }
+        $block = $outcome->block;
+        if ( null !== $block ) {
+            // Materialized roots and layout shells already own the native state.
+            if ( array_key_exists('hidden', $block['attrs']['metadata']['blocksEngineRuntimeAttributes'] ?? array()) ) {
+                return $outcome;
+            }
+            foreach ( $block['attrs']['wrappers'] ?? array() as $wrapper ) {
+                if ( array_key_exists('hidden', $wrapper['attributes'] ?? array()) ) {
+                    return $outcome;
+                }
+            }
+        }
+        $attrs = $this->presentationResolver->presentationAttributes($element);
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS);
+        if ( 'div' === $tagName || ShellLandmarkPolicy::isSemanticGroupTag($tagName) ) {
+            $attrs['tagName'] = $tagName;
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/group', $attrs, null === $block ? array() : array($block), $element));
+        }
+        // Other tags keep their existing lowering rather than becoming divs.
+        if ( null !== $block ) {
+            $attrs = $block['attrs'] ?? array();
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS);
+            return ConversionOutcome::handled($this->createBlock->createBlock($block['blockName'], $attrs, $block['innerBlocks'] ?? array(), $element));
+        }
+        return $outcome;
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    private function lowerContainer(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    {
+        if ( 'label' === $tagName && $element->hasAttribute('hidden') ) {
+            return ConversionOutcome::handled($this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks));
+        }
         if ( SourceDom::isDocumentVariantRoot($element) ) {
             return ConversionOutcome::handled($this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks));
         }
@@ -121,14 +174,6 @@ final class FlowContainerElementConverter implements ElementConverter
         $runtimeAppShell = $this->context->runtimeAppShellBlock($element, $fallbacks);
         if ( null !== $runtimeAppShell ) {
             return ConversionOutcome::handled($runtimeAppShell);
-        }
-        // Hidden is a box boundary, even without a disclosure controller.
-        // Keep it before pattern lowering and wrapper coalescing expose its children.
-        // Script-addressed shells above retain their own runtime state instead.
-        if ( $element->hasAttribute('hidden') && ! $this->runtimeIslands->isRuntimeDomTarget($element) && ! $this->hasDeclaredController($element) ) {
-            $attrs = $this->presentationResolver->presentationAttributes($element);
-            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS);
-            return ConversionOutcome::handled($this->createBlock->createBlock('core/group', $attrs, $this->context->convertChildren($element, $fallbacks), $element));
         }
         if ( $this->emptyFeatureShells->isEmptyInteractiveFeatureShell($element) ) {
             return ConversionOutcome::handled(null);
@@ -642,13 +687,21 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( '' === $id || null === $element->ownerDocument ) {
             return false;
         }
-        foreach ( $element->ownerDocument->getElementsByTagName('*') as $control ) {
-            if ( $id === trim(SourceDom::attr($control, 'popovertarget'))
-                || in_array($id, preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array(), true) ) {
-                return true;
+        $document = $element->ownerDocument;
+        if ( ! isset($this->controllerIds[$document]) ) {
+            $ids = array();
+            foreach ( $document->getElementsByTagName('*') as $control ) {
+                $popover = trim(SourceDom::attr($control, 'popovertarget'));
+                if ( '' !== $popover ) {
+                    $ids[$popover] = true;
+                }
+                foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls')), -1, PREG_SPLIT_NO_EMPTY) ?: array() as $target ) {
+                    $ids[$target] = true;
+                }
             }
+            $this->controllerIds[$document] = $ids;
         }
-        return false;
+        return isset($this->controllerIds[$document][$id]);
     }
 
     private function hasInlineFormWrapper(DOMElement $element): bool
