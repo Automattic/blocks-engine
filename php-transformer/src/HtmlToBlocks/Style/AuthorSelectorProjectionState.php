@@ -820,6 +820,39 @@ final class AuthorSelectorProjectionState
         return isset($this->inlineLayoutCarrierPaths[$path]);
     }
 
+    /** @var array<string, \DOMElement> */
+    private array $authoredControlCandidates = array();
+
+    public function recordAuthoredControlCandidate(\DOMElement $element): void
+    {
+        $this->authoredControlCandidates[$element->getNodePath() ?? ''] = $element;
+    }
+
+    /** @var array<string, true> */
+    private array $retainedAuthoredControls = array();
+
+    public function isRetainedAuthoredControl(string $path): bool
+    {
+        return isset($this->retainedAuthoredControls[$path]);
+    }
+
+    /** Reconcile speculative form representations against the emitted tree. */
+    public function reconcileRetainedControls(string $markup): void
+    {
+        if ('' === $markup) return;
+        foreach ($this->authoredControlCandidates as $path => $element) {
+            $marker = $this->controlMarkers[$path] ?? '';
+            if ('' !== $marker && str_contains($markup, $marker)) {
+                unset($this->retainedSourcePaths[$path]);
+                continue;
+            }
+            $this->retainedAuthoredControls[$path] = true;
+            foreach ($element->getElementsByTagName('*') as $descendant) {
+                $this->markRetainedSourcePath($descendant->getNodePath() ?? '');
+            }
+        }
+    }
+
     public function markRetainedSourcePath(string $path): void
     {
         $this->retainedSourcePaths[$path] = true;

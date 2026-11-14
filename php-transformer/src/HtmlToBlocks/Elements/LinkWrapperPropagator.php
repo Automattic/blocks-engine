@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -153,11 +154,11 @@ final class LinkWrapperPropagator
      */
     private function wrapperIdentityOwnsTextColor(DOMElement $anchor): bool
     {
-        $inline = $this->styleResolver->inlineDeclarations($anchor);
+        $inline = SourceDeclarations::inline($anchor);
         if ( $this->isPaintedColor((string) ($inline['color'] ?? '')) ) {
             return true;
         }
-        $declarations = $this->styleResolver->cssDeclarations(
+        $declarations = SourceDeclarations::parse(
             $this->styleResolver->controlSurfaceResolvedStyle($anchor)
         );
         if ( ! $this->isPaintedColor((string) ($declarations['color'] ?? '')) ) {
@@ -193,7 +194,7 @@ final class LinkWrapperPropagator
     private function paintsTextColorBelow(DOMElement $element, DOMElement $anchor): bool
     {
         for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
-            $declarations = $this->styleResolver->cssDeclarations(
+            $declarations = SourceDeclarations::parse(
                 $this->styleResolver->controlSurfaceResolvedStyle($node)
             );
             if ( $this->isPaintedColor((string) ($declarations['color'] ?? '')) ) {
@@ -284,6 +285,12 @@ final class LinkWrapperPropagator
             'rel'             => (string) ($linkAttrs['rel'] ?? ''),
         ), static fn (string $value): bool => '' !== trim($value));
 
+        // The image had no immediate source link. The synthesized anchor must
+        // carry navigation without introducing Core's inline-block line box.
+        $attrs['className'] = SourceDom::mergeClassNames(
+            (string) ($attrs['className'] ?? ''),
+            self::PROPAGATED_LINK_CARRIER_CLASS
+        );
         $block = $this->blockFactory->rebuild($block, array_merge($attrs, $imageLink));
         return true;
     }

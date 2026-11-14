@@ -167,11 +167,11 @@ final class SitePlanRun
      * - pages (begun by the constructor): routes the pages, selects
      *   pagination captures, adds event declarations and instances page
      *   stylesheets.
-     * - entity_bindings: anchors runtime declarations on the final page
-     *   markup before shell extraction, settles the route hierarchy, and
-     *   pairs root documents with the asset pages.
-     * - theme_json: scopes stylesheets, projects theme.json and binds
+     * - theme_json: settles the route hierarchy, pairs root documents with
+     *   the asset pages, scopes stylesheets, projects theme.json and binds
      *   presets on the pages.
+     * - entity_bindings: anchors runtime declarations on the preset-bound
+     *   page markup before shell extraction.
      * - shell_extraction: extractedShells() moves shared chrome out of the
      *   pages into template parts and frames.
      * - stylesheets: projects shared chrome stylesheets, drops selectors
@@ -231,12 +231,6 @@ final class SitePlanRun
             static fn (mixed $fallback): bool => is_array($fallback) && 'native_conversion' !== ($fallback['conversion_classification'] ?? '')
         ));
         $pages = $this->shellExtraction->withRestoredCandidates($pages);
-        // Bindings anchor on the final canonical page markup before any shell
-        // extraction. Asset and route projection can make source anchors equal,
-        // so assign occurrences only after that shared projection is complete.
-        $this->timer?->start('compose.site_plan.entity_bindings');
-        $bindingTemplates = $this->bindingTemplates($tokens);
-        $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $this->routeMap, $pages, $bindingTemplates, $paginationOwners);
         // A form provider rebuilds a form from its fallback's readable blocks.
         foreach ($data['fallbacks'] as &$fallback) {
             $source = is_array($fallback) ? ($fallback['source_path'] ?? $fallback['source'] ?? null) : null;
@@ -254,6 +248,11 @@ final class SitePlanRun
         $assets = $themeProjection['assets'];
         $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
         $pages = $this->presetBoundPages($pages, $documents);
+        // Anchor only after presets and scoped font defaults settle the page
+        // bytes, but before shell extraction moves any runtime-bound regions.
+        $this->timer?->start('compose.site_plan.entity_bindings');
+        $bindingTemplates = $this->bindingTemplates($tokens);
+        $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $this->routeMap, $pages, $bindingTemplates, $paginationOwners);
         $routes = RouteTable::forPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
         // canonical plan rebuilds them from full page shell candidates.

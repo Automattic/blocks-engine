@@ -41,7 +41,7 @@ final class NavigationOpenerPresentation
                 if ('' !== trim($child->textContent ?? '')) return null;
                 continue;
             }
-            $display = $this->styles->collapsedViewportAuthorDeclarations($child, array('display'));
+            $display = $this->styles->authorViewport->collapsed($child, array('display'));
             if ('none' === CssValueInspector::withoutImportant($display['display'] ?? '')) continue;
             if ('svg' !== strtolower($child->tagName) || null !== $icon) return null;
             $icon = $child;
@@ -72,7 +72,7 @@ final class NavigationOpenerPresentation
         // An unsized SVG in a definite-width control fills the control's
         // content box and takes its height from the viewBox ratio.
         $declared = fn (string $property): bool => isset($icon[''][$property]) || '' !== trim($svg->getAttribute($property))
-            || isset($this->styles->collapsedViewportAuthorDeclarations($svg, array($property))[$property]);
+            || isset($this->styles->authorViewport->collapsed($svg, array($property))[$property]);
         $definiteControl = array_filter($button, static fn (array $values): bool => (bool) preg_match('/^\d+(?:\.\d+)?(?:px|em|rem)$/D', CssValueInspector::withoutImportant($values['width'] ?? '')));
         if (!$declared('width') && !$declared('height') && '' !== trim($svg->getAttribute('viewBox') ?: $svg->getAttribute('viewbox')) && array() !== $definiteControl) {
             $icon['']['width'] = '100%';
@@ -80,7 +80,7 @@ final class NavigationOpenerPresentation
         }
         foreach (array('width', 'height') as $property) {
             if (!isset($icon[''][$property])) {
-                $collapsed = $this->styles->collapsedViewportAuthorDeclarations($svg, array($property));
+                $collapsed = $this->styles->authorViewport->collapsed($svg, array($property));
                 $value = CssValueInspector::withoutImportant(trim($collapsed[$property] ?? $svg->getAttribute($property)));
                 if (is_numeric($value)) $value .= 'px';
                 if (!preg_match('/^\d+(?:\.\d+)?(?:px|em|rem)$/D', $value)) return null;
@@ -106,12 +106,12 @@ final class NavigationOpenerPresentation
         foreach ($control->getElementsByTagName('*') as $node) {
             $hidden = false;
             for ($ancestor = $node; $ancestor instanceof DOMElement && !$ancestor->isSameNode($control); $ancestor = $ancestor->parentNode) {
-                $rest = $this->styles->collapsedViewportAuthorDeclarations($ancestor, array('display', 'visibility'));
+                $rest = $this->styles->authorViewport->collapsed($ancestor, array('display', 'visibility'));
                 $hidden = $hidden || $ancestor->hasAttribute('hidden') || 'none' === CssValueInspector::withoutImportant($rest['display'] ?? '') || 'hidden' === CssValueInspector::withoutImportant($rest['visibility'] ?? '');
             }
             if ($hidden) continue;
-            $values = $this->styles->collapsedViewportDeclarations($node, array('display', 'width', 'height', 'background-color', 'transform', 'top', 'bottom'));
-            $values = array_replace($values, $this->styles->collapsedViewportAuthorDeclarations($node, array('transform', 'display', 'background', 'background-color')));
+            $values = $this->styles->cascade->collapsedViewportDeclarations($node, array('display', 'width', 'height', 'background-color', 'transform', 'top', 'bottom'));
+            $values = array_replace($values, $this->styles->authorViewport->collapsed($node, array('transform', 'display', 'background', 'background-color')));
             if ('none' === CssValueInspector::withoutImportant($values['display'] ?? '')) continue;
             if ($node->childElementCount > 0) {
                 if (preg_match('/^([\d.]+)px$/', $values['width'] ?? '', $w) && preg_match('/^([\d.]+)px$/', $values['height'] ?? '', $h)) {

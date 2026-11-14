@@ -371,6 +371,7 @@ final class AuthoredFormControlBlockConverter
             return null;
         }
 
+        $this->session->authorSelectorProjectionState()->recordAuthoredControlCandidate($button);
         $generator = new AuthoredButtonBlockGenerator();
         $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));

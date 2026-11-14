@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
@@ -2064,9 +2064,8 @@ final class SourceDom
         if ( '' !== ( new BackgroundImageExtractor() )->urlFromStyle($style) ) {
             return true;
         }
-        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            [$name, $value] = array_map('trim', explode(':', $declaration, 2) + array( '', '' ));
-            if ( in_array(strtolower($name), array( 'background', 'background-color' ), true)
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $name, 'value' => $value ] ) {
+            if ( in_array($name, array( 'background', 'background-color' ), true)
                 && ! str_contains(strtolower($value), 'url(')
                 && 1 !== preg_match('/^(?:|none|transparent|initial|inherit|unset|revert(?:-layer)?)$/i', preg_replace('/\s*!important$/i', '', $value) ?? '')
             ) {

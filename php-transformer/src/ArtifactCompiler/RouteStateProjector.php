@@ -72,7 +72,7 @@ final class RouteStateProjector
                 }
             }
         }
-        $files = self::withoutUnstyledViewportClassAliases($files);
+        $files = self::withoutUnstyledScriptClasses($files);
         // Route bindings record class names, so they read the aligned ones.
         $files = self::withRouteAlignedChromeClasses($files);
         $files = self::bindNavigationRuns(self::bindRetainedLabels($files, $entryPath));
@@ -556,37 +556,38 @@ final class RouteStateProjector
     }
 
     /**
-     * A capture carries a class token that a source script toggles with the
-     * viewport as a width-scoped alias, and copies every rule naming the
-     * token for the alias. When no rule names the token, the alias has no
-     * rules either: it renders nothing, yet its name encodes the breakpoint
-     * measured on its own route, so the same chrome carries a different name
-     * on each route and stops comparing as one design. An alias that no
-     * stylesheet names is dropped; an alias with rules keeps its name.
+     * A capture carries class tokens a source script sets: a width-scoped
+     * alias of a token it toggles with the viewport (whose name encodes the
+     * breakpoint measured on its own route), and a reveal state such as
+     * `visible` that a priority menu sets once it has measured. When no
+     * stylesheet names the token it renders nothing, yet it differs between
+     * routes (a capture taken before the script ran lacks it), so the same
+     * chrome stops comparing as one design. Such an unstyled token is
+     * dropped; a styled one keeps its name. Current-state tokens (`active`)
+     * stay: they mark the served route.
      *
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
-    private static function withoutUnstyledViewportClassAliases(array $files): array
+    private static function withoutUnstyledScriptClasses(array $files): array
     {
         $prefix = CaptureEvidence::VIEWPORT_CLASS_PREFIX;
-        $aliasPattern = '/(?<![A-Za-z0-9_-])' . preg_quote($prefix, '/') . '[a-f0-9]{12}(?![A-Za-z0-9_-])/';
-        $carriers = array_filter($files, static fn(array $file): bool => 'html' === ($file['kind'] ?? null) && is_string($file['content'] ?? null) && str_contains($file['content'], $prefix));
-        if (array() === $carriers) return $files;
+        $scriptClass = '/^(?:' . preg_quote($prefix, '/') . '[a-f0-9]{12}|' . SourceClassIdentity::REVEAL_STATE . ')$/i';
         $stylesheets = null;
         $styled = array();
-        $isStyled = static function (string $alias) use ($files, &$stylesheets, &$styled): bool {
-            if (isset($styled[$alias])) return $styled[$alias];
+        $isStyled = static function (string $class) use ($files, &$stylesheets, &$styled): bool {
+            if (isset($styled[$class])) return $styled[$class];
             $stylesheets ??= self::stylesheets($files);
-            $pattern = '/\.' . preg_quote($alias, '/') . '(?![A-Za-z0-9_-])/';
-            foreach ($stylesheets as $css) if (str_contains($css, $alias) && preg_match($pattern, $css)) return $styled[$alias] = true;
-            return $styled[$alias] = false;
+            $pattern = '/\.' . preg_quote($class, '/') . '(?![A-Za-z0-9_-])/';
+            foreach ($stylesheets as $css) if (str_contains($css, $class) && preg_match($pattern, $css)) return $styled[$class] = true;
+            return $styled[$class] = false;
         };
-        foreach ($carriers as $index => $file) {
-            $content = preg_replace_callback('/(\sclass\s*=\s*)(["\'])(.*?)\2/is', static function (array $match) use ($prefix, $aliasPattern, $isStyled): string {
-                if (!str_contains($match[3], $prefix)) return $match[0];
+        $drops = static fn(string $class): bool => 1 === preg_match($scriptClass, $class) && !SourceClassIdentity::containsCurrentStateToken($class) && !$isStyled($class);
+        foreach ($files as $index => $file) {
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null)) continue;
+            $content = preg_replace_callback('/(\sclass\s*=\s*)(["\'])(.*?)\2/is', static function (array $match) use ($drops): string {
                 $classes = SourceDom::tokens($match[3]);
-                $kept = array_values(array_filter($classes, static fn(string $class): bool => !preg_match($aliasPattern, $class) || $isStyled($class)));
+                $kept = array_values(array_filter($classes, static fn(string $class): bool => !$drops($class)));
                 return $kept === $classes ? $match[0] : $match[1] . $match[2] . implode(' ', $kept) . $match[2];
             }, $file['content']);
             if (is_string($content)) $files[$index]['content'] = $content;
@@ -599,36 +600,55 @@ final class RouteStateProjector
      * document first uses them, so the same chrome control can carry
      * `c2-19` on one route and `c2-1c` on another for the same declaration,
      * while `c2-19` means something else on the second route. A class is read
-     * by its meaning: every rule of the document's own style elements that
-     * names it, with the class itself left out of the selector and with the
+     * by its meaning: every rule of the document's own sheets (its style
+     * elements, then the stylesheet files it links) that names it, with the class itself left out of the selector and with the
      * classes chrome does not wear (a route-numbered page scope such as
      * `.framer-7gg9x` around `.framer-1499lr3`) read as an ancestor slot. On chrome
      * (navigation and landmark subtrees), a meaning whose class name differs
      * across routes, or whose name means something else on another route, is
      * given one content-addressed name on every route: the element swaps the
      * class and its document gains a copy of each rule right after the
-     * original, so the cascade is unchanged. Classes that also appear in a
-     * stylesheet file, or only in compound or functional selectors, keep
-     * their names.
+     * original, so the cascade is unchanged. A builder can serve one route's
+     * atomic sheet as a file that route links, so a linked file is read as
+     * that route's sheet. Classes that also appear in a stylesheet file no
+     * chrome document links, or only in compound or functional selectors,
+     * keep their names.
      *
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
     private static function withRouteAlignedChromeClasses(array $files): array
     {
-        $documents = array(); $sheets = array(); $global = '';
+        $documents = array(); $sheets = array(); $stylesheetFiles = array(); $stylesheetPaths = null;
         foreach ($files as $index => $file) {
             if (!is_string($file['content'] ?? null)) continue;
             if ('inline-style' === ($file['source'] ?? null)) {
                 foreach ($file['inline_references'] ?? array($file) as $reference) $sheets[(string) ($reference['source_path'] ?? '')][(int) ($reference['stylesheet_index'] ?? 0)] = $index;
             } elseif ('css' === ($file['kind'] ?? null)) {
-                $global .= "\n" . $file['content'];
+                $stylesheetFiles[(string) ($file['path'] ?? '')] = $index;
             } elseif ('html' === ($file['kind'] ?? null) && preg_match('/<(?:nav|header|footer)\b|\srole\s*=\s*["\']?(?:navigation|banner|contentinfo)/i', $file['content'])) {
                 $documents[$index] = null;
             }
         }
+        // A document's sheets: its style elements in order, then the files it links.
+        foreach ($sheets as &$own) ksort($own);
+        unset($own);
+        foreach (array_keys($documents) as $index) {
+            $path = (string) ($files[$index]['path'] ?? '');
+            foreach (StyleTagScanner::scanLinks($files[$index]['content']) as $link) {
+                if (!StyleTagScanner::isStylesheetRel(StyleTagScanner::attribute($link['tag'], 'rel')) || !StyleTagScanner::isCssType(StyleTagScanner::attribute($link['tag'], 'type'))) continue;
+                $href = trim(StyleTagScanner::attribute($link['tag'], 'href'));
+                if ('' === $href || str_starts_with($href, '//') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $href)) continue;
+                $linked = $stylesheetFiles[ArtifactPath::resolveLinkedPath($href, $path, $stylesheetPaths ??= array_fill_keys(array_keys($stylesheetFiles), true))] ?? null;
+                if (null !== $linked && !in_array($linked, $sheets[$path] ?? array(), true)) $sheets[$path][] = $linked;
+            }
+        }
         $documents = array_filter($documents, static fn($unused, int $index): bool => isset($sheets[(string) ($files[$index]['path'] ?? '')]), ARRAY_FILTER_USE_BOTH);
         if (count($documents) < 2) return $files;
+        $linkedSheets = array();
+        foreach (array_keys($documents) as $index) foreach ($sheets[(string) $files[$index]['path']] as $sheet) $linkedSheets[$sheet] = true;
+        $global = '';
+        foreach ($stylesheetFiles as $sheet) if (!isset($linkedSheets[$sheet])) $global .= "\n" . $files[$sheet]['content'];
         $transformer = new CssStylesheetTransformer();
         $classPattern = '/\.(-?[A-Za-z_][A-Za-z0-9_-]*)/';
         $named = static fn(string $class): string => '/\.' . preg_quote($class, '/') . '(?![A-Za-z0-9_-])/';
@@ -642,31 +662,37 @@ final class RouteStateProjector
                 foreach (self::classes($element) as $class) $worn[$class] = true;
             }
         }
+        $sheetRules = array();
         foreach (array_keys($documents) as $index) {
-            // Each class's rules in this document's own style elements, in order.
+            // Each class's rules in this document's own sheets, in order.
             $rules = array(); $unaliasable = array();
-            $own = $sheets[(string) $files[$index]['path']];
-            ksort($own);
-            foreach ($own as $sheet) {
-                $transformer->visitStyleRules(CssSyntaxScanner::withoutComments((string) $files[$sheet]['content']), static function (string $prelude, string $body, array $ancestors) use (&$rules, &$unaliasable, $classPattern, $named, $worn): void {
-                    foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
-                        if (!preg_match_all($classPattern, $selector, $classes)) continue;
-                        foreach (array_unique($classes[1]) as $class) {
-                            $tokenized = CssSelectorTokenizer::tokenize(trim($selector));
-                            $alone = $tokenized['supported'];
-                            foreach ($tokenized['compounds'] ?? array() as $compound) {
-                                if (preg_match($named($class), $compound) && (str_contains($compound, '(') || preg_match_all($classPattern, $compound) > 1)) $alone = false;
+            foreach ($sheets[(string) $files[$index]['path']] as $sheet) {
+                // A sheet reads the same in every document holding it.
+                if (!isset($sheetRules[$sheet])) {
+                    $sheetRules[$sheet] = array(array(), array());
+                    $transformer->visitStyleRules(CssSyntaxScanner::withoutComments((string) $files[$sheet]['content']), static function (string $prelude, string $body, array $ancestors) use (&$sheetRules, $sheet, $classPattern, $named, $worn): void {
+                        foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
+                            if (!preg_match_all($classPattern, $selector, $classes)) continue;
+                            foreach (array_unique($classes[1]) as $class) {
+                                $tokenized = CssSelectorTokenizer::tokenize(trim($selector));
+                                $alone = $tokenized['supported'];
+                                foreach ($tokenized['compounds'] ?? array() as $compound) {
+                                    if (preg_match($named($class), $compound) && (str_contains($compound, '(') || preg_match_all($classPattern, $compound) > 1)) $alone = false;
+                                }
+                                if (!$alone) { $sheetRules[$sheet][1][$class] = true; continue; }
+                                // Copies keep each route's own scope, so the slot only lets equal rules meet.
+                                $read = preg_replace_callback($classPattern, static fn(array $other): string => isset($worn[$other[1]]) ? $other[0] : ".\x02", (string) preg_replace($named($class), ".\x01", trim($selector)));
+                                $sheetRules[$sheet][0][$class][] = implode("\0", $ancestors) . "\0" . $read . "\0" . RenderEquivalentMarkup::canonicalStyle($body);
                             }
-                            if (!$alone) { $unaliasable[$class] = true; continue; }
-                            // Copies keep each route's own scope, so the slot only lets equal rules meet.
-                            $read = preg_replace_callback($classPattern, static fn(array $other): string => isset($worn[$other[1]]) ? $other[0] : ".\x02", (string) preg_replace($named($class), ".\x01", trim($selector)));
-                            $rules[$class][] = implode("\0", $ancestors) . "\0" . $read . "\0" . RenderEquivalentMarkup::canonicalStyle($body);
                         }
-                    }
-                });
+                    });
+                }
+                foreach ($sheetRules[$sheet][0] as $class => $read) $rules[$class] = array_merge($rules[$class] ?? array(), $read);
+                $unaliasable += $sheetRules[$sheet][1];
             }
             foreach ($rules as $class => $meaning) {
-                if (isset($unaliasable[$class]) || preg_match($named($class), $global)) continue;
+                // Engine-minted classes (re-ingested control bindings) are no route vocabulary.
+                if (str_starts_with($class, 'blocks-engine-') || isset($unaliasable[$class]) || preg_match($named($class), $global)) continue;
                 $meanings[$index][$class] = hash('sha256', implode("\n", $meaning));
             }
         }
@@ -722,6 +748,8 @@ final class RouteStateProjector
             if (str_starts_with((string) ($files[$sheet]['path'] ?? ''), 'inline/')) {
                 $files[$sheet]['path'] = 'inline/' . hash('sha256', ($files[$sheet]['intent'] ?? '') . "\0" . ($files[$sheet]['type'] ?? '') . "\0" . $content) . '.' . ($files[$sheet]['kind'] ?? 'css');
             }
+            // A linked file keeps its copies; a style element is re-read below.
+            if ('inline-style' !== ($files[$sheet]['source'] ?? null)) continue;
             foreach ($files[$sheet]['inline_references'] ?? array($files[$sheet]) as $reference) {
                 $restyled[(string) ($reference['source_path'] ?? '')][(int) ($reference['stylesheet_index'] ?? 0)] = $aliases;
             }

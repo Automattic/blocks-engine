@@ -112,7 +112,7 @@ final class SourceElementVisibility
             if ( SourceDom::isDocumentVariantRoot($candidate) ) {
                 return false;
             }
-            $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($candidate));
+            $declarations = SourceDeclarations::parse($this->styleResolver->controlSurfaceResolvedStyle($candidate));
             $display = CssValueInspector::declared($declarations, 'display');
             if ( 'none' === $display ) {
                 return true;
@@ -146,7 +146,7 @@ final class SourceElementVisibility
             if ( SourceDom::isDocumentVariantRoot($candidate) ) {
                 return false;
             }
-            $declarations = $this->styleResolver->collapsedViewportDeclarations($candidate, array( 'display', 'visibility' ));
+            $declarations = $this->styleResolver->cascade->collapsedViewportDeclarations($candidate, array( 'display', 'visibility' ));
             if ( 'none' === CssValueInspector::declared($declarations, 'display')
                 || in_array(CssValueInspector::declared($declarations, 'visibility'), array( 'hidden', 'collapse' ), true) ) {
                 return true;

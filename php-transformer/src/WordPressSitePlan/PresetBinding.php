@@ -6,6 +6,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -124,6 +126,8 @@ final class PresetBinding
     private const GENERATED_CLASS = '/^(?:' . CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX . '|' . ResponsiveCorrespondence::TOKEN_CLASS_PREFIX . '|wp-|has-|is-layout-|is-content-justification-|is-nowrap$|is-vertical$|blocks-engine-|align(?:wide|full|left|right|center)$)/';
 
     private const SPACING_SIDES = array('top', 'right', 'bottom', 'left');
+    /** Attributes binding writes, in the one order it emits them (see withBoundOrder()). */
+    private const BOUND_ATTRIBUTES = array('style', 'textColor', 'backgroundColor', 'borderColor', 'fontSize', 'fontFamily');
 
     /** Element-token marker: the element's start-tag attributes are listed as `attr:` tokens. */
     private const KNOWN_ATTRIBUTES = 'attrs:known';
@@ -704,6 +708,7 @@ final class PresetBinding
     private function bindBlock(string $name, string $json, string $markup, int $after): ?array
     {
         $attributes = json_decode($json, false);
+        $authoredKeys = $attributes instanceof \stdClass ? array_keys(get_object_vars($attributes)) : array();
         if (!$attributes instanceof \stdClass || BlockAttributes::encode($attributes) !== $json) {
             $this->refuseLiteralColors($attributes);
             return null;
@@ -951,6 +956,7 @@ final class PresetBinding
         $this->bound += $bound;
         if (array() !== get_object_vars($style)) $attributes->style = $style;
         if (isset($attributes->style)) self::prune($attributes);
+        $attributes = self::withBoundOrder($attributes, $authoredKeys);
         $newStyle = self::declarationText($declarations);
         $newHtml = self::withAttribute($html, 'style', '' === $newStyle ? null : $newStyle);
         if (array() !== $addClasses || array() !== $dropClasses) {
@@ -1248,6 +1254,13 @@ final class PresetBinding
                     }
                 }
             }
+        }
+        // Borders may carry a colour alongside width/style tokens, or several
+        // colours in a longhand. Reuse the author-CSS token binder so only
+        // the colour changes and its original bytes remain the fallback.
+        if (1 === preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-color)?$/', $property)) {
+            $bound = $this->bindColorTokens($value);
+            return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
         }
         if ((str_starts_with($property, '--') || in_array($property, array('background', 'background-image'), true)) && null === CssColor::parse($this->resolve($value))) {
             $bound = $this->bindColorTokens($value);
@@ -1610,12 +1623,11 @@ final class PresetBinding
     /** @param list<string> $ancestors */
     private function indexVariables(string $prelude, string $body, array $ancestors): void
     {
-        if (!preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER)) return;
+        $declarations = CssRuleAnalyzer::customProperties($body);
+        if (array() === $declarations) return;
         $selectors = array_map(static fn(string $selector): string => strtolower(trim($selector)), CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude));
         $root = array() === array_diff($selectors, array(':root', 'html', ':host')) && array() === array_filter($ancestors, static fn(string $ancestor): bool => 1 !== preg_match('/^@layer(?:\s|$)/', $ancestor));
-        foreach ($matches as $match) {
-            $name = (string) $match[1];
-            $value = trim((string) $match[2]);
+        foreach ($declarations as ['name' => $name, 'value' => $value]) {
             // Any definition with another value, wherever it applies, could
             // give the variable that value under some block. Repeating the
             // root value (editor mirrors such as `:root :root.editor-styles-wrapper`)
@@ -1990,18 +2002,7 @@ final class PresetBinding
     /** The selector's last compound, after its final combinator. */
     private static function subjectCompound(string $selector): string
     {
-        $selector = trim($selector);
-        $depth = 0;
-        $start = 0;
-        $length = strlen($selector);
-        for ($i = 0; $i < $length; $i++) {
-            $char = $selector[$i];
-            if ('\\' === $char) { $i++; continue; }
-            if ('(' === $char || '[' === $char) $depth++;
-            elseif (')' === $char || ']' === $char) $depth--;
-            elseif (0 === $depth && (ctype_space($char) || '>' === $char || '+' === $char || '~' === $char)) $start = $i + 1;
-        }
-        return substr($selector, $start);
+        return CssSelectorTokenizer::tokenize(trim($selector))['rightmost_compound'];
     }
 
     /**
@@ -2166,13 +2167,7 @@ final class PresetBinding
 
     private static function declarations(string $style): array
     {
-        $declarations = array();
-        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
-            $parts = explode(':', $declaration, 2);
-            if (2 !== count($parts)) continue;
-            $declarations[] = array(strtolower(trim($parts[0])), trim($parts[1]));
-        }
-        return $declarations;
+        return array_map(static fn (array $declaration): array => array($declaration['name'], $declaration['value']), CssRuleAnalyzer::declarationList($style));
     }
 
     /** @param list<array{0:string,1:string}> $declarations */
@@ -2215,6 +2210,29 @@ final class PresetBinding
         if (!self::replaceDeclaration($declarations, $property, $literal, 'var(--wp--preset--' . $type . '--' . $slug . ')')) return false;
         $group->{$key} = 'var:preset|' . $type . '|' . $slug;
         return true;
+    }
+
+    /**
+     * Font families bind only once the theme defaults are known, so a block
+     * can be bound in two passes. The attributes binding writes take one
+     * order, at the place the first of them was authored, so the bytes do not
+     * depend on how many passes bound the block: a runtime anchor bound once
+     * still finds the page block bound twice.
+     *
+     * @param list<string> $authoredKeys
+     */
+    private static function withBoundOrder(\stdClass $attributes, array $authoredKeys): \stdClass
+    {
+        $keys = array_keys(get_object_vars($attributes));
+        $bound = array_values(array_intersect(self::BOUND_ATTRIBUTES, $keys));
+        $order = array();
+        foreach (array_merge(array_intersect($authoredKeys, $keys), array_diff($keys, $authoredKeys)) as $key) {
+            if (!in_array($key, $bound, true)) $order[] = $key;
+            elseif (!in_array($bound[0], $order, true)) array_push($order, ...$bound);
+        }
+        $result = new \stdClass();
+        foreach ($order as $key) $result->{$key} = $attributes->{$key};
+        return $result;
     }
 
     /** Drop style groups the rewrite emptied, as core's serializer would never emit them. */

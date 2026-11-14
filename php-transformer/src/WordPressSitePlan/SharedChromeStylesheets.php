@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -141,23 +142,16 @@ final class SharedChromeStylesheets
         // Reuse the ancestor-run rewrite for declarations on the ancestor
         // itself. The synthetic leaf is removed below; only its wrapper inherits.
         if ($inheritedSubject) $selector .= ' .blocks-engine-inherited-context';
+        // Compounds interleaved with their explicit combinators; descendant
+        // whitespace is implied by the join below.
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        if (!$tokens['supported']) return $inheritedSubject ? '' : $selector;
         $compounds = array();
-        $current = '';
-        $depth = 0;
-        $length = strlen($selector);
-        for ($i = 0; $i < $length; ++$i) {
-            $char = $selector[$i];
-            if ('(' === $char || '[' === $char) ++$depth;
-            elseif (')' === $char || ']' === $char) --$depth;
-            if (0 === $depth && (ctype_space($char) || '>' === $char || '+' === $char || '~' === $char)) {
-                if ('' !== $current) $compounds[] = $current;
-                if (!ctype_space($char)) $compounds[] = $char;
-                $current = '';
-                continue;
-            }
-            $current .= $char;
+        foreach ($tokens['compounds'] as $index => $compound) {
+            $compounds[] = $compound;
+            $combinator = $tokens['combinators'][$index] ?? ' ';
+            if (' ' !== $combinator) $compounds[] = $combinator;
         }
-        if ('' !== $current) $compounds[] = $current;
         // A capture scopes a responsive variant's rules by that variant's root
         // (`:where(.data-blocks-engine-capture-mobile-document) #page-root #footer`). The
         // variant root is not an ancestor the chrome was hoisted out of: the
@@ -857,16 +851,7 @@ final class SharedChromeStylesheets
      */
     private static function subjectNamesAny(string $selector, array $hooks): bool
     {
-        $depth = 0;
-        $start = 0;
-        $length = strlen($selector);
-        for ($i = 0; $i < $length; ++$i) {
-            $char = $selector[$i];
-            if ('(' === $char || '[' === $char) ++$depth;
-            elseif (')' === $char || ']' === $char) --$depth;
-            elseif (0 === $depth && (ctype_space($char) || '>' === $char || '+' === $char || '~' === $char)) $start = $i + 1;
-        }
-        $subject = substr($selector, $start);
+        $subject = CssSelectorTokenizer::tokenize($selector)['rightmost_compound'];
         foreach ($hooks as $hook) if (1 === preg_match('/[#.]' . preg_quote($hook, '/') . '(?![\w-])/', $subject)) return true;
         return false;
     }

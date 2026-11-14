@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -227,7 +228,7 @@ final class RichTextMaterializer implements RichTextMaterialization
                 continue;
             }
 
-            $existing = $this->styleResolver->inlineDeclarations($targetInline);
+            $existing = SourceDeclarations::inline($targetInline);
             $targetInline->setAttribute('style', $this->styleResolver->cssDeclarationString(array_merge($inline, $existing)));
         }
 
@@ -247,7 +248,7 @@ final class RichTextMaterializer implements RichTextMaterialization
             return false;
         }
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array( 'white-space', 'white-space-collapse' ));
+            $declarations = $this->styleResolver->authorViewport->reference($node, array( 'white-space', 'white-space-collapse' ));
             $collapse = '';
             foreach ( $declarations as $property => $value ) {
                 $value = CssValueInspector::comparable($value);
@@ -349,7 +350,7 @@ final class RichTextMaterializer implements RichTextMaterialization
             'width',
         ));
 
-        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        $declarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element));
         if ( 'font' === strtolower($element->tagName) ) {
             $color = trim(SourceDom::attr($element, 'color'));
             $face = trim(SourceDom::attr($element, 'face'));
