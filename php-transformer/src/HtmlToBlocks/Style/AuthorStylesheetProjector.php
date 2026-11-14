@@ -4448,10 +4448,11 @@ final class AuthorStylesheetProjector
                 continue;
             }
             if ( '[' === $character ) {
-                $end = $this->balancedGroupEnd($compound, $offset);
-                if ( null === $end ) {
+                $close = CssSyntaxScanner::matchingClose($compound, $offset);
+                if ( null === $close ) {
                     return null;
                 }
+                $end = $close + 1;
                 $attribute = substr($compound, $offset, $end - $offset);
                 $owner = $this->navigationAttributeOwner($attribute);
                 if ( null === $owner ) {
@@ -4477,10 +4478,11 @@ final class AuthorStylesheetProjector
                 $argument = null;
                 $end = $nameEnd;
                 if ( '(' === ($compound[$nameEnd] ?? '') ) {
-                    $end = $this->balancedGroupEnd($compound, $nameEnd);
-                    if ( null === $end ) {
+                    $close = CssSyntaxScanner::matchingClose($compound, $nameEnd);
+                    if ( null === $close ) {
                         return null;
                     }
+                    $end = $close + 1;
                     $argument = trim(substr($compound, $nameEnd + 1, $end - $nameEnd - 2));
                 }
                 $owner = $this->navigationPseudoClassOwner($name, $argument);
@@ -4544,28 +4546,6 @@ final class AuthorStylesheetProjector
         }
 
         return $end > $offset ? $end : null;
-    }
-
-    /**
-     * Offset after the `)` or `]` matching the group opened at $open, honouring
-     * strings and escapes, or null when the group never closes.
-     */
-    private function balancedGroupEnd(string $value, int $open): ?int
-    {
-        $state = CssSyntaxScanner::state();
-        $length = strlen($value);
-        $offset = $open;
-        while ( $offset < $length ) {
-            $offset = CssSyntaxScanner::consume($value, $offset, $state);
-            if ( null === $offset ) {
-                return null;
-            }
-            if ( CssSyntaxScanner::isTopLevel($state) ) {
-                return $offset;
-            }
-        }
-
-        return null;
     }
 
     /**
