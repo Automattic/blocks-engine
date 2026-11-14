@@ -78,7 +78,7 @@ final class ButtonsPattern
         }
 
         $text = $this->buttonText($anchor, $buttons->richTextInnerHtml($anchor), $buttons);
-        if ( '' !== $this->plainText($text) && $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
+        if ( ( '' !== $this->plainText($text) || $this->requiresAccessibleLinkSurface($anchor) ) && $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
             // The companion's RichText element replaces the anchor's single
             // wrapper child, so its content is that wrapper's label.
             $wrapper = $this->accessibleLinkContentWrapper($anchor);
@@ -603,6 +603,22 @@ final class ButtonsPattern
         }
 
         return $wrapper;
+    }
+
+    /** Core's title can name decorative artwork, but must not replace the
+     * semantics of a nested control or a non-decorative graphic.
+     */
+    private function requiresAccessibleLinkSurface(DOMElement $anchor): bool
+    {
+        if ( $anchor->getElementsByTagName('button')->length > 0 ) {
+            return true;
+        }
+        foreach ( $anchor->getElementsByTagName('svg') as $svg ) {
+            if ( 'true' !== strtolower($svg->getAttribute('aria-hidden')) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function hasMateriallyDifferentAccessibleLabel(DOMElement $anchor, string $text): bool
