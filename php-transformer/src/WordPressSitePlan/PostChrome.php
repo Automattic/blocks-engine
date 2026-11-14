@@ -22,6 +22,8 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifes
  */
 final class PostChrome
 {
+    /** URL attributes in HTML; serialized block JSON additionally uses "url". */
+    private const URL_ATTRIBUTES = 'src|href|srcset|poster|action|formaction|cite|data|xlink:href';
     /**
      * Related-section card projections by shared heading, for the post group
      * being factored. A projection reads every post in the group, so it is
@@ -246,8 +248,8 @@ final class PostChrome
                 // URL values are per-post data, not layout. Normalize both
                 // rendered attributes and their serialized block counterparts;
                 // keep element names, classes and tree shape significant.
-                $identityMarkup = preg_replace('/(\s(?:src|href|srcset|poster|action|formaction|cite|data|xlink:href)\s*=\s*)(?:"[^"]*"|\'[^\']*\'|[^\s>]+)/i', '$1""', $identityMarkup) ?? $identityMarkup;
-                $identityMarkup = preg_replace('/("(?:url|src|href|srcset|poster|action|formaction|cite|data|xlink:href)"\s*:\s*)"(?:\\\\.|[^"\\\\])*"/i', '$1""', $identityMarkup) ?? $identityMarkup;
+                $identityMarkup = preg_replace('/(\s(?:' . self::URL_ATTRIBUTES . ')\s*=\s*)(?:"[^"]*"|\'[^\']*\'|[^\s>]+)/i', '$1""', $identityMarkup) ?? $identityMarkup;
+                $identityMarkup = preg_replace('/("(?:url|' . self::URL_ATTRIBUTES . ')"\s*:\s*)"(?:\\\\.|[^"\\\\])*"/i', '$1""', $identityMarkup) ?? $identityMarkup;
                 $identity = ChromeIdentity::markup($identityMarkup);
                 $groups[$identity][$index] = $post;
             }
@@ -470,14 +472,14 @@ final class PostChrome
     private function hasVaryingUrlAttributes(string $markup, array $shared): bool
     {
         return !isset($shared[($this->chromeIdentity)($markup)])
-            && 1 === preg_match('/(?:\\s(?:src|href|srcset|poster|action|formaction|cite|data|xlink:href)\\s*=|"(?:url|src|href|srcset|poster|action|formaction|cite|data|xlink:href)"\\s*:)/i', $markup);
+            && 1 === preg_match('/(?:\\s(?:' . self::URL_ATTRIBUTES . ')\\s*=|"(?:url|' . self::URL_ATTRIBUTES . ')"\\s*:)/i', $markup);
     }
 
     /** Rendered text and URL attributes, which must agree before chrome normalization. */
     private static function chromeTextKey(string $markup): string
     {
         $text = strip_tags(preg_replace('/<!--.*?-->/s', '', $markup) ?? $markup);
-        preg_match_all('/\\s(?:src|href|srcset|poster|action|formaction|cite|data|xlink:href)\\s*=\\s*(?:"[^"]*"|\'[^\']*\'|[^\\s>]+)|"(?:url|src|href|srcset|poster|action|formaction|cite|data|xlink:href)"\\s*:\\s*"(?:\\\\.|[^"\\\\])*"/i', $markup, $urls);
+        preg_match_all('/\\s(?:' . self::URL_ATTRIBUTES . ')\\s*=\\s*(?:"[^"]*"|\'[^\']*\'|[^\\s>]+)|"(?:url|' . self::URL_ATTRIBUTES . ')"\\s*:\\s*"(?:\\\\.|[^"\\\\])*"/i', $markup, $urls);
         return hash('xxh128', trim(preg_replace('/\s+/u', ' ', html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $text) . json_encode($urls[0]));
     }
 
