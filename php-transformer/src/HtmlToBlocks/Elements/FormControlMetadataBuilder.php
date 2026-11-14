@@ -1006,7 +1006,18 @@ final class FormControlMetadataBuilder
                     continue;
                 }
             }
-            if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden')) ) {
+            // Provider help text is always rendered. Copy hidden by the source
+            // (for example, dormant validation feedback) is not permanent help.
+            $hidden = false;
+            for ( $ancestor = $node; $ancestor instanceof DOMElement && ! $ancestor->isSameNode($wrapper); $ancestor = $ancestor->parentNode ) {
+                if ( $ancestor->hasAttribute('hidden')
+                    || 'true' === strtolower(SourceDom::attr($ancestor, 'aria-hidden'))
+                    || ($this->presentation?->isDisplayNoneAtEveryViewport($ancestor) ?? false) ) {
+                    $hidden = true;
+                    break;
+                }
+            }
+            if ( $hidden ) {
                 continue;
             }
             $alreadyCounted = false;
