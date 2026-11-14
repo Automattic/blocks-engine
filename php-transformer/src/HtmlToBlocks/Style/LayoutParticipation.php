@@ -307,7 +307,7 @@ final class LayoutParticipation
      */
     public static function widthPreset(string $resolvedStyle): ?int
     {
-        if ( preg_match('/(?:^|;)\s*width\s*:\s*(25|50|75|100)%\s*(?:;|$)/i', $resolvedStyle, $matches) === 1 ) {
+        if ( preg_match('/^(25|50|75|100)%$/D', SourceDeclarations::parse($resolvedStyle)['width'] ?? '', $matches) === 1 ) {
             return (int) $matches[1];
         }
 

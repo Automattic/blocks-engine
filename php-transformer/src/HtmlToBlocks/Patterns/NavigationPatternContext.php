@@ -1626,13 +1626,14 @@ final class NavigationPatternContext
      */
     public function cascadeDisplay(DOMElement $element, bool $includeUaDefault = false): string
     {
-        if ( ! $this->styleResolver instanceof StyleResolver
-            || 1 !== preg_match('/(?:^|;)\s*display\s*:\s*([^;]+)/i', $this->styleResolver->controlSurfaceResolvedStyle($element), $match)
-        ) {
+        $display = $this->styleResolver instanceof StyleResolver
+            ? CssValueInspector::declared(SourceDeclarations::parse($this->styleResolver->controlSurfaceResolvedStyle($element)), 'display')
+            : '';
+        if ( '' === $display ) {
             return $includeUaDefault ? ($this->styleResolver?->defaultTagDisplay($element) ?? '') : '';
         }
 
-        return strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($match[1]))));
+        return $display;
     }
 
     public function isFloated(DOMElement $element): bool
@@ -1674,7 +1675,7 @@ final class NavigationPatternContext
 
     public function isOutOfFlow(DOMElement $element): bool
     {
-        return 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute|sticky)\b/i', $this->resolvedStyle($element));
+        return in_array(CssValueInspector::declared(SourceDeclarations::parse($this->resolvedStyle($element)), 'position'), array( 'fixed', 'absolute', 'sticky' ), true);
     }
 
     /**

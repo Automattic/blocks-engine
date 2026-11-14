@@ -424,8 +424,7 @@ final class SourceBlockAttributeProjector
             return false;
         }
 
-        $style = strtolower(SourceDom::attr($element, 'style'));
-        return 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important)?\s*(?:;|$)/', $style);
+        return CssValueInspector::hidesBox(SourceDeclarations::inline($element));
     }
 
     /**

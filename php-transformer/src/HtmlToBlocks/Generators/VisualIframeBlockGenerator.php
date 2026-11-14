@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -570,7 +571,7 @@ JS;
     private function sourceOwnsIframeGeometry(DOMElement $iframe, StyleResolver $styleResolver, array $properties = array( 'width', 'height', 'aspect-ratio', 'position' )): bool
     {
         return array() !== $styleResolver->authorDeclaredPropertyValues($iframe, $properties)
-            || 1 === preg_match('/(?:^|;)\s*(?:' . implode('|', $properties) . ')\s*:/i', SourceDom::attr($iframe, 'style'));
+            || array() !== CssRuleAnalyzer::declarations(SourceDom::attr($iframe, 'style'), $properties);
     }
 
 

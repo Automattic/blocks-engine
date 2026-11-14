@@ -244,7 +244,7 @@ final class DesignUsageCollector
     /** Whether a media rule that applies at the desktop reference viewport overrides a resting `display: none`. */
     private function shownAtReference(DOMElement $element): bool
     {
-        if (1 === preg_match('/(?:^|;)\s*display\s*:/i', $element->getAttribute('style')) || !$this->resolver->hasConditionalStyleFamily($element, 'layout')) return false;
+        if (isset(SourceDeclarations::inline($element)['display']) || !$this->resolver->hasConditionalStyleFamily($element, 'layout')) return false;
         $display = $this->resolver->authorViewport->reference($element, array('display'))['display'] ?? null;
         return null !== $display && 'none' !== strtolower(self::clean($display));
     }

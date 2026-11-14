@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
@@ -232,8 +235,9 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
         $attrs = $context->presentationAttributes($element);
         for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode ) {
-            if ( preg_match('/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/i', SourceDom::attr($carrier, 'style'), $alignment) ) {
-                $attrs['justifyContent'] = strtolower($alignment[1]);
+            $alignment = CssValueInspector::declared(SourceDeclarations::inline($carrier), 'text-align');
+            if ( in_array($alignment, array( 'left', 'center', 'right' ), true) ) {
+                $attrs['justifyContent'] = $alignment;
                 break;
             }
         }
@@ -923,8 +927,9 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return '';
         }
         foreach ( array( 'fill', 'color' ) as $property ) {
-            if ( 1 === preg_match('/(?:^|;)\s*' . $property . '\s*:\s*([^;]+)/i', $style, $match) ) {
-                $color = $this->concreteColor($match[1]);
+            $declaration = CssRuleAnalyzer::declarations($style, array( $property ))[0] ?? null;
+            if ( null !== $declaration ) {
+                $color = $this->concreteColor($declaration['value']);
                 if ( '' !== $color ) {
                     return $color;
                 }

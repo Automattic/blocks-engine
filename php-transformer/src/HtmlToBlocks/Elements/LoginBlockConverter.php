@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -142,7 +144,7 @@ final class LoginBlockConverter
                 || in_array(strtolower($child->tagName), array( 'label', 'legend', 'script', 'style', 'template' ), true)
                 || $child->hasAttribute('hidden')
                 || SourceDom::isAriaHidden($child)
-                || preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse))\s*(?:!important\s*)?(?:;|$)/i', SourceDom::attr($child, 'style')) ) {
+                || CssValueInspector::hidesBox(SourceDeclarations::inline($child)) ) {
                 continue;
             }
             if ( FormControlClassifier::isControlElement($child) ) {

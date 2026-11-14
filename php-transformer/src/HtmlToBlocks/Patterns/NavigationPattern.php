@@ -2059,7 +2059,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $style = $navigationContext->resolvedStyle($element);
-        if ( ! self::isFlexColumn(SourceDeclarations::parse($style)) ) {
+        if ( ! CssValueInspector::isFlexColumn(SourceDeclarations::parse($style)) ) {
             return $attrs;
         }
 
@@ -2224,7 +2224,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function listPackingJustification(string $style): string
     {
         $declarations = SourceDeclarations::parse($style);
-        if ( self::isFlexColumn($declarations) ) {
+        if ( CssValueInspector::isFlexColumn($declarations) ) {
             return '';
         }
 
@@ -2243,13 +2243,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return '';
-    }
-
-    /** @param array<string, string> $declarations */
-    private static function isFlexColumn(array $declarations): bool
-    {
-        return in_array(CssValueInspector::declared($declarations, 'display'), array( 'flex', 'inline-flex' ), true)
-            && in_array(CssValueInspector::declared($declarations, 'flex-direction'), array( 'column', 'column-reverse' ), true);
     }
 
     private function resolvedStyleDeclaresFamily(string $style, string $family): bool
