@@ -3553,9 +3553,24 @@ final class AuthorStylesheetProjector
             return '';
         }
 
-        return str_replace('.wp-block-image', '.wp-block-image:where(.' . implode(',.', $figures) . ')', $imagePrelude)
+        $rule = str_replace('.wp-block-image', '.wp-block-image:where(.' . implode(',.', $figures) . ')', $imagePrelude)
             . '{display:' . ($declarations['display'] ?? 'inline')
             . ( isset($declarations['vertical-align']) ? ';vertical-align:' . $declarations['vertical-align'] : '' ) . '}';
+        // The inline synthetic figure is display:contents, so class-owned
+        // dimensions cannot size it. Keep the replaced box on the image,
+        // after the generic 100% bridge and at the author's cascade position
+        // (including responsive conditions). Placement is routed separately.
+        if ( in_array(SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS, $figures, true) ) {
+            $box = array_filter($declarations, static fn (string $property): bool =>
+                NativeImageLeafPresentation::isBoxProperty($property)
+                && ! NativeImageLeafPresentation::isPlacementProperty($property), ARRAY_FILTER_USE_KEY);
+            if ( array() !== $box ) {
+                $rule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . ')', $imagePrelude)
+                    . '{' . $this->styleResolver->cssDeclarationString($box) . '}';
+            }
+        }
+
+        return $rule;
     }
 
     /**
