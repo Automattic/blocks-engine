@@ -384,7 +384,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ($hasIntrinsicBox && null === $source) {
             foreach ($toggle->getElementsByTagName('*') as $child) {
                 $box = $this->styleResolver->cascade->collapsedViewportDeclarations($child, array('width', 'height'));
-                if ($this->nativeNavigationToggleDimensionIsUsable($box['width'] ?? '', 0) && $this->nativeNavigationToggleDimensionIsUsable($box['height'] ?? '', 0)) {
+                if ($this->nativeNavigationToggleDimensionIsUsable($box['width'] ?? '') && $this->nativeNavigationToggleDimensionIsUsable($box['height'] ?? '')) {
                     if (!$hasUsableWidth) $declarations[] = 'width:' . $box['width'] . '!important';
                     if (!$hasUsableHeight) $declarations[] = 'height:' . $box['height'] . '!important';
                     break;
@@ -1746,7 +1746,7 @@ final class ProjectedNavigationConverter implements ElementConverter
                 }
                 $lengths[] = $value;
             }
-            if ( $this->nativeNavigationToggleDimensionIsUsable($lengths[0], 0) && $this->nativeNavigationToggleDimensionIsUsable($lengths[1], 0) ) {
+            if ( $this->nativeNavigationToggleDimensionIsUsable($lengths[0]) && $this->nativeNavigationToggleDimensionIsUsable($lengths[1]) ) {
                 return true;
             }
         }
@@ -1779,17 +1779,12 @@ final class ProjectedNavigationConverter implements ElementConverter
         return $parent ? $this->nativeNavigationToggleFontSize($parent, $depth + 1) : 16.0;
     }
 
-    private function nativeNavigationToggleDimensionIsUsable(string $value, float $minimum = 0): bool
+    private function nativeNavigationToggleDimensionIsUsable(string $value): bool
     {
-        // Fluid authored dimensions remain live CSS. They are not an absent
-        // box merely because they cannot be reduced to px at compile time.
-        if ( preg_match('/^(?:calc|min|max|clamp)\(/i', trim($value)) ) {
-            return true;
-        }
         if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)px$/', $value, $matches) ) {
             return false;
         }
 
-        return (float) $matches[1] > 0 && (float) $matches[1] >= $minimum;
+        return (float) $matches[1] >= 24;
     }
 }

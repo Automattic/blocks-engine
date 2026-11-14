@@ -1004,7 +1004,11 @@ final class FormControlMetadataBuilder
                     continue;
                 }
             }
-            if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden')) ) {
+            // Hidden source copy is not permanent field help. Providers render
+            // descriptions independently of the original node and its CSS box.
+            if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden'))
+                || null !== $this->hiddenState($node, $wrapper)
+            ) {
                 continue;
             }
             $alreadyCounted = false;
