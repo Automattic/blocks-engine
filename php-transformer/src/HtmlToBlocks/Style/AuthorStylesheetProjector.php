@@ -502,7 +502,7 @@ final class AuthorStylesheetProjector
         // above SvgMaterializer's inline-geometry carrier or replay SVG paint.
         $svgImageRule = '' === $svgImagePrelude
             ? ''
-            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . ';' . $this->styleResolver->cssDeclarationString($this->imageApplicableSvgDeclarations($declarations)) . '}'
+            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true, ! $this->everySubjectStaysOnImage($prelude, $context)) . ';' . $this->styleResolver->cssDeclarationString($this->imageApplicableSvgDeclarations($declarations)) . '}'
                 . $this->lineImageFigureRule($svgImagePrelude, $declarations, $context);
         $svgImageRule .= $this->flexItemImageBoxRule(
             $prelude,
@@ -3564,7 +3564,8 @@ final class AuthorStylesheetProjector
      * moves to the figure, so the source rule still paints the image itself:
      * inheriting the figure's corners there would replace the image's own
      * radius at the same specificity, later in the cascade. A universal
-     * subject (`*`) matches the image the same way.
+     * subject (`*`) matches the image the same way, as does a bare `svg`
+     * subject for the image an inline SVG is materialized into.
      *
      * @param array<string, string> $declarations
      */
@@ -3581,6 +3582,13 @@ final class AuthorStylesheetProjector
         return '' === $movedPrelude ? $rule : $rule . $movedPrelude . '{border-radius:inherit}';
     }
 
+    private function everySubjectStaysOnImage(string $prelude, AuthorStylesheetProjectionContext $context): bool
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude) ?? array();
+
+        return array() !== $selectors && array() === array_filter($selectors, fn (string $selector): bool => ! $this->subjectStaysOnImage($selector, $context));
+    }
+
     private function subjectStaysOnImage(string $selector, AuthorStylesheetProjectionContext $context): bool
     {
         $parsed = $context->sourceStyles->parsedSelector($selector);
@@ -3590,7 +3598,7 @@ final class AuthorStylesheetProjector
         $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
 
         // A universal subject matches the image itself, exactly like `img`.
-        return in_array(strtolower((string) ($subject['type'] ?? '*')), array( 'img', '*' ), true)
+        return in_array(strtolower((string) ($subject['type'] ?? '*')), array( 'img', 'svg', '*' ), true)
             && array() === ($subject['classes'] ?? array())
             && array() === ($subject['ids'] ?? array())
             && array() === ($subject['attributes'] ?? array());
