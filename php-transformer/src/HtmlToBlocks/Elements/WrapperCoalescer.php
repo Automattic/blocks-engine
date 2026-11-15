@@ -493,6 +493,8 @@ final class WrapperCoalescer
         if ( ($this->preservesScriptStateWrapper)($element) ) {
             return null;
         }
+        $absorbed = $this->absorbedNeutralChild($element, $childBlock);
+        if (null !== $absorbed) return $absorbed;
         $textWrapper = $this->coalescedInheritedTextWrapper($element, $childBlock);
         if (null !== $textWrapper) return $textWrapper;
         $resolution = $this->coalescingResolution($element, $childBlock);
@@ -515,6 +517,51 @@ final class WrapperCoalescer
         if (null !== $proof) $this->session->layoutGeometryState()->recordProof($proof);
 
         return $this->createBlock->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+    }
+
+    /**
+     * Keep the parent's box, rather than requiring the parent to be neutral.
+     * A normal-flow neutral child contributes no independent geometry. This
+     * is the inverse of promoting a neutral parent onto a styled child.
+     *
+     * @param array<string,mixed> $childBlock
+     * @return array<string,mixed>|null
+     */
+    private function absorbedNeutralChild(DOMElement $element, array $childBlock): ?array
+    {
+        $name = $childBlock['blockName'] ?? '';
+        if (!in_array($name, array('core/group', 'core/paragraph'), true)
+            || 'div' !== strtolower($element->tagName)
+            || SourceDom::hasClass($element, 'wp-block-group')
+            || $this->isBindingAnchor($childBlock)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || $this->sourceElementClassifier->hasMotionStructureToken($element)
+            || '' !== SourceDom::attr($element, 'id')
+            || '' !== SourceDom::attr($element, 'role')
+            || array() !== $this->interactiveAttributes($element)
+            || array() !== SourceDom::safeDataAttributes($element)
+            || $this->isStructuralLayoutElement($element)) return null;
+        $child = ($this->soleElementChild)($element);
+        if (!$child instanceof DOMElement
+            || !in_array(strtolower($child->tagName), 'core/paragraph' === $name ? array('p') : array('div'), true)
+            || $this->runtimeIslands->isRuntimeDomTarget($child)
+            || $this->sourceElementClassifier->hasMotionStructureToken($child)
+            || '' !== SourceDom::attr($child, 'id')
+            || '' !== SourceDom::attr($child, 'role')
+            || array() !== $this->interactiveAttributes($child)
+            || array() !== SourceDom::safeDataAttributes($child)
+            || !$this->hasOnlyRenderNeutralBoxAffectingDeclarations($child)
+            || !$this->selectorMatchingSurvivesWrapperCoalescing($element, $child, true)) return null;
+        // Paragraphs have UA block margins even without author declarations.
+        if ('core/paragraph' === $name) {
+            $declarations = $this->matchingAuthorDeclarations($child);
+            foreach (array('margin-top', 'margin-bottom') as $property) {
+                if (!in_array(CssValueInspector::comparable((string) ($declarations[$property] ?? $declarations['margin'] ?? '')), array('0', '0px'), true)) return null;
+            }
+        }
+        $attrs = array_replace_recursive($this->styleResolver->presentationAttributes($element), ArrayField::array($childBlock, 'attrs'));
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($this->styleResolver->presentationAttributes($element)['className'] ?? ''), (string) ($childBlock['attrs']['className'] ?? ''), SourceDom::attr($element, 'class'));
+        return $this->createBlock->createBlock($name, $attrs, $childBlock['innerBlocks'] ?? array(), $child);
     }
 
     /**
