@@ -916,7 +916,7 @@ trait StagedTransport
             }
         }
         $colors = array();
-        foreach ($compiler->imageFiles as $file) {
+        foreach ($compiler->fileIndex->imageFiles() as $file) {
             if (isset($capturedEverywhere[$file['path']])) continue;
             $hash = (string) ($file['raw_sha256'] ?? $file['payload_reference']['sha256'] ?? '');
             if ('' !== $hash) $colors[$hash] = $compiler->glyphColorForFile($file);
