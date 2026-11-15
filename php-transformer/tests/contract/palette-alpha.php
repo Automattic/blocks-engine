@@ -52,6 +52,18 @@ foreach ($standalonePlan['writes'] as $write) {
 }
 $standalonePalette = array_column($standaloneTheme['settings']['color']['palette'], 'color', 'slug');
 $assert('rgba(47,23,15,.9)' === ($standalonePalette['alpha-cpbhapog'] ?? null), 'The preset retains the authored alpha rather than rounding its paint.');
+// Registering a standalone alpha preset must not freeze a class's state,
+// or responsive paint into native block support.
+foreach (array(
+    '.standalone-alpha:hover{background:red}' => 'state_variant',
+    '@media(max-width:600px){.standalone-alpha{background:red}}' => 'breakpoint_variant',
+) as $css => $reason) {
+    $unsafe = $standalone;
+    $unsafe['files']['index.html'] = str_replace('</style>', $css . '</style>', $unsafe['files']['index.html']);
+    $unsafePlan = (new ArtifactCompiler())->compile($unsafe)->toArray()['source_reports']['wordpress_site_plan'];
+    $assert($unsafePlan['theme']['design_system']['metrics']['refusal_reasons'][$reason] > 0, 'Standalone alpha safety refusal retained: ' . $reason);
+    $assert(!str_contains($unsafePlan['pages'][0]['canonical_block_markup'], '"backgroundColor":"alpha-cpbhapog"'), 'Unsafe standalone alpha remains on the source stylesheet: ' . $reason);
+}
 // Adding an opaque sibling must not rebind it to the standalone alpha token.
 $siblings = $standalone;
 $siblings['files']['index.html'] = str_replace('</section>', '<div class="opaque-sibling"><p>Opaque sibling</p></div><div class="transparent-sibling"><p>Transparent sibling</p></div></section>', $siblings['files']['index.html']);
