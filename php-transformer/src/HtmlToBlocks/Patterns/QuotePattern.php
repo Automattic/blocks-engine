@@ -37,7 +37,16 @@ final class QuotePattern implements PatternRecognizerInterface
         // A structured attribution is a layout subtree, not citation RichText.
         // Flattening its footer drops decorative rules, flex geometry and margins.
         $footer = SourceDom::firstChildElement($element, 'footer');
-        if ($footer instanceof DOMElement && preg_match(self::STRUCTURAL_CONTENT_PATTERN, SourceDom::innerHtml($footer))) {
+        $attribution = '';
+        if ($footer instanceof DOMElement) {
+            foreach ($footer->childNodes as $child) {
+                // Decorative rules alone do not make a phrasing citation structural.
+                if ($child instanceof DOMElement && !SourceDom::isAriaHidden($child)) {
+                    $attribution .= $child->ownerDocument->saveHTML($child);
+                }
+            }
+        }
+        if ($footer instanceof DOMElement && preg_match(self::STRUCTURAL_CONTENT_PATTERN, $attribution)) {
             $fallbacks = array();
             $children = $converter->children($element, $fallbacks, true);
             foreach ($children as &$child) {
