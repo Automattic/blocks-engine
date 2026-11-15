@@ -535,8 +535,8 @@ final class ArtifactCompiler
             }
         }
         $this->indexFiles($normalized['files']);
-        $normalized['files'] = RuntimeScriptProjections::applyToFiles($normalized['files'], $runtimeScriptProjections);
-        $runtimeIslandPackage = RuntimeScriptProjections::applyToPackage(
+        $normalized['files'] = RuntimeScriptRewrites::applyToFiles($normalized['files'], $runtimeScriptProjections);
+        $runtimeIslandPackage = RuntimeScriptRewrites::applyToPackage(
             ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath),
             $runtimeScriptProjections
         );
