@@ -191,13 +191,12 @@ final class ThemeTemplates
      * @param array<int,array<string,mixed>> $parts
      * @param array<int,array<string,mixed>> $surfaces
      * @param array<int,array<string,mixed>> $tokens
-     * @param array<int,array<string,mixed>> $routes
      * @param array<int,array<string,mixed>> $taxonomyEntities
      * @param array<string,array<string,mixed>> $frames
      * @param array<string,string> $documentChrome Shared document chrome by template slug.
      * @return array<int,array<string,mixed>>
      */
-    public static function build(RouteLinks $links, array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array(), ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array(), array $postTemplates = array()): array
+    public static function build(RouteLinks $links, array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array(), array $postTemplates = array()): array
      {
          $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
          usort($bound, static function (array $left, array $right): int {
@@ -279,7 +278,7 @@ final class ThemeTemplates
          foreach ($surfaces as $surface) {
             $declaration = $surface['template_surface']; $slug = $declaration['slug']; $target = 'templates/' . $slug . '.html';
             if (array_filter($templates, static fn(array $template): bool => $template['slug'] === $slug)) throw new InvalidArgumentException('A declared template surface collides with a generated template.');
-            $content = is_null($references) ? (string) $surface['block_markup'] : $links->markup($references->content((string) $surface['block_markup'], (string) $surface['source_path']), (string) $surface['source_path'], $routes);
+            $content = is_null($references) ? (string) $surface['block_markup'] : $links->markup($references->content((string) $surface['block_markup'], (string) $surface['source_path']), (string) $surface['source_path']);
              $templates[] = array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'source_path' => $surface['source_path'], 'template_surface' => $declaration, 'provenance' => $surface['provenance'] ?? array(), 'reconciliation_identity' => WordPressSitePlan::identity('template', $surface['source_path'], $target), 'content_hash' => WordPressSitePlan::contentHash($content));
          }
          foreach ($taxonomyEntities as $entity) {
