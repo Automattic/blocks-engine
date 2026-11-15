@@ -614,6 +614,16 @@ final class FormPresentationGraphBuilder
                 }
                 $matched = $this->matched($element, $analysis['rules']);
                 $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules'], true);
+                // Provider wrappers can default to a full-row basis. Carry
+                // the native flex item's implicit auto basis onto that wrapper,
+                // while leaving explicit authored sizing (and variants) intact.
+                if ('control' === $role && $element->parentNode instanceof DOMElement) {
+                    $parentFacts = $this->matched($element->parentNode, $analysis['rules']);
+                    $parentStyles = $this->styles($parentFacts['base'], $element->parentNode, null, $customPropertyAnalysis['rules']);
+                    if (in_array($parentStyles['display'] ?? '', array('flex', 'inline-flex'), true)) {
+                        $styles['flex_basis'] ??= 'auto';
+                    }
+                }
                 $provenance = $this->provenance($matched['base'], null);
                 $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
                 foreach ($matched['base'] as $property => $fact) {

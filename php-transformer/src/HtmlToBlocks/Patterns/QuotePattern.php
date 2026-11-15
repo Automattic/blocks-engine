@@ -34,8 +34,21 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
 
-        $citation = $quotes->citationFromElement($element);
-        $value = SourceDom::innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
+        // RichText citations cannot retain a structured attribution's box
+        // (for example a flex footer with a decorative rule and author card).
+        // Keep those nodes as editable inner blocks instead of stripping the
+        // footer and flattening its descendants into a generated cite.
+        $structuredAttribution = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement
+                && in_array(strtolower($child->tagName), array( 'cite', 'footer' ), true)
+                && preg_match(self::STRUCTURAL_CONTENT_PATTERN, SourceDom::innerHtml($child)) ) {
+                $structuredAttribution = true;
+            }
+        }
+        $excludedTags = $structuredAttribution ? array() : array( 'cite', 'footer' );
+        $citation = $structuredAttribution ? '' : $quotes->citationFromElement($element);
+        $value = SourceDom::innerHtmlWithoutTags($element, $excludedTags);
         if ( ! $this->runtime->hasVisibleText($value) ) {
             return null;
         }
@@ -51,7 +64,7 @@ final class QuotePattern implements PatternRecognizerInterface
         $fallbacks = array();
         $innerBlocks = $this->phrasingQuoteChildren($element, $value, $context, $quotes);
         if ( array() === $innerBlocks ) {
-            $innerBlocks = $converter->childrenWithoutTags($element, $fallbacks, array( 'cite', 'footer' ));
+            $innerBlocks = $converter->childrenWithoutTags($element, $fallbacks, $excludedTags);
         }
         if ( array() === $innerBlocks ) {
             $innerBlocks[] = $createBlock('core/paragraph', array( 'content' => $value ));

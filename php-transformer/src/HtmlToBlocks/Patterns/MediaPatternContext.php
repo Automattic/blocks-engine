@@ -34,6 +34,8 @@ final class MediaPatternContext
         );
     }
     public function mediaTextStyle(DOMElement $element): string { return $this->styleResolver->mediaTextPresentationStyle($element); }
+    /** Full authored cascade for recognition, including low-priority overlay containers. */
+    public function mediaTextRecognitionStyle(DOMElement $element): string { return $this->styleResolver->controlSurfaceResolvedStyle($element); }
     /** Whether a media/container-conditional rule varies the element's min-height. */
     public function hasConditionalMinHeight(DOMElement $element): bool { return array() === $this->styleResolver->classOwnedResponsiveDeclarations($element, array( 'min-height' => '0' )); }
     /** @return array<string, string> */

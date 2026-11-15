@@ -119,7 +119,10 @@ final class FormDispatcher
                 // the readable tree is only the provider substitution input.
                 $readableFallbacks = array();
                 $readable = $this->context->buildReadableFormBlock($element, true, $readableFallbacks);
-                $fallbacks[] = $this->context->buildFallbackFinding($element, $readable, $composition['slot']);
+                // The provider input represents the entire form, including
+                // prose outside the controls slot. Bind that same whole box
+                // or materialization duplicates the outer caption and spacing.
+                $fallbacks[] = $this->context->buildFallbackFinding($element, $readable, $composition['block']);
                 $this->context->recordForm($element, $composition['block']);
                 return $composition['block'];
             }

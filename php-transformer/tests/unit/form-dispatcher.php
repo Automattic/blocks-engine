@@ -105,7 +105,7 @@ $mode = 'composition';
 $result = $dispatcher->convert($dataForm, $fallbacks);
 $assert('composition' === ($result['attrs']['mode'] ?? ''), 'composition-is-returned');
 $assert(2 === count($fallbacks), 'composition-retains-conversion-and-form-findings');
-$assert('core/html' === ($fallbacks[1]['binding'] ?? ''), 'composition-slot-binds-finding');
+$assert('core/group' === ($fallbacks[1]['binding'] ?? ''), 'whole-form-provider-input-binds-whole-composition');
 $assert(array( $result ) === $recorded, 'composition-records-runtime-form');
 
 $calls = array();

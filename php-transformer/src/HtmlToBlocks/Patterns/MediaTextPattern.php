@@ -61,7 +61,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
             SourceDom::htmlAttributes(...),
             $media->resolveImageUrl(...),
             $this->createBlock->createBlock(...),
-            $media->coverStyle(...),
+            $media->mediaTextRecognitionStyle(...),
             $media->documentRootFontSize(...),
             $media->imageFixedPixelSize(...)
         );
@@ -79,7 +79,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
      * @param callable(string): string $resolveAssetUrl
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @param callable(DOMElement): string $fullPresentationStyle Superset of the gate-only media style, including
-     *        `position` (the same source CoverPattern reads background/position facts from).
+     *        `position`, read without presentation-priority filtering.
      * @param callable(DOMElement): ?float $documentRootFontSize CSS root size used to resolve rem dimensions.
      * @param (callable(DOMElement): array{width: ?float, height: ?float})|null $imageFixedPixelSize The image's
      *        used pixel size per axis where its attributes or author CSS (on the image or a sizing wrapper it
@@ -147,8 +147,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
         // media's width. Declining here leaves the container to ordinary
         // flow lowering, which keeps the media and the positioned control
         // together in one box so the source's positioning CSS still applies
-        // and the control stays reachable. Uses $fullPresentationStyle, not
-        // $mergedPresentationStyle: mediaTextStyle's allow list is a fixed
+        // and the control stays reachable. Uses the full recognition cascade,
+        // not priority-filtered presentation or $mergedPresentationStyle:
+        // mediaTextStyle's allow list is a fixed
         // set of layout-gate properties that omits `position` entirely.
         try {
             $textElementStyle = $fullPresentationStyle($elementChildren[ $textIndex ]);
