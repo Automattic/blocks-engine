@@ -205,7 +205,9 @@ final class FormRuntimeRequirementAnalyzer
         if ( '' === $method || 'get' === $method ) {
             if ( $search || preg_match('~(?:^|/)search(?:/|$)~', $path) ) return 'search';
             if ( $select && ! $freeText ) return 'filter_sort';
-            if ( ! $freeText && (new ListingControlsRecognizer())->hasNumericBoundsForForm($form) ) return 'filter_sort';
+            // The bound recognizer validates every free-entry control itself,
+            // including text fields with explicit paired numeric evidence.
+            if ( (new ListingControlsRecognizer())->hasNumericBoundsForForm($form) ) return 'filter_sort';
         }
 
         // Keep existing GET search/filter intents, but recognize bounded choice

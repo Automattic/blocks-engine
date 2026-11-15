@@ -414,7 +414,7 @@ final class ListingControlsRecognizer
         }
         $ranges = array();
         foreach ( $scope->getElementsByTagName('input') as $input ) {
-            if ( 'number' === strtolower(SourceDom::attr($input, 'type')) ) {
+            if ( 'number' === strtolower(SourceDom::attr($input, 'type')) || null !== self::textNumericBound($input) ) {
                 if ( $this->contains($listing, $input) || $this->inSiblingListingBranch($listing, $input) || self::inSearchContext($input) || $this->inSubmissionForm($input) || $input->hasAttribute('disabled') ) {
                     continue;
                 }
@@ -429,7 +429,7 @@ final class ListingControlsRecognizer
                 $tokens = strtolower((string) preg_replace('/[^a-z]+/i', ' ', SourceDom::attr($input, 'name') . ' ' . $label));
                 // Explicit field/bound semantics take priority. Otherwise a
                 // numeric endpoint must bracket the observed card prices.
-                $bound = preg_match('/\b(min|max|from|to|minimum|maximum)\b/', $tokens, $match) ? (in_array($match[1], array('min', 'from', 'minimum'), true) ? 'min' : 'max') : null;
+                $bound = self::textNumericBound($input)['bound'] ?? (preg_match('/\b(min|max|from|to|minimum|maximum)\b/', $tokens, $match) ? (in_array($match[1], array('min', 'from', 'minimum'), true) ? 'min' : 'max') : null);
                 $price = (bool) preg_match('/\bprice\b/', $tokens);
                 $endpoint = SourceDom::attr($input, 'placeholder');
                 if ( ! is_numeric($endpoint) ) {
@@ -486,8 +486,8 @@ final class ListingControlsRecognizer
     }
 
     /**
-     * Reuse listing evidence for intent: every free-entry control must be an
-     * adopted numeric bound, with both ends of one field represented.
+     * Reuse numeric-bound evidence for intent: every free-entry control must
+     * belong to an explicit text pair or be adopted by a captured listing.
      */
     public function hasNumericBoundsForForm(DOMElement $form): bool
     {
@@ -506,6 +506,56 @@ final class ListingControlsRecognizer
         return $results[$path];
     }
 
+    /**
+     * Text fields need both a numeric keyboard hint and numeric endpoint
+     * evidence, plus a named bound. Neither a theme wrapper nor a label alone
+     * proves that an ordinary text field collects a number.
+     *
+     * @return array{field: string, bound: string}|null
+     */
+    private static function textNumericBound(DOMElement $input): ?array
+    {
+        if ( 'input' !== strtolower($input->tagName)
+            || ! in_array(strtolower(SourceDom::attr($input, 'type')), array('', 'text'), true)
+            || ! in_array(strtolower(SourceDom::attr($input, 'inputmode')), array('decimal', 'numeric'), true) ) {
+            return null;
+        }
+        $name = strtolower(trim(SourceDom::attr($input, 'name')));
+        if ( ! preg_match('/^(.+?)[._\[\-](gte|lte|min|max)\]?$/', $name, $match) ) {
+            return null;
+        }
+        $placeholder = SourceDom::attr($input, 'placeholder');
+        $min = SourceDom::attr($input, 'data-min');
+        $max = SourceDom::attr($input, 'data-max');
+        if ( ! is_numeric($placeholder) && ! (is_numeric($min) && is_numeric($max) && (float) $min <= (float) $max) ) {
+            return null;
+        }
+        return array('field' => $match[1], 'bound' => in_array($match[2], array('gte', 'min'), true) ? 'min' : 'max');
+    }
+
+    /** Explicit text bounds do not need a listing runtime to remain native. */
+    public function hasTextNumericBoundsForForm(DOMElement $form): bool
+    {
+        if ( ! self::isGetFilterForm($form) ) {
+            return false;
+        }
+        $pairs = array();
+        foreach ( FormRuntimeRequirementAnalyzer::intentControls($form) as $control ) {
+            $type = strtolower(SourceDom::attr($control, 'type'));
+            if ( in_array(strtolower($control->tagName), array('button', 'select'), true)
+                || in_array($type, array('submit', 'reset', 'button', 'image', 'checkbox', 'radio'), true) ) {
+                continue;
+            }
+            $bound = self::textNumericBound($control);
+            if ( null === $bound ) {
+                return false;
+            }
+            $pairs[$bound['field']][$bound['bound']] = true;
+        }
+        return array() !== $pairs
+            && array() === array_filter($pairs, static fn (array $bounds): bool => ! isset($bounds['min'], $bounds['max']));
+    }
+
     private function recognizeNumericBoundsForForm(DOMElement $form): bool
     {
         // Reject ordinary forms before inspecting any surrounding grid.
@@ -519,13 +569,20 @@ final class ListingControlsRecognizer
             if ( 'button' === $tag || 'select' === $tag || in_array($type, array('submit', 'reset', 'button', 'image', 'checkbox', 'radio'), true) ) {
                 continue;
             }
-            if ( 'input' !== $tag || 'number' !== $type ) {
+            $textBound = self::textNumericBound($control);
+            if ( 'input' !== $tag || ('number' !== $type && null === $textBound) ) {
                 return false;
             }
             $entries[] = $control;
         }
         if ( count($entries) < 2 ) {
             return false;
+        }
+        // Explicit matching text endpoints establish a bounded filter even
+        // without a captured listing. Every entry must belong to a full pair;
+        // mixed/unproven numeric fields still require the listing evidence.
+        if ( $this->hasTextNumericBoundsForForm($form) ) {
+            return true;
         }
         $scope = $form;
         for ( $node = $form->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
