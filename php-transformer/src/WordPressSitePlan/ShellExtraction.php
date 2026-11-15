@@ -138,6 +138,26 @@ final class ShellExtraction
         foreach ($pages as $page) foreach ($page['shell_candidates'] ?? array() as $candidate) {
             $identities[$candidate['area']][$candidate['identity_markup'] ?? $candidate['markup']] = true;
         }
+        // Equality may ignore sampled capture evidence. Emit the contextual
+        // copy that actually observed it, rather than the entry route's resting
+        // copy or the isolated compilation's incomplete selector context.
+        $presentations = array();
+        foreach ($pages as $page) {
+            $variants = array();
+            foreach ($page['shell_candidates'] ?? array() as $candidate) {
+                $area = $candidate['area'];
+                $variant = ($variants[$area] ?? 0) + 1;
+                $variants[$area] = $variant;
+                $artifact = self::sourceSharedShellArtifact($artifacts, $page, $area, $variant);
+                if (null === $artifact) continue;
+                $key = $artifact['canonical_block_markup'];
+                $markup = $candidate['markup'];
+                $score = ($page['source_path'] === ($artifact['placement']['evidence_source_path'] ?? null)) ? 1 : 0;
+                if (!isset($presentations[$key]) || $score > $presentations[$key]['score']) {
+                    $presentations[$key] = array('markup' => $markup, 'score' => $score);
+                }
+            }
+        }
         $variantIdentities = array(); $sourceRows = array();
         foreach ($pages as $page) {
             $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']);
@@ -201,7 +221,8 @@ final class ShellExtraction
                 $candidate['identity_markup'] = ChromeIdentity::markup($markup);
                 // Source equality proves ownership, not presentation: isolated
                 // compilation lacks the route's complete selector context.
-                $candidate['template_part_markup'] = self::landmarkPartMarkup(RestingNavigation::markup($candidate['markup']), $candidate['area']);
+                $presentation = ($presentations[$markup]['score'] ?? 0) > 0 ? $presentations[$markup]['markup'] : $candidate['markup'];
+                $candidate['template_part_markup'] = self::landmarkPartMarkup(RestingNavigation::markup($presentation), $candidate['area']);
             }
             unset($candidate);
         }
