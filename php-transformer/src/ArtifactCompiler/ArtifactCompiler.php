@@ -2125,12 +2125,8 @@ final class ArtifactCompiler
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
             $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
-            // Stylesheet declarations are not evidence that their selector
-            // subjects exist. Inline sheets must obey the same boundary as
-            // linked CSS; retain scripts and markup as interaction evidence.
-            if ('html' === ($file['kind'] ?? '') && is_string($text)) {
-                $text = (string) preg_replace('#<style\b[^>]*>.*?</style\s*>#is', '', $text);
-            }
+            // Preserve inline author sheets as conservative evidence: partial
+            // documents and responsive variants need not contain their subjects.
             if (is_string($text) && '' !== $text) $texts[] = $text;
         }
         if (0 === $documents) return $files;

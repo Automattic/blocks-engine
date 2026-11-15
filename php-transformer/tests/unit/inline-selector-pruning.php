@@ -18,15 +18,15 @@ foreach ($compiled['source_reports']['wordpress_site_plan']['assets'] as $asset)
 if (!preg_match('/,(#[a-zA-Z0-9_-]+)\1\1\)/', $frontend)) {
     throw new RuntimeException('Inline root carrier must retain the author specificity ceiling, including unmatched author IDs');
 }
-// Inline sheets are not subject evidence. Cross-route markup and dynamic
-// scripts still keep the selectors they can render alive.
+// Inline sheets remain conservative evidence for partial documents and
+// responsive variants. Cross-route markup and dynamic scripts stay live too.
 $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => '<link rel="stylesheet" href="site.css"><style>.unused-inline{color:salmon}.other-route{color:teal}.dynamic-item{color:purple}</style><main>Home</main><script>window.state="dynamic-" + "item";</script>',
     'other.html' => '<main class="other-route">Other</main>',
     'site.css' => '.unused-inline{background:salmon}.other-route{background:teal}',
 )))->toArray();
 $css = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($compiled['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null))));
-foreach (array('salmon' => false, 'teal' => true, 'purple' => true) as $needle => $expected) {
+foreach (array('salmon' => true, 'teal' => true, 'purple' => true) as $needle => $expected) {
     if (str_contains($css, $needle) !== $expected) throw new RuntimeException('Unexpected inline selector reachability for ' . $needle);
 }
 echo "Inline selector pruning and specificity preservation passed\n";
