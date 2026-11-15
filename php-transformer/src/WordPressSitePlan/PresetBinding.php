@@ -821,6 +821,12 @@ final class PresetBinding
             }
             $slug = $this->presetSlug('color', $literal, $observation, $reason);
             $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
+            if (!$safe && 'state_variant' === $reason && null !== $slug && is_string($literal) && $this->safe($property, $tokens, array(), true, false, $inlineReason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $declarations, $property, $literal)) {
+                // Replacing only the value preserves inline precedence and
+                // interaction rules that already override it.
+                ++$bound;
+                continue;
+            }
             if (!$safe && is_string($literal) && ($this->rendersThroughClass($name, $property, $literal, $tokens) || ('state_variant' === $reason && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)))) {
                 // A preset class would mask the hover colour; the button
                 // element or author class renders this value with its state, so the
@@ -898,8 +904,8 @@ final class PresetBinding
             if ($isLink) {
                 // Button links carry no font preset class; a family equal to
                 // a preset stack reads its variable from the same inline
-                // declaration. Sizes stay as authored beside the element size.
-                if ('fontFamily' !== $key || isset($attributes->{$attribute})) continue;
+                // declaration. Exact sizes likewise retain inline precedence.
+                if (isset($attributes->{$attribute})) continue;
                 $literal = $style->typography->{$key} ?? null;
                 $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? $this->presetSlug($property, $literal, null) : null;
                 if (null !== $slug && $this->inlinePreset($style->typography, $key, $property, $slug, $declarations, $property, $literal)) ++$bound;
@@ -915,7 +921,11 @@ final class PresetBinding
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $slug = $this->presetSlug($property, $literal, $observed[$property] ?? null);
-            if (null === $slug || !$this->safe($property, $tokens, array(sprintf($presetClass, $slug)))) continue;
+            if (null === $slug) continue;
+            if (!$this->safe($property, $tokens, array(sprintf($presetClass, $slug)))) {
+                if (is_string($literal) && $this->safe($property, $tokens, array(), true, false, $inlineReason, true) && $this->inlinePreset($style->typography, $key, $property, $slug, $declarations, $property, $literal)) ++$bound;
+                continue;
+            }
             if (is_string($literal)) {
                 if (!self::removeDeclaration($declarations, $property, $literal)) continue;
                 unset($style->typography->{$key});
