@@ -53,6 +53,26 @@ final class PostBlocks
         return '<!-- wp:post-date' . $encoded . ' /-->';
     }
 
+    /**
+     * A card link to its own post, rendered per post: a button binds its URL
+     * to the permalink; a lone text link becomes a read-more link.
+     */
+    public static function permalink(string $slice): ?string
+    {
+        $attrs = self::sourceAttributes($slice);
+        $name = self::sourceBlockName($slice);
+        if ('button' === $name) {
+            unset($attrs['url']);
+            $attrs['metadata']['bindings']['url'] = array('source' => 'core/post-data', 'args' => array('field' => 'link'));
+            $slice = (string) preg_replace('/(<a\b[^>]*?)\s+href="[^"]*"/', '$1', $slice, 1);
+            return (string) preg_replace('/^<!-- wp:button(?: \{.*?\})? -->/s', '<!-- wp:button ' . BlockAttributes::encode($attrs) . ' -->', $slice, 1);
+        }
+        if ('paragraph' !== $name || 1 !== preg_match('/^\s*<p\b[^>]*>\s*<a\b[^>]*>(.*?)<\/a>\s*<\/p>\s*$/s', (string) preg_replace('/^<!-- wp:paragraph(?: \{.*?\})? -->|<!-- \/wp:paragraph -->$/s', '', $slice), $match)) return null;
+        $readMore = array('content' => trim($match[1]));
+        foreach (array('className', 'style') as $key) if (isset($attrs[$key])) $readMore[$key] = $attrs[$key];
+        return '<!-- wp:read-more ' . BlockAttributes::encode($readMore) . ' /-->';
+    }
+
     public static function featuredImage(string $slice): string
     {
         $source = self::sourceAttributes($slice);

@@ -2374,13 +2374,24 @@ final class AuthorStylesheetProjector
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude) ?? array();
         $moved = array_values(array_filter($selectors, fn (string $selector): bool => ! $this->subjectStaysOnImage($selector, $context)));
+        // A percentage on the moved figure already sized the source box.
+        // Inheriting that percentage on its child applies it a second time.
+        // Bare img/universal subjects still size the leaf directly and must
+        // not receive this reset.
+        $fill = array();
+        foreach ( array('width', 'height') as $property ) {
+            if ( 1 === preg_match('/^\d*\.?\d+%$/', CssValueInspector::declared($declarations, $property)) ) {
+                $fill[] = $property . ':100%' . (str_contains($declarations[$property], '!important') ? '!important' : '');
+            }
+        }
+        $fillBody = array() === $fill ? '' : ';' . implode(';', $fill);
         if ( count($moved) === count($selectors) ) {
-            return $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
+            return $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, true, true) . '}';
         }
         $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, false) . '}';
         $movedPrelude = array() === $moved ? '' : $this->projectAuthorImageSelectorPrelude(implode(',', $moved), $context);
 
-        return '' === $movedPrelude ? $rule : $rule . $movedPrelude . '{border-radius:inherit}';
+        return '' === $movedPrelude ? $rule : $rule . $movedPrelude . '{border-radius:inherit' . $fillBody . '}';
     }
 
     private function everySubjectStaysOnImage(string $prelude, AuthorStylesheetProjectionContext $context): bool
@@ -2406,7 +2417,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, string> $declarations */
-    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false, bool $inheritRadius = true): string
+    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false, bool $inheritRadius = true, bool $fillPercentageBox = false): string
     {
         $bridge = array( 'display:block' );
         $position = strtolower(trim((string) ($declarations['position'] ?? '')));
@@ -2432,10 +2443,11 @@ final class AuthorStylesheetProjector
             } elseif (! $ownsBox && ! in_array($position, array('absolute', 'fixed'), true) && isset($declarations[$property])) {
                 // A responsive rule can change only one axis. The figure owns
                 // that declaration; its leaf must follow the new value too.
-                // A percentage inherited by the leaf resolves against the
-                // already-sized figure, applying the source ratio twice.
-                // Fill the figure's width instead; its height can remain auto.
-                $bridge[] = $property . ( 'width' === $property ? ':100%' : ':inherit' );
+                // Fill a percentage-sized figure without applying its ratio
+                // twice; direct leaf selectors retain their authored sizing.
+                $percentage = $fillPercentageBox && 1 === preg_match('/^\d*\.?\d+%$/', CssValueInspector::declared($declarations, $property));
+                $bridge[] = $property . ':' . ($percentage ? '100%' : 'inherit')
+                    . (str_contains($declarations[$property], '!important') ? '!important' : '');
             }
         }
         $objectFit = $this->explicitObjectFit($declarations);

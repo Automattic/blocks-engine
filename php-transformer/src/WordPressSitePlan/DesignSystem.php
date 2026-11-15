@@ -283,9 +283,10 @@ final class DesignSystem
         $layout = self::layout($widthRows);
 
         $system = new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors);
-        // Only observed tints of exact palette colours become additional presets.
-        // Keeping color-mix in the palette (rather than inline style) lets core
-        // serialize ordinary preset classes and the editor display a named value.
+        // Observed translucent paint gets a preset even when its opaque RGB
+        // is not painted anywhere. Prefer a derived tint when an exact base
+        // exists; otherwise retain the source value, including its alpha.
+        // Core can then serialize preset classes and show an editable value.
         $tints = array();
         foreach ($usageBySource as $usage) {
             $values = array_column($usage['text'] ?? array(), 'color');
@@ -299,7 +300,18 @@ final class DesignSystem
             }
             foreach ($values as $value) {
                 $tint = $system->translucentColor($value);
-                if (null === $tint) continue;
+                if (null === $tint) {
+                    $parsed = CssColor::parse($value);
+                    $hex = CssColor::hex($value);
+                    if (null !== $parsed && $parsed[3] > 0 && $parsed[3] < 1 && null !== $hex) {
+                        // Gutenberg kebab-cases preset slugs, splitting digit/letter
+                        // boundaries. Encode the RGBA bytes with letters only so
+                        // its save() class agrees with the compiler's class.
+                        $slug = 'alpha-' . strtr(ltrim($hex, '#'), '0123456789abcdef', 'abcdefghijklmnop');
+                        $tints[$slug] = array('slug' => $slug, 'name' => 'Alpha ' . ltrim($hex, '#'), 'color' => $value, 'role' => $slug, 'weight' => 0);
+                    }
+                    continue;
+                }
                 $slug = $tint['slug'] . '-alpha-' . $tint['percent'];
                 $tints[$slug] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', $tint['slug'])) . ' ' . $tint['percent'] . '%', 'color' => 'color-mix(in srgb, var(--wp--preset--color--' . $tint['slug'] . ') ' . $tint['percent'] . '%, transparent)', 'role' => $slug, 'weight' => 0);
             }
@@ -317,14 +329,20 @@ final class DesignSystem
      * one colour binding rule: block attributes, stylesheet bindings and
      * element styles all bind through this method, and only to a token
      * that paints the same 8-bit colour, so binding never changes what
-     * renders. Observed translucent colours bind to derived tint presets;
-     * see translucentColor().
+     * renders. Observed translucent colours bind to derived tint presets
+     * when possible, otherwise to exact standalone alpha presets.
      */
     public function colorSlug(string $value): ?string
     {
         if (!CssColor::opaque($value)) {
             $tint = $this->translucentColor($value);
-            if (null === $tint) return null;
+            if (null === $tint) {
+                $hex = CssColor::hex($value);
+                foreach ($this->colors as $color) {
+                    if (null !== $hex && $hex === CssColor::hex($color['color'])) return $color['slug'];
+                }
+                return null;
+            }
             $slug = $tint['slug'] . '-alpha-' . $tint['percent'];
             return in_array($slug, array_column($this->colors, 'slug'), true) ? $slug : null;
         }
@@ -1095,9 +1113,10 @@ final class DesignSystem
      * and their `:hover` colours; heading colour, family and weight; and,
      * per heading level, colour, family, size and weight where that level
      * differs from the heading values. Element styles reach every element of
-     * the kind, so only a unanimous value cannot restyle text that renders
-     * something else today. Colours, families and sizes must be tokens (a
-     * colour within the JND of the token's own value). A `:hover` colour
+     * the kind. Heading families use a strict rendered majority;
+     * minority headings keep their source-owned styles. Other elements and
+     * per-level typography require unanimity. Colours, families and sizes
+     * must be tokens (a colour within the JND of the token's own value). A `:hover` colour
      * counts only when every element of the kind has one hover rule giving
      * the same token. A property a media-conditional rule can change for any
      * element of the kind (a breakpoint size, a dark-mode colour) is left to
@@ -1120,7 +1139,8 @@ final class DesignSystem
         $families = array('color' => 'color', 'hover_color' => 'color', 'font_family' => 'font-family', 'font_size' => 'font-size', 'font_weight' => 'font-weight', 'background' => 'background', 'hover_background' => 'background');
         $observe = static function (string $element, string $field, mixed $value, array $row) use (&$values, $families): void {
             $varies = in_array($families[$field], (array) ($row['conditional'] ?? array()), true);
-            $values[$element][$field][$varies || null === $value ? '' : (string) $value] = true;
+            $key = $varies || null === $value ? '' : (string) $value;
+            $values[$element][$field][$key] = ($values[$element][$field][$key] ?? 0) + max(1, (int) ($row['count'] ?? 1));
         };
         foreach ($usageBySource as $usage) {
             foreach ($usage['text'] ?? array() as $row) {
@@ -1167,7 +1187,16 @@ final class DesignSystem
         $elements = array();
         foreach ($values as $element => $fields) {
             foreach ($fields as $field => $observed) {
-                if (1 !== count($observed) || !empty($varied[$field])) continue;
+                if (!empty($varied[$field])) continue;
+                if ('heading' === $element && 'font_family' === $field) {
+                    // Count rendered instances, not text length: a long title
+                    // must not outweigh several headings in the site shell.
+                    // Missing source families cannot preserve a minority
+                    // look against a concrete theme default.
+                    if (isset($observed["\n"]) || isset($observed[''])) continue;
+                    arsort($observed, SORT_NUMERIC);
+                    if (reset($observed) * 2 <= array_sum($observed)) continue;
+                } elseif (1 !== count($observed)) continue;
                 $value = $token($field, (string) array_key_first($observed));
                 if (null === $value) continue;
                 // A heading level states only what differs from `heading`.

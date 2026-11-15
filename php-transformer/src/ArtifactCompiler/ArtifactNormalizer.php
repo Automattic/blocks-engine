@@ -20,8 +20,6 @@ use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
  */
 final class ArtifactNormalizer
 {
-    use \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactDiagnostics;
-
     /** Role of a declared capture report: compiler evidence, never a site asset. */
     public const CAPTURE_REPORT_ROLE = 'capture-report';
 
@@ -121,7 +119,7 @@ final class ArtifactNormalizer
         foreach ( array_unique($entrypoints) as $entrypoint ) {
             $path = ArtifactPath::safeRelativePath($entrypoint);
             if ( '' === $path ) {
-                $diagnostics[] = $this->diagnostic('unsafe_entrypoint_path', 'warning', 'An artifact entrypoint was ignored because its path is empty, absolute, or escapes the artifact root.', array('path' => $entrypoint));
+                $diagnostics[] = ArtifactDiagnostics::make('unsafe_entrypoint_path', 'warning', 'An artifact entrypoint was ignored because its path is empty, absolute, or escapes the artifact root.', array('path' => $entrypoint));
                 continue;
             }
             $safeEntrypoints[] = $path;
@@ -133,7 +131,7 @@ final class ArtifactNormalizer
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'media_file_limit_exceeded', $file, ArtifactPath::safeRelativePath((string) ($file['path'] ?? '')), null);
                 if ( 1 === $rejectionCounts['media_file_limit_exceeded'] ) {
-                    $diagnostics[] = $this->diagnostic('media_file_limit_exceeded', 'warning', 'Additional referenced media files were ignored because the media file limit was reached.', array('max_media_files' => $limits['max_media_files']));
+                    $diagnostics[] = ArtifactDiagnostics::make('media_file_limit_exceeded', 'warning', 'Additional referenced media files were ignored because the media file limit was reached.', array('max_media_files' => $limits['max_media_files']));
                 }
                 continue;
             }
@@ -143,7 +141,7 @@ final class ArtifactNormalizer
                 $rejectionCounts['file_limit_exceeded'] = ($rejectionCounts['file_limit_exceeded'] ?? 0) + count($omitted);
                 $this->appendRejectionSamples($rejectionSamples, $omitted, 'file_limit_exceeded');
                 $truncationImpact = $this->truncationImpact(array_slice($rawFiles, $index), $files);
-                $diagnostics[] = $this->diagnostic('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => $limits['max_files'], 'truncation_impact' => $truncationImpact));
+                $diagnostics[] = ArtifactDiagnostics::make('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => $limits['max_files'], 'truncation_impact' => $truncationImpact));
                 break;
             }
 
@@ -151,7 +149,7 @@ final class ArtifactNormalizer
             if ( '' === $path ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'unsafe_artifact_path', $file, '', null);
-                $diagnostics[] = $this->diagnostic('unsafe_artifact_path', 'warning', 'An artifact file was ignored because its path is empty, absolute, or escapes the artifact root.', array('index' => $index));
+                $diagnostics[] = ArtifactDiagnostics::make('unsafe_artifact_path', 'warning', 'An artifact file was ignored because its path is empty, absolute, or escapes the artifact root.', array('index' => $index));
                 continue;
             }
 
@@ -176,42 +174,42 @@ final class ArtifactNormalizer
             if ( $referenceMedia && $payload['bytes'] > $limits['max_media_file_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_media_file_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_media_file_too_large', 'warning', 'A referenced media file was ignored because it exceeds the per-file media byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_media_file_bytes' => $limits['max_media_file_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_media_file_too_large', 'warning', 'A referenced media file was ignored because it exceeds the per-file media byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_media_file_bytes' => $limits['max_media_file_bytes']));
                 continue;
             }
 
             if ( $capturedReport && $payload['bytes'] > $limits['max_report_file_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_report_file_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_report_file_too_large', 'warning', 'A declared capture report was ignored because it exceeds the per-file report byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_file_bytes' => $limits['max_report_file_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_report_file_too_large', 'warning', 'A declared capture report was ignored because it exceeds the per-file report byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_file_bytes' => $limits['max_report_file_bytes']));
                 continue;
             }
 
             if ( $capturedReport && $reportBytes + $payload['bytes'] > $limits['max_report_total_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_report_total_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_report_total_too_large', 'warning', 'A declared capture report was ignored because the bundle report byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_total_bytes' => $limits['max_report_total_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_report_total_too_large', 'warning', 'A declared capture report was ignored because the bundle report byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_total_bytes' => $limits['max_report_total_bytes']));
                 continue;
             }
 
             if ( ! $referenceMedia && ! $capturedReport && $payload['bytes'] > $limits['max_file_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_file_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_file_bytes' => $limits['max_file_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_file_bytes' => $limits['max_file_bytes']));
                 continue;
             }
 
             if ( $referenceMedia && $mediaBytes + $payload['bytes'] > $limits['max_media_total_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_media_total_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_media_total_too_large', 'warning', 'A referenced media file was ignored because the bundle media byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_media_total_bytes' => $limits['max_media_total_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_media_total_too_large', 'warning', 'A referenced media file was ignored because the bundle media byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_media_total_bytes' => $limits['max_media_total_bytes']));
                 continue;
             }
 
             if ( ! $referenceMedia && ! $capturedReport && ( $bytes - $mediaBytes - $reportBytes ) + $payload['bytes'] > $limits['max_total_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_total_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_total_too_large', 'warning', 'An artifact file was ignored because the bundle byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_total_bytes' => $limits['max_total_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_total_too_large', 'warning', 'An artifact file was ignored because the bundle byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_total_bytes' => $limits['max_total_bytes']));
                 continue;
             }
 
@@ -330,7 +328,7 @@ final class ArtifactNormalizer
             }
 
             if ( 'mdx' === $kind ) {
-                $diagnostics[] = $this->diagnostic('mdx_source_document_detected', 'warning', 'MDX source document support is partial; the source was preserved and inspectable document/component metadata was extracted.', array('path' => $path));
+                $diagnostics[] = ArtifactDiagnostics::make('mdx_source_document_detected', 'warning', 'MDX source document support is partial; the source was preserved and inspectable document/component metadata was extracted.', array('path' => $path));
             }
 
             $bytes += $normalized['bytes'];
@@ -353,7 +351,7 @@ final class ArtifactNormalizer
         $sourceHash = self::sourceHash($files, $runtimeDeclarations);
         if ( 0 < $rejected ) {
             ksort($rejectionCounts);
-            $diagnostics[] = $this->diagnostic('artifact_inputs_rejected', 'warning', 'One or more artifact inputs were ignored during normalization.', array(
+            $diagnostics[] = ArtifactDiagnostics::make('artifact_inputs_rejected', 'warning', 'One or more artifact inputs were ignored during normalization.', array(
                 'rejected_count' => $rejected,
                 'rejected_by_code' => $rejectionCounts,
                 'samples' => $rejectionSamples,
@@ -362,7 +360,7 @@ final class ArtifactNormalizer
         }
         return array(
             'files'          => $files,
-            'diagnostics'    => $this->dedupeDiagnostics($diagnostics),
+            'diagnostics'    => ArtifactDiagnostics::dedupe($diagnostics),
             'rejected_count' => $rejected,
             'bytes'          => $bytes,
             'limits'         => $limits,
@@ -879,7 +877,7 @@ final class ArtifactNormalizer
         if (is_array($file['payload_reference'] ?? null)) {
             $reference = $file['payload_reference'];
             if ('blocks-engine/payload-reference/v1' !== ($reference['schema'] ?? null) || !is_string($reference['id'] ?? null) || '' === $reference['id'] || !is_int($reference['bytes'] ?? null) || $reference['bytes'] < 0 || !is_string($reference['sha256'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $reference['sha256'])) {
-                return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'reference', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('invalid_payload_reference', 'warning', 'An artifact file was ignored because its payload reference is invalid.', array('path' => $path))));
+                return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'reference', 'binary' => false, 'bytes' => 0, 'diagnostics' => array(ArtifactDiagnostics::make('invalid_payload_reference', 'warning', 'An artifact file was ignored because its payload reference is invalid.', array('path' => $path))));
             }
             return array('accepted' => true, 'content' => '', 'content_base64' => '', 'encoding' => 'reference', 'binary' => true, 'bytes' => $reference['bytes'], 'diagnostics' => array(), 'payload_reference' => array('schema' => $reference['schema'], 'id' => $reference['id'], 'bytes' => $reference['bytes'], 'sha256' => $reference['sha256']));
         }
@@ -887,13 +885,13 @@ final class ArtifactNormalizer
             $base64 = preg_replace('/\s+/', '', $file['content_base64']) ?? '';
             $decoded = base64_decode($base64, true);
             if ( false === $decoded ) {
-                return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'base64', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('invalid_base64_content', 'warning', 'An artifact file was ignored because content_base64 is not valid base64.', array('path' => $path))));
+                return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'base64', 'binary' => false, 'bytes' => 0, 'diagnostics' => array(ArtifactDiagnostics::make('invalid_base64_content', 'warning', 'An artifact file was ignored because content_base64 is not valid base64.', array('path' => $path))));
             }
 
             $binary = $this->looksBinary($decoded);
             $diagnostics = array();
             if ( ! $binary && is_string($file['content'] ?? null) && '' !== $file['content'] && $file['content'] !== $decoded ) {
-                $diagnostics[] = $this->diagnostic('content_base64_preferred', 'info', 'Both content and content_base64 were provided; decoded content_base64 was used as the canonical payload.', array('path' => $path));
+                $diagnostics[] = ArtifactDiagnostics::make('content_base64_preferred', 'info', 'Both content and content_base64 were provided; decoded content_base64 was used as the canonical payload.', array('path' => $path));
             }
 
             return array('accepted' => true, 'content' => $binary ? '' : $decoded, 'content_base64' => $base64, 'encoding' => 'base64', 'binary' => $binary, 'bytes' => strlen($decoded), 'diagnostics' => $diagnostics);
@@ -901,7 +899,7 @@ final class ArtifactNormalizer
 
         $contentKey = array_key_exists('content', $file) ? 'content' : (array_key_exists('body', $file) ? 'body' : (array_key_exists('text', $file) ? 'text' : null));
         if (null === $contentKey || !is_string($file[$contentKey])) {
-            return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('missing_file_payload', 'warning', 'An artifact file was ignored because it has no explicit text or base64 payload.', array('path' => $path))));
+            return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => 0, 'diagnostics' => array(ArtifactDiagnostics::make('missing_file_payload', 'warning', 'An artifact file was ignored because it has no explicit text or base64 payload.', array('path' => $path))));
         }
         $content = $file[$contentKey];
         $mimeType = $this->mimeType((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? (str_contains((string) ($file['type'] ?? ''), '/') ? $file['type'] : '')), $path);

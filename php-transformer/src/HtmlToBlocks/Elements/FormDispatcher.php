@@ -69,8 +69,10 @@ final class FormDispatcher
             return $searchBlock;
         }
 
-        // Listing bounds keep a form intent finding and listing-control anchors.
-        if ( (new ListingControlsRecognizer())->hasNumericBoundsForForm($element) ) {
+        // Listing-inferred bounds keep a finding and listing-control anchors.
+        // Explicit paired text bounds can use the native GET workflow below.
+        $listingControls = new ListingControlsRecognizer();
+        if ( $listingControls->hasNumericBoundsForForm($element) && ! $listingControls->hasTextNumericBoundsForForm($element) ) {
             $readable = $this->context->buildReadableFormBlock($element, true, $fallbacks);
             if ( null !== $readable ) {
                 $fallbacks[] = $this->context->buildFallbackFinding($element, $readable);

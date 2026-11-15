@@ -14,7 +14,8 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
  * padded, editor and native-block alternatives. An arm that requires (outside
  * any functional pseudo-class) a class or id named by no source document,
  * script or other non-stylesheet file matched nothing on the source site, so
- * it is dropped with all its alternatives.
+ * it is dropped with all its alternatives. Positive :is(), :where() and
+ * :has() lists must have at least one reachable alternative too.
  *
  * Tokens the converter or WordPress mint are not source evidence and never
  * decide an arm: `wp-`, `is-`, `has-`, editor and engine names. Neither do
@@ -69,6 +70,25 @@ final class UnreachableSelectorPruner
         if (str_contains($selector, '\\') || 1 === preg_match('/[^\x20-\x7E\t\n\r]/', $selector)) return true;
         foreach (self::requiredTokens($selector) as $token) {
             if (!$this->sourceNamed($token)) return false;
+        }
+        // Positive selector-list pseudos require at least one reachable arm.
+        // Compaction wraps otherwise required classes in :is(); ignoring that
+        // wrapper kept entire families of absent framework components alive.
+        // Never infer a requirement from :not() or an attribute value.
+        for ($i = 0, $length = strlen($selector); $i < $length; ++$i) {
+            if ('[' === $selector[$i]) {
+                $close = CssSyntaxScanner::matchingClose($selector, $i);
+                if (null === $close) return true;
+                $i = $close;
+            } elseif ('(' === $selector[$i]) {
+                $close = CssSyntaxScanner::matchingClose($selector, $i);
+                if (null === $close) return true;
+                if (preg_match('/:(?:is|where|has)$/i', substr($selector, 0, $i))) {
+                    $arms = CssStylesheetTransformer::splitSelectorList(substr($selector, $i + 1, $close - $i - 1));
+                    if (null !== $arms && array() !== $arms && !array_filter($arms, fn (string $arm): bool => $this->reachable($arm))) return false;
+                }
+                $i = $close;
+            }
         }
         return true;
     }

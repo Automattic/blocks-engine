@@ -37,9 +37,9 @@ final class RouteLinks
         private readonly array $routeTargets,
         private readonly ?PresetBinding $presetBinding,
         array $documents,
-        array $routes,
+        private readonly array $routes,
     ) {
-        $this->routeLinkedFragments = $this->linkedFragments($documents, $routes);
+        $this->routeLinkedFragments = $this->linkedFragments($documents);
     }
 
     /**
@@ -58,10 +58,10 @@ final class RouteLinks
         return preg_replace_callback('/(\b(?:href|data-[a-z0-9_-]*url)\s*=\s*\\\\?["\']|"url"\s*:\s*")#([A-Za-z][\w:.-]*)(\\\\?["\'])/i', $qualify, $content) ?? $content;
     }
 
-    /** @internal Exposed for ShellExtraction, which canonicalizes shell-candidate links through the same route table as page content. @param array<int,array<string,mixed>> $routes */
-    public function markup(string $content, string $origin, array $routes): string
+    /** @internal Exposed for ShellExtraction, which canonicalizes shell-candidate links through the same route table as page content. */
+    public function markup(string $content, string $origin): string
     {
-        $replace = fn(array $match): string => $match[1] . ($this->reference($match[2], $origin, $routes) ?? $match[2]) . $match[3];
+        $replace = fn(array $match): string => $match[1] . ($this->reference($match[2], $origin) ?? $match[2]) . $match[3];
         $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
         // Companion block attributes carry editable HTML as a JSON string, so
         // route-bearing attributes use escaped quotes rather than HTML quotes.
@@ -70,7 +70,7 @@ final class RouteLinks
         $jsonPattern = '/(["\'](?:url|href|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i';
         $offset = 0;
         while (preg_match($jsonPattern, $content, $match, PREG_OFFSET_CAPTURE, $offset)) {
-            if (null !== $this->reference($match[2][0], $origin, $routes)) {
+            if (null !== $this->reference($match[2][0], $origin)) {
                 $content = preg_replace_callback($jsonPattern, $replace, $content) ?? $content;
                 break;
             }
@@ -87,7 +87,7 @@ final class RouteLinks
             $attrs['url'] = $url;
             return str_replace($match[1], BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR), $match[0]);
         }, $content) ?? $content;
-        $content = $this->unresolvedNavigationLinks($content, $origin, $routes);
+        $content = $this->unresolvedNavigationLinks($content, $origin);
         return null === $this->presetBinding ? $content : $this->presetBinding->bind($content);
     }
 
@@ -107,16 +107,14 @@ final class RouteLinks
      * fragment otherwise, and report the outcome instead of rejecting the whole
      * plan. Asset references (src, srcset, CSS url(), link href) stay on the
      * declared-token path and remain rejected by LocalBrowserReferences::assertNone().
-     *
-     * @param array<int,array<string,mixed>> $routes
      */
-    private function unresolvedNavigationLinks(string $content, string $origin, array $routes): string
+    private function unresolvedNavigationLinks(string $content, string $origin): string
     {
-        $content = $this->unresolvedBlockAttributeLinks($content, $origin, $routes);
+        $content = $this->unresolvedBlockAttributeLinks($content, $origin);
         if (!preg_match('~(?:<|\\\\u003c)(?:a|area|form)\b~i', $content)) return $content;
-        return preg_replace_callback('~(?:<|\\\\u003c)(?:a|area|form)(?=[\s/>\\\\])(?:[^>\\\\]|\\\\(?!u003e))*~i', function (array $tag) use ($origin, $routes): string {
-            $replace = function (array $match) use ($origin, $routes): string {
-                $resolved = $this->unresolvedNavigationReference($match[2], $origin, $routes);
+        return preg_replace_callback('~(?:<|\\\\u003c)(?:a|area|form)(?=[\s/>\\\\])(?:[^>\\\\]|\\\\(?!u003e))*~i', function (array $tag) use ($origin): string {
+            $replace = function (array $match) use ($origin): string {
+                $resolved = $this->unresolvedNavigationReference($match[2], $origin);
                 return null === $resolved ? $match[0] : $match[1] . $resolved . $match[3];
             };
             $markup = $tag[0];
@@ -134,22 +132,20 @@ final class RouteLinks
      * `url`, a wrapper's `href`, a form's `action`) get the same treatment as
      * markup links. LocalBrowserReferences::assertNone() walks these attributes too,
      * so leaving them unresolved rejects the whole plan.
-     *
-     * @param array<int,array<string,mixed>> $routes
      */
-    private function unresolvedBlockAttributeLinks(string $content, string $origin, array $routes): string
+    private function unresolvedBlockAttributeLinks(string $content, string $origin): string
     {
         if (!str_contains($content, '<!-- wp:')) return $content;
-        return preg_replace_callback('~<!--\s*wp:([^\s{]+)\s+(\{.*?\})\s*(/)?-->~s', function (array $match) use ($origin, $routes): string {
+        return preg_replace_callback('~<!--\s*wp:([^\s{]+)\s+(\{.*?\})\s*(/)?-->~s', function (array $match) use ($origin): string {
             $attrs = json_decode($match[2], true);
             if (!is_array($attrs)) return $match[0];
             $linkKeys = in_array(strtolower($match[1]), WordPressSitePlan::ROUTE_URL_BLOCKS, true) ? array('url', 'href', 'action') : array('href', 'action');
             $changed = false;
-            $walk = function (array $value) use (&$walk, &$changed, $linkKeys, $origin, $routes): array {
+            $walk = function (array $value) use (&$walk, &$changed, $linkKeys, $origin): array {
                 foreach ($value as $key => $item) {
                     if (is_array($item)) { $value[$key] = $walk($item); continue; }
                     if (!is_string($key) || !is_string($item) || !in_array(strtolower($key), $linkKeys, true)) continue;
-                    $resolved = $this->unresolvedNavigationReference($item, $origin, $routes);
+                    $resolved = $this->unresolvedNavigationReference($item, $origin);
                     if (null === $resolved) continue;
                     $value[$key] = html_entity_decode($resolved, ENT_QUOTES | ENT_HTML5, 'UTF-8');
                     $changed = true;
@@ -161,15 +157,14 @@ final class RouteLinks
         }, $content) ?? $content;
     }
 
-    /** @param array<int,array<string,mixed>> $routes */
-    private function unresolvedNavigationReference(string $value, string $origin, array $routes): ?string
+    private function unresolvedNavigationReference(string $value, string $origin): ?string
     {
         $url = str_replace('\\/', '/', trim(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
         if ('' === $url || str_starts_with($url, WordPressSitePlan::TOKEN_PREFIX) || preg_match('~^(?:[a-z][a-z0-9+.-]*:|/|#|\?)~i', $url)) return null;
         $path = $url; $suffix = '';
         if (preg_match('/^([^?#]*)(.*)$/s', $url, $parts)) { $path = $parts[1]; $suffix = $parts[2]; }
-        if (null !== $this->reference($url, $origin, $routes)) return null;
-        $absolute = $this->sourceDocumentReference($path, $origin, $routes);
+        if (null !== $this->reference($url, $origin)) return null;
+        $absolute = $this->sourceDocumentReference($path, $origin, $this->routes);
         $key = $origin . "\0" . $url;
         if (!isset($this->unresolvedNavigationDiagnostics[$key])) {
             if (count($this->unresolvedNavigationDiagnostics) >= WordPressSitePlan::MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS) $this->omittedUnresolvedNavigationDiagnostics++;
@@ -251,13 +246,19 @@ final class RouteLinks
         return isset($this->routeLinkedFragments[$origin][$fragment]) ? $value : '#' . $fragment;
     }
 
-    public function reference(string $value, string $origin, array $routes): ?string
+    /** The entrypoint's packaging directory, which root-relative links resolve against. */
+    public function entryRoot(): string
+    {
+        return PageRoute::entryRoot($this->routes);
+    }
+
+    public function reference(string $value, string $origin): ?string
     {
         $cacheKey = $origin . "\0" . $value;
         if (array_key_exists($cacheKey, $this->routeReferenceCache)) {
             return false === $this->routeReferenceCache[$cacheKey] ? null : $this->routeReferenceCache[$cacheKey];
         }
-        $resolved = $this->resolveReference($value, $origin, $routes);
+        $resolved = $this->resolveReference($value, $origin);
         $this->routeReferenceCache[$cacheKey] = $resolved ?? false;
         return $resolved;
     }
@@ -273,10 +274,9 @@ final class RouteLinks
      * destination.
      *
      * @param array<int,array<string,mixed>> $documents
-     * @param array<int,array<string,mixed>> $routes
      * @return array<string,array<string,true>>
      */
-    private function linkedFragments(array $documents, array $routes): array
+    private function linkedFragments(array $documents): array
     {
         $targets = array_flip($this->routeSources);
         $cross = array();
@@ -289,7 +289,7 @@ final class RouteLinks
             }
             if (!preg_match_all('/(?:\bhref\s*=\s*(?:\\\\)?["\']|"url"\s*:\s*")([^"\'#\\\\]+)#([^"\'\\\\]+)/i', $markup, $hrefs, PREG_SET_ORDER)) continue;
             foreach ($hrefs as $href) {
-                $target = $targets[(string) $this->reference($href[1], $origin, $routes)] ?? null;
+                $target = $targets[(string) $this->reference($href[1], $origin)] ?? null;
                 if (!is_string($target)) continue;
                 if ($target === $origin) $own[$origin][$href[2]] = true;
                 else $cross[$origin][] = array($target, $href[2]);
@@ -304,8 +304,7 @@ final class RouteLinks
         return $linked;
     }
 
-    /** @param array<int,array<string,mixed>> $routes */
-    private function resolveReference(string $value, string $origin, array $routes): ?string
+    private function resolveReference(string $value, string $origin): ?string
     {
         if (preg_match('~^#(.+)$~s', $value, $fragment) && isset($this->routeLinkedFragments[$origin][$fragment[1]], $this->routeSources[$origin])) return $this->routeSources[$origin] . $value;
         if ('' === $value || preg_match('~^(?://|#|\?)~', $value)) return null;
@@ -322,7 +321,7 @@ final class RouteLinks
         // Treat that URL as an alias of the recorded entry route, not a new slug.
         $entryPath = parse_url($this->sourceUrl, PHP_URL_PATH);
         if (str_starts_with($value, '/') && is_string($entryPath) && rtrim($value, '/') === rtrim($entryPath, '/')) {
-            foreach ($routes as $route) {
+            foreach ($this->routes as $route) {
                 if ((!empty($route['entrypoint']) || 'entrypoint' === ($route['source_relation'] ?? null)) && isset($this->routeSources[$route['source_path'] ?? ''])) {
                     return $this->routeSources[$route['source_path']] . $suffix;
                 }
@@ -337,7 +336,7 @@ final class RouteLinks
         // which is the entrypoint's packaging directory. Resolve it against that
         // root so it matches the document source path (website/contact.html)
         // rather than a bare top-level path the artifact never contains.
-        $entryRoot = PageRoute::entryRoot($routes);
+        $entryRoot = $this->entryRoot();
         $path = str_starts_with($value, '/') ? ('' === $entryRoot ? ltrim($value, '/') : $entryRoot . '/' . ltrim($value, '/')) : self::resolveSource($origin, $value);
         if (null === $path) return null;
         $resolved = $this->sourceDocument($path);

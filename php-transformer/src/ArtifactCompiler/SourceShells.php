@@ -1,0 +1,197 @@
+<?php
+declare(strict_types=1);
+
+namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
+
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+
+/**
+ * Source-shell comparison for shared inline shells: the identity a page's
+ * landmark markup reduces to once capture evidence and current-item state are
+ * neutralized, the landmark's ancestor context and the context every member
+ * shares, and the evidence count that picks the richest member.
+ */
+final class SourceShells
+{
+    /**
+     * The landmark's ancestors, outermost first: `html`, `body`, then each
+     * wrapper down to its parent.
+     *
+     * @return list<array{tag:string,attributes:array<string,string>}>
+     */
+    public static function ancestorContext(\DOMElement $landmark): array
+    {
+        $context = array();
+        for ($cursor = $landmark->parentNode; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
+            $attributes = array();
+            foreach ($cursor->attributes ?? array() as $attribute) $attributes[strtolower($attribute->name)] = $attribute->value;
+            array_unshift($context, array('tag' => strtolower($cursor->tagName), 'attributes' => $attributes));
+        }
+        return $context;
+    }
+
+    /**
+     * Ancestor context every member shares: depth-wise while tags agree, with
+     * only attribute values (and class tokens) common to all members.
+     *
+     * @param array<int|string,list<array{tag:string,attributes:array<string,string>}>> $contexts
+     * @return list<array{tag:string,attributes:array<string,string>}>
+     */
+    public static function sharedAncestorContext(array $contexts): array
+    {
+        $contexts = array_values($contexts);
+        $shared = array();
+        if (array() === $contexts) return $shared;
+        for ($depth = 0; ; ++$depth) {
+            $level = array();
+            foreach ($contexts as $context) {
+                if (!isset($context[$depth]) || (array() !== $level && $context[$depth]['tag'] !== $level[0]['tag'])) break 2;
+                $level[] = $context[$depth];
+            }
+            $attributes = $level[0]['attributes'];
+            foreach (array_slice($level, 1) as $ancestor) {
+                foreach ($attributes as $name => $value) {
+                    if (!array_key_exists($name, $ancestor['attributes'])) { unset($attributes[$name]); continue; }
+                    if ('class' === $name) {
+                        $tokens = SourceDom::tokens($ancestor['attributes'][$name]);
+                        $attributes[$name] = implode(' ', array_values(array_intersect(SourceDom::tokens($value), $tokens)));
+                        if ('' === $attributes[$name]) unset($attributes[$name]);
+                    } elseif ($ancestor['attributes'][$name] !== $value) {
+                        unset($attributes[$name]);
+                    }
+                }
+            }
+            $shared[] = array('tag' => $level[0]['tag'], 'attributes' => $attributes);
+        }
+        return $shared;
+    }
+
+    /** @param array<int|string,string> $attributes */
+    public static function attributes(array $attributes): string
+    {
+        $html = '';
+        foreach ($attributes as $name => $value) {
+            if (!is_string($name) || 1 !== preg_match('/^[a-z_:][a-z0-9_:.-]*$/', $name)) continue;
+            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        return $html;
+    }
+
+    /**
+     * The current item's state can be marked by a class on a descendant, for
+     * example a current-page class on the link inside the current `li`. Mirror
+     * the ancestor sibling-class intersection inside the subtree: keep on each
+     * descendant only the classes its counterparts at the same position and tag
+     * in the sibling items also carry.
+     *
+     * @param list<\DOMElement> $counterparts Same-position, same-tag elements in the sibling items.
+     */
+    private static function neutralizeCurrentSubtreeShellClasses(\DOMElement $node, array $counterparts): void
+    {
+        $counterpartClasses = array();
+        foreach ($counterparts as $counterpart) {
+            foreach (SourceDom::tokens($counterpart->getAttribute('class')) as $class) if ('' !== $class) $counterpartClasses[$class] = true;
+        }
+        $classes = SourceDom::tokens($node->getAttribute('class'));
+        if (array() !== $classes && array() !== $counterpartClasses) $node->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($counterpartClasses[$class])))));
+        $children = array();
+        foreach ($node->childNodes as $child) if ($child instanceof \DOMElement) $children[] = $child;
+        $peerLists = array();
+        foreach ($counterparts as $counterpart) {
+            $peers = array();
+            foreach ($counterpart->childNodes as $peer) if ($peer instanceof \DOMElement) $peers[] = $peer;
+            $peerLists[] = $peers;
+        }
+        foreach ($children as $index => $child) {
+            $childCounterparts = array();
+            foreach ($peerLists as $peers) if (isset($peers[$index]) && $peers[$index]->tagName === $child->tagName) $childCounterparts[] = $peers[$index];
+            if (array() === $childCounterparts) continue;
+            self::neutralizeCurrentSubtreeShellClasses($child, $childCounterparts);
+        }
+    }
+
+    public static function evidenceCount(string $markup): int
+    {
+        $dom = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
+        $count = 0;
+        foreach ($dom->getElementsByTagName('*') as $node) {
+            foreach (array(CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::GLYPH_COLOR) as $attribute) if ($node->hasAttribute($attribute)) ++$count;
+            foreach (SourceDom::tokens($node->getAttribute('class')) as $class) if (str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX)) ++$count;
+        }
+        return $count;
+    }
+
+    public static function identity(string $markup, bool $ignoreViewportEntrance = true): string
+    {
+        $dom = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
+        $xpath = new \DOMXPath($dom);
+        if ($ignoreViewportEntrance) {
+            foreach ($xpath->query('//*[@' . CaptureEvidence::VIEWPORT_ENTRANCE . ']') ?: array() as $node) {
+                if (!$node instanceof \DOMElement) continue;
+                $evidence = json_decode($node->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true);
+                foreach (ArrayField::array($evidence, 'attributes') as $name => $state) {
+                    // Only recorded after states are incidental. An unrelated or
+                    // subsequently changed attribute remains structural.
+                    if (is_string($name) && is_array($state) && array_key_exists('after', $state) && is_string($state['after']) && $node->getAttribute($name) === $state['after']) $node->removeAttribute($name);
+                }
+                $node->removeAttribute(CaptureEvidence::VIEWPORT_ENTRANCE);
+            }
+        }
+        if ($ignoreViewportEntrance) {
+            foreach ($xpath->query('//*') ?: array() as $node) {
+                if (!$node instanceof \DOMElement) continue;
+                // The source still owns provenance here: do not infer sampled
+                // paint from the SVG produced later by social-link lowering.
+                $node->removeAttribute(CaptureEvidence::GLYPH_COLOR);
+                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX)));
+                if (array() === $classes) $node->removeAttribute('class');
+                else $node->setAttribute('class', implode(' ', $classes));
+            }
+        }
+        // Hydration boundary comments vary with capture timing, not shell identity.
+        foreach ($xpath->query('//comment()') ?: array() as $comment) {
+            if (preg_match('/^\/?\$(?:[!?])?$/', trim($comment->nodeValue ?? ''))) $comment->parentNode?->removeChild($comment);
+        }
+        $currentNodes = array();
+        foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;
+        foreach ($currentNodes as $node) {
+            for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
+                if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
+                $classes = SourceDom::tokens($cursor->getAttribute('class'));
+                if (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
+                    $siblingClasses = array();
+                    foreach ($cursor->parentNode->childNodes as $sibling) {
+                        if (!$sibling instanceof \DOMElement || $sibling === $cursor || $sibling->tagName !== $cursor->tagName) continue;
+                        foreach (SourceDom::tokens($sibling->getAttribute('class')) as $class) $siblingClasses[$class] = true;
+                    }
+                    if (array() !== $siblingClasses) $cursor->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($siblingClasses[$class])))));
+                }
+                if ('nav' === strtolower($cursor->tagName) || 'navigation' === strtolower($cursor->getAttribute('role'))) break;
+            }
+            if ($node->hasAttribute('aria-current') && 'false' !== strtolower(trim($node->getAttribute('aria-current')))) {
+                if ($node->hasAttribute('data-is-current')) $node->setAttribute('data-is-current', 'false');
+                $siblings = array();
+                foreach ($node->parentNode?->childNodes ?? array() as $sibling) {
+                    if ($sibling instanceof \DOMElement && $sibling !== $node && $sibling->tagName === $node->tagName) $siblings[] = $sibling;
+                }
+                if (array() !== $siblings) self::neutralizeCurrentSubtreeShellClasses($node, $siblings);
+            }
+        }
+        foreach ($xpath->query('//*[@aria-current]') ?: array() as $node) if ($node instanceof \DOMElement) $node->removeAttribute('aria-current');
+        foreach ($xpath->query('//*[@style]') ?: array() as $node) {
+            if (!$node instanceof \DOMElement) continue;
+            $style = strtolower(preg_replace('/\s+/', '', $node->getAttribute('style')) ?? '');
+            $style = rtrim($style, ';');
+            if ('' === $style) $node->removeAttribute('style');
+            else $node->setAttribute('style', $style);
+        }
+        $body = $dom->getElementsByTagName('body')->item(0);
+        $root = $body instanceof \DOMElement ? $body->firstElementChild : null;
+        $identity = $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $markup) : $markup;
+        return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($identity);
+    }
+}

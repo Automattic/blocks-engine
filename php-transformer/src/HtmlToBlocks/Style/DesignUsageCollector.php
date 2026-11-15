@@ -319,6 +319,18 @@ final class DesignUsageCollector
             $this->addText($context, $inputMass);
         }
         if ($opaque) $this->addBackground((string) CssColor::hex($background), $control || 'input' === $tag ? 'cta' : 'surface', $mass + 1, $background, $control ? $this->hoverColor($element, array('background-color', 'background')) : null, $control && ($this->resolver->hasConditionalStyleFamily($element, 'background') || $this->resolver->readsConditionalCustomProperty($element, array('background', 'background-color'))));
+        // Retain translucent paint as usage without treating it as the opaque
+        // backdrop for descendant contrast calculations.
+        if (!$opaque && null !== $background && (CssColor::parse($background)[3] ?? 0) > 0) {
+            $this->addBackground($background, 'surface', $mass + 1, $background);
+        }
+        // Uniform border paint is a palette candidate even without a fill.
+        foreach (array('border', 'border-color') as $property) {
+            foreach (CssValueSplitter::splitTopLevelWhitespace($declarations[$property] ?? '') as $value) {
+                $hex = CssColor::hex($value);
+                if (null !== $hex) $this->addBackground($hex, 'border', 1, $value, null, false);
+            }
+        }
         $this->spacingFrom($element, $declarations, $context['size']);
         $this->widthFrom($declarations, $context['size'], $mass);
         $this->recordClassStyles($element, $declarations, $parent['size_known'] ? $parent['size'] : null, $context['size'], in_array('font-size', $parent['conditional'], true));

@@ -155,7 +155,7 @@ final class MaterializationPlanBuilder
             $sourcePath = (string) ($page['source_path'] ?? '');
             $targetSlug = (string) ($page['slug'] ?? '');
             if ( '' === $targetSlug && '' !== $sourcePath ) {
-                $targetSlug = $this->slugFromPath($sourcePath);
+                $targetSlug = ArtifactPath::slug($sourcePath);
             }
 
             $routes[] = array_filter(array(
@@ -233,8 +233,8 @@ final class MaterializationPlanBuilder
                 $menus[$sourcePath] = array(
                     'kind'        => 'menu',
                     'source_path' => $sourcePath,
-                    'target_slug' => $this->slugFromPath($sourcePath),
-                    'title'       => $this->titleFromPath($sourcePath),
+                    'target_slug' => ArtifactPath::slug($sourcePath),
+                    'title'       => ArtifactPath::title($sourcePath),
                     'source_relation' => 'navigation_links',
                     'order'       => $orders[$sourcePath],
                     'items'       => 0,
@@ -476,7 +476,7 @@ final class MaterializationPlanBuilder
             }
         }
 
-        return '/' . trim('' !== $slug ? $slug : $this->slugFromPath($sourcePath), '/');
+        return '/' . trim('' !== $slug ? $slug : ArtifactPath::slug($sourcePath), '/');
     }
 
     /**
@@ -566,19 +566,6 @@ final class MaterializationPlanBuilder
             return 'index';
         }
 
-        return $this->slugFromPath($targetPath);
+        return ArtifactPath::slug($targetPath);
     }
-
-    private function slugFromPath(string $path): string
-    {
-        $base = preg_replace('/\.[A-Za-z0-9]+$/', '', basename($path));
-        $base = '' === $base || null === $base ? 'document' : $base;
-        return (string) preg_replace('/[^a-z0-9-]+/', '-', strtolower(str_replace(array('_', '.'), '-', $base)));
-    }
-
-    private function titleFromPath(string $path): string
-    {
-        return ucwords(str_replace('-', ' ', $this->slugFromPath($path)));
-    }
-
 }

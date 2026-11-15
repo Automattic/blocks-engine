@@ -124,6 +124,23 @@ $assert(array('heading' => 'Georgia,serif', 'body' => 'ui-sans-serif,system-ui,s
 $assert('var:preset|font-family|body' === ($systemStackTheme['styles']['typography']['fontFamily'] ?? null), 'rendered system stacks: root typography references body');
 $assert('var:preset|font-family|heading' === ($systemStackTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'rendered system stacks: heading typography references heading (' . json_encode($systemStackTheme['styles'] ?? array()) . ')');
 
+// A standalone route cannot veto the rendered majority's heading default.
+$sharedCss = ':root{--heading-font:Georgia,serif;--heading-color:#051634}body{font-family:Arial,sans-serif;color:#4f5e72;background:#f4f6fa}h1,h2,h3,h4{font-family:var(--heading-font);color:var(--heading-color);font-weight:700;margin:0 0 16px}header,footer{padding:20px}';
+$sharedPage = static fn(string $title): string => '<style>' . $sharedCss . '</style><header><a href="/">Studio</a><nav><a href="/about/">About</a><a href="/work/">Work</a></nav></header><main><h1>' . $title . ' headline</h1><p>' . $title . ' body copy long enough to read as real content.</p><h2>' . $title . ' section</h2><p>More copy for the ' . $title . ' page.</p></main><footer><p>Copyright Studio.</p></footer>';
+$sharedFiles = array('index.html' => $sharedPage('Home'), 'about/index.html' => $sharedPage('About'), 'work/index.html' => $sharedPage('Work'));
+[, $sharedTheme] = $compile(array('entrypoint' => 'index.html', 'files' => $sharedFiles));
+foreach (array('global' => 'h1,h2,h3,h4,h5,h6', 'class' => '.signin-title') as $case => $selector) {
+    $signin = '<style>body{font-family:Inter,sans-serif;color:#636578;background:#fff}' . $selector . '{color:#636578;font-weight:500;font-family:Inter,sans-serif}</style><main><h1 class="signin-title">Sign in</h1><p>Use your account email to continue.</p></main>';
+    [$mixedPlan, $mixedTheme] = $compile(array('entrypoint' => 'index.html', 'files' => $sharedFiles + array('signin/index.html' => $signin)));
+    $expectedHeading = $sharedTheme['styles']['elements']['heading'] ?? array();
+    $assert(array() !== $expectedHeading && $expectedHeading === ($mixedTheme['styles']['elements']['heading'] ?? array()), "$case standalone: heading element equals shared-only result " . json_encode(array($expectedHeading, $mixedTheme['styles']['elements']['heading'] ?? array())));
+    $signinMarkup = '';
+    foreach ($mixedPlan['pages'] as $page) if (str_contains($page['canonical_block_markup'], 'Sign in')) $signinMarkup = $page['canonical_block_markup'];
+    $families = array_column($mixedTheme['settings']['typography']['fontFamilies'], 'fontFamily', 'slug');
+    $minorityFamily = array_search('Inter,sans-serif', $families, true);
+    $assert(is_string($minorityFamily) && str_contains($signinMarkup, $minorityFamily), "$case standalone: sign-in retains its own heading family instead of inheriting the theme default");
+}
+
 // Later authored heading families win without an inheritance reset (#5789).
 [, $cascadeTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>:root{--heading-font:Verdana,sans-serif}body{font-family:"Courier New",monospace}h1,h2,h3{font-family:var(--heading-font)}</style><style>h1,h2,h3{font-family:Georgia,serif}</style><h1>Main title</h1><h2>Second title</h2><h3>Third title</h3><p>Body text paragraph.</p>')));
 $cascadeFamilies = array_column($cascadeTheme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
@@ -723,7 +740,7 @@ $displayFamilies = array_column($displayTheme['settings']['typography']['fontFam
 $assert(str_contains((string) ($displayFamilies['heading'] ?? ''), 'Fraunces') && str_starts_with((string) ($displayFamilies['body'] ?? ''), '-apple-system'), 'system-stack-display-headings: heading is the webfont headings render, body the system stack (' . json_encode($displayFamilies) . ')');
 $displayMarkup = implode('', array_column($displayPlan['pages'], 'canonical_block_markup'));
 $assert(!preg_match('/<!-- wp:heading \{"className":"text-xl","level":3[^}]*"fontFamily"/', $displayMarkup), 'system-stack-display-headings: system-stack headings do not bind to the display family');
-$assert('inherit' === ($displayTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'system-stack-display-headings: heading typography inherits while some headings render another family');
+$assert('var:preset|font-family|heading' === ($displayTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'system-stack-display-headings: the majority display family becomes the heading default while system-stack headings retain their source family');
 $unanimous = $displayFixture;
 $unanimous['files']['contact.html'] = str_replace('<h3 class="text-xl">', '<h3 class="font-display text-xl">', $unanimous['files']['contact.html']);
 [, $unanimousTheme] = $compile($unanimous);

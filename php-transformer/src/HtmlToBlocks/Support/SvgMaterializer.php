@@ -2292,11 +2292,13 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         // A raster embedded as a data: URI is part of this image document: it
-        // fetches nothing and runs nothing. Any other image reference is not.
+        // fetches nothing and runs nothing. So is an `<image>` with no source
+        // at all, the empty slot an unpopulated template leaves: it paints
+        // nothing. Any other image reference is not.
         $embeddedRaster = false;
         if ( 'image' === strtolower($element->tagName) ) {
             $href = $element->hasAttribute('href') ? $element->getAttribute('href') : $element->getAttributeNS('http://www.w3.org/1999/xlink', 'href');
-            if ( 1 !== preg_match('~^data:image/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$~iD', trim($href)) ) {
+            if ( '' !== trim($href) && 1 !== preg_match('~^data:image/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$~iD', trim($href)) ) {
                 return false;
             }
             $embeddedRaster = true;
@@ -2322,7 +2324,13 @@ final class SvgMaterializer implements SvgElementMaterializer
             // Presence-only HTML globals and data-* markers (decided above) are
             // excluded because presence is their value.
             $isInertEmptyAttribute = '' === $value && ! str_starts_with($name, 'data-') && ! in_array($name, array( 'hidden', 'inert', 'autofocus', 'tabindex', 'contenteditable', 'draggable', 'popover' ), true);
-            if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute && ! $isInertGroupWeight && ! $isInertEmptyAttribute) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
+            // A hyphenated attribute SVG does not define, holding a bare number
+            // on a shape or group inside the artwork, is a misspelled
+            // presentation attribute (`<g style-width="15">`): SVG never
+            // applies it. The root element stays decisive, since page script
+            // addresses the root.
+            $isInertNumericResidue = 'svg' !== strtolower($element->tagName) && str_contains($name, '-') && 1 === preg_match('/^-?\d+(?:\.\d+)?$/D', trim($value));
+            if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute && ! $isInertGroupWeight && ! $isInertEmptyAttribute && ! $isInertNumericResidue) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
                 return false;
             }
             if ( preg_match('/(?:^|:)href$/i', $name) && ! str_starts_with(trim($value), '#') && ! $embeddedRaster && ! $regionLink ) {
