@@ -20,6 +20,15 @@ final class MediaPatternContext
     }
 
     public function coverStyle(DOMElement $element): string { return $this->styleResolver->coverPresentationStyle($element); }
+    /** Pattern gates need class-owned facts too, not only declarations materialized inline. */
+    public function fullSourceStyle(DOMElement $element): string
+    {
+        $style = '';
+        foreach ($this->styleResolver->resolvedPresentationDeclarations($element) as $property => $value) {
+            $style .= $property . ':' . $value . ';';
+        }
+        return $style;
+    }
     public function resolveImageUrl(string $url): string { return $this->imageUrls->resolvedAssetUrl($url); }
     /** @param array<int, string> $excludedGeometryProperties
      * @return array<string, mixed>

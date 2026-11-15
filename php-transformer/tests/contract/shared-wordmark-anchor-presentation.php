@@ -10,7 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 foreach (array('' => true, '.brand{padding:12px}' => false, '@media(min-width:900px){.brand{display:none}}' => false) as $extra => $promoted) {
     $files = array();
     foreach (array('index', 'about', 'visit') as $route) {
-        $files[$route . '.html'] = '<html><head><style>.brand{font-size:24px;font-family:Georgia;margin:0}' . $extra . '</style></head><body><header><div class="logo"><a class="brand" href="index.html">Garden Studio</a></div><nav><ul><li><a href="index.html">Home</a></li><li><a href="about.html">About</a></li><li><a href="visit.html">Visit</a></li></ul></nav></header><main><h1>' . $route . '</h1><p>Page content</p></main></body></html>';
+        $files[$route . '.html'] = '<html><head><title>Garden Studio</title><style>.brand{font-size:24px;font-family:Georgia;margin:0}' . $extra . '</style></head><body><header><div class="logo"><a class="brand" href="index.html">Garden Studio</a></div><nav><ul><li><a href="index.html">Home</a></li><li><a href="about.html">About</a></li><li><a href="visit.html">Visit</a></li></ul></nav></header><main><h1>' . $route . '</h1><p>Page content</p></main></body></html>';
     }
     $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
     $headers = array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === $part['area']);
