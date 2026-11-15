@@ -2550,9 +2550,13 @@ final class ArtifactCompiler
                 // part must retain it. Prefer a member that observed entrances,
                 // even when the entry route was too short to trigger them.
                 $canonicalSource = $members[$sourcePath]['rows'][$area][$variant]['markup'];
-                foreach ($members as $member) {
+                $evidenceSourcePath = $sourcePath;
+                foreach ($members as $memberPath => $member) {
                     $candidate = $member['rows'][$area][$variant]['markup'];
-                    if (SourceShells::evidenceCount($candidate) > SourceShells::evidenceCount($canonicalSource)) $canonicalSource = $candidate;
+                    if (SourceShells::evidenceCount($candidate) > SourceShells::evidenceCount($canonicalSource)) {
+                        $canonicalSource = $candidate;
+                        $evidenceSourcePath = $memberPath;
+                    }
                 }
                 $canonicalMarkup = SourceShells::identity($canonicalSource, false);
                 $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $members[$sourcePath]['content'], $headMatch) ? $headMatch[1] : '';
@@ -2586,7 +2590,7 @@ final class ArtifactCompiler
                     'source_paths' => array_keys($members),
                     'source_hash' => hash('sha256', $canonicalMarkup),
                     'variant' => $variant + 1,
-                    'placement' => array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => array_keys($members), 'variant' => $variant + 1, 'equal_source_identity' => true),
+                    'placement' => array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => array_keys($members), 'variant' => $variant + 1, 'equal_source_identity' => true, 'evidence_source_path' => $evidenceSourcePath),
                 ));
                 foreach ($compiled['assets'] as $asset) {
                     if (!is_array($asset)) continue;

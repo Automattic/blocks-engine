@@ -152,6 +152,10 @@ final class SourceShells
                 else $node->setAttribute('class', implode(' ', $classes));
             }
         }
+        // Hydration boundary comments vary with capture timing, not shell identity.
+        foreach ($xpath->query('//comment()') ?: array() as $comment) {
+            if (preg_match('/^\/?\$(?:[!?])?$/', trim($comment->nodeValue ?? ''))) $comment->parentNode?->removeChild($comment);
+        }
         $currentNodes = array();
         foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;
         foreach ($currentNodes as $node) {
