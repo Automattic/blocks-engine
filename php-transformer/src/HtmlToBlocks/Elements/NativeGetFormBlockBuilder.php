@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControlsRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredNativeFormBlockGenerator;
@@ -82,7 +83,8 @@ final class NativeGetFormBlockBuilder
         // The browser's default GET is not enough evidence that a captured
         // form is a search/filter workflow. Keep unspecified forms available
         // for provider materialization, where their submission handler lives.
-        if ( '' === $method && '' === $action ) {
+        if ( '' === $method && '' === $action
+            && ! (new ListingControlsRecognizer())->hasTextNumericBoundsForForm($form) ) {
             // An unnamed choice-only fragment has local native state but no
             // successful controls or source submit. Preserve that exact form;
             // assigning a provider would invent submission chrome/semantics.

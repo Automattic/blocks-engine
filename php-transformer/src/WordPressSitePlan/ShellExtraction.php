@@ -527,14 +527,14 @@ final class ShellExtraction
     }
 
     /** @param array<string,mixed> $document @return array<int,array<string,mixed>> */
-    public function shellCandidates(array $document, AssetReferenceCanonicalizer $references, array $routes, string $canonical): array
+    public function shellCandidates(array $document, AssetReferenceCanonicalizer $references, string $canonical): array
     {
         $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($canonical);
         $candidates = array();
         foreach ($document['shell_artifacts'] ?? array() as $candidate) {
             if (!is_array($candidate) || !in_array($candidate['area'] ?? null, array('header', 'footer'), true) || !is_string($candidate['block_markup'] ?? null) || '' === trim($candidate['block_markup'])) continue;
             $sourcePath = WordPressSitePlan::value($document, 'source_path');
-            $markup = $this->links->markup($references->content($candidate['block_markup'], $sourcePath), $sourcePath, $routes);
+            $markup = $this->links->markup($references->content($candidate['block_markup'], $sourcePath), $sourcePath);
             // One rendered part serves every route; a page's own current item
             // is restored at render time, never frozen into the shared part.
             $templatePartMarkup = self::landmarkPartMarkup(RestingNavigation::markup($markup), (string) $candidate['area']);
@@ -2031,18 +2031,16 @@ final class ShellExtraction
                 [$templateSlugs, $excludedTemplateSlugs] = $assignment;
             }
             $singlePage = 1 === count($applicable) && 1 === count($cluster['indexes']);
-            if (null !== $bindingHoist && $singlePage) {
-                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because it contains a runtime entity binding anchor.", 'area' => $area, 'source_path' => $pages[$cluster['indexes'][0]]['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding', $candidates));
-                continue;
-            }
+            // Entry shells can own bindings too. Anchor the hoist on the
+            // actual part source, which differs from shared shells on one-page sites.
+            $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $partSlug;
             foreach ($withoutShells as $index => $withoutShell) {
                 $pages[$index]['canonical_block_markup'] = $withoutShell;
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
             }
-            if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, 'wordpress-site-plan/shared/' . $partSlug . '#' . $area);
+            if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, $sourcePath . '#' . $area);
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
             $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
-            $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $partSlug;
             $placement = $inlineShell ? 'inline_shared_shell' : ($singlePage ? 'entry_shell' : 'shared_shell');
             if ($inlineShell) { $templateSlugs = array(); $excludedTemplateSlugs = array(); }
             elseif ($singlePage) $templateSlugs = WordPressSitePlan::NATIVE_TEMPLATE_SLUGS;
@@ -3164,7 +3162,8 @@ final class ShellExtraction
 
     /**
      * The generic fallback templates always carry the dominant shell; excluded
-     * routes get their own override templates. 'search' is never an applicable
+     * routes get their own override templates. 'single' is bound even when no
+     * captured route is a post. 'search' is never an applicable
      * page in its own right (WordPress synthesizes it), so it rides along
      * wherever 'index' is bound: both are the site's generic, non-singular
      * fallback templates. Null when two excluded routes need one override.
@@ -3176,7 +3175,7 @@ final class ShellExtraction
     private static function shellTemplateSlugs(array $applicable, array $selected): ?array
     {
         if (count($selected) === count($applicable)) return array(WordPressSitePlan::NATIVE_TEMPLATE_SLUGS, array());
-        $templateSlugs = WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
+        $templateSlugs = array_merge(WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS, array('single'));
         $overrides = array();
         foreach ($applicable as $index => $page) {
             $carries = isset($selected[$index]);

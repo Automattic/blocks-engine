@@ -5469,7 +5469,7 @@ $capitalizedSlugs = array();
 foreach ( $capitalizedSlugPlan['routes'] ?? array() as $capitalizedRoute ) {
     $capitalizedSlugs[(string) ($capitalizedRoute['source_path'] ?? '')] = (string) ($capitalizedRoute['target_slug'] ?? '');
 }
-$assert('about' === ($capitalizedSlugs['About.html'] ?? null) && 'faq' === ($capitalizedSlugs['FAQ.html'] ?? null) && 'contact-us' === ($capitalizedSlugs['Contact_Us.html'] ?? null), 'materialization plan route slugs lowercase capitalized source paths instead of replacing their uppercase characters');
+$assert('about' === ($capitalizedSlugs['About.html'] ?? null) && 'faq' === ($capitalizedSlugs['FAQ.html'] ?? null) && 'contact_us' === ($capitalizedSlugs['Contact_Us.html'] ?? null), 'materialization plan route slugs lowercase capitalized source paths and keep underscores, matching the compiled page slug');
 
 $fontMaterializationPlan = ( new FontMaterializationPlanBuilder() )->googleFonts(array(
     array('family' => 'Open Sans', 'weights' => array(400, 700)),

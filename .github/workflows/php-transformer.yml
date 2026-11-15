@@ -241,6 +241,12 @@ jobs:
           BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/linked-fill-image-anchor-browser.mjs
 
+      - name: Verify a stylesheet-painted cover keeps the source padding
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/cover-default-padding-browser.mjs
+
       - name: Verify a linked grid-item image adds no line box
         working-directory: php-transformer
         env:

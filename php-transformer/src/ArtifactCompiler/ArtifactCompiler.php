@@ -3219,7 +3219,7 @@ final class ArtifactCompiler
                 array(
                     'source_path'  => $path,
                     'slug'         => $slug,
-                    'title'        => DocumentTitles::titleFromPath($path),
+                    'title'        => ArtifactPath::title($path),
                     'area'         => $area,
                     'tag_name'     => $tagName,
                     'body_format'  => (string) ($file['kind'] ?? ''),
