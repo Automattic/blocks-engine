@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require $argv[1] . '/vendor/autoload.php';
+require ($argv[1] ?? dirname(__DIR__, 2)) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
