@@ -63,7 +63,7 @@ trait StagedTransport
         );
         $plan['shared_reduction'] = array(
             'files_source' => 'artifact',
-            'component_facts' => $this->collectComponentFacts($sharedArtifact['files']),
+            'component_facts' => ComponentDetection::collectFacts($sharedArtifact['files']),
             'glyph_colors' => $this->sharedGlyphColors($normalized['files'], $partition['pages']),
             'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $artifact),
         );
@@ -388,7 +388,7 @@ trait StagedTransport
             'source_documents' => $pageDocuments,
             'owned_transformable_paths' => $this->ownedTransformablePaths($pageArtifact['files'], (string) $pagePlan['page_id']),
             'entry_blocks' => $entryBlocks,
-            'component_facts' => $this->collectComponentFacts($pageArtifact['files'], $pageDocuments['components']),
+            'component_facts' => ComponentDetection::collectFacts($pageArtifact['files'], $pageDocuments['components']),
             'block_types' => $this->detectBlockTypes($files, $pageDocuments['diagnostics']),
         );
     }
@@ -625,7 +625,7 @@ trait StagedTransport
             'artifact' => $artifact,
             'normalized' => $normalized,
             'source_documents' => $documents,
-            'components' => $this->finalizeComponentFacts($this->mergeComponentFacts($componentFacts), (string) ($sharedPlan['analysis']['entry_path'] ?? '')),
+            'components' => ComponentDetection::finalizeFacts(ComponentDetection::mergeFacts($componentFacts), (string) ($sharedPlan['analysis']['entry_path'] ?? '')),
             'block_types' => DeterministicRowDeduplicator::dedupe($blockTypes),
             'entry_blocks' => $entryBlocks,
             'omitted_pages' => $omittedPages,
@@ -870,7 +870,7 @@ trait StagedTransport
             $plan['analysis'] = $this->sharedPlanAnalysis($normalized, $partition, $entryPath, $hydratedArtifact);
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],
-                'component_facts' => $this->collectComponentFacts($planArtifact['files']),
+                'component_facts' => ComponentDetection::collectFacts($planArtifact['files']),
                 'glyph_colors' => $this->sharedGlyphColors($planArtifact['files'], $partition['pages'], $payloadReader),
                 'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $hydratedArtifact, $payloadReader),
             );
