@@ -193,7 +193,7 @@ final class PresetBinding
     private array $stateTokens = array();
     /** @var array<string,array<string,string>> Authored class list => property => the one observation every element agreed on, or `!`. */
     private array $classStyles = array();
-    /** @var array<string,array<string,list<string>>> Unconditional single-class colour declarations. */
+    /** @var array<string,array<string,list<string>>> Unconditional single-class colour and font-size declarations. */
     private array $classColors = array();
     /** @var array<string,list<array<string,mixed>>> Subjects of plain colour rules per family, with their value; null when a condition or layer applies. */
     private array $restingColors = array();
@@ -255,7 +255,7 @@ final class PresetBinding
                         $selector = preg_replace('/^' . $routeScope . ' +|' . $routeScope . '$/', '', trim($selector)) ?? $selector;
                         if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', $selector, $match)) continue;
                         foreach (self::declarations($body) as [$property, $value]) {
-                            if (in_array($property, array('color', 'background-color', 'background'), true)) $this->classColors[$match[1]][$property][] = $value;
+                            if (in_array($property, array('color', 'background-color', 'background', 'font-size'), true)) $this->classColors[$match[1]][$property][] = $value;
                         }
                     }
                 }
@@ -821,12 +821,6 @@ final class PresetBinding
             }
             $slug = $this->presetSlug('color', $literal, $observation, $reason);
             $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
-            if (!$safe && 'state_variant' === $reason && null !== $slug && is_string($literal) && $this->safe($property, $tokens, array(), true, false, $inlineReason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $declarations, $property, $literal)) {
-                // Replacing only the value preserves inline precedence and
-                // interaction rules that already override it.
-                ++$bound;
-                continue;
-            }
             if (!$safe && is_string($literal) && ($this->rendersThroughClass($name, $property, $literal, $tokens) || ('state_variant' === $reason && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)))) {
                 // A preset class would mask the hover colour; the button
                 // element or author class renders this value with its state, so the
@@ -904,10 +898,24 @@ final class PresetBinding
             if ($isLink) {
                 // Button links carry no font preset class; a family equal to
                 // a preset stack reads its variable from the same inline
-                // declaration. Exact sizes likewise retain inline precedence.
+                // declaration. Class-painted sizes bind only to an exact
+                // token; inline-only controls and compact variants stay local.
                 if (isset($attributes->{$attribute})) continue;
+                // Preserve compact variants beside the element's type size.
+                $elementSize = $this->system->elements['button']['font_size'] ?? $this->system->buttonVariation['font_size'] ?? null;
+                if ('fontSize' === $key && is_string($elementSize) && (CssLength::toPx((string) ($style->typography->fontSize ?? ''), $this->system->rootPx) ?? INF) < (CssLength::toPx($elementSize, $this->system->rootPx) ?? 0)) continue;
                 $literal = $style->typography->{$key} ?? null;
-                $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? $this->presetSlug($property, $literal, null) : null;
+                if ('fontSize' === $key) {
+                    $classSize = false;
+                    foreach ($this->classColors as $class => $properties) {
+                        if (!isset($tokens['class:' . $class])) continue;
+                        foreach ($properties['font-size'] ?? array() as $value) {
+                            if (CssLength::toPx($value, $this->system->rootPx) === CssLength::toPx((string) $literal, $this->system->rootPx)) $classSize = true;
+                        }
+                    }
+                    if (!$classSize) continue;
+                }
+                $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? ('fontSize' === $key ? $this->exactFontSizeSlug($literal) : $this->presetSlug($property, $literal, null)) : null;
                 if (null !== $slug && $this->inlinePreset($style->typography, $key, $property, $slug, $declarations, $property, $literal)) ++$bound;
                 continue;
             }

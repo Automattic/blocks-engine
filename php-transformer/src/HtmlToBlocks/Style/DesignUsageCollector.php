@@ -319,7 +319,8 @@ final class DesignUsageCollector
             $this->addText($context, $inputMass);
         }
         if ($opaque) $this->addBackground((string) CssColor::hex($background), $control || 'input' === $tag ? 'cta' : 'surface', $mass + 1, $background, $control ? $this->hoverColor($element, array('background-color', 'background')) : null, $control && ($this->resolver->hasConditionalStyleFamily($element, 'background') || $this->resolver->readsConditionalCustomProperty($element, array('background', 'background-color'))));
-        foreach (array('border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-color', 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color') as $property) {
+        // Uniform border paint is a palette candidate even without a fill.
+        foreach (array('border', 'border-color') as $property) {
             foreach (CssValueSplitter::splitTopLevelWhitespace($declarations[$property] ?? '') as $value) {
                 $hex = CssColor::hex($value);
                 if (null !== $hex) $this->addBackground($hex, 'border', 1, $value, null, false);
