@@ -26,13 +26,20 @@ $cases = array(
     'source item overflow' => array(str_replace('.layout>div:first-child{', '.layout>div:first-child{overflow:hidden;', $issue), '.layout', true),
 );
 $browser = trim((string) shell_exec('command -v chromium 2>/dev/null'));
-$temp = sys_get_temp_dir() . '/grid-minimum-' . bin2hex(random_bytes(6)) . '.html';
+$scratch = sys_get_temp_dir() . '/grid-minimum-' . bin2hex(random_bytes(6));
+mkdir($scratch);
+$temp = $scratch . '/page.html';
+// A real 1600x1000 image, so both pages measure a loaded image rather than a
+// broken placeholder whose size depends on when Chromium gives up on it.
+$chunk = static fn (string $type, string $data): string => pack('N', strlen($data)) . $type . $data . pack('N', crc32($type . $data));
+file_put_contents($scratch . '/one.png', "\x89PNG\r\n\x1a\n" . $chunk('IHDR', pack('NNCCCCC', 1600, 1000, 8, 0, 0, 0, 0)) . $chunk('IDAT', (string) gzcompress(str_repeat("\0" . str_repeat("\x80", 1600), 1000))) . $chunk('IEND', ''));
 $measure = static function (string $html, string $selector) use ($browser, $temp): array {
-    $script = '<script>const grid=document.querySelector(' . json_encode($selector) . ');'
+    // Measure after `load`, once the fixture image has decoded.
+    $script = '<script>addEventListener("load",()=>{const grid=document.querySelector(' . json_encode($selector) . ');'
         . 'document.body.appendChild(Object.assign(document.createElement("pre"),{id:"measure",textContent:JSON.stringify({'
         . 'tracks:getComputedStyle(grid).gridTemplateColumns.split(" ").map(parseFloat),'
         . 'items:[...grid.children].map(n=>({min:getComputedStyle(n).minWidth,overflow:getComputedStyle(n).overflow,width:n.getBoundingClientRect().width}))'
-        . '})}));</script>';
+        . '})}));});</script>';
     file_put_contents($temp, $html . $script);
     $dom = shell_exec(escapeshellarg($browser) . ' --headless --no-sandbox --disable-gpu --allow-file-access-from-files --window-size=390,844 --dump-dom ' . escapeshellarg('file://' . $temp) . ' 2>/dev/null');
     if (! preg_match('/<pre id="measure">(.*?)<\/pre>/s', (string) $dom, $match)) {
@@ -77,5 +84,6 @@ try {
         echo "PASS: {$name}\n";
     }
 } finally {
-    if (is_file($temp)) unlink($temp);
+    array_map('unlink', glob($scratch . '/*') ?: array());
+    rmdir($scratch);
 }

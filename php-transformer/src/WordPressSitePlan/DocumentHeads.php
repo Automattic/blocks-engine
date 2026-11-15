@@ -31,21 +31,21 @@ final class DocumentHeads
     }
 
     /** @param array<string,mixed> $document @param array<int,array<string,string>> $tokens @return array<string,mixed> */
-    public function metadata(array $document, AssetReferenceCanonicalizer $references, array $routes): array
+    public function metadata(array $document, AssetReferenceCanonicalizer $references): array
     {
         $metadata = is_array($document['document_metadata'] ?? null) ? $document['document_metadata'] : array('source_context' => array('source_path' => WordPressSitePlan::value($document, 'source_path'), 'kind' => 'document'), 'title' => WordPressSitePlan::value($document, 'title'), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array());
         foreach (array('links', 'scripts') as $kind) {
             if (!is_array($metadata[$kind] ?? null)) $metadata[$kind] = array();
             foreach ($metadata[$kind] as &$row) {
                 if (!is_array($row) || !is_string($row['url'] ?? null)) continue;
-                $reference = $this->assetReference($row['url'], WordPressSitePlan::value($document, 'source_path'), $references, $routes);
+                $reference = $this->assetReference($row['url'], WordPressSitePlan::value($document, 'source_path'), $references);
                 if (null !== $reference) {
                     $row['asset_reference'] = $reference;
                     unset($row['url']);
                     continue;
                 }
                 if ('links' !== $kind) continue;
-                $route = $this->links->reference($row['url'], WordPressSitePlan::value($document, 'source_path'), $routes);
+                $route = $this->links->reference($row['url'], WordPressSitePlan::value($document, 'source_path'));
                 if (null !== $route) { $row['url'] = $route; continue; }
                 // A local link that names neither a captured asset nor a route has nothing to bind.
                 // Omit it and say so; the strict link validator stays the integrity backstop.
@@ -165,12 +165,11 @@ final class DocumentHeads
         return $diagnostics;
     }
 
-    /** @param array<int,array<string,mixed>> $routes */
-    private function assetReference(string $url, string $sourcePath, AssetReferenceCanonicalizer $references, array $routes): ?string
+    private function assetReference(string $url, string $sourcePath, AssetReferenceCanonicalizer $references): ?string
     {
         $reference = $references->reference($url, $sourcePath);
         if (null !== $reference) return $reference;
-        $entryRoot = PageRoute::entryRoot($routes);
+        $entryRoot = $this->links->entryRoot();
         if ('' === $entryRoot) return null;
         $rooted = ArtifactPath::resolveRelativePath(ltrim($url, '/'), $entryRoot . '/index.html');
         $reference = '' === $rooted ? null : $references->reference('/' . $rooted, $sourcePath);

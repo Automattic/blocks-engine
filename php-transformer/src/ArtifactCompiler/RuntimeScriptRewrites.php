@@ -8,7 +8,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
  * resolving after conversion: projected selectors become the generated marker
  * classes, and lookups of superseded ids fall back to a detached element.
  */
-final class RuntimeScriptProjections
+final class RuntimeScriptRewrites
 {
     /**
      * @param array<int, array<string, mixed>> $files

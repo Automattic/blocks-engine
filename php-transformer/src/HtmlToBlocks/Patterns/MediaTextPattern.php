@@ -61,7 +61,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
             SourceDom::htmlAttributes(...),
             $media->resolveImageUrl(...),
             $this->createBlock->createBlock(...),
-            $media->coverStyle(...),
+            $media->mediaTextFullStyle(...),
             $media->documentRootFontSize(...),
             $media->imageFixedPixelSize(...)
         );

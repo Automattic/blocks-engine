@@ -39,7 +39,7 @@ final class CompanionPluginPayload
     /**
      * Build the companion-plugin payload from detected generated blocks.
      *
-     * @param array<int, array<string, mixed>> $blockTypes      Block-type artifacts from detectBlockTypes().
+     * @param array<int, array<string, mixed>> $blockTypes      Block-type artifacts from BlockTypes::detect().
      * @param array<int, array<string, mixed>> $files           Normalized artifact files (carry content).
      * @param array<string, mixed>             $artifact        Raw artifact envelope (for site identity).
      * @param array<int, array<string, mixed>> $generatedBlocks     Static-render blocks generated at core/html fallbacks (issue #497).
@@ -318,7 +318,7 @@ final class CompanionPluginPayload
     /**
      * Build one block entry conforming to scaffold()'s per-block contract.
      *
-     * @param array<string, mixed>             $blockType One detectBlockTypes() entry.
+     * @param array<string, mixed>             $blockType One BlockTypes::detect() entry.
      * @param array<int, array<string, mixed>> $files     Normalized artifact files.
      * @return array<string, mixed> Empty array when the block cannot be packaged.
      */
@@ -429,7 +429,7 @@ final class CompanionPluginPayload
     /**
      * Resolve the first resolved file path for a block asset contract field.
      *
-     * @param array<string, mixed> $blockType detectBlockTypes() entry.
+     * @param array<string, mixed> $blockType BlockTypes::detect() entry.
      * @param string               $field     Asset contract field, e.g. render.
      */
     private function firstReferencedFilePath(array $blockType, string $field): string
