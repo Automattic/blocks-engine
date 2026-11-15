@@ -1273,7 +1273,14 @@ final class AuthorSelectorProjector
         // core/button wrappers. Its surface is owned by the control arm below;
         // the attribute arm for the selector's other subjects must not paint
         // those wrappers a second time.
-        $attributeTarget = in_array(true, $controlOwned, true) ? ':not(.wp-block-buttons):not(.wp-block-button)' : '';
+        // Only the attribute predicates become static identity. Class tokens
+        // survive lowering and can change at runtime, so keep their conditions
+        // inside :where() while the shims retain the authored specificity.
+        $attributeTarget = '';
+        foreach ( $rightmost['classes'] ?? array() as $class ) {
+            $attributeTarget .= '.' . CssIdent::escape((string) $class);
+        }
+        $attributeTarget .= in_array(true, $controlOwned, true) ? ':not(.wp-block-buttons):not(.wp-block-button)' : '';
         foreach ( $matches as $index => $element ) {
             $path = $element->getNodePath() ?? '';
             if ( $controlOwned[$index] ) {
