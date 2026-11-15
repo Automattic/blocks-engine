@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMDocument;
 use DOMElement;
 use WeakMap;
@@ -26,7 +27,8 @@ use WeakMap;
  * - `sort`: a `select` whose options all read as orderings of the cards.
  * - `result_count`: a short text whose number is the card count.
  *
- * The region is the nearest common ancestor of the listing and its controls.
+ * The region is the common ancestor of the listing and each control's nearest
+ * placement. Equivalent placements outside that region still receive bindings.
  * A candidate is claimed only when it does not sit in a sibling branch that
  * holds another listing of the same shape — on a page that repeats one
  * category-group shape, each group's controls are its own.
@@ -48,6 +50,9 @@ final class ListingControlsRecognizer
      */
     public function recognize(DOMElement $listing, array $cards, array $prices): ?array
     {
+        if ( $this->containsChrome($listing) ) {
+            return null;
+        }
         $scope = $listing;
         for ( $node = $listing->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
             $scope = $node;
@@ -78,20 +83,50 @@ final class ListingControlsRecognizer
             if ( null === $facet ) {
                 continue;
             }
-            foreach ( $facet['card_values'] as $cardIndex => $value ) {
-                $cardFacets[$cardIndex][$facet['key']] = $value;
-            }
-            unset($facet['card_values']);
             $controls[] = $facet;
             $claimed[spl_object_id($group['element'])] = true;
         }
 
         array_push($controls, ...$this->priceRange($scope, $listing, $prices));
 
-        $count = $this->resultCount($scope, $listing, count($cards));
-        if ( null !== $count ) {
-            $controls[] = $count;
+        array_push($controls, ...$this->resultCounts($scope, $listing, count($cards)));
+
+        // Document order is not ownership: responsive copies can precede the
+        // controls beside the grid. Compare their common ancestors instead.
+        $nearest = array();
+        foreach ( $controls as $control ) {
+            $key = $this->controlKey($control);
+            $ancestor = $this->commonAncestor($listing, $control['element']);
+            if ( ! isset($nearest[$key]) || $this->contains($this->commonAncestor($listing, $nearest[$key]['element']), $ancestor) ) {
+                $nearest[$key] = $control;
+            }
         }
+
+        // Never let an outlying control pull page chrome into the collection.
+        // The highest chrome-free ancestor is the limit of safe widening.
+        $limit = $listing;
+        for ( $node = $listing; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $this->containsChrome($node) ) {
+                break;
+            }
+            $limit = $node;
+            if ( $node === $scope ) {
+                break;
+            }
+        }
+        $nearest = array_filter($nearest, fn (array $control): bool => $control['element'] === $limit || $this->contains($limit, $control['element']));
+        // Region ownership and placement ownership are separate: once a
+        // logical control is accepted, keep all its responsive placements.
+        // The publisher declares it once and binds every placement, including
+        // outlying modal forms that must not remain standalone form entities.
+        $controls = array_values(array_filter($controls, fn (array $control): bool => isset($nearest[$this->controlKey($control)])));
+        foreach ( $controls as &$control ) {
+            foreach ( $control['card_values'] ?? array() as $cardIndex => $value ) {
+                $cardFacets[$cardIndex][$control['key']] = $value;
+            }
+            unset($control['card_values']);
+        }
+        unset($control);
 
         // An empty collection's only evidence would be a zero count, and any
         // "0 likes" or "0 comments" on the page reads the same; it needs a
@@ -101,7 +136,7 @@ final class ListingControlsRecognizer
         }
 
         $region = $listing;
-        foreach ( $controls as $control ) {
+        foreach ( $nearest as $control ) {
             $region = $this->commonAncestor($region, $control['element']);
         }
 
@@ -133,7 +168,17 @@ final class ListingControlsRecognizer
             }
             if ( 'input' === $tag && in_array(strtolower(SourceDom::attr($element, 'type')), array('radio', 'checkbox'), true) && '' !== SourceDom::attr($element, 'name') ) {
                 $label = SourceDom::associatedLabel($element);
-                $radios[SourceDom::attr($element, 'name')][] = array('element' => $element, 'option' => array('value' => SourceDom::attr($element, 'value'), 'label' => null !== $label ? $this->text($label) : SourceDom::attr($element, 'value')));
+                // Same-named inputs in separate responsive forms/fieldsets
+                // are candidates, not one document-wide option group.
+                $owner = $scope;
+                for ( $node = $element->parentNode; $node instanceof DOMElement && $node !== $scope; $node = $node->parentNode ) {
+                    if ( in_array(strtolower($node->tagName), array('fieldset', 'form', 'details'), true) ) {
+                        $owner = $node;
+                        break;
+                    }
+                }
+                $groupKey = SourceDom::attr($element, 'name') . ':' . ($owner?->getNodePath() ?? '');
+                $radios[$groupKey][] = array('element' => $element, 'option' => array('value' => SourceDom::attr($element, 'value'), 'label' => null !== $label ? $this->text($label) : SourceDom::attr($element, 'value')));
                 continue;
             }
             $buttons = $this->dataKeyedButtons($element);
@@ -368,9 +413,8 @@ final class ListingControlsRecognizer
             return array();
         }
         $ranges = array();
-        $slider = false;
         foreach ( $scope->getElementsByTagName('input') as $input ) {
-            if ( 'number' === strtolower(SourceDom::attr($input, 'type')) ) {
+            if ( 'number' === strtolower(SourceDom::attr($input, 'type')) || null !== self::textNumericBound($input) ) {
                 if ( $this->contains($listing, $input) || $this->inSiblingListingBranch($listing, $input) || self::inSearchContext($input) || $this->inSubmissionForm($input) || $input->hasAttribute('disabled') ) {
                     continue;
                 }
@@ -385,7 +429,7 @@ final class ListingControlsRecognizer
                 $tokens = strtolower((string) preg_replace('/[^a-z]+/i', ' ', SourceDom::attr($input, 'name') . ' ' . $label));
                 // Explicit field/bound semantics take priority. Otherwise a
                 // numeric endpoint must bracket the observed card prices.
-                $bound = preg_match('/\b(min|max|from|to|minimum|maximum)\b/', $tokens, $match) ? (in_array($match[1], array('min', 'from', 'minimum'), true) ? 'min' : 'max') : null;
+                $bound = self::textNumericBound($input)['bound'] ?? (preg_match('/\b(min|max|from|to|minimum|maximum)\b/', $tokens, $match) ? (in_array($match[1], array('min', 'from', 'minimum'), true) ? 'min' : 'max') : null);
                 $price = (bool) preg_match('/\bprice\b/', $tokens);
                 $endpoint = SourceDom::attr($input, 'placeholder');
                 if ( ! is_numeric($endpoint) ) {
@@ -408,7 +452,7 @@ final class ListingControlsRecognizer
                 $ranges[] = array('kind' => 'range', 'element' => $input, 'key' => 'price:' . $bound, 'field' => 'price', 'label' => $label, 'bound' => $bound);
                 continue;
             }
-            if ( $slider || ! $input instanceof DOMElement || 'range' !== strtolower(SourceDom::attr($input, 'type')) || $this->contains($listing, $input) || $this->inSiblingListingBranch($listing, $input) ) {
+            if ( ! $input instanceof DOMElement || 'range' !== strtolower(SourceDom::attr($input, 'type')) || $this->contains($listing, $input) || $this->inSiblingListingBranch($listing, $input) ) {
                 continue;
             }
             $min = SourceDom::attr($input, 'min');
@@ -418,7 +462,6 @@ final class ListingControlsRecognizer
             }
             $label = $this->controlLabel($input);
 
-            $slider = true;
             $ranges[] = array(
                 'kind'    => 'range',
                 'element' => $input,
@@ -443,8 +486,8 @@ final class ListingControlsRecognizer
     }
 
     /**
-     * Reuse listing evidence for intent: every free-entry control must be an
-     * adopted numeric bound, with both ends of one field represented.
+     * Reuse numeric-bound evidence for intent: every free-entry control must
+     * belong to an explicit text pair or be adopted by a captured listing.
      */
     public function hasNumericBoundsForForm(DOMElement $form): bool
     {
@@ -463,6 +506,56 @@ final class ListingControlsRecognizer
         return $results[$path];
     }
 
+    /**
+     * Text fields need both a numeric keyboard hint and numeric endpoint
+     * evidence, plus a named bound. Neither a theme wrapper nor a label alone
+     * proves that an ordinary text field collects a number.
+     *
+     * @return array{field: string, bound: string}|null
+     */
+    private static function textNumericBound(DOMElement $input): ?array
+    {
+        if ( 'input' !== strtolower($input->tagName)
+            || ! in_array(strtolower(SourceDom::attr($input, 'type')), array('', 'text'), true)
+            || ! in_array(strtolower(SourceDom::attr($input, 'inputmode')), array('decimal', 'numeric'), true) ) {
+            return null;
+        }
+        $name = strtolower(trim(SourceDom::attr($input, 'name')));
+        if ( ! preg_match('/^(.+?)[._\[\-](gte|lte|min|max)\]?$/', $name, $match) ) {
+            return null;
+        }
+        $placeholder = SourceDom::attr($input, 'placeholder');
+        $min = SourceDom::attr($input, 'data-min');
+        $max = SourceDom::attr($input, 'data-max');
+        if ( ! is_numeric($placeholder) && ! (is_numeric($min) && is_numeric($max) && (float) $min <= (float) $max) ) {
+            return null;
+        }
+        return array('field' => $match[1], 'bound' => in_array($match[2], array('gte', 'min'), true) ? 'min' : 'max');
+    }
+
+    /** Explicit text bounds do not need a listing runtime to remain native. */
+    public function hasTextNumericBoundsForForm(DOMElement $form): bool
+    {
+        if ( ! self::isGetFilterForm($form) ) {
+            return false;
+        }
+        $pairs = array();
+        foreach ( FormRuntimeRequirementAnalyzer::intentControls($form) as $control ) {
+            $type = strtolower(SourceDom::attr($control, 'type'));
+            if ( in_array(strtolower($control->tagName), array('button', 'select'), true)
+                || in_array($type, array('submit', 'reset', 'button', 'image', 'checkbox', 'radio'), true) ) {
+                continue;
+            }
+            $bound = self::textNumericBound($control);
+            if ( null === $bound ) {
+                return false;
+            }
+            $pairs[$bound['field']][$bound['bound']] = true;
+        }
+        return array() !== $pairs
+            && array() === array_filter($pairs, static fn (array $bounds): bool => ! isset($bounds['min'], $bounds['max']));
+    }
+
     private function recognizeNumericBoundsForForm(DOMElement $form): bool
     {
         // Reject ordinary forms before inspecting any surrounding grid.
@@ -476,13 +569,20 @@ final class ListingControlsRecognizer
             if ( 'button' === $tag || 'select' === $tag || in_array($type, array('submit', 'reset', 'button', 'image', 'checkbox', 'radio'), true) ) {
                 continue;
             }
-            if ( 'input' !== $tag || 'number' !== $type ) {
+            $textBound = self::textNumericBound($control);
+            if ( 'input' !== $tag || ('number' !== $type && null === $textBound) ) {
                 return false;
             }
             $entries[] = $control;
         }
         if ( count($entries) < 2 ) {
             return false;
+        }
+        // Explicit matching text endpoints establish a bounded filter even
+        // without a captured listing. Every entry must belong to a full pair;
+        // mixed/unproven numeric fields still require the listing evidence.
+        if ( $this->hasTextNumericBoundsForForm($form) ) {
+            return true;
         }
         $scope = $form;
         for ( $node = $form->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
@@ -524,19 +624,36 @@ final class ListingControlsRecognizer
         return false;
     }
 
-    /** @return array<string,mixed>|null */
-    private function resultCount(DOMElement $scope, DOMElement $listing, int $cardCount): ?array
+    /** @return list<array<string,mixed>> */
+    private function resultCounts(DOMElement $scope, DOMElement $listing, int $cardCount): array
     {
+        $counts = array();
         foreach ( $scope->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement || SourceDom::childElementCount($element) > 0 || $this->contains($listing, $element) || in_array(strtolower($element->tagName), array( 'option', 'button', 'label', 'script', 'style' ), true) || $this->inSiblingListingBranch($listing, $element) ) {
                 continue;
             }
             if ( preg_match('/^(\d+)\s+\p{L}+(?:\s+\p{L}+)?$/u', $this->text($element), $match) && (int) $match[1] === $cardCount ) {
-                return array('kind' => 'result_count', 'element' => $element, 'label' => $this->text($element));
+                $counts[] = array('kind' => 'result_count', 'element' => $element, 'label' => $this->text($element));
             }
         }
 
-        return null;
+        return $counts;
+    }
+
+    /** @param array<string,mixed> $control */
+    private function controlKey(array $control): string
+    {
+        return $control['kind'] . ':' . ($control['key'] ?? (isset($control['field']) ? $control['field'] . ':' . $control['bound'] : ''));
+    }
+
+    private function containsChrome(DOMElement $region): bool
+    {
+        foreach ( array_merge(array($region), iterator_to_array($region->getElementsByTagName('*'), false)) as $element ) {
+            if ( in_array(ShellLandmarkPolicy::landmarkKind($element->tagName, SourceDom::attr($element, 'role')), array('header', 'footer', 'nav'), true) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @return list<string> */

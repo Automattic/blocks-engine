@@ -19,6 +19,9 @@ final class AuthorStyleRuleProjector
 {
     /** Bounded ancestor walk for stretch-derived percentage-height resolution. */
     private const MAX_STRETCH_ANCESTOR_DEPTH = 12;
+
+    /** @var list<string>|null Condition domain of the grid rule currently being projected. */
+    private ?array $gridConditions = null;
     /** Bounded ancestor walk proving an auto-width box's inline size is definite. */
     private const MAX_INLINE_SIZE_ANCESTOR_DEPTH = 32;
 
@@ -82,7 +85,7 @@ final class AuthorStyleRuleProjector
         TransformationEvidenceState $evidence,
         array $conditions = array()
     ): array {
-        $declarations = $this->styleResolver->verbatimCssDeclarations($body);
+        $declarations = SourceDeclarations::verbatim($body);
         $authored = $body;
         $this->acceptProjectedBody($body, $declarations, $this->projectResponsiveCanvasMinimumWidth($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence));
         // A desktop canvas minimum replaced by a fluid `max-width:100%` bound
@@ -98,7 +101,7 @@ final class AuthorStyleRuleProjector
             $contentBox = $restated !== $body;
             $this->acceptProjectedBody($body, $declarations, $restated);
         }
-        $this->acceptProjectedBody($body, $declarations, $this->projectIntrinsicGridRowTracks($prelude, $body, $declarations, $authorStyles, $sourceStyles));
+        $this->acceptProjectedBody($body, $declarations, $this->projectIntrinsicGridRowTracks($prelude, $body, $declarations, $authorStyles, $sourceStyles, $conditions));
         return array('body' => $body, 'declarations' => $declarations, 'content_box' => $contentBox, 'content_box_order' => $contentBox ? $order : null, 'content_box_overrides' => $contentBox ? $overrides : array());
     }
 
@@ -109,7 +112,7 @@ final class AuthorStyleRuleProjector
             return;
         }
         $body = $projected;
-        $declarations = $this->styleResolver->verbatimCssDeclarations($body);
+        $declarations = SourceDeclarations::verbatim($body);
     }
 
     /**
@@ -260,7 +263,7 @@ final class AuthorStyleRuleProjector
                 CssCascade::apply($facts, (string) $property, array( 'value' => $value, 'important' => CssValueInspector::isImportant($value), 'inline' => false, 'specificity' => $fact['specificity'], 'order' => $fact['order'] ));
             }
         }
-        $inline = array_intersect_key($this->styleResolver->inlineDeclarations($element), self::boxModelProperties());
+        $inline = array_intersect_key(SourceDeclarations::inline($element), self::boxModelProperties());
         foreach ( $inline as $property => $value ) {
             CssCascade::apply($facts, (string) $property, array( 'value' => $value, 'important' => CssValueInspector::isImportant($value), 'inline' => true, 'specificity' => array( 0, 0, 0 ), 'order' => PHP_INT_MAX ));
         }
@@ -404,7 +407,7 @@ final class AuthorStyleRuleProjector
                         return;
                     }
                 }
-                $boxSizing = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($body)['box-sizing'] ?? ''));
+                $boxSizing = CssValueInspector::comparable((string) (SourceDeclarations::parse($body)['box-sizing'] ?? ''));
                 if ( ! in_array($boxSizing, array( 'border-box', 'inherit' ), true) ) {
                     return;
                 }
@@ -484,7 +487,7 @@ final class AuthorStyleRuleProjector
             foreach ( $matches as $element ) {
                 $scope = SourceDom::documentVariantRoot($element);
                 if ($scope instanceof DOMElement && $scope->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)) return $body;
-                if ( ! $this->isWideAbsoluteMinimumWidth($this->styleResolver->resolveCssVariablesInValue($minimumWidth, $element), $element) ) {
+                if ( ! $this->isWideAbsoluteMinimumWidth($this->styleResolver->customProperties->resolve($minimumWidth, $element), $element) ) {
                     return $body;
                 }
             }
@@ -516,7 +519,33 @@ final class AuthorStyleRuleProjector
     }
 
     /** @param array<string, string> $declarations */
-    private function projectIntrinsicGridRowTracks(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles): string
+    private function projectIntrinsicGridRowTracks(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles, array $conditions): string
+    {
+        $this->gridConditions = $conditions;
+        try {
+            return $this->projectIntrinsicGridRowTracksInDomain($prelude, $body, $declarations, $authorStyles, $sourceStyles);
+        } finally {
+            $this->gridConditions = null;
+        }
+    }
+
+    /** Read the ancestor cascade in the same domain as the projected grid rule. */
+    private function gridPresentationDeclarations(DOMElement $element): array
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( null === $this->gridConditions ) {
+            return $declarations;
+        }
+        foreach ( array( 'display', 'grid-template-rows', 'height', 'min-height', 'align-self', 'align-items', 'flex-direction', 'flex-grow' ) as $property ) {
+            $value = $this->presentationValueUnderConditions($element, $property, $this->gridConditions);
+            if ( '' !== $value ) {
+                $declarations[$property] = $value;
+            }
+        }
+        return $declarations;
+    }
+
+    private function projectIntrinsicGridRowTracksInDomain(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles): string
     {
         $rows = (string) ($declarations['grid-template-rows'] ?? '');
         if ( ! $this->gridTemplateRowsContainFractionalTrack($rows) || $this->gridTemplateRowsHaveUnequalFlexFactors($rows) ) {
@@ -558,8 +587,8 @@ final class AuthorStyleRuleProjector
     /** @param array<string, string> $ruleDeclarations */
     private function isIntrinsicallySizedGridContainer(DOMElement $element, array $ruleDeclarations): bool
     {
-        $declarations = $this->styleResolver->mergeCssDeclarationMaps(
-            $this->styleResolver->structuralPresentationDeclarations($element),
+        $declarations = SourceDeclarations::merge(
+            $this->gridPresentationDeclarations($element),
             $ruleDeclarations
         );
         $display = strtolower(CssValueInspector::withoutImportant((string) ($declarations['display'] ?? '')));
@@ -575,8 +604,8 @@ final class AuthorStyleRuleProjector
         // matters most for a conditional (`@media`) rule: its declarations
         // never reach the unconditional `structuralPresentationDeclarations()`
         // stream on their own.
-        $height = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['height'] ?? ''), $element);
-        $minHeight = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['min-height'] ?? ''), $element);
+        $height = $this->styleResolver->customProperties->resolveCascaded((string) ($declarations['height'] ?? ''), $element);
+        $minHeight = $this->styleResolver->customProperties->resolveCascaded((string) ($declarations['min-height'] ?? ''), $element);
         if ( $this->isDefiniteBlockSize($height) || $this->isDefiniteBlockSize($minHeight) ) {
             return false;
         }
@@ -677,9 +706,9 @@ final class AuthorStyleRuleProjector
     private function receivesDefiniteBlockSize(DOMElement $element, int $depth = 0, ?string $height = null, ?string $minHeight = null): bool
     {
         if ( null === $height || null === $minHeight ) {
-            $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-            $height = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['height'] ?? ''), $element);
-            $minHeight = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['min-height'] ?? ''), $element);
+            $declarations = $this->gridPresentationDeclarations($element);
+            $height = $this->styleResolver->customProperties->resolveCascaded((string) ($declarations['height'] ?? ''), $element);
+            $minHeight = $this->styleResolver->customProperties->resolveCascaded((string) ($declarations['min-height'] ?? ''), $element);
         }
         if ( $this->isDefiniteBlockSize($height) || $this->isDefiniteBlockSize($minHeight) ) {
             return true;
@@ -691,6 +720,20 @@ final class AuthorStyleRuleProjector
             return false;
         }
         $parent = $element->parentNode;
+        // Boxless wrappers neither establish percentage containing blocks nor
+        // interrupt grid/flex item participation. Follow the layout parent,
+        // not merely the DOM parent, when proving the available block size.
+        while ( null !== $this->gridConditions && $parent instanceof DOMElement ) {
+            $parentDeclarations = $this->gridPresentationDeclarations($parent);
+            $parentDisplay = strtolower($this->styleResolver->customProperties->resolveCascaded(
+                CssValueInspector::withoutImportant((string) ($parentDeclarations['display'] ?? '')),
+                $parent
+            ));
+            if ( 'contents' !== $parentDisplay ) {
+                break;
+            }
+            $parent = $parent->parentNode;
+        }
         if ( ! $parent instanceof DOMElement ) {
             return false;
         }
@@ -719,14 +762,14 @@ final class AuthorStyleRuleProjector
         // its own custom property is declared on the very same rule). Resolve
         // it against the parent so that indirection does not hide a real grid
         // container from this check.
-        $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
+        $parentDeclarations = $this->gridPresentationDeclarations($parent);
         $parentDisplayRaw = (string) ($parentDeclarations['display'] ?? '');
-        $parentDisplay = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($parentDisplayRaw), $parent));
+        $parentDisplay = strtolower($this->styleResolver->customProperties->resolveCascaded(CssValueInspector::withoutImportant($parentDisplayRaw), $parent));
         if ( ! in_array($parentDisplay, array( 'grid', 'inline-grid', 'flex', 'inline-flex' ), true) ) {
             return false;
         }
         $flexDirectionRaw = (string) ($parentDeclarations['flex-direction'] ?? '');
-        $flexDirection = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($flexDirectionRaw), $parent));
+        $flexDirection = strtolower($this->styleResolver->customProperties->resolveCascaded(CssValueInspector::withoutImportant($flexDirectionRaw), $parent));
         if ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true)
             && in_array($flexDirection, array( 'column', 'column-reverse' ), true) ) {
             // Stretch only governs the cross axis. A column flex parent sizes
@@ -738,8 +781,8 @@ final class AuthorStyleRuleProjector
             return $this->growsAlongFlexMainAxis($element)
                 && $this->receivesDefiniteBlockSize($parent, $depth + 1);
         }
-        $alignSelfRaw = (string) ($this->styleResolver->structuralPresentationDeclarations($element)['align-self'] ?? '');
-        $alignSelf = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($alignSelfRaw), $element));
+        $alignSelfRaw = (string) ($this->gridPresentationDeclarations($element)['align-self'] ?? '');
+        $alignSelf = strtolower($this->styleResolver->customProperties->resolveCascaded(CssValueInspector::withoutImportant($alignSelfRaw), $element));
         if ( '' !== $alignSelf && ! in_array($alignSelf, array( 'stretch', 'auto', 'normal' ), true) ) {
             // The element opted out of the default stretch alignment, so it
             // does not receive a size from its parent's track this way.
@@ -774,16 +817,16 @@ final class AuthorStyleRuleProjector
             foreach ( array( 'display', 'flex-direction', 'flex-flow', 'align-items' ) as $property ) {
                 $parentDeclarations[$property] = $read($parent, $property);
             }
-            $parentDisplay = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+            $parentDisplay = strtolower($this->styleResolver->customProperties->resolveCascaded(
                 CssValueInspector::withoutImportant((string) ($parentDeclarations['display'] ?? '')),
                 $parent
             ));
-            $flexDirection = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+            $flexDirection = strtolower($this->styleResolver->customProperties->resolveCascaded(
                 CssValueInspector::withoutImportant((string) ($parentDeclarations['flex-direction'] ?? '')),
                 $parent
             ));
             if ( '' === $flexDirection ) {
-                $flexFlow = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+                $flexFlow = strtolower($this->styleResolver->customProperties->resolveCascaded(
                     CssValueInspector::withoutImportant((string) ($parentDeclarations['flex-flow'] ?? '')),
                     $parent
                 ));
@@ -835,7 +878,7 @@ final class AuthorStyleRuleProjector
         if ( ! $stretchesCrossAxis ) {
             return false;
         }
-        $alignSelf = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+        $alignSelf = strtolower($this->styleResolver->customProperties->resolveCascaded(
             CssValueInspector::withoutImportant($read($element, 'align-self')),
             $element
         ));
@@ -845,7 +888,7 @@ final class AuthorStyleRuleProjector
         if ( '' !== $alignSelf && ! in_array($alignSelf, array( 'auto', 'normal' ), true) ) {
             return false;
         }
-        $alignItems = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+        $alignItems = strtolower($this->styleResolver->customProperties->resolveCascaded(
             CssValueInspector::withoutImportant((string) ($parentDeclarations['align-items'] ?? '')),
             $parent
         ));
@@ -860,9 +903,9 @@ final class AuthorStyleRuleProjector
     private function growsAlongFlexMainAxis(DOMElement $element, ?callable $read = null): bool
     {
         $read ??= $this->structuralReader();
-        $grow = $this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($read($element, 'flex-grow')), $element);
+        $grow = $this->styleResolver->customProperties->resolveCascaded(CssValueInspector::withoutImportant($read($element, 'flex-grow')), $element);
         if ( '' === trim($grow) ) {
-            $flex = strtolower(trim($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($read($element, 'flex')), $element)));
+            $flex = strtolower(trim($this->styleResolver->customProperties->resolveCascaded(CssValueInspector::withoutImportant($read($element, 'flex')), $element)));
             $first = (string) (CssValueSplitter::splitTopLevelWhitespace($flex)[0] ?? '');
             if ( '' !== $first && ! is_numeric($first) ) {
                 // `flex:auto` and `flex:<basis>` both grow by 1; `none` and
@@ -901,12 +944,12 @@ final class AuthorStyleRuleProjector
         if ( $this->aspectRatioDerivesBlockSize($element, $this->structuralReader()) ) {
             return true;
         }
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $display = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['display'] ?? '')), $element));
+        $declarations = $this->gridPresentationDeclarations($element);
+        $display = strtolower($this->styleResolver->customProperties->resolveCascaded(CssValueInspector::withoutImportant((string) ($declarations['display'] ?? '')), $element));
         if ( ! in_array($display, array( 'grid', 'inline-grid' ), true) ) {
             return false;
         }
-        $rows = $this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['grid-template-rows'] ?? '')), $element);
+        $rows = $this->styleResolver->customProperties->resolveCascaded(CssValueInspector::withoutImportant((string) ($declarations['grid-template-rows'] ?? '')), $element);
         return $this->gridTemplateRowsContainDefiniteTrack($rows);
     }
 
@@ -925,7 +968,7 @@ final class AuthorStyleRuleProjector
      */
     private function aspectRatioDerivesBlockSize(DOMElement $element, callable $read): bool
     {
-        $ratio = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(
+        $ratio = strtolower($this->styleResolver->customProperties->resolveCascaded(
             CssValueInspector::withoutImportant($read($element, 'aspect-ratio')),
             $element
         ));
@@ -963,7 +1006,7 @@ final class AuthorStyleRuleProjector
      */
     private function hasDefiniteInlineSize(DOMElement $element, callable $read, int $depth = 0): bool
     {
-        $width = $this->styleResolver->resolveStructuralCssVariablesInValue($read($element, 'width'), $element);
+        $width = $this->styleResolver->customProperties->resolveCascaded($read($element, 'width'), $element);
         if ( $this->isDefiniteBlockSize($width) || $this->isPercentageBlockSize($width) ) {
             return true;
         }
@@ -978,7 +1021,7 @@ final class AuthorStyleRuleProjector
         if ( self::MAX_INLINE_SIZE_ANCESTOR_DEPTH <= $depth ) {
             return false;
         }
-        $value = fn (DOMElement $node, string $property): string => strtolower(trim($this->styleResolver->resolveStructuralCssVariablesInValue(
+        $value = fn (DOMElement $node, string $property): string => strtolower(trim($this->styleResolver->customProperties->resolveCascaded(
             CssValueInspector::withoutImportant($read($node, $property)),
             $node
         )));
@@ -1278,7 +1321,7 @@ final class AuthorStyleRuleProjector
         }
         foreach ( $domains as $domain ) {
             $read = fn (DOMElement $node, string $property): string => $this->presentationValueUnderConditions($node, $property, $domain);
-            $height = $this->styleResolver->resolveStructuralCssVariablesInValue($read($element, 'height'), $element);
+            $height = $this->styleResolver->customProperties->resolveCascaded($read($element, 'height'), $element);
             if ( $this->isDefiniteBlockSize($height)
                 || ($this->isAutoOrUnsetBlockSize($height) && $this->aspectRatioDerivesBlockSize($element, $read)) ) {
                 return true;
@@ -1315,7 +1358,7 @@ final class AuthorStyleRuleProjector
                 return false;
             }
         );
-        $inline = $this->styleResolver->inlineDeclarations($element);
+        $inline = SourceDeclarations::inline($element);
         if ( isset($inline[$property]) && CssCascade::wins(
             array( 'important' => CssValueInspector::isImportant($inline[$property]), 'inline' => true, 'specificity' => 0, 'order' => 1 ),
             array( 'important' => CssValueInspector::isImportant($value), 'inline' => false, 'specificity' => 0, 'order' => 0 )

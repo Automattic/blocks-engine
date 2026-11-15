@@ -36,6 +36,19 @@ final class ContentConservation
             $pages[$page['source_path']] = $text($leaves($page));
             $byType[(string) ($page['post_type'] ?? '')][] = $pages[$page['source_path']];
         }
+        // Native dates in listings render every queried post's date too.
+        foreach (array_merge($plan['pages'], $plan['templates'] ?? array()) as $surface) {
+            if (!str_contains((string) ($surface['canonical_block_markup'] ?? ''), '<!-- wp:query')) continue;
+            if (!preg_match_all('/<!-- wp:post-date (\{.*?\}) \/?-->/s', $surface['canonical_block_markup'], $dates)) continue;
+            foreach ($dates[1] as $json) {
+                $format = json_decode($json, true)['format'] ?? null;
+                if (!is_string($format)) continue;
+                foreach ($plan['pages'] as $post) {
+                    $published = $post['publication_local_time'] ?? $post['publication_timestamp'] ?? null;
+                    if ('post' === ($post['post_type'] ?? null) && is_string($published) && false !== ($date = date_create_immutable($published))) $byType['post'][] = $date->format($format);
+                }
+            }
+        }
         // A query loop renders the titles, excerpts and bound meta of the
         // entries it queries, so their text is carried by the listing page.
         foreach ($plan['pages'] as $page) {
@@ -65,6 +78,14 @@ final class ContentConservation
                     $published = $page['publication_local_time'] ?? $page['publication_timestamp'] ?? null;
                     if (is_string($published) && false !== ($date = date_create_immutable($published))) $pages[$page['source_path']] .= "\n" . $date->format($format);
                 }
+            }
+        }
+        // Suppressed listing captures are views of their parent query, not
+        // independent pages. Check their text against that rendered owner.
+        foreach ($plan['diagnostics'] ?? array() as $diagnostic) {
+            if ('wordpress_site_plan_pagination_suppressed' !== ($diagnostic['code'] ?? null)) continue;
+            foreach ($plan['pages'] as $page) {
+                if (($page['route']['path'] ?? null) === ($diagnostic['parent_route'] ?? null)) $pages[$diagnostic['source_path']] = $pages[$page['source_path']];
             }
         }
         $findings = array();

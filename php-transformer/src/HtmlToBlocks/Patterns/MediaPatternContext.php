@@ -20,6 +20,8 @@ final class MediaPatternContext
     }
 
     public function coverStyle(DOMElement $element): string { return $this->styleResolver->coverPresentationStyle($element); }
+    /** Recognition must see positioning even on ordinary, stylesheet-owned divs. */
+    public function mediaTextGateStyle(DOMElement $element): string { return $this->styleResolver->controlSurfaceResolvedStyle($element); }
     public function resolveImageUrl(string $url): string { return $this->imageUrls->resolvedAssetUrl($url); }
     /** @param array<int, string> $excludedGeometryProperties
      * @return array<string, mixed>

@@ -16,7 +16,10 @@ final class PostBlocks
 {
     public static function title(string $slice): string
     {
-        $attrs = array('isLink' => true);
+        // The title links to its post only where the source title is a link:
+        // listing cards link it, a post's own heading does not.
+        $linked = array() !== array_filter(HtmlMarkupParser::htmlMarkupNodes($slice), static fn(array $node): bool => 'a' === ($node['name'] ?? ''));
+        $attrs = $linked ? array('isLink' => true) : array();
         $blockAttrs = self::sourceAttributes($slice);
         if (is_array($blockAttrs['style'] ?? null)) $attrs['style'] = $blockAttrs['style'];
         $level = is_int($blockAttrs['level'] ?? null) ? $blockAttrs['level'] : self::headingLevel($slice);
@@ -29,7 +32,7 @@ final class PostBlocks
         }
         foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) if ('a' === ($node['name'] ?? '') && is_string($node['attributes']['class'] ?? null)) $attrs['metadata']['blocksEngineLinkClass'] = $node['attributes']['class'];
         self::keepBlockVisibility($attrs, $blockAttrs);
-        return '<!-- wp:post-title ' . BlockAttributes::encode($attrs) . ' /-->';
+        return '<!-- wp:post-title' . (array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs)) . ' /-->';
     }
 
     public static function date(string $slice): string
@@ -50,6 +53,26 @@ final class PostBlocks
         return '<!-- wp:post-date' . $encoded . ' /-->';
     }
 
+    /**
+     * A card link to its own post, rendered per post: a button binds its URL
+     * to the permalink; a lone text link becomes a read-more link.
+     */
+    public static function permalink(string $slice): ?string
+    {
+        $attrs = self::sourceAttributes($slice);
+        $name = self::sourceBlockName($slice);
+        if ('button' === $name) {
+            unset($attrs['url']);
+            $attrs['metadata']['bindings']['url'] = array('source' => 'core/post-data', 'args' => array('field' => 'link'));
+            $slice = (string) preg_replace('/(<a\b[^>]*?)\s+href="[^"]*"/', '$1', $slice, 1);
+            return (string) preg_replace('/^<!-- wp:button(?: \{.*?\})? -->/s', '<!-- wp:button ' . BlockAttributes::encode($attrs) . ' -->', $slice, 1);
+        }
+        if ('paragraph' !== $name || 1 !== preg_match('/^\s*<p\b[^>]*>\s*<a\b[^>]*>(.*?)<\/a>\s*<\/p>\s*$/s', (string) preg_replace('/^<!-- wp:paragraph(?: \{.*?\})? -->|<!-- \/wp:paragraph -->$/s', '', $slice), $match)) return null;
+        $readMore = array('content' => trim($match[1]));
+        foreach (array('className', 'style') as $key) if (isset($attrs[$key])) $readMore[$key] = $attrs[$key];
+        return '<!-- wp:read-more ' . BlockAttributes::encode($readMore) . ' /-->';
+    }
+
     public static function featuredImage(string $slice): string
     {
         $source = self::sourceAttributes($slice);
@@ -63,7 +86,7 @@ final class PostBlocks
         return '<!-- wp:post-featured-image ' . BlockAttributes::encode($attrs) . ' /-->';
     }
 
-    public static function query(int $perPage, string $template, bool $inherit = false, ?string $sectionSlug = null): string
+    public static function query(int $perPage, string $template, bool $inherit = false, ?string $sectionSlug = null, string $sourcePagination = ''): string
     {
         $attrs = array(
             'queryId' => 1,
@@ -84,9 +107,9 @@ final class PostBlocks
         );
         if (null !== $sectionSlug) $attrs['query']['taxQuery'] = array('category' => array('{{wordpress-site-plan:term:category:' . $sectionSlug . '}}'));
         $encoded = BlockAttributes::encode($attrs);
-        $pagination = $inherit
+        $pagination = '' !== $sourcePagination ? $sourcePagination : ($inherit
             ? '<!-- wp:query-pagination {"paginationArrow":"arrow","layout":{"type":"flex","justifyContent":"space-between"}} --><!-- wp:query-pagination-previous /--><!-- wp:query-pagination-next /--><!-- /wp:query-pagination --><!-- wp:query-no-results --><!-- wp:paragraph --><p>No posts found.</p><!-- /wp:paragraph --><!-- /wp:query-no-results -->'
-            : '';
+            : '');
         return '<!-- wp:query ' . $encoded . ' -->' . '<div class="wp-block-query ' . WordPressSitePlan::LISTING_QUERY_CLASS . '"><!-- wp:post-template -->' . $template . '<!-- /wp:post-template -->' . $pagination . '</div>' . '<!-- /wp:query -->';
     }
 
@@ -140,6 +163,7 @@ final class PostBlocks
 
     private static function headingLevel(string $slice): int
     {
+        if ('paragraph' === self::sourceBlockName($slice)) return 0;
         foreach (HtmlMarkupParser::htmlMarkupNodes($slice) as $node) {
             if ('tag' === ($node['kind'] ?? null) && preg_match('/^h([1-6])$/', (string) ($node['name'] ?? ''), $match)) {
                 return (int) $match[1];

@@ -35,7 +35,7 @@
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:freeform" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:missing" },
-    { "path": "assets", "assert": "count", "count": 4 },
+    { "path": "assets", "assert": "count", "count": 5 },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

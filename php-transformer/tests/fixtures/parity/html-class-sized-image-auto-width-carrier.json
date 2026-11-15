@@ -26,8 +26,8 @@
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "blocks.0.attrs.width", "assert": "equals", "value": null },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "width:1536px" },
-    { "path": "assets.0.content", "assert": "contains", "value": "width:auto" },
-    { "path": "assets.0.content", "assert": "not_contains", "value": "max-width:200px!important" },
+    { "path": "assets.1.content", "assert": "contains", "value": "width:auto" },
+    { "path": "assets.1.content", "assert": "not_contains", "value": "max-width:200px!important" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }

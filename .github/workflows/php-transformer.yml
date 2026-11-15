@@ -196,6 +196,10 @@ jobs:
           php tests/unit/captured-dialog-class-hidden-resting-panel.php
           PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/captured-dialog-resting-content-browser.mjs
 
+      - name: Verify the editor canvas paints the front end resting state
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/editor-resting-state-browser.mjs
+
       - name: Verify native button default background neutralization
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/native-button-default-background-browser.mjs
@@ -236,6 +240,12 @@ jobs:
         env:
           BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/linked-fill-image-anchor-browser.mjs
+
+      - name: Verify a stylesheet-painted cover keeps the source padding
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/cover-default-padding-browser.mjs
 
       - name: Verify a linked grid-item image adds no line box
         working-directory: php-transformer

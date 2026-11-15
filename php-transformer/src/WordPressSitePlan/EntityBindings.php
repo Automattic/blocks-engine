@@ -32,12 +32,11 @@ final class EntityBindings
      *
      * @param array<int,array<string,mixed>> $declarations
      * @param array<int,array<string,mixed>> $records
-     * @param array<int,array<string,mixed>> $routes
      * @return array<int,array<string,mixed>>
      */
-    public function canonical(array $declarations, array &$records, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array(), array $paginationOwners = array()): array
+    public function canonical(array $declarations, array &$records, AssetReferenceCanonicalizer $references, array $pages, array $parts = array(), array $paginationOwners = array()): array
     {
-        $projection = RuntimeEntityManifest::project($declarations, $records, fn(array $inline): array => $this->canonicalInline($inline, $references, $routes, $pages, $parts, $paginationOwners));
+        $projection = RuntimeEntityManifest::project($declarations, $records, fn(array $inline): array => $this->canonicalInline($inline, $references, $pages, $parts, $paginationOwners));
         $records = $projection['records'];
         return $projection['declarations'];
     }
@@ -58,7 +57,7 @@ final class EntityBindings
         return array_filter(array('schema' => 'blocks-engine/projected-binding-anchor/v2', 'source_block_hash' => null === $sourceMarkup ? null : hash('sha256', $sourceMarkup), 'source_block_length' => null === $sourceMarkup ? null : strlen($sourceMarkup), 'source_occurrence' => $binding['occurrence'] ?? null, 'source_position' => $binding['position'] ?? null), static fn(mixed $value): bool => null !== $value);
     }
 
-    private function canonicalInline(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages, array $parts = array(), array $paginationOwners = array()): array
+    private function canonicalInline(array $declarations, AssetReferenceCanonicalizer $references, array $pages, array $parts = array(), array $paginationOwners = array()): array
     {
         // A binding owned by a shared part was re-anchored on the part's final
         // markup when the chrome moved; it needs no source projection, and the
@@ -76,7 +75,7 @@ final class EntityBindings
             if ('forms' === $type) {
                 $source = $entity['source_path'] ?? null;
                 $action = $entity['form']['action'] ?? null;
-                if (is_string($source) && is_string($action) && $this->isSelfPostAction($action, $source, $routes)) $entity['form']['action'] = 'blocks-engine:self-post';
+                if (is_string($source) && is_string($action) && $this->isSelfPostAction($action, $source)) $entity['form']['action'] = 'blocks-engine:self-post';
                 foreach ($entity['controls'] ?? array() as $ci => $control) unset($entity['controls'][$ci]['selector']);
                 // Row selectors locate equivalent controls positionally too; keep the layout facts, not capture-specific locations.
                 foreach ($entity['presentation_graph']['control_rows'] ?? array() as $ri => $row) {
@@ -103,7 +102,7 @@ final class EntityBindings
                     continue;
                 }
                 if (is_string($entity['source_path'] ?? null)) {
-                    $entity = EntityMarkup::map($entity, fn(string $markup): string => $this->links->markup($references->content($markup, $entity['source_path']), $entity['source_path'], $routes));
+                    $entity = EntityMarkup::map($entity, fn(string $markup): string => $this->links->markup($references->content($markup, $entity['source_path']), $entity['source_path']));
                 }
                 foreach ( $entity['bindings'] as &$binding ) {
                     if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
@@ -112,7 +111,7 @@ final class EntityBindings
                         if (isset($templateTargets[$binding['source_path']])) $binding['target_path'] = $templateTargets[$binding['source_path']];
                         if (isset($partSources[$binding['source_path']])) continue;
                         $markup = $references->content($sourceMarkup, $binding['source_path']);
-                        $binding['search_block_markup'] = $this->links->markup($markup, $binding['source_path'], $routes);
+                        $binding['search_block_markup'] = $this->links->markup($markup, $binding['source_path']);
                     }
                 }
                 unset($binding);
@@ -138,7 +137,13 @@ final class EntityBindings
                         $search = $binding['search_block_markup'];
                         if (1 === substr_count($partMarkup, $search)) $matches[] = $part['source_path'];
                     }
-                    if (1 === count($matches)) $binding['source_path'] = $matches[0];
+                    if (1 === count($matches)) {
+                        $binding['source_path'] = $matches[0];
+                        // The part is its own projected source. Its anchor must
+                        // describe the rewritten markup, not a route's asset
+                        // paths or links from before canonical projection.
+                        $binding['projected_anchor'] = self::projectedAnchor($binding);
+                    }
                 }
                 unset($binding);
                 if (isset($entity['bindings'][0])) $entity['source_path'] = $entity['bindings'][0]['source_path'];
@@ -327,7 +332,7 @@ final class EntityBindings
     }
 
     /** Resolve against source documents, including surfaces absent from page routes. */
-    private function isSelfPostAction(string $action, string $source, array $routes): bool
+    private function isSelfPostAction(string $action, string $source): bool
     {
         if ('' === $action) return true;
         if (preg_match('~^(?://|#|\?)~', $action) || strpbrk($action, '?#') !== false) return false;
@@ -335,7 +340,7 @@ final class EntityBindings
             if (!$this->links->isSameOrigin($action)) return false;
             $action = (string) (parse_url($action, PHP_URL_PATH) ?: '/');
         }
-        $root = PageRoute::entryRoot($routes);
+        $root = $this->links->entryRoot();
         $path = str_starts_with($action, '/') ? ('' === $root ? ltrim($action, '/') : $root . '/' . ltrim($action, '/')) : RouteLinks::resolveSource($source, $action);
         if (null === $path) return false;
         $document = static fn(string $path): string => preg_replace('~(?:^|/)index\.html?$~', '', rtrim($path, '/'));

@@ -49,14 +49,16 @@ final class BlockMaterializer
             // Capture presentation hooks survive independently of author runtime
             // targeting. The render filter restores them on native block roots.
             foreach (array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::DEVICE_CLASS, CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::RESPONSIVE_FRAGMENT) as $evidenceAttribute) {
-                if ($sourceFacts->sourceElement->hasAttribute($evidenceAttribute)) {
+                if ($sourceFacts->sourceElement->hasAttribute($evidenceAttribute)
+                    && !(CaptureEvidence::VIEWPORT_ENTRANCE === $evidenceAttribute && 'core/buttons' === $name && 'a' === strtolower($sourceFacts->sourceElement->tagName))) {
                     $runtimeAttributes[$evidenceAttribute] = $sourceFacts->sourceElement->getAttribute($evidenceAttribute);
                 }
             }
             // Preserve native hidden state without changing the block identity.
-            // The generic render filter restores it on the materialized root,
-            // where page scripts can remove it again.
-            if ('core/group' === $name && 'form' === ($attrs['tagName'] ?? '') && $sourceFacts->sourceElement->hasAttribute('hidden')) {
+            // A block cannot save `hidden`, so the generic render filter
+            // restores it on the materialized root, where page scripts can
+            // remove it again (`row.hidden = !phone`).
+            if ($sourceFacts->sourceElement->hasAttribute('hidden')) {
                 $runtimeAttributes['hidden'] = $sourceFacts->sourceElement->getAttribute('hidden');
             }
             if ( array() !== $runtimeAttributes ) {

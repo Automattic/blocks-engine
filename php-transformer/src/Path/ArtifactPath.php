@@ -95,6 +95,56 @@ final class ArtifactPath
         return strtok($reference, '?#') ?: '';
     }
 
+    /**
+     * A root-relative reference resolved against the artifact: an exact path,
+     * else the path ending in it that shares the most leading directories
+     * with the referring document (a capture rooted under `website/`).
+     *
+     * @param array<string, true> $paths
+     */
+    public static function artifactRootRelativePath(string $reference, string $sourcePath, array $paths): string
+    {
+        // Root-relative URLs need the same segment decoding and traversal checks
+        // as document-relative references, before exact or suffix lookup.
+        $relative = self::resolveRelativePath(ltrim($reference, '/'));
+        if ( '' === $relative || isset($paths[$relative]) ) {
+            return $relative;
+        }
+
+        $sourceSegments = explode('/', dirname($sourcePath));
+        $matches = array();
+        foreach ( array_keys($paths) as $path ) {
+            if ( ! str_ends_with($path, '/' . $relative) ) {
+                continue;
+            }
+            $candidateSegments = explode('/', dirname($path));
+            $common = 0;
+            while ( isset($sourceSegments[$common], $candidateSegments[$common]) && $sourceSegments[$common] === $candidateSegments[$common] ) {
+                ++$common;
+            }
+            $matches[] = array( 'path' => $path, 'common' => $common );
+        }
+        usort($matches, static fn (array $left, array $right): int => $right['common'] <=> $left['common'] ?: strcmp($left['path'], $right['path']));
+
+        return isset($matches[0]) && $matches[0]['common'] > 0 ? (string) $matches[0]['path'] : $relative;
+    }
+
+    /**
+     * The artifact path a document's link (stylesheet, import) names, with
+     * query and fragment removed.
+     *
+     * @param array<string, true> $paths
+     */
+    public static function resolveLinkedPath(string $href, string $sourcePath, array $paths): string
+    {
+        $href = (string) preg_replace('/[?#].*$/', '', $href);
+        if ( ! str_starts_with($href, '/') ) {
+            return self::resolveRelativePath($href, $sourcePath);
+        }
+
+        return self::artifactRootRelativePath($href, $sourcePath, $paths);
+    }
+
     private static function cleanInput(string $path): string
     {
         return str_replace('\\', '/', trim($path));
@@ -115,5 +165,52 @@ final class ArtifactPath
     private static function isAbsoluteReference(string $path): bool
     {
         return str_starts_with($path, '/') || (bool) preg_match('#^[A-Za-z][A-Za-z0-9+.-]*:#', $path);
+    }
+
+    /** A lowercase artifact key: each run of characters outside `a-z0-9_-` becomes one dash. */
+    public static function sanitizeKey(string $key): string
+    {
+        return preg_replace('/[^a-z0-9_-]+/', '-', strtolower(trim($key))) ?? '';
+    }
+
+    /** The post slug a source document's path names; the entry document's index is `home`. */
+    public static function slug(string $path, string $entryPath = ''): string
+    {
+        $base = preg_replace('/\.[A-Za-z0-9]+$/', '', basename($path));
+        $base = '' === $base || null === $base ? 'document' : $base;
+        // Underscores stay: WordPress keeps them in post slugs, so a source URL
+        // with one must not move onto a dashed spelling after the import.
+        $slug = self::sanitizeKey(str_replace('.', '-', $base));
+        if ( 'index' === $slug && '' !== $entryPath && $path === $entryPath ) {
+            return 'home';
+        }
+
+        return $slug;
+    }
+
+    /** The title a source path names: an `index.html`/`home.html` is titled by its directory, any other file by its slug. */
+    public static function title(string $path): string
+    {
+        $normalized = str_replace('\\', '/', $path);
+        $base = basename($normalized);
+        if ( preg_match('/^index\.html?$/i', $base) || 0 === strcasecmp($base, 'home.html') ) {
+            $parent = basename(dirname($normalized));
+            if ( '' !== $parent && '.' !== $parent ) {
+                return ucwords(str_replace(array( '-', '_' ), ' ', $parent));
+            }
+        }
+
+        return ucwords(str_replace(array( '-', '_' ), ' ', self::slug($path)));
+    }
+
+    /**
+     * The artifact file an href points at from a source document, resolved
+     * against the artifact's file paths.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    public static function linkedFilePath(string $href, string $sourcePath, array $files = array()): string
+    {
+        return self::resolveLinkedPath($href, $sourcePath, array_fill_keys(array_column($files, 'path'), true));
     }
 }

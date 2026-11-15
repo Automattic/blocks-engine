@@ -57,7 +57,7 @@ foreach ( array(
 foreach ( array(
     'image in a custom host stays core/html'      => array( '<p>Before <media-frame><img src="/media/a.png" width="30" height="30" alt="A"></media-frame> after</p>', 'core/html' ),
     'picture beside text keeps its media row'     => array( '<p><picture><source srcset="/media/a.webp"><img src="/media/a.png" alt="A"></picture> Caption</p>', 'core/group' ),
-    'placeholder image beside text stays core/html' => array( '<p><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" data-src="/real.gif" alt="A"> Caption</p>', 'core/html' ),
+    'unresolved placeholder beside text stays core/html' => array( '<p><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" data-src="javascript:alert(1)" alt="A"> Caption</p>', 'core/html' ),
     'image-only paragraph stays core/image'       => array( '<p><img src="/media/a.png" alt="A" width="91" height="47"></p>', 'core/image' ),
 ) as $name => [ $source, $expected ] ) {
     $result = $transform($source);
@@ -121,7 +121,7 @@ $rows = array(
     'empty source' => array('<p>Before <img alt="" src=""> after</p>', false),
 );
 foreach ( array('data-src', 'data-lazy-src', 'data-original', 'data-image-src', 'data-srcset', 'data-lazy-srcset') as $lazySource ) {
-    $rows['pending ' . $lazySource] = array('<p>Before ' . str_replace('<img ', '<img ' . $lazySource . '="/real.gif" ', $dataImage) . ' after</p>', false);
+    $rows['pending ' . $lazySource] = array('<p>Before ' . str_replace('<img ', '<img ' . $lazySource . '="" ', $dataImage) . ' after</p>', false);
 }
 foreach ( $rows as $name => [$source, $native] ) {
     $result = (new ArtifactCompiler())->compile(array(

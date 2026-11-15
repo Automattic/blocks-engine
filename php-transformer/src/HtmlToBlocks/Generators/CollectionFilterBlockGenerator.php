@@ -5,7 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use DOMElement;
 use DOMText;
 
@@ -29,7 +29,7 @@ final class CollectionFilterBlockGenerator
             'sourceStyle' => array('type' => 'object'),
         );
         if (self::ROOT === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'), 'items' => array('type' => 'array', 'default' => array()), 'initialCategory' => array('type' => 'number', 'default' => 0), 'mode' => array('type' => 'string', 'default' => 'category-and-query'), 'order' => array('type' => 'array', 'default' => array()), 'categoryOrders' => array('type' => 'array', 'default' => array()));
-        if (self::CHOICES === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'));
+        if (self::CHOICES === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'), 'ariaLabel' => array('type' => 'string', 'default' => ''));
         if (self::FIELD === $local) $attributes += array('inputType' => array('type' => 'string', 'default' => 'search'), 'placeholder' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'value' => array('type' => 'string', 'default' => ''));
         if (self::CHOICE === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'button'), 'label' => array('type' => 'string', 'default' => ''), 'ariaLabel' => array('type' => 'string', 'default' => ''), 'role' => array('type' => 'string', 'default' => ''), 'tabIndex' => array('type' => 'number'), 'index' => array('type' => 'number', 'default' => 0), 'initial' => array('type' => 'boolean', 'default' => false), 'active' => array('type' => 'object'), 'inactive' => array('type' => 'object'));
         if (self::STATUS === $local) $attributes += array('tagName' => array('type' => 'string', 'default' => 'div'), 'template' => array('type' => 'string', 'default' => ''), 'hidesAtZero' => array('type' => 'boolean', 'default' => true), 'visibility' => array('type' => 'string', 'default' => ''), 'shell' => array('type' => 'object'), 'role' => array('type' => 'string', 'default' => ''), 'ariaLive' => array('type' => 'string', 'default' => ''), 'ariaAtomic' => array('type' => 'string', 'default' => ''));
@@ -91,6 +91,10 @@ final class CollectionFilterBlockGenerator
             props[ 'data-wp-bind--data-state' ] = store + '::state.choiceDataState';
         }
         if ( role === 'collection-filter-choices' ) {
+            if ( attrs.ariaLabel ) {
+                props.role = 'group';
+                props[ 'aria-label' ] = attrs.ariaLabel;
+            }
             props[ 'data-wp-bind--hidden' ] = store + '::state.choicesHidden';
         }
         if ( role === 'collection-filter-empty' ) {
@@ -407,6 +411,7 @@ JS;
             if ('button' === $tag) $html['type'] = 'button';
         } elseif (self::CHOICES === $local) {
             $tag = in_array($attrs['tagName'] ?? 'div', array('div', 'nav', 'section'), true) ? $attrs['tagName'] : 'div';
+            if (!empty($attrs['ariaLabel'])) $html += array('role' => 'group', 'aria-label' => $attrs['ariaLabel']);
             $html['data-wp-bind--hidden'] = $store . '::state.choicesHidden';
         } else {
             $html['hidden'] = true;
@@ -424,11 +429,7 @@ JS;
     public function sourceStyle(string $style): array
     {
         $result = array();
-        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
-            $colon = strpos($declaration, ':');
-            if (false === $colon) continue;
-            $property = trim(substr($declaration, 0, $colon));
-            $value = trim(substr($declaration, $colon + 1));
+        foreach (CssRuleAnalyzer::declarationList($style) as ['name' => $property, 'value' => $value]) {
             if (1 !== preg_match('/^(?:--[A-Za-z0-9_-]+|[a-z-]+)$/', $property) || '' === $value || str_contains($value, '!important')) continue;
             $key = str_starts_with($property, '--') ? $property : preg_replace_callback('/-([a-z])/', static fn ($match): string => strtoupper($match[1]), $property);
             if (str_starts_with($property, '-ms-')) $key = lcfirst($key);

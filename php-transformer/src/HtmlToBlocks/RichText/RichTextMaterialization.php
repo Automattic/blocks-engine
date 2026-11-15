@@ -8,7 +8,7 @@ use DOMElement;
 interface RichTextMaterialization
 {
     /** @param array<int, string> $excludedTags */
-    public function content(DOMElement $element, array $excludedTags = array()): string;
+    public function content(DOMElement $element, array $excludedTags = array(), bool $includeElement = false): string;
 
     public function requiresHtmlFallback(string $content): bool;
 

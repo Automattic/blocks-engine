@@ -81,8 +81,8 @@ $resolver = new StyleResolver($session, $context, new HtmlTransformerAnalysisCac
 $broken = '0: ;0: none;12: 1px; padding-inline: 4px 8px;-1: x;color: red;1px: 0';
 $expectedVerbatim = array('padding-inline' => '4px 8px', 'color' => 'red');
 $expectedPhysical = array('padding-left' => '4px', 'padding-right' => '8px', 'color' => 'red');
-$assert($expectedVerbatim === $run('verbatimCssDeclarations', static fn (): array => $resolver->verbatimCssDeclarations($broken)), 'verbatim declarations skip number-like names');
-$assert($expectedPhysical === $run('cssDeclarations', static fn (): array => $resolver->cssDeclarations($broken)), 'physical declarations skip number-like names');
+$assert($expectedVerbatim === $run('verbatimCssDeclarations', static fn (): array => \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations::verbatim($broken)), 'verbatim declarations skip number-like names');
+$assert($expectedPhysical === $run('cssDeclarations', static fn (): array => \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations::parse($broken)), 'physical declarations skip number-like names');
 
 // Every other declaration-map parser gives the same result as without the
 // broken declarations.

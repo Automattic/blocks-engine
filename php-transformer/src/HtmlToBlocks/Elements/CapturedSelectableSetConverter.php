@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -407,8 +408,7 @@ final class CapturedSelectableSetConverter implements ElementConverter
      */
     private function rowFlexWrap(DOMElement $row, array $rowDeclarations): array
     {
-        $inline = strtolower(SourceDom::attr($row, 'style'));
-        if (1 === preg_match('/(?:^|;)\s*flex-(?:wrap|flow)\s*:/', $inline)) {
+        if (array() !== CssRuleAnalyzer::declarations(SourceDom::attr($row, 'style'), array('flex-wrap', 'flex-flow'))) {
             return array($this->wrapToken((string) ($rowDeclarations['flex-wrap'] ?? ''), (string) ($rowDeclarations['flex-flow'] ?? '')), array());
         }
         $wrap = $this->presentation->declaredPresentation($row, 'flex-wrap');

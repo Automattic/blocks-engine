@@ -21,6 +21,8 @@ $fixtures = array(
     'whitespace' => " \n\t ",
     'empty' => '',
     'normal artwork' => '<path d="M0 0h696v812H0z"/>',
+    // The empty slot an unpopulated listing template leaves: no source, no paint.
+    'sourceless image' => '<image x="0" y="0" width="696" height="812"></image>',
 );
 foreach ($fixtures as $label => $content) {
     $svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 696 812">' . $content . '</svg>';
@@ -47,6 +49,7 @@ foreach (array(
     '<svg viewBox="0 0 696 812"><script>alert(1)</script></svg>' => 'html_unsafe_inline_svg',
     '<svg viewBox="0 0 696 812" onload="alert(1)">stray text</svg>' => 'html_unsafe_inline_svg',
     '<svg viewBox="0 0 696 812"><foreignObject>stray text</foreignObject></svg>' => 'html_inline_svg_fallback',
+    '<svg viewBox="0 0 696 812"><image href="https://example.test/house.png" width="696" height="812"></image></svg>' => null,
 ) as $svg => $diagnostic) {
     $document = new DOMDocument();
     $document->loadXML($svg);
@@ -54,6 +57,9 @@ foreach (array(
     $result = (new HtmlTransformer())->transform($svg)->toArray();
     $assert(!str_contains((string) ($result['serialized_blocks'] ?? ''), '<!-- wp:image'), 'Active SVG does not enter the passive image path.');
     $assert($diagnostic === ($result['fallbacks'][0]['diagnostic_code'] ?? null), 'Active SVG retains its existing fallback diagnostic.');
+    if (null === $diagnostic) {
+        $assert(str_contains((string) ($result['serialized_blocks'] ?? ''), 'house.png'), 'An externally sourced <image> keeps its inline document context.');
+    }
 }
 
 fwrite(STDOUT, 'Childless passive SVG tests: ' . $assertions . " passed\n");

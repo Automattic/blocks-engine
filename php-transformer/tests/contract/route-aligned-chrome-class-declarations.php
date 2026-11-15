@@ -15,7 +15,9 @@ $assert = static function (bool $condition, string $message): void { if (! $cond
 // one name on every route. A compile that prepares each page on its own
 // re-reads the page's style elements, so the aligned name must carry its
 // rules there too: every class the shared header wears resolves to the
-// declarations it had in its source document.
+// declarations it had in its source document. A builder can also serve a
+// route's atomic sheet as a stylesheet file only that route links; the file
+// is that route's own sheet, read like a style element.
 $meanings = array(
     'font' => 'font-family:Georgia,serif',
     'color' => 'color:rgb(200, 10, 10)',
@@ -39,7 +41,9 @@ foreach ($pages as $path => [$title, $c, $lead]) {
     $style .= '@media (min-width:768px){.' . $c['gap'] . '{gap:32px}}';
     $links = '';
     foreach (array('/' => 'Home', '/a/' => 'Route A', '/b/' => 'Route B') as $href => $label) $links .= '<li><a href="' . $href . '" class="' . $c['color'] . '">' . $label . '</a></li>';
-    $artifact['files'][] = array('path' => $path, 'content' => '<!doctype html><html><head><meta charset="utf-8"><title>' . $title . '</title><style>' . $style . '</style></head><body>'
+    $linked = 'b/index.html' === $path;
+    if ($linked) $artifact['files'][] = array('path' => 'assets/b-atoms.css', 'content' => $style);
+    $artifact['files'][] = array('path' => $path, 'content' => '<!doctype html><html><head><meta charset="utf-8"><title>' . $title . '</title>' . ($linked ? '<link rel="stylesheet" href="/assets/b-atoms.css">' : '<style>' . $style . '</style>') . '</head><body>'
         . '<header class="site-header"><div class="bar ' . $c['gap'] . ' ' . $c['shadow'] . '"><span class="tag ' . $c['caps'] . '">New</span>'
         . '<h3 class="logo ' . $c['font'] . ' ' . $c['color'] . '">Acme</h3><nav><ul class="' . $c['gap'] . '">' . $links . '</ul></nav></div></header>'
         . '<main>' . ('' === $lead ? '' : '<p class="' . $lead . '">Lead</p>') . '<h1>' . $title . '</h1><p>' . $title . ' body text.</p></main>'
