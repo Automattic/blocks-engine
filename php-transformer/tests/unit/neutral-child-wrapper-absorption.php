@@ -58,4 +58,18 @@ $textBoundary = $transform('<style>.surface{padding:2em;background:#eee}.copy{ma
 $assert('core/group' === $textBoundary['blocks'][0]['blockName'], 'Font-relative parent geometry retains its text inheritance boundary.');
 $assert('core/paragraph' === $textBoundary['blocks'][0]['innerBlocks'][0]['blockName'], 'The text cascade remains on the editable paragraph.');
 
+// Responsive padding carriers and normal-flow text inside a flex item retain
+// the outer box, rather than promoting its sizing onto an unrelated ancestor.
+$responsive = $transform('<style>*{box-sizing:border-box}.container{--gutter:2rem;width:100%;padding-right:calc(var(--gutter)/2);padding-left:calc(var(--gutter)/2);margin:auto}.row{display:flex}.surface{padding:3rem;background:#eee}.copy{margin:0;line-height:1.75}@media(min-width:900px){.container{max-width:960px}}</style><div class="container"><div class="neutral"><div class="row"><div class="surface"><p class="copy">Responsive copy</p></div></div><p>Sibling</p></div></div>');
+$container = $responsive['blocks'][0];
+$assert(str_contains($container['attrs']['className'], 'neutral'), 'A neutral branching child shares the responsive padded container.');
+$assert(2 === count($container['innerBlocks']), 'Container absorption removes only the redundant child boundary.');
+$paragraph = $container['innerBlocks'][0]['innerBlocks'][0];
+$assert('core/paragraph' === $paragraph['blockName'], 'A painted flex item can absorb its margin-free paragraph.');
+$assert(str_contains($paragraph['attrs']['className'], 'surface'), 'The paragraph retains the painted flex item identity.');
+$assert('pass' === $responsive['source_reports']['wp_block_validity']['status'], 'Responsive absorption stays editor-valid.');
+
+$lineBox = $transform('<style>.surface{padding:2lh;background:#eee}p{margin:0;line-height:2}</style><div class="surface"><p>Line-relative sizing</p></div>');
+$assert('core/group' === $lineBox['blocks'][0]['blockName'], 'Line-height-relative parent geometry retains its text boundary.');
+
 fwrite(STDOUT, "Neutral child wrapper absorption passed\n");

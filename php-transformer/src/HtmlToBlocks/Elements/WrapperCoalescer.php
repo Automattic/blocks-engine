@@ -540,16 +540,17 @@ final class WrapperCoalescer
             || '' !== SourceDom::attr($element, 'role')
             || array() !== $this->interactiveAttributes($element)
             || array() !== SourceDom::safeDataAttributes($element)
-            || $this->isStructuralLayoutElement($element)
-            || $this->isDirectChildOfStructuralLayout($element)
-            || $this->hasBlockingStructureSignals($element, $childBlock)) return null;
+            || $this->isStructuralLayoutElement($element)) return null;
         $parentDeclarations = $this->matchingAuthorDeclarations($element);
         // Paragraphs may absorb a painted text surface, not a sizing or
         // centering container. Groups likewise need an actual padded box.
-        if (!isset($parentDeclarations['padding'])
+        // Keep this box's flex/grid item identity: unlike parent promotion,
+        // absorbing its neutral child does not remove the layout item.
+        // Padding longhands are equivalent evidence to the shorthand.
+        if (array() === array_intersect(array_keys($parentDeclarations), array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left'))
             || ('core/paragraph' === $name && !isset($parentDeclarations['background']) && !isset($parentDeclarations['background-color']))) return null;
         foreach ($parentDeclarations as $property => $value) {
-            if (str_starts_with($property, '--') || $this->isInheritedTextProperty($property)) return null;
+            if ($this->isInheritedTextProperty($property)) return null;
         }
         $child = ($this->soleElementChild)($element);
         if (!$child instanceof DOMElement
@@ -574,9 +575,15 @@ final class WrapperCoalescer
         // A child's text cascade belongs inside the parent's box. Moving it
         // onto that box can change em-based padding and sizing, or borders
         // painted with currentColor, even though the child has no geometry.
-        // Keep the inheritance boundary rather than merging text carriers.
+        // A paragraph's line-height only changes its own text layout, unless
+        // the retained box uses line-height-relative lengths. Other text
+        // properties can change em sizing or currentColor paint.
+        $textOnlyLineHeight = 'core/paragraph' === $name;
+        foreach ($parentDeclarations as $value) {
+            if (preg_match('/[0-9.](?:r?lh)\b/i', $value)) $textOnlyLineHeight = false;
+        }
         foreach ($childDeclarations as $property => $value) {
-            if ($this->isInheritedTextProperty($property)
+            if (($this->isInheritedTextProperty($property) && !('line-height' === $property && $textOnlyLineHeight))
                 || str_starts_with($property, '--')) return null;
         }
         // Box sizing is inert on the unpadded child, but not on the padded
