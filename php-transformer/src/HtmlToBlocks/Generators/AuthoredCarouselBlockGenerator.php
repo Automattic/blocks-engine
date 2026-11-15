@@ -583,6 +583,13 @@ JS;
         // Thumbnail layouts below instead own their stage/pager tracks.
         $style .= '.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--thumbnails)>.blocks-engine-authored-carousel__source-stage{grid-column:1/-1}'
             . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--source-control-topology>.blocks-engine-authored-carousel__controls{display:block!important}';
+        // Controls the source positions over the track take no grid column,
+        // so the stage spans the root as the source track did instead of
+        // shrinking into the first auto column and clipping its slides there.
+        // A control rebuilt from a non-button element paints as that element:
+        // zero specificity lets every author rule still win over the reset.
+        $style .= '.blocks-engine-authored-carousel--overlay-controls>.blocks-engine-authored-carousel__source-stage{grid-column:1/-1}'
+            . ':where(.blocks-engine-authored-carousel__control--source-box){display:grid;align-content:start;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:inherit}';
         $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next::before{content:none}';
         $style .= '.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track{display:flex!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>*{display:none!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{display:block!important;position:relative!important;flex:0 0 calc(100% / var(--blocks-engine-carousel-visible));width:calc(100% / var(--blocks-engine-carousel-visible))}';
         $style .= '[data-carousel-arrows="false"]>.blocks-engine-authored-carousel__controls{display:none!important}';
@@ -997,7 +1004,7 @@ JS;
             [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
             // Only simple image slides can use caption conversion. Rich slides
             // retain their media, links and authored text through child conversion.
-            $image = $this->sourceElementClassifier->isSingleMediaSlide($item, 'img') ? $item->getElementsByTagName('img')->item(0) : null;
+            $image = $this->sourceElementClassifier->isSingleMediaSlide($item, 'img') && ! $this->ownsAuthoredSlideBox($item, $styleResolver) ? $item->getElementsByTagName('img')->item(0) : null;
             if ( $image instanceof DOMElement ) {
                 $slide = $convertImage($image);
                 if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
@@ -1067,6 +1074,24 @@ JS;
         $sourceScope = $styleResolver->sourceCustomPropertyScope($element, $presentationTargets, $items);
         if ($list->hasAttribute(CaptureEvidence::DIALOG_TRIGGER) && '' !== $list->getAttribute('id')) $sourceScope['attributes']['id'] = $list->getAttribute('id');
         $controlsTopology = $this->sourceControlTopology($element, $styleResolver);
+        $controlClasses = array('previous' => '', 'next' => '');
+        $overlayControls = 'track' === $presentation && '' === $controlsTopology;
+        foreach ( $controlClasses as $direction => $_ ) {
+            $control = $sourceControls[$direction];
+            if ( ! $control instanceof DOMElement ) {
+                $overlayControls = false;
+                continue;
+            }
+            $tokens = $this->sourceClassTokens(SourceDom::attr($control, 'class'), $control, $styleResolver);
+            // A track control rebuilt from a non-button element keeps that
+            // element's box: no native button padding, border or centring.
+            if ( 'track' === $presentation && '' === $controlsTopology && 'button' !== strtolower($control->tagName) ) {
+                $tokens[] = 'blocks-engine-authored-carousel__control--source-box';
+            }
+            $controlClasses[$direction] = implode(' ', $tokens);
+            $position = strtolower(trim(CssValueInspector::withoutImportant((string) ($styleResolver->structuralPresentationDeclarations($control)['position'] ?? ''))));
+            $overlayControls = $overlayControls && in_array($position, array('absolute', 'fixed'), true);
+        }
         $stageBox = 'slideshow' === $presentation && 0 === $viewportHeight
             ? $this->stageBoxForItems($items, $styleResolver)
             : array('ratio' => '', 'width' => 0);
@@ -1091,14 +1116,15 @@ JS;
                 SourceDom::boundedClassTokens((string) $sourceScope['className']),
                 SourceDom::boundedClassTokens((string) $sourceScope['stageClassName']),
                 $positionedStage ? array('blocks-engine-authored-carousel--positioned-stage') : array(),
+                $overlayControls ? array('blocks-engine-authored-carousel--overlay-controls') : array(),
                 $status instanceof DOMElement ? SourceDom::boundedClassTokens($styleResolver->liveRegionVisibilityClassName($status)) : array()
             ))),
             'sourceControlClasses' => $sourceScope['controlClassName'],
             'sourceControlAttributes' => $sourceScope['controlAttributes'],
             'sourceIdentityAttributes' => $sourceScope['attributes'],
             'sourceCustomProperties' => $sourceScope['customProperties'],
-            'previousControlClasses' => $sourceControls['previous'] instanceof DOMElement ? implode(' ', $this->sourceClassTokens(SourceDom::attr($sourceControls['previous'], 'class'), $sourceControls['previous'], $styleResolver)) : '',
-            'nextControlClasses' => $sourceControls['next'] instanceof DOMElement ? implode(' ', $this->sourceClassTokens(SourceDom::attr($sourceControls['next'], 'class'), $sourceControls['next'], $styleResolver)) : '',
+            'previousControlClasses' => $controlClasses['previous'],
+            'nextControlClasses' => $controlClasses['next'],
             'previousControlVisual' => $sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '',
             'nextControlVisual' => $sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : '',
             'previousControlPresentation' => $sourceControls['previous'] instanceof DOMElement ? $this->resolvedControlPresentation($sourceControls['previous'], $styleResolver) : array(),
@@ -1800,7 +1826,7 @@ JS;
     private function serializeControlTopologyOutputNode(DOMElement $element): string
     {
         $tag = strtolower($element->tagName);
-        if (in_array($tag, array('svg', 'path'), true)) {
+        if (in_array($tag, array('svg', 'path', 'img'), true)) {
             return $this->serializeSafeControlNode($element);
         }
         if (!in_array($tag, array('div', 'span', 'nav', 'ul', 'ol', 'li', 'section', 'button'), true)) {
@@ -2084,11 +2110,13 @@ JS;
                 $parts[] = htmlspecialchars($child->nodeValue ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
                 continue;
             }
-            if (!$child instanceof DOMElement || !in_array(strtolower($child->tagName), array('div', 'span', 'svg'), true)) {
+            if (!$child instanceof DOMElement || !in_array(strtolower($child->tagName), array('div', 'span', 'svg', 'img'), true)) {
                 continue;
             }
             $class = strtolower(SourceDom::attr($child, 'class'));
-            if (in_array(strtolower($child->tagName), array('span', 'svg'), true) || $child->getElementsByTagName('svg')->length > 0 || str_contains($class, 'background')) {
+            // An arrow drawn by an image is the control's artwork just as an
+            // inline SVG is; without it the rebuilt button paints nothing.
+            if (in_array(strtolower($child->tagName), array('span', 'svg', 'img'), true) || $child->getElementsByTagName('svg')->length > 0 || $child->getElementsByTagName('img')->length > 0 || str_contains($class, 'background')) {
                 $parts[] = $this->serializeSafeControlNode($child);
             }
         }
@@ -2128,6 +2156,9 @@ JS;
     private function serializeSafeControlNode(DOMElement $element): string
     {
         $tag = strtolower($element->tagName);
+        if ('img' === $tag) {
+            return $this->serializeSafeControlImage($element);
+        }
         if (!in_array($tag, array('div', 'span', 'svg', 'path'), true)) {
             return '';
         }
@@ -2148,6 +2179,35 @@ JS;
             }
         }
         return '<' . $tag . $attributes . '>' . $contents . '</' . $tag . '>';
+    }
+
+    /**
+     * Control artwork drawn by an image keeps only its source, text
+     * alternative, sizing and author class. A URL with any scheme other than
+     * http(s), or a data URL that is not a safe image, drops the image.
+     */
+    private function serializeSafeControlImage(DOMElement $image): string
+    {
+        $src = trim(SourceDom::attr($image, 'src'));
+        if ('' === $src) {
+            return '';
+        }
+        if (preg_match('#^data:image/svg\+xml(?:[;,][^,]*)?,#i', $src)) {
+            $parts = explode(',', $src, 2);
+            $svg = str_contains(strtolower($parts[0]), ';base64') ? base64_decode($parts[1] ?? '', true) : rawurldecode($parts[1] ?? '');
+            if (false === $svg || !SourceDom::isSafeSvgContent($svg)) {
+                return '';
+            }
+        } elseif (preg_match('/^[a-z][a-z0-9+.-]*:/i', $src) && !preg_match('#^(?:https?:|data:image/(?:png|gif|jpe?g|webp|avif);base64,)#i', $src)) {
+            return '';
+        }
+        $attributes = ' src="' . htmlspecialchars($src, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        foreach (array('alt', 'class', 'width', 'height') as $name) {
+            if ($image->hasAttribute($name)) {
+                $attributes .= ' ' . $name . '="' . htmlspecialchars($image->getAttribute($name), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+        }
+        return '<img' . $attributes . '>';
     }
 
     private function safeControlVisual(string $markup): string
@@ -2590,6 +2650,18 @@ JS;
         $attributes['layout'] = $layout;
         $block['attrs'] = $attributes;
         return $block;
+    }
+
+    /**
+     * A slide whose own rules size it, and that carries text beside its
+     * image, owns its box in the track. Flattening it to its image would drop
+     * that box, letting the track size the bare figure instead, and fold the
+     * slide's own text box into a figure caption, so it converts as authored
+     * content instead.
+     */
+    private function ownsAuthoredSlideBox(DOMElement $item, StyleResolver $styleResolver): bool
+    {
+        return '' !== trim($item->textContent ?? '') && array() !== $styleResolver->authorDeclaredValuesAtAnyViewport($item, array('width', 'max-width', 'flex-basis'));
     }
 
     /** Preserve authored responsive image holders below the runtime slide. */
