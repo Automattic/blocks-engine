@@ -2432,7 +2432,11 @@ final class AuthorStylesheetProjector
             } elseif (! $ownsBox && ! in_array($position, array('absolute', 'fixed'), true) && isset($declarations[$property])) {
                 // A responsive rule can change only one axis. The figure owns
                 // that declaration; its leaf must follow the new value too.
-                $bridge[] = $property . ':inherit';
+                // Inherited percentages remain percentages: width:75% on
+                // both figure and img would shrink the image to 56.25% of
+                // the source containing block. Fill the sized figure instead.
+                $value = 'width' === $property && str_contains($declarations[$property], '%') ? '100%' : 'inherit';
+                $bridge[] = $property . ':' . $value;
             }
         }
         $objectFit = $this->explicitObjectFit($declarations);
