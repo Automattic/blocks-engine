@@ -169,4 +169,10 @@ final class HtmlTagScanner
         }
         return null;
     }
+
+    /** One attribute's value on an opening tag, matched case-insensitively; '' when absent. */
+    public static function attribute(string $tag, string $name): string
+    {
+        return self::attributes($tag)[strtolower($name)] ?? '';
+    }
 }

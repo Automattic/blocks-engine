@@ -219,7 +219,7 @@ final class ArtifactNormalizer
             $seenPaths[$path] = true;
             $mimeType = $this->mimeType((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? (str_contains((string) ($file['type'] ?? ''), '/') ? $file['type'] : '')), $path);
             $kind = $this->kind((string) ($file['kind'] ?? $file['type'] ?? ''), $path, $payload['content'], $mimeType);
-            $declaredRole = $this->sanitizeKey((string) ($file['role'] ?? ''));
+            $declaredRole = ArtifactPath::sanitizeKey((string) ($file['role'] ?? ''));
             $role = $capturedReport ? self::CAPTURE_REPORT_ROLE : $this->role($declaredRole, $kind, $mimeType, $path);
             $intent = $this->intent((string) ($file['intent'] ?? ''), $kind, $role);
             $binary = $payload['binary'] || ( ! $this->isTextKind($kind) && $this->isBinaryMimeType($mimeType) );
@@ -423,9 +423,9 @@ final class ArtifactNormalizer
         $sample = array('code' => $code);
         if ('' !== $path) $sample['path'] = mb_strcut($path, 0, self::MAX_REJECTION_SAMPLE_PATH_BYTES, 'UTF-8');
         if (null !== $bytes) $sample['bytes'] = $bytes;
-        $role = $this->sanitizeKey((string) ($file['role'] ?? ''));
+        $role = ArtifactPath::sanitizeKey((string) ($file['role'] ?? ''));
         if (in_array($role, self::SAMPLE_ROLES, true)) $sample['declared_role'] = $role;
-        $type = $this->sanitizeKey((string) ($file['type'] ?? ''));
+        $type = ArtifactPath::sanitizeKey((string) ($file['type'] ?? ''));
         if (in_array($type, self::SAMPLE_TYPES, true)) $sample['declared_type'] = $type;
         return $sample;
     }
@@ -632,8 +632,8 @@ final class ArtifactNormalizer
             // enqueue ordering can place it between the same links.
             $linkOffsets = array();
             foreach ( StyleTagScanner::scanLinks($content) as $link ) {
-                $rel = preg_split('/\s+/', strtolower(trim($this->htmlAttribute($link['tag'], 'rel')))) ?: array();
-                if ( in_array('stylesheet', $rel, true) && '' !== $this->htmlAttribute($link['tag'], 'href') ) {
+                $rel = preg_split('/\s+/', strtolower(trim(HtmlTagScanner::attribute($link['tag'], 'rel')))) ?: array();
+                if ( in_array('stylesheet', $rel, true) && '' !== HtmlTagScanner::attribute($link['tag'], 'href') ) {
                     $linkOffsets[] = $link['offset'];
                 }
             }
@@ -643,11 +643,11 @@ final class ArtifactNormalizer
                 // Each sheet is its own stylesheet: close what its end leaves
                 // open before anything is appended or joined to it.
                 $css = CssSyntaxScanner::closedAtEnd(trim($style['content']));
-                if ( '' === $css || ! StyleTagScanner::isCssType($this->htmlAttribute($attributes, 'type')) ) {
+                if ( '' === $css || ! StyleTagScanner::isCssType(HtmlTagScanner::attribute($attributes, 'type')) ) {
                     continue;
                 }
                 $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
-                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'source_media' => array_key_exists(CaptureEvidence::SOURCE_MEDIA, \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, CaptureEvidence::DEVICE_STYLE => $this->htmlAttribute($attributes, CaptureEvidence::DEVICE_STYLE), 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
+                $styles[] = array( 'content' => $css, 'media' => HtmlTagScanner::attribute($attributes, 'media'), 'source_media' => array_key_exists(CaptureEvidence::SOURCE_MEDIA, \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, CaptureEvidence::DEVICE_STYLE => HtmlTagScanner::attribute($attributes, CaptureEvidence::DEVICE_STYLE), 'type' => HtmlTagScanner::attribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
             // Spacing and custom properties inline on <body> are data the
             // reader sees, but the document is re-wrapped in a bare <body>
@@ -833,7 +833,7 @@ final class ArtifactNormalizer
                 if (CaptureReplayScripts::isReplayScript($script['tag']) || array_key_exists(CaptureEvidence::CHOICE_RUNTIME, HtmlTagScanner::attributes($script['tag']))) continue;
                 $attributes = $script['attributes'];
                 $body = trim($script['content']);
-                if ( '' === $body || '' !== $this->htmlAttribute($attributes, 'src') || ! $this->isExecutableScriptType($this->htmlAttribute($attributes, 'type')) ) {
+                if ( '' === $body || '' !== HtmlTagScanner::attribute($attributes, 'src') || ! $this->isExecutableScriptType(HtmlTagScanner::attribute($attributes, 'type')) ) {
                     continue;
                 }
 
@@ -846,10 +846,10 @@ final class ArtifactNormalizer
                     'intent'      => 'behavior',
                     'source'      => 'inline-script',
                     'placement'   => $script['placement'],
-                    'type'        => $this->htmlAttribute($attributes, 'type'),
+                    'type'        => HtmlTagScanner::attribute($attributes, 'type'),
                     'defer'       => $this->hasBooleanAttribute($attributes, 'defer'),
                     'async'       => $this->hasBooleanAttribute($attributes, 'async'),
-                    'superseded_by' => $this->htmlAttribute($attributes, 'data-blocks-engine-superseded-by'),
+                    'superseded_by' => HtmlTagScanner::attribute($attributes, 'data-blocks-engine-superseded-by'),
                     'source_path' => ArtifactPath::safeRelativePath((string) ($file['path'] ?? 'index.html')),
                     'selector'    => 'script:nth-of-type(' . $scriptIndex . ')',
                 ));
@@ -863,11 +863,6 @@ final class ArtifactNormalizer
     {
         $type = strtolower(trim($type));
         return '' === $type || in_array($type, array('module', 'text/javascript', 'application/javascript', 'text/ecmascript', 'application/ecmascript'), true);
-    }
-
-    private function htmlAttribute(string $attributes, string $name): string
-    {
-        return HtmlTagScanner::attributes($attributes)[strtolower($name)] ?? '';
     }
 
     private function hasBooleanAttribute(string $attributes, string $name): bool
@@ -922,7 +917,7 @@ final class ArtifactNormalizer
 
     private function kind(string $kind, string $path, string $content, string $mimeType): string
     {
-        $kind = $this->sanitizeKey($kind);
+        $kind = ArtifactPath::sanitizeKey($kind);
         if ( in_array($kind, array('html', 'css', 'js', 'jsx', 'tsx', 'json', 'markdown', 'mdx', 'asset', 'blocks'), true) ) {
             return $kind;
         }
@@ -1004,7 +999,7 @@ final class ArtifactNormalizer
 
     private function role(string $role, string $kind, string $mimeType, string $path): string
     {
-        $role = $this->sanitizeKey($role);
+        $role = ArtifactPath::sanitizeKey($role);
         if ( '' !== $role ) {
             return $role;
         }
@@ -1041,7 +1036,7 @@ final class ArtifactNormalizer
 
     private function intent(string $intent, string $kind, string $role): string
     {
-        $intent = $this->sanitizeKey($intent);
+        $intent = ArtifactPath::sanitizeKey($intent);
         if ( '' !== $intent ) {
             return $intent;
         }
@@ -1122,19 +1117,14 @@ final class ArtifactNormalizer
         return hash_final($context);
     }
 
-    private function sanitizeKey(string $key): string
-    {
-        return preg_replace('/[^a-z0-9_-]+/', '-', strtolower(trim($key))) ?? '';
-    }
-
     /** @return array<string,string>|null */
     private function htmlTemplateSurfaceDeclaration(string $html): ?array
     {
         if ( ! preg_match('/<main\b([^>]*)>/i', $html, $match) ) {
             return null;
         }
-        $role = $this->htmlAttribute((string) $match[1], 'data-template-type');
-        $slug = $this->htmlAttribute((string) $match[1], 'data-template-slug');
+        $role = HtmlTagScanner::attribute((string) $match[1], 'data-template-type');
+        $slug = HtmlTagScanner::attribute((string) $match[1], 'data-template-slug');
         if ( '' === $role || '' === $slug || ! $this->isTemplateSurfaceRole($role) ) {
             return null;
         }
