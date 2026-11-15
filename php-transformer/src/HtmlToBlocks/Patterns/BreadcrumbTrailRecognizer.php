@@ -27,9 +27,9 @@ final class BreadcrumbTrailRecognizer
      *
      * @param callable $createBlock
      */
-    public function breadcrumbTrail(DOMElement $element, callable $createBlock, NavigationPatternContext $navigationContext): ?PatternRecognitionResult
+    public function breadcrumbTrail(DOMElement $element, callable $createBlock, ?NavigationPatternContext $navigationContext): ?PatternRecognitionResult
     {
-        if ( $navigationContext->isRuntimeDomTarget($element) ) {
+        if ( null === $navigationContext || $navigationContext->isRuntimeDomTarget($element) ) {
             return null;
         }
         $list = $this->breadcrumbTrailList($element);
