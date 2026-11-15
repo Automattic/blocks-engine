@@ -392,7 +392,10 @@ final class TaxonomyProjection
                 if (!str_contains((string) ($page['canonical_block_markup'] ?? ''), '<!-- wp:query ')) {
                     $projection['diagnostics'][] = array('code' => 'wordpress_site_plan_' . ('author' === $taxonomyEntity['kind'] ? 'author' : 'taxonomy') . '_archive_presentation_static', 'severity' => 'warning', 'message' => 'The archive renders its captured presentation and static cards rather than a live query because the listing could not be converted to an inherited native query loop.', 'source_path' => $taxonomyEntity['archive']['source_path'], 'source_route' => $taxonomyEntity['archive']['source_route']);
                 }
-                if ('' !== trim($page['canonical_block_markup'])) $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
+                if (strlen((string) $page['canonical_block_markup']) > ArchiveEntities::PRESENTATION_MAX_BYTES) {
+                    $projection['diagnostics'][] = self::oversizedPresentationDiagnostic($taxonomyEntity);
+                    unset($taxonomyEntity['archive']['presentation_markup']);
+                } elseif ('' !== trim($page['canonical_block_markup'])) $taxonomyEntity['archive']['presentation_markup'] = $page['canonical_block_markup'];
                 else unset($taxonomyEntity['archive']['presentation_markup']);
                 $projectedTaxonomyEntities[] = $taxonomyEntity;
                 continue 2;
@@ -400,6 +403,12 @@ final class TaxonomyProjection
         }
         $projection['entities'] = self::retainProvenParents($projectedTaxonomyEntities, $projection['diagnostics']);
         return $projection;
+    }
+
+    /** An archive whose captured presentation exceeds the plan bound renders through the theme's default archive template. */
+    private static function oversizedPresentationDiagnostic(array $entity): array
+    {
+        return array('code' => 'wordpress_site_plan_' . ('author' === ($entity['kind'] ?? null) ? 'author' : 'taxonomy') . '_archive_presentation_oversized', 'severity' => 'warning', 'message' => 'The captured archive presentation exceeds ' . ArchiveEntities::PRESENTATION_MAX_BYTES . ' bytes, so the archive renders through the default archive template.', 'source_path' => $entity['archive']['source_path'] ?? null, 'source_route' => $entity['archive']['source_route'] ?? null);
     }
 
     /**
@@ -412,7 +421,10 @@ final class TaxonomyProjection
     public static function withArchivePresentation(array $projection, array $templates): array
     {
         foreach ($projection['entities'] as &$taxonomyEntity) foreach ($templates as $template) if (isset($taxonomyEntity['archive']) && TemplateSlugs::forArchive($taxonomyEntity) === ($template['slug'] ?? null)) {
-            $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
+            if (strlen((string) $template['canonical_block_markup']) > ArchiveEntities::PRESENTATION_MAX_BYTES) {
+                $projection['diagnostics'][] = self::oversizedPresentationDiagnostic($taxonomyEntity);
+                unset($taxonomyEntity['archive']['presentation_markup']);
+            } else $taxonomyEntity['archive']['presentation_markup'] = $template['canonical_block_markup'];
             continue 2;
         }
         unset($taxonomyEntity);

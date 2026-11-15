@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
@@ -148,6 +151,23 @@ final class WordPressCompatCss
      * stylesheet shared by many sites carries rules for markup this site never
      * renders. Arms the matcher cannot evaluate are replayed as before.
      */
+    /** Whether a rule body shows its box: visible, fully opaque or displayed. */
+    private static function revealsBox(string $body): bool
+    {
+        foreach ( CssRuleAnalyzer::declarations($body, array( 'visibility', 'opacity', 'display' )) as [ 'name' => $name, 'value' => $value ] ) {
+            $value = CssValueInspector::comparable($value);
+            if ( match ( $name ) {
+                'visibility' => 'visible' === $value,
+                'opacity' => 1 === preg_match('/^1(?:\.0+)?$/D', $value),
+                default => 'none' !== $value,
+            } ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function mayMatchSource(string $selector): bool
     {
         if (null === $this->sourceDocuments || array() === $this->sourceDocuments) return true;
@@ -327,7 +347,7 @@ final class WordPressCompatCss
         foreach ($this->splitSelectorList($selectorList) as $selector) {
             if (!$this->mayMatchSource($selector)) continue;
             $targets = array();
-            if (preg_match('/(?:^|;)\s*display\s*:/i', $body)) {
+            if (array() !== CssRuleAnalyzer::declarations($body, array('display'))) {
                 $container = $this->mapNavigationContainerSelector($selector);
                 if (null !== $container) $targets[] = $container;
             }
@@ -489,7 +509,7 @@ final class WordPressCompatCss
             }
             if ( str_contains($rule['selector'], '.search-icon')
                 && ! str_contains($rule['selector'], '.wp-block-search')
-                && preg_match('/(?:^|;)\s*display\s*:\s*none\b/i', $rule['body']) ) {
+                && 'none' === CssValueInspector::declared(SourceDeclarations::parse($rule['body']), 'display') ) {
                 $rules['search-icon'] = '.wp-block-search.wp-block-search__icon-button .wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }';
                 break;
             }
@@ -666,7 +686,7 @@ final class WordPressCompatCss
         $prefix = rtrim(substr($selector, 0, $matchStart));
         $tail = substr($selector, $matchStart + $matchLength);
         if ( '' === trim($tail) ) {
-            if ( ! preg_match('/(?:^|;)\s*(?:visibility\s*:\s*visible\b|opacity\s*:\s*1(?:\.0+)?\b|display\s*:\s*(?!none\b)[^;}]+)/i', $body)
+            if ( ! self::revealsBox($body)
                 || ! preg_match('/\.' . SourceClassIdentity::REVEAL_STATE . '\b/i', $listClasses) ) {
                 return array();
             }

@@ -13,8 +13,9 @@ $frontend = array('blocks' => $result['serialized_blocks'], 'assets' => array_va
 // Baseline after navigation target sharing: equivalent links and retained
 // label boxes share markers and structural selectors instead of enumerating positions.
 // Duplicate subject removal also removes a redundant single-arm :is().
-// Keep serialized runtime metadata and every non-editor asset byte-locked.
-if ('10342430f746de18376920587011b3979045dd0367edfdde00ac998f7e45f903' !== hash('sha256', json_encode($frontend))) {
+// Canonical subject-set ordering changes only the navigation instance name
+// and its dependent asset hashes. Keep the resulting frontend byte-locked.
+if ('c646f7af470085def42ab04f776c1ff85bba57236434a41bc7fe057425c2fc69' !== hash('sha256', json_encode($frontend))) {
     throw new RuntimeException('Frontend markup or stylesheet output changed.');
 }
 $native = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($result['serialized_blocks']);

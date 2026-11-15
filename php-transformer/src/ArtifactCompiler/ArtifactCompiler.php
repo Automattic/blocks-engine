@@ -9,7 +9,6 @@ use Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
-use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
@@ -30,11 +29,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormStepTrackDetector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\MonochromeGlyphColor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -102,6 +98,18 @@ final class ArtifactCompiler
 
     private readonly RuntimeScriptEvidenceAnalyzer $runtimeScriptEvidenceAnalyzer;
 
+    /** The artifact's files indexed for the current compile. */
+    private readonly ArtifactFileIndex $fileIndex;
+
+    /** Collects the selectors runtime scripts depend on. */
+    private readonly RuntimeScriptSelectors $runtimeSelectors;
+
+    /** Promotes conversion findings into runtime declarations. */
+    private readonly RuntimeDeclarationPromotion $runtimeDeclarationPromotion;
+
+    /** Reads page titles and navigation labels from source documents. */
+    private readonly DocumentTitles $titles;
+
     private \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache $cssRuleTrees;
 
     public function cssTokenizationCounts(): array
@@ -131,6 +139,10 @@ final class ArtifactCompiler
         $this->cssRuleTrees = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache();
         $this->wordpressCompat = new WordPressCompatCss();
         $this->runtimeScriptEvidenceAnalyzer = new RuntimeScriptEvidenceAnalyzer();
+        $this->fileIndex = new ArtifactFileIndex();
+        $this->runtimeSelectors = new RuntimeScriptSelectors($this->runtimeScriptEvidenceAnalyzer, $this->fileIndex);
+        $this->runtimeDeclarationPromotion = new RuntimeDeclarationPromotion();
+        $this->titles = new DocumentTitles();
     }
 
     /** @param array<int, array<string, mixed>> $files */
@@ -199,12 +211,6 @@ final class ArtifactCompiler
     /** Whether the artifact offers a purchase affordance; decided once per compile. */
     private ?bool $sourceHasPurchaseAffordance = null;
 
-    /** @var array<string, array<string, mixed>> */
-    private array $filesByPath = array();
-
-    /** @var array<int, array<string, mixed>> */
-    private array $imageFiles = array();
-
     /**
      * Raw-byte SHA-256 results retained across page indexing for this instance.
      *
@@ -216,9 +222,6 @@ final class ArtifactCompiler
     private int $glyphColorInspectionCount = 0;
 
     private ?PayloadReader $glyphPayloadReader = null;
-
-    /** @var array<int, string> */
-    private array $scriptContents = array();
 
     /** @var array<string,mixed> Optional normalized proof for the current artifact. */
     private array $layoutGeometryProof = array();
@@ -242,13 +245,13 @@ final class ArtifactCompiler
             'files'      => $files,
         ));
         $this->indexFiles($normalized['files']);
-        $runtimeDomSelectors = $this->runtimeDomSelectors($html, $sourcePath, $normalized['files']);
+        $runtimeDomSelectors = $this->runtimeSelectors->runtimeDomSelectors($html, $sourcePath, $normalized['files']);
 
         return array(
             'runtime_script_metadata'  => $this->runtimeScriptMetadataForSource($html, $sourcePath, $normalized['files']),
             'runtime_dom_selectors'    => $runtimeDomSelectors,
             'runtime_behavioral_selectors' => $runtimeDomSelectors,
-            'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $normalized['files']),
+            'runtime_canvas_selectors' => $this->runtimeSelectors->runtimeCanvasSelectors($html, $sourcePath, $normalized['files']),
         );
     }
 
@@ -482,8 +485,8 @@ final class ArtifactCompiler
         $allGutenbergGaps = DeterministicRowDeduplicator::dedupe($allGutenbergGaps);
         $runtimeDeclarationDiagnostics = array();
         $runtimeEntityRecords = array();
-        $normalized['runtime_declarations'] = $this->cartLinkRuntimeDeclarations($normalized['runtime_declarations'], $allDiagnostics, $entryPath);
-        $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files'], $runtimeDeclarationDiagnostics, $runtimeEntityRecords);
+        $normalized['runtime_declarations'] = $this->runtimeDeclarationPromotion->cartLinkRuntimeDeclarations($normalized['runtime_declarations'], $allDiagnostics, $entryPath);
+        $normalized['runtime_declarations'] = $this->runtimeDeclarationPromotion->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files'], fn (): bool => $this->sourceHasPurchaseAffordance($normalized['files']), $runtimeDeclarationDiagnostics, $runtimeEntityRecords);
         // Internal fallback markers are consumed above and never part of the
         // published contract. Ambiguous description candidates were used to
         // build the unrepresented-text diagnostic; remove them from findings
@@ -533,8 +536,8 @@ final class ArtifactCompiler
             }
         }
         $this->indexFiles($normalized['files']);
-        $normalized['files'] = $this->applyRuntimeScriptProjections($normalized['files'], $runtimeScriptProjections);
-        $runtimeIslandPackage = $this->applyRuntimeScriptPackageProjections(
+        $normalized['files'] = RuntimeScriptProjections::applyToFiles($normalized['files'], $runtimeScriptProjections);
+        $runtimeIslandPackage = RuntimeScriptProjections::applyToPackage(
             ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath),
             $runtimeScriptProjections
         );
@@ -1151,661 +1154,6 @@ final class ArtifactCompiler
     }
 
     /**
-     * Promote informational cart evidence without adding importer fallbacks.
-     * The declaration stays optional: a consumer without a cart-link adapter
-     * skips it, so the page imports unchanged.
-     */
-    private function cartLinkRuntimeDeclarations(array $declarations, array $diagnostics, string $entryPath): array
-    {
-        foreach ( $declarations as $declaration ) {
-            if ( 'entity_collection' === ($declaration['kind'] ?? null) && 'cart_links' === ($declaration['type'] ?? null) ) return $declarations;
-        }
-        $entities = array();
-        foreach ( $diagnostics as $finding ) {
-            if ( 'commerce_cart_link_detected' !== ($finding['code'] ?? null) || empty($finding['binding']['search_block_markup']) ) continue;
-            $source = $finding['binding']['source_path'] ?? $finding['source_path'];
-            $entity = array('source_path' => $source, 'selector' => $finding['selector'], 'bindings' => array(array_merge($finding['binding'], array('source_path' => $source))));
-            if ( isset($finding['count_badge']) ) $entity['count_badge'] = $finding['count_badge'];
-            $entities[$source . "\n" . $finding['selector']] = $entity;
-        }
-        if ( array() !== $entities ) {
-            $declarations[] = array('kind' => 'entity_collection', 'type' => 'cart_links', 'source_path' => $entryPath, 'payload' => array('schema' => 'generic/cart-links/v1', 'entities' => array_values($entities)));
-        }
-        return $declarations;
-    }
-
-    /**
-     * Promote provider-materializable findings into the canonical runtime contract.
-     *
-     * Explicit caller declarations remain authoritative. Detected entities fill
-     * only missing product/form collections and their matching dependencies.
-     *
-     * @param array<int,array<string,mixed>> $declarations
-     * @param array<int,array<string,mixed>> $fallbacks
-     * @return array<int,array<string,mixed>>
-     */
-    private function runtimeDeclarationsFromFallbacks(array $declarations, array $fallbacks, string $entryPath, array $files, array &$diagnostics = array(), array &$runtimeEntityRecords = array()): array
-    {
-        if ( '' === $entryPath ) return $declarations;
-        foreach ( $declarations as $declaration ) foreach ( $declaration['payload']['entities'] ?? array() as $entity ) if ( is_array($entity) && array_key_exists('superseded_scripts', $entity) ) throw new \InvalidArgumentException('Caller runtime declarations cannot provide compiler-reserved script supersession proofs.');
-
-        $keys = array();
-        foreach ( $declarations as $declaration ) {
-            if ( ! is_array($declaration) ) continue;
-            $name = $declaration['type'] ?? $declaration['capability'] ?? null;
-            if ( is_string($declaration['kind'] ?? null) && is_string($name) ) $keys[$declaration['kind'] . ':' . $name] = true;
-        }
-
-        $slug = SchemaProductEvidence::productSlug(...);
-        $price = SchemaProductEvidence::productPrice(...);
-
-        $productRoutes = array();
-        $pageProducts = array();
-        $detailPages = array();
-        $entryRoot = dirname($entryPath);
-        $pageEvidence = array();
-        $schemaProducts = $this->sourceHasPurchaseAffordance($files)
-            ? SchemaProductEvidence::rows($files, $slug, $price, $diagnostics, $productRoutes, $pageProducts, $detailPages, '.' === $entryRoot ? '' : $entryRoot, $pageEvidence)
-            : array();
-        // Match the plan's page route, including explicit routes and entry roots.
-        $pageRoutes = array();
-        foreach ($files as $file) {
-            $path = $file['path'] ?? '';
-            $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
-            $pageRoutes[$path] = $file['metadata']['route_path'] ?? SchemaProductEvidence::pageRoute('/' . $relative, $path, '.' === $entryRoot ? '' : $entryRoot);
-            if ('page' !== ($file['metadata']['post_type'] ?? 'page')) unset($detailPages[$path]);
-        }
-        $products = array();
-        $cardPageProducts = array();
-        // Card URLs identify pages by the same entry-root-relative route as the plan.
-        $compiledPages = array();
-        foreach ($files as $file) {
-            if ($this->isMaterializedHtmlDocument($file) && 'page' === ($file['metadata']['post_type'] ?? 'page')) {
-                $path = (string) $file['path'];
-                $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
-                $routes = array($pageRoutes[$path] ?? '', SchemaProductEvidence::pageRoute('/' . rawurldecode($relative), $path, '.' === $entryRoot ? '' : $entryRoot));
-                foreach (array_unique(array_filter($routes)) as $route) $compiledPages[$route][] = $path;
-            }
-        }
-        $forms = array();
-        $orderLookups = array();
-        $carts = array();
-        $checkouts = array();
-        $productGrids = array(); $productListings = array(); $listingControlSelectors = array();
-        foreach ( $fallbacks as $fallback ) {
-            if ( ! is_array($fallback) ) continue;
-            $code = (string) ($fallback['diagnostic_code'] ?? $fallback['kind'] ?? '');
-            $sourcePath = is_string($fallback['source'] ?? null) ? $fallback['source'] : $entryPath;
-            if ( 'html_product_grid_fallback' === $code ) {
-                $container = is_string($fallback['container_selector'] ?? null) ? $fallback['container_selector'] : (ArrayField::string($fallback, 'selector'));
-                if ( true === ($fallback['_collection_binding_declined'] ?? false) ) {
-                    $diagnostics[] = $this->declinedProductGridBindingDiagnostic($fallback, $sourcePath, $container);
-                }
-                $gridItems = array();
-                foreach ( ArrayField::array($fallback, 'products') as $product ) {
-                    if ( ! is_array($product) ) continue;
-                    if (is_string($product['url'] ?? null)) {
-                        $route = SchemaProductEvidence::urlRoute($product['url'], $sourcePath);
-                        if (isset($productRoutes[$route])) $product['slug'] = $productRoutes[$route];
-                    }
-                    if ( is_array($product['template_slots'] ?? null) && is_scalar($product['name'] ?? null) && '' !== trim((string) $product['name']) ) {
-                        $gridItems[] = array('product' => $slug(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : trim((string) $product['name'])), 'slots' => $product['template_slots']);
-                    }
-                    $name = is_scalar($product['name'] ?? null) ? trim((string) $product['name']) : '';
-                    $productSlug = $slug(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : $name);
-                    $regularPrice = $price($product['price'] ?? null);
-                    if ( '' === $name || '' === $productSlug || '' === $regularPrice ) continue;
-                    // Count card claims before product identity merging: two cards
-                    // pointing at one page are not unique page ownership evidence.
-                    if (is_string($product['url'] ?? null)) {
-                        $urlPath = parse_url(html_entity_decode($product['url'], ENT_QUOTES | ENT_HTML5, 'UTF-8'), PHP_URL_PATH);
-                        if (is_string($urlPath) && '' !== $urlPath) {
-                            $target = SchemaProductEvidence::pageRoute(rawurldecode($urlPath), $sourcePath, '.' === $entryRoot ? '' : $entryRoot);
-                            if (1 === count($compiledPages[$target] ?? array())) {
-                                $cardPageProducts[$compiledPages[$target][0]][] = $productSlug;
-                            }
-                        }
-                    }
-                    $row = array('name' => $name, 'slug' => $productSlug, 'regular_price' => $regularPrice);
-                    if (is_string($product['url'] ?? null)) $row['url'] = $product['url'];
-                    $salePrice = $price($product['sale_price'] ?? null); if ( '' !== $salePrice ) $row['sale_price'] = $salePrice;
-                    if ( is_scalar($product['description'] ?? null) && '' !== trim((string) $product['description']) ) $row['description'] = (string) $product['description'];
-                    $image = is_string($product['image'] ?? null) ? $product['image'] : (is_array($product['image'] ?? null) && is_string($product['image']['src'] ?? null) ? $product['image']['src'] : '');
-                    if ( '' !== trim($image) ) $row['image'] = $image;
-                    if ( is_string($product['category'] ?? null) && '' !== trim($product['category']) ) $row['category'] = trim($product['category']);
-                    if ( is_array($product['attributes'] ?? null) && array() !== $product['attributes'] ) $row['attributes'] = $product['attributes'];
-                    $sourceSelector = is_string($product['source_selector'] ?? null) ? trim($product['source_selector']) : '';
-                    $selectors = array_values(array_unique(array_filter(array($sourceSelector, $container), static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
-                    if ( array() !== $selectors ) $row['source_selectors'] = $selectors;
-                    // This is the compiler's exact product-card identity. Consumers
-                    // must not infer a leaf selector from diagnostic presentation data.
-                    if ( '' !== $sourceSelector ) {
-                        $row['source_path'] = $sourcePath;
-                        $row['selector'] = $sourceSelector;
-                    }
-                    if ( is_array($product['binding'] ?? null) && 'generic/block-binding/v1' === ($product['binding']['schema'] ?? null) && is_string($product['binding']['search_block_markup'] ?? null) && '' !== trim($product['binding']['search_block_markup']) ) {
-                        $row['bindings'] = array(array_merge($product['binding'], array('source_path' => $sourcePath)));
-                    }
-                    if ( isset($products[$productSlug]) ) {
-                        // The same product on another page may be the one its filters describe.
-                        foreach ( array('category', 'attributes') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
-                        if ( ! isset($row['bindings'][0]) ) {
-                            continue;
-                        }
-                        $binding = $row['bindings'][0];
-                        $claim = $binding['source_path'] . "\n" . hash('sha256', $binding['search_block_markup']) . "\n" . $binding['occurrence'];
-                        $existingBindings = is_array($products[$productSlug]['bindings'] ?? null) ? $products[$productSlug]['bindings'] : array();
-                        $existingClaims = array_map(static fn(array $existing): string => $existing['source_path'] . "\n" . hash('sha256', $existing['search_block_markup']) . "\n" . $existing['occurrence'], $existingBindings);
-                        if (!in_array($claim, $existingClaims, true)) $products[$productSlug]['bindings'][] = $binding;
-                        continue;
-                    }
-                    $products[$productSlug] = $row;
-                }
-                // A grid a provider can replace with its own product loop: the
-                // grid-scope anchor plus the card as an item template and each
-                // product's value for every template slot.
-                $gridBinding = $fallback['binding'] ?? null;
-                $emptyListing = 0 === ($fallback['product_count'] ?? null) && ! empty($fallback['listing']['controls']);
-                if ( '' !== $container && ($emptyListing || (is_array($fallback['item_template'] ?? null) && array() !== $gridItems)) && is_array($gridBinding) && 'generic/block-binding/v1' === ($gridBinding['schema'] ?? null) && is_string($gridBinding['search_block_markup'] ?? null) && '' !== trim($gridBinding['search_block_markup']) ) {
-                    $productGrids[$sourcePath . "\n" . $container] = array('source_path' => $sourcePath, 'selector' => $container, 'items' => $gridItems, 'bindings' => array(array_merge($gridBinding, array('source_path' => $sourcePath))));
-                    if ( isset($fallback['item_template']) ) $productGrids[$sourcePath . "\n" . $container]['item_template'] = $fallback['item_template'];
-                    // The controls that facet, bound, sort, or count this grid:
-                    // the region holding them with the grid is the first
-                    // binding, then one binding per control placement naming its
-                    // id. A control rendered twice (a sort bar and the same sort
-                    // in a filter form) is one control with two placements.
-                    $listing = $fallback['listing'] ?? null;
-                    if ( is_array($listing) && is_string($listing['selector'] ?? null) && is_array($listing['binding'] ?? null) && is_array($listing['controls'] ?? null) && array() !== $listing['controls'] ) {
-                        $controls = array();
-                        $bindings = array(array_merge($listing['binding'], array('source_path' => $sourcePath)));
-                        foreach ( $listing['controls'] as $control ) {
-                            $id = $control['kind'] . (isset($control['key']) ? ':' . $control['key'] : (isset($control['field']) ? ':' . $control['field'] : ''));
-                            $bindings[] = array_merge($control['binding'], array('source_path' => $sourcePath, 'control' => $id));
-                            unset($control['binding']);
-                            if ( is_string($control['selector'] ?? null) ) $listingControlSelectors[$sourcePath][] = $control['selector'];
-                            $controls[$id] ??= array('id' => $id) + $control;
-                        }
-                        $productListings[$sourcePath . "\n" . $listing['selector']] = array('source_path' => $sourcePath, 'selector' => $listing['selector'], 'grid_selector' => $container, 'controls' => array_values($controls), 'bindings' => $bindings);
-                    }
-                }
-            } elseif ( 'html_cart_view_fallback' === $code ) {
-                // A cart view is provider-bindable only through its page-owned
-                // anchor; without one a provider cannot locate it in the page.
-                $selector = ArrayField::string($fallback, 'selector');
-                $binding = $fallback['binding'] ?? null;
-                if ( '' === $selector || ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || ! is_string($binding['search_block_markup'] ?? null) || '' === trim($binding['search_block_markup']) ) continue;
-                $carts[$sourcePath . "\n" . $selector] = array('source_path' => $sourcePath, 'selector' => $selector, 'bindings' => array(array_merge($binding, array('source_path' => $sourcePath))));
-            } elseif ( 'html_checkout_view_fallback' === $code ) {
-                // A checkout view binds through its page-owned anchor exactly
-                // like a cart view; the reporter already superseded the cart
-                // finding over the same region, so the two never co-declare.
-                $selector = ArrayField::string($fallback, 'selector');
-                $binding = $fallback['binding'] ?? null;
-                if ( '' === $selector || ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || ! is_string($binding['search_block_markup'] ?? null) || '' === trim($binding['search_block_markup']) ) continue;
-                $checkouts[$sourcePath . "\n" . $selector] = array('source_path' => $sourcePath, 'selector' => $selector, 'bindings' => array(array_merge($binding, array('source_path' => $sourcePath))));
-            } elseif ( 'html_form_fallback' === $code && is_array($fallback['controls'] ?? null) ) {
-                $selector = ArrayField::string($fallback, 'selector');
-                // Only a finding carrying data-entry metadata describes a form a
-                // provider could materialize, so only that finding is worth
-                // reporting when a contract stops it from being declared.
-                $declarable = array() !== array_filter(
-                    array_filter($fallback['controls'], 'is_array'),
-                    static fn (array $control): bool => in_array(strtolower((string) ($control['tag'] ?? '')), array('input', 'select', 'textarea'), true)
-                        && ! in_array(strtolower((string) ($control['type'] ?? '')), array('button', 'image', 'reset', 'submit'), true)
-                );
-                $choiceGroups = array_values(array_filter(ArrayField::array($fallback, 'choice_groups'), 'is_array'));
-                if ( array() !== $choiceGroups ) $declarable = true;
-                if ( true === ($fallback['control_topology']['truncated'] ?? false) ) { if ( $declarable ) $diagnostics[] = $this->declinedFormDeclarationDiagnostic($fallback, $sourcePath, $selector, 'control_topology_truncated', 'its bounded control topology was truncated, so the control graph is incomplete'); continue; }
-                // A control's own field-description candidates that could not be
-                // safely attributed to it (see `FormControlMetadataBuilder`) are an
-                // internal marker, not published schema: collect them for a
-                // diagnostic and strip them before the control reaches the entity.
-                $rawControls = array_values(array_filter($fallback['controls'], 'is_array'));
-                $unrepresentedText = array();
-                foreach ( $rawControls as $index => $rawControl ) {
-                    foreach ( ArrayField::array($rawControl, '_unresolved_description_candidates') as $text ) {
-                        if ( is_string($text) && '' !== trim($text) ) $unrepresentedText[] = array('selector' => is_string($rawControl['selector'] ?? null) ? $rawControl['selector'] : $selector, 'text' => $text);
-                    }
-                    unset($rawControls[$index]['_unresolved_description_candidates']);
-                }
-                // Context with no safe placement (for example an unassociated
-                // label heading several fields) stays named and loud. Positioned
-                // prose and resolved labels never enter this loss collection.
-                foreach ( is_array($fallback['form']['unrepresented_context'] ?? null) ? $fallback['form']['unrepresented_context'] : array() as $item ) {
-                    if ( is_array($item) && is_string($item['text'] ?? null) && '' !== trim($item['text']) ) $unrepresentedText[] = array('selector' => $selector, 'text' => $item['text']);
-                }
-                $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => ArrayField::array($fallback, 'form'), 'controls' => $rawControls);
-                if ( array() !== $choiceGroups ) $form['choice_groups'] = $choiceGroups;
-                foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null) && preg_match('/^[a-f0-9]{64}$/', $fallback[$identityKey])) $form[$identityKey] = $fallback[$identityKey];
-                // An order-lookup form (order number + the email used at checkout
-                // + a submit) is a shop surface: a form provider can never answer
-                // it, while a shop provider owns order tracking. Recognized forms
-                // are pulled out of the detected-forms path here — the path that
-                // would otherwise declare them in `forms` — and declared beside
-                // the other shop collections below, reusing the finding's
-                // finalized form anchor under the `order_lookup` role. The
-                // `html_form_fallback` finding itself keeps carrying the
-                // extracted controls with its fallback identity, so a consumer
-                // can reconcile the form against its materialization. A form
-                // without a page-owned anchor stays on the generic path, which
-                // declines it loudly instead of silently.
-                $orderLookupBinding = is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ? $fallback['binding'] : null;
-                $orderLookup = array() === $choiceGroups ? OrderLookupFormRecognizer::recognize($rawControls) : null;
-                if ( null !== $orderLookup && null !== $orderLookupBinding ) {
-                    // The entity carries the same source form evidence and fallback
-                    // identity a `forms` entity would, so a consumer reconciles
-                    // it against the `html_form_fallback` finding unchanged.
-                    $orderLookups[$sourcePath . "\n" . $selector] = array_filter($form + array(
-                        'fields' => $orderLookup['fields'],
-                        'submit_label' => '' !== $orderLookup['submit_label'] ? $orderLookup['submit_label'] : null,
-                        'bindings' => array(array_merge($orderLookupBinding, array('role' => 'order_lookup', 'source_path' => $sourcePath))),
-                    ), static fn (mixed $value): bool => null !== $value && array() !== $value);
-                    continue;
-                }
-                // The control topology is the provider's map of where each flat
-                // control sits, and consumers enforce the same producer contract
-                // against this entity's control list. A topology that fails it
-                // would make the whole forms declaration unusable downstream, so
-                // the form is declined here and named, leaving the converted
-                // source form on the page.
-                if ( is_array($fallback['control_topology'] ?? null) ) {
-                    try {
-                        FormControlTopologyBuilder::assertValid($fallback['control_topology'], count($rawControls));
-                    } catch ( \InvalidArgumentException $error ) {
-                        if ( $declarable ) $diagnostics[] = $this->declinedFormDeclarationDiagnostic($fallback, $sourcePath, $selector, 'control_topology_invalid', 'its control topology violates the producer contract (' . $error->getMessage() . ')');
-                        continue;
-                    }
-                    $form['control_topology'] = $fallback['control_topology'];
-                }
-                if ( is_array($fallback['sibling_relations'] ?? null) && true !== ($fallback['sibling_relations']['truncated'] ?? false) ) {
-                    try {
-                        FormControlTopologyBuilder::assertSiblingRelations($fallback['sibling_relations'], count($rawControls));
-                        $form['sibling_relations'] = $fallback['sibling_relations'];
-                    } catch ( \InvalidArgumentException $error ) {
-                        if ( $declarable ) $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'sibling_relations', $error->getMessage());
-                    }
-                }
-                // `truncated` still means the builder's own budget or scan
-                // limits could be hiding facts anywhere (see
-                // FormLayoutGraphBuilder::MAX_NODES/MAX_RULES and friends),
-                // so a graph flagged for one of those reasons is correctly
-                // excluded here rather than risk an incomplete picture. A
-                // structurally invalid graph is a distinct, genuine
-                // rejection: instead of letting that corruption crash the
-                // whole compile (or silently vanishing), it is named.
-                if ( is_array($fallback['layout_graph'] ?? null) && true !== ($fallback['layout_graph']['truncated'] ?? false) ) {
-                    try {
-                        FormLayoutGraphBuilder::assertValid($fallback['layout_graph']);
-                        $form['layout_graph'] = $fallback['layout_graph'];
-                    } catch ( \InvalidArgumentException $error ) {
-                        if ( $declarable ) $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'layout_graph', $error->getMessage());
-                    }
-                }
-                // A step track names layout graph nodes, so it travels only with
-                // the graph it was read from.
-                if ( isset($form['layout_graph']) && is_array($fallback['steps'] ?? null) ) {
-                    try {
-                        FormStepTrackDetector::assertValid($fallback['steps'], $form['layout_graph']);
-                        $form['steps'] = $fallback['steps'];
-                    } catch ( \InvalidArgumentException $error ) {
-                        if ( $declarable ) $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'steps', $error->getMessage());
-                    }
-                }
-                if (true === ($fallback['layout_graph']['truncated'] ?? false)) {
-                    $form['source_contract_losses'] = array_slice(array_values(array_filter($fallback['layout_graph']['diagnostics'] ?? array(), 'is_string')), 0, 32);
-                }
-                if ( is_array($fallback['presentation_graph'] ?? null) && true !== ($fallback['presentation_graph']['truncated'] ?? false) ) {
-                    try {
-                        FormPresentationGraphBuilder::assertValid($fallback['presentation_graph']);
-                        $form['presentation_graph'] = $fallback['presentation_graph'];
-                    } catch ( \InvalidArgumentException $error ) {
-                        if ( $declarable ) $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'presentation_graph', $error->getMessage());
-                    }
-                }
-                if ( is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ) {
-                    $form['bindings'] = array(array_merge($fallback['binding'], array('source_path' => $sourcePath)));
-                }
-                if ( ! isset($form['bindings']) ) { if ( $declarable ) $diagnostics[] = $this->declinedFormDeclarationDiagnostic($fallback, $sourcePath, $selector, 'page_owned_binding_anchor_missing', 'it has no page-owned block binding anchor, so a provider cannot locate the converted form in the page'); continue; }
-                $supersededScripts = $this->supersededFormScripts($fallback, $files, $sourcePath);
-                if ( array() !== $supersededScripts ) $form['superseded_scripts'] = $supersededScripts;
-                if ( $declarable && array() !== $unrepresentedText ) $diagnostics[] = $this->unrepresentedFormTextDiagnostic($sourcePath, $selector, $unrepresentedText);
-                $forms[$sourcePath . "\n" . $selector] = $form;
-            }
-        }
-        // Schema claims are authoritative, including ambiguous claims. Only
-        // otherwise unclaimed compiled pages may inherit a unique card product.
-        // Ownership includes every contributing schema page, not only the
-        // chosen canonical row's source path after identity/language merging.
-        foreach ($cardPageProducts as $path => $claims) {
-            if (empty($pageProducts[$path]) && 1 === count($claims)) $pageProducts[$path] = $claims;
-        }
-        // Card descendants retain their existing card bindings.
-        $cardSelectors = array();
-        foreach ( $fallbacks as $fallback ) {
-            if ( 'html_product_grid_fallback' !== ($fallback['diagnostic_code'] ?? '') ) continue;
-            foreach ( $fallback['products'] ?? array() as $card ) {
-                if ( is_string($card['source_selector'] ?? null) ) $cardSelectors[$fallback['source'] ?? $entryPath][] = $card['source_selector'];
-            }
-        }
-        foreach ( $fallbacks as $fallback ) {
-            $formlessPurchase = 'html_commerce_controls_fallback' === ($fallback['diagnostic_code'] ?? '')
-                && 'commerce_add_to_cart_form' === ($fallback['binding']['role'] ?? '');
-            if ( 'commerce_add_to_cart' !== ($fallback['form_intent'] ?? '') && ! $formlessPurchase ) continue;
-            $sourcePath = $fallback['source'] ?? $entryPath;
-            if ( 1 !== count($pageProducts[$sourcePath] ?? array()) ) continue;
-            $selector = $fallback['selector'] ?? '';
-            foreach ( $cardSelectors[$sourcePath] ?? array() as $cardSelector ) {
-                if ( $selector === $cardSelector || str_starts_with($selector, $cardSelector . ' > ') ) continue 2;
-            }
-            $binding = $fallback['binding'] ?? null;
-            if ( ! is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? '') || '' === trim($binding['search_block_markup'] ?? '') ) continue;
-            $productSlug = $pageProducts[$sourcePath][0];
-            if (isset($schemaProducts[$productSlug])) $purchaseProduct =& $schemaProducts[$productSlug];
-            else $purchaseProduct =& $products[$productSlug];
-            $purchaseBinding = array_merge($binding, array('role' => 'commerce_add_to_cart_form', 'source_path' => $sourcePath));
-            // Multiple recognizers can claim the same placement. Coalesce only
-            // identical bindings; distinct page anchors remain separate placements.
-            if ( ! in_array($purchaseBinding, $purchaseProduct['bindings'] ?? array(), true) ) {
-                $purchaseProduct['bindings'][] = $purchaseBinding;
-            }
-            // Preserve the same flat control indexes and validated presentation
-            // facts as a form entity when shop takes ownership of the controls.
-            if ( is_array($fallback['controls'] ?? null) ) {
-                $controls = array_values(array_filter($fallback['controls'], 'is_array'));
-                foreach ( $controls as &$control ) unset($control['_unresolved_description_candidates']);
-                unset($control);
-                $purchaseProduct['controls'] = $controls;
-                unset($purchaseProduct['presentation_graph']);
-                if ( is_array($fallback['presentation_graph'] ?? null) && true !== ($fallback['presentation_graph']['truncated'] ?? false) ) {
-                    try {
-                        FormPresentationGraphBuilder::assertValid($fallback['presentation_graph']);
-                        $purchaseProduct['presentation_graph'] = $fallback['presentation_graph'];
-                    } catch ( \InvalidArgumentException $error ) {
-                        $diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'presentation_graph', $error->getMessage());
-                    }
-                }
-            }
-            if (isset($detailPages[$sourcePath]) && $detailPages[$sourcePath] === ($pageRoutes[$sourcePath] ?? null)) {
-                ProductDetailPageEvidence::fill($purchaseProduct, $pageEvidence[$sourcePath] ?? array(), $fallback, $files, $pageRoutes, '.' === $entryRoot ? '' : $entryRoot, $diagnostics);
-            }
-            unset($purchaseProduct);
-            // A purchase form belongs to shop, not a competing form provider.
-            unset($forms[$sourcePath . "\n" . $selector]);
-        }
-        foreach ( $schemaProducts as $productSlug => $row ) {
-            if ( isset($row['bindings']) ) usort($row['bindings'], static fn (array $a, array $b): int => strcmp($a['source_path'], $b['source_path']) ?: strcmp($a['search_block_markup'], $b['search_block_markup']));
-            if (!isset($row['url'])) $row['url'] = '/' . $row['source_path'];
-            $source = $row['source_path'];
-            if (isset($detailPages[$source]) && $detailPages[$source] === ($pageRoutes[$source] ?? null)) {
-                foreach ($row['bindings'] ?? array() as $binding) {
-                    if ('commerce_add_to_cart_form' === ($binding['role'] ?? null) && $source === ($binding['source_path'] ?? null)) {
-                        $row['whole_page_candidate'] = 'blocks-engine/whole-page-candidate/v1';
-                        break;
-                    }
-                }
-            }
-            if ( ! isset($products[$productSlug]) ) { $products[$productSlug] = $row; continue; }
-            foreach ( $row['bindings'] ?? array() as $binding ) $products[$productSlug]['bindings'][] = $binding;
-            // Detail evidence owns identity and source URL; card bindings stay intact.
-            foreach (array('name', 'slug', 'url') as $field) $products[$productSlug][$field] = $row[$field];
-            if (isset($row['whole_page_candidate'])) {
-                // The detail page, not an earlier listing card, owns the claim.
-                $products[$productSlug]['source_path'] = $source;
-                $products[$productSlug]['whole_page_candidate'] = $row['whole_page_candidate'];
-            }
-            // Detail-page descriptive evidence wins; cards fill only absent fields.
-            foreach ( array('description', 'image', 'images', 'category', 'sku', 'variants', 'stock_status', 'translations', 'controls', 'presentation_graph') as $field ) if ( isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
-            foreach ( array('tags', 'sale_price') as $field ) if ( ! isset($products[$productSlug][$field]) && isset($row[$field]) ) $products[$productSlug][$field] = $row[$field];
-        }
-        // Listing-owned forms are shop controls, not a second form-provider
-        // surface. In particular a sort-only form and its select may serialize
-        // to the very same block anchor. Retain mixed/data-entry forms.
-        foreach ( $forms as $key => $form ) {
-            // Every placement of a listing control claims its form, including
-            // a repeated control declared once on the listing.
-            $owned = $listingControlSelectors[$form['source_path']] ?? array();
-            $unclaimed = array_filter($form['controls'] ?? array(), static function (array $control) use ($owned): bool {
-                $selector = $control['selector'] ?? '';
-                foreach ( $owned as $owner ) {
-                    if ( $selector === $owner || str_starts_with($selector, $owner . ' > ') ) return false;
-                }
-                return ! in_array($control['type'] ?? '', array('submit', 'button', 'reset'), true);
-            });
-            if ( array() !== $owned && array() === $unclaimed ) unset($forms[$key]);
-        }
-        // A form the checkout view region owns is part of the client-side
-        // checkout rendering, not an independent form-provider surface: the
-        // shop provider replacing the region covers it, so it leaves `forms`
-        // like the order-lookup form above instead of racing that provider for
-        // the same block anchor.
-        foreach ( $checkouts as $checkout ) {
-            foreach ( $forms as $key => $form ) {
-                if ( ($form['source_path'] ?? '') !== $checkout['source_path'] ) continue;
-                $selector = (string) ($form['selector'] ?? '');
-                if ( '' !== $selector && ( $selector === $checkout['selector'] || str_starts_with($selector, $checkout['selector'] . ' > ') ) ) unset($forms[$key]);
-            }
-        }
-        foreach ($products as $productSlug => &$product) {
-            $product['id'] = 'product:' . hash('sha256', (string) $productSlug);
-            // Only a claimed detail page names the product's route; others keep their URL.
-            if (isset($product['whole_page_candidate'])) $product['source_route'] = $pageRoutes[$product['source_path']];
-        }
-        unset($product);
-        ksort($products, SORT_STRING); ksort($forms, SORT_STRING); ksort($orderLookups, SORT_STRING); ksort($carts, SORT_STRING); ksort($checkouts, SORT_STRING); ksort($productGrids, SORT_STRING); ksort($productListings, SORT_STRING);
-        $collections = array(
-            array('capability' => 'shop', 'type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
-            // A cart holds the store's products, so a cart view is declared only
-            // beside a products collection: on its own it would ask a provider
-            // to install a store with nothing to sell.
-            array('capability' => 'shop', 'type' => 'carts', 'aliases' => array('cart', 'carts'), 'entities' => array_values($carts), 'schema' => 'generic/carts/v1', 'requires' => array('product', 'products')),
-            // A checkout is the store's purchase surface over the same
-            // products, so like a cart view it is declared only beside a
-            // products collection, and never beside a cart for the same region.
-            array('capability' => 'shop', 'type' => 'checkouts', 'aliases' => array('checkout', 'checkouts'), 'entities' => array_values($checkouts), 'schema' => 'generic/checkouts/v1', 'requires' => array('product', 'products')),
-            // Empty controlled listings still declare their replaceable grid
-            // region, even when the site has no products yet.
-            array('capability' => 'shop', 'type' => 'product_grids', 'aliases' => array('product_grid', 'product_grids'), 'entities' => array_values($productGrids), 'schema' => 'generic/product-grids/v1'),
-            // The filters, sort, and count around a grid narrow or order that
-            // grid, so they are declared only beside the grids.
-            array('capability' => 'shop', 'type' => 'product_listings', 'aliases' => array('product_listing', 'product_listings'), 'entities' => array_values($productListings), 'schema' => 'generic/product-listings/v1', 'requires' => array('product_grid', 'product_grids')),
-            // An order lookup asks the store for one past order by its number
-            // and the buyer's email, so like carts it is declared for the shop
-            // capability: a form provider could not answer it. The same form is
-            // never also declared in `forms`.
-            array('capability' => 'shop', 'type' => 'order_lookups', 'aliases' => array('order_lookup', 'order_lookups'), 'entities' => array_values($orderLookups), 'schema' => 'generic/order-lookups/v1'),
-            array('capability' => 'form', 'type' => 'forms', 'aliases' => array('form', 'forms'), 'entities' => array_values($forms), 'schema' => 'generic/forms/v1'),
-        );
-        foreach ( $collections as $collection ) {
-            $capability = $collection['capability'];
-            $requires = $collection['requires'] ?? array();
-            if ( array() !== $requires && array() === array_filter($requires, static fn (string $type): bool => isset($keys['entity_collection:' . $type])) ) continue;
-            $entityKey = 'entity_collection:' . $collection['type'];
-            foreach ( $collection['aliases'] as $alias ) if ( isset($keys['entity_collection:' . $alias]) ) { $entityKey = 'entity_collection:' . $alias; break; }
-            if ( array() !== $collection['entities'] && ! isset($keys[$entityKey]) ) {
-                $budget = RuntimeEntityManifest::declareCollection($declarations, $collection['type'], $collection['schema'], $collection['entities'], $entryPath, isset($keys['dependency:' . $capability]) ? null : $capability);
-                array_push($diagnostics, ...$budget['diagnostics']);
-                if ( null === $budget['payload'] ) continue;
-                $runtimeEntityRecords = array_merge($runtimeEntityRecords, $budget['records']);
-                $declarations[] = array('kind' => 'entity_collection', 'type' => $collection['type'], 'source_path' => $entryPath, 'payload' => $budget['payload']);
-                $keys[$entityKey] = true;
-            }
-            $dependencyKey = 'dependency:' . $capability;
-            if ( isset($keys[$entityKey]) && ! isset($keys[$dependencyKey]) ) {
-                $declarations[] = array('kind' => 'dependency', 'capability' => $capability, 'source_path' => $entryPath, 'required_for' => array($entityKey));
-                $keys[$dependencyKey] = true;
-            }
-        }
-        return RuntimeDeclarations::normalizeList($declarations);
-    }
-
-    /**
-     * Name the contract that stopped prepared form metadata from reaching the
-     * runtime declarations. A declined form is otherwise invisible: the
-     * `html_form_fallback` finding still reports extracted controls while the
-     * `generic/forms/v1` entity that a provider materializes never appears.
-     *
-     * @param array<string,mixed> $fallback
-     * @return array<string,mixed>
-     */
-    private function declinedFormDeclarationDiagnostic(array $fallback, string $sourcePath, string $selector, string $failedCheck, string $because): array
-    {
-        $controls = array_values(array_filter(ArrayField::array($fallback, 'controls'), 'is_array'));
-        return array(
-            'code' => 'runtime_form_declaration_declined',
-            'severity' => 'warning',
-            'message' => mb_strcut('Extracted form metadata was declined before the runtime form entity declaration because ' . $because . '.', 0, 256, 'UTF-8'),
-            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
-            'selector' => mb_strcut($selector, 0, 256, 'UTF-8'),
-            'failed_check' => $failedCheck,
-            'control_count' => count($controls),
-            'entity_schema' => 'generic/forms/v1',
-            'reason_code' => 'runtime_form_declaration_declined',
-            'pattern_family' => 'interactive_form',
-            'repair_bucket' => 'materialize_form_provider',
-            'suggested_repair_class' => 'materialize_form_provider',
-            'source' => self::class,
-        );
-    }
-
-    /**
-     * Name the contract that stopped one optional generic form graph from
-     * reaching the runtime entity, without declining the form declaration
-     * itself. Unlike a missing control topology or binding anchor, a
-     * rejected layout or presentation graph never invalidates the rest of
-     * the entity a provider still needs — dropping only the failed key,
-     * loudly, keeps that entity declarable while naming what was lost.
-     *
-     * @param array<string,mixed> $fallback
-     * @return array<string,mixed>
-     */
-    private function rejectedFormGraphDiagnostic(array $fallback, string $sourcePath, string $selector, string $graph, string $reason): array
-    {
-        $controls = array_values(array_filter(ArrayField::array($fallback, 'controls'), 'is_array'));
-        return array(
-            'code' => 'runtime_form_graph_rejected',
-            'severity' => 'warning',
-            'message' => mb_strcut('A generic form ' . $graph . ' failed its structural contract and was omitted from the runtime entity because ' . $reason, 0, 256, 'UTF-8'),
-            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
-            'selector' => mb_strcut($selector, 0, 256, 'UTF-8'),
-            'graph' => $graph,
-            'control_count' => count($controls),
-            'entity_schema' => 'generic/forms/v1',
-            'reason_code' => 'runtime_form_graph_rejected',
-            'pattern_family' => 'interactive_form',
-            'repair_bucket' => 'materialize_form_provider',
-            'suggested_repair_class' => 'materialize_form_provider',
-            'source' => self::class,
-        );
-    }
-
-    /**
-     * Name the contract that stopped a product grid's shared collection
-     * anchor from reaching the runtime product entities it covers. A grid
-     * whose cards have no cart control of their own shares one anchor — the
-     * grid container's own emitted block (see `CommerceFallbackReporter`) —
-     * resolved against the page's actual block tree the same way
-     * blocks-engine#718/#1975 resolves a div pseudo-form's anchor. When that
-     * resolution fails (the container has no block a selector can identify),
-     * the grid's products are declined rather than emitting an anchor that
-     * does not genuinely, uniquely identify the grid's own source region: a
-     * declined grid leaves a working site with unresolved products; an
-     * ambiguous anchor destroys the whole import (blocks-engine#2024/#2026).
-     *
-     * @param array<string,mixed> $fallback
-     * @return array<string,mixed>
-     */
-    private function declinedProductGridBindingDiagnostic(array $fallback, string $sourcePath, string $selector): array
-    {
-        $productCount = is_array($fallback['products'] ?? null) ? count($fallback['products']) : 0;
-        return array(
-            'code' => 'runtime_product_grid_binding_declined',
-            'severity' => 'warning',
-            'message' => 'A product grid\'s shared collection binding anchor was declined because its container could not be resolved to one page-owned emitted block.',
-            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
-            'selector' => mb_strcut($selector, 0, 256, 'UTF-8'),
-            'failed_check' => 'page_owned_collection_anchor_unresolved',
-            'product_count' => $productCount,
-            'entity_schema' => 'generic/products/v1',
-            'reason_code' => 'runtime_product_grid_binding_declined',
-            'pattern_family' => 'commerce_product_grid',
-            'repair_bucket' => 'materialize_shop_provider',
-            'suggested_repair_class' => 'materialize_shop_provider',
-            'source' => self::class,
-        );
-    }
-
-    /**
-     * Name source copy that reached a declared `generic/forms/v1` entity but
-     * could not be carried into it: a field's own helper text sitting beside
-     * more than one candidate element in its wrapper, or copy positioned
-     * between two controls with no positional anchor. The entity itself still
-     * declares successfully — this names what it could not bring with it, in
-     * the same taxonomy and repair bucket as a declined declaration, so the
-     * loss is never silent even when the form otherwise materializes.
-     *
-     * @param array<int, array{selector: string, text: string}> $items
-     * @return array<string,mixed>
-     */
-    private function unrepresentedFormTextDiagnostic(string $sourcePath, string $selector, array $items): array
-    {
-        $texts = array_values(array_unique(array_map(
-            static fn (array $item): string => mb_strcut((string) $item['text'], 0, 200, 'UTF-8'),
-            $items
-        )));
-        return array(
-            'code' => 'form_field_context_unrepresented',
-            'severity' => 'warning',
-            'message' => substr('Source copy inside a materialized form could not be attached to a control or placed as form context, so it did not reach the generic/forms/v1 entity.', 0, 256),
-            'source_path' => mb_strcut($sourcePath, 0, 256, 'UTF-8'),
-            'selector' => mb_strcut($selector, 0, 256, 'UTF-8'),
-            'unrepresented_text' => array_slice($texts, 0, 8),
-            'unrepresented_count' => count($texts),
-            'entity_schema' => 'generic/forms/v1',
-            'reason_code' => 'form_field_context_unrepresented',
-            'pattern_family' => 'interactive_form',
-            'repair_bucket' => 'materialize_form_provider',
-            'suggested_repair_class' => 'materialize_form_provider',
-            'source' => self::class,
-        );
-    }
-
-    /** @param array<string,mixed> $fallback @param array<int,array<string,mixed>> $files @return array<int,array<string,string>> */
-    private function supersededFormScripts(array $fallback, array $files, string $sourcePath): array
-    {
-        $files = ArtifactNormalizer::inlineOccurrences($files);
-        $ownedIds = array();
-        foreach ( array_merge(array($fallback['form'] ?? array()), ArrayField::array($fallback, 'controls')) as $row ) {
-            if ( is_array($row) && is_string($row['id'] ?? null) && '' !== trim($row['id']) ) $ownedIds[$row['id']] = true;
-        }
-        if ( is_string($fallback['html'] ?? null) && preg_match_all('/\bid\s*=\s*["\']([^"\']+)["\']/i', $fallback['html'], $matches) ) foreach ( $matches[1] as $id ) $ownedIds[(string) $id] = true;
-        if ( array() === $ownedIds ) return array();
-        $formId = is_array($fallback['form'] ?? null) && is_string($fallback['form']['id'] ?? null) ? trim($fallback['form']['id']) : '';
-        if ( '' === $formId ) return array();
-        $targetSelector = '#' . $formId;
-
-        $superseded = array();
-        foreach ( $files as $file ) {
-            if ( !is_array($file) || 'inline-script' !== ($file['source'] ?? null) || $sourcePath !== ($file['source_path'] ?? null) || $targetSelector !== ($file['superseded_by'] ?? null) || !is_string($file['selector'] ?? null) || !is_string($file['content'] ?? null) ) continue;
-            $script = trim($file['content']);
-            if ( '' === $script || preg_match('/\b(?:window|globalThis|fetch|XMLHttpRequest|WebSocket|EventSource|navigator|localStorage|sessionStorage|indexedDB|eval|import|createElement|appendChild|insertBefore)\b|document\s*\.\s*(?:cookie|location)/i', $script) ) continue;
-            if ( !preg_match_all('/document\s*\.\s*getElementById\s*\(\s*["\']([^"\']+)["\']\s*\)/i', $script, $lookups) || array() !== array_diff(array_unique($lookups[1]), array_keys($ownedIds)) ) continue;
-            $ownedVariables = array();
-            if ( preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*["\']([^"\']+)["\']\s*\)/i', $script, $assignments, PREG_SET_ORDER) ) foreach ( $assignments as $assignment ) if ( isset($ownedIds[$assignment[2]]) ) $ownedVariables[$assignment[1]] = true;
-            $withoutOwnedLookups = preg_replace('/document\s*\.\s*getElementById\s*\(\s*["\'][^"\']+["\']\s*\)/i', '', $script) ?? $script;
-            if ( preg_match('/\[\s*["\'][A-Za-z_$][A-Za-z0-9_$]*["\']\s*\]/', $withoutOwnedLookups) ) continue;
-            if ( preg_match('/\bdocument\s*\./i', $withoutOwnedLookups) ) continue;
-            if ( preg_match_all('/(?<![.\w$])([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/', $withoutOwnedLookups, $calls) && array_diff(array_unique($calls[1]), array('if', 'for', 'while', 'switch', 'catch', 'function')) ) continue;
-            if ( preg_match_all('/\.\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/', $withoutOwnedLookups, $memberCalls) && array_diff(array_unique($memberCalls[1]), array('addEventListener', 'preventDefault', 'querySelector', 'querySelectorAll', 'trim', 'forEach')) ) continue;
-            if ( preg_match('/\.\s*(?:parentElement|parentNode|ownerDocument|children|firstElementChild|lastElementChild|nextElementSibling|previousElementSibling)\b/i', $withoutOwnedLookups) ) continue;
-            if ( preg_match_all('/([A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*)\s*\.\s*querySelector(?:All)?\s*\(/', $withoutOwnedLookups, $queries) && array_diff(array_map(static fn(string $receiver): string => preg_replace('/\s+/', '', $receiver) ?? $receiver, array_unique($queries[1])), array_keys($ownedVariables)) ) continue;
-            if ( preg_match_all('/\.\s*([A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)?)\s*=/', $withoutOwnedLookups, $writes) && array_diff(array_map(static fn(string $property): string => preg_replace('/\s+/', '', $property) ?? $property, array_unique($writes[1])), array('textContent', 'style.background', 'style.borderColor', 'style.display', 'value')) ) continue;
-            $superseded[] = array('schema' => 'blocks-engine/provider-script-supersession/v1', 'source_path' => $sourcePath, 'selector' => $file['selector'], 'asset_source_path' => $file['path'], 'body_hash' => hash('sha256', $script), 'target_selector' => $targetSelector, 'reason' => 'provider_binding_replaces_form_behavior');
-        }
-        usort($superseded, static fn(array $left, array $right): int => strcmp($left['body_hash'], $right['body_hash']));
-        return $superseded;
-    }
-
-    /**
      * Compile a standalone source fragment through the canonical format bridge.
      *
      * @param array<string,mixed> $options Transformer context/provenance options.
@@ -1901,8 +1249,8 @@ final class ArtifactCompiler
         $analysisCache = $this->cacheHtmlAnalysis
             ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
             : new HtmlTransformerAnalysisCache();
-        $runtimeDomSelectors = $this->runtimeDomSelectors($html, $sourcePath, $files);
-        $runtimeProjectionSelectors = $this->runtimeProjectionSelectors($html, $sourcePath, $files);
+        $runtimeDomSelectors = $this->runtimeSelectors->runtimeDomSelectors($html, $sourcePath, $files);
+        $runtimeProjectionSelectors = $this->runtimeSelectors->runtimeProjectionSelectors($html, $sourcePath, $files);
         $runtimeProjectionScriptAssets = $this->runtimeProjectionScriptAssetsForSource($html, $sourcePath, $files);
         foreach ($themePreferenceOwnership as $ownership) {
             $ownerPath = $ownership['runtime_script_path'] ?? null;
@@ -1948,7 +1296,7 @@ final class ArtifactCompiler
             'runtime_projection_selectors' => $runtimeProjectionSelectors,
             'runtime_projection_script_assets' => $runtimeProjectionScriptAssets,
             'theme_preference_ownership' => $themePreferenceOwnership,
-            'runtime_canvas_selectors'  => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
+            'runtime_canvas_selectors'  => $this->runtimeSelectors->runtimeCanvasSelectors($html, $sourcePath, $files),
             'generated_block_namespace' => $generatedBlockNamespace,
             'generated_asset_root'       => $this->generatedAssetRoot,
             'extract_global_shell'       => $extractGlobalShell,
@@ -2017,7 +1365,7 @@ final class ArtifactCompiler
     private function runtimeIslandsWithMaterializedInlineScripts(array $runtimeIslands, string $sourcePath, array $files): array
     {
         $files = ArtifactNormalizer::inlineOccurrences($files);
-        $inlineScripts = array_values(array_filter($files, fn (mixed $file): bool => is_array($file) && 'inline-script' === ($file['source'] ?? '') && $sourcePath === ($file['source_path'] ?? '') && $this->isMaterializedScriptAsset($file)));
+        $inlineScripts = array_values(array_filter($files, fn (mixed $file): bool => is_array($file) && 'inline-script' === ($file['source'] ?? '') && $sourcePath === ($file['source_path'] ?? '') && ArtifactFileIndex::isMaterializedScriptAsset($file)));
         foreach ( $runtimeIslands as &$runtimeIsland ) {
             if ( ! is_array($runtimeIsland) || 'script' === ($runtimeIsland['kind'] ?? '') ) {
                 continue;
@@ -2043,7 +1391,7 @@ final class ArtifactCompiler
         unset($runtimeIsland);
 
         foreach ( $files as $file ) {
-            if ( ! is_array($file) || 'inline-script' !== ($file['source'] ?? '') || $sourcePath !== ($file['source_path'] ?? '') || ! $this->isMaterializedScriptAsset($file) ) {
+            if ( ! is_array($file) || 'inline-script' !== ($file['source'] ?? '') || $sourcePath !== ($file['source_path'] ?? '') || ! ArtifactFileIndex::isMaterializedScriptAsset($file) ) {
                 continue;
             }
 
@@ -2155,7 +1503,7 @@ final class ArtifactCompiler
         $html = $this->withoutMaterializedStyleTags($html, $entryPath, $files);
         $html = $this->withInlinedSvgSpriteSymbols($html, $entryPath, $files);
         $html = preg_replace_callback('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1[^>]*>/i', function (array $matches) use ($entryPath, $files): string {
-            $asset = $this->findAssetByHtmlReference((string) $matches[2], $entryPath, $files);
+            $asset = $this->fileIndex->findAssetByHtmlReference((string) $matches[2], $entryPath, $files);
             if ( is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') && ! $this->isSafeImageAsset($asset) ) {
                 return '';
             }
@@ -2186,7 +1534,7 @@ final class ArtifactCompiler
         $html = preg_replace_callback('/(<use\b[^>]*?\s(?:xlink:)?href\s*=\s*)(["\'])([^"\'#]+)#([^"\']+)\2/i', function (array $match) use ($entryPath, $files, &$sprites, &$definitions): string {
             $path = html_entity_decode($match[3], ENT_QUOTES | ENT_HTML5);
             if ( ! array_key_exists($path, $sprites) ) {
-                $asset = $this->findAssetByHtmlReference($path, $entryPath, $files);
+                $asset = $this->fileIndex->findAssetByHtmlReference($path, $entryPath, $files);
                 $content = is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') ? (string) ($asset['content'] ?? '') : '';
                 $sprite = new DOMDocument();
                 $sprites[$path] = '' !== $content && SourceDom::isSafeSvgContent($content) && $sprite->loadXML($content, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING) ? new DOMXPath($sprite) : null;
@@ -2239,7 +1587,7 @@ final class ArtifactCompiler
         $scriptIndex = 0;
         $hasDeclaredScriptFiles = false;
         foreach ( $files as $file ) {
-            if ( is_array($file) && 'inline-script' !== ($file['source'] ?? '') && $this->isMaterializedScriptAsset($file) ) {
+            if ( is_array($file) && 'inline-script' !== ($file['source'] ?? '') && ArtifactFileIndex::isMaterializedScriptAsset($file) ) {
                 $hasDeclaredScriptFiles = true;
                 break;
             }
@@ -2247,10 +1595,10 @@ final class ArtifactCompiler
 
         return preg_replace_callback('/<script\b([^>]*)>(.*?)<\/script>/is', function (array $matches) use ($entryPath, $files, $hasDeclaredScriptFiles, &$scriptIndex): string {
             ++$scriptIndex;
-            $src = $this->htmlAttribute((string) $matches[1], 'src');
+            $src = HtmlTagScanner::attribute((string) $matches[1], 'src');
             if ( '' !== $src ) {
-                $asset = $this->findAssetByHtmlReference($src, $entryPath, $files);
-                if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
+                $asset = $this->fileIndex->findAssetByHtmlReference($src, $entryPath, $files);
+                if ( ! is_array($asset) || ! ArtifactFileIndex::isMaterializedScriptAsset($asset) ) {
                     return $hasDeclaredScriptFiles ? (string) $matches[0] : '';
                 }
 
@@ -2279,7 +1627,7 @@ final class ArtifactCompiler
         $styleIndex = 0;
         return preg_replace_callback('/<style\b([^>]*)>(.*?)<\/style>/is', function (array $matches) use ($entryPath, $files, &$styleIndex): string {
             $attributes = (string) $matches[1];
-            if ( ! StyleTagScanner::isCssType($this->htmlAttribute($attributes, 'type')) || '' === trim((string) $matches[2]) ) {
+            if ( ! StyleTagScanner::isCssType(HtmlTagScanner::attribute($attributes, 'type')) || '' === trim((string) $matches[2]) ) {
                 return (string) $matches[0];
             }
 
@@ -2330,14 +1678,6 @@ final class ArtifactCompiler
         return $result;
     }
 
-    /** @param array<string, mixed> $asset */
-    private function isMaterializedScriptAsset(array $asset): bool
-    {
-        return in_array($asset['kind'] ?? '', array('js', 'mjs'), true)
-            || 'script' === ($asset['role'] ?? '')
-            || in_array($asset['mime_type'] ?? '', array('application/javascript', 'text/javascript', 'application/ecmascript', 'text/ecmascript'), true);
-    }
-
     /**
      * @param array<int, array<string, mixed>> $files
      * @return array<string, mixed>|null
@@ -2347,7 +1687,7 @@ final class ArtifactCompiler
         $files = ArtifactNormalizer::inlineOccurrences($files);
         $selector = 'script:nth-of-type(' . $scriptIndex . ')';
         foreach ( $files as $file ) {
-            if ( 'inline-script' !== ($file['source'] ?? '') || $entryPath !== ($file['source_path'] ?? '') || $selector !== ($file['selector'] ?? '') || ! $this->isMaterializedScriptAsset($file) ) {
+            if ( 'inline-script' !== ($file['source'] ?? '') || $entryPath !== ($file['source_path'] ?? '') || $selector !== ($file['selector'] ?? '') || ! ArtifactFileIndex::isMaterializedScriptAsset($file) ) {
                 continue;
             }
 
@@ -2455,7 +1795,7 @@ final class ArtifactCompiler
         foreach ( $tags as $tagRecord ) {
             if ( 'style' === $tagRecord['kind'] ) {
                 $attributes = $tagRecord['attributes'];
-                if ( ! StyleTagScanner::isCssType($this->htmlAttribute($attributes, 'type')) ) {
+                if ( ! StyleTagScanner::isCssType(HtmlTagScanner::attribute($attributes, 'type')) ) {
                     continue;
                 }
                 if ( '' === trim($tagRecord['content']) ) {
@@ -2474,20 +1814,20 @@ final class ArtifactCompiler
                     // Generated inline-style files can be omitted at the artifact
                     // file limit. Their source HTML was accepted independently,
                     // so retain the authored stylesheet for source analysis.
-                    $assets[] = array( 'path' => 'inline-style-' . $inlineIndex . '.css', 'source_path' => 'inline-style', 'content' => $content, 'source_hash' => hash('sha256', $content), 'media' => StyleTagScanner::authorMedia($attributes), 'type' => $this->htmlAttribute($attributes, 'type') );
+                    $assets[] = array( 'path' => 'inline-style-' . $inlineIndex . '.css', 'source_path' => 'inline-style', 'content' => $content, 'source_hash' => hash('sha256', $content), 'media' => StyleTagScanner::authorMedia($attributes), 'type' => HtmlTagScanner::attribute($attributes, 'type') );
                 }
                 $assets[array_key_last($assets)]['capture_only'] = StyleTagScanner::isCaptureOnly($attributes);
                 continue;
             }
             $tag = $tagRecord['tag'];
-            if ( ! preg_match('/^<link\b/i', $tag) || ! StyleTagScanner::isStylesheetRel($this->htmlAttribute((string) $tag, 'rel')) || ! StyleTagScanner::isCssType($this->htmlAttribute((string) $tag, 'type')) ) {
+            if ( ! preg_match('/^<link\b/i', $tag) || ! StyleTagScanner::isStylesheetRel(HtmlTagScanner::attribute((string) $tag, 'rel')) || ! StyleTagScanner::isCssType(HtmlTagScanner::attribute((string) $tag, 'type')) ) {
                 continue;
             }
-            $sourcePathForLink = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath, $files);
+            $sourcePathForLink = ArtifactPath::linkedFilePath(HtmlTagScanner::attribute((string) $tag, 'href'), $sourcePath, $files);
             $path = $sourcePathForLink;
             $file = $byPath[$path] ?? null;
             if ( is_array($file) ) {
-                $assets[] = array( 'path' => $path, 'source_path' => $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => StyleTagScanner::authorMedia((string) $tag), 'type' => $this->htmlAttribute((string) $tag, 'type') );
+                $assets[] = array( 'path' => $path, 'source_path' => $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => StyleTagScanner::authorMedia((string) $tag), 'type' => HtmlTagScanner::attribute((string) $tag, 'type') );
                 $assets[array_key_last($assets)]['stylesheet_activation'] = $activation[$tagRecord['offset']];
             }
         }
@@ -2526,7 +1866,7 @@ final class ArtifactCompiler
         }
         unset($file);
         $assets = array();
-        $scripts = $this->allScriptContents($files);
+        $scripts = $this->fileIndex->allScriptContents($files);
         foreach ($files as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null)) continue;
             // An included component is replayed inside each document that includes it.
@@ -2607,6 +1947,14 @@ final class ArtifactCompiler
                     $importsByPath[$path] = $import;
                     continue;
                 }
+                if ($importsByPath[$path]['content'] !== $import['content']) {
+                    // Nested intersections may differ between occurrences of
+                    // one target. Preserve their union as separately gated CSS.
+                    $importsByPath[$path]['content'] = MediaCondition::wrap($importsByPath[$path]['content'], array($importsByPath[$path]['media']))
+                        . MediaCondition::wrap($import['content'], array($import['media']));
+                    $importsByPath[$path]['media'] = '';
+                    continue;
+                }
                 $media = array($importsByPath[$path]['media'], $import['media']);
                 $importsByPath[$path]['media'] = in_array('', $media, true) ? '' : implode(', ', array_unique($media));
             }
@@ -2614,7 +1962,7 @@ final class ArtifactCompiler
         return array_merge($assets, array_values($importsByPath));
     }
 
-    private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false, ?array &$imports = null, string $inheritedMedia = ''): string
+    private function compatibilityStylesheetContent(string $css, string $path, array $files, array $ancestors = array(), bool $importedLayer = false, ?array &$imports = null, string $inheritedMedia = '', array $nestedMedia = array()): string
     {
         if (isset($ancestors[$path])) return '';
         $ancestors[$path] = true;
@@ -2630,7 +1978,7 @@ final class ArtifactCompiler
             }
             $reference = $match[1] ?: ($match[2] ?: ($match[3] ?: ($match[4] ?: $match[5])));
             // Root-relative imports name the captured site root, like root-relative <link> hrefs.
-            $importPath = isset($byPath[$reference]) ? $reference : $this->stylesheetPathFromHref($reference, $path, $files);
+            $importPath = isset($byPath[$reference]) ? $reference : ArtifactPath::linkedFilePath($reference, $path, $files);
             $file = $byPath[$importPath] ?? null;
             if (!is_array($file) || 'css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) continue;
             $conditions = CssValueSplitter::splitTopLevelWhitespace(trim($match[6]));
@@ -2645,11 +1993,16 @@ final class ArtifactCompiler
                 array_shift($conditions);
             }
             $media = implode(' ', $conditions);
-            $projectionMedia = '' === $inheritedMedia ? $media : ('' === $media ? $inheritedMedia : $inheritedMedia . ' and ' . $media);
-            if (null !== $imports && !isset($ancestors[$importPath])) {
-                $imports[] = array('path' => $importPath, 'source_path' => $importPath, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])), 'media' => $projectionMedia, 'cascade_content' => '');
+            $projectionMedia = MediaCondition::combine($inheritedMedia, $media);
+            $projectionNestedMedia = $nestedMedia;
+            if (null === $projectionMedia) {
+                $projectionNestedMedia[] = $inheritedMedia;
+                $projectionMedia = $media;
             }
-            $content = $this->compatibilityStylesheetContent($file['content'], $importPath, $files, $ancestors, $importedLayer || '' !== $layer, $imports, $projectionMedia);
+            if (null !== $imports && !isset($ancestors[$importPath])) {
+                $imports[] = array('path' => $importPath, 'source_path' => $importPath, 'content' => MediaCondition::wrap($file['content'], $projectionNestedMedia), 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])), 'media' => $projectionMedia, 'cascade_content' => '');
+            }
+            $content = $this->compatibilityStylesheetContent($file['content'], $importPath, $files, $ancestors, $importedLayer || '' !== $layer, $imports, $projectionMedia, $projectionNestedMedia);
             if (array() !== $conditions) $content = '@media ' . $media . '{' . $content . '}';
             if ('' !== $supports) $content = $supports . '{' . $content . '}';
             if ('' !== $layer) $content = $layer . '{' . $content . '}';
@@ -2661,7 +2014,7 @@ final class ArtifactCompiler
     /** @param array<int, array<string, mixed>> $files */
     private function artifactRelativeStylesheetContent(string $content, string $stylesheetPath, array $files): string
     {
-        $paths = array() !== $this->filesByPath ? $this->filesByPath : array_fill_keys(array_column($files, 'path'), true);
+        $paths = $this->fileIndex->knownPaths($files);
         return CssUrlRewriter::rewrite($content, static function (string $reference) use ($stylesheetPath, $paths): string {
             if ('' === $reference || preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $reference)) return $reference;
             preg_match('/^([^?#]*)(.*)$/s', $reference, $parts);
@@ -2707,8 +2060,8 @@ final class ArtifactCompiler
             $activation = StylesheetActivation::links($document['content']);
             foreach ( $links as $linkIndex => $link ) {
                 $tag = $link['tag'];
-                if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute($tag, 'rel')) || ! StyleTagScanner::isCssType($this->htmlAttribute($tag, 'type')) ) continue;
-                $sourcePath = $this->stylesheetPathFromHref($this->htmlAttribute($tag, 'href'), $documentPath, $files);
+                if ( ! StyleTagScanner::isStylesheetRel(HtmlTagScanner::attribute($tag, 'rel')) || ! StyleTagScanner::isCssType(HtmlTagScanner::attribute($tag, 'type')) ) continue;
+                $sourcePath = ArtifactPath::linkedFilePath(HtmlTagScanner::attribute($tag, 'href'), $documentPath, $files);
                 $index = $byPath[$sourcePath] ?? null;
                 if ( ! is_int($index) || 'css' !== ($files[$index]['kind'] ?? null) ) continue;
                 $state = $activation[$link['offset']];
@@ -2718,8 +2071,8 @@ final class ArtifactCompiler
                     'selector' => 'link:nth-of-type(' . ($linkIndex + 1) . ')',
                     'element' => 'link',
                     'attribute' => 'href',
-                    'value' => $this->htmlAttribute($tag, 'href'),
-                    'url' => $this->htmlAttribute($tag, 'href'),
+                    'value' => HtmlTagScanner::attribute($tag, 'href'),
+                    'url' => HtmlTagScanner::attribute($tag, 'href'),
                 );
                 if ( isset($variants[$sourcePath][$variant]) ) {
                     $variantIndex = $byPath[$variants[$sourcePath][$variant]] ?? null;
@@ -2732,7 +2085,7 @@ final class ArtifactCompiler
                 // Every accepted CSS link type is equivalent, so the resource
                 // records the first instance's declared type as metadata.
                 $media = $uniformMedia[$sourcePath] ?? ($files[$index]['media'] ?? '');
-                $type = $files[$index]['type'] ?? trim($this->htmlAttribute($tag, 'type'));
+                $type = $files[$index]['type'] ?? trim(HtmlTagScanner::attribute($tag, 'type'));
                 if ( ! isset($variants[$sourcePath]) ) {
                     $variants[$sourcePath][$variant] = $sourcePath;
                     $files[$index]['media'] = $media;
@@ -2790,58 +2143,19 @@ final class ArtifactCompiler
             }
             foreach ( StyleTagScanner::scanLinks($file['content']) as $link ) {
                 $tag = (string) $link['tag'];
-                if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute($tag, 'rel')) || ! StyleTagScanner::isCssType($this->htmlAttribute($tag, 'type')) ) {
+                if ( ! StyleTagScanner::isStylesheetRel(HtmlTagScanner::attribute($tag, 'rel')) || ! StyleTagScanner::isCssType(HtmlTagScanner::attribute($tag, 'type')) ) {
                     continue;
                 }
-                $path = $this->stylesheetPathFromHref($this->htmlAttribute($tag, 'href'), (string) $file['path'], $files);
+                $path = ArtifactPath::linkedFilePath(HtmlTagScanner::attribute($tag, 'href'), (string) $file['path'], $files);
                 if ( '' === $path ) {
                     continue;
                 }
-                $value = trim($this->htmlAttribute($tag, 'media'));
+                $value = trim(HtmlTagScanner::attribute($tag, 'media'));
                 $media[$path] = array_key_exists($path, $media) && $media[$path] !== $value ? '' : $value;
             }
         }
 
         return array_filter($media, static fn (string $value): bool => '' !== $value && 'all' !== strtolower($value));
-    }
-
-    /** @param array<int, array<string, mixed>> $files */
-    private function stylesheetPathFromHref(string $href, string $sourcePath, array $files = array()): string
-    {
-        $href = (string) preg_replace('/[?#].*$/', '', $href);
-        if ( ! str_starts_with($href, '/') ) {
-            return ArtifactPath::resolveRelativePath($href, $sourcePath);
-        }
-
-        return $this->artifactRootRelativePath($href, $sourcePath, array_fill_keys(array_column($files, 'path'), true));
-    }
-
-    /** @param array<string, true> $paths */
-    private function artifactRootRelativePath(string $reference, string $sourcePath, array $paths): string
-    {
-        // Root-relative URLs need the same segment decoding and traversal checks
-        // as document-relative references, before exact or suffix lookup.
-        $relative = ArtifactPath::resolveRelativePath(ltrim($reference, '/'));
-        if ( '' === $relative || isset($paths[$relative]) ) {
-            return $relative;
-        }
-
-        $sourceSegments = explode('/', dirname($sourcePath));
-        $matches = array();
-        foreach ( array_keys($paths) as $path ) {
-            if ( ! str_ends_with($path, '/' . $relative) ) {
-                continue;
-            }
-            $candidateSegments = explode('/', dirname($path));
-            $common = 0;
-            while ( isset($sourceSegments[$common], $candidateSegments[$common]) && $sourceSegments[$common] === $candidateSegments[$common] ) {
-                ++$common;
-            }
-            $matches[] = array( 'path' => $path, 'common' => $common );
-        }
-        usort($matches, static fn (array $left, array $right): int => $right['common'] <=> $left['common'] ?: strcmp($left['path'], $right['path']));
-
-        return isset($matches[0]) && $matches[0]['common'] > 0 ? (string) $matches[0]['path'] : $relative;
     }
 
     private function stylesheetOccurrencePath(string $path, int $occurrence): string
@@ -3138,7 +2452,6 @@ final class ArtifactCompiler
         return $candidate;
     }
 
-
     /**
      * Drop stylesheet arms that require a class or id no other site file names
      * (see {@see UnreachableSelectorPruner}). Each stylesheet is pruned against
@@ -3231,145 +2544,6 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array<int, array<string, mixed>> $files
-     * @param array<int, array<string, mixed>> $projections
-     * @return array<int, array<string, mixed>>
-     */
-    private function applyRuntimeScriptProjections(array $files, array $projections): array
-    {
-        $byPath = $this->runtimeScriptProjectionMap($projections, 'path');
-
-        foreach ( $files as &$file ) {
-            $pathProjection = $byPath[$file['path'] ?? ''] ?? null;
-            if ( ! is_array($pathProjection) || ! in_array($file['kind'] ?? '', array('js', 'mjs'), true) || ! is_string($file['content'] ?? null) ) {
-                continue;
-            }
-            $content = $this->projectRuntimeScriptContent($file['content'], $pathProjection);
-            if ( $content === $file['content'] ) {
-                continue;
-            }
-            $file = ArtifactNormalizer::withTextPayload($file, $content);
-            $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
-            $file['provenance']['hash'] = hash('sha256', $content);
-        }
-        unset($file);
-
-        return $files;
-    }
-
-    /** @param array<string, mixed> $package @param array<int, array<string, mixed>> $projections @return array<string, mixed> */
-    private function applyRuntimeScriptPackageProjections(array $package, array $projections): array
-    {
-        if ( ! is_array($package['islands'] ?? null) ) {
-            return $package;
-        }
-        foreach ( $package['islands'] as &$island ) {
-            if ( ! is_array($island['scripts'] ?? null) ) {
-                continue;
-            }
-            foreach ( $island['scripts'] as &$script ) {
-                if ( ! is_string($script['content'] ?? null) ) {
-                    continue;
-                }
-                $projection = $this->runtimeScriptProjectionForContent($script['content'], $projections);
-                if ( is_array($projection) ) {
-                    $script['content'] = $this->projectRuntimeScriptContent($script['content'], $projection);
-                }
-            }
-            unset($script);
-        }
-        unset($island);
-
-        return $package;
-    }
-
-    /** @param array<int, array<string, mixed>> $projections @return array<string, array<string, true>> */
-    private function runtimeScriptProjectionForContent(string $content, array $projections): array
-    {
-        $matched = array();
-        foreach ( $projections as $projection ) {
-            if ( ! is_array($projection) ) {
-                continue;
-            }
-            foreach ( $projection['selectors'] ?? array() as $selector => $markers ) {
-                if ( ! is_string($selector) || ! is_array($markers) || ! preg_match('~(?:querySelector(?:All)?|closest|matches)\s*\(\s*(["\'])' . preg_quote($selector, '~') . '\1~', $content) ) {
-                    continue;
-                }
-                foreach ( $markers as $marker ) {
-                    if ( is_string($marker) && '' !== $marker ) {
-                        $matched[$selector][$marker] = true;
-                    }
-                }
-            }
-            foreach ( $projection['superseded_ids'] ?? array() as $id ) {
-                if ( is_string($id) && '' !== $id && preg_match('~getElementById\s*\(\s*(["\'])' . preg_quote($id, '~') . '\1\s*\)~', $content) ) {
-                    $matched['superseded_ids'][$id] = true;
-                }
-            }
-        }
-
-        return $matched;
-    }
-
-    /** @param array<int, array<string, mixed>> $projections @return array<string, array<string, array<string, true>>> */
-    private function runtimeScriptProjectionMap(array $projections, string $identityKey): array
-    {
-        $map = array();
-        foreach ( $projections as $projection ) {
-            if ( ! is_array($projection) ) {
-                continue;
-            }
-            $identity = $projection[$identityKey] ?? null;
-            if ( ! is_string($identity) || '' === $identity || ! is_array($projection['selectors'] ?? null) || ! is_array($projection['superseded_ids'] ?? null) ) {
-                continue;
-            }
-            foreach ( $projection['selectors'] as $selector => $markers ) {
-                if ( ! is_string($selector) || ! is_array($markers) ) {
-                    continue;
-                }
-                foreach ( $markers as $marker ) {
-                    if ( is_string($marker) && '' !== $marker ) {
-                        $map[$identity][$selector][$marker] = true;
-                    }
-                }
-            }
-            foreach ( $projection['superseded_ids'] as $id ) {
-                if ( is_string($id) && '' !== $id ) {
-                    $map[$identity]['superseded_ids'][$id] = true;
-                }
-            }
-        }
-
-        return $map;
-    }
-
-    /** @param array<string, array<string, true>> $projection */
-    private function projectRuntimeScriptContent(string $content, array $projection): string
-    {
-        foreach ( $projection as $selector => $markers ) {
-            if ( 'superseded_ids' === $selector ) {
-                continue;
-            }
-            $projectedSelector = implode(',', array_map(static fn (string $marker): string => '.' . $marker, array_keys($markers)));
-            $selectorPattern = preg_quote($selector, '~');
-            $content = preg_replace_callback(
-                '~((?:querySelector(?:All)?|closest|matches)\s*\(\s*)(["\'])' . $selectorPattern . '\2~',
-                static fn (array $match): string => $match[1] . $match[2] . $projectedSelector . $match[2],
-                $content
-            ) ?? $content;
-        }
-        foreach ( array_keys($projection['superseded_ids'] ?? array()) as $id ) {
-            $content = preg_replace_callback(
-                '~document\s*\.\s*getElementById\s*\(\s*(["\'])' . preg_quote($id, '~') . '\1\s*\)~',
-                static fn (array $match): string => '(' . $match[0] . " || document.createElement('div'))",
-                $content
-            ) ?? $content;
-        }
-
-        return $content;
-    }
-
-    /**
      * Compile non-entry HTML documents once so their stylesheet projections are
      * available before theme assets are materialized.
      *
@@ -3380,7 +2554,7 @@ final class ArtifactCompiler
     {
         $documents = array();
         foreach ( $files as $file ) {
-            if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
+            if ( 'html' !== ($file['kind'] ?? '') || HtmlFragmentIncludes::isTemplatePartFile($file) ) {
                 continue;
             }
             $path = (string) ($file['path'] ?? '');
@@ -3437,13 +2611,13 @@ final class ArtifactCompiler
             if ( 'html' !== ($document['kind'] ?? null) || ! is_string($document['path'] ?? null) || ! is_string($document['content'] ?? null) ) continue;
             foreach ( StyleTagScanner::scanLinks($document['content']) as $link ) {
                 $tag = $link['tag'];
-                if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute($tag, 'rel'))
-                    || ! StyleTagScanner::isCssType($this->htmlAttribute($tag, 'type')) ) continue;
-                $path = $this->stylesheetPathFromHref($this->htmlAttribute($tag, 'href'), $document['path'], $files);
+                if ( ! StyleTagScanner::isStylesheetRel(HtmlTagScanner::attribute($tag, 'rel'))
+                    || ! StyleTagScanner::isCssType(HtmlTagScanner::attribute($tag, 'type')) ) continue;
+                $path = ArtifactPath::linkedFilePath(HtmlTagScanner::attribute($tag, 'href'), $document['path'], $files);
                 if ( '' !== $path ) $linkedStylesheetPaths[$path] = true;
             }
             foreach (StyleTagScanner::scan($document['content']) as $style) {
-                if (StyleTagScanner::isCssType($this->htmlAttribute($style['attributes'], 'type'))) {
+                if (StyleTagScanner::isCssType(HtmlTagScanner::attribute($style['attributes'], 'type'))) {
                     $importQueue[] = array($document['path'], $style['content']);
                 }
             }
@@ -3461,7 +2635,7 @@ final class ArtifactCompiler
                 $clean = preg_replace('#^(?:\s|/\*.*?\*/)*#s', '', $statement) ?? $statement;
                 if (!preg_match('/^@import\s+(?:url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s)]+))\s*\)|"([^"]+)"|\'([^\']+)\')/is', $clean, $match)) continue;
                 $reference = $match[1] ?: ($match[2] ?: ($match[3] ?: ($match[4] ?: $match[5])));
-                $path = $this->stylesheetPathFromHref($reference, $sourcePath, $files);
+                $path = ArtifactPath::linkedFilePath($reference, $sourcePath, $files);
                 if ('' === $path || isset($linkedStylesheetPaths[$path])) continue;
                 $linkedStylesheetPaths[$path] = true;
                 $importQueue[] = array($path, $byPath[$path]['content'] ?? '');
@@ -3701,299 +2875,6 @@ final class ArtifactCompiler
         );
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, string>
-     */
-    private function runtimeDomSelectors(string $html, string $sourcePath, array $files): array
-    {
-        $hasDeclaredScriptFiles = false;
-        foreach ( $files as $file ) {
-            if ( is_array($file) && 'inline-script' !== ($file['source'] ?? '') && $this->isMaterializedScriptAsset($file) ) {
-                $hasDeclaredScriptFiles = true;
-                break;
-            }
-        }
-        $documentScripts = $this->documentScriptContents($html, $sourcePath, $files);
-        if ( ! $hasDeclaredScriptFiles && array() === $documentScripts ) {
-            return array();
-        }
-
-        $selectors = array();
-        $controlSelectors = $this->formControlSelectors($html);
-        $statusFeedbackSelectors = $this->formStatusFeedbackSelectors($html);
-        foreach ( $documentScripts as $script ) {
-            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
-                $selector = (string) $dependency['selector'];
-                if ( ! $hasDeclaredScriptFiles && ! str_contains($selector, '[data-')
-                    && ! $this->runtimeScriptEvidenceAnalyzer->hasTextOnlyMutations($script, $selector) ) {
-                    continue;
-                }
-                if ( true === $dependency['presentation_only'] ) {
-                    continue;
-                }
-                if ( isset($controlSelectors[$selector]) && true !== $dependency['control_runtime'] ) {
-                    continue;
-                }
-                $selectors[$selector] = true;
-            }
-        }
-
-        foreach ( $this->allScriptContents($files) as $script ) {
-            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
-                $selector = (string) $dependency['selector'];
-                if ( true === $dependency['presentation_only'] ) {
-                    continue;
-                }
-                if ( isset($statusFeedbackSelectors[$selector]) ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * Presentation-only scripts still need stable DOM identities when editable
-     * block serialization cannot retain their source data attributes.
-     *
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, string>
-     */
-    private function runtimeProjectionSelectors(string $html, string $sourcePath, array $files): array
-    {
-        $selectors = array();
-        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
-            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
-                $selector = (string) $dependency['selector'];
-                if ( str_contains($selector, '[data-') && true === $dependency['presentation_only'] ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * @return array<string, bool>
-     */
-    private function formStatusFeedbackSelectors(string $html): array
-    {
-        $selectors = array();
-        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
-
-        foreach ( $document->getElementsByTagName('*') as $element ) {
-            if ( ! $element instanceof DOMElement || ! $this->isFormStatusFeedbackElement($element) ) {
-                continue;
-            }
-
-            $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
-            if ( '' !== $id ) {
-                $selectors['#' . $id] = true;
-            }
-            foreach ( SourceDom::tokens($element->hasAttribute('class') ? $element->getAttribute('class') : '') as $class ) {
-                if ( '' !== $class && ! $this->isBehaviorHookClassName($class) ) {
-                    $selectors['.' . $class] = true;
-                }
-            }
-        }
-
-        return $selectors;
-    }
-
-    private function isFormStatusFeedbackElement(DOMElement $element): bool
-    {
-        if ( in_array(strtolower($element->tagName), array('button', 'input', 'select', 'textarea', 'form', 'script', 'style'), true) ) {
-            return false;
-        }
-
-        $tokens = strtolower(trim(implode(' ', array(
-            $element->hasAttribute('id') ? $element->getAttribute('id') : '',
-            $element->hasAttribute('class') ? $element->getAttribute('class') : '',
-            $element->hasAttribute('role') ? $element->getAttribute('role') : '',
-            $element->hasAttribute('aria-live') ? 'aria-live' : '',
-        ))));
-
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:form|contact|newsletter|signup|subscribe|submission|submit|message|status|feedback|alert|notice|response|success|error|warning|confirmation|thanks?)(?:[^a-z0-9]|$)/', $tokens)
-            && (bool) preg_match('/(?:^|[^a-z0-9])(?:success|error|message|status|feedback|alert|notice|response|warning|confirmation|thanks?|aria-live)(?:[^a-z0-9]|$)/', $tokens);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, string>
-     */
-    private function runtimeCanvasSelectors(string $html, string $sourcePath, array $files): array
-    {
-        $canvasSelectors = $this->canvasSelectors($html);
-        if ( array() === $canvasSelectors ) {
-            return array();
-        }
-
-        $selectors = array();
-        $scripts = $this->documentScriptContents($html, $sourcePath, $files);
-        foreach ( $scripts as $script ) {
-            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['canvas_selectors'] as $selector ) {
-                if ( isset($canvasSelectors[$selector]) ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-
-        $combinedScripts = implode("\n", $scripts);
-        if ( 1 === preg_match('/\.\s*getContext\s*\(/', $combinedScripts) ) {
-            foreach ( $this->scriptCanvasArgumentSelectors($combinedScripts) as $selector ) {
-                if ( isset($canvasSelectors[$selector]) ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function scriptCanvasArgumentSelectors(string $script): array
-    {
-        $selectors = array();
-        if ( preg_match_all('/\b[A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*\s*\([^;)]*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $id ) {
-                $selectors['#' . (string) $id] = true;
-            }
-        }
-
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . RuntimeSelectorVocabulary::scriptSelectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER) ) {
-            foreach ( $assignments as $assignment ) {
-                $variable = (string) $assignment[1];
-                if ( ! preg_match('/(?:\bnew\s+)?\b[A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*\s*\([^;)]*\b' . preg_quote($variable, '/') . '\b/', $script) ) {
-                    continue;
-                }
-                $selectors['' !== (string) ($assignment[3] ?? '') ? '#' . (string) $assignment[3] : (string) $assignment[5]] = true;
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * @return array<string, bool>
-     */
-    private function canvasSelectors(string $html): array
-    {
-        $selectors = array();
-        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
-
-        foreach ( $document->getElementsByTagName('canvas') as $canvas ) {
-            if ( ! $canvas instanceof DOMElement ) {
-                continue;
-            }
-            $id = trim($canvas->hasAttribute('id') ? $canvas->getAttribute('id') : '');
-            if ( '' !== $id ) {
-                $selectors['#' . $id] = true;
-            }
-            foreach ( SourceDom::tokens($canvas->hasAttribute('class') ? $canvas->getAttribute('class') : '') as $class ) {
-                if ( '' !== $class ) {
-                    $selectors['.' . $class] = true;
-                    $selectors['canvas.' . $class] = true;
-                }
-            }
-            $selectors['canvas'] = true;
-        }
-
-        return $selectors;
-    }
-
-    /**
-     * @return array<string, bool>
-     */
-    private function formControlSelectors(string $html): array
-    {
-        $selectors = array();
-        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
-
-        foreach ( $document->getElementsByTagName('*') as $element ) {
-            if ( ! $element instanceof DOMElement || ! in_array(strtolower($element->tagName), array('button', 'input', 'select', 'textarea'), true) ) {
-                continue;
-            }
-
-            $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
-            if ( '' !== $id ) {
-                $selectors['#' . $id] = true;
-            }
-            foreach ( SourceDom::tokens($element->hasAttribute('class') ? $element->getAttribute('class') : '') as $class ) {
-                if ( '' !== $class ) {
-                    $selectors['.' . $class] = true;
-                }
-            }
-        }
-
-        return $selectors;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, string>
-     */
-    private function allScriptContents(array $files): array
-    {
-        if ( array() !== $this->filesByPath ) {
-            return $this->scriptContents;
-        }
-
-        $scripts = array();
-        foreach ( $files as $file ) {
-            if ( $this->isMaterializedScriptAsset($file) && is_string($file['content'] ?? null) ) {
-                $scripts[] = (string) $file['content'];
-            }
-        }
-
-        return $scripts;
-    }
-
-    private function isBehaviorHookClassName(string $className): bool
-    {
-        return 1 === preg_match('/^js(?:$|[-_:]|[A-Z])/', $className);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, string>
-     */
-    private function documentScriptContents(string $html, string $sourcePath, array $files): array
-    {
-        $scripts = array();
-        foreach ( HtmlTagScanner::scan($html, 'script') as $script ) {
-            // Capture replay interpreters address captured evidence, not source
-            // behavior; treating their queries as dependencies would preserve
-            // every captured target as a runtime island.
-            if (CaptureReplayScripts::isReplayScript($script['tag'])) continue;
-            // Device overlays replay capture presentation, not author behavior.
-            // Exclude the marked script before selector evidence is extracted;
-            // an author script using the same selectors must still count.
-            if (array_key_exists(CaptureEvidence::DEVICE_BODY, HtmlTagScanner::attributes($script['tag']))) continue;
-            $src = $this->htmlAttribute($script['tag'], 'src');
-            if ( '' === $src ) {
-                $scripts[] = $script['content'];
-                continue;
-            }
-
-            $asset = $this->findAssetByHtmlReference($src, $sourcePath, $files);
-            if ( is_array($asset) && $this->isMaterializedScriptAsset($asset) && is_string($asset['content'] ?? null) ) {
-                $scripts[] = (string) $asset['content'];
-            }
-        }
-
-        return $scripts;
-    }
-
-    private function htmlAttribute(string $tag, string $name): string
-    {
-        return HtmlTagScanner::attributes($tag)[strtolower($name)] ?? '';
-    }
-
     private function hasHtmlAttribute(string $tag, string $name): bool
     {
         return array_key_exists(strtolower($name), HtmlTagScanner::attributes($tag));
@@ -4007,18 +2888,10 @@ final class ArtifactCompiler
     {
         return ( new ReferenceAnalyzer() )->referenceReports(
             $files,
-            fn (array $file): bool => $this->isLinkableDocument($file),
+            fn (array $file): bool => ArtifactFileIndex::isLinkableDocument($file),
             fn (array $asset): bool => $this->isSafeImageAsset($asset),
             '.' === dirname($entryPath) ? '' : dirname($entryPath)
         );
-    }
-
-    /**
-     * @param array<string, mixed> $file
-     */
-    private function isLinkableDocument(array $file): bool
-    {
-        return in_array($file['kind'] ?? '', array('html', 'blocks'), true) && ! $this->isTemplatePartFile($file);
     }
 
     /**
@@ -4042,7 +2915,7 @@ final class ArtifactCompiler
             foreach (array_unique($styleMatches[0]) as $style) {
                 $href = preg_match('/^<link\b[^>]*\bhref="([^"]+)"/i', $style, $hrefMatch) ? (string) strtok(html_entity_decode($hrefMatch[1]), '?#') : null;
                 // Root-relative hrefs resolve from the site root, the entry's directory.
-                $css = null === $href ? $style : (string) ($this->findAssetByHtmlReference($href, str_starts_with($href, '/') ? $entryPath : (string) $path, $files)['content'] ?? '');
+                $css = null === $href ? $style : (string) ($this->fileIndex->findAssetByHtmlReference($href, str_starts_with($href, '/') ? $entryPath : (string) $path, $files)['content'] ?? '');
                 foreach (array_unique($idMatches[1]) as $id) {
                     if (str_contains($css, $id)) { $loaded[$path][$style] = true; $counts[$style] = ($counts[$style] ?? 0) + 1; break; }
                 }
@@ -4063,7 +2936,7 @@ final class ArtifactCompiler
     {
         $documents = array();
         foreach ($files as $file) {
-            if ('html' !== ($file['kind'] ?? null) || $this->isTemplatePartFile($file) || !is_string($file['content'] ?? null) || '' === trim($file['content'])) continue;
+            if ('html' !== ($file['kind'] ?? null) || HtmlFragmentIncludes::isTemplatePartFile($file) || !is_string($file['content'] ?? null) || '' === trim($file['content'])) continue;
             $dom = HtmlSerialization::parseDocument((string) $file['content']);
             $rows = array('header' => array(), 'footer' => array());
             $body = $dom->getElementsByTagName('body')->item(0);
@@ -4168,20 +3041,20 @@ final class ArtifactCompiler
                     $siteContexts[] = $document['rows'][$area][$variant]['context'] ?? array();
                 }
                 $siteContext = self::sharedSourceShellAncestorContext($siteContexts);
-                $siteProjections = array();
+                $contextMatches = null;
                 if ($context !== $siteContext) {
                     $siteOpen = ''; $siteClose = '';
                     foreach (array_slice($siteContext, 2) as $ancestor) { $siteOpen .= '<' . $ancestor['tag'] . self::sourceShellAttributes($ancestor['attributes']) . '>'; $siteClose = '</' . $ancestor['tag'] . '>' . $siteClose; }
                     $siteSynthetic = '<!doctype html><html' . self::sourceShellAttributes($siteContext[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . self::sourceShellAttributes($siteContext[1]['attributes'] ?? array()) . '>' . $siteOpen . $canonicalMarkup . $siteClose . '</body></html>';
-                    $siteCompiled = $this->compileHtmlDocumentBlocks($siteSynthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($siteContext) - 2));
-                    foreach ($siteCompiled['author_stylesheet_projections'] as $projection) {
-                        $siteProjections[$projection['path']] = $projection['content'];
-                    }
+                    $contextMatches = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex(array(
+                        'member' => HtmlSerialization::parseDocument($synthetic),
+                        'site' => HtmlSerialization::parseDocument($siteSynthetic),
+                    ));
                 }
                 foreach ($compiled['author_stylesheet_projections'] as $projection) {
                     // Only scope stylesheets whose projection actually depends
                     // on the additional member context, not unrelated resets.
-                    if ($context !== $siteContext && ($siteProjections[$projection['path']] ?? null) !== $projection['content']) $projection['member_owners'] = array_keys($members);
+                    if (null !== $contextMatches && $this->sharedShellStylesheetDependsOnContext($projection, $synthetic, $sourcePath, $files, $contextMatches)) $projection['member_owners'] = array_keys($members);
                     $authorStylesheetProjections[] = $projection;
                 }
                 $runtimeScriptProjections = array_merge($runtimeScriptProjections, $compiled['runtime_script_projections']);
@@ -4194,6 +3067,32 @@ final class ArtifactCompiler
             'author_stylesheet_projections' => $authorStylesheetProjections,
             'runtime_script_projections' => $runtimeScriptProjections,
         );
+    }
+
+    /**
+     * Compare rule reachability in the two source contexts, not a second block
+     * compilation. Visit the original stylesheet (including imports): projected
+     * selectors may already have replaced the ancestor with a generated marker.
+     * The existing selector index handles functional selectors and interaction
+     * states; no declarations or cascade are resolved here.
+     */
+    private function sharedShellStylesheetDependsOnContext(array $projection, string $html, string $sourcePath, array $files, \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex $matches): bool
+    {
+        $depends = false;
+        $transformer = new CssStylesheetTransformer();
+        $assets = $this->authorStylesheetAssetsWithImports($this->stylesheetAssetsForSource($html, $sourcePath, $files, true), $files);
+        foreach ($assets as $asset) {
+            if (($asset['path'] ?? null) !== $projection['path']) continue;
+            $transformer->visitStyleRules($asset['content'], static function (string $prelude) use ($matches, &$depends): void {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    $member = $matches->matchedElements($selector, 'member');
+                    $site = $matches->matchedElements($selector, 'site');
+                    // An arm the index cannot evaluate cannot disprove context dependence.
+                    if (null === $member || null === $site || count($member) !== count($site)) $depends = true;
+                }
+            });
+        }
+        return $depends;
     }
 
     /**
@@ -4388,7 +3287,7 @@ final class ArtifactCompiler
         }
         $titleCounts = array();
         foreach ( $artifact['files'] as $file ) {
-            if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
+            if ( 'html' !== ($file['kind'] ?? '') || HtmlFragmentIncludes::isTemplatePartFile($file) ) {
                 continue;
             }
             $declaration = HtmlTagScanner::scan((string) ($file['content'] ?? ''), 'title')[0] ?? null;
@@ -4397,16 +3296,16 @@ final class ArtifactCompiler
                 $titleCounts[$key] = ($titleCounts[$key] ?? 0) + 1;
             }
         }
-        $sharedTitle = $this->sharedDocumentTitleSegment($artifact['files']);
+        $sharedTitle = $this->titles->sharedDocumentTitleSegment($artifact['files']);
         $siteNameSegments = $sharedTitle['segments'];
         $siteNameEdge = $sharedTitle['edge'];
-        $entryNavigationLabel = $this->entryNavigationLabel($artifact['files'], $siteNameSegments);
+        $entryNavigationLabel = $this->titles->entryNavigationLabel($artifact['files'], $siteNameSegments);
         $entryTitle = '';
         $entryDocumentTitle = '';
         foreach ( $artifact['files'] as $file ) {
             if ( $entryPath === ($file['path'] ?? '') ) {
                 $entryHtml = (string) ($file['content'] ?? '');
-                $entryTitle = $this->titleFromHtml($entryHtml, $entryPath, $entryPath, '', $siteNameSegments, $siteNameEdge, $entryNavigationLabel, '', $titleCounts, $artifact['files']);
+                $entryTitle = $this->titles->titleFromHtml($entryHtml, $entryPath, $entryPath, '', $siteNameSegments, $siteNameEdge, $entryNavigationLabel, '', $titleCounts, $artifact['files'], $file['metadata']['declared_content']['title'] ?? null);
                 $entryTitles = HtmlTagScanner::scan($entryHtml, 'title');
                 if ( isset($entryTitles[0]) ) {
                     $entryDocumentTitle = $entryTitles[0]['content'];
@@ -4415,13 +3314,13 @@ final class ArtifactCompiler
             }
         }
         foreach ( $artifact['files'] as $file ) {
-            if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
+            if ( 'html' !== ($file['kind'] ?? '') || HtmlFragmentIncludes::isTemplatePartFile($file) ) {
                 continue;
             }
 
             $path = (string) ($file['path'] ?? '');
-            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle, $siteNameSegments, $siteNameEdge, $entryNavigationLabel, $entryDocumentTitle, $titleCounts, $artifact['files']);
-            $slug = $this->slugFromPath($path, $entryPath);
+            $title = $this->titles->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle, $siteNameSegments, $siteNameEdge, $entryNavigationLabel, $entryDocumentTitle, $titleCounts, $artifact['files'], $file['metadata']['declared_content']['title'] ?? null);
+            $slug = ArtifactPath::slug($path, $entryPath);
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
                 ? array('serialized_blocks' => $serializedBlocks, 'assets' => array(), 'shell_artifacts' => $entryShellArtifacts, 'document_root_markers' => $entryDocumentRootMarkers, 'design_usage' => $entryDesignUsage)
@@ -4644,9 +3543,9 @@ final class ArtifactCompiler
     {
         $metadata = array();
         $capturedGlyphPaths = $this->capturedGlyphAssetPaths($html, $sourcePath, $files);
-        $candidates = array() !== $this->filesByPath ? $this->imageFiles : $files;
+        $candidates = $this->fileIndex->isIndexed() ? $this->fileIndex->imageFiles() : $files;
         foreach ( $candidates as $file ) {
-            if ( $this->isMaterializedHtmlDocument($file) ) {
+            if ( ArtifactFileIndex::isMaterializedHtmlDocument($file) ) {
                 continue;
             }
 
@@ -4698,7 +3597,7 @@ final class ArtifactCompiler
         $captured = array();
         foreach ( HtmlTagScanner::scan($html, 'img') as $image ) {
             $attributes = HtmlTagScanner::attributes($image['tag']);
-            $asset = $this->findAssetByHtmlReference($attributes['src'] ?? '', $sourcePath, $files);
+            $asset = $this->fileIndex->findAssetByHtmlReference($attributes['src'] ?? '', $sourcePath, $files);
             $path = is_array($asset) ? (string) ($asset['path'] ?? '') : '';
             if ( '' === $path ) {
                 continue;
@@ -4720,13 +3619,13 @@ final class ArtifactCompiler
         foreach ( HtmlTagScanner::scan($html, 'script') as $index => $script ) {
             if (CaptureReplayScripts::isReplayScript($script['tag'])) continue;
             $tag = $script['tag'];
-            $src = $this->htmlAttribute((string) $tag, 'src');
+            $src = HtmlTagScanner::attribute((string) $tag, 'src');
             if ( '' === $src ) {
                 continue;
             }
 
-            $asset = $this->findAssetByHtmlReference($src, $sourcePath, $files);
-            if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
+            $asset = $this->fileIndex->findAssetByHtmlReference($src, $sourcePath, $files);
+            if ( ! is_array($asset) || ! ArtifactFileIndex::isMaterializedScriptAsset($asset) ) {
                 continue;
             }
 
@@ -4735,9 +3634,9 @@ final class ArtifactCompiler
                 'selector'           => 'script:nth-of-type(' . ($index + 1) . ')',
                 'attributes'         => array_filter(array(
                     'src'   => $src,
-                    'type'  => $this->htmlAttribute((string) $tag, 'type'),
-                    'async' => $this->htmlAttribute((string) $tag, 'async'),
-                    'defer' => $this->htmlAttribute((string) $tag, 'defer'),
+                    'type'  => HtmlTagScanner::attribute((string) $tag, 'type'),
+                    'async' => HtmlTagScanner::attribute((string) $tag, 'async'),
+                    'defer' => HtmlTagScanner::attribute((string) $tag, 'defer'),
                 ), static fn (string $value): bool => '' !== $value),
                 'script_role'        => 'runtime',
                 'script_source_kind' => 'external',
@@ -4758,11 +3657,11 @@ final class ArtifactCompiler
         foreach ( HtmlTagScanner::scan($html, 'script') as $script ) {
             ++$scriptIndex;
             if (CaptureReplayScripts::isReplayScript($script['tag'])) continue;
-            $src = $this->htmlAttribute($script['tag'], 'src');
+            $src = HtmlTagScanner::attribute($script['tag'], 'src');
             $asset = '' === $src
                 ? $this->findInlineScriptAsset($sourcePath, $scriptIndex, $files)
-                : $this->findAssetByHtmlReference($src, $sourcePath, $files);
-            if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) || ! is_string($asset['path'] ?? null) || ! is_string($asset['content'] ?? null) ) {
+                : $this->fileIndex->findAssetByHtmlReference($src, $sourcePath, $files);
+            if ( ! is_array($asset) || ! ArtifactFileIndex::isMaterializedScriptAsset($asset) || ! is_string($asset['path'] ?? null) || ! is_string($asset['content'] ?? null) ) {
                 continue;
             }
             $assets[] = array('path' => $asset['path'], 'content' => $asset['content']);
@@ -4851,7 +3750,7 @@ final class ArtifactCompiler
             $values = array();
             foreach ($names as $name) {
                 if (!$this->hasHtmlAttribute($tag, $name)) continue;
-                $value = $this->htmlAttribute($tag, $name);
+                $value = HtmlTagScanner::attribute($tag, $name);
                 // HTML's empty and invalid-value CORS states both select anonymous.
                 $values[in_array($name, array(CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA), true) ? $name : str_replace('-', '_', $name)] = 'crossorigin' === $name && '' === $value ? 'anonymous' : $value;
             }
@@ -4870,13 +3769,13 @@ final class ArtifactCompiler
             if (array() !== $row) { $row = array_merge(array('order' => count($meta), 'placement' => $declaration['placement']), $row); $meta[] = $row; }
         }
         foreach (HtmlTagScanner::scan($html, 'link') as $link) {
-            $tag = $link['tag']; $href = $this->htmlAttribute($tag, 'href');
+            $tag = $link['tag']; $href = HtmlTagScanner::attribute($tag, 'href');
             if ('' === $href) continue;
             $links[] = array_merge(array('order' => count($links), 'placement' => $link['placement']), $attributes($tag, array('rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes', CaptureEvidence::DEVICE_STYLE, CaptureEvidence::SOURCE_MEDIA)), $reference($href));
         }
         $scriptIndex = 0;
         foreach (HtmlTagScanner::scan($html, 'script') as $script) {
-            $open = $script['tag']; $src = $this->htmlAttribute($open, 'src');
+            $open = $script['tag']; $src = HtmlTagScanner::attribute($open, 'src');
             $selector = 'script:nth-of-type(' . (++$scriptIndex) . ')';
             // A static-site interpreter of the inert motion markers is replaced by
             // the view scripts of the blocks those markers lower to.
@@ -4884,15 +3783,15 @@ final class ArtifactCompiler
             // Capture replay interpreters are discarded at normalization (their
             // evidence lowers into blocks or the engine runtime), so they have no asset to load.
             if (CaptureReplayScripts::isReplayScript($open)) continue;
-            $async = $this->hasHtmlAttribute($open, 'async'); $defer = $this->hasHtmlAttribute($open, 'defer'); $module = 'module' === strtolower($this->htmlAttribute($open, 'type'));
-            $supersededBy = $this->htmlAttribute($open, 'data-blocks-engine-superseded-by');
+            $async = $this->hasHtmlAttribute($open, 'async'); $defer = $this->hasHtmlAttribute($open, 'defer'); $module = 'module' === strtolower(HtmlTagScanner::attribute($open, 'type'));
+            $supersededBy = HtmlTagScanner::attribute($open, 'data-blocks-engine-superseded-by');
             $inlineBodyHash = hash('sha256', trim($script['content']));
             $inline = isset($inlineScripts[$selector]) ? $reference($inlineScripts[$selector]) : array('source_kind' => 'inline', 'body_hash' => $inlineBodyHash);
             if ( '' !== $supersededBy ) $inline = array_merge($inline, array('selector' => $selector, 'superseded_by' => $supersededBy, 'body_hash' => $inlineBodyHash));
             $scripts[] = array_merge(array('order' => count($scripts), 'placement' => $script['placement'], 'async' => $async, 'defer' => $defer, 'module' => $module, 'nomodule' => $this->hasHtmlAttribute($open, 'nomodule'), 'effective_loading' => $async ? 'async' : (($defer || $module) ? 'defer' : 'blocking')), $attributes($open, array('type', 'integrity', 'crossorigin', 'referrerpolicy', 'fetchpriority')), '' !== $src ? $reference($src) : $inline);
         }
         $titles = HtmlTagScanner::scan($html, 'title');
-        $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
+        $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titles->titleFromHtml($html, $sourcePath);
         $routeIdentity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $sourcePath, $sourcePath);
         $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html, $routeIdentity, $this->routeClasses[$routeIdentity] ?? null), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
         $metadata = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::withRouteSets($metadata, $this->routeSets);
@@ -4914,7 +3813,7 @@ final class ArtifactCompiler
         $parts = array();
         foreach ( $files as $file ) {
             $path = (string) ($file['path'] ?? '');
-            if ( ! $this->isTemplatePartFile($file) ) {
+            if ( ! HtmlFragmentIncludes::isTemplatePartFile($file) ) {
                 continue;
             }
 
@@ -4922,14 +3821,14 @@ final class ArtifactCompiler
             // page's actual block tree, not emitted again as an unbound part.
             if (!empty($file['metadata']['compilation']['included_component'])) continue;
 
-            $slug = $this->slugFromPath($path);
+            $slug = ArtifactPath::slug($path);
             $area = ShellLandmarkPolicy::templatePartArea($path, (string) ($file['role'] ?? ''));
             $tagName = ShellLandmarkPolicy::templatePartTagName($path, (string) ($file['role'] ?? ''));
             $parts[] = array_filter(
                 array(
                     'source_path'  => $path,
                     'slug'         => $slug,
-                    'title'        => $this->titleFromPath($path),
+                    'title'        => $this->titles->titleFromPath($path),
                     'area'         => $area,
                     'tag_name'     => $tagName,
                     'body_format'  => (string) ($file['kind'] ?? ''),
@@ -4947,16 +3846,6 @@ final class ArtifactCompiler
         }
 
         return $parts;
-    }
-
-    /**
-     * @param array<string, mixed> $file
-     */
-    private function isTemplatePartFile(array $file): bool
-    {
-        $path = (string) ($file['path'] ?? '');
-        $role = (string) ($file['role'] ?? '');
-        return 'html' === ($file['kind'] ?? '') && ('template-part' === $role || preg_match('#(^|/)(parts|template-parts)/[^/]+\.html?$#i', $path));
     }
 
     /**
@@ -5008,556 +3897,6 @@ final class ArtifactCompiler
         $role = (string) ($asset['role'] ?? '');
         $intent = (string) ($asset['intent'] ?? '');
         return 'css' === ($asset['kind'] ?? '') && ('visual-repair' === $role || 'visual-repair' === $intent || preg_match('/(?:^|[-_\/])visual[-_]repair(?:[-_\/]|\.)/i', $path));
-    }
-
-    private const DOCUMENT_TITLE_SEPARATOR = '/\s+[|\x{2013}\x{2014}\x{00B7}\x{2022}:-]\s+/u';
-
-    /**
-     * The site-name run a multi-page site repeats in every document title
-     * ("About | Example", "Contact | Example" share the trailing "Example";
-     * "A | Site | Tagline" pages share the whole trailing "Site | Tagline"
-     * run). With it removed, each title names its page the way the site
-     * itself does, which is what an owner expects a WordPress page to be
-     * called. The run is the longest contiguous leading or trailing sequence
-     * of segments a majority of titles share, so a site name that is itself
-     * several segments long is stripped whole while page-specific segments
-     * stay. Returns no segments when there is no such run, or when all titles
-     * are identical (a single-page app that never updates its title). The
-     * edge is which end of the title the run was found on. Each distinct
-     * title votes once so routes serving a stale title cannot dominate.
-     *
-     * @param array<int, array<string, mixed>> $files
-     * @return array{segments: list<string>, edge: string}
-     */
-    private function sharedDocumentTitleSegment(array $files): array
-    {
-        $titles = array();
-        foreach ( $files as $file ) {
-            if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
-                continue;
-            }
-            $declarations = HtmlTagScanner::scan((string) ($file['content'] ?? ''), 'title');
-            if ( isset($declarations[0]) ) {
-                $title = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($declarations[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
-                if ( '' !== $title ) {
-                    $titles[] = $title;
-                }
-            }
-        }
-        if ( count($titles) < 2 || 1 === count(array_unique($titles)) ) {
-            return array('segments' => array(), 'edge' => '');
-        }
-        // A stale title repeated by many routes is one vote, not a site-name
-        // run of its own (which could otherwise swallow the actual brand).
-        $titles = array_values(array_unique($titles));
-        // Only titles that carry a separator can vote: a blog whose posts use
-        // bare titles still names its pages "Page | Site", and those bare
-        // titles say nothing about the site-name run.
-        $separated = count(array_filter($titles, static fn (string $title): bool => 1 === preg_match(self::DOCUMENT_TITLE_SEPARATOR, $title)));
-        $majority = max(2, intdiv($separated, 2) + 1);
-        $sharedRun = static function (array $titles, bool $leading) use ($majority): array {
-            $counts = array();
-            foreach ( $titles as $title ) {
-                $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, $title) ?: array();
-                if ( count($segments) < 2 ) {
-                    continue;
-                }
-                for ( $length = 1, $total = count($segments); $length <= $total; ++$length ) {
-                    $run = implode("\0", $leading ? array_slice($segments, 0, $length) : array_slice($segments, $length * -1));
-                    $counts[$length][$run] = ($counts[$length][$run] ?? 0) + 1;
-                }
-            }
-            for ( $length = count($counts); $length >= 1; --$length ) {
-                foreach ( $counts[$length] ?? array() as $run => $count ) {
-                    if ( $count >= $majority ) {
-                        return explode("\0", (string) $run);
-                    }
-                }
-            }
-
-            return array();
-        };
-        $leading = $sharedRun($titles, true);
-        $trailing = $sharedRun($titles, false);
-
-        return count($trailing) >= count($leading)
-            ? array('segments' => $trailing, 'edge' => 'trailing')
-            : array('segments' => $leading, 'edge' => 'leading');
-    }
-
-    /**
-     * The number of title segments at one edge that equal the start or the
-     * end of the site-name run, compared without case. 0 when none match or
-     * nothing of the title's own would remain.
-     *
-     * @param list<string> $segments
-     * @param list<string> $siteNameSegments
-     */
-    private static function siteNameEdgeRun(array $segments, array $siteNameSegments, bool $trailing): int
-    {
-        $fold = static fn (array $values): array => array_map(static fn (string $value): string => mb_strtolower(trim($value)), $values);
-        $segments = $fold($segments);
-        $siteName = $fold($siteNameSegments);
-        $matched = 0;
-        while ( count($segments) - $matched > 1 ) {
-            $found = 0;
-            $max = min(count($siteName), count($segments) - $matched - 1);
-            for ( $length = $max; 0 < $length; --$length ) {
-                $start = $trailing ? count($segments) - $matched - $length : $matched;
-                $run = array_slice($segments, $start, $length);
-                if ( $run === array_slice($siteName, 0, $length) || $run === array_slice($siteName, $length * -1) ) {
-                    $found = $length;
-                    break;
-                }
-            }
-            if ( 0 === $found ) {
-                break;
-            }
-            $matched += $found;
-        }
-        return $matched;
-    }
-
-    /**
-     * Section branding needs local evidence: two member routes repeating a
-     * segment, or the section index naming itself with that segment in its h1.
-     *
-     * @return list<string>
-     */
-    private function sectionTitleBrands(string $section, array $files, array $siteNameSegments, bool $requireMember = false): array
-    {
-        if ( '/' === $section || '.' === $section ) {
-            return array();
-        }
-        $counts = array();
-        $brands = array();
-        foreach ( $files as $file ) {
-            if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
-                continue;
-            }
-            $route = ArtifactPath::routePath((string) ($file['path'] ?? ''));
-            if ( $route !== $section && dirname($route) !== $section ) {
-                continue;
-            }
-            $html = (string) ($file['content'] ?? '');
-            if ( $route === $section ) {
-                $visible = self::withoutHiddenSubtrees($html);
-                if ( preg_match('/<main\b[^>]*>(.*?)<\/main\s*>/is', $visible, $main) ) {
-                    $visible = $main[1];
-                }
-                preg_match_all('/<h1\b[^>]*>(.*?)<\/h1\s*>/is', $visible, $headings);
-                foreach ( $headings[1] as $heading ) {
-                    if ( ! $this->headingIsHyperlinkChrome($heading) ) {
-                        $brands[] = trim(html_entity_decode(strip_tags($heading), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-                        break;
-                    }
-                }
-                continue;
-            }
-            $title = HtmlTagScanner::scan($html, 'title')[0]['content'] ?? '';
-            $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, trim(html_entity_decode(strip_tags($title), ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?: array();
-            $trailing = self::siteNameEdgeRun($segments, $siteNameSegments, true);
-            $leading = self::siteNameEdgeRun($segments, $siteNameSegments, false);
-            if ( 0 === $trailing && 0 === $leading ) {
-                continue;
-            }
-            $own = $trailing > 0 ? array_slice($segments, 0, -$trailing) : array_slice($segments, $leading);
-            // The leading segment belongs to the member, not its section.
-            foreach ( array_unique(array_map('mb_strtolower', array_slice($own, 1))) as $segment ) {
-                $counts[$segment][$route] = true;
-            }
-        }
-        if ( $requireMember ) {
-            $brands = array_values(array_filter($brands, static fn (string $brand): bool => isset($counts[mb_strtolower($brand)])));
-        }
-        foreach ( $counts as $segment => $routes ) {
-            if ( count($routes) >= 2 ) {
-                $brands[] = $segment;
-            }
-        }
-        return $brands;
-    }
-
-    /**
-     * @param list<string> $siteNameSegments The shared site-name run cut from
-     *                                       the title edge it sits on.
-     * @param string       $siteNameEdge     `leading` or `trailing` when the
-     *                                       run was detected; empty otherwise.
-     * @param string       $navigationLabel  Navigation label targeting the
-     *                                       front page, when the compiled site
-     *                                       has one.
-     * @param string       $entryDocumentTitle The front page's original head title.
-     * @param array<string, int> $titleCounts Route counts for each document title.
-     * @param array<int, array<string, mixed>> $files Site files for inbound labels.
-     */
-    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = '', array $siteNameSegments = array(), string $siteNameEdge = '', string $navigationLabel = '', string $entryDocumentTitle = '', array $titleCounts = array(), array $files = array()): string
-    {
-        $normalize = static function (string $titleHtml): string {
-            $titleHtml = preg_replace('/<\s*(?:br|\/?\s*(?:div|h[1-6]|p|li|ul|ol|section|article|header|footer|blockquote))\b[^>]*>/i', ' ', $titleHtml) ?? $titleHtml;
-            // Inline elements shown as blocks (a `display:block` style or a
-            // `block`/`flex`/`grid` utility class) start a new line, but the
-            // markup has no whitespace between them. Pad both tag edges.
-            $blockDisplay = '/<(span|a|em|strong|b|i|small|mark|label)\b(?=[^>]*(?:style\s*=\s*["\'][^"\']*display\s*:\s*(?:block|flex|grid|list-item|table)|class\s*=\s*["\'](?:[^"\']*\s)?(?:block|flex|grid|d-block)(?:\s[^"\']*)?["\']))[^>]*>/i';
-            $stack = array();
-            $parts = preg_split('/(<\/?[a-z][^>]*>)/i', $titleHtml, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array($titleHtml);
-            $titleHtml = '';
-            foreach ( $parts as $part ) {
-                if ( preg_match('/^<\/\s*([a-z0-9]+)/i', $part, $closing) ) {
-                    $isBlock = array() !== $stack && end($stack)['tag'] === strtolower($closing[1]) ? array_pop($stack)['block'] : false;
-                    $titleHtml .= $isBlock ? $part . ' ' : $part;
-                } elseif ( preg_match('/^<([a-z0-9]+)\b/i', $part, $opening) && ! preg_match('/\/\s*>$/', $part) && ! in_array(strtolower($opening[1]), array('br', 'img', 'hr', 'input', 'wbr'), true) ) {
-                    $isBlock = (bool) preg_match($blockDisplay, $part);
-                    $stack[] = array('tag' => strtolower($opening[1]), 'block' => $isBlock);
-                    $titleHtml .= $isBlock ? ' ' . $part : $part;
-                } else {
-                    $titleHtml .= $part;
-                }
-            }
-            $titleHtml = str_replace("\u{00A0}", ' ', html_entity_decode(strip_tags($titleHtml), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-
-            return trim(preg_replace('/\s+/', ' ', $titleHtml) ?? '');
-        };
-
-        $titleDeclaration = HtmlTagScanner::scan($html, 'title')[0] ?? null;
-        $titleKey = null !== $titleDeclaration ? trim(html_entity_decode(strip_tags($titleDeclaration['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : '';
-        // Content shown only on demand (a closed dialog, a hidden panel) never
-        // names the page a visitor lands on.
-        $visibleHtml = self::withoutHiddenSubtrees($html);
-        if ( $path !== $entryPath && ($titleCounts[$titleKey] ?? 0) > 1 ) {
-            // A title served verbatim by multiple routes cannot identify one.
-            // The entry page owns its title; the routes that copy it do not.
-            // Read headings in content order, not heading-level priority, and
-            // never let a shell heading displace the route's inbound label.
-            // Without a <main> landmark, read the body minus page chrome.
-            $html = $visibleHtml;
-            if ( preg_match('/<main\b[^>]*>(.*?)<\/main\s*>/is', $html, $mainMatch) ) {
-                $main = $mainMatch[1];
-            } else {
-                $main = preg_match('/<body\b[^>]*>(.*)<\/body\s*>/is', $html, $bodyMatch) ? $bodyMatch[1] : $html;
-                $main = preg_replace('/<(header|nav|footer|aside)\b[^>]*>.*?<\/\1\s*>/is', '', $main) ?? $main;
-            }
-            if ( preg_match_all('/<h([1-6])\b[^>]*>(.*?)<\/h\1>/is', $main, $headings) ) {
-                // The page's own share title names its heading when content
-                // order alone would pick a byline or another lead-in heading.
-                $shareTitle = self::openGraphTitle($html);
-                if ( '' !== $shareTitle ) {
-                    foreach ( $headings[2] as $heading ) {
-                        if ( $normalize($this->withoutOtherLanguageText($heading, $html)) === $shareTitle ) {
-                            return $shareTitle;
-                        }
-                    }
-                }
-                foreach ( $headings[2] as $heading ) {
-                    if ( ! $this->headingIsHyperlinkChrome($heading) ) {
-                        $label = $normalize($this->withoutOtherLanguageText($heading, $html));
-                        if ( '' !== $label ) {
-                            return $label;
-                        }
-                    }
-                }
-            }
-            $label = $this->inboundPageLabel($files, $path);
-            return '' !== $label ? $label : $this->titleFromPath($path);
-        }
-        if ( array() !== $siteNameSegments && null !== $titleDeclaration ) {
-            $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, $normalize($titleDeclaration['content'])) ?: array();
-            // A title may spell the site name in another case or carry only
-            // part of the shared run ("Page | site name" beside the majority
-            // "Page | Site Name | Tagline"), so match the longest edge run that
-            // is the start or end of the site-name run, ignoring case.
-            $trailingLength = self::siteNameEdgeRun($segments, $siteNameSegments, true);
-            $leadingLength = self::siteNameEdgeRun($segments, $siteNameSegments, false);
-            $trailingMatch = 0 < $trailingLength;
-            $leadingMatch = 0 < $leadingLength;
-            $length = $trailingMatch ? $trailingLength : $leadingLength;
-            $entryPrefixedBySiteName = '' !== $entryPath && $path === $entryPath && 'trailing' === $siteNameEdge && $leadingMatch && ! $trailingMatch;
-            if ( $entryPrefixedBySiteName && '' !== $navigationLabel ) {
-                return $navigationLabel;
-            }
-            if ( ! $entryPrefixedBySiteName && $trailingMatch ) {
-                $own = array_slice($segments, 0, count($segments) - $length);
-            } elseif ( ! $entryPrefixedBySiteName && $leadingMatch ) {
-                $own = array_slice($segments, $leadingLength);
-            } else {
-                $own = $segments;
-            }
-            if ( array() !== $own && count($own) < count($segments) ) {
-                $route = ArtifactPath::routePath($path);
-                $brands = $this->sectionTitleBrands(dirname($route), $files, $siteNameSegments);
-                $sectionLength = 0;
-                foreach ( $brands as $brand ) {
-                    $sectionLength = max($sectionLength, self::siteNameEdgeRun($own, array($brand), true));
-                }
-                if ( $sectionLength > 0 ) {
-                    $own = array_slice($own, 0, -$sectionLength);
-                }
-                // An index owns its leading name, not the description following
-                // it, when member titles corroborate that name as branding.
-                $indexBrands = $this->sectionTitleBrands($route, $files, $siteNameSegments, true);
-                if ( count($own) > 1 && in_array(mb_strtolower($own[0]), array_map('mb_strtolower', $indexBrands), true) ) {
-                    $own = array($own[0]);
-                }
-                // Keep the source separators between any surviving segments.
-                preg_match_all(self::DOCUMENT_TITLE_SEPARATOR, $normalize($titleDeclaration['content']), $separators);
-                $offset = $leadingMatch && ! $trailingMatch ? $leadingLength : 0;
-                $label = $own[0];
-                foreach ( array_slice($own, 1) as $index => $segment ) {
-                    $label .= $separators[0][$offset + $index] . $segment;
-                }
-                return $label;
-            }
-            // A title may name the site without the shared separator ("About
-            // Example" beside "Contact | Example"). The remaining words name
-            // the page when the site's own links call the route the same.
-            if ( 1 === count($segments) ) {
-                foreach ( $siteNameSegments as $siteName ) {
-                    $quoted = preg_quote(trim($siteName), '/');
-                    $own = trim(preg_replace('/^' . $quoted . '\s+|\s+' . $quoted . '$/iu', '', $segments[0], 1) ?? '');
-                    if ( '' !== $own && $own !== $segments[0] && mb_strtolower($own) === mb_strtolower($this->inboundPageLabel($files, $path)) ) {
-                        return $own;
-                    }
-                }
-            }
-        }
-
-        $contentHeading = '';
-        if ( preg_match_all('/<h1\b[^>]*>(.*?)<\/h1>/is', $visibleHtml, $matches) ) {
-            foreach ( $matches[1] as $headingHtml ) {
-                if ( $this->headingIsHyperlinkChrome($headingHtml) ) {
-                    continue;
-                }
-                $title = $normalize($this->withoutOtherLanguageText($headingHtml, $html));
-                if ( '' !== $title ) {
-                    $contentHeading = $title;
-                    break;
-                }
-            }
-        }
-        if ( '' !== $contentHeading ) {
-            // Block-display inline children (a styled span on its own line) carry
-            // no whitespace in the markup, so flattening the heading to text glues
-            // the lines together. When the document title spells the same words
-            // with the spacing the author rendered, it is the faithful form.
-            if ( null !== $titleDeclaration ) {
-                $documentTitle = $normalize($titleDeclaration['content']);
-                $compact = static fn (string $text): string => strtolower(preg_replace('/\s+/u', '', $text) ?? $text);
-                if ( $documentTitle !== $contentHeading && '' !== $documentTitle && $compact($documentTitle) === $compact($contentHeading) ) {
-                    return $documentTitle;
-                }
-            }
-            // With only one page, the document title cannot be separated into
-            // site and page names by comparison with other routes. A different
-            // hero heading is not evidence of a page name; use the conventional
-            // WordPress front-page label instead.
-            if ( $path === $entryPath && null !== $titleDeclaration
-                && '' !== $normalize($titleDeclaration['content'])
-                && $normalize($titleDeclaration['content']) !== $contentHeading
-                && 1 === count(array_filter($files, fn (array $file): bool => 'html' === ($file['kind'] ?? '') && ! $this->isTemplatePartFile($file))) ) {
-                return 'Home';
-            }
-            if ( $path !== $entryPath && $contentHeading === $entryTitle
-                && null !== $titleDeclaration ) {
-                $documentTitle = $normalize($titleDeclaration['content']);
-                if ( '' !== $documentTitle && $documentTitle !== $normalize($entryDocumentTitle) && $documentTitle !== $entryTitle ) {
-                    return $documentTitle;
-                }
-            }
-            return $contentHeading;
-        }
-
-        if ( null !== $titleDeclaration ) {
-            $title = $normalize($titleDeclaration['content']);
-            if ( '' !== $title && ( $path === $entryPath || '' === $entryPath || $title !== $entryTitle ) ) {
-                return $title;
-            }
-        }
-
-        return $this->titleFromPath($path);
-    }
-
-    /**
-     * The document without subtrees a visitor cannot see at rest: elements
-     * with the `hidden` attribute or `aria-hidden="true"`, closed `<dialog>`s,
-     * and `<template>` contents.
-     */
-    private static function withoutHiddenSubtrees(string $html): string
-    {
-        if ( ! preg_match('/<(?:[a-z][a-z0-9-]*\b[^>]*\s(?:hidden(?=[\s=\/>])|aria-hidden\s*=\s*["\']?true)|template\b|dialog\b)/i', $html) ) {
-            return $html;
-        }
-        $dom = HtmlSerialization::parseDocument($html);
-        $xpath = new \DOMXPath($dom);
-        $hidden = $xpath->query('//*[@hidden] | //*[translate(@aria-hidden, "TRUE", "true") = "true"] | //template | //dialog[not(@open)]');
-        $nodes = array();
-        foreach ( $hidden ?: array() as $node ) {
-            $nodes[] = $node;
-        }
-        foreach ( $nodes as $node ) {
-            $node->parentNode?->removeChild($node);
-        }
-        $root = $dom->documentElement;
-        return $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $html) : $html;
-    }
-
-    /** The document's Open Graph title, normalized like a heading label. */
-    private static function openGraphTitle(string $html): string
-    {
-        foreach ( HtmlTagScanner::scan($html, 'meta') as $meta ) {
-            $attributes = HtmlTagScanner::attributes($meta['tag']);
-            if ( 'og:title' !== strtolower($attributes['property'] ?? $attributes['name'] ?? '') ) {
-                continue;
-            }
-            $value = html_entity_decode($attributes['content'] ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            return trim(preg_replace('/\s+/u', ' ', str_replace("\u{00A0}", ' ', $value)) ?? '');
-        }
-        return '';
-    }
-
-    /**
-     * Multilingual headings often carry one `lang`-tagged child per language
-     * and show only the active one. Keep the document language's text.
-     */
-    private function withoutOtherLanguageText(string $headingHtml, string $documentHtml): string
-    {
-        if ( ! preg_match('/<html\b[^>]*\blang\s*=\s*["\']?([a-z]+)/i', $documentHtml, $documentLang) ) {
-            return $headingHtml;
-        }
-        $language = strtolower($documentLang[1]);
-        $filtered = preg_replace_callback(
-            '/<([a-z][a-z0-9]*)\b[^>]*\blang\s*=\s*["\']?([a-z]+)[^>]*>.*?<\/\1\s*>/is',
-            static fn (array $match): string => strtolower($match[2]) === $language ? $match[0] : '',
-            $headingHtml
-        );
-
-        return is_string($filtered) && '' !== trim(strip_tags($filtered)) ? $filtered : $headingHtml;
-    }
-
-    /** @param array<int, array<string, mixed>> $files */
-    private function inboundPageLabel(array $files, string $path): string
-    {
-        $routeKey = static fn (string $value): string => rtrim(preg_replace('#(?:^|/)index\.html?$#i', '/', $value) ?? $value, '/');
-        foreach ( $files as $file ) {
-            $sourcePath = (string) ($file['path'] ?? '');
-            if ( 'html' !== ($file['kind'] ?? '') || $sourcePath === $path ) {
-                continue;
-            }
-            preg_match_all('/(<a\b[^>]*>)(.*?)<\/a\s*>/is', (string) ($file['content'] ?? ''), $anchors, PREG_SET_ORDER);
-            foreach ( $anchors as $anchor ) {
-                $href = html_entity_decode($this->htmlAttribute($anchor[1], 'href'), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-                if ( '' === $href || preg_match('#^(?:[a-z][a-z0-9+.-]*:|//|\#)#i', $href) || null !== parse_url($href, PHP_URL_FRAGMENT) ) {
-                    continue;
-                }
-                $target = $this->stylesheetPathFromHref($href, $sourcePath, $files);
-                if ( $routeKey($target) !== $routeKey($path) ) {
-                    continue;
-                }
-                $label = trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($anchor[2]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
-                if ( '' !== $label ) {
-                    return $label;
-                }
-            }
-        }
-        return '';
-    }
-
-    private function headingIsHyperlinkChrome(string $headingHtml): bool
-    {
-        $remaining = trim($headingHtml);
-        while ( preg_match('/^<(?:span|mark)\b[^>]*>([\s\S]*)<\/(?:span|mark)>$/is', $remaining, $match) ) {
-            $remaining = trim($match[1]);
-        }
-
-        return (bool) preg_match('/^<a\b[^>]*>[\s\S]*<\/a>$/is', $remaining);
-    }
-
-    /**
-     * The first navigation label that targets the front page.
-     *
-     * These are the same anchors navigation_links are built from: a
-     * core/navigation-link comment, else an anchor inside nav. Fragment links
-     * name a section of the front page, never the page itself. A label that is
-     * only the shared site name is not the page name.
-     *
-     * @param array<int, array<string, mixed>> $files
-     * @param list<string> $siteNameSegments
-     */
-    private function entryNavigationLabel(array $files, array $siteNameSegments): string
-    {
-        $siteName = implode(' ', $siteNameSegments);
-        $plain = '';
-        foreach ( $files as $file ) {
-            if ( ! is_array($file) || 'html' !== ($file['kind'] ?? '') ) {
-                continue;
-            }
-            foreach ( $this->navigationAnchors((string) ($file['content'] ?? '')) as $anchor ) {
-                if ( '/' !== ArtifactPath::routePath($anchor['href']) ) {
-                    continue;
-                }
-                $label = $anchor['label'];
-                if ( '' === $label || ( '' !== $siteName && $label === $siteName ) ) {
-                    continue;
-                }
-                $fragment = parse_url($anchor['href'], PHP_URL_FRAGMENT);
-                if ( ( ! is_string($fragment) || '' === $fragment ) && '' === $plain ) {
-                    $plain = $label;
-                }
-                if ( '' !== $plain ) {
-                    return $plain;
-                }
-            }
-        }
-
-        return $plain;
-    }
-
-    /**
-     * @return array<int, array{href: string, label: string}>
-     */
-    private function navigationAnchors(string $html): array
-    {
-        if ( '' === trim($html) ) {
-            return array();
-        }
-        $anchors = array();
-        if ( preg_match_all('/<!--\s*wp:(?:navigation-link|navigation-submenu)\s+(\{.*?\})\s*\/?-->/s', $html, $matches) ) {
-            foreach ( $matches[1] as $json ) {
-                $attrs = json_decode((string) $json, true);
-                if ( ! is_array($attrs) ) {
-                    continue;
-                }
-                $href = is_string($attrs['url'] ?? null) ? trim($attrs['url']) : '';
-                $host = parse_url($href, PHP_URL_HOST);
-                $label = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags(ArrayField::string($attrs, 'label')), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
-                if ( '' !== $href && '' !== $label && ( ! is_string($host) || '' === $host ) ) {
-                    $anchors[] = array('href' => $href, 'label' => $label);
-                }
-            }
-        }
-        if ( array() !== $anchors ) {
-            return $anchors;
-        }
-        if ( ! preg_match_all('/<nav\b[^>]*>(.*?)<\/nav>/is', $html, $navMatches) ) {
-            return array();
-        }
-        foreach ( $navMatches[1] as $navHtml ) {
-            if ( ! preg_match_all('/<a\b([^>]*)>(.*?)<\/a>/is', (string) $navHtml, $anchorMatches, PREG_SET_ORDER) ) {
-                continue;
-            }
-            foreach ( $anchorMatches as $anchorMatch ) {
-                $href = $this->htmlAttribute('<a' . $anchorMatch[1] . '>', 'href');
-                $host = parse_url($href, PHP_URL_HOST);
-                if ( is_string($host) && '' !== $host ) {
-                    continue;
-                }
-                $label = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags((string) $anchorMatch[2]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
-                if ( '' === $href || '' === $label ) {
-                    continue;
-                }
-                $anchors[] = array('href' => $href, 'label' => $label);
-            }
-        }
-
-        return $anchors;
     }
 
     /**
@@ -5719,8 +4058,8 @@ final class ArtifactCompiler
                 'source_path'  => $file['path'],
                 'kind'         => $file['kind'],
                 'post_type'    => $this->frontmatterString($frontmatter, array('post_type', 'type'), 'page'),
-                'slug'         => $this->frontmatterString($frontmatter, array('slug'), $this->slugFromPath((string) $file['path'])),
-                'title'        => $this->frontmatterString($frontmatter, array('title'), $this->titleFromPath((string) $file['path'])),
+                'slug'         => $this->frontmatterString($frontmatter, array('slug'), ArtifactPath::slug((string) $file['path'])),
+                'title'        => $this->frontmatterString($frontmatter, array('title'), $this->titles->titleFromPath((string) $file['path'])),
                 'excerpt'      => $this->frontmatterString($frontmatter, array('excerpt', 'description'), ''),
                 'date'         => $this->frontmatterString($frontmatter, array('date', 'published', 'published_at'), ''),
                 'template'     => $this->frontmatterString($frontmatter, array('template', 'layout'), ''),
@@ -5844,11 +4183,6 @@ final class ArtifactCompiler
         return $payload;
     }
 
-    private function sanitizeKey(string $key): string
-    {
-        return preg_replace('/[^a-z0-9_-]+/', '-', strtolower(trim($key))) ?? '';
-    }
-
     /**
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
@@ -5860,7 +4194,7 @@ final class ArtifactCompiler
         $documentLinkMedia = $this->documentLinkMedia($files);
         $portableTargets = $this->portableTargetPaths($files);
         foreach ( $files as $file ) {
-            if ( $entryPath === $file['path'] || ArtifactNormalizer::CAPTURE_REPORT_ROLE === $file['role'] || $this->isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
+            if ( $entryPath === $file['path'] || ArtifactNormalizer::CAPTURE_REPORT_ROLE === $file['role'] || ArtifactFileIndex::isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
                 continue;
             }
             $asset = array(
@@ -5989,14 +4323,14 @@ final class ArtifactCompiler
         $supported = array();
         foreach ( StyleTagScanner::scanLinks($html) as $link ) {
             $tag = $link['tag'];
-            if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute((string) $tag, 'rel')) ) {
+            if ( ! StyleTagScanner::isStylesheetRel(HtmlTagScanner::attribute((string) $tag, 'rel')) ) {
                 continue;
             }
-            $path = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath);
+            $path = ArtifactPath::linkedFilePath(HtmlTagScanner::attribute((string) $tag, 'href'), $sourcePath);
             if ( '' === $path ) {
                 continue;
             }
-            if ( StyleTagScanner::isCssType($this->htmlAttribute((string) $tag, 'type')) ) {
+            if ( StyleTagScanner::isCssType(HtmlTagScanner::attribute((string) $tag, 'type')) ) {
                 $supported[$path] = true;
             } else {
                 $unsupported[$path] = true;
@@ -6006,14 +4340,6 @@ final class ArtifactCompiler
             unset($unsupported[$path]);
         }
         return $unsupported;
-    }
-
-    /**
-     * @param array<string, mixed> $file
-     */
-    private function isMaterializedHtmlDocument(array $file): bool
-    {
-        return 'html' === ($file['kind'] ?? '') && ($this->isLinkableDocument($file) || $this->isTemplatePartFile($file));
     }
 
     /**
@@ -6145,62 +4471,14 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<string, mixed>|null
-     */
-    private function findAssetByHtmlReference(string $reference, string $entryPath, array $files): ?array
-    {
-        if ( '' === trim($reference) || preg_match('#^[a-z][a-z0-9+.-]*:#i', $reference) ) {
-            return null;
-        }
-
-        $path = str_starts_with($reference, '/')
-            ? $this->artifactRootRelativePath($reference, $entryPath, array_fill_keys(array_column($files, 'path'), true))
-            : ArtifactPath::resolveRelativePath($reference, $entryPath);
-        if ( '' === $path ) {
-            return null;
-        }
-
-        if ( isset($this->filesByPath[$path]) ) {
-            return $this->filesByPath[$path];
-        }
-
-        foreach ( $files as $file ) {
-            if ( ($file['path'] ?? '') === $path ) {
-                return $file;
-            }
-        }
-
-        return null;
-    }
-
-    /**
      * Build immutable lookup state for one normalized artifact compilation.
      *
      * @param array<int, array<string, mixed>> $files
      */
     private function indexFiles(array $files): void
     {
-        $this->filesByPath = array();
-        $this->imageFiles = array();
-        $this->scriptContents = array();
+        $this->fileIndex->index($files);
         $this->runtimeScriptEvidenceAnalyzer->resetCache();
-
-        foreach ( $files as $file ) {
-            if ( ! is_array($file) ) {
-                continue;
-            }
-            $path = (string) ($file['path'] ?? '');
-            if ( '' !== $path ) {
-                $this->filesByPath[$path] = $file;
-            }
-            if ( str_starts_with((string) ($file['mime_type'] ?? ''), 'image/') && ! $this->isMaterializedHtmlDocument($file) ) {
-                $this->imageFiles[] = $file;
-            }
-            if ( $this->isMaterializedScriptAsset($file) && is_string($file['content'] ?? null) ) {
-                $this->scriptContents[] = (string) $file['content'];
-            }
-        }
     }
     /**
      * @param array<int, array<string, mixed>> $sourceDocumentComponents
@@ -6241,7 +4519,7 @@ final class ArtifactCompiler
             $content = (string) $file['content'];
             if ( preg_match_all('/data-component\s*=\s*(["\'])([^"\']+)\1/i', $content, $matches) ) {
                 foreach ( $matches[2] as $name ) {
-                    $key = $this->sanitizeKey($name);
+                    $key = ArtifactPath::sanitizeKey($name);
                     if ( '' === $key ) {
                         continue;
                     }
@@ -6259,7 +4537,7 @@ final class ArtifactCompiler
                 foreach ( $matches[2] as $classList ) {
                     $classTokens = preg_split('/\s+/', trim($classList));
                     foreach ( false === $classTokens ? array() : $classTokens as $class ) {
-                        $class = $this->sanitizeKey($class);
+                        $class = ArtifactPath::sanitizeKey($class);
                         if ( '' === $class || strlen($class) < 3 ) {
                             continue;
                         }
@@ -6384,7 +4662,7 @@ final class ArtifactCompiler
                 $value = array_values(array_filter(array_map(static fn (string $item): string => trim($item, " \t\n\r\0\x0B\"'"), explode(',', $list[1])), static fn (string $item): bool => '' !== $item));
             }
 
-            $frontmatter[$this->sanitizeKey($pair[1])] = $value;
+            $frontmatter[ArtifactPath::sanitizeKey($pair[1])] = $value;
         }
 
         return array(
@@ -6536,34 +4814,6 @@ final class ArtifactCompiler
         return $taxonomies;
     }
 
-    private function slugFromPath(string $path, string $entryPath = ''): string
-    {
-        $base = preg_replace('/\.[A-Za-z0-9]+$/', '', basename($path));
-        $base = '' === $base || null === $base ? 'document' : $base;
-        // Underscores stay: WordPress keeps them in post slugs, so a source URL
-        // with one must not move onto a dashed spelling after the import.
-        $slug = $this->sanitizeKey(str_replace('.', '-', $base));
-        if ( 'index' === $slug && '' !== $entryPath && $path === $entryPath ) {
-            return 'home';
-        }
-
-        return $slug;
-    }
-
-    private function titleFromPath(string $path): string
-    {
-        $normalized = str_replace('\\', '/', $path);
-        $base = basename($normalized);
-        if ( preg_match('/^index\.html?$/i', $base) || 0 === strcasecmp($base, 'home.html') ) {
-            $parent = basename(dirname($normalized));
-            if ( '' !== $parent && '.' !== $parent ) {
-                return ucwords(str_replace(array( '-', '_' ), ' ', $parent));
-            }
-        }
-
-        return ucwords(str_replace(array( '-', '_' ), ' ', $this->slugFromPath($path)));
-    }
-
     /**
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
@@ -6591,7 +4841,7 @@ final class ArtifactCompiler
 
             $name = isset($blockJson['name']) && is_string($blockJson['name']) ? trim($blockJson['name']) : '';
             if ( '' === $name ) {
-                $name = 'generated/' . ('' === $directory ? 'block' : $this->sanitizeKey(basename($directory)));
+                $name = 'generated/' . ('' === $directory ? 'block' : ArtifactPath::sanitizeKey(basename($directory)));
                 $diagnostics[] = $this->diagnostic('block_json_missing_name', 'warning', 'A generated block.json file did not declare a name; a stable generated name was assigned.', array('path' => $blockJsonFile['path'], 'name' => $name));
             }
 
@@ -6599,7 +4849,7 @@ final class ArtifactCompiler
             $blockTypes[] = array(
                 'schema'          => 'chubes4/wordpress-block-type-artifact/v1',
                 'name'            => $name,
-                'slug'            => $this->sanitizeKey(basename($name)),
+                'slug'            => ArtifactPath::sanitizeKey(basename($name)),
                 'directory'       => $directory,
                 'block_json_path' => $blockJsonFile['path'],
                 'block_json'      => $blockJson,

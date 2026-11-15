@@ -3,13 +3,14 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 
@@ -164,14 +165,16 @@ final class ThemeJsonProjection
         $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => !isset($conditionalProperties[$candidate['target'] . "\n" . $candidate['property']]) && !isset($unrepresentableProperties[$candidate['target'] . "\n" . $candidate['property']]) && (1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:'))));
         $presets = null === $system ? $this->presets($selected, $fontFamilyStacks) : $this->systemPresets($system);
         // Unlayered type selectors have equal specificity: within the same
-        // stylesheet applicability, the last heading family is the winner.
+        // stylesheet applicability, the last body or heading family wins.
         // Keep different route scopes separate for sharedDefaults() to veto.
-        $headingFamilies = array();
+        $elementFamilies = array();
         foreach ($selected as $index => $candidate) {
-            if ('font-family' !== $candidate['property'] || '' !== $candidate['layer'] || !preg_match('/^element:h[1-6]$/', $candidate['target'])) continue;
+            if ('font-family' !== $candidate['property'] || '' !== $candidate['layer'] || !preg_match('/^(?:body|element:h[1-6])$/', $candidate['target'])) continue;
+            // Only bare body selectors have this equal-specificity guarantee.
+            if ('body' === $candidate['target'] && 'body' !== $candidate['selector']) continue;
             $key = $candidate['target'] . "\n" . json_encode($assets[$candidate['asset']]['scopes'] ?? array(array('kind' => 'global')));
-            if (isset($headingFamilies[$key])) unset($selected[$headingFamilies[$key]]);
-            $headingFamilies[$key] = $index;
+            if (isset($elementFamilies[$key])) unset($selected[$elementFamilies[$key]]);
+            $elementFamilies[$key] = $index;
         }
         $selected = $this->sharedDefaults(array_values($selected), $assets, $documentPaths);
         $responsiveBreakpoints = ResponsiveBreakpoints::fromAssets($assets);
@@ -221,10 +224,8 @@ final class ThemeJsonProjection
     private function contendingProperties(string $body): array
     {
         $properties = array();
-        foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
-            $parts = explode(':', $declaration, 2);
-            if (2 !== count($parts) || '' === trim($parts[1])) continue;
-            $name = strtolower(trim($parts[0]));
+        foreach (CssRuleAnalyzer::declarationList($body) as ['name' => $name, 'value' => $value]) {
+            if ('' === $value) continue;
             $expanded = match ($name) {
                 'all' => array('color', 'background-color', 'font-family', 'font-size', 'line-height', 'font-weight', 'letter-spacing', 'text-transform', 'font-style', 'padding', 'margin', 'gap', 'max-width'),
                 'font' => array('font-family', 'font-size', 'line-height', 'font-weight', 'font-style'),
@@ -307,24 +308,28 @@ final class ThemeJsonProjection
     private function customProperties(array $assets, array $documentPaths): array
     {
         $variables = array();
+        $definitions = array();
         $conflicts = array();
         $coverage = array();
         $scoped = array();
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$variables, &$conflicts, &$coverage, &$scoped, $asset): void {
-                if (str_starts_with(ltrim($prelude), '@') || !preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER)) return;
-                foreach ($matches as $match) {
-                    $name = (string) $match[1];
-                    $value = trim((string) $match[2]);
+            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$variables, &$definitions, &$conflicts, &$coverage, &$scoped, $asset): void {
+                if (str_starts_with(ltrim($prelude), '@')) return;
+                foreach (CssRuleAnalyzer::customProperties($body) as ['name' => $name, 'value' => $value]) {
                     // Identical scoped copies (including editor mirrors) do
                     // not change a root value. Different copies still veto it.
                     if (!in_array(strtolower(trim($prelude)), array(':root', 'html'), true)) {
                         $scoped[$name][$value] = true;
                         continue;
                     }
-                    if (isset($variables[$name]) && $variables[$name] !== $value) $conflicts[$name] = true;
+                    if (str_contains(strtolower($value), '!important')) $conflicts[$name] = true;
+                    // Only unconditional copies of the same selector in the same
+                    // stylesheet scope can supersede each other by source order.
+                    $context = strtolower(trim($prelude)) . "\n" . json_encode($asset['scopes'] ?? array(array('kind' => 'global')));
+                    if (array() === $ancestors) $definitions[$name][$context] = $value;
+                    else $definitions[$name][$context . "\n" . json_encode($ancestors) . "\n" . $value] = $value;
                     $variables[$name] = $value;
                     foreach ($ancestors as $ancestor) if (1 !== preg_match('/^@layer(?:\s|$)/', $ancestor)) $conflicts[$name] = true;
                     foreach ($asset['scopes'] ?? array(array('kind' => 'global')) as $scope) {
@@ -335,6 +340,7 @@ final class ThemeJsonProjection
             });
         }
         foreach ($variables as $name => $value) {
+            foreach ($definitions[$name] as $other) if ($other !== $value) $conflicts[$name] = true;
             foreach ($scoped[$name] ?? array() as $other => $_) if ($other !== $value) $conflicts[$name] = true;
             if (!empty($coverage[$name]['global'])) continue;
             if (array() === $documentPaths) $conflicts[$name] = true;
@@ -394,9 +400,8 @@ final class ThemeJsonProjection
             $cssPath = (string) ($asset['source_path'] ?? $asset['path'] ?? '');
             foreach ($matches[1] as $body) {
                 $properties = array();
-                foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
-                    $parts = explode(':', $declaration, 2);
-                    if (2 === count($parts) && !CssPropertyName::startsLikeNumber(trim($parts[0]))) $properties[strtolower(trim($parts[0]))] = trim($parts[1]);
+                foreach (CssRuleAnalyzer::declarationList($body) as ['name' => $name, 'value' => $value]) {
+                    if (!CssPropertyName::startsLikeNumber($name)) $properties[$name] = $value;
                 }
                 $family = isset($properties['font-family']) ? trim($properties['font-family'], " \t\n\r\0\x0B\"'") : '';
                 if ('' === $family || !isset($properties['src'])) continue;
@@ -458,10 +463,7 @@ final class ThemeJsonProjection
     private function declarations(string $body): array
     {
         $declarations = array();
-        foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
-            $parts = explode(':', $declaration, 2);
-            if (2 !== count($parts)) continue;
-            $name = strtolower(trim($parts[0])); $value = trim($parts[1]);
+        foreach (CssRuleAnalyzer::declarationList($body) as ['name' => $name, 'value' => $value]) {
             if ('' !== $name && '' !== $value && !CssPropertyName::startsLikeNumber($name) && !str_contains(strtolower($value), '!important')) $declarations[$name] = $value;
         }
         return $declarations;
@@ -761,9 +763,8 @@ final class ThemeJsonProjection
             $families = array_map(static fn(string $value, string $slug): array => array('slug' => $slug, 'name' => $names['font-family|' . $slug] ?? $slug, 'fontFamily' => $value), array_keys($presets['font-family']), $presets['font-family']);
             foreach ($families as $index => $family) {
                 $stack = (string) $family['fontFamily'];
-                foreach (explode(',', $stack) as $token) {
-                    $token = trim($token, " \t\n\r\0\x0B\"'");
-                    if (!isset($names['font-family|' . $family['slug']]) && '' !== $token && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) { $families[$index]['name'] = $token; break; }
+                foreach (CssFontFamily::names($stack) as $token) {
+                    if (!isset($names['font-family|' . $family['slug']]) && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) { $families[$index]['name'] = $token; break; }
                 }
                 $familyFaces = array_values(array_filter($faces, static fn(array $face): bool => self::stackReferencesFamily($stack, (string) ($face['family'] ?? ''))));
                 if (array() !== $familyFaces) $families[$index]['fontFace'] = $familyFaces;
@@ -834,8 +835,8 @@ final class ThemeJsonProjection
     private static function stackReferencesFamily(string $stack, string $family): bool
     {
         if ('' === $family) return false;
-        foreach (explode(',', $stack) as $token) {
-            if (0 === strcasecmp(trim($token, " \t\n\r\0\x0B\"'"), $family)) return true;
+        foreach (CssFontFamily::names($stack) as $token) {
+            if (0 === strcasecmp($token, $family)) return true;
         }
         return false;
     }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarationPromotion;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
 
 $failures = 0;
@@ -73,11 +74,10 @@ $assert(null === $recognizer->productCardData($element('<article itemscope itemt
 // Exercise name-derived slugs too, rather than only the URL's ASCII spelling.
 unset($products[0]['slug']);
 // Exercise the owning fallback-to-runtime normalization, not a copied closure.
-$runtime = new ReflectionMethod(ArtifactCompiler::class, 'runtimeDeclarationsFromFallbacks');
-$declarations = $runtime->invoke(new ArtifactCompiler(), array(), array(array(
+$declarations = (new RuntimeDeclarationPromotion())->runtimeDeclarationsFromFallbacks(array(), array(array(
     'diagnostic_code' => 'html_product_grid_fallback',
     'products' => $products,
-)), 'index.html', array());
+)), 'index.html', array(), static fn (): bool => false);
 $entities = array();
 foreach ($declarations as $declaration) {
     if ('products' === ($declaration['type'] ?? null)) $entities = $declaration['payload']['entities'] ?? array();

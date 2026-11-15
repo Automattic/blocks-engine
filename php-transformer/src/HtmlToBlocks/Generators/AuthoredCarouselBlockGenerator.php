@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -15,7 +16,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ResponsivePropertyFamily;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
@@ -1089,7 +1092,12 @@ JS;
                         return null;
                     }
                 }
-                if ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) {
+                // A declared carousel may wrap its track and controls in a
+                // neutral inner container. Keep that accessible root when it
+                // owns no other authored content; otherwise defer as before.
+                $declaredRoot = 'carousel' === strtolower(trim(SourceDom::attr($element, 'aria-roledescription')))
+                    && ! $this->hasAuthoredContentOutside($element, $owner, $list, $items);
+                if ( ! $declaredRoot && ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) ) {
                     return null;
                 }
                 // A lone previous or next control is still a complete carousel
@@ -1162,7 +1170,7 @@ JS;
             $item->removeAttribute('hidden');
             $display = $item->getAttribute(CaptureEvidence::GALLERY_DISPLAY);
             if (preg_match('/^[a-z-]+$/D', $display)) {
-                $declarations = $styleResolver->cssDeclarations($item->getAttribute('style'));
+                $declarations = SourceDeclarations::parse($item->getAttribute('style'));
                 $declarations['display'] = $display;
                 $item->setAttribute('style', $styleResolver->cssDeclarationString($declarations));
             }
@@ -1190,14 +1198,22 @@ JS;
                 $geometryStyles = $this->carrySourceGeometryIntoBlockTree($item, $styleResolver);
                 try {
                     $slideFallbacks = array();
-                    $children = $tree->children($item, $slideFallbacks, true);
+                    if ( $this->hasBackgroundImage($item) ) {
+                        // Convert the painted owner itself: child-only conversion
+                        // loses its background, including entirely empty slides.
+                        $item->setAttribute('style', $styleResolver->specificityResolvedPresentationStyle($item));
+                        $slide = $tree->element($item, $slideFallbacks, true);
+                        $children = null === $slide ? array() : array($slide);
+                    } else {
+                        $children = $tree->children($item, $slideFallbacks, true);
+                        $slide = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($item), $children, $item);
+                    }
                     if ( array() === $children || array() !== $slideFallbacks ) {
                         if ( $temporary ) {
                             $item->parentNode?->removeChild($item);
                         }
                         return null;
                     }
-                    $slide = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($item), $children, $item);
                 } finally {
                     $this->restoreInlineStyles($geometryStyles);
                 }
@@ -1233,6 +1249,14 @@ JS;
             ) {
                 $presentation = 'slideshow';
             }
+        }
+        // Stacked frames: one item exposed, the rest hidden from assistive
+        // technology, layered by z-index — one slide is on stage at a time.
+        $exposed = array_filter($items, static fn (DOMElement $item): bool => 'true' !== strtolower(SourceDom::attr($item, 'aria-hidden')));
+        if ( 1 < count($items) && 1 === count($exposed)
+            && '' !== CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations(reset($exposed))['z-index'] ?? ''))
+        ) {
+            $presentation = 'slideshow';
         }
         // Selecting a slide from a thumbnail means one slide is on stage.
         if ( 1 < count($pagerItems) ) {
@@ -1275,12 +1299,12 @@ JS;
         $transitionDuration = 0;
         $autoplayInterval = 0;
         foreach ( $items as $item ) {
-            $transitionDuration = max($transitionDuration, $durationMilliseconds((string) ($styleResolver->cssDeclarations(SourceDom::attr($item, 'style'))['animation-duration'] ?? '')));
+            $transitionDuration = max($transitionDuration, $durationMilliseconds((string) (SourceDeclarations::parse(SourceDom::attr($item, 'style'))['animation-duration'] ?? '')));
             foreach ( $item->getElementsByTagName('*') as $descendant ) {
                 if ( ! $descendant instanceof DOMElement ) {
                     continue;
                 }
-                $autoplayInterval = max($autoplayInterval, $durationMilliseconds((string) ($styleResolver->cssDeclarations(SourceDom::attr($descendant, 'style'))['animation-duration'] ?? '')));
+                $autoplayInterval = max($autoplayInterval, $durationMilliseconds((string) (SourceDeclarations::parse(SourceDom::attr($descendant, 'style'))['animation-duration'] ?? '')));
             }
         }
         if ( $autoplayInterval <= $transitionDuration ) {
@@ -1300,7 +1324,7 @@ JS;
         $height = 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', trim($listHeight)) ? $listHeight : $rootHeight;
         $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($height), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
         $stageMinHeight = $this->safeCssDimension((string) ($geometryDeclarations['min-height'] ?? ''));
-        $rootDeclarations = $styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $rootDeclarations = SourceDeclarations::parse(SourceDom::attr($element, 'style'));
         $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
         $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
             && 1 === preg_match('/^-\s*(?:[0-9]+|[0-9]*\.[0-9]+)(?:px|rem|em|%)$/', strtolower(trim((string) ($rootDeclarations['left'] ?? ''))));
@@ -1339,7 +1363,7 @@ JS;
             ? $this->stageBoxForItems($items, $styleResolver)
             : array('ratio' => '', 'width' => 0);
 
-        $declaredRatio = $styleResolver->resolveStructuralCssVariablesInValue((string) ($geometryDeclarations['aspect-ratio'] ?? ''), $geometryList);
+        $declaredRatio = $styleResolver->customProperties->resolveCascaded((string) ($geometryDeclarations['aspect-ratio'] ?? ''), $geometryList);
         $declaredRatio = $this->normalizedAspectRatio(preg_replace('/\s+/', '', $declaredRatio));
         if ('' !== $declaredRatio && 0 === $viewportHeight) {
             $stageBox['ratio'] = $declaredRatio;
@@ -1351,7 +1375,7 @@ JS;
             foreach (array('thumbnailWidth' => array($pagerItems[0], 'width'), 'thumbnailGap' => array($pagerRoot, in_array($thumbnailPosition, array('left', 'right'), true) ? 'row-gap' : 'column-gap'), 'stageGap' => array($layoutRoot, in_array($thumbnailPosition, array('left', 'right'), true) ? 'column-gap' : 'row-gap')) as $name => [$target, $property]) {
                 if (!$target instanceof DOMElement) continue;
                 $declarations = $styleResolver->structuralPresentationDeclarations($target);
-                $value = $styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations[$property] ?? ($property !== 'width' ? ($declarations['gap'] ?? '') : '')), $target);
+                $value = $styleResolver->customProperties->resolveCascaded((string) ($declarations[$property] ?? ($property !== 'width' ? ($declarations['gap'] ?? '') : '')), $target);
                 if (preg_match('/^[0-9]+(?:\.[0-9]+)?(?:px|rem|em|%)$/D', trim($value))) $thumbnailGeometry[$name] = trim($value);
             }
         }
@@ -2010,7 +2034,7 @@ JS;
         $resolved = $styleResolver->structuralPresentationDeclarations($control);
         $result = array();
         foreach (array('width' => 'width', 'height' => 'height', 'padding' => 'padding', 'border' => 'border', 'border-radius' => 'border-radius', 'background' => 'background', 'background-color' => 'background-color', 'color' => 'color', 'font' => 'font') as $property => $key) {
-            if ($styleResolver->hasConditionalStyleFamily($control, $styleResolver->responsivePropertyFamily($property))) {
+            if ($styleResolver->hasConditionalStyleFamily($control, ResponsivePropertyFamily::of($property))) {
                 continue;
             }
             $value = trim((string) ($resolved[$property] ?? ''));
@@ -2214,7 +2238,7 @@ JS;
             }
         }
         foreach ( $candidates as $candidate ) {
-            $declarations = $styleResolver->cssDeclarations(SourceDom::attr($candidate, 'style'));
+            $declarations = SourceDeclarations::parse(SourceDom::attr($candidate, 'style'));
             $width = $this->pixelLength((string) ($declarations['width'] ?? ''));
             $left = $this->pixelLength((string) ($declarations['left'] ?? ''));
             $top = $this->pixelLength((string) ($declarations['top'] ?? ''));
@@ -2518,7 +2542,7 @@ JS;
         foreach ($elements as $element) {
             $oldStyle = $element->hasAttribute('style') ? $element->getAttribute('style') : null;
             $snapshot[] = array('element' => $element, 'style' => $oldStyle);
-            $inline = $styleResolver->cssDeclarations($oldStyle ?? '');
+            $inline = SourceDeclarations::parse($oldStyle ?? '');
             $missing = array_fill_keys(array_diff_key($allowed, $inline), true);
             if (array() === $missing) {
                 continue;
@@ -2631,12 +2655,19 @@ JS;
             }
             if ( 0 === $item->getElementsByTagName('img')->length
                 && ! $this->sourceElementClassifier->isNativeVideoSlide($item)
+                && ! $this->hasBackgroundImage($item)
                 && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
             ) {
                 return false;
             }
         }
         return true;
+    }
+
+    private function hasBackgroundImage(DOMElement $element): bool
+    {
+        return null !== $this->styleResolver
+            && '' !== (new BackgroundImageExtractor())->urlFromStyle($this->styleResolver->specificityResolvedPresentationStyle($element));
     }
 
     private function carouselPaginationCount(DOMElement $root): int
@@ -2688,13 +2719,14 @@ JS;
     private function isSlideStatus(DOMElement $element): bool
     {
         return 'status' === SourceDom::role($element)
+            || $element->hasAttribute('aria-live')
             || 1 === preg_match('~^\s*[0-9]+\s*/\s*[0-9]+\s*$~', $element->textContent ?? '');
     }
 
     private function slideStatus(DOMElement $list): ?DOMElement
     {
         foreach ($list->childNodes as $child) {
-            if ($child instanceof DOMElement && $this->isSlideStatus($child)) return $child;
+            if ($child instanceof DOMElement && $this->isSlideStatus($child) && 'off' !== SourceDom::attr($child, 'aria-live')) return $child;
         }
         return null;
     }
@@ -2726,7 +2758,7 @@ JS;
                 SourceDom::attr($child, 'data-testid'),
             )));
             if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item|group)(?:[^a-z0-9]|$)/', $identity)
-                && (0 < $child->getElementsByTagName('img')->length || $this->sourceElementClassifier->isNativeVideoSlide($child))
+                && (0 < $child->getElementsByTagName('img')->length || $this->sourceElementClassifier->isNativeVideoSlide($child) || $this->hasBackgroundImage($child))
             ) {
                 $items[] = $child;
                 continue;

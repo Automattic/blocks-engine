@@ -21,14 +21,15 @@ final class EmptyElementFootprint
     private function hasPositiveLength(array $declarations, array $properties, ?DOMElement $element = null): bool
     {
         foreach ( $properties as $property ) {
-            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) return true;
+            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->customProperties->resolve($declarations[$property], $element)) ) return true;
         }
         return false;
     }
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly SourceElementClassifier $sourceElementClassifier,
-        private readonly HostBlockGapEncoder $sourceMargins
+        private readonly HostBlockGapEncoder $sourceMargins,
+        private readonly SourceStyleResolutionState $sourceStyles
     ) {
     }
 
@@ -45,7 +46,7 @@ final class EmptyElementFootprint
                 case 'drop':
                     return false;
                 case 'hidden':
-                    $inline = $this->styleResolver->inlineDeclarations($element);
+                    $inline = SourceDeclarations::inline($element);
                     $opacity = CssValueInspector::declared($inline, 'opacity');
                     $paintDeclarations = array_merge($this->styleResolver->structuralPresentationDeclarations($element), $inline);
                     $authoredPaint = array() !== array_intersect_key($paintDeclarations, array_flip(array( 'background', 'background-color', 'background-image' )));
@@ -87,7 +88,7 @@ final class EmptyElementFootprint
             return false;
         }
         foreach ( array_merge(self::VERTICAL_SPACE, array( 'width', 'min-width', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-width', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width' )) as $property ) {
-            $value = $this->styleResolver->resolveCssVariablesInValue((string) ($declarations[$property] ?? ''), $element);
+            $value = $this->styleResolver->customProperties->resolve((string) ($declarations[$property] ?? ''), $element);
             foreach ( preg_split('/\s+/', CssValueInspector::comparable($value)) ?: array() as $token ) {
                 if ( $this->sourceElementClassifier->isPositiveCssLength($token) ) {
                     return true;
@@ -119,8 +120,8 @@ final class EmptyElementFootprint
         }
         $parentBase = $this->styleResolver->structuralPresentationDeclarations($parent);
         $base = $this->styleResolver->structuralPresentationDeclarations($element);
-        $parentInline = $this->styleResolver->inlineDeclarations($parent);
-        $inline = $this->styleResolver->inlineDeclarations($element);
+        $parentInline = SourceDeclarations::inline($parent);
+        $inline = SourceDeclarations::inline($element);
         foreach ($conditions as $stack) {
             // Read both boxes in the same responsive state. Never combine a
             // phone flex parent with a size declared only for desktop (#4276).
@@ -155,7 +156,7 @@ final class EmptyElementFootprint
         $hasSize = fn (string $value): bool => $this->sourceElementClassifier->isPositiveCssLength($value)
             || (1 === preg_match('/^\+?(\d+(?:\.\d+)?|\.\d+)%$/', trim($value), $matches) && 0 < (float) $matches[1]);
         foreach ( $properties as $property ) {
-            $value = $this->styleResolver->resolveCssVariablesInValue((string) ($declarations[$property] ?? ''), $element);
+            $value = $this->styleResolver->customProperties->resolve((string) ($declarations[$property] ?? ''), $element);
             if ( $hasSize($value) ) {
                 return true;
             }
@@ -166,7 +167,7 @@ final class EmptyElementFootprint
         if ( is_numeric($grow) && 0 < (float) $grow ) {
             return true;
         }
-        $flex = $this->styleResolver->resolveCssVariablesInValue((string) ($declarations['flex'] ?? ''), $element);
+        $flex = $this->styleResolver->customProperties->resolve((string) ($declarations['flex'] ?? ''), $element);
         $parts = SourceDom::tokens($flex);
         $basis = (string) (count($parts) >= 3 ? $parts[2] : (count($parts) === 2 && ! is_numeric($parts[1]) ? $parts[1] : ($parts[0] ?? '')));
         return 'auto' === $flex
@@ -211,20 +212,20 @@ final class EmptyElementFootprint
         if ( $element instanceof DOMElement ) {
             foreach ( array('background', 'background-color', 'background-image', 'box-shadow', 'outline', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-color') as $property ) {
                 if ( isset($declarations[$property]) ) {
-                    $declarations[$property] = $this->styleResolver->resolveEmptyVisualPaintVariables($declarations[$property], $element);
+                    $declarations[$property] = $this->styleResolver->customProperties->resolvePossiblePaint($declarations[$property], $element);
                 }
             }
         }
 
         foreach ( array( 'background', 'background-color', 'background-image', 'box-shadow', 'outline', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left' ) as $property ) {
             if ( ! isset($declarations[$property]) ) continue;
-            $value = $this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element);
+            $value = $this->styleResolver->customProperties->resolve($declarations[$property], $element);
             if ( str_starts_with($property, 'border') ? $this->sourceElementClassifier->isVisibleEmptyVisualBorder($value) : $this->sourceElementClassifier->isVisibleEmptyVisualPaint($value) ) return true;
         }
 
         return isset($declarations['border-color'], $declarations['border-width'])
-            && $this->sourceElementClassifier->isVisibleEmptyVisualPaint($this->styleResolver->resolveCssVariablesInValue($declarations['border-color'], $element))
-            && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations['border-width'], $element));
+            && $this->sourceElementClassifier->isVisibleEmptyVisualPaint($this->styleResolver->customProperties->resolve($declarations['border-color'], $element))
+            && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->customProperties->resolve($declarations['border-width'], $element));
     }
 
     public function shouldPreserveEmptyVisualFigure(DOMElement $figure, string $renderedText, array $pseudoRules): bool
@@ -243,7 +244,7 @@ final class EmptyElementFootprint
         }
 
         foreach ( $pseudoRules as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($figure, $rule['selector']) && $this->hasVisibleEmptyVisualPaint($rule['declarations'], $figure) ) {
+            if ( $this->sourceStyles->matches($figure, $rule['selector']) && $this->hasVisibleEmptyVisualPaint($rule['declarations'], $figure) ) {
                 return true;
             }
         }
@@ -254,7 +255,7 @@ final class EmptyElementFootprint
     public function cssDeclarationsPaintOrOccupySpace(string $declarations): bool
     {
         $declared = array();
-        foreach ( $this->styleResolver->cssDeclarations($declarations) as $property => $value ) {
+        foreach ( SourceDeclarations::parse($declarations) as $property => $value ) {
             $declared[strtolower(trim((string) $property))] = trim((string) $value);
         }
 
@@ -307,7 +308,7 @@ final class EmptyElementFootprint
                 continue;
             }
             foreach ( $nodes as $node ) {
-                if ( $this->styleResolver->matchesCssSelector($node, $selector) ) {
+                if ( $this->sourceStyles->matches($node, $selector) ) {
                     return true;
                 }
             }
@@ -385,13 +386,13 @@ final class EmptyElementFootprint
             return false;
         }
         foreach ( array( 'grid-template-rows', 'grid-template-columns' ) as $property ) {
-            if ( ! $this->isDefiniteGridTrackList($this->styleResolver->resolveCssVariablesInValue((string) ($parentDeclarations[$property] ?? ''), $parent)) ) {
+            if ( ! $this->isDefiniteGridTrackList($this->styleResolver->customProperties->resolve((string) ($parentDeclarations[$property] ?? ''), $parent)) ) {
                 return false;
             }
         }
         $declarations = array_merge(
             $this->styleResolver->structuralPresentationDeclarations($element),
-            $this->styleResolver->inlineDeclarations($element)
+            SourceDeclarations::inline($element)
         );
         return ! in_array(CssValueInspector::declared($declarations, 'display'), array( 'none', 'contents' ), true)
             && ! $this->isOutOfFlow($declarations);
@@ -434,7 +435,7 @@ final class EmptyElementFootprint
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         foreach ( array( 'width', 'height' ) as $property ) {
-            $size = $this->styleResolver->resolveCssVariablesInValue((string) ($declarations[$property] ?? 'auto'), $element);
+            $size = $this->styleResolver->customProperties->resolve((string) ($declarations[$property] ?? 'auto'), $element);
             if ( 1 === preg_match('/^[+-]?0(?:\.0+)?(?:[a-z]+|%)?$/i', trim($size)) ) {
                 return false;
             }

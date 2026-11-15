@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
@@ -73,6 +74,14 @@ final class WrapperCoalescer
 
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
 
+    // Semantic Groups have the same native transport as div Groups. Their tag
+    // does not by itself justify replacing editable structure with a companion.
+    private const NATIVE_GROUP_TAGS = array('div', 'main', 'section', 'article', 'aside');
+
+    // Charge shared ancestry against the saved List View depth, not only
+    // against the length of each uninterrupted single-child run.
+    private const MAX_NATIVE_WRAPPER_DEPTH = 8;
+
     private bool $wrapperBudgetExceeded = false;
 
     /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
@@ -95,8 +104,20 @@ final class WrapperCoalescer
             $ancestorChain[] = array('block' => $cursor, 'descriptor' => $descriptor);
             $cursor = $cursor['innerBlocks'][0];
         }
-        if (2 <= count($ancestorChain)
-            && $depth - 1 + $this->nativeBlockHeight($block) > EditabilityPolicy::THRESHOLDS['max_nesting_depth']) {
+        // Native div/nav ancestry may retain its source boxes within the public
+        // nesting budget; do not force it through generated shell transport.
+        $nativeNavigationChain = 'div' === ($ancestorChain[0]['descriptor']['tagName'] ?? null)
+            && array() !== array_filter($ancestorChain, static fn (array $entry): bool => 'nav' === $entry['descriptor']['tagName'])
+            && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'], array('div', 'nav'), true))
+            && $depth - 1 + $this->nativeBlockHeight($block) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
+        // Semantic-only ancestry is a local region, not a reason to lower
+        // otherwise editable ancestors before its descendants normalize.
+        $semanticRegion = 2 <= count($ancestorChain)
+            && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, array('main', 'section', 'article', 'aside'), true));
+        $wrapperHeight = ($semanticRegion ? 0 : $depth - 1) + $this->nativeBlockHeight($block);
+        if (! $nativeNavigationChain && 2 <= count($ancestorChain)
+            && ($wrapperHeight > self::MAX_NATIVE_WRAPPER_DEPTH
+                || count($ancestorChain) >= self::MAX_NATIVE_WRAPPER_DEPTH)) {
             return $this->foldWrapperChain($ancestorChain, $this->normalizeWrapperChain($cursor, $depth + 1));
         }
 
@@ -115,9 +136,9 @@ final class WrapperCoalescer
             || (str_starts_with($terminalName, 'core/') && ! in_array($terminalName, array( 'core/freeform', 'core/html' ), true)))
             && ('core/freeform' === $terminalName
                 || ('core/group' === $terminalName && array() === ($terminal['innerBlocks'] ?? array()))
-                || array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null)))
+                || array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, ('div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div')), true)))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
-        // Div ancestors remain editable even when their terminal is a generated
+        // Native Group ancestors remain editable even when their terminal is a generated
         // block or an extraction slot. The terminal's transport does not require
         // transporting its native parent boxes in a generated shell too.
         // Inline-only fragments retain their existing shell transport. Source
@@ -126,8 +147,14 @@ final class WrapperCoalescer
         $hasSourceBox = array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool =>
             ! str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-synthetic-paragraph')
             || str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-source-box-paragraph'));
+        $nativeTags = 'div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div');
+        // Extend native transport to semantic-only region chains, not mixed
+        // chains whose inner containers already have established lowering.
+        if (2 <= count($chain) && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, array('main', 'section', 'article', 'aside'), true))) {
+            $nativeTags = self::NATIVE_GROUP_TAGS;
+        }
         $nativeGroupTree = $nativeGroupTree || (('core/freeform' !== $terminalName || $hasSourceBox)
-            && array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null))
+            && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, $nativeTags, true))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth']);
         // The ratio budget belongs to the document, not each component. An
         // empty visual branch can have no content leaves while the complete
@@ -366,7 +393,7 @@ final class WrapperCoalescer
             foreach ($this->inheritedWrapperDeclarations($node) as $name => $value) {
                 if (! $this->isInheritedTextProperty($name)) continue;
                 if (in_array(CssValueInspector::comparable($value), array('inherit', 'unset'), true)) continue;
-                $values = $this->styleResolver->mergeCssDeclarationMaps($values, array($name => $value));
+                $values = SourceDeclarations::merge($values, array($name => $value));
             }
         }
         $attrs = ArrayField::array($childBlock, 'attrs');
@@ -388,9 +415,9 @@ final class WrapperCoalescer
     /** @return array<string, string> */
     private function inheritedWrapperDeclarations(DOMElement $element): array
     {
-        return $this->styleResolver->mergeCssDeclarationMaps(
+        return SourceDeclarations::merge(
             $this->matchingAuthorDeclarations($element),
-            $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element))
+            SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element))
         );
     }
 
@@ -786,17 +813,15 @@ final class WrapperCoalescer
     private function authorSemanticDeclarations(DOMElement $element): array
     {
         $declarations = array();
-        foreach ( $this->styleResolver->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
-                $declarations = array_merge($declarations, $rule['declarations']);
-            }
+        foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'static') as $rule ) {
+            $declarations = array_merge($declarations, $rule['declarations']);
         }
         return $declarations;
     }
 
     public function hasOnlyRenderNeutralInlineGeometry(DOMElement $element): bool
     {
-        foreach ($this->styleResolver->inlineDeclarations($element) as $property => $value) {
+        foreach (SourceDeclarations::inline($element) as $property => $value) {
             if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
         }
         return true;
@@ -804,7 +829,7 @@ final class WrapperCoalescer
 
     private function hasOnlyFullWidthTransparentInlineGeometry(DOMElement $element): bool
     {
-        $declarations = $this->styleResolver->inlineDeclarations($element);
+        $declarations = SourceDeclarations::inline($element);
         if ( '100%' !== strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['width'] ?? '')))) ) {
             return false;
         }
@@ -903,7 +928,7 @@ final class WrapperCoalescer
             }
             if ( $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $selector['selector'], $selector['parsed'], true)['matches'] ) {
                 $matchedRules[$ruleOrder] = true;
-                $declarations = $this->styleResolver->mergeCssDeclarationMaps($declarations, $selector['declarations']);
+                $declarations = SourceDeclarations::merge($declarations, $selector['declarations']);
             }
         }
         return $declarations;

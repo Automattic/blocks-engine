@@ -28,18 +28,13 @@ final class NavigationEntityProjection
             foreach ($documents as $index => $document) {
                 $source = (string) ($document['source_path'] ?? '');
                 $markup = (string) ($document['canonical_block_markup'] ?? '');
-                // In-place panels retain source-owned item style subjects. A
-                // semantically equal entity can carry another scope's classes.
-                $sourcePanels = array_values(array_filter((new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->ranges(), static function (array $range) use ($markup): bool {
-                    $block = substr($markup, $range['offset'], $range['length']);
-                    if (1 !== preg_match('/^<!--\s*wp:group\s+(\{.*?\})\s*-->/s', $block, $match)) return false;
-                    $shell = json_decode($match[1], true)['metadata']['blocksEngineDialog'] ?? array();
-                    return 'in-place' === ($shell['attributes']['data-blocks-engine-placement'] ?? null);
-                }));
                 foreach (self::navigationBlocks($markup) as $block) {
                     // Provider-owned ancestors and descendants keep their exact
                     // anchors. Unrelated navigation in the same document can share.
-                    if (self::overlapsBinding($block, $protected[$source] ?? array()) || self::overlapsBinding($block, $sourcePanels)) continue;
+                    // A dialog owns placement, not navigation content. Factor
+                    // its items without moving the host out of that shell;
+                    // the reference retains host attributes and item subjects.
+                    if (self::overlapsBinding($block, $protected[$source] ?? array())) continue;
                     $inner = self::normalizeLabels(RestingNavigation::markup($block['inner']));
                     $identity = self::contentIdentity($inner);
                     $clusters[$identity][] = array(

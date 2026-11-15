@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -579,16 +580,11 @@ final class MediaTextPattern implements PatternRecognizerInterface
      */
     private function declaresUnresolvableGateValue(string $style, array $properties): bool
     {
-        foreach ( \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            $separator = strpos($declaration, ':');
-            if ( false === $separator ) {
-                continue;
-            }
-            $name = strtolower(trim(substr($declaration, 0, $separator)));
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $name, 'value' => $value ] ) {
             if ( ! in_array($name, $properties, true) ) {
                 continue;
             }
-            if ( 1 === preg_match('/var\s*\(/i', substr($declaration, $separator + 1)) ) {
+            if ( 1 === preg_match('/var\s*\(/i', $value) ) {
                 return true;
             }
         }
@@ -884,14 +880,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
     {
         $declarations = array();
         $important = array();
-        foreach ( \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            $separator = strpos($declaration, ':');
-            if ( false === $separator ) {
-                continue;
-            }
-
-            $name  = strtolower(trim(substr($declaration, 0, $separator)));
-            $value = trim(substr($declaration, $separator + 1));
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $name, 'value' => $value ] ) {
             if ( '' === $name || '' === $value || CssPropertyName::startsLikeNumber($name) || ! $this->isValidMediaTextCssDeclaration($name, $value) ) {
                 continue;
             }
@@ -993,14 +982,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
         $direction = '';
         $directionIsImportant = false;
         $hasDirection = false;
-        foreach ( \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            $separator = strpos($declaration, ':');
-            if ( false === $separator ) {
-                continue;
-            }
-
-            $name = strtolower(trim(substr($declaration, 0, $separator)));
-            $rawValue = trim(substr($declaration, $separator + 1));
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $name, 'value' => $rawValue ] ) {
             $value = strtolower($this->normalizedCssValue($rawValue));
             $candidate = null;
             if ( 'flex-direction' === $name ) {

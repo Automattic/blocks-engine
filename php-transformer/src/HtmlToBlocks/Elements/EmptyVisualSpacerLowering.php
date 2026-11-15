@@ -95,7 +95,7 @@ final class EmptyVisualSpacerLowering
             }
         }
         foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) && array_intersect_key($rule['declarations'], array_flip(array( 'content', 'display', 'width', 'min-width' ))) ) {
+            if ( $this->session->sourceStyleResolutionState()->matches($element, $rule['selector']) && array_intersect_key($rule['declarations'], array_flip(array( 'content', 'display', 'width', 'min-width' ))) ) {
                 return $attrs;
             }
         }
@@ -140,8 +140,8 @@ final class EmptyVisualSpacerLowering
         }
 
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $attrs['height'] = $this->styleResolver->resolveCssVariablesInValue($declarations['height']);
-        $attrs['width'] = $this->styleResolver->resolveCssVariablesInValue($declarations['width']);
+        $attrs['height'] = $this->styleResolver->customProperties->resolve($declarations['height']);
+        $attrs['width'] = $this->styleResolver->customProperties->resolve($declarations['width']);
 
         return $this->blocks->createBlock('core/spacer', $attrs, array(), $element);
     }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -188,7 +189,7 @@ final class FormControlClassifier
         if ( 'hidden' === self::controlType($control) ) {
             return true;
         }
-        if ( 1 === preg_match('/(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/i', $control->getAttribute('style')) ) {
+        if ( 'none' === (SourceDeclarations::inline($control)['display'] ?? '') ) {
             return true;
         }
         if ( 'new-password' === strtolower(trim($control->getAttribute('autocomplete'))) ) {

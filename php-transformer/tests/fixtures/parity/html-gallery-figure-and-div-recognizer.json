@@ -21,7 +21,7 @@
     { "path": "blocks.0.innerBlocks.1", "name": "core/image", "attrs": { "url": "https://example.com/b.jpg", "alt": "B" } },
     { "path": "blocks.1", "name": "core/gallery", "attrs": { "className": "media-grid" } },
     { "path": "blocks.1.innerBlocks.0", "name": "core/image", "attrs": { "url": "https://example.com/c.jpg", "alt": "C" } },
-    { "path": "blocks.1.innerBlocks.1", "name": "core/image", "attrs": { "className": "tile is-resized be-inline-geometry-ef55354e515da5ad blocks-engine-semantic-f8f75f26b04e-0", "url": "https://example.com/d.jpg", "alt": "D", "width": "400px", "height": "300px", "caption": "D caption" } }
+    { "path": "blocks.1.innerBlocks.1", "name": "core/image", "attrs": { "className": "tile is-resized be-inline-geometry-a8d526df727c1d9b blocks-engine-semantic-f240c12cd9d2-0", "url": "https://example.com/d.jpg", "alt": "D", "width": "400px", "height": "300px", "caption": "D caption" } }
   ],
   "expected_fallbacks": [],
   "expect": [

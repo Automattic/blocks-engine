@@ -123,8 +123,9 @@ final class RouteSelectorMatchIndex
         for ( $i = 0; $i < $length; ) {
             $char = $arm[ $i ];
             if ( '"' === $char || "'" === $char || '[' === $char || '(' === $char ) {
-                $end = self::groupEnd($arm, $i);
+                $end = CssSyntaxScanner::matchingClose($arm, $i);
                 if ( null === $end ) return null;
+                ++$end;
                 if ( null !== $pseudo ) return null;
                 $subject .= substr($arm, $i, $end - $i);
                 $i = $end;
@@ -142,8 +143,9 @@ final class RouteSelectorMatchIndex
             $end = $i + strlen($name[0]);
             $argument = null;
             if ( '(' === ( $arm[ $end ] ?? '' ) ) {
-                $close = self::groupEnd($arm, $end);
+                $close = CssSyntaxScanner::matchingClose($arm, $end);
                 if ( null === $close ) return null;
+                ++$close;
                 $argument = substr($arm, $end + 1, $close - $end - 2);
                 $end = $close;
             }
@@ -166,32 +168,6 @@ final class RouteSelectorMatchIndex
             $i = $end;
         }
         return array(trim($subject), $pseudo);
-    }
-
-    /** Offset just past a quoted string or a bracketed or parenthesized group. */
-    private static function groupEnd(string $arm, int $start): ?int
-    {
-        $open = $arm[ $start ];
-        if ( '"' === $open || "'" === $open ) {
-            $end = strpos($arm, $open, $start + 1);
-            return false === $end ? null : $end + 1;
-        }
-        $close = '[' === $open ? ']' : ')';
-        $depth = 0;
-        $length = strlen($arm);
-        for ( $i = $start; $i < $length; ++$i ) {
-            $char = $arm[ $i ];
-            if ( '"' === $char || "'" === $char ) {
-                $end = self::groupEnd($arm, $i);
-                if ( null === $end ) return null;
-                $i = $end - 1;
-            } elseif ( $char === $open ) {
-                ++$depth;
-            } elseif ( $char === $close && 0 === --$depth ) {
-                return $i + 1;
-            }
-        }
-        return null;
     }
 
     /** Pseudo-classes that vary with user, form or media state, never structure. */
