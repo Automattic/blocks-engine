@@ -269,6 +269,10 @@ final class DesignSystem
                 break;
             }
         }
+        foreach ($usageBySource as $usage) foreach ($usage['border_colors'] ?? array() as $value => $count) {
+            $hex = self::opaqueHex($value);
+            if (null !== $hex && $count > 0) $prominence[$hex] = ($prominence[$hex] ?? 0) + (int) $count;
+        }
         $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root, $sourceRoles);
         $literalColors = array_keys(array_diff_key($prominence, array_flip(array_column($colors, 'color'))));
         usort($literalColors, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: strcmp($a, $b));
