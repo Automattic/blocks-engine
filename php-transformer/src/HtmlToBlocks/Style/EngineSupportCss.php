@@ -223,8 +223,16 @@ final class EngineSupportCss
             $inlineFigure = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS;
             $parts[] = $inlineFigure . '{display:contents}'
                 // Keep a selectable, shrink-wrapped root in Gutenberg only.
-                // The front end still needs the transparent percentage basis.
-                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '.wp-block-image{display:inline-block}'
+                // Source positioning belongs to the image's transparent front-end
+                // carrier. Applying it to an editor box can stack block roots on
+                // top of each other, making the lower image impossible to select.
+                // In editor flow each image instead has its own hit-test box.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '.wp-block-image{display:inline-block;position:static}'
+                // A fixed-height source stack must expand around the editor's
+                // now in-flow images, rather than covering them with later blocks.
+                // Captured geometry can emit important fixed heights; this
+                // editor-only override must also outrank those source carriers.
+                . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '){height:auto!important;min-height:0!important}'
                 . $inlineFigure . ' img{display:inline}'
                 // A propagated card link adds another synthetic box. Core's
                 // inline-block anchor would make percentage images shrink to
