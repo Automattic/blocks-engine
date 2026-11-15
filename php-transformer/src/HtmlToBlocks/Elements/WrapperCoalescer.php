@@ -545,6 +545,8 @@ final class WrapperCoalescer
         }
         $textWrapper = $this->coalescedInheritedTextWrapper($element, $childBlock);
         if (null !== $textWrapper) return $textWrapper;
+        $absorbed = $this->absorbedNeutralChild($element, $childBlock);
+        if (null !== $absorbed) return $absorbed;
         $resolution = $this->coalescingResolution($element, $childBlock);
         if ( ! $resolution['disposition']->isCoalesce() ) {
             return null;
@@ -565,6 +567,119 @@ final class WrapperCoalescer
         if (null !== $proof) $this->session->layoutGeometryState()->recordProof($proof);
 
         return $this->createBlock->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+    }
+
+    /**
+     * Keep the parent's box, rather than requiring the parent to be neutral.
+     * A normal-flow neutral child contributes no independent geometry. This
+     * is the inverse of promoting a neutral parent onto a styled child.
+     *
+     * @param array<string,mixed> $childBlock
+     * @return array<string,mixed>|null
+     */
+    private function absorbedNeutralChild(DOMElement $element, array $childBlock): ?array
+    {
+        $name = $childBlock['blockName'] ?? '';
+        if (!in_array($name, array('core/group', 'core/paragraph'), true)
+            || 'div' !== strtolower($element->tagName)
+            || SourceDom::hasClass($element, 'wp-block-group')
+            || $this->isBindingAnchor($childBlock)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || $this->sourceElementClassifier->hasMotionStructureToken($element)
+            || '' !== SourceDom::attr($element, 'id')
+            || '' !== SourceDom::attr($element, 'role')
+            || array() !== $this->interactiveAttributes($element)
+            || array() !== SourceDom::safeDataAttributes($element)
+            || $this->isStructuralLayoutElement($element)) return null;
+        $parentDeclarations = $this->matchingAuthorDeclarations($element);
+        // Paragraphs may absorb a painted text surface, not a sizing or
+        // centering container. Groups likewise need an actual padded box.
+        // Keep this box's flex/grid item identity: unlike parent promotion,
+        // absorbing its neutral child does not remove the layout item.
+        // Padding longhands are equivalent evidence to the shorthand.
+        // A universal padding:0 reset does not establish a padded box.
+        // Otherwise unrelated wrappers (including animation hosts) qualify.
+        $hasPadding = false;
+        foreach ($parentDeclarations as $property => $value) {
+            if (in_array($property, array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left'), true)
+                && !$this->isRenderNeutralGeometryDeclaration($property, $value)) $hasPadding = true;
+        }
+        if (!$hasPadding
+            || ('core/paragraph' === $name && !isset($parentDeclarations['background']) && !isset($parentDeclarations['background-color']))) return null;
+        foreach ($parentDeclarations as $property => $value) {
+            if ($this->isInheritedTextProperty($property)) return null;
+        }
+        $child = ($this->soleElementChild)($element);
+        if (!$child instanceof DOMElement
+            // Conversion may already have promoted a deeper styled descendant
+            // through this neutral source node. Its declarations, not this
+            // node's neutrality, own the converted block's box.
+            || $this->matchingSourceChild($element, $childBlock) !== $child
+            || !in_array(strtolower($child->tagName), 'core/paragraph' === $name ? array('p') : array('div'), true)
+            || $this->runtimeIslands->isRuntimeDomTarget($child)
+            || $this->sourceElementClassifier->hasMotionStructureToken($child)
+            || '' !== SourceDom::attr($child, 'id')
+            || '' !== SourceDom::attr($child, 'role')
+            || array() !== $this->interactiveAttributes($child)
+            || array() !== SourceDom::safeDataAttributes($child)
+            || !$this->hasOnlyRenderNeutralBoxAffectingDeclarations($child)
+            || !$this->selectorMatchingSurvivesWrapperCoalescing($element, $child, true)) return null;
+        // Neutral on the child does not mean neutral on the merged box:
+        // a child's zero margin/padding can reset the parent's spacing once
+        // their selector carriers share a host. Keep these two box owners
+        // separate rather than letting carrier specificity choose geometry.
+        $childDeclarations = $this->matchingAuthorDeclarations($child);
+        // A child's text cascade belongs inside the parent's box. Moving it
+        // onto that box can change em-based padding and sizing, or borders
+        // painted with currentColor, even though the child has no geometry.
+        // A paragraph's line-height only changes its own text layout, unless
+        // the retained box uses line-height-relative lengths. Other text
+        // properties can change em sizing or currentColor paint.
+        $textOnlyLineHeight = 'core/paragraph' === $name;
+        foreach ($parentDeclarations as $value) {
+            if (preg_match('/[0-9.](?:r?lh)\b/i', $value)) $textOnlyLineHeight = false;
+        }
+        foreach ($childDeclarations as $property => $value) {
+            if (($this->isInheritedTextProperty($property) && !('line-height' === $property && $textOnlyLineHeight))
+                || str_starts_with($property, '--')) return null;
+        }
+        // Box sizing is inert on the unpadded child, but not on the padded
+        // parent it would share after absorption. An undeclared parent uses
+        // the initial content-box model; do not let a child carrier reset it.
+        if (isset($childDeclarations['box-sizing'])
+            && CssValueInspector::comparable($childDeclarations['box-sizing']) !== CssValueInspector::comparable((string) ($parentDeclarations['box-sizing'] ?? 'content-box'))) return null;
+        foreach ($parentDeclarations as $property => $value) {
+            if (!preg_match('/^(margin|padding)(?:-(top|right|bottom|left))?$/', $property, $spacing)
+                || $this->isRenderNeutralGeometryDeclaration($property, $value)) continue;
+            foreach (array_keys($childDeclarations) as $childProperty) {
+                if ($childProperty === $spacing[1]
+                    || $childProperty === $property
+                    || ($property === $spacing[1] && str_starts_with($childProperty, $property . '-'))) return null;
+            }
+        }
+        // Zero-width child borders are neutral only on their original box.
+        // After absorption their selectors would also reset the parent's paint.
+        // Keep border owners separate, including shorthand/longhand overlaps;
+        // border-radius has its own reset family (border does not reset it).
+        foreach ($parentDeclarations as $property => $value) {
+            if (!str_starts_with($property, 'border')
+                || $this->isRenderNeutralGeometryDeclaration($property, $value)) continue;
+            $radius = str_contains($property, 'radius');
+            foreach (array_keys($childDeclarations) as $childProperty) {
+                if (str_starts_with($childProperty, 'border')
+                    && $radius === str_contains($childProperty, 'radius')) return null;
+            }
+        }
+        // Paragraphs have UA block margins even without author declarations.
+        if ('core/paragraph' === $name) {
+            $declarations = $this->matchingAuthorDeclarations($child);
+            foreach (array('margin-top', 'margin-bottom') as $property) {
+                if (!in_array(CssValueInspector::comparable((string) ($declarations[$property] ?? $declarations['margin'] ?? '')), array('0', '0px'), true)) return null;
+            }
+        }
+        $attrs = array_replace_recursive($this->styleResolver->presentationAttributes($element), ArrayField::array($childBlock, 'attrs'));
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($this->styleResolver->presentationAttributes($element)['className'] ?? ''), (string) ($childBlock['attrs']['className'] ?? ''), SourceDom::attr($element, 'class'));
+        return $this->createBlock->createBlock($name, $attrs, $childBlock['innerBlocks'] ?? array(), $child);
     }
 
     /**

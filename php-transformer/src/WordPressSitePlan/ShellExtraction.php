@@ -527,14 +527,14 @@ final class ShellExtraction
     }
 
     /** @param array<string,mixed> $document @return array<int,array<string,mixed>> */
-    public function shellCandidates(array $document, AssetReferenceCanonicalizer $references, array $routes, string $canonical): array
+    public function shellCandidates(array $document, AssetReferenceCanonicalizer $references, string $canonical): array
     {
         $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($canonical);
         $candidates = array();
         foreach ($document['shell_artifacts'] ?? array() as $candidate) {
             if (!is_array($candidate) || !in_array($candidate['area'] ?? null, array('header', 'footer'), true) || !is_string($candidate['block_markup'] ?? null) || '' === trim($candidate['block_markup'])) continue;
             $sourcePath = WordPressSitePlan::value($document, 'source_path');
-            $markup = $this->links->markup($references->content($candidate['block_markup'], $sourcePath), $sourcePath, $routes);
+            $markup = $this->links->markup($references->content($candidate['block_markup'], $sourcePath), $sourcePath);
             // One rendered part serves every route; a page's own current item
             // is restored at render time, never frozen into the shared part.
             $templatePartMarkup = self::landmarkPartMarkup(RestingNavigation::markup($markup), (string) $candidate['area']);
@@ -2079,10 +2079,12 @@ final class ShellExtraction
                 $row = $rows[0];
                 $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($row['markup']))->tokens();
                 $attrs = json_decode($tokens[0]['attributes'] ?? '', true);
-                // Descendant-only differences may be navigation current state or
-                // deliberately retained route content. A shared anchor alone is
-                // not evidence of a distinct landmark presentation.
-                if (!isset($anchors[$attrs['anchor'] ?? '']) || array($attrs['style'] ?? array(), $attrs['className'] ?? '') === $anchors[$attrs['anchor']]) continue;
+                if (!isset($anchors[$attrs['anchor'] ?? ''])) continue;
+                // Descendant paint and navigation selection remain route-owned.
+                // Layout differences, however, can describe a distinct shell
+                // even when its landmark wrapper has identical attributes.
+                if (array($attrs['style'] ?? array(), $attrs['className'] ?? '') === $anchors[$attrs['anchor']]
+                    && self::descendantShellLayout($row['markup']) === self::descendantShellLayout($part['canonical_block_markup'])) continue;
                 if (self::textRuns($row['markup']) !== self::textRuns($part['canonical_block_markup'])) continue;
                 $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
                 if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
@@ -2096,6 +2098,21 @@ final class ShellExtraction
         }
         foreach ($pages as &$page) unset($page['shell_candidates'], $page['_source_shared_variant_identities']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /** Layout evidence below the landmark, excluding menu-item state and paint. */
+    private static function descendantShellLayout(string $markup): array
+    {
+        $layout = array();
+        $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->tokens();
+        foreach ($tokens as $token) {
+            if ($token['closing']) continue;
+            $attrs = json_decode($token['attributes'], true);
+            if (!self::isGroupBlock($token['token']) || 'header' === ($attrs['tagName'] ?? '')) continue;
+            $style = array_intersect_key($attrs['style'] ?? array(), array_flip(array('spacing', 'dimensions', 'layout', 'position', 'shadow')));
+            if (array() !== $style) $layout[] = $style;
+        }
+        return $layout;
     }
 
     /**
@@ -3164,7 +3181,8 @@ final class ShellExtraction
 
     /**
      * The generic fallback templates always carry the dominant shell; excluded
-     * routes get their own override templates. 'search' is never an applicable
+     * routes get their own override templates. 'single' is bound even when no
+     * captured route is a post. 'search' is never an applicable
      * page in its own right (WordPress synthesizes it), so it rides along
      * wherever 'index' is bound: both are the site's generic, non-singular
      * fallback templates. Null when two excluded routes need one override.
@@ -3176,7 +3194,7 @@ final class ShellExtraction
     private static function shellTemplateSlugs(array $applicable, array $selected): ?array
     {
         if (count($selected) === count($applicable)) return array(WordPressSitePlan::NATIVE_TEMPLATE_SLUGS, array());
-        $templateSlugs = WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
+        $templateSlugs = array_merge(WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS, array('single'));
         $overrides = array();
         foreach ($applicable as $index => $page) {
             $carries = isset($selected[$index]);

@@ -475,6 +475,11 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, HtmlCompilation::LOWERED_PARAGRAPH_CLASS) ) {
             $parts[] = ':root :where(p.' . HtmlCompilation::LOWERED_PARAGRAPH_CLASS . '){margin-block-start:0;margin-block-end:0}';
         }
+        // A stylesheet-painted source box has no padding of its own: Core's
+        // 1em cover padding must not fill the sides the author left unset.
+        if ( str_contains($serializedBlocks, CoverPattern::CONSUMED_BACKGROUND_CLASS) ) {
+            $parts[] = ':root :where(.wp-block-cover.' . CoverPattern::CONSUMED_BACKGROUND_CLASS . '){padding:0}';
+        }
         return $parts;
     }
 
