@@ -190,13 +190,6 @@ final class CssColor
         }, array($color[0], $color[1], $color[2]));
     }
 
-    /** CIELAB lightness, 0 (black) to 100 (white). */
-    public static function lightness(string $value): ?float
-    {
-        $lab = self::lab($value);
-        return null === $lab ? null : $lab[0];
-    }
-
     /** @return array{0:list<string>,1:?string}|null */
     private static function arguments(string $body): ?array
     {
