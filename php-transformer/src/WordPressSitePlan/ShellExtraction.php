@@ -1259,10 +1259,16 @@ final class ShellExtraction
             if ('page' === $target) $pageReplacements[$key][] = $occurrence; else $partReplacements[$key][] = $occurrence;
             if ('' !== $occurrence['source_path']) $sources[$occurrence['source_path']] = hash('sha256', $occurrence['markup']);
         }
+        // A document can author several footers that carry the same copy (a
+        // platform footer and an alternate one). Each keeps its own reference,
+        // so record how many a source holds for the binding proof.
+        $referencesPerSource = array();
         foreach ($pageReplacements as $index => $replacements) {
             usort($replacements, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
             $markup = (string) $pages[$index]['canonical_block_markup'];
             foreach ($replacements as $replacement) if (substr($markup, $replacement['offset'], $replacement['length']) === $replacement['markup']) $markup = substr($markup, 0, $replacement['offset']) . $reference . substr($markup, $replacement['offset'] + $replacement['length']);
+            $placed = substr_count($markup, $reference);
+            if ($placed > 1) $referencesPerSource[(string) ($pages[$index]['source_path'] ?? '')] = $placed;
             $pages[$index]['canonical_block_markup'] = $markup;
             $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
         }
@@ -1292,7 +1298,7 @@ final class ShellExtraction
             'entrypoint' => false,
             'area' => 'footer',
             'tag_name' => 'div',
-            'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => array_keys($sources), 'variant' => 1, 'excluded_template_slugs' => array_keys($excludedTemplateSlugs)),
+            'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => array_keys($sources), 'variant' => 1, 'excluded_template_slugs' => array_keys($excludedTemplateSlugs)) + (array() !== $referencesPerSource ? array('references_per_source' => $referencesPerSource) : array()),
             'canonical_block_markup' => $partMarkup,
             'metadata' => array(),
             'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#footer', 'kind' => 'template_part'), 'title' => 'Footer Content', 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()),
