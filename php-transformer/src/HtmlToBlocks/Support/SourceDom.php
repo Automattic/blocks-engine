@@ -2081,6 +2081,8 @@ final class SourceDom
      * Whether a textless custom host contains only nonempty graphics. Its SVG
      * passes the same safety boundary as a standalone SVG, because the host is
      * transparent and the SVG converter materializes that SVG either way.
+     * Plain span/div chains may wrap a single graphic; branching or
+     * configuration-bearing wrappers are not evidence of passive content.
      */
     public static function staticGraphicOnlyCustomElement(DOMElement $element): bool
     {
@@ -2092,6 +2094,17 @@ final class SourceDom
         foreach ( $element->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) {
                 continue;
+            }
+            while ( in_array(strtolower($child->tagName), array( 'span', 'div' ), true) ) {
+                foreach ( $child->attributes as $attribute ) {
+                    if ( ! in_array(strtolower($attribute->nodeName), array( 'class', 'id', 'style' ), true) ) {
+                        return false;
+                    }
+                }
+                if ( 1 !== $child->childElementCount || ! $child->firstElementChild instanceof DOMElement ) {
+                    return false;
+                }
+                $child = $child->firstElementChild;
             }
             $tag = strtolower($child->tagName);
             if ( 'svg' === $tag ) {

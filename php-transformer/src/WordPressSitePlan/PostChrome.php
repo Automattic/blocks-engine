@@ -532,7 +532,20 @@ final class PostChrome
             if (count($children) < 2) return null;
             $heading = substr($sectionIndex->markup, $children[0]['offset'], $children[0]['length']);
             if ('heading' !== PostBlocks::sourceBlockName($heading) || !isset($shared[($this->chromeIdentity)($heading)])) return null;
-            return array('heading' => ($this->chromeIdentity)($heading), 'items' => array_slice($children, 1));
+            $items = array_slice($children, 1);
+            $following = $items;
+            // Unwrap only a single-child chain; flat sibling cards stay intact.
+            // Stop at the list so a single li remains an item, not its contents.
+            while (1 === count($following)) {
+                $slice = substr($sectionIndex->markup, $following[0]['offset'], $following[0]['length']);
+                $nested = $sectionIndex->children($following[0]);
+                if ('list' === PostBlocks::sourceBlockName($slice)) {
+                    if (array() !== $nested) $items = $nested;
+                    break;
+                }
+                $following = $nested;
+            }
+            return array('heading' => ($this->chromeIdentity)($heading), 'items' => $items);
         };
         $sections = array();
         foreach ($index->ranges() as $owner) {

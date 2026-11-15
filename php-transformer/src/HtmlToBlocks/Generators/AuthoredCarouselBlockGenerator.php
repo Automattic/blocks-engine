@@ -1092,7 +1092,12 @@ JS;
                         return null;
                     }
                 }
-                if ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) {
+                // A declared carousel may wrap its track and controls in a
+                // neutral inner container. Keep that accessible root when it
+                // owns no other authored content; otherwise defer as before.
+                $declaredRoot = 'carousel' === strtolower(trim(SourceDom::attr($element, 'aria-roledescription')))
+                    && ! $this->hasAuthoredContentOutside($element, $owner, $list, $items);
+                if ( ! $declaredRoot && ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) ) {
                     return null;
                 }
                 // A lone previous or next control is still a complete carousel

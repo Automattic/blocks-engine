@@ -5,7 +5,7 @@
     "source_reference": {
         "repo": "php-transformer",
         "path": "tests/fixtures/parity/html-styled-form-row-grouping-survives.json",
-        "notes": "Regression fixture for a lossy form fallback: ReadableFormBlockBuilder flattened every control into one list, so a two-control row wrapper collapsed to stacked full-width fields. The shared grouping element must survive as a layout-shell whose wrappers attribute keeps the source class, with the two row controls as its inner blocks and later fields remaining siblings of that grouping."
+        "notes": "Regression fixture for a lossy form fallback: ReadableFormBlockBuilder flattened every control into one list, so a two-control row wrapper collapsed to stacked full-width fields. The shared grouping element must survive as a native Group whose className keeps the source class, with the two row controls as its inner blocks and later fields remaining siblings of that grouping."
     },
     "legacy_comparison": {
         "skip": true,
@@ -29,7 +29,7 @@
         },
         {
             "path": "blocks.0.innerBlocks.0",
-            "name": "custom/layout-shell"
+            "name": "core/group"
         },
         {
             "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0",
@@ -95,17 +95,17 @@
         {
             "path": "serialized_blocks",
             "assert": "contains",
-            "value": "<!-- wp:custom/layout-shell"
+            "value": "<!-- wp:group"
         },
         {
             "path": "serialized_blocks",
             "assert": "contains",
-            "value": "\"class\":\"fields-row\""
+            "value": "\"className\":\"fields-row\""
         },
         {
             "path": "serialized_blocks",
             "assert": "contains",
-            "value": "<div class=\"fields-row\">"
+            "value": "<div class=\"wp-block-group is-layout-grid wp-block-group-is-layout-grid fields-row\">"
         },
         {
             "path": "serialized_blocks",
