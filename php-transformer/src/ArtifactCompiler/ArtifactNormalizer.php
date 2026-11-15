@@ -348,6 +348,12 @@ final class ArtifactNormalizer
             if ('html' === $file['kind']) $file['layout_geometry_proof'] = $layoutGeometryProof['proof'];
         }
         unset($file);
+        $boxTrees = BoxTreeReport::read($files);
+        $diagnostics = array_merge($diagnostics, $boxTrees['diagnostics']);
+        foreach ($files as &$file) {
+            if ('html' === $file['kind']) $file['box_tree'] = $boxTrees['trees'][$file['path']] ?? array();
+        }
+        unset($file);
         $sourceHash = self::sourceHash($files, $runtimeDeclarations);
         if ( 0 < $rejected ) {
             ksort($rejectionCounts);
