@@ -4,9 +4,9 @@ declare(strict_types=1);
 /**
  * An all-digit class token of three or more characters is stored as an int
  * array key in the component-fact classes map (PHP normalizes numeric string
- * keys), so `finalizeComponentFacts()` passed an int to `preg_match()` and
+ * keys), so `ComponentDetection::finalizeFacts()` passed an int to `preg_match()` and
  * threw `TypeError: preg_match(): Argument #2 ($subject) must be of type
- * string, int given` during staged composition. `mergeComponentFacts()`
+ * string, int given` during staged composition. `ComponentDetection::mergeFacts()`
  * carried the same int keys, and the finalized component `name` became an
  * int. Class tokens must stay strings through detection, merge and
  * finalization. See blocks-engine#3098.
