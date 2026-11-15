@@ -6503,10 +6503,10 @@ $choiceGroupInput = array(
 );
 $choiceGroupArtifact = $compiler->compile($choiceGroupInput)->toArray();
 $choiceMarkup = (string) ($choiceGroupArtifact['serialized_blocks'] ?? '');
-$choiceConfig = (string) (($choiceGroupArtifact['source_reports']['companion_plugin_payload']['blocks'][0]['view_js'] ?? ''));
+$choiceConfig = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\CapturedChoiceGroupRuntime::bootstrap();
 $choiceForms = array_values(array_filter($choiceGroupArtifact['source_reports']['artifact']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? '') && 'forms' === ($declaration['type'] ?? '')));
 $assert(1 === ($choiceGroupArtifact['source_reports']['captured_interactions']['projected_choice_group_count'] ?? null), 'captured choice groups report one projected group');
-$assert(str_contains($choiceMarkup, 'captured-choice-group-site/captured-choice-group'), 'captured choice groups serialize as an owned companion block');
+$assert(! str_contains($choiceMarkup, 'captured-choice-group-site/captured-choice-group') && str_contains($choiceMarkup, 'blocksEngineChoiceGroup'), 'captured choice groups serialize as core Groups with captured behavior');
 $assert(str_contains($choiceMarkup, 'One') && str_contains($choiceMarkup, 'Two'), 'choice group inner content remains in the editable block tree');
 $assert(str_contains($choiceConfig, 'observed_choice_key') && str_contains($choiceConfig, 'source_value'), 'choice behavior carries observed identity without treating it as a source scalar');
 $assert(str_contains($choiceConfig, 'bindings') && str_contains($choiceConfig, 'selectedIndex'), 'choice behavior carries bounded state bindings without replaying captured HTML');

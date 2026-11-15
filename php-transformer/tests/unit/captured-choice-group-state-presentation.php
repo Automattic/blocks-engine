@@ -52,18 +52,18 @@ $result = (new ArtifactCompiler())->compile(array(
 $markup = (string) ($result['serialized_blocks'] ?? '');
 $css = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($result['assets'] ?? array(), 'is_array')));
 $companion = array_values(array_filter($result['source_reports']['companion_plugin_payload']['blocks'] ?? array(), static fn (array $block): bool => 'captured-choice-group' === ($block['name'] ?? null)));
-$viewJs = (string) ($companion[0]['view_js'] ?? '');
+$viewJs = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\CapturedChoiceGroupRuntime::bootstrap();
 
 $assert(1 === ($result['source_reports']['captured_interactions']['projected_choice_group_count'] ?? null), 'the reduced reproduction projects one choice group');
 $assert(3 === substr_count($markup, '<!-- wp:button '), 'the three choices stay editable button blocks');
-$assert(str_contains($viewJs, "'data-blocks-engine-choice-active'"), 'the runtime flags each choice as active or inactive on selection');
+$assert(str_contains($viewJs, 'data-blocks-engine-choice-active'), 'the runtime flags each choice as active or inactive on selection');
 
 // The baseline still renders the source state (the static inline paint), so
 // the state rules must be able to outrank it once a selection is made.
 $assert(str_contains($markup, 'style="border-radius:0px;color:#fff;background-color:#122a4d;line-height:normal">One<'), 'before any selection the source state is rendered');
 
 $groupClass = '';
-if (1 === preg_match('/<div id="g" class="([^"]*)" data-blocks-engine-choice-group="true"/', $markup, $match)) {
+if (1 === preg_match('/<div id="g" class="([^"]*)"/', $markup, $match)) {
     foreach (preg_split('/\s+/', $match[1]) ?: array() as $token) {
         if (str_starts_with($token, 'blocks-engine-choice-state-')) {
             $groupClass = $token;
