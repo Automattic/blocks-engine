@@ -576,6 +576,7 @@ final class ArtifactCompiler
         }
         $fallbackEvidence = CoreHtmlFallbackEvidence::merge($coreHtmlFallbackEvidence);
         $sourceReports = array(
+            'box_tree' => BoxTreeReport::coverage($normalized['files']),
             'core_html_fallback_evidence' => $fallbackEvidence,
             'reusable_components' => $this->reusableComponentEvidence($entryPath, $entryBlocks['reusable_components'], $compiledHtmlDocuments, $generatedAssets),
             'layout_geometry_proof' => array_merge($entryBlocks['layout_geometry_proof'] ?? array(), ...array_values(array_map(static fn(array $document): array => $document['layout_geometry_proof'] ?? array(), $compiledHtmlDocuments))),
@@ -1270,6 +1271,7 @@ final class ArtifactCompiler
             // A shared shell's projection joins every page's stylesheet, where
             // a rule it left unprojected would bypass the page's projection.
             'project_only_matched_author_rules' => 'artifact-shared-shell' === $sourceScope,
+            'box_tree' => $this->boxTreeForSource($files, $sourcePath),
             'layout_geometry_proof'      => $this->layoutGeometryProofForSource($files, $sourcePath),
         ));
         $blockCompilationOutput = $result->blockCompilationOutput;
@@ -1312,6 +1314,14 @@ final class ArtifactCompiler
     }
 
     /** @param array<int,array<string,mixed>> $files @return array<string,mixed> */
+    private function boxTreeForSource(array $files, string $sourcePath): array
+    {
+        foreach ($files as $file) {
+            if ($sourcePath === $file['path']) return $file['box_tree'] ?? array();
+        }
+        return array();
+    }
+
     private function layoutGeometryProofForSource(array $files, string $sourcePath): array
     {
         foreach ($files as $file) {
