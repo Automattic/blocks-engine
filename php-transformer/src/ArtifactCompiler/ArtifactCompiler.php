@@ -49,7 +49,6 @@ use DOMXPath;
 
 final class ArtifactCompiler
 {
-    use ArtifactDiagnostics;
     use \Automattic\BlocksEngine\PhpTransformer\Support\CountsBlocks;
 
     use StagedTransport;
@@ -386,7 +385,7 @@ final class ArtifactCompiler
         $diagnostics = array_merge($this->operatorFacingNormalizationDiagnostics($normalized['diagnostics']), $capturedDialogs['diagnostics'], $documents['diagnostics'], $this->svgAssetDiagnostics($normalized['files']));
 
         if ( null === $entry && array() === $documents['documents'] ) {
-            $diagnostics[] = $this->diagnostic('missing_entry_html', 'error', 'No HTML entry file was available to compile.');
+            $diagnostics[] = ArtifactDiagnostics::make('missing_entry_html', 'error', 'No HTML entry file was available to compile.');
         }
 
         $entryPath = is_array($entry) ? (string) $entry['path'] : '';
@@ -570,7 +569,7 @@ final class ArtifactCompiler
         $assets = $this->pruneAbsentSupportSubjects($assets, $authoredFiles, implode("\n", $pageMarkup) . "\n" . $sharedMarkup);
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets);
-        $diagnostics = $this->dedupeDiagnostics(array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics, $this->omittedPageDiagnostics($omittedPages)));
+        $diagnostics = ArtifactDiagnostics::dedupe(array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics, $this->omittedPageDiagnostics($omittedPages)));
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
@@ -658,7 +657,7 @@ final class ArtifactCompiler
         $sourceReports['editability_policy'] = $editabilityPolicy;
         foreach (array('failures' => array('editability_policy_failed', 'error'), 'findings' => array('editability_policy_degraded', 'warning')) as $key => list($code, $severity)) {
             foreach ($editabilityPolicy[$key] as $failure) {
-                $diagnostics[] = $this->diagnostic($code, $severity, (string) $failure['message'], array(
+                $diagnostics[] = ArtifactDiagnostics::make($code, $severity, (string) $failure['message'], array(
                     'policy_schema' => EditabilityPolicy::SCHEMA,
                     'metric' => $failure['metric'],
                     'actual' => $failure['actual'],
@@ -677,7 +676,7 @@ final class ArtifactCompiler
             $sourceReports['responsive_counterpart_contracts'] = $this->mergeResponsiveCounterpartContracts($responsiveCounterpartReports);
             $declaredCount = (int) ($sourceReports['responsive_counterpart_contracts']['metrics']['declared_count'] ?? 0);
             if (0 < $declaredCount) {
-                $diagnostics[] = $this->diagnostic('responsive_counterparts_declared', 'info', sprintf('Declared %d responsive counterpart pair(s) from stable source provenance.', $declaredCount), array(
+                $diagnostics[] = ArtifactDiagnostics::make('responsive_counterparts_declared', 'info', sprintf('Declared %d responsive counterpart pair(s) from stable source provenance.', $declaredCount), array(
                     'schema' => \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ResponsiveCorrespondence::SCHEMA,
                     'declared_count' => $declaredCount,
                 ));
@@ -746,7 +745,7 @@ final class ArtifactCompiler
 
         return $timer->result(( new WordPressSitePlanComposer() )->compose(
             new TransformerResult(
-                status: $this->statusFromDiagnostics($diagnostics),
+                status: ArtifactDiagnostics::status($diagnostics),
                 components: $components,
                 blockTypes: $blockTypes,
                 sourceReports: $sourceReports,
@@ -2245,14 +2244,14 @@ final class ArtifactCompiler
             }
             $routeBudget = max(self::ROUTE_SCOPE_BYTES_FACTOR * $largestCopy, intdiv($totalCopyBytes, self::ROUTE_SCOPE_COPY_TOTAL_DIVISOR), self::ROUTE_SCOPE_BYTES_FLOOR);
             if (array() !== $routed['scoped'] && $routed['route_bytes'] > $routeBudget) {
-                $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', sprintf('%s: route-scoped variants add %d cached-sheet bytes, over budget %d = max(%dx largest copy %d, total copies %d / %d, floor %d); emitting page copies', $path, $routed['route_bytes'], $routeBudget, self::ROUTE_SCOPE_BYTES_FACTOR, $largestCopy, $totalCopyBytes, self::ROUTE_SCOPE_COPY_TOTAL_DIVISOR, self::ROUTE_SCOPE_BYTES_FLOOR));
+                $projectionDiagnostics[] = ArtifactDiagnostics::make('author_stylesheet_route_scope_fallback', 'warning', sprintf('%s: route-scoped variants add %d cached-sheet bytes, over budget %d = max(%dx largest copy %d, total copies %d / %d, floor %d); emitting page copies', $path, $routed['route_bytes'], $routeBudget, self::ROUTE_SCOPE_BYTES_FACTOR, $largestCopy, $totalCopyBytes, self::ROUTE_SCOPE_COPY_TOTAL_DIVISOR, self::ROUTE_SCOPE_BYTES_FLOOR));
                 foreach ($routed['scoped'] as $owner) $pages[$owner] ??= $pageProjections[$owner] ?? array();
                 $routed['stylesheet'] = implode("\n", $fallbackSharedStylesheets);
             } else {
                 foreach ($routed['scoped'] as $owner) unset($pages[$owner]);
             }
             foreach ($routed['reasons'] as $owner => $reason) {
-                $projectionDiagnostics[] = $this->diagnostic('author_stylesheet_route_scope_fallback', 'warning', $path . ' (' . $owner . '): ' . $reason);
+                $projectionDiagnostics[] = ArtifactDiagnostics::make('author_stylesheet_route_scope_fallback', 'warning', $path . ' (' . $owner . '): ' . $reason);
             }
             $timer?->start('compose.serialization');
             $projectedFile = $this->projectedStylesheetFile($file, $path, implode("\n", array_merge($preambles, array( $recompact($transformer->concatenateWithoutRedundantRules(array($routed['stylesheet']))) ))));
@@ -3939,7 +3938,7 @@ final class ArtifactCompiler
         return array(
             'documents'   => $documents,
             'components'  => $components,
-            'diagnostics' => $this->dedupeDiagnostics($diagnostics),
+            'diagnostics' => ArtifactDiagnostics::dedupe($diagnostics),
         );
     }
 
@@ -3972,7 +3971,7 @@ final class ArtifactCompiler
         }
 
         $diagnostics = ArrayField::array($result, 'diagnostics');
-        $diagnostics[] = $this->diagnostic('markdown_adapter_unavailable', 'warning', 'A Markdown adapter is unavailable; preserved source Markdown as a core/html fallback.');
+        $diagnostics[] = ArtifactDiagnostics::make('markdown_adapter_unavailable', 'warning', 'A Markdown adapter is unavailable; preserved source Markdown as a core/html fallback.');
 
         return array(
             'serialized_blocks' => '<!-- wp:html -->' . "\n" . $markdown . "\n" . '<!-- /wp:html -->',
@@ -4306,7 +4305,7 @@ final class ArtifactCompiler
                 continue;
             }
 
-            $diagnostics[] = $this->diagnostic('unsafe_svg_asset', 'warning', 'An SVG image asset contains scriptable markup and its inline content was not exposed.', array('path' => $file['path']));
+            $diagnostics[] = ArtifactDiagnostics::make('unsafe_svg_asset', 'warning', 'An SVG image asset contains scriptable markup and its inline content was not exposed.', array('path' => $file['path']));
         }
 
         return $diagnostics;
@@ -4411,9 +4410,9 @@ final class ArtifactCompiler
                 $components[$name] = $component;
 
                 if ( ! is_array($import) ) {
-                    $diagnostics[] = $this->diagnostic('mdx_component_unresolved', 'warning', 'MDX component reference has no matching import.', array('path' => $sourcePath, 'component' => $name));
+                    $diagnostics[] = ArtifactDiagnostics::make('mdx_component_unresolved', 'warning', 'MDX component reference has no matching import.', array('path' => $sourcePath, 'component' => $name));
                 } elseif ( '' === $resolved && str_starts_with((string) $import['path'], '.') ) {
-                    $diagnostics[] = $this->diagnostic('mdx_import_unresolved', 'warning', 'MDX component import could not be linked to a generated source file.', array('path' => $sourcePath, 'component' => $name, 'import_path' => $import['path']));
+                    $diagnostics[] = ArtifactDiagnostics::make('mdx_import_unresolved', 'warning', 'MDX component import could not be linked to a generated source file.', array('path' => $sourcePath, 'component' => $name, 'import_path' => $import['path']));
                 }
             }
         }
@@ -4426,7 +4425,7 @@ final class ArtifactCompiler
         return array(
             'markdown_body' => trim($markdownBody),
             'components'    => array_values($components),
-            'diagnostics'   => $this->dedupeDiagnostics($diagnostics),
+            'diagnostics'   => ArtifactDiagnostics::dedupe($diagnostics),
         );
     }
 
@@ -4542,13 +4541,13 @@ final class ArtifactCompiler
             $blockJson = json_decode((string) $blockJsonFile['content'], true);
             if ( ! is_array($blockJson) ) {
                 $blockJson = array();
-                $diagnostics[] = $this->diagnostic('invalid_block_json', 'warning', 'A generated block.json file could not be decoded.', array('path' => $blockJsonFile['path']));
+                $diagnostics[] = ArtifactDiagnostics::make('invalid_block_json', 'warning', 'A generated block.json file could not be decoded.', array('path' => $blockJsonFile['path']));
             }
 
             $name = isset($blockJson['name']) && is_string($blockJson['name']) ? trim($blockJson['name']) : '';
             if ( '' === $name ) {
                 $name = 'generated/' . ('' === $directory ? 'block' : ArtifactPath::sanitizeKey(basename($directory)));
-                $diagnostics[] = $this->diagnostic('block_json_missing_name', 'warning', 'A generated block.json file did not declare a name; a stable generated name was assigned.', array('path' => $blockJsonFile['path'], 'name' => $name));
+                $diagnostics[] = ArtifactDiagnostics::make('block_json_missing_name', 'warning', 'A generated block.json file did not declare a name; a stable generated name was assigned.', array('path' => $blockJsonFile['path'], 'name' => $name));
             }
 
             $blockFiles = $this->filesUnderDirectory($files, $directory);

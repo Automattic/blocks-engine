@@ -592,7 +592,7 @@ trait StagedTransport
         $sourcePaths = is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array();
         $files = self::sortedBySourcePaths($files, $sourcePaths);
         $documents['documents'] = self::sortedBySourcePaths($documents['documents'], $sourcePaths, 'source_path');
-        $documents['diagnostics'] = $this->dedupeDiagnostics(array_merge(...array_map(
+        $documents['diagnostics'] = ArtifactDiagnostics::dedupe(array_merge(...array_map(
             static fn(array $document): array => ArrayField::array($document, 'diagnostics'),
             $documents['documents']
         )));
@@ -615,7 +615,7 @@ trait StagedTransport
             'source_css_bytes' => $sharedPlan['analysis']['source_css_bytes'],
             'entrypoints' => $sharedArtifact['entrypoints'],
             'bytes' => $sharedPlan['analysis']['canonical_bytes'] ?? $bytes,
-            'diagnostics' => $this->dedupeDiagnostics($diagnostics),
+            'diagnostics' => ArtifactDiagnostics::dedupe($diagnostics),
             'rejected_count' => $rejected,
             'source_hash' => $sharedPlan['analysis']['canonical_source_hash'] ?? ArtifactNormalizer::sourceHash($files, $sharedArtifact['runtime_declarations']),
         ));
