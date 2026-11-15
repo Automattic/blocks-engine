@@ -33,6 +33,9 @@ final class PostChrome
      */
     private array $relatedSectionProjections = array();
 
+    /** Findings belong to the selected factoring outcome, never layout probes. */
+    private array $pendingFindings = array();
+
     /**
      * @param \Closure(string):string $chromeIdentity The site plan's shared chrome identity of a block.
      * @param \Closure(array<string,mixed>):void $recordFinding Records a unit the plan kept or rewrote instead of failing.
@@ -212,7 +215,13 @@ final class PostChrome
      */
     public function extractArticleChrome(array $pages, array $parts, array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), ?array $templates = null): array
     {
-        if (null === $templates) return $this->factorArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
+        if (null === $templates) {
+            $this->pendingFindings = array();
+            $result = $this->factorArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
+            foreach ($this->pendingFindings as $finding) ($this->recordFinding)($finding);
+            $this->pendingFindings = array();
+            return $result;
+        }
         $bySlug = array_column($templates, null, 'slug');
         $bound = array();
         foreach ($pages as $index => $page) {
@@ -222,8 +231,8 @@ final class PostChrome
             $bound[$slug][$index] = $page;
         }
         foreach ($bound as $slug => $posts) {
-            // Factoring needs two posts with one layout; a template bound to a
-            // single post has nothing to factor and keeps its complete article.
+            // Peers establish article boundaries even when optional chrome
+            // later divides this template's posts into singleton layouts.
             if (count($posts) < 2) continue;
             $shared = $this->sharedIdentities($posts);
             $this->relatedSectionProjections = array();
@@ -257,8 +266,11 @@ final class PostChrome
                 $identity = ChromeIdentity::markup($identityMarkup);
                 $groups[$identity][$index] = $post;
             }
+            $this->pendingFindings = array();
             foreach ($groups as $identity => $group) {
-                $factored = $this->factorArticleChrome($group, $parts, $runtimeDeclarations, $runtimeEntityRecords);
+                $factored = $this->factorArticleChrome($group, $parts, $runtimeDeclarations, $runtimeEntityRecords, $posts);
+                foreach ($this->pendingFindings as $finding) ($this->recordFinding)($finding);
+                $this->pendingFindings = array();
                 if (null === $factored['single']) continue;
                 // A partial group cannot change the template used by the other
                 // layouts (or by posts whose complete article must be retained).
@@ -294,7 +306,7 @@ final class PostChrome
         return '' === ($post['metadata']['declared_content']['title'] ?? null);
     }
 
-    private function factorArticleChrome(array $pages, array $parts, array $runtimeDeclarations, array $runtimeEntityRecords): array
+    private function factorArticleChrome(array $pages, array $parts, array $runtimeDeclarations, array $runtimeEntityRecords, array $peers = array()): array
     {
         $posts = array();
         $indexes = array();
@@ -305,7 +317,7 @@ final class PostChrome
             $posts[] = $page;
             $indexes[] = $index;
         }
-        if (count($posts) < 2) {
+        if (count($posts) < 2 && count($peers) < 2) {
             return array('pages' => $pages, 'single' => null);
         }
         // Inline shell
@@ -320,7 +332,11 @@ final class PostChrome
                 }
             }
         }
-        $shared = $this->sharedIdentities($posts);
+        // A singleton layout may still have a proven article boundary among
+        // its peers. Keep its own template rather than copying optional chrome
+        // that cannot render empty for this post.
+        $evidence = count($posts) < 2 ? $peers : $posts;
+        $shared = $this->sharedIdentities($evidence);
         $this->relatedSectionProjections = array();
         // Only promote a common lead-image slot when every post owns one
         // ahead of its body, and the asset actually varies between posts.
@@ -328,7 +344,7 @@ final class PostChrome
         $leadImages = array();
         foreach ($posts as $postIndex => $post) {
             $route = (string) ($post['route']['path'] ?? '');
-            $documents[$postIndex] = $this->transformDocument($post['canonical_block_markup'], $post, $route, $shared, null, $posts);
+            $documents[$postIndex] = $this->transformDocument($post['canonical_block_markup'], $post, $route, $shared, null, $evidence);
             $retained = $documents[$postIndex]['retained'];
             if (count($retained) < 2) continue;
             $lead = $retained[0];
@@ -643,7 +659,7 @@ final class PostChrome
                 $slots[$leaf['offset']] = PostBlocks::featuredImage($slice);
                 continue;
             }
-            ($this->recordFinding)(array('code' => 'wordpress_site_plan_post_chrome_order_retained', 'source_path' => $post['source_path'], 'message' => 'Outside body variation has no native slot; retained original post-content placement to avoid dropping content.'));
+            $this->pendingFindings[$post['source_path']] = array('code' => 'wordpress_site_plan_post_chrome_order_retained', 'source_path' => $post['source_path'], 'message' => 'Outside body variation has no native slot; retained original post-content placement to avoid dropping content.');
             return $fallback;
         }
         return array('range' => $best, 'slots' => $slots, 'fields' => $fields, 'featured' => $featured);
