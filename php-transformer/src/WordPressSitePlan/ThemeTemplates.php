@@ -353,7 +353,9 @@ final class ThemeTemplates
             $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
             // An inline shell is bound where it sits, so a template that
             // keeps every captured document copy binds it once per copy.
-            $allowed = 'inline_shared_shell' === ($part['placement']['kind'] ?? null) ? self::documentCopyCount($template['canonical_block_markup']) : 1;
+            // Shared footer content is also referenced once per footer its
+            // source document authors, as extraction recorded.
+            $allowed = 'inline_shared_shell' === ($part['placement']['kind'] ?? null) ? max(self::documentCopyCount($template['canonical_block_markup']), (int) ($part['placement']['references_per_source'][$template['source_path'] ?? ''] ?? 0)) : 1;
             $contentOwnsChrome = self::contentCarriesChrome($template['canonical_block_markup'], $part['area']);
             foreach ($plan['pages'] as $page) if (TemplateSlugs::forPage($page) === $template['slug'] && self::contentCarriesChrome($page['canonical_block_markup'], $part['area'])) $contentOwnsChrome = true;
             if (0 === $references && $contentOwnsChrome) continue;
