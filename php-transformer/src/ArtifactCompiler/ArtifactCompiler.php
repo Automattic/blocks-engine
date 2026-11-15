@@ -4019,10 +4019,17 @@ final class ArtifactCompiler
                 // The source still owns provenance here: do not infer sampled
                 // paint from the SVG produced later by social-link lowering.
                 $node->removeAttribute(CaptureEvidence::GLYPH_COLOR);
+                // Correspondence markers are incidental, but responsive geometry
+                // hooks can carry different layout rules on different routes.
                 $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX)));
                 if (array() === $classes) $node->removeAttribute('class');
                 else $node->setAttribute('class', implode(' ', $classes));
             }
+        }
+        // Hydration boundary comments carry no authored content or layout.
+        // Their presence varies with the capture's hydration timing.
+        foreach ($xpath->query('//comment()') ?: array() as $comment) {
+            if (preg_match('/^\/?\$(?:[!?])?$/', trim($comment->nodeValue ?? ''))) $comment->parentNode?->removeChild($comment);
         }
         $currentNodes = array();
         foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;

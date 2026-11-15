@@ -199,7 +199,9 @@ final class ShellExtraction
                 // drawer) is absent from a landmark-only artifact.
                 if (array() !== array_diff(self::textRuns($candidate['markup']), self::textRuns($markup))) continue;
                 $candidate['identity_markup'] = ChromeIdentity::markup($markup);
-                $candidate['template_part_markup'] = self::landmarkPartMarkup(RestingNavigation::markup($markup), $candidate['area']);
+                // Source equality proves ownership, not presentation: isolated
+                // compilation lacks the route's complete selector context.
+                $candidate['template_part_markup'] = self::landmarkPartMarkup(RestingNavigation::markup($candidate['markup']), $candidate['area']);
             }
             unset($candidate);
         }
