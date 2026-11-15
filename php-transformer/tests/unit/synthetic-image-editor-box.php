@@ -11,7 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttribu
 $cases = array(
     SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS => array(
         '<main><div style="text-align:center"><img src="/photo.jpg" width="80" height="60" alt="Photo"></div></main>',
-        'display:inline-block',
+        'display:inline-block;position:static',
     ),
     SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS => array(
         '<style>.icon{display:flex}</style><main><div class="icon"><img src="/photo.jpg" width="80" height="60" alt="Photo"></div></main>',
