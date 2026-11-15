@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\SourceTargetProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\StyleResolverFixture;
 
 $failures = 0;
 $passes = 0;
@@ -32,7 +33,9 @@ foreach ( $constructor->getParameters() as $parameter ) {
     );
 }
 
-$context = new NavigationPatternContext();
+$styles = new StyleResolverFixture();
+// A probe context: no projection, toggle, runtime, or SVG collaborators.
+$context = new NavigationPatternContext($styles->styleResolver, $styles->session);
 $document = new DOMDocument();
 $document->loadHTML('<!doctype html><html><body><nav><a href="/">Home</a></nav></body></html>');
 $nav = $document->getElementsByTagName('nav')->item(0);
@@ -44,17 +47,12 @@ if ( ! $nav instanceof DOMElement || ! $anchor instanceof DOMElement ) {
 
 $assert(false === $context->isRuntimeDomTarget($nav), 'null runtime-island checker is not a runtime target');
 $assert('never' === $context->overlayMenu($nav), 'null toggle suppressor overlay is never');
-$assert('' === $context->resolvedStyle($nav), 'null style resolver yields empty style');
-$assert('' === $context->resolvedDisplay($nav), 'null style resolver yields empty display');
-$assert(false === $context->isHiddenAtReferenceViewport($nav), 'null style resolver is not hidden at the reference viewport');
 $assert(array() === $context->colorInteractionStates($nav), 'null style projector yields no color states');
 $assert('' === $context->responsiveToggleMarker($nav), 'null projected navigation yields no toggle marker');
 $assert('' === $context->linkIconMarker($anchor), 'null svg materializer yields no link icon');
-$assert(array() === $context->sourcePresentationMarkers($nav), 'null session yields no source presentation markers');
-$assert('' === $context->underlineColor($nav, $anchor), 'null style resolver yields no underline color');
 
 $state = new SourceTargetProjectionState();
-$recording = new NavigationPatternContext(sourceTargetProjection: $state);
+$recording = new NavigationPatternContext($styles->styleResolver, $styles->session, sourceTargetProjection: $state);
 $recording->projectSourceToNativeTarget($nav, '.wp-block-navigation__container', 'padding:0!important');
 $assert(
     array(

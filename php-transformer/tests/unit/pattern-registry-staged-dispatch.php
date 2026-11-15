@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecogniz
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\StyleResolverFixture;
 
 $assertions = 0;
 $assert = static function (bool $condition, string $message) use (&$assertions): void {
@@ -179,10 +180,11 @@ $navigationConverter = new class implements PatternTreeConverter {
         return null;
     }
 };
+$navigationStyles = new StyleResolverFixture();
 $navigationContext = new PatternContext(
     new ElementPresentationResolverFixture(static fn (DOMElement $source, array $excluded = array()): array => array()),
     $navigationConverter,
-    new NavigationPatternContext()
+    new NavigationPatternContext($navigationStyles->styleResolver, $navigationStyles->session)
 );
 $navigationResult = (new NavigationPattern($createBlock))->recognize($navigationElement, $navigationContext);
 $assert('core/group' === ($navigationResult?->block()['blockName'] ?? null), 'Navigation brand carrier wins with a recursively converted brand.');
