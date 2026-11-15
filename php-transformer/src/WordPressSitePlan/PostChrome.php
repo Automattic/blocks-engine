@@ -33,6 +33,15 @@ final class PostChrome
      */
     private array $relatedSectionProjections = array();
 
+    /** @var list<array<string,mixed>> Original site posts, across layout groups. */
+    private array $allPosts = array();
+
+    /** @var array<string,array<string,mixed>> Fields committed by successful projections. */
+    private array $projectedFields = array();
+
+    /** @var array<string,array<string,mixed>> Findings from the latest document pass only. */
+    private array $orderRetained = array();
+
     /**
      * @param \Closure(string):string $chromeIdentity The site plan's shared chrome identity of a block.
      * @param \Closure(array<string,mixed>):void $recordFinding Records a unit the plan kept or rewrote instead of failing.
@@ -212,7 +221,14 @@ final class PostChrome
      */
     public function extractArticleChrome(array $pages, array $parts, array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), ?array $templates = null): array
     {
-        if (null === $templates) return $this->factorArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
+        $this->allPosts = array_values(array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null) && empty($page['synthetic'])));
+        $this->projectedFields = array();
+        $this->orderRetained = array();
+        if (null === $templates) {
+            $result = $this->factorArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
+            foreach ($this->orderRetained as $finding) ($this->recordFinding)($finding);
+            return $result;
+        }
         $bySlug = array_column($templates, null, 'slug');
         $bound = array();
         foreach ($pages as $index => $page) {
@@ -228,6 +244,7 @@ final class PostChrome
             $shared = $this->sharedIdentities($posts);
             $this->relatedSectionProjections = array();
             $groups = array();
+            $finalFindings = $this->orderRetained;
             $hasUntitled = array() !== array_filter($posts, fn(array $post): bool => $this->hasDeclaredEmptyTitle($post));
             foreach ($posts as $index => $post) {
                 $transformed = $this->transformDocument($post['canonical_block_markup'], $post, $post['route']['path'] ?? '', $shared, null, $posts);
@@ -257,6 +274,8 @@ final class PostChrome
                 $identity = ChromeIdentity::markup($identityMarkup);
                 $groups[$identity][$index] = $post;
             }
+            // Grouping is speculative; only the final factoring pass owns findings.
+            $this->orderRetained = $finalFindings;
             foreach ($groups as $identity => $group) {
                 $factored = $this->factorArticleChrome($group, $parts, $runtimeDeclarations, $runtimeEntityRecords);
                 if (null === $factored['single']) continue;
@@ -286,6 +305,11 @@ final class PostChrome
                 unset($part);
             }
         }
+        foreach ($pages as $index => $page) {
+            $source = $page['source_path'] ?? '';
+            if (isset($this->projectedFields[$source])) $pages[$index]['metadata']['post_meta'] = ($page['metadata']['post_meta'] ?? array()) + $this->projectedFields[$source];
+        }
+        foreach ($this->orderRetained as $finding) ($this->recordFinding)($finding);
         return array('pages' => $pages, 'parts' => $parts, 'templates' => array_values($bySlug));
     }
 
@@ -385,6 +409,9 @@ final class PostChrome
             if (null !== ($transformed['featured'] ?? null)) $featuredImages[$indexes[$postIndex]] = $transformed['featured'];
             foreach ($transformed['fields'] ?? array() as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
         }
+        // Commit fields only once the whole group can be factored. Related
+        // cards can own fields on posts outside this layout group.
+        foreach ($postMeta as $source => $values) $this->projectedFields[$source] = ($this->projectedFields[$source] ?? array()) + $values;
         foreach ($bodies as $index => $body) {
             $pages[$index]['canonical_block_markup'] = $body;
             $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($body);
@@ -654,7 +681,7 @@ final class PostChrome
                 $slots[$leaf['offset']] = PostBlocks::featuredImage($slice);
                 continue;
             }
-            ($this->recordFinding)(array('code' => 'wordpress_site_plan_post_chrome_order_retained', 'source_path' => $post['source_path'], 'message' => 'Outside body variation has no native slot; retained original post-content placement to avoid dropping content.'));
+            $this->orderRetained[$post['source_path']] = array('code' => 'wordpress_site_plan_post_chrome_order_retained', 'source_path' => $post['source_path'], 'message' => 'Outside body variation has no native slot; retained original post-content placement to avoid dropping content.');
             return $fallback;
         }
         return array('range' => $best, 'slots' => $slots, 'fields' => $fields, 'featured' => $featured);
@@ -680,17 +707,18 @@ final class PostChrome
                 if (null === $peerSection || $heading !== $peerSection['heading']) continue;
                 foreach ($peerSection['items'] as $child) {
                     $slice = substr($peerIndex->markup, $child['offset'], $child['length']);
-                    // cardRanges selects one card per route. Repeated identical
-                    // cards are the same evidence, not uncovered authored items.
-                    if (isset($seen[$slice])) continue;
-                    $seen[$slice] = true;
+                    // Runtime slider classes and geometry vary by position;
+                    // repeated linked routes are still the same card evidence.
+                    $key = $this->listings->cardRouteIdentity($slice);
+                    if (isset($seen[$key])) continue;
+                    $seen[$key] = true;
                     $cardMarkup .= $slice;
                 }
                 break;
             }
         }
         $cardIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup);
-        $cards = $this->listings->cardRanges($cardIndex, $posts, 1);
+        $cards = $this->listings->cardRanges($cardIndex, $this->allPosts, 1);
         if (null === $cards) return null;
         // Never replace a whole section if some authored child has no card
         // projection. Let the normal fallback retain its source order.
@@ -725,6 +753,7 @@ final class PostChrome
      */
     private function transformDocument(string $markup, array $post, string $route, array $shared, ?int $featuredOffset = null, array $posts = array()): array
     {
+        unset($this->orderRetained[$post['source_path']]);
         $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex((string) ($post['canonical_block_markup'] ?? ''));
         $top = $index->topLevel();
