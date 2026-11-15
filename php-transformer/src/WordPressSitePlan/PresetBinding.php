@@ -1557,6 +1557,10 @@ final class PresetBinding
             if (!$statesRendered && $this->stateMatches($family, $tokens)) return false;
             $reason = 'style_selector';
             foreach ($this->styleTextRules[$family] ?? array() as $rule) {
+                // A shared engine class is not enough to make a selector for
+                // another element type read this element's style attribute.
+                $tags = array_values(array_filter($rule['tokens'] ?? array(), static fn(string $token): bool => str_starts_with($token, 'tag:')));
+                if (array() !== $tags && array() === array_intersect_key(array_flip($tags), $tokens)) continue;
                 if (null !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
                 if (array() !== array_intersect_key(array_flip($rule['negated']), $finalClasses)) continue;
                 if (!$staysInline || $addsDeclaration || 1 !== preg_match('/^[a-z-]*:?$/', strtolower(trim($rule['fragment'], ' ;')))) return false;
@@ -1564,6 +1568,8 @@ final class PresetBinding
             if ($staysInline) continue;
             $reason = 'important';
             foreach ($this->importantRules[$family] ?? array() as $rule) {
+                $tags = array_values(array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'tag:')));
+                if (array() !== $tags && array() === array_intersect_key(array_flip($tags), $tokens)) continue;
                 if (array() !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
                 if (array() !== array_intersect_key(array_flip($rule['negated']), $finalClasses)) continue;
                 if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
