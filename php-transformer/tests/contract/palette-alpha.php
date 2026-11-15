@@ -31,13 +31,38 @@ $extendedMarkup = $extendedPlan['pages'][0]['canonical_block_markup'];
 $assert(str_contains($extendedMarkup, '"backgroundColor":"base-alpha-20"') && str_contains($extendedMarkup, 'has-base-alpha-20-background-color'), 'A class-driven background tint uses native background support.');
 $assert(str_contains($extendedMarkup, '"textColor":"base-alpha-50"') && !str_contains($extendedMarkup, 'style="color:'), 'A literal inline tint also binds through the existing preset primitive.');
 $assert(0 === $extendedPlan['theme']['design_system']['metrics']['refusal_reasons']['alpha'], 'Text and background palette tints leave no alpha refusals.');
-// Never approximate an unmatched RGB value or bypass the existing state,
-// important, or breakpoint safety gates while adding a tint preset.
-foreach (array('.text-bg-70{color:rgb(255 0 0 / .7)}' => 'alpha', '.text-bg-70:hover{color:red}' => 'state_variant', '.text-bg-70{color:hsl(var(--bg)/.7)!important}' => 'important', '@media(max-width:600px){.text-bg-70{color:red}}' => 'breakpoint_variant') as $css => $reason) {
+// Never bypass the existing state, important, or breakpoint safety gates.
+foreach (array( '.text-bg-70:hover{color:red}' => 'state_variant', '.text-bg-70{color:hsl(var(--bg)/.7)!important}' => 'important', '@media(max-width:600px){.text-bg-70{color:red}}' => 'breakpoint_variant') as $css => $reason) {
     $unsafe = $artifact;
     $unsafe['files']['index.html'] = str_replace('</style>', $css . '</style>', $unsafe['files']['index.html']);
     $result = (new ArtifactCompiler())->compile($unsafe)->toArray()['source_reports']['wordpress_site_plan'];
     $assert($result['theme']['design_system']['metrics']['refusal_reasons'][$reason] > 0, 'Safety refusal retained: ' . $reason);
     $assert(!str_contains($result['pages'][0]['canonical_block_markup'], '"textColor":"base-alpha-70"'), 'Unsafe tint is not assigned to block color support.');
 }
-echo "Palette alpha contract passed: refusal_reasons.alpha=0; textColor=base-alpha-70.\n";
+// A translucent-only surface must not need an opaque sibling to be editable.
+$standalone = $artifact;
+$standalone['files']['index.html'] = str_replace('</section>', '<div class="standalone-alpha"><p>Translucent-only surface</p></div></section>', $standalone['files']['index.html']);
+$standalone['files']['index.html'] = str_replace('</style>', '.standalone-alpha{background:rgba(47,23,15,.9);padding:8px}</style>', $standalone['files']['index.html']);
+$standalonePlan = (new ArtifactCompiler())->compile($standalone)->toArray()['source_reports']['wordpress_site_plan'];
+$assert(str_contains($standalonePlan['pages'][0]['canonical_block_markup'], '"backgroundColor":"alpha-cpbhapog"'), 'A translucent-only surface binds to an exact preset through the public compiler.');
+$assert(str_contains($standalonePlan['pages'][0]['canonical_block_markup'], 'has-alpha-cpbhapog-background-color'), 'The alpha preset class uses the same stable slug that Gutenberg save() generates.');
+foreach ($standalonePlan['writes'] as $write) {
+    if ('theme.json' !== $write['target_path']) continue;
+    $standaloneTheme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
+}
+$standalonePalette = array_column($standaloneTheme['settings']['color']['palette'], 'color', 'slug');
+$assert('rgba(47,23,15,.9)' === ($standalonePalette['alpha-cpbhapog'] ?? null), 'The preset retains the authored alpha rather than rounding its paint.');
+// Adding an opaque sibling must not rebind it to the standalone alpha token.
+$siblings = $standalone;
+$siblings['files']['index.html'] = str_replace('</section>', '<div class="opaque-sibling"><p>Opaque sibling</p></div><div class="transparent-sibling"><p>Transparent sibling</p></div></section>', $siblings['files']['index.html']);
+$siblings['files']['index.html'] = str_replace('</style>', '.opaque-sibling{background:rgb(47,23,15)}.transparent-sibling{background:transparent}</style>', $siblings['files']['index.html']);
+$siblingPlan = (new ArtifactCompiler())->compile($siblings)->toArray()['source_reports']['wordpress_site_plan'];
+foreach ($siblingPlan['writes'] as $write) {
+    if ('theme.json' !== $write['target_path']) continue;
+    $siblingTheme = json_decode($write['payload']['data'], true, 512, JSON_THROW_ON_ERROR);
+}
+$siblingPalette = array_column($siblingTheme['settings']['color']['palette'], 'color', 'slug');
+$assert(in_array('#2f170f', $siblingPalette, true), 'The opaque sibling keeps its own opaque palette paint.');
+$assert(!in_array('transparent', $siblingPalette, true), 'Fully transparent paint does not create a standalone alpha preset.');
+$assert(!str_contains($siblingPlan['pages'][0]['canonical_block_markup'], '"backgroundColor":"alpha-cpbhapog"'), 'With an opaque base, the translucent surface uses a derived tint instead of the standalone token.');
+echo "Palette alpha contract passed.\n";
