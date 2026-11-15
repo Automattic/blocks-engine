@@ -271,7 +271,7 @@ trait StagedTransport
         $stepTimings = array();
         $omittedPages = array();
         foreach ($pageArtifact['files'] as $file) {
-            if ('html' !== ($file['kind'] ?? null) || $stageCompiler->isTemplatePartFile($file)) {
+            if ('html' !== ($file['kind'] ?? null) || HtmlFragmentIncludes::isTemplatePartFile($file)) {
                 continue;
             }
             $path = (string) ($file['path'] ?? '');
