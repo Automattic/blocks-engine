@@ -33,9 +33,6 @@ foreach ( $constructor->getParameters() as $parameter ) {
     );
 }
 
-$styles = new StyleResolverFixture();
-// A probe context: no projection, toggle, runtime, or SVG collaborators.
-$context = new NavigationPatternContext($styles->styleResolver, $styles->session);
 $document = new DOMDocument();
 $document->loadHTML('<!doctype html><html><body><nav><a href="/">Home</a></nav></body></html>');
 $nav = $document->getElementsByTagName('nav')->item(0);
@@ -44,6 +41,10 @@ if ( ! $nav instanceof DOMElement || ! $anchor instanceof DOMElement ) {
     fwrite(STDERR, "FAIL: test DOM did not initialize\n");
     exit(1);
 }
+
+$styles = new StyleResolverFixture($nav);
+// A probe context: no projection, toggle, runtime, or SVG collaborators.
+$context = new NavigationPatternContext($styles->styleResolver, $styles->session);
 
 $assert(false === $context->isRuntimeDomTarget($nav), 'null runtime-island checker is not a runtime target');
 $assert('never' === $context->overlayMenu($nav), 'null toggle suppressor overlay is never');

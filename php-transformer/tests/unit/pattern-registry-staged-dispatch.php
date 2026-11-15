@@ -180,7 +180,7 @@ $navigationConverter = new class implements PatternTreeConverter {
         return null;
     }
 };
-$navigationStyles = new StyleResolverFixture();
+$navigationStyles = new StyleResolverFixture($navigationElement);
 $navigationContext = new PatternContext(
     new ElementPresentationResolverFixture(static fn (DOMElement $source, array $excluded = array()): array => array()),
     $navigationConverter,
