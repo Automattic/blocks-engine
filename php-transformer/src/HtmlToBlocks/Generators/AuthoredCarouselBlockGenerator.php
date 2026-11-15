@@ -18,6 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttribu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ResponsivePropertyFamily;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
@@ -1091,7 +1092,12 @@ JS;
                         return null;
                     }
                 }
-                if ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) {
+                // A declared carousel may wrap its track and controls in a
+                // neutral inner container. Keep that accessible root when it
+                // owns no other authored content; otherwise defer as before.
+                $declaredRoot = 'carousel' === strtolower(trim(SourceDom::attr($element, 'aria-roledescription')))
+                    && ! $this->hasAuthoredContentOutside($element, $owner, $list, $items);
+                if ( ! $declaredRoot && ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) ) {
                     return null;
                 }
                 // A lone previous or next control is still a complete carousel
@@ -1192,14 +1198,22 @@ JS;
                 $geometryStyles = $this->carrySourceGeometryIntoBlockTree($item, $styleResolver);
                 try {
                     $slideFallbacks = array();
-                    $children = $tree->children($item, $slideFallbacks, true);
+                    if ( $this->hasBackgroundImage($item) ) {
+                        // Convert the painted owner itself: child-only conversion
+                        // loses its background, including entirely empty slides.
+                        $item->setAttribute('style', $styleResolver->specificityResolvedPresentationStyle($item));
+                        $slide = $tree->element($item, $slideFallbacks, true);
+                        $children = null === $slide ? array() : array($slide);
+                    } else {
+                        $children = $tree->children($item, $slideFallbacks, true);
+                        $slide = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($item), $children, $item);
+                    }
                     if ( array() === $children || array() !== $slideFallbacks ) {
                         if ( $temporary ) {
                             $item->parentNode?->removeChild($item);
                         }
                         return null;
                     }
-                    $slide = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($item), $children, $item);
                 } finally {
                     $this->restoreInlineStyles($geometryStyles);
                 }
@@ -1235,6 +1249,14 @@ JS;
             ) {
                 $presentation = 'slideshow';
             }
+        }
+        // Stacked frames: one item exposed, the rest hidden from assistive
+        // technology, layered by z-index — one slide is on stage at a time.
+        $exposed = array_filter($items, static fn (DOMElement $item): bool => 'true' !== strtolower(SourceDom::attr($item, 'aria-hidden')));
+        if ( 1 < count($items) && 1 === count($exposed)
+            && '' !== CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations(reset($exposed))['z-index'] ?? ''))
+        ) {
+            $presentation = 'slideshow';
         }
         // Selecting a slide from a thumbnail means one slide is on stage.
         if ( 1 < count($pagerItems) ) {
@@ -2633,12 +2655,19 @@ JS;
             }
             if ( 0 === $item->getElementsByTagName('img')->length
                 && ! $this->sourceElementClassifier->isNativeVideoSlide($item)
+                && ! $this->hasBackgroundImage($item)
                 && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
             ) {
                 return false;
             }
         }
         return true;
+    }
+
+    private function hasBackgroundImage(DOMElement $element): bool
+    {
+        return null !== $this->styleResolver
+            && '' !== (new BackgroundImageExtractor())->urlFromStyle($this->styleResolver->specificityResolvedPresentationStyle($element));
     }
 
     private function carouselPaginationCount(DOMElement $root): int
@@ -2690,13 +2719,14 @@ JS;
     private function isSlideStatus(DOMElement $element): bool
     {
         return 'status' === SourceDom::role($element)
+            || $element->hasAttribute('aria-live')
             || 1 === preg_match('~^\s*[0-9]+\s*/\s*[0-9]+\s*$~', $element->textContent ?? '');
     }
 
     private function slideStatus(DOMElement $list): ?DOMElement
     {
         foreach ($list->childNodes as $child) {
-            if ($child instanceof DOMElement && $this->isSlideStatus($child)) return $child;
+            if ($child instanceof DOMElement && $this->isSlideStatus($child) && 'off' !== SourceDom::attr($child, 'aria-live')) return $child;
         }
         return null;
     }
@@ -2728,7 +2758,7 @@ JS;
                 SourceDom::attr($child, 'data-testid'),
             )));
             if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item|group)(?:[^a-z0-9]|$)/', $identity)
-                && (0 < $child->getElementsByTagName('img')->length || $this->sourceElementClassifier->isNativeVideoSlide($child))
+                && (0 < $child->getElementsByTagName('img')->length || $this->sourceElementClassifier->isNativeVideoSlide($child) || $this->hasBackgroundImage($child))
             ) {
                 $items[] = $child;
                 continue;

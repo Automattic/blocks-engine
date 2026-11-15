@@ -78,6 +78,7 @@ final class CapturedCollectionConverter implements ElementConverter
             if (!in_array($attrs['mode'], array('category-and-query', 'category-or-global-search', 'captured-union'), true) || !is_array($attrs['order']) || !is_array($attrs['categoryOrders'])) return ConversionOutcome::unhandled();
             $children = $this->tree->children($element, $fallbacks, true);
         } elseif (CollectionFilterBlockGenerator::CHOICES === $local) {
+            $attrs['ariaLabel'] = $element->getAttribute('aria-label');
             $attrs['tagName'] = in_array($tagName, array('div', 'nav', 'section'), true) ? $tagName : 'div';
             $children = $this->tree->children($element, $fallbacks, true);
         } elseif (CollectionFilterBlockGenerator::FIELD === $local) {

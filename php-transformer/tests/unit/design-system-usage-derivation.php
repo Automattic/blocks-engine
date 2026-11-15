@@ -124,6 +124,23 @@ $assert(array('heading' => 'Georgia,serif', 'body' => 'ui-sans-serif,system-ui,s
 $assert('var:preset|font-family|body' === ($systemStackTheme['styles']['typography']['fontFamily'] ?? null), 'rendered system stacks: root typography references body');
 $assert('var:preset|font-family|heading' === ($systemStackTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'rendered system stacks: heading typography references heading (' . json_encode($systemStackTheme['styles'] ?? array()) . ')');
 
+// A standalone route cannot veto the rendered majority's heading default.
+$sharedCss = ':root{--heading-font:Georgia,serif;--heading-color:#051634}body{font-family:Arial,sans-serif;color:#4f5e72;background:#f4f6fa}h1,h2,h3,h4{font-family:var(--heading-font);color:var(--heading-color);font-weight:700;margin:0 0 16px}header,footer{padding:20px}';
+$sharedPage = static fn(string $title): string => '<style>' . $sharedCss . '</style><header><a href="/">Studio</a><nav><a href="/about/">About</a><a href="/work/">Work</a></nav></header><main><h1>' . $title . ' headline</h1><p>' . $title . ' body copy long enough to read as real content.</p><h2>' . $title . ' section</h2><p>More copy for the ' . $title . ' page.</p></main><footer><p>Copyright Studio.</p></footer>';
+$sharedFiles = array('index.html' => $sharedPage('Home'), 'about/index.html' => $sharedPage('About'), 'work/index.html' => $sharedPage('Work'));
+[, $sharedTheme] = $compile(array('entrypoint' => 'index.html', 'files' => $sharedFiles));
+foreach (array('global' => 'h1,h2,h3,h4,h5,h6', 'class' => '.signin-title') as $case => $selector) {
+    $signin = '<style>body{font-family:Inter,sans-serif;color:#636578;background:#fff}' . $selector . '{color:#636578;font-weight:500;font-family:Inter,sans-serif}</style><main><h1 class="signin-title">Sign in</h1><p>Use your account email to continue.</p></main>';
+    [$mixedPlan, $mixedTheme] = $compile(array('entrypoint' => 'index.html', 'files' => $sharedFiles + array('signin/index.html' => $signin)));
+    $expectedHeading = $sharedTheme['styles']['elements']['heading'] ?? array();
+    $assert(array() !== $expectedHeading && $expectedHeading === ($mixedTheme['styles']['elements']['heading'] ?? array()), "$case standalone: heading element equals shared-only result " . json_encode(array($expectedHeading, $mixedTheme['styles']['elements']['heading'] ?? array())));
+    $signinMarkup = '';
+    foreach ($mixedPlan['pages'] as $page) if (str_contains($page['canonical_block_markup'], 'Sign in')) $signinMarkup = $page['canonical_block_markup'];
+    $families = array_column($mixedTheme['settings']['typography']['fontFamilies'], 'fontFamily', 'slug');
+    $minorityFamily = array_search('Inter,sans-serif', $families, true);
+    $assert(is_string($minorityFamily) && str_contains($signinMarkup, $minorityFamily), "$case standalone: sign-in retains its own heading family instead of inheriting the theme default");
+}
+
 // Later authored heading families win without an inheritance reset (#5789).
 [, $cascadeTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>:root{--heading-font:Verdana,sans-serif}body{font-family:"Courier New",monospace}h1,h2,h3{font-family:var(--heading-font)}</style><style>h1,h2,h3{font-family:Georgia,serif}</style><h1>Main title</h1><h2>Second title</h2><h3>Third title</h3><p>Body text paragraph.</p>')));
 $cascadeFamilies = array_column($cascadeTheme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
@@ -134,7 +151,8 @@ foreach (array('h1', 'h2', 'h3') as $level) {
 $assert('inherit' !== ($cascadeTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'authored heading cascade: no heading inheritance reset overrides source families');
 
 // Channel custom properties are colours only in the consuming function, not
-// standalone palette values. Keep the authored expression as the CSS fallback.
+// standalone palette values. Root paint yields to Global Styles; compound
+// uses keep the authored expression as the CSS fallback.
 foreach (array('hsl(var(--foreground))', 'hsl(var(--foreground) / 1)', 'rgb(var(--channels))', 'rgb(var(--channels) / 100%)') as $expression) {
     [$channelPlan, $channelTheme] = $compile(array(
         'entrypoint' => 'index.html',
@@ -147,7 +165,7 @@ foreach (array('hsl(var(--foreground))', 'hsl(var(--foreground) / 1)', 'rgb(var(
     $assert('var:preset|color|' . $channelSlug === ($channelTheme['styles']['color']['text'] ?? null), $expression . ': root text references its matching preset');
     $assert('var:preset|color|base' === ($channelTheme['styles']['color']['background'] ?? null), $expression . ': root background references its matching preset');
     $channelCss = implode("\n", array_column($channelPlan['assets'], 'content'));
-    $assert(str_contains($channelCss, 'color:var(--wp--preset--color--' . $channelSlug . ',' . $expression . ')'), $expression . ': CSS binds with the original expression as fallback');
+    $assert(!str_contains($channelCss, 'body{color:'), $expression . ': matching body paint yields to Global Styles');
     $assert(str_contains($channelCss, 'linear-gradient(var(--wp--preset--color--' . $channelSlug . ',' . $expression . '),var(--wp--preset--color--base,rgb(var(--paper) / 100%)))'), $expression . ': compound colour tokens resolve and retain their original fallbacks too');
 }
 
@@ -489,6 +507,10 @@ $fontVariables = ':root{--family:Inter, sans-serif;--other:Inter,Arial}.a{font-f
 $assert(str_contains($sheet($fontVariables), '.a{font-family:var(--wp--preset--font-family--body,var(--family))}') && str_contains($sheet($fontVariables), '.b{font-family:var(--wp--preset--font-family--body,var(--other))}'), 'resolved font declarations bind their primary family and retain the original variable fallback');
 $assert('.a{font-family:var(--wp--preset--font-family--body,"Inter",sans-serif)}.b{font-family:"In ter",sans-serif}' === $sheet('.a{font-family:"Inter",sans-serif}.b{font-family:"In ter",sans-serif}'), 'font stack comparison preserves spaces inside family names');
 
+// Custom properties accept bare stacks as well as complete font shorthands,
+// but sharing only the primary family is not an exact-stack match (#6058).
+$assert(':root{--body-font:var(--wp--preset--font-family--body,"Inter",sans-serif)!important;--heading-font:italic 700 24px/1.2 var(--wp--preset--font-family--body);--other-font:"Inter",serif;--length:24px;--ink:var(--wp--preset--color--' . $slug . ',#e11d48)}' === $sheet(':root{--body-font:"Inter",sans-serif!important;--heading-font:italic 700 24px/1.2 "Inter",sans-serif;--other-font:"Inter",serif;--length:24px;--ink:#e11d48}'), 'custom-property font stacks bind exact presets, preserving shorthand prefixes, importance and non-font binders');
+
 // Compound colour values follow the palette without interpreting positions,
 // variable fallbacks or URLs as colour tokens.
 $compoundSystem = (new \ReflectionClass(DesignSystem::class))->newInstanceWithoutConstructor();
@@ -718,7 +740,7 @@ $displayFamilies = array_column($displayTheme['settings']['typography']['fontFam
 $assert(str_contains((string) ($displayFamilies['heading'] ?? ''), 'Fraunces') && str_starts_with((string) ($displayFamilies['body'] ?? ''), '-apple-system'), 'system-stack-display-headings: heading is the webfont headings render, body the system stack (' . json_encode($displayFamilies) . ')');
 $displayMarkup = implode('', array_column($displayPlan['pages'], 'canonical_block_markup'));
 $assert(!preg_match('/<!-- wp:heading \{"className":"text-xl","level":3[^}]*"fontFamily"/', $displayMarkup), 'system-stack-display-headings: system-stack headings do not bind to the display family');
-$assert('inherit' === ($displayTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'system-stack-display-headings: heading typography inherits while some headings render another family');
+$assert('var:preset|font-family|heading' === ($displayTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'system-stack-display-headings: the majority display family becomes the heading default while system-stack headings retain their source family');
 $unanimous = $displayFixture;
 $unanimous['files']['contact.html'] = str_replace('<h3 class="text-xl">', '<h3 class="font-display text-xl">', $unanimous['files']['contact.html']);
 [, $unanimousTheme] = $compile($unanimous);

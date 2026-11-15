@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifes
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
 /**
  * Sole owner of header/footer shell-candidate location and removal.
@@ -137,6 +138,26 @@ final class ShellExtraction
         foreach ($pages as $page) foreach ($page['shell_candidates'] ?? array() as $candidate) {
             $identities[$candidate['area']][$candidate['identity_markup'] ?? $candidate['markup']] = true;
         }
+        // Equality may ignore sampled capture evidence. Emit the contextual
+        // copy that actually observed it, rather than the entry route's resting
+        // copy or the isolated compilation's incomplete selector context.
+        $presentations = array();
+        foreach ($pages as $page) {
+            $variants = array();
+            foreach ($page['shell_candidates'] ?? array() as $candidate) {
+                $area = $candidate['area'];
+                $variant = ($variants[$area] ?? 0) + 1;
+                $variants[$area] = $variant;
+                $artifact = self::sourceSharedShellArtifact($artifacts, $page, $area, $variant);
+                if (null === $artifact) continue;
+                $key = $artifact['canonical_block_markup'];
+                $markup = $candidate['markup'];
+                $score = ($page['source_path'] === ($artifact['placement']['evidence_source_path'] ?? null)) ? 1 : 0;
+                if (!isset($presentations[$key]) || $score > $presentations[$key]['score']) {
+                    $presentations[$key] = array('markup' => $markup, 'score' => $score);
+                }
+            }
+        }
         $variantIdentities = array(); $sourceRows = array();
         foreach ($pages as $page) {
             $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']);
@@ -198,7 +219,10 @@ final class ShellExtraction
                 // drawer) is absent from a landmark-only artifact.
                 if (array() !== array_diff(self::textRuns($candidate['markup']), self::textRuns($markup))) continue;
                 $candidate['identity_markup'] = ChromeIdentity::markup($markup);
-                $candidate['template_part_markup'] = self::landmarkPartMarkup(RestingNavigation::markup($markup), $candidate['area']);
+                // Source equality proves ownership, not presentation: isolated
+                // compilation lacks the route's complete selector context.
+                $presentation = ($presentations[$markup]['score'] ?? 0) > 0 ? $presentations[$markup]['markup'] : $candidate['markup'];
+                $candidate['template_part_markup'] = self::landmarkPartMarkup(RestingNavigation::markup($presentation), $candidate['area']);
             }
             unset($candidate);
         }
@@ -503,14 +527,14 @@ final class ShellExtraction
     }
 
     /** @param array<string,mixed> $document @return array<int,array<string,mixed>> */
-    public function shellCandidates(array $document, AssetReferenceCanonicalizer $references, array $routes, string $canonical): array
+    public function shellCandidates(array $document, AssetReferenceCanonicalizer $references, string $canonical): array
     {
         $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($canonical);
         $candidates = array();
         foreach ($document['shell_artifacts'] ?? array() as $candidate) {
             if (!is_array($candidate) || !in_array($candidate['area'] ?? null, array('header', 'footer'), true) || !is_string($candidate['block_markup'] ?? null) || '' === trim($candidate['block_markup'])) continue;
             $sourcePath = WordPressSitePlan::value($document, 'source_path');
-            $markup = $this->links->markup($references->content($candidate['block_markup'], $sourcePath), $sourcePath, $routes);
+            $markup = $this->links->markup($references->content($candidate['block_markup'], $sourcePath), $sourcePath);
             // One rendered part serves every route; a page's own current item
             // is restored at render time, never frozen into the shared part.
             $templatePartMarkup = self::landmarkPartMarkup(RestingNavigation::markup($markup), (string) $candidate['area']);
@@ -1258,10 +1282,16 @@ final class ShellExtraction
             if ('page' === $target) $pageReplacements[$key][] = $occurrence; else $partReplacements[$key][] = $occurrence;
             if ('' !== $occurrence['source_path']) $sources[$occurrence['source_path']] = hash('sha256', $occurrence['markup']);
         }
+        // A document can author several footers that carry the same copy (a
+        // platform footer and an alternate one). Each keeps its own reference,
+        // so record how many a source holds for the binding proof.
+        $referencesPerSource = array();
         foreach ($pageReplacements as $index => $replacements) {
             usort($replacements, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
             $markup = (string) $pages[$index]['canonical_block_markup'];
             foreach ($replacements as $replacement) if (substr($markup, $replacement['offset'], $replacement['length']) === $replacement['markup']) $markup = substr($markup, 0, $replacement['offset']) . $reference . substr($markup, $replacement['offset'] + $replacement['length']);
+            $placed = substr_count($markup, $reference);
+            if ($placed > 1) $referencesPerSource[(string) ($pages[$index]['source_path'] ?? '')] = $placed;
             $pages[$index]['canonical_block_markup'] = $markup;
             $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($markup);
         }
@@ -1291,7 +1321,7 @@ final class ShellExtraction
             'entrypoint' => false,
             'area' => 'footer',
             'tag_name' => 'div',
-            'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => array_keys($sources), 'variant' => 1, 'excluded_template_slugs' => array_keys($excludedTemplateSlugs)),
+            'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => array_keys($sources), 'variant' => 1, 'excluded_template_slugs' => array_keys($excludedTemplateSlugs)) + (array() !== $referencesPerSource ? array('references_per_source' => $referencesPerSource) : array()),
             'canonical_block_markup' => $partMarkup,
             'metadata' => array(),
             'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#footer', 'kind' => 'template_part'), 'title' => 'Footer Content', 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()),
@@ -1858,6 +1888,8 @@ final class ShellExtraction
                 if (null === $partitioned) {
                     $reason = array() === $clusters ? 'incomplete' : 'non_equivalent';
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_' . ('incomplete' === $reason ? 'incomplete' : 'ambiguous'), 'severity' => 'info', 'message' => "{$area} shell candidates do not establish a dominant semantic cluster.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', $reason, $candidates));
+                    $native = $partitionTypes && $partitionHeaders && $area === $partSlug ? $this->nativeTemplateShell($clusters, $clusterIdentities, $pages, $applicable, $area, $partSlug, $candidates) : null;
+                    if (null !== $native) { $parts[] = $native; $diagnostics[] = array('code' => 'wordpress_site_plan_shell_native_template_fallback', 'severity' => 'info', 'message' => "Routes keep their own {$area}; templates without a source route use the {$area} from {$native['placement']['source_path']}.", 'area' => $area, 'source_path' => $native['placement']['source_path']); }
                     continue;
                 }
                 foreach ($partitioned['pages'] as $index => $withoutShell) {
@@ -2022,8 +2054,101 @@ final class ShellExtraction
             $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'source_paths' => $inlineShell ? array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $cluster['indexes'])) : null, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $inlineShell ? null : $container, 'template_wrappers' => !$singlePage && !$inlineShell ? $templateWrappers : array()), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', is_array($absorbed) ? 'responsive_variant_partition' : (!empty($first['route_edge']) ? 'route_edge' : 'canonical'), array_intersect_key($candidates, array_flip($cluster['indexes'])), $identity), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($partMarkup)) + (is_array($ancestorContext) ? array('ancestor_context' => $ancestorContext) : array());
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
+        // A shared landmark can have route-local presentation. Keep those
+        // variants editable without substituting the dominant route's paint.
+        // A matching source anchor proves shell ownership; unrelated article
+        // headers and unlabelled route content must not be promoted.
+        foreach ($parts as $part) {
+            if ('header' !== ($part['area'] ?? null)) continue;
+            $partIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($part['canonical_block_markup']);
+            $anchors = array();
+            foreach ($partIndex->tokens() as $token) {
+                if ($token['closing']) continue;
+                $attrs = json_decode($token['attributes'], true);
+                if ('header' === ($attrs['tagName'] ?? null) && !empty($attrs['anchor'])) $anchors[$attrs['anchor']] = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
+            }
+            if (array() === $anchors) continue;
+            foreach ($pages as $index => $page) {
+                // Do not promote a second occurrence on a route that already
+                // contributed its shell, or one retained for unsafe placement.
+                if (isset($part['provenance']['sources'][$page['source_path']])) continue;
+                $excluded = array_filter($diagnostics, static fn(array $d): bool => 'header' === ($d['area'] ?? null) && (bool) array_filter($d['exclusions'] ?? array(), static fn(array $e): bool => $page['source_path'] === ($e['source_path'] ?? null) && 'non_equivalent' === ($e['reason'] ?? null)));
+                if (array() === $excluded) continue;
+                $rows = $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']), $page['source_path'], 'header');
+                if (1 !== count($rows)) continue;
+                $row = $rows[0];
+                $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($row['markup']))->tokens();
+                $attrs = json_decode($tokens[0]['attributes'] ?? '', true);
+                // Descendant-only differences may be navigation current state or
+                // deliberately retained route content. A shared anchor alone is
+                // not evidence of a distinct landmark presentation.
+                if (!isset($anchors[$attrs['anchor'] ?? '']) || array($attrs['style'] ?? array(), $attrs['className'] ?? '') === $anchors[$attrs['anchor']]) continue;
+                if (self::textRuns($row['markup']) !== self::textRuns($part['canonical_block_markup'])) continue;
+                $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
+                if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
+                $edges = array($index => array($row + array('identity' => $row['identity_markup'], 'nested' => true)));
+                $slug = 'header-' . substr(hash('sha256', $page['source_path']), 0, 12);
+                $variants = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), 'header', array_fill_keys(array_column($parts, 'slug'), true), $runtimeDeclarations, $slug);
+                $pages = $variants['pages'];
+                array_push($parts, ...$variants['parts']);
+                array_push($diagnostics, ...$variants['diagnostics']);
+            }
+        }
         foreach ($pages as &$page) unset($page['shell_candidates'], $page['_source_shared_variant_identities']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * Routes whose chrome differs only in where its internal links point
+     * (the home page links its own sections as `#about` and leaves out its
+     * own nav item; inner pages link `/` and `/#about`) keep that chrome
+     * page-owned, but it is still one site design. Templates with no source
+     * route (404, search, archives, plugin templates that include the theme's
+     * header and footer parts) get it from an inner route, whose links already
+     * leave the page they sit on. The part binds only to native templates no
+     * source route renders, so no page shows it next to its own copy. Chrome
+     * that differs in anything else (text, external URLs, ids, classes,
+     * styles) is route content, and native templates stay without it.
+     *
+     * @param array<string,array<string,mixed>> $clusters
+     * @param array<int,string> $identities
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $applicable
+     * @param array<int,list<array<string,mixed>>> $candidates
+     * @return array<string,mixed>|null
+     */
+    private function nativeTemplateShell(array $clusters, array $identities, array $pages, array $applicable, string $area, string $partSlug, array $candidates): ?array
+    {
+        if (array() === $clusters) return null;
+        $designs = array();
+        foreach ($clusters as $cluster) $designs[self::withoutInternalLinkTargets((string) ($identities[$cluster['indexes'][0]] ?? ''))] = true;
+        if (1 !== count($designs)) return null;
+        $size = count(reset($clusters)['indexes']);
+        $donor = null;
+        foreach ($clusters as $identity => $cluster) {
+            if (count($cluster['indexes']) < $size) break;
+            $inner = array_values(array_filter($cluster['indexes'], static fn(int $index): bool => empty($pages[$index]['entrypoint'])));
+            if (array() === $inner) continue;
+            $donor = array('identity' => $identity, 'index' => $inner[0], 'indexes' => $cluster['indexes']);
+            break;
+        }
+        if (null === $donor) return null;
+        $candidate = $candidates[$donor['index']][0];
+        $routeTemplates = array();
+        foreach ($applicable as $page) $routeTemplates[] = TemplateSlugs::genericForPage($page, array());
+        $templateSlugs = array_values(array_diff(WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS, $routeTemplates));
+        if (array() === $templateSlugs || !is_string($candidate['template_part_markup'] ?? null)) return null;
+        $sourcePath = (string) $pages[$donor['index']]['source_path'];
+        $markup = $candidate['template_part_markup'];
+        return array('source_path' => 'wordpress-site-plan/shared/' . $partSlug . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array('kind' => 'shared_shell', 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs), 'canonical_block_markup' => $markup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => 'wordpress-site-plan/shared/' . $partSlug . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'native_template_fallback', array_intersect_key($candidates, array_flip($donor['indexes'])), $donor['identity']), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', 'wordpress-site-plan/shared/' . $partSlug . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($markup)) + (is_array($candidate['ancestor_context'] ?? null) ? array('ancestor_context' => $candidate['ancestor_context']) : array());
+    }
+
+    /** Shell identity markup without the route state of its internal links. */
+    private static function withoutInternalLinkTargets(string $markup): string
+    {
+        $internal = '(?:#|/(?!/)|\.\.?/)[^"]*';
+        $markup = (string) preg_replace('~<!-- wp:navigation-link \{(?:(?!-->).)*?"url":"' . $internal . '"(?:(?!-->).)*?/-->~s', '', str_replace('\\/', '/', $markup));
+        return (string) preg_replace(array('~\bhref="' . $internal . '"~', '~"url":"' . $internal . '"~'), array('href=""', '"url":""'), $markup);
     }
 
     /**
@@ -2151,7 +2276,7 @@ final class ShellExtraction
      * @param array<int,array<string,mixed>> $runtimeDeclarations
      * @return array{pages:array<int,array<string,mixed>>,parts:list<array<string,mixed>>,diagnostics:list<array<string,mixed>>}
      */
-    private function edgeVariantParts(array $pages, array $edges, array $groups, string $area, array $reservedSlugs, array $runtimeDeclarations): array
+    private function edgeVariantParts(array $pages, array $edges, array $groups, string $area, array $reservedSlugs, array $runtimeDeclarations, ?string $routeSlug = null): array
     {
         $parts = array(); $diagnostics = array();
         // The variant most routes use is the area's own part; each other one
@@ -2160,7 +2285,7 @@ final class ShellExtraction
         foreach ($groups as $key => $group) if (null === $mainGroup || count($group['indexes']) > count($groups[$mainGroup]['indexes'])) $mainGroup = $key;
         foreach ($groups as $groupKey => $group) {
             $identity = hash('sha256', implode("\0", array_column(array_slice($edges[$group['indexes'][0]], 0, $group['length']), 'identity')));
-            $slug = $groupKey === $mainGroup ? $area : $area . '-' . substr($identity, 0, 12);
+            $slug = $routeSlug ?? ($groupKey === $mainGroup ? $area : $area . '-' . substr($identity, 0, 12));
             if (isset($reservedSlugs[$slug])) continue;
             $ranges = array();
             foreach ($group['indexes'] as $index) {
@@ -2168,7 +2293,10 @@ final class ShellExtraction
                 if (array() !== $this->runtimeBindingsInRanges($runtimeDeclarations, $pages[$index], array($ranges[$index]))['refs']) continue 2;
             }
             $first = $group['indexes'][0];
-            $markup = self::landmarkPartMarkup(self::withoutEdgeCurrentState(substr((string) $pages[$first]['canonical_block_markup'], $ranges[$first]['offset'], $ranges[$first]['length']), $pages[$first]), $area);
+            $sourceMarkup = substr((string) $pages[$first]['canonical_block_markup'], $ranges[$first]['offset'], $ranges[$first]['length']);
+            // A route-local landmark is already compiled in its resting page
+            // context. Edge normalization would strip its authored paint.
+            $markup = null !== $routeSlug ? $sourceMarkup : self::landmarkPartMarkup(self::withoutEdgeCurrentState($sourceMarkup, $pages[$first]), $area);
             $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
             // Replace from the end of each page so earlier offsets stay valid.
             foreach ($group['indexes'] as $index) {
@@ -2184,7 +2312,7 @@ final class ShellExtraction
                 $pages[$index]['canonical_block_markup'] = substr($page, 0, $insert) . $reference . substr($page, $insert, $at - $insert) . substr($page, $end);
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($pages[$index]['canonical_block_markup']);
             }
-            $title = $groupKey === $mainGroup ? ucfirst($area) : self::routeVariantTitle($area, $pages[$first], count($parts) + 1);
+            $title = null === $routeSlug && $groupKey === $mainGroup ? ucfirst($area) : self::routeVariantTitle($area, $pages[$first], count($parts) + 1);
             $sourcePath = 'wordpress-site-plan/shared/' . $slug;
             $sources = array_values(array_map(static fn(int $index): string => $pages[$index]['source_path'], $group['indexes']));
             $candidates = array_map(static fn(int $index): array => array(array('source_path' => $pages[$index]['source_path'], 'identity_markup' => 'route-edge:' . $identity)), $group['indexes']);
@@ -3036,7 +3164,8 @@ final class ShellExtraction
 
     /**
      * The generic fallback templates always carry the dominant shell; excluded
-     * routes get their own override templates. 'search' is never an applicable
+     * routes get their own override templates. 'single' is bound even when no
+     * captured route is a post. 'search' is never an applicable
      * page in its own right (WordPress synthesizes it), so it rides along
      * wherever 'index' is bound: both are the site's generic, non-singular
      * fallback templates. Null when two excluded routes need one override.
@@ -3048,7 +3177,7 @@ final class ShellExtraction
     private static function shellTemplateSlugs(array $applicable, array $selected): ?array
     {
         if (count($selected) === count($applicable)) return array(WordPressSitePlan::NATIVE_TEMPLATE_SLUGS, array());
-        $templateSlugs = WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
+        $templateSlugs = array_merge(WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS, array('single'));
         $overrides = array();
         foreach ($applicable as $index => $page) {
             $carries = isset($selected[$index]);
@@ -3604,7 +3733,7 @@ final class ShellExtraction
                             foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
                                 if ('' !== $class && !str_starts_with($class, 'wp-block-') && !str_starts_with($class, 'blocks-engine-synthetic-') && !str_starts_with($class, 'blocks-engine-propagated-') && !preg_match('/^has-(?:.+-font-(?:size|family)|text-color|.+-color)$/', $class)) $classes[$class] = true;
                             }
-                            foreach (explode(';', $element->getAttribute('style')) as $style) {
+                            foreach (CssValueSplitter::splitTopLevel($element->getAttribute('style'), array(';')) as $style) {
                                 $style = trim($style);
                                 // Bare links are lowered to a zero-margin paragraph;
                                 // typography is compared through the resolved presentation.

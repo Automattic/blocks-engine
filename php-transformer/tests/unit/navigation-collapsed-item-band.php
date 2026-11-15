@@ -103,6 +103,22 @@ $assert(
     'A directly authored anchor list reserves no collapsed band.'
 );
 
+// Native li margins already target the navigation-item host. Only the
+// discarded descendant wrapper contributes to the collapsed band.
+$nativeItems = (new HtmlTransformer())->transform(
+    '<html><body><nav><li><div><a href="/">Home</a></div></li>'
+        . '<li><div><a href="/about">About</a></div></li></nav></body></html>',
+    array('source' => 'index.html', 'static_css' => 'li{margin-bottom:6px}li>div{margin-top:4px}')
+);
+$assert(
+    ! str_contains($nativeItems->serializedBlocks, 'navigation-band-t4-b6'),
+    'Native list-item margins are not counted as discarded wrapper margins.'
+);
+$assert(
+    str_contains($nativeItems->serializedBlocks, 'navigation-band-t4-b0'),
+    'Discarded wrappers inside native items still reserve their own band.'
+);
+
 if (0 < $failures) {
     fwrite(STDERR, sprintf('navigation collapsed item band: %d passed, %d failed%s', $passes, $failures, PHP_EOL));
     exit(1);

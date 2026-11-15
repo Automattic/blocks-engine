@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConv
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** Preserves one controls-only subtree as a provider binding slot. */
@@ -106,6 +107,17 @@ final class FormCompositionPlanner
                 }
             }
             $slot = $candidate;
+        }
+
+        // An unassociated caption outside the controls subtree is form-owned
+        // context. Keep it in the same provider replacement boundary; otherwise
+        // both the page and the provider's readable form render that caption.
+        if ( null !== $slot ) {
+            foreach ( $form->getElementsByTagName('label') as $label ) {
+                if ( '' === SourceDom::attr($label, 'for') && ! $this->elementContains($slot, $label) ) {
+                    return null;
+                }
+            }
         }
 
         return $slot;

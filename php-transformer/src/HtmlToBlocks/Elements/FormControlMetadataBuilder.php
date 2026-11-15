@@ -1006,9 +1006,9 @@ final class FormControlMetadataBuilder
                     continue;
                 }
             }
-            // Provider help text is always rendered. Copy hidden by the source
-            // (for example, dormant validation feedback) is not permanent help.
-            $hidden = false;
+            // Provider help is rendered independently of the source CSS box.
+            // Preserve trunk's hidden-state analysis and inherited aria-hidden.
+            $hidden = null !== $this->hiddenState($node, $wrapper);
             for ( $ancestor = $node; $ancestor instanceof DOMElement && ! $ancestor->isSameNode($wrapper); $ancestor = $ancestor->parentNode ) {
                 if ( $ancestor->hasAttribute('hidden')
                     || 'true' === strtolower(SourceDom::attr($ancestor, 'aria-hidden'))

@@ -18,6 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PageRoute;
 use DOMElement;
 use DOMXPath;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 
 /**
  * Removes the state a client router painted on a captured route's links, so
@@ -332,28 +333,10 @@ final class RouteStateProjector
         return false;
     }
 
-    /** Split only at CSS declaration boundaries, never inside strings or functions. */
+    /** @return array<string, string> Last declaration of each property wins. */
     private static function inlineDeclarations(string $style): array
     {
-        $state = CssSyntaxScanner::state();
-        $declarations = array(); $start = 0;
-        for ($offset = 0, $length = strlen($style); $offset <= $length;) {
-            if ($offset === $length || (';' === $style[$offset] && '' === $state['quote'] && !$state['comment'] && 0 === $state['parens'] && 0 === $state['brackets'])) {
-                $declaration = trim(substr($style, $start, $offset - $start));
-                $colon = strpos($declaration, ':');
-                if (false !== $colon) {
-                    $property = trim(substr($declaration, 0, $colon));
-                    if (!str_starts_with($property, '--')) $property = strtolower($property);
-                    $declarations[$property] = trim(substr($declaration, $colon + 1));
-                }
-                $start = ++$offset;
-                continue;
-            }
-            $next = CssSyntaxScanner::consume($style, $offset, $state);
-            if (null === $next) return array();
-            $offset = $next;
-        }
-        return $declarations;
+        return array_column(CssRuleAnalyzer::declarations($style, array('*')), 'value', 'name');
     }
 
     public const CURRENT_SOURCES_ATTRIBUTE = 'data-blocks-engine-current-sources';

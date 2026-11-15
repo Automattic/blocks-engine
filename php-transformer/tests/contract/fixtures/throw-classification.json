@@ -3,11 +3,7 @@
   "description": "Every throw new and throwing-helper call in src/, keyed by file and Class(normalized message) or helper(normalized arguments), with its occurrence count. Enforced by tests/contract/throw-classification.php; see docs/contracts/throw-classification.md. LogicException and its project subclasses are integrity by construction and are not listed.",
   "representability_pending_max": 8,
   "sites": {
-    "src/ArtifactCompiler/ArtifactCompiler.php": {
-      "InvalidArgumentException('Caller runtime declarations cannot provide compiler-reserved script supersession proofs.')": {
-        "class": "integrity",
-        "count": 1
-      },
+    "src/ArtifactCompiler/FileOwnership.php": {
       "InvalidArgumentException('File compilation ownership requires a shared or page scope.')": {
         "class": "integrity",
         "count": 1
@@ -125,6 +121,12 @@
         "count": 1
       },
       "InvalidArgumentException(sprintf('Document variant source \"%s\" requires embedded text content.',$path))": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
+    "src/ArtifactCompiler/RuntimeDeclarationPromotion.php": {
+      "InvalidArgumentException('Caller runtime declarations cannot provide compiler-reserved script supersession proofs.')": {
         "class": "integrity",
         "count": 1
       }

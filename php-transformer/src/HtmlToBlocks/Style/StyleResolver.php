@@ -2233,6 +2233,41 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Image lowering removes the frame between a source figure and its image.
+     * Preserve its overflow on the replacement figure, including conditional
+     * rules: this is a source sizing constraint, not a default for all grids.
+     */
+    public function flattenedImageFrameOverflowClassName(DOMElement $image, ?DOMElement $figure): string
+    {
+        $frame = $image->parentNode;
+        if (! $figure instanceof DOMElement || ! $frame instanceof DOMElement
+            || $frame->isSameNode($figure) || ! $frame->parentNode?->isSameNode($figure)) {
+            return '';
+        }
+        $properties = array('overflow', 'overflow-x', 'overflow-y');
+        $groups = $this->authoredControlPresentation($frame, $properties);
+        if (array() === array_filter($groups)) return '';
+        $className = $this->session->layoutGeometryState()->allocateCarrier(
+            'flattened-image-frame-overflow:' . ($frame->getNodePath() ?? '') . serialize($groups)
+        );
+        $rules = '';
+        foreach ($groups as $conditions => $values) {
+            if (array() === $values) continue;
+            $stack = '' === $conditions ? array() : explode('{', $conditions);
+            foreach ($values as $property => $value) {
+                $values[$property] = $this->customProperties->expand($value, $this->conditionedCustomProperties($value, $frame, $stack));
+            }
+            $rule = '.' . $className . '{' . $this->cssDeclarationString($values) . '}';
+            foreach (array_reverse($stack) as $condition) {
+                $rule = $condition . '{' . $rule . '}';
+            }
+            $rules .= $rule;
+        }
+        $this->session->layoutGeometryState()->registerRule($className, $rules);
+        return $className;
+    }
+
+    /**
      * A collapsed media frame is the image's reference box, not the figure's:
      * putting its ratio on the figure would include the caption in the crop.
      * For a filling image the same box can live on the replaced element. Its
@@ -3228,6 +3263,19 @@ final class StyleResolver implements ElementPresentationResolver
                 $authoredNames[$name] = $name;
                 $authoredNames[strtolower($name)] ??= $name;
             }
+        }
+        // Keyframes are not ordinary selector consumers. Preserve only the
+        // variables they read, not unrelated capture layout variables.
+        if ($element->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE)) {
+            $readers = array();
+            (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->visitKeyframeRules(
+                $this->session->authorStyleAnalysis()->combinedCss(),
+                static function (string $name, string $body) use (&$readers): void { $readers[] = $body; }
+            );
+            $required = $this->inlineCustomPropertiesRequired(
+                $declarations,
+                $required + $this->customPropertiesReferencedByValues($readers)
+            );
         }
         $customProperties = array();
         foreach ($declarations as $property => $value) {

@@ -74,9 +74,14 @@ final class WrapperCoalescer
 
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
 
+    // Semantic Groups have the same native transport as div Groups. Their tag
+    // does not by itself justify replacing editable structure with a companion.
+    private const NATIVE_GROUP_TAGS = array('div', 'main', 'section', 'article', 'aside');
+
     // Charge shared ancestry against the saved List View depth, not only
-    // against the length of each uninterrupted single-child run.
-    private const MAX_NATIVE_WRAPPER_DEPTH = 8;
+    // against the length of each uninterrupted single-child run. Use the
+    // document policy: a stricter local cap creates needless non-core shells.
+    private const MAX_NATIVE_WRAPPER_DEPTH = EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
 
     private bool $wrapperBudgetExceeded = false;
 
@@ -100,8 +105,25 @@ final class WrapperCoalescer
             $ancestorChain[] = array('block' => $cursor, 'descriptor' => $descriptor);
             $cursor = $cursor['innerBlocks'][0];
         }
-        if (2 <= count($ancestorChain)
-            && ($depth - 1 + $this->nativeBlockHeight($block) > self::MAX_NATIVE_WRAPPER_DEPTH
+        // Native div/nav ancestry may retain its source boxes within the public
+        // nesting budget; do not force it through generated shell transport.
+        $nativeNavigationChain = 'div' === ($ancestorChain[0]['descriptor']['tagName'] ?? null)
+            && array() !== array_filter($ancestorChain, static fn (array $entry): bool => 'nav' === $entry['descriptor']['tagName'])
+            && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'], array('div', 'nav'), true))
+            && $depth - 1 + $this->nativeBlockHeight($block) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
+        // Semantic-only ancestry is a local region, not a reason to lower
+        // otherwise editable ancestors before its descendants normalize.
+        $semanticRegion = 2 <= count($ancestorChain)
+            && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, array('main', 'section', 'article', 'aside'), true));
+        $wrapperHeight = ($semanticRegion ? 0 : $depth - 1) + $this->nativeBlockHeight($block);
+        // Mixed container/semantic runs retain their established compression
+        // budget. Plain div chains can use the full document depth budget.
+        $semanticTags = array('main', 'section', 'article', 'aside');
+        $hasSemanticRegion = in_array($cursor['attrs']['tagName'] ?? null, $semanticTags, true)
+            || array() !== array_filter($ancestorChain, static fn (array $entry): bool => in_array($entry['descriptor']['tagName'], $semanticTags, true));
+        $depthBudget = $hasSemanticRegion && ! $semanticRegion ? 8 : self::MAX_NATIVE_WRAPPER_DEPTH;
+        if (! $nativeNavigationChain && 2 <= count($ancestorChain)
+            && ($wrapperHeight > $depthBudget
                 || count($ancestorChain) >= self::MAX_NATIVE_WRAPPER_DEPTH)) {
             return $this->foldWrapperChain($ancestorChain, $this->normalizeWrapperChain($cursor, $depth + 1));
         }
@@ -121,9 +143,9 @@ final class WrapperCoalescer
             || (str_starts_with($terminalName, 'core/') && ! in_array($terminalName, array( 'core/freeform', 'core/html' ), true)))
             && ('core/freeform' === $terminalName
                 || ('core/group' === $terminalName && array() === ($terminal['innerBlocks'] ?? array()))
-                || array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null)))
+                || array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, ('div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div')), true)))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
-        // Div ancestors remain editable even when their terminal is a generated
+        // Native Group ancestors remain editable even when their terminal is a generated
         // block or an extraction slot. The terminal's transport does not require
         // transporting its native parent boxes in a generated shell too.
         // Inline-only fragments retain their existing shell transport. Source
@@ -132,8 +154,14 @@ final class WrapperCoalescer
         $hasSourceBox = array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool =>
             ! str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-synthetic-paragraph')
             || str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-source-box-paragraph'));
+        $nativeTags = 'div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div');
+        // Extend native transport to semantic-only region chains, not mixed
+        // chains whose inner containers already have established lowering.
+        if (2 <= count($chain) && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, array('main', 'section', 'article', 'aside'), true))) {
+            $nativeTags = self::NATIVE_GROUP_TAGS;
+        }
         $nativeGroupTree = $nativeGroupTree || (('core/freeform' !== $terminalName || $hasSourceBox)
-            && array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null))
+            && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, $nativeTags, true))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth']);
         // The ratio budget belongs to the document, not each component. An
         // empty visual branch can have no content leaves while the complete
@@ -161,6 +189,17 @@ final class WrapperCoalescer
         // children serialize in place, just as nativeBlockHeight accounts for.
         if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks'], $depth + ('core/freeform' === ($block['blockName'] ?? null) ? 0 : 1));
         return $block;
+    }
+
+    /** @param array<string,mixed> $block */
+    private function containsResponsiveNavigation(array $block): bool
+    {
+        if ('core/navigation' === ($block['blockName'] ?? null)
+            && in_array($block['attrs']['overlayMenu'] ?? null, array('mobile', 'always'), true)) return true;
+        $children = ArrayField::array($block, 'innerBlocks');
+        return 'core/group' === ($block['blockName'] ?? null)
+            && 1 === count($children)
+            && $this->containsResponsiveNavigation($children[0]);
     }
 
     /**
@@ -220,6 +259,15 @@ final class WrapperCoalescer
         // and for shell extraction. A native grid or flex
         // layout is likewise an editor control the wrapper list cannot carry.
         if (!in_array($block['blockName'] ?? null, array('core/group'), true) || in_array($block['attrs']['layout']['type'] ?? null, array('grid', 'flex'), true) || isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true) || ShellLandmarkPolicy::namesRoleOnlyLandmark(ArrayField::array($block, 'attrs'))) return null;
+        // Responsive navigation is projected into the source opener's boxes.
+        // Keep that landmark independently editable instead of hiding its
+        // control ancestry in generated shell transport. Ordinary link menus
+        // retain their existing folding and shared-template style contract.
+        if ('nav' === strtolower((string) ($block['attrs']['tagName'] ?? 'div'))
+            && array() !== array_filter(ArrayField::array($block, 'innerBlocks'), fn (array $child): bool =>
+                'core/group' === ($child['blockName'] ?? null)
+                && 'div' === ($child['attrs']['tagName'] ?? 'div')
+                && $this->containsResponsiveNavigation($child))) return null;
         return $this->groupWrapperDescriptor($block);
     }
 
@@ -228,7 +276,8 @@ final class WrapperCoalescer
     {
         $attrs = ArrayField::array($block, 'attrs');
         // A dialog Group's identity includes its runtime shell and bindings.
-        return isset($attrs['metadata']['blocksEngineDialog'])
+        return !empty($attrs['metadata']['blocksEngineRuntimeAttributes'])
+            || isset($attrs['metadata']['blocksEngineDialog'])
             || !empty($block['_editability_runtime_owned'])
             || !empty($block['_editability_visual_owned'])
             || !empty($attrs['backgroundColor'])
@@ -462,11 +511,14 @@ final class WrapperCoalescer
      */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
-        if ( ($this->preservesScriptStateWrapper)($element) ) {
+        if ( ($this->preservesScriptStateWrapper)($element)
+            || !empty($childBlock['attrs']['metadata']['blocksEngineRuntimeAttributes']) ) {
             return null;
         }
         $textWrapper = $this->coalescedInheritedTextWrapper($element, $childBlock);
         if (null !== $textWrapper) return $textWrapper;
+        $absorbed = $this->absorbedNeutralChild($element, $childBlock);
+        if (null !== $absorbed) return $absorbed;
         $resolution = $this->coalescingResolution($element, $childBlock);
         if ( ! $resolution['disposition']->isCoalesce() ) {
             return null;
@@ -487,6 +539,119 @@ final class WrapperCoalescer
         if (null !== $proof) $this->session->layoutGeometryState()->recordProof($proof);
 
         return $this->createBlock->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+    }
+
+    /**
+     * Keep the parent's box, rather than requiring the parent to be neutral.
+     * A normal-flow neutral child contributes no independent geometry. This
+     * is the inverse of promoting a neutral parent onto a styled child.
+     *
+     * @param array<string,mixed> $childBlock
+     * @return array<string,mixed>|null
+     */
+    private function absorbedNeutralChild(DOMElement $element, array $childBlock): ?array
+    {
+        $name = $childBlock['blockName'] ?? '';
+        if (!in_array($name, array('core/group', 'core/paragraph'), true)
+            || 'div' !== strtolower($element->tagName)
+            || SourceDom::hasClass($element, 'wp-block-group')
+            || $this->isBindingAnchor($childBlock)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || $this->sourceElementClassifier->hasMotionStructureToken($element)
+            || '' !== SourceDom::attr($element, 'id')
+            || '' !== SourceDom::attr($element, 'role')
+            || array() !== $this->interactiveAttributes($element)
+            || array() !== SourceDom::safeDataAttributes($element)
+            || $this->isStructuralLayoutElement($element)) return null;
+        $parentDeclarations = $this->matchingAuthorDeclarations($element);
+        // Paragraphs may absorb a painted text surface, not a sizing or
+        // centering container. Groups likewise need an actual padded box.
+        // Keep this box's flex/grid item identity: unlike parent promotion,
+        // absorbing its neutral child does not remove the layout item.
+        // Padding longhands are equivalent evidence to the shorthand.
+        // A universal padding:0 reset does not establish a padded box.
+        // Otherwise unrelated wrappers (including animation hosts) qualify.
+        $hasPadding = false;
+        foreach ($parentDeclarations as $property => $value) {
+            if (in_array($property, array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left'), true)
+                && !$this->isRenderNeutralGeometryDeclaration($property, $value)) $hasPadding = true;
+        }
+        if (!$hasPadding
+            || ('core/paragraph' === $name && !isset($parentDeclarations['background']) && !isset($parentDeclarations['background-color']))) return null;
+        foreach ($parentDeclarations as $property => $value) {
+            if ($this->isInheritedTextProperty($property)) return null;
+        }
+        $child = ($this->soleElementChild)($element);
+        if (!$child instanceof DOMElement
+            // Conversion may already have promoted a deeper styled descendant
+            // through this neutral source node. Its declarations, not this
+            // node's neutrality, own the converted block's box.
+            || $this->matchingSourceChild($element, $childBlock) !== $child
+            || !in_array(strtolower($child->tagName), 'core/paragraph' === $name ? array('p') : array('div'), true)
+            || $this->runtimeIslands->isRuntimeDomTarget($child)
+            || $this->sourceElementClassifier->hasMotionStructureToken($child)
+            || '' !== SourceDom::attr($child, 'id')
+            || '' !== SourceDom::attr($child, 'role')
+            || array() !== $this->interactiveAttributes($child)
+            || array() !== SourceDom::safeDataAttributes($child)
+            || !$this->hasOnlyRenderNeutralBoxAffectingDeclarations($child)
+            || !$this->selectorMatchingSurvivesWrapperCoalescing($element, $child, true)) return null;
+        // Neutral on the child does not mean neutral on the merged box:
+        // a child's zero margin/padding can reset the parent's spacing once
+        // their selector carriers share a host. Keep these two box owners
+        // separate rather than letting carrier specificity choose geometry.
+        $childDeclarations = $this->matchingAuthorDeclarations($child);
+        // A child's text cascade belongs inside the parent's box. Moving it
+        // onto that box can change em-based padding and sizing, or borders
+        // painted with currentColor, even though the child has no geometry.
+        // A paragraph's line-height only changes its own text layout, unless
+        // the retained box uses line-height-relative lengths. Other text
+        // properties can change em sizing or currentColor paint.
+        $textOnlyLineHeight = 'core/paragraph' === $name;
+        foreach ($parentDeclarations as $value) {
+            if (preg_match('/[0-9.](?:r?lh)\b/i', $value)) $textOnlyLineHeight = false;
+        }
+        foreach ($childDeclarations as $property => $value) {
+            if (($this->isInheritedTextProperty($property) && !('line-height' === $property && $textOnlyLineHeight))
+                || str_starts_with($property, '--')) return null;
+        }
+        // Box sizing is inert on the unpadded child, but not on the padded
+        // parent it would share after absorption. An undeclared parent uses
+        // the initial content-box model; do not let a child carrier reset it.
+        if (isset($childDeclarations['box-sizing'])
+            && CssValueInspector::comparable($childDeclarations['box-sizing']) !== CssValueInspector::comparable((string) ($parentDeclarations['box-sizing'] ?? 'content-box'))) return null;
+        foreach ($parentDeclarations as $property => $value) {
+            if (!preg_match('/^(margin|padding)(?:-(top|right|bottom|left))?$/', $property, $spacing)
+                || $this->isRenderNeutralGeometryDeclaration($property, $value)) continue;
+            foreach (array_keys($childDeclarations) as $childProperty) {
+                if ($childProperty === $spacing[1]
+                    || $childProperty === $property
+                    || ($property === $spacing[1] && str_starts_with($childProperty, $property . '-'))) return null;
+            }
+        }
+        // Zero-width child borders are neutral only on their original box.
+        // After absorption their selectors would also reset the parent's paint.
+        // Keep border owners separate, including shorthand/longhand overlaps;
+        // border-radius has its own reset family (border does not reset it).
+        foreach ($parentDeclarations as $property => $value) {
+            if (!str_starts_with($property, 'border')
+                || $this->isRenderNeutralGeometryDeclaration($property, $value)) continue;
+            $radius = str_contains($property, 'radius');
+            foreach (array_keys($childDeclarations) as $childProperty) {
+                if (str_starts_with($childProperty, 'border')
+                    && $radius === str_contains($childProperty, 'radius')) return null;
+            }
+        }
+        // Paragraphs have UA block margins even without author declarations.
+        if ('core/paragraph' === $name) {
+            $declarations = $this->matchingAuthorDeclarations($child);
+            foreach (array('margin-top', 'margin-bottom') as $property) {
+                if (!in_array(CssValueInspector::comparable((string) ($declarations[$property] ?? $declarations['margin'] ?? '')), array('0', '0px'), true)) return null;
+            }
+        }
+        $attrs = array_replace_recursive($this->styleResolver->presentationAttributes($element), ArrayField::array($childBlock, 'attrs'));
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($this->styleResolver->presentationAttributes($element)['className'] ?? ''), (string) ($childBlock['attrs']['className'] ?? ''), SourceDom::attr($element, 'class'));
+        return $this->createBlock->createBlock($name, $attrs, $childBlock['innerBlocks'] ?? array(), $child);
     }
 
     /**
