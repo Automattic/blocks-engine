@@ -510,7 +510,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->documentEnvelope = new Support\SourceDocumentEnvelope($this->styleResolver);
         $customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $mediaLowering, $this->imageLowering, $this->layoutShells, $this);
         $listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $listStructure, $this->richTextMaterializer, $this->wrapperCoalescer, $this->authorLayoutOwnership);
-        $structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups);
+        $structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups, $this->richTextMaterializer);
         $inlineTextWrappers = new Elements\InlineTextWrapperLowering(
             $this,
             $this,
@@ -593,7 +593,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             (new Elements\ForeignObjectFitTextLowering($this, $richTextConverter, $this->styleResolver, $this->blockFactory))->block(...)
         ), $this->svgMaterializer, new SvgTextRunLowering(
             $this->styleResolver,
-            $this->styleResolver->resolveCssVariablesInValue(...),
+            $this->styleResolver->customProperties->resolve(...),
             $this,
             $this->session
         ));
@@ -646,7 +646,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtimeIslands->runtimeDomSelectorsForElement(...),
             $this->sourceElementDescription,
             $blockBindings->binding(...),
-            fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
+            fn (DOMElement $element, string $value): string => $this->styleResolver->customProperties->resolve($value, $element),
             $this->svgMaterializer->inlineSvgMarkup(...)
         );
         $this->commerceReporter = new CommerceFallbackReporter(
@@ -1927,7 +1927,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Retain conditional rules rather than testing only the resting viewport.
         foreach ( $this->styleResolver->authoredControlPresentation($button, $sizes) as $declarations ) {
             foreach ( $declarations as $value ) {
-                if ( str_contains($this->styleResolver->resolveCssVariablesInValue($value, $button), '%') ) {
+                if ( str_contains($this->styleResolver->customProperties->resolve($value, $button), '%') ) {
                     return true;
                 }
             }
@@ -1955,7 +1955,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Control boxes transport source attributes through runtime metadata.
         // Forms must also keep their core/group identity for provider substitution;
         // their hidden state travels through the generic runtime attributes.
-        if ( 'core/group' === $name && 'form' !== ($attrs['tagName'] ?? '') && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->emptyVisualRetention->preservesScriptStateWrapper($sourceElement) ) {
+        if ( 'core/group' === $name && ! str_contains((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS) && 'form' !== ($attrs['tagName'] ?? '') && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->emptyVisualRetention->preservesScriptStateWrapper($sourceElement) ) {
             return $this->layoutShells->blockForElements(array( $sourceElement ), $innerBlocks, $sourceElement);
         }
         if ( 'core/heading' === $name ) {

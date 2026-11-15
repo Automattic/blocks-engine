@@ -63,35 +63,7 @@ final class SourceCascade
      */
     public function specificity(string $selector): array
     {
-        $parsed = $this->state->parsedSelector($selector);
-        if (! ($parsed['supported'] ?? false)) {
-            return array( 0, 0, 0 );
-        }
-
-        $ids = 0;
-        $classes = 0;
-        $elements = 0;
-        foreach ($parsed['compounds'] as $compound) {
-            if ( true === ($compound['forced_zero_specificity'] ?? false) ) {
-                continue;
-            }
-            $zeroSpecificity = $compound['zero_specificity'] ?? array();
-            $ids += count($compound['ids'] ?? array()) - (int) ($zeroSpecificity['ids'] ?? 0);
-            $classes += count($compound['classes'] ?? array()) + count($compound['attributes'] ?? array())
-                - (int) ($zeroSpecificity['classes'] ?? 0) - (int) ($zeroSpecificity['attributes'] ?? 0);
-            if (null !== ($compound['nth_child'] ?? null) || ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false)) {
-                ++$classes;
-            }
-            if (null !== ($compound['type'] ?? null) && 0 === (int) ($zeroSpecificity['types'] ?? 0)) {
-                ++$elements;
-            }
-            $listSpecificity = CssSelectorMatcher::selectorListArgumentSpecificity($compound);
-            $ids += $listSpecificity['ids'];
-            $classes += $listSpecificity['classes'];
-            $elements += $listSpecificity['types'];
-        }
-
-        return array( $ids, $classes, $elements );
+        return array_values(CssSelectorMatcher::specificityCounts($this->state->parsedSelector($selector)));
     }
 
     /**

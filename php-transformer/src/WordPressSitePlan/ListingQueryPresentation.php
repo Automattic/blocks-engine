@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -28,7 +29,7 @@ final class ListingQueryPresentation
             if ('css' !== ($asset['kind'] ?? '') || !is_string($asset['content'] ?? null)) continue;
             $content = $transformer->transformStyleRules($asset['content'], static function (string $prelude, string $body) use ($elements): string {
                 $original = $prelude . '{' . $body . '}';
-                if (!preg_match('/(?:^|;)\s*margin(?:-[a-z-]+)?\s*:/i', $body)) return $original;
+                if (array() === array_filter(CssRuleAnalyzer::declarationList($body), static fn (array $declaration): bool => 1 === preg_match('/^margin(?:-[a-z-]+)?$/D', $declaration['name']))) return $original;
                 $aliases = array();
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     $selector = trim(preg_replace('~/\*.*?\*/~s', '', $selector) ?? $selector);

@@ -46,6 +46,7 @@ final class StyleResolver implements ElementPresentationResolver
     ) {
         $this->cascade = new SourceCascade($session->sourceStyleResolutionState());
         $this->authorViewport = new AuthorViewportDeclarations($session, $this->cascade);
+        $this->customProperties = new CustomPropertyResolver($session, $this->cascade, $this->authorViewport);
     }
 
     /** The source document's cascade. */
@@ -53,6 +54,9 @@ final class StyleResolver implements ElementPresentationResolver
 
     /** Author declarations resolved at a reference viewport. */
     public readonly AuthorViewportDeclarations $authorViewport;
+
+    /** `var()` resolution against the source custom properties. */
+    public readonly CustomPropertyResolver $customProperties;
 
     private ?StyleAttributeMapper $styleAttributeMapper = null;
 
@@ -230,7 +234,7 @@ final class StyleResolver implements ElementPresentationResolver
         $declarations = $this->classOwnedBackgroundPaintDeclarations($element, $declarations);
         $mapped       = $this->styleAttributeMapper()->map(
             $declarations,
-            fn (string $value): string => $this->resolveCssVariablesInValue($value, $element)
+            fn (string $value): string => $this->customProperties->resolve($value, $element)
         );
         $forcedGeometryDeclarations = array() === $forcedGeometryProperties
             ? array()
@@ -728,7 +732,7 @@ final class StyleResolver implements ElementPresentationResolver
         $customProperties = $this->cascade->customProperties($element, true);
         $resolve = function (string $declared) use ($customProperties, $live): string {
             $declared = preg_replace('/\s*!\s*important\s*$/i', '', $declared) ?? $declared;
-            return trim($this->expandCssVariableReferences($declared, $customProperties, $live));
+            return trim($this->customProperties->expand($declared, $customProperties, $live));
         };
         $base = $resolve($resting);
         $conditional = $resolve($value);
@@ -1427,7 +1431,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $display = trim(preg_replace('/\s*!important\s*$/i', '', $display) ?? $display);
-        return $this->expandCssVariableReferences($display, $this->conditionalCascadedCustomProperties($element));
+        return $this->customProperties->expand($display, $this->customProperties->conditionalCascaded($element));
     }
 
     /**
@@ -2304,8 +2308,8 @@ final class StyleResolver implements ElementPresentationResolver
             $this->authorViewport->reference($image, array('width', 'height')),
             $this->authorViewport->collapsed($image, array('width', 'height')),
         ) as $declarations) {
-            $width = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->resolveStructuralCssVariablesInValue($declarations['width'] ?? '', $image)));
-            $height = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->resolveStructuralCssVariablesInValue($declarations['height'] ?? '', $image)));
+            $width = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->customProperties->resolveCascaded($declarations['width'] ?? '', $image)));
+            $height = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->customProperties->resolveCascaded($declarations['height'] ?? '', $image)));
             if ('auto' === $width && '' !== $height
                 && ! in_array($height, array('auto', 'initial', 'unset', 'inherit', 'revert', 'revert-layer'), true)) {
                 return true;
@@ -2546,7 +2550,7 @@ final class StyleResolver implements ElementPresentationResolver
     ): array {
         $candidates = $this->styleAttributeMapper()->map(
             $inlineDeclarations,
-            fn (string $value): string => $this->resolveCssVariablesInValue($value, $element)
+            fn (string $value): string => $this->customProperties->resolve($value, $element)
         )['leftover'] ?? array();
         if ( isset($inlineDeclarations['box-shadow']) ) {
             $candidates['box-shadow'] = $inlineDeclarations['box-shadow'];
@@ -3422,13 +3426,13 @@ final class StyleResolver implements ElementPresentationResolver
                     continue;
                 }
                 $inherited = $this->resolvedInheritedTypographyValue($parent, $property);
-                $value = $this->resolveCssVariablesInValue(CssValueInspector::withoutImportant($declarations[$property]), $element);
+                $value = $this->customProperties->resolve(CssValueInspector::withoutImportant($declarations[$property]), $element);
                 // The inline value is redundant only if dropping it lets the
                 // element inherit; an own author rule with a different value
                 // would win instead.
                 $own ??= SourceDeclarations::parse($this->specificityResolvedPresentationStyle($element, null, false));
                 $ownValue = trim((string) ($own[$property] ?? ''));
-                if ( '' !== $ownValue && $this->comparableInheritedTypography($this->resolveCssVariablesInValue(CssValueInspector::withoutImportant($ownValue), $element)) !== $this->comparableInheritedTypography($value) ) {
+                if ( '' !== $ownValue && $this->comparableInheritedTypography($this->customProperties->resolve(CssValueInspector::withoutImportant($ownValue), $element)) !== $this->comparableInheritedTypography($value) ) {
                     continue;
                 }
                 // Equal relative expressions need not compute equally at two
@@ -3459,7 +3463,7 @@ final class StyleResolver implements ElementPresentationResolver
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
             $declarations = SourceDeclarations::parse($this->specificityResolvedPresentationStyle($current));
             $value = CssValueInspector::withoutImportant((string) ($declarations[$property] ?? ''));
-            $value = $this->resolveCssVariablesInValue($value, $current);
+            $value = $this->customProperties->resolve($value, $current);
             $keyword = strtolower(trim($value));
             if ( '' === $keyword || in_array($keyword, array( 'inherit', 'unset' ), true) ) {
                 continue;
@@ -4969,7 +4973,7 @@ final class StyleResolver implements ElementPresentationResolver
                 return '';
             }
 
-            return $this->resolveCssVariablesInValue($value, $current);
+            return $this->customProperties->resolve($value, $current);
         }
 
         return '';
@@ -5031,7 +5035,7 @@ final class StyleResolver implements ElementPresentationResolver
         $sequence = 0;
         $apply = function (array $declarations, ?string $font, array $following, bool $inline, array $specificity, ?int $layer) use (&$cascade, &$sequence, $element, $navigationEditor): void {
             if (null !== $font) {
-                $resolvedFont = $this->resolveCssVariablesInValue($font, $element);
+                $resolvedFont = $this->customProperties->resolve($font, $element);
                 if ($navigationEditor) {
                     // Preserve unresolved operands inside a fluid size while
                     // substituting the ancestor-scoped shorthand itself.
@@ -5610,7 +5614,7 @@ final class StyleResolver implements ElementPresentationResolver
             if ($entry['conditions'] === $conditions) $declarations[$entry['property']] = $entry['value'];
         }
         foreach ($declarations as $property => $value) {
-            $declarations[$property] = $this->expandCssVariableReferences($value, $this->conditionedCustomProperties($value, $element, $conditions));
+            $declarations[$property] = $this->customProperties->expand($value, $this->conditionedCustomProperties($value, $element, $conditions));
         }
         return $declarations;
     }
@@ -6250,7 +6254,7 @@ final class StyleResolver implements ElementPresentationResolver
      * The element's resolved presentation declarations, as a property map.
      *
      * Reading presentation took a three-call incantation —
-     * `cssDeclarations(resolveCssVariablesInValue(specificityResolvedPresentationStyle($el), $el))`
+     * `cssDeclarations(customProperties->resolve(specificityResolvedPresentationStyle($el), $el))`
      * — written out at nine call sites across the converters, the pattern
      * contexts and the projectors.
      *
@@ -6272,7 +6276,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $declarations ??= SourceDeclarations::parse($this->specificityResolvedPresentationStyle($element));
         foreach ( $declarations as $property => $value ) {
-            $resolved = $this->resolveCssVariablesInValue($value, $element);
+            $resolved = $this->customProperties->resolve($value, $element);
             if ( $requireResolved && ! str_starts_with($property, '--') && str_contains($resolved, 'var(') ) {
                 unset($declarations[$property]);
                 $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
@@ -6323,7 +6327,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         return array_merge(
             $this->resolvedPresentationDeclarations($element),
-            SourceDeclarations::parse($this->resolveCssVariablesInValue($this->resolvedCascadeStyle($element, 'cascaded-values'), $element))
+            SourceDeclarations::parse($this->customProperties->resolve($this->resolvedCascadeStyle($element, 'cascaded-values'), $element))
         );
     }
 
@@ -6338,7 +6342,7 @@ final class StyleResolver implements ElementPresentationResolver
         if (null !== $declared) return $this->resolveStateCssVariablesInValue($declared, $element, $state);
         if (null === $resting || !str_contains($resting, 'var(')) return null;
         $value = $this->resolveStateCssVariablesInValue($resting, $element, $state);
-        return $value !== $this->resolveCssVariablesInValue($resting, $element) ? $value : null;
+        return $value !== $this->customProperties->resolve($resting, $element) ? $value : null;
     }
 
     /** Resolve state-local tokens as well as the resting inherited tokens. */
@@ -6354,211 +6358,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
         foreach ($cascade as $name => $winner) $properties[$name] = $winner['value'];
-        return $this->expandCssVariableReferences($value, $properties);
-    }
-
-    public function resolveCssVariablesInValue(string $value, ?DOMElement $element = null): string
-    {
-        if ( false === strpos($value, 'var(') ) {
-            return $value;
-        }
-
-        $customProperties = $element instanceof DOMElement
-            ? $this->cascade->customProperties($element)
-            : $this->session->sourceStyleResolutionState()->customProperties();
-
-        // Conditional palette definitions are runtime values, not capture
-        // constants. Keep their references live in every emitted carrier.
-        $live = array();
-        if ($element instanceof DOMElement) {
-            for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) {
-                foreach ($this->session->sourceStyleResolutionState()->matchingRules($node, 'conditional') as $rule) {
-                    if (!str_contains(implode(' ', $rule['conditions'] ?? array()), 'prefers-color-scheme')) continue;
-                    foreach ($rule['cascadedDeclarations'] ?? array() as $name => $_declared) {
-                        if (str_starts_with((string) $name, '--')) $live[$name] = true;
-                    }
-                }
-            }
-        }
-        return $this->expandCssVariableReferences($value, $customProperties, $live);
-    }
-
-    /**
-     * Expand `var()` references the way they compute at one viewport width.
-     *
-     * Each custom property takes the author cascade winner at that width on
-     * the element or its nearest declaring ancestor, so a token a width query
-     * (or a style query keyed to one) switches resolves to that width's value
-     * rather than the reference viewport's. A reference without a value or
-     * fallback is invalid at computed-value time: '' is returned.
-     */
-    public function resolveCssVariablesAtViewport(string $value, DOMElement $element, float $viewportWidth): string
-    {
-        if ( ! str_contains($value, 'var(') ) {
-            return $value;
-        }
-        $resolve = function (string $name) use ($element, $viewportWidth): ?string {
-            for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-                $declared = CssValueInspector::withoutImportant(trim((string) ($this->authorViewport->atViewport($node, array( $name ), $viewportWidth)[$name] ?? '')));
-                if ( '' !== $declared ) {
-                    return in_array(strtolower($declared), array( 'unset', 'initial', 'inherit', 'revert', 'revert-layer' ), true) ? null : $declared;
-                }
-            }
-            $root = trim((string) ($this->session->sourceStyleResolutionState()->customProperties()[$name] ?? ''));
-
-            return '' === $root ? null : $root;
-        };
-
-        return CssVariableExpander::expand($value, $resolve) ?? '';
-    }
-
-    /**
-     * Condition stacks of the author rules that declare any of the custom
-     * properties a value reads, with each container style query expanded to
-     * the conditions that switch the property it queries. These are the
-     * viewport queries under which the value's resolved `var()` can change.
-     *
-     * @return list<list<string>>
-     */
-    public function customPropertyConditionStacks(string $value): array
-    {
-        if ( ! preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $value, $matches) ) {
-            return array();
-        }
-        $names = array_fill_keys($matches[1], true);
-        $queries = $this->session->sourceStyleResolutionState()->containerStyleQueries();
-        $stacks = array();
-        foreach ( $this->session->authorStyleAnalysis()->styleRules() as $rule ) {
-            $conditions = is_array($rule['conditions'] ?? null) ? array_values(array_map('strval', $rule['conditions'])) : array();
-            if ( array() === $conditions || array() === array_intersect_key(ArrayField::array($rule, 'declarations'), $names) ) {
-                continue;
-            }
-            $stacks[] = $conditions;
-            foreach ( $conditions as $condition ) {
-                array_push($stacks, ...$queries->switchingConditions($condition));
-            }
-        }
-
-        return $stacks;
-    }
-
-    /**
-     * The value a reference renders in the default (no-preference) colour
-     * scheme: every custom property takes its cascaded unconditional value,
-     * including the ones a `prefers-color-scheme` rule redefines.
-     */
-    public function resolveDefaultSchemeCssVariablesInValue(string $value, DOMElement $element): string
-    {
-        return false === strpos($value, 'var(') ? $value : $this->expandCssVariableReferences($value, $this->cascade->customProperties($element));
-    }
-
-    /**
-     * Empty-box evidence asks whether paint is possible at any viewport, not
-     * what its computed value is at the reference viewport. A conditional
-     * definition on this element or an ancestor must not become a missing
-     * variable's fallback. Use an opaque paint token rather than choosing an
-     * arbitrary winner across mutually exclusive conditions. Static references
-     * (including their dependencies and fallbacks) still expand normally.
-     */
-    public function resolveEmptyVisualPaintVariables(string $value, DOMElement $element): string
-    {
-        if ( ! str_contains($value, 'var(') ) {
-            return $value;
-        }
-
-        $customProperties = $this->cascade->customProperties($element);
-        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-            foreach ( $this->session->sourceStyleResolutionState()->matchingRules($node, 'conditional') as $rule ) {
-                foreach ( $rule['cascadedDeclarations'] ?? array() as $name => $declared ) {
-                    if ( str_starts_with((string) $name, '--') ) {
-                        $customProperties[(string) $name] = 'blocks-engine-possible-paint';
-                    }
-                }
-            }
-        }
-
-        return $this->expandCssVariableReferences($value, $customProperties);
-    }
-
-    /**
-     * @param array<string, string> $customProperties
-     * @param array<string,true> $live Names kept as live references.
-     */
-    private function expandCssVariableReferences(string $value, array $customProperties, array $live = array()): string
-    {
-        $keep = array() === $live ? null : static fn(string $name): bool => isset($live[$name]);
-        return CssVariableExpander::expand($value, static function (string $name) use ($customProperties): ?string {
-            $propertyValue = trim((string) ($customProperties[$name] ?? ''));
-            // Retain the existing design-token sentinel policy while sharing
-            // balanced nested/function fallback substitution with form paint.
-            return '' === $propertyValue || in_array(strtolower($propertyValue), array( 'unset', 'initial', 'inherit', 'revert', 'revert-layer' ), true)
-                ? null
-                : $propertyValue;
-        }, 0, $keep) ?? trim($value);
-    }
-
-    /**
-     * Custom properties the stylesheets declare on `:root` or `html`.
-     *
-     * @return array<string, string>
-     */
-    public function rootCustomProperties(): array
-    {
-        return $this->session->sourceStyleResolutionState()->customProperties();
-    }
-
-    /**
-     * The custom properties a declaration reads, resolved from the source
-     * cascade of the element that declared it.
-     *
-     * A materializer that rebuilds a source subtree into a single element
-     * carries the author declarations that matched it, but not the custom
-     * properties those declarations read: the elements that declared them are
-     * exactly the ones the rebuild collapses. Re-rooting the definitions on the
-     * surviving element keeps a carried `var()` resolvable instead of leaving
-     * it invalid at computed-value time. Nested references are left alone so a
-     * definition that survives in the output still resolves at runtime.
-     *
-     * @return array<string, string>
-     */
-    public function carriedCustomProperties(string $value, DOMElement $element): array
-    {
-        if ( ! str_contains($value, 'var(') || ! preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $value, $matches) ) {
-            return array();
-        }
-
-        $customProperties = $this->cascade->customProperties($element);
-        $carried = array();
-        foreach ( array_unique($matches[1]) as $name ) {
-            $declared = trim((string) ( $customProperties[ $name ] ?? '' ));
-            if ( '' === $declared ) {
-                continue;
-            }
-            $carried[ $name ] = $declared;
-        }
-
-        return $carried;
-    }
-
-    /** @return array<string, string> */
-    private function conditionalCascadedCustomProperties(DOMElement $element): array
-    {
-        $customProperties = $this->cascade->customProperties($element);
-        $ancestors = array();
-        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-            $ancestors[] = $current;
-        }
-        foreach ( array_reverse($ancestors) as $ancestor ) {
-            foreach ( $this->session->sourceStyleResolutionState()->matchingRules($ancestor, 'conditional') as $rule ) {
-                foreach ( $rule['cascadedDeclarations'] ?? array() as $name => $value ) {
-                    if ( str_starts_with((string) $name, '--') ) {
-                        $customProperties[(string) $name] = (string) $value;
-                    }
-                }
-            }
-        }
-
-        return $customProperties;
+        return $this->customProperties->expand($value, $properties);
     }
 
     /**
@@ -6585,7 +6385,7 @@ final class StyleResolver implements ElementPresentationResolver
 
         return false === strpos($declared, 'var(')
             ? $declared
-            : $this->expandCssVariableReferences($declared, $this->cascade->customProperties($element));
+            : $this->customProperties->expand($declared, $this->cascade->customProperties($element));
     }
 
     /** Resolve inherited SVG paint using the source cascade and presentation attributes. */
@@ -6669,21 +6469,6 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $declared;
-    }
-
-    /**
-     * Expand `var()` in an arbitrary structural declaration value (e.g.
-     * `display`, `align-self`) against the unfiltered custom-property cascade
-     * {@see SourceCascade::customProperties()} tracks. This avoids duplicating the
-     * element-scoped custom-property cascade for structural declarations.
-     */
-    public function resolveStructuralCssVariablesInValue(string $value, DOMElement $element): string
-    {
-        if ( false === strpos($value, 'var(') ) {
-            return $value;
-        }
-
-        return $this->expandCssVariableReferences($value, $this->cascade->customProperties($element));
     }
 
     /** A `<br>` breaks a line only in flow: a flex or grid parent blockifies each run into its own item. */

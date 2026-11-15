@@ -192,13 +192,13 @@ $assert('Details *' === ($positionalTextarea['attrs']['label'] ?? '') && '5' ===
 
 $sharedWrapper = $builder->build($formFrom('<form><div><label>Ambiguous</label><input data-styled type="text"><input data-styled type="tel"></div></form>'));
 $sharedShell = $sharedWrapper['innerBlocks'][0] ?? array();
-$assert('custom/layout-shell' === ($sharedShell['blockName'] ?? ''), 'a-wrapper-shared-by-two-controls-stays-a-layout-shell');
+$assert('core/group' === ($sharedShell['blockName'] ?? ''), 'a-wrapper-shared-by-two-controls-stays-native');
 $assert('' === ($sharedShell['innerBlocks'][0]['attrs']['label'] ?? ''), 'a-wrapper-shared-by-two-controls-claims-no-label');
 
 $rowGrouped = $builder->build($formFrom('<form class="stack"><div class="fields-row"><div><label class="field-label">Name *</label><input data-styled type="text" required></div><div><label class="field-label">Phone *</label><input data-styled type="tel" required></div></div><div><label class="field-label">Email *</label><input data-styled type="email" required></div></form>'));
 $rowShell = $rowGrouped['innerBlocks'][0] ?? array();
-$assert('custom/layout-shell' === ($rowShell['blockName'] ?? ''), 'shared-row-wrapper-is-a-layout-shell');
-$assert('fields-row' === ($rowShell['attrs']['wrappers'][0]['attributes']['class'] ?? ''), 'shared-row-wrapper-keeps-its-source-class');
+$assert('core/group' === ($rowShell['blockName'] ?? ''), 'shared-row-wrapper-is-native');
+$assert('presented-div blocks-engine-css-owned-layout blocks-engine-css-owned-flow' === ($rowShell['attrs']['className'] ?? ''), 'shared-row-wrapper-uses-presentation-attributes');
 $assert(2 === count($rowShell['innerBlocks'] ?? array()), 'shared-row-wrapper-keeps-both-row-controls');
 $assert('Name *' === ($rowShell['innerBlocks'][0]['attrs']['label'] ?? ''), 'row-name-control-stays-inside-the-shared-wrapper');
 $assert('Phone *' === ($rowShell['innerBlocks'][1]['attrs']['label'] ?? ''), 'row-phone-control-stays-inside-the-shared-wrapper');
@@ -231,6 +231,7 @@ $boxes = array();
 $frameWalk = static function (array $blocks, array $classes) use (&$frameWalk, &$frames, &$boxes, $wrapperClasses): void {
     foreach ( $blocks as $block ) {
         $own = $wrapperClasses($block);
+        if ('core/group' === ($block['blockName'] ?? '')) $own[] = $block['attrs']['className'] ?? '';
         if ( isset($block['form_control_index']) ) {
             $boxes[ $block['form_control_index'] ] = array(
                 'field' => $wrapperClasses($block['_form_field_box'] ?? array()),
@@ -247,8 +248,8 @@ $frameWalk = static function (array $blocks, array $classes) use (&$frameWalk, &
     }
 };
 $frameWalk($framer['innerBlocks'] ?? array(), array());
-$assert(array( 'row', 'lab', 'wrap' ) === ($frames[0] ?? null), 'row-field-frames-keep-source-order');
-$assert(array( 'row', 'lab', 'wrap' ) === ($frames[1] ?? null), 'second-row-field-frames-keep-source-order');
+$assert(array( 'presented-div blocks-engine-css-owned-layout blocks-engine-css-owned-flow', 'lab', 'wrap' ) === ($frames[0] ?? null), 'row-field-frames-keep-source-order');
+$assert(array( 'presented-div blocks-engine-css-owned-layout blocks-engine-css-owned-flow', 'lab', 'wrap' ) === ($frames[1] ?? null), 'second-row-field-frames-keep-source-order');
 $assert(array( 'field' => array( 'lab' ), 'control' => array( 'wrap' ) ) === ($boxes[0] ?? null), 'caption-frame-bounds-the-field-box-and-the-wrapper-is-the-control-box');
 $assert(array( 'field' => array( 'lab' ), 'control' => array( 'wrap' ) ) === ($boxes[1] ?? null), 'second-caption-frame-bounds-the-field-box-and-the-wrapper-is-the-control-box');
 

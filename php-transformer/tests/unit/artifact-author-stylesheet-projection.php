@@ -562,6 +562,7 @@ foreach (array(
     'later radius-less breakpoint rule' => array('<div class="avatar"><img src="p.jpg" alt="a"></div>', '.avatar img{width:120px;height:120px;border-radius:50%}@media (min-width:1px){.avatar img{width:100px;height:100px}}'),
     'mixed selector list' => array('<img class="photo" src="p.jpg" alt="a"><div class="avatar"><img src="p.jpg" alt="b"></div>', '.photo,.avatar img{width:120px;height:120px;border-radius:50%}'),
     'universal rule over a linked logo' => array('<a class="brand" href="/"><img src="p.jpg" alt="a"></a>', '*{box-sizing:border-box}.brand img{height:58px;width:auto;border-radius:50%}'),
+    'universal rule over a linked logo beside an inline svg' => array('<a class="brand" href="/"><img src="p.jpg" alt="a"></a><a class="cart" href="/cart"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M0 0h24v24H0z"/></svg></a>', '*{box-sizing:border-box}.brand img{height:58px;width:auto;border-radius:50%}'),
 ) as $case => [$radiusHtml, $radiusCss]) {
     $radius = ( new ArtifactCompiler() )->compile(array(
         'files' => array(
@@ -575,6 +576,7 @@ foreach (array(
     $radiusCascade = new StaticCssCascade($radiusDocument, implode("\n", array_column($radius['assets'] ?? array(), 'content')));
     $radii = array();
     foreach ( $radiusDocument->getElementsByTagName('img') as $radiusImage ) {
+        if ( str_contains($radiusImage->getAttribute('src'), 'materialized-svg') ) continue;
         $value = $radiusCascade->resolve($radiusImage, array( 'border-radius' ), array())['border-radius'] ?? '';
         $radii[] = 'inherit' === $value && $radiusImage->parentNode instanceof DOMElement
             ? ($radiusCascade->resolve($radiusImage->parentNode, array( 'border-radius' ), array())['border-radius'] ?? '')

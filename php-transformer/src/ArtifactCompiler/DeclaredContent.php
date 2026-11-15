@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PublicationDate;
 
 /**
  * An artifact file's declared content record (`metadata.declared_content`):
- * the source slug, publication and modification dates, author, taxonomy
+ * the source title, slug, publication and modification dates, author, taxonomy
  * terms, and whether the file is a term archive. Invalid fields are dropped;
  * a record with no valid field is dropped entirely.
  */
@@ -15,11 +15,13 @@ final class DeclaredContent
 {
     public const PROVENANCE = 'metadata:content_index';
 
-    /** @return array{slug?:string,published?:string,updated?:string,author?:string,terms?:list<string>,term_archive?:array{name:string}}|null */
+    /** @return array{title?:string,slug?:string,published?:string,updated?:string,author?:string,terms?:list<string>,term_archive?:array{name:string}}|null */
     public static function sanitize(mixed $value): ?array
     {
         if (!is_array($value)) return null;
         $declared = array();
+        // An explicit empty title declares an untitled source, not missing data.
+        if (is_string($value['title'] ?? null)) $declared['title'] = $value['title'];
         $slug = is_string($value['slug'] ?? null) ? strtolower(trim($value['slug'])) : '';
         if (preg_match('/^[a-z0-9][a-z0-9_-]{0,199}$/', $slug)) $declared['slug'] = $slug;
         foreach (array('published', 'updated') as $key) {

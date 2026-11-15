@@ -414,14 +414,16 @@ final class FontMaterializationPlanBuilder
             foreach ( $matches as $index => $match ) {
                 if ( count($faces) >= 64 ) break;
                 $declaration = (string) $match[1];
-                if ( ! preg_match('/(?:^|;)\s*font-family\s*:\s*([^;{}]+)/i', $declaration, $familyMatch) || ! preg_match('/(?:^|;)\s*src\s*:\s*[^;{}]*url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s\)]+))\s*\)/i', $declaration, $sourceMatch) ) continue;
-                $family = $this->normalizeFamily((string) $familyMatch[1]);
+                $descriptors = array();
+                foreach ( array_reverse(CssRuleAnalyzer::declarations($declaration, array( 'font-family', 'src', 'font-style', 'font-weight' ))) as [ 'name' => $name, 'value' => $value ] ) {
+                    $descriptors[$name] = $value;
+                }
+                if ( ! isset($descriptors['font-family']) || ! preg_match('/url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s\)]+))\s*\)/i', $descriptors['src'] ?? '', $sourceMatch) ) continue;
+                $family = $this->normalizeFamily($descriptors['font-family']);
                 $sourceUrl = html_entity_decode((string) (($sourceMatch[1] ?? '') ?: ($sourceMatch[2] ?? '') ?: ($sourceMatch[3] ?? '')), ENT_QUOTES | ENT_HTML5);
                 if ( '' === $family || $this->isWebSafeFontFamily($family) || $this->isInvalidFontFamily($family) || ! $this->isEligibleDirectFontSourceUrl($sourceUrl) ) continue;
-                preg_match('/(?:^|;)\s*font-style\s*:\s*([^;{}]+)/i', $declaration, $styleMatch);
-                preg_match('/(?:^|;)\s*font-weight\s*:\s*([^;{}]+)/i', $declaration, $weightMatch);
-                $style = strtolower(trim((string) ($styleMatch[1] ?? 'normal')));
-                $weight = $this->typedWeight(trim((string) ($weightMatch[1] ?? '400')));
+                $style = strtolower($descriptors['font-style'] ?? 'normal');
+                $weight = $this->typedWeight($descriptors['font-weight'] ?? '400');
                 if ( ! in_array($style, array('normal', 'italic', 'oblique'), true) ) continue;
                 $faces[] = array('family' => $family, 'style' => $style, 'weight' => $weight, 'source_url' => $sourceUrl, 'provenance' => array('source_kind' => 'css_font_face', 'source_path' => $source['source_path'], 'source_hash' => $source['source_hash'], 'selector' => 'css:@font-face(' . ($index + 1) . ')'));
             }

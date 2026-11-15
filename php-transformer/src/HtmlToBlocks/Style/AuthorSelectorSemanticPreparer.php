@@ -205,10 +205,13 @@ final class AuthorSelectorSemanticPreparer
                 $inlineTag = strtolower($element->tagName);
                 $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
                 $directAuthorLayoutItem = $directChildSelector && $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element);
-                // `span` and `font` are replaced by a `<mark>` RichText carrier,
-                // so an author rule naming them needs a marker hook to keep
-                // matching after conversion.
-                if ( ! $this->sourceElementClassifier->isInlineContentElement($inlineTag) || (! in_array($inlineTag, array( 'span', 'font' ), true) && ! $directAuthorLayoutItem) ) {
+                // Format tags lose their class hooks in RichText too. Contextual
+                // selectors need the same source-addressed projection as spans.
+                $compounds = $parsed['compounds'] ?? array();
+                $contextualFormat = count($compounds) > 1
+                    && array() !== array_intersect(SourceDom::tokens(SourceDom::attr($element, 'class')), $compounds[array_key_last($compounds)]['classes'] ?? array())
+                    && in_array($inlineTag, array( 'strong', 'b', 'em', 'i', 'mark', 'small', 'sub', 'sup' ), true);
+                if ( ! $this->sourceElementClassifier->isInlineContentElement($inlineTag) || (! in_array($inlineTag, array( 'span', 'font' ), true) && ! $contextualFormat && ! $directAuthorLayoutItem) ) {
                     continue;
                 }
                 if ( '' === $path ) {

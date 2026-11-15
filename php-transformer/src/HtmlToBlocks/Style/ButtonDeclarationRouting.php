@@ -165,7 +165,7 @@ final class ButtonDeclarationRouting
                 return false;
             }
             foreach ( $controls as $element ) {
-                $resolved = $this->styleResolver->resolveCssVariablesInValue($value, $element);
+                $resolved = $this->styleResolver->customProperties->resolve($value, $element);
                 $rootFontSize = $this->styleResolver->documentRootFontSize($element) ?? 16.0;
                 $size = CssLength::toPx($resolved, $rootFontSize);
                 if ( null === $size || ! (new ButtonStyleResolver())->heightNeedsControlBox($this->styleResolver->resolvedSourceStateDeclarations($element), $size, $rootFontSize) ) {
@@ -251,7 +251,7 @@ final class ButtonDeclarationRouting
     private function percentageResolvesAgainstButtonWrapper(string $value, array $controls): bool
     {
         foreach ( $controls as $control ) {
-            $resolved = $this->styleResolver->resolveCssVariablesInValue($value, $control);
+            $resolved = $this->styleResolver->customProperties->resolve($value, $control);
             if ( ! str_contains($resolved, '%') ) {
                 continue;
             }

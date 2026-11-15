@@ -162,13 +162,14 @@ $sourceSelectorResult = (new HtmlTransformer(analysisCache: $sourceSelectorCache
 // list nor the element-selector results again.
 $assert(6 === $sourceSelectorCache->sourceSelectorMatchExecutions && 1 === $sourceSelectorCache->sourceSelectorMatchHits, 'Indexed general style resolution executes six matcher calls and reuses one repeated element-selector result.');
 // Candidate lists are keyed by each element's selector signature, which
-// reads its cached class tokens once more per element (Automattic/blocks-engine#3102).
-$assert(5 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 16 === $sourceSelectorCache->sourceSelectorClassTokenHits && 12 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
+// reads its cached class tokens once more per element, the html root included
+// (Automattic/blocks-engine#3102).
+$assert(6 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 17 === $sourceSelectorCache->sourceSelectorClassTokenHits && 14 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
 $assert(4 === $sourceSelectorCache->sourceStructuralDeclarationBuilds && 8 === $sourceSelectorCache->sourceStructuralDeclarationHits, 'Structural declaration resolution builds each source state once and reuses repeated element results.');
 // Repeat lookups for an element and collection (the grid parent's static
 // rules, the root's conditional rules) are answered by the matched-rule memo,
 // so they never reach the candidate cache.
-$assert(1 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 6 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 0 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 10 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
+$assert(1 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 6 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 0 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 11 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
 
 $candidateCache = new HtmlTransformerAnalysisCache();
 $noiseRules = array();
@@ -178,7 +179,7 @@ for ( $index = 0; $index < 100; ++$index ) {
 $candidateHtml = '<style>' . implode('', array_merge($noiseRules, array( '.target{color:red}', 'article{padding:1px}', '.target{color:blue}' ) )) . '</style><section class="target">Indexed target</section>';
 $candidateResult = (new HtmlTransformer(analysisCache: $candidateCache))->transform($candidateHtml)->toArray();
 $assert('blue' === ($candidateResult['blocks'][0]['attrs']['style']['color']['text'] ?? ''), 'Rightmost class candidates preserve duplicate matching-key cascade order.');
-$assert(2 === $candidateCache->sourceStyleCandidateRuleChecks && 2 === $candidateCache->sourceStyleCandidateRulesSkipped, 'Indexed collection checks two relevant rule candidates, and the 100 rules whose classes are absent from the source never enter the index.');
+$assert(2 === $candidateCache->sourceStyleCandidateRuleChecks && 4 === $candidateCache->sourceStyleCandidateRulesSkipped, 'Indexed collection checks two relevant rule candidates, and the 100 rules whose classes are absent from the source never enter the index.');
 
 $hiddenStateCache = new HtmlTransformerAnalysisCache();
 $hiddenStateNoise = array();
@@ -233,10 +234,10 @@ $assert(
     'Read-only conversion retains selector and structural declaration results across repeated passes.'
 );
 $assert(
-    8 === ($pressureMetrics['style_rule_candidate_cache_misses'] ?? null)
+    9 === ($pressureMetrics['style_rule_candidate_cache_misses'] ?? null)
     && 12288 === ($pressureMetrics['style_rule_candidate_cache_hits'] ?? null)
     && 0 === ($pressureMetrics['style_rule_candidate_cache_evictions'] ?? null)
-    && 8 === ($pressureMetrics['style_rule_candidate_cache_peak_entries'] ?? null)
+    && 9 === ($pressureMetrics['style_rule_candidate_cache_peak_entries'] ?? null)
     && 2 === ($pressureMetrics['style_rule_candidate_cache_peak_rule_references'] ?? null),
     'Repeated equal-signature elements share one candidate list per collection instead of exceeding the candidate bounds.'
 );
