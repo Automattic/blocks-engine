@@ -119,6 +119,13 @@ final class NavigationToggleSuppressor
                 $this->mirrorCapturedMenuCopy($control, $root);
                 continue;
             }
+            // Capture recorded which panel this control opens. When that panel
+            // is present but not a hidden navigation (a dropdown captured open),
+            // the control stays its opener; borrowing some other hidden menu
+            // would orphan the panel in its captured open state.
+            if ( $this->hasCapturedPanelInRoot($control, $root, $elementsById) ) {
+                continue;
+            }
 
             // An inferred panel belongs to the opener that can actually show
             // in the collapsed layout, not a hidden desktop-header copy.
@@ -885,6 +892,20 @@ final class NavigationToggleSuppressor
         }
 
         return false;
+    }
+
+    /** @param array<string, DOMElement> $elementsById */
+    private function hasCapturedPanelInRoot(DOMElement $control, DOMElement $root, array $elementsById): bool
+    {
+        $key = trim(SourceDom::attr($control, CaptureEvidence::DIALOG_TRIGGER));
+        if ( '' === $key || ! in_array($key, SourceDom::tokens(SourceDom::attr($control, 'aria-controls')), true) ) {
+            return false;
+        }
+        $panel = $elementsById[$key] ?? null;
+
+        return $panel instanceof DOMElement
+            && $key === trim(SourceDom::attr($panel, CaptureEvidence::DIALOG_PANEL))
+            && SourceDom::elementContains($root, $panel);
     }
 
     private function panelHoldsNavigation(DOMElement $panel): bool
