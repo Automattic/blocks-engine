@@ -4,9 +4,10 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 
-// Descendant selectors require every source box to survive. They must not
-// require every incidental box to occupy a separate List View level.
+// Descendant selectors require every source box to survive. Below the public
+// editability depth budget those boxes must remain native editable Groups.
 $html = '<p>Editable content</p>';
 for ($i = 11; $i >= 0; --$i) {
     $html = '<div class="layer-' . $i . '">' . $html . '</div>';
@@ -19,8 +20,22 @@ $height = static function (array $blocks) use (&$height): int {
     }
     return $max;
 };
-if ($height($result['blocks']) > 8) {
-    throw new RuntimeException('Incidental wrapper chains must fit the List View depth budget.');
+if (13 !== $height($result['blocks']) || str_contains($result['serialized_blocks'], '/layout-shell')) {
+    throw new RuntimeException('A chain within the editability depth budget must remain native.');
+}
+// Verify source parent-child edges, not just class names somewhere in the
+// output: selector projection depends on each box keeping its own identity.
+$cursor = $result['blocks'][0];
+for ($i = 0; $i < 12; ++$i) {
+    if ('core/group' !== ($cursor['blockName'] ?? '')
+        || !in_array('layer-' . $i, explode(' ', $cursor['attrs']['className'] ?? ''), true)
+        || 1 !== count($cursor['innerBlocks'] ?? array())) {
+        throw new RuntimeException('Native wrapper ancestry must preserve each source edge.');
+    }
+    $cursor = $cursor['innerBlocks'][0];
+}
+if ('core/paragraph' !== ($cursor['blockName'] ?? '')) {
+    throw new RuntimeException('Native wrapper ancestry must terminate at editable content.');
 }
 $markup = $result['serialized_blocks'];
 for ($i = 0; $i < 12; ++$i) {
@@ -31,8 +46,8 @@ for ($i = 0; $i < 12; ++$i) {
 if (!str_contains($markup, '<!-- wp:paragraph')) {
     throw new RuntimeException('The content must remain a native editable paragraph.');
 }
-// Neither run alone reaches eight levels. Shared ancestry still counts
-// when a wrapper branches into independently editable content trees.
+// Shared ancestry counts when a wrapper branches into independently editable
+// content trees, but must not impose a second, stricter depth budget.
 $branch = '<p>Branch content</p>';
 for ($i = 4; $i >= 0; --$i) {
     $branch = '<div id="branch-' . $i . '">' . $branch . '</div>';
@@ -42,8 +57,8 @@ for ($i = 4; $i >= 0; --$i) {
     $html = '<div id="ancestor-' . $i . '">' . $html . '</div>';
 }
 $result = (new HtmlTransformer())->transform($html)->toArray();
-if ($height($result['blocks']) > 8) {
-    throw new RuntimeException('Shared ancestry must count toward List View depth.');
+if ($height($result['blocks']) > EditabilityPolicy::THRESHOLDS['max_nesting_depth']) {
+    throw new RuntimeException('Shared ancestry must count toward the editability depth budget.');
 }
 foreach (array('ancestor', 'branch', 'sibling') as $prefix) {
     for ($i = 0; $i < 5; ++$i) {
@@ -63,7 +78,7 @@ for ($i = 4; $i >= 0; --$i) {
         . '<p>Sibling ' . $i . '</p>' . $html . '</div></div>';
 }
 $result = (new HtmlTransformer())->transform($html)->toArray();
-if ($height($result['blocks']) > 8) {
+if ($height($result['blocks']) > EditabilityPolicy::THRESHOLDS['max_nesting_depth']) {
     throw new RuntimeException('Short branching runs must share the List View depth budget.');
 }
 for ($i = 0; $i < 5; ++$i) {
@@ -75,5 +90,16 @@ for ($i = 0; $i < 5; ++$i) {
 }
 if (6 !== substr_count($result['serialized_blocks'], '<!-- wp:paragraph')) {
     throw new RuntimeException('Branch compression must keep every paragraph editable.');
+}
+// The policy still bounds genuinely deep trees; removing the local eight-level
+// cap must not disable compression at the document limit.
+$html = '<p>Deep content</p>';
+for ($i = 0; $i < 24; ++$i) {
+    $html = '<div id="deep-' . $i . '">' . $html . '</div>';
+}
+$result = (new HtmlTransformer())->transform($html)->toArray();
+if ($height($result['blocks']) > EditabilityPolicy::THRESHOLDS['max_nesting_depth']
+    || !str_contains($result['serialized_blocks'], '/layout-shell')) {
+    throw new RuntimeException('Over-budget chains must still compress.');
 }
 echo "list-view-wrapper-depth: passed\n";

@@ -387,29 +387,7 @@ final class EngineSupportCss
             // carried grid geometry (gap) owns the spacing between items. Native
             // headings retain their source browser-default margins unless the
             // author stylesheet overrides them.
-            $parts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}'
-                // A grid item's automatic minimum size defaults to its content's
-                // min-content size, not zero (CSS Grid section 6.6). A source
-                // track that collapses to an unauthored, implicit single column
-                // at a narrow viewport (e.g. a Tailwind `grid` base with a
-                // `sm:`/`md:` column count) relies on the *item* being safely
-                // shrinkable so that implicit `auto` track can size to the
-                // container instead of the item's intrinsic content. The source
-                // usually gets that for free from an `overflow` other than
-                // `visible` somewhere in the item's own subtree (CSS Sizing
-                // section 4.1's "automatic minimum size" carve-out), commonly on
-                // a wrapper around a large or aspect-ratio'd
-                // image. Coalescing that wrapper into its parent block (an
-                // accepted, already-diagnosed topology change — see
-                // WrapperCoalescer) can carry the wrapper's visual properties
-                // without carrying this load-bearing sizing side effect, and the
-                // grid item is then free to force its track — and so itself —
-                // wider than the container. A zero-specificity `min-width:0`
-                // restores the same safe default the source had, without a
-                // viewport check: the item still sizes to its full authored track
-                // whenever that track has room, and only stops forcing the track
-                // wider than the container when it does not.
-                . "\n" . ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>*{min-width:0}';
+            $parts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}';
         }
         if ( str_contains($serializedBlocks, '<!-- wp:code') ) {
             // Core makes the inner code element a full-width break-spaces block.
@@ -636,9 +614,36 @@ final class EngineSupportCss
      */
     public function deviceVisibilityCss(string $serializedBlocks): array
     {
+        $editorVariants = array();
+        foreach (array(CaptureEvidence::DESKTOP_ONLY_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS) as $class) {
+            if (str_contains($serializedBlocks, $class)) {
+                $editorVariants[$class] = ':root .editor-styles-wrapper .' . $class;
+            }
+        }
+        // Captured device islands remain separate editable content. Their
+        // viewport visibility sheet belongs to the front end: hiding an island
+        // in the editor makes its native blocks impossible to select or replace.
+        $editorCss = '';
+        foreach ($editorVariants as $class => $selector) {
+            // Device copies often share absolute source coordinates. Once both
+            // are exposed, they must occupy separate editor flow boxes, rather
+            // than covering each other's block selection targets. Ancestor
+            // tracks and out-of-flow media wrappers must expand too; otherwise
+            // the second variant overflows underneath the next editable group.
+            // Use normal block flow for those editor ancestors: retained grid
+            // placement and flex tracks can still overlap the expanded copies,
+            // even with auto heights. The front-end layout stays source-owned.
+            $editorCss .= $selector . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;transform:none!important}'
+                . $selector . ' figure.wp-block-image{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
+                . $selector . ' img{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
+                . ':root .editor-styles-wrapper .wp-block-group:has(.' . $class . '){display:block!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;grid-template-rows:none!important;grid-auto-rows:auto!important;position:relative!important;inset:auto!important;overflow:visible!important}';
+        }
+        $editorRules = '' !== $editorCss
+            ? array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, $editorCss))
+            : array();
         $prefixes = preg_quote(EngineMarker::DEVICE_ONLY_CLASS_PREFIX, '/') . '|' . preg_quote(EngineMarker::DEVICE_HIDE_CLASS_PREFIX, '/');
         if (! preg_match_all('/(?<![\\w-])(' . $prefixes . ')([a-z][a-z0-9_-]{0,63})(?![\\w-])/', $serializedBlocks, $matches, PREG_SET_ORDER)) {
-            return array();
+            return $editorRules;
         }
         $selected = CaptureEvidence::SELECTED_DOCUMENT;
         $selectors = array();
@@ -659,7 +664,7 @@ final class EngineSupportCss
         }
         $selectors = array_values(array_unique($selectors));
         sort($selectors);
-        return array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, implode(',', $selectors) . '{display:none!important}'));
+        return array_merge($editorRules, array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, implode(',', $selectors) . '{display:none!important}')));
     }
 
     public function socialLinkCss(string $serializedBlocks): array

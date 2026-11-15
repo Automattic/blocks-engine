@@ -1276,16 +1276,16 @@ final class PresetBinding
         }
         if ('' === $value) return $declaration;
         if (str_starts_with($property, '--')) {
-            $font = CssFontShorthand::expand($value, false, $familyOffset);
-            if (isset($font['font-family'])) {
-                $family = substr($value, $familyOffset);
-                $slug = $this->exactFontFamilySlug($family);
-                foreach ($this->system->fontFamilies as $preset) {
-                    if (null !== $slug && $preset['slug'] === $slug && $this->sameFont($family, $preset['fontFamily'])) {
-                        ++$this->bound;
-                        return self::sourcePresets($parts[0]) . ':' . self::sourcePresets(substr($value, 0, $familyOffset))
-                            . 'var(--wp--preset--font-family--' . $slug . ')' . $important;
-                    }
+            CssFontShorthand::expand($value, false, $familyOffset);
+            // Without a shorthand prefix, the whole value may be a family stack.
+            $familyOffset ??= 0;
+            $family = substr($value, $familyOffset);
+            $slug = $this->exactFontFamilySlug($family);
+            foreach ($this->system->fontFamilies as $preset) {
+                if (null !== $slug && $preset['slug'] === $slug && $this->sameFont($family, $preset['fontFamily'])) {
+                    ++$this->bound;
+                    return self::sourcePresets($parts[0]) . ':' . self::sourcePresets(substr($value, 0, $familyOffset))
+                        . 'var(--wp--preset--font-family--' . $slug . (0 === $familyOffset ? ',' . self::sourcePresets($family) : '') . ')' . $important;
                 }
             }
         }

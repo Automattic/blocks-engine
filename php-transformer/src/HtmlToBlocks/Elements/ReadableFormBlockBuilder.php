@@ -386,9 +386,34 @@ final class ReadableFormBlockBuilder
                     && (0 === $element->attributes->length
                         || (1 === $element->attributes->length && $element->hasAttribute('class')))
                     && null === $controlBox;
-                $shell = $classOnlyGroup
-                    ? $this->createBlock->createBlock('core/group', $this->nativeContainerAttributes($element), $inner, $element)
-                    : ($this->layoutShellBlockForElements)($elements, $inner, $element);
+                // Unowned div chains can also contain a control with help/error
+                // text. Those siblings do not make a composite control. Keep
+                // actual composite controls and provider-owned boxes in shell
+                // transport, where providers replace their complete frame.
+                $controls = array_filter($inner, static fn (array $block): bool => isset($block['form_control_index']));
+                $feedback = array_filter($inner, static fn (array $block): bool =>
+                    'core/paragraph' === ($block['blockName'] ?? null));
+                $controlWithFeedback = 1 === count($controls) && count($feedback) > 0
+                    && count($controls) + count($feedback) === count($inner);
+                $nativeChain = null === $controlBox && count($elements) > 1
+                    && (1 === count($inner) || $controlWithFeedback);
+                foreach ($elements as $source) {
+                    $nativeChain = $nativeChain && 'div' === strtolower($source->tagName)
+                        && $source->hasAttribute('class')
+                        && ($source->attributes->length === 1
+                            || ($source->attributes->length === 2 && $source->hasAttribute('style') && '' === trim($source->getAttribute('style'))));
+                }
+                if ($nativeChain) {
+                    $nested = $inner;
+                    foreach (array_reverse($elements) as $source) {
+                        $nested = array($this->createBlock->createBlock('core/group', $this->nativeContainerAttributes($source), $nested, $source));
+                    }
+                    $shell = $nested[0];
+                } else {
+                    $shell = $classOnlyGroup
+                        ? $this->createBlock->createBlock('core/group', $this->nativeContainerAttributes($element), $inner, $element)
+                        : ($this->layoutShellBlockForElements)($elements, $inner, $element);
+                }
                 if ( null !== $controlBox && 1 === count($inner) && $controlBox === ($inner[0]['form_control_index'] ?? null) && ! isset($inner[0]['_form_control_box']) ) {
                     $shell['form_control_box'] = $controlBox;
                 }

@@ -79,8 +79,9 @@ final class WrapperCoalescer
     private const NATIVE_GROUP_TAGS = array('div', 'main', 'section', 'article', 'aside');
 
     // Charge shared ancestry against the saved List View depth, not only
-    // against the length of each uninterrupted single-child run.
-    private const MAX_NATIVE_WRAPPER_DEPTH = 8;
+    // against the length of each uninterrupted single-child run. Use the
+    // document policy: a stricter local cap creates needless non-core shells.
+    private const MAX_NATIVE_WRAPPER_DEPTH = EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
 
     private bool $wrapperBudgetExceeded = false;
 
@@ -122,8 +123,14 @@ final class WrapperCoalescer
         $semanticRegion = 2 <= count($ancestorChain)
             && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, array('main', 'section', 'article', 'aside'), true));
         $wrapperHeight = ($semanticRegion ? 0 : $depth - 1) + $this->nativeBlockHeight($block);
+        // Mixed container/semantic runs retain their established compression
+        // budget. Plain div chains can use the full document depth budget.
+        $semanticTags = array('main', 'section', 'article', 'aside');
+        $hasSemanticRegion = in_array($cursor['attrs']['tagName'] ?? null, $semanticTags, true)
+            || array() !== array_filter($ancestorChain, static fn (array $entry): bool => in_array($entry['descriptor']['tagName'], $semanticTags, true));
+        $depthBudget = $hasSemanticRegion && ! $semanticRegion ? 8 : self::MAX_NATIVE_WRAPPER_DEPTH;
         if (! $nativeNavigationChain && 2 <= count($ancestorChain)
-            && ($wrapperHeight > self::MAX_NATIVE_WRAPPER_DEPTH
+            && ($wrapperHeight > $depthBudget
                 || count($ancestorChain) >= self::MAX_NATIVE_WRAPPER_DEPTH)) {
             return $this->foldWrapperChain($ancestorChain, $this->normalizeWrapperChain($cursor, $depth + 1));
         }
