@@ -93,8 +93,9 @@ final class WrapperCoalescer
         if (1 === $depth) {
             $metrics = (new EditabilityReport())->fromBlocks($blocks)['metrics'];
             $this->wrapperBudgetExceeded = $metrics['wrapper_to_content_ratio'] > EditabilityPolicy::THRESHOLDS['wrapper_to_content_ratio'];
-            // Group-heavy documents need a shallower List View. Apply this
-            // once to the document, not independently to each small component.
+            // A majority of Groups alone does not justify changing native
+            // transport: branching documents can still be within the wrapper
+            // budget. Tighten only wrapper-heavy documents, once per document.
             $groups = 0;
             $count = 0;
             $visit = static function (array $items) use (&$visit, &$groups, &$count): void {
@@ -107,7 +108,7 @@ final class WrapperCoalescer
                 }
             };
             $visit($blocks);
-            $this->nativeWrapperDepthBudget = $groups > $count / 2 ? 8 : self::MAX_NATIVE_WRAPPER_DEPTH;
+            $this->nativeWrapperDepthBudget = $groups > $count / 2 && $this->wrapperBudgetExceeded ? 8 : self::MAX_NATIVE_WRAPPER_DEPTH;
         }
         return array_values(array_map(fn (array $block): array => $this->normalizeWrapperChain($block, $depth), $blocks));
     }
@@ -303,7 +304,8 @@ final class WrapperCoalescer
     {
         $attrs = ArrayField::array($block, 'attrs');
         // A dialog Group's identity includes its runtime shell and bindings.
-        return isset($attrs['metadata']['blocksEngineDialog'])
+        return !empty($attrs['metadata']['blocksEngineRuntimeAttributes'])
+            || isset($attrs['metadata']['blocksEngineDialog'])
             || !empty($block['_editability_runtime_owned'])
             || !empty($block['_editability_visual_owned'])
             || !empty($attrs['backgroundColor'])

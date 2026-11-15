@@ -108,6 +108,7 @@ $nonRendering = array(
 	'srcless img'        => array( '<a class="thumb"><img aria-hidden="true"></a>', true ),
 	'empty div'          => array( '<a class="thumb"><div></div></a>', true ),
 	'nested empty boxes' => array( '<a class="thumb"><div><span></span><img></div></a>', true ),
+	'styled srcless img' => array( '<style>.thumb img{width:200px;height:200px;border-radius:50%;box-shadow:0 0 5px 0 rgba(0,0,0,.35)}</style><a class="thumb"><img aria-hidden="true"></a>', true ),
 	'img with src'       => array( '<a class="thumb"><img src="https://example.com/p.png" alt=""></a>', false ),
 	'styled box'         => array( '<style>.tile{height:200px;background:#ccc}</style><a class="thumb"><div class="tile"></div></a>', false ),
 );

@@ -2324,7 +2324,13 @@ final class SvgMaterializer implements SvgElementMaterializer
             // Presence-only HTML globals and data-* markers (decided above) are
             // excluded because presence is their value.
             $isInertEmptyAttribute = '' === $value && ! str_starts_with($name, 'data-') && ! in_array($name, array( 'hidden', 'inert', 'autofocus', 'tabindex', 'contenteditable', 'draggable', 'popover' ), true);
-            if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute && ! $isInertGroupWeight && ! $isInertEmptyAttribute) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
+            // A hyphenated attribute SVG does not define, holding a bare number
+            // on a shape or group inside the artwork, is a misspelled
+            // presentation attribute (`<g style-width="15">`): SVG never
+            // applies it. The root element stays decisive, since page script
+            // addresses the root.
+            $isInertNumericResidue = 'svg' !== strtolower($element->tagName) && str_contains($name, '-') && 1 === preg_match('/^-?\d+(?:\.\d+)?$/D', trim($value));
+            if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute && ! $isInertGroupWeight && ! $isInertEmptyAttribute && ! $isInertNumericResidue) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
                 return false;
             }
             if ( preg_match('/(?:^|:)href$/i', $name) && ! str_starts_with(trim($value), '#') && ! $embeddedRaster && ! $regionLink ) {
