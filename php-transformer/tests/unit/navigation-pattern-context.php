@@ -66,7 +66,7 @@ $assert(
     'source-target projection state records native replacement CSS'
 );
 $recording->recordInheritedPresentation($nav, array( 'menu' ));
-$assert(1 === count($state->correspondences()), 'inherited presentation does not record without a style resolver');
+$assert(1 === count($state->correspondences()), 'inherited presentation records nothing when no author rule styles the links');
 
 if ( 0 !== $failures ) {
     fwrite(STDERR, "navigation pattern context failed ({$failures} failures, {$passes} passed)\n");
