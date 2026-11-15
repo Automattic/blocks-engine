@@ -896,27 +896,14 @@ final class PresetBinding
         foreach ($typography as $key => [$attribute, $property, $presetClass]) {
             if ('fontFamily' === $key && !$this->themeDefaultsReady) continue;
             if ($isLink) {
-                // Button links carry no font preset class; a family equal to
-                // a preset stack reads its variable from the same inline
-                // declaration. Class-painted sizes bind only to an exact
-                // token; inline-only controls and compact variants stay local.
-                if (isset($attributes->{$attribute})) continue;
-                // Preserve compact variants beside the element's type size.
-                $elementSize = $this->system->elements['button']['font_size'] ?? $this->system->buttonVariation['font_size'] ?? null;
-                if ('fontSize' === $key && is_string($elementSize) && (CssLength::toPx((string) ($style->typography->fontSize ?? ''), $this->system->rootPx) ?? INF) < (CssLength::toPx($elementSize, $this->system->rootPx) ?? 0)) continue;
+                // Keep button typography inline: preset classes would change
+                // priority and the link's font reset. An exact variable in the
+                // existing declaration preserves compact variants too; it does
+                // not need a matching class rule to prove its resting value.
+                if (isset($attributes->{$attribute}) || isset($deviceOverridden[$property])) continue;
                 $literal = $style->typography->{$key} ?? null;
-                if ('fontSize' === $key) {
-                    $classSize = false;
-                    foreach ($this->classColors as $class => $properties) {
-                        if (!isset($tokens['class:' . $class])) continue;
-                        foreach ($properties['font-size'] ?? array() as $value) {
-                            if (CssLength::toPx($value, $this->system->rootPx) === CssLength::toPx((string) $literal, $this->system->rootPx)) $classSize = true;
-                        }
-                    }
-                    if (!$classSize) continue;
-                }
-                $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? ('fontSize' === $key ? $this->exactFontSizeSlug($literal) : $this->presetSlug($property, $literal, null)) : null;
-                if (null !== $slug && $this->inlinePreset($style->typography, $key, $property, $slug, $declarations, $property, $literal)) ++$bound;
+                $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? ('fontSize' === $key ? $this->exactFontSizeSlug($this->resolve($literal)) : $this->presetSlug($property, $literal, null)) : null;
+                if (null !== $slug && $this->safe($property, $tokens, array(), true, false, $inlineReason, true) && $this->inlinePreset($style->typography, $key, $property, $slug, $declarations, $property, $literal)) ++$bound;
                 continue;
             }
             if (isset($attributes->{$attribute})) continue;
@@ -929,7 +916,14 @@ final class PresetBinding
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $slug = $this->presetSlug($property, $literal, $observed[$property] ?? null);
-            if (null === $slug) continue;
+            if (null === $slug) {
+                // Class observations may vary across media or elements. An
+                // existing inline size can still name an exact preset without
+                // adding an important class or changing that cascade.
+                $inlineSlug = 'fontSize' === $key && is_string($literal) ? $this->exactFontSizeSlug($this->resolve($literal)) : null;
+                if (null !== $inlineSlug && $this->safe($property, $tokens, array(), true, false, $inlineReason, true) && $this->inlinePreset($style->typography, $key, $property, $inlineSlug, $declarations, $property, $literal)) ++$bound;
+                continue;
+            }
             if (!$this->safe($property, $tokens, array(sprintf($presetClass, $slug)))) {
                 if (is_string($literal) && $this->safe($property, $tokens, array(), true, false, $inlineReason, true) && $this->inlinePreset($style->typography, $key, $property, $slug, $declarations, $property, $literal)) ++$bound;
                 continue;
