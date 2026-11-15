@@ -571,6 +571,14 @@ final class WrapperCoalescer
         // their selector carriers share a host. Keep these two box owners
         // separate rather than letting carrier specificity choose geometry.
         $childDeclarations = $this->matchingAuthorDeclarations($child);
+        // A child's text cascade belongs inside the parent's box. Moving it
+        // onto that box can change em-based padding and sizing, or borders
+        // painted with currentColor, even though the child has no geometry.
+        // Keep the inheritance boundary rather than merging text carriers.
+        foreach ($childDeclarations as $property => $value) {
+            if ($this->isInheritedTextProperty($property)
+                || str_starts_with($property, '--')) return null;
+        }
         // Box sizing is inert on the unpadded child, but not on the padded
         // parent it would share after absorption. An undeclared parent uses
         // the initial content-box model; do not let a child carrier reset it.

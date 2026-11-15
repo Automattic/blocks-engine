@@ -52,4 +52,10 @@ $sizing = $transform('<style>.surface{width:200px;padding:2rem;background:#eee;b
 $assert('core/group' === $sizing['blocks'][0]['blockName'], 'A child box-sizing rule must not change the padded parent sizing model.');
 $assert('core/paragraph' === $sizing['blocks'][0]['innerBlocks'][0]['blockName'], 'The sizing boundary retains a native editable paragraph.');
 
+// Font-relative geometry is resolved against each box's own text cascade.
+// A neutral child can still change the parent's geometry after absorption.
+$textBoundary = $transform('<style>.surface{padding:2em;background:#eee}.copy{margin:0;font-size:10px}</style><div class="surface"><p class="copy">Independent text cascade</p></div>');
+$assert('core/group' === $textBoundary['blocks'][0]['blockName'], 'Font-relative parent geometry retains its text inheritance boundary.');
+$assert('core/paragraph' === $textBoundary['blocks'][0]['innerBlocks'][0]['blockName'], 'The text cascade remains on the editable paragraph.');
+
 fwrite(STDOUT, "Neutral child wrapper absorption passed\n");
