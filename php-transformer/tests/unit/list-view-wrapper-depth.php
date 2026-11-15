@@ -23,6 +23,20 @@ $height = static function (array $blocks) use (&$height): int {
 if (13 !== $height($result['blocks']) || str_contains($result['serialized_blocks'], '/layout-shell')) {
     throw new RuntimeException('A chain within the editability depth budget must remain native.');
 }
+// Verify source parent-child edges, not just class names somewhere in the
+// output: selector projection depends on each box keeping its own identity.
+$cursor = $result['blocks'][0];
+for ($i = 0; $i < 12; ++$i) {
+    if ('core/group' !== ($cursor['blockName'] ?? '')
+        || !in_array('layer-' . $i, explode(' ', $cursor['attrs']['className'] ?? ''), true)
+        || 1 !== count($cursor['innerBlocks'] ?? array())) {
+        throw new RuntimeException('Native wrapper ancestry must preserve each source edge.');
+    }
+    $cursor = $cursor['innerBlocks'][0];
+}
+if ('core/paragraph' !== ($cursor['blockName'] ?? '')) {
+    throw new RuntimeException('Native wrapper ancestry must terminate at editable content.');
+}
 $markup = $result['serialized_blocks'];
 for ($i = 0; $i < 12; ++$i) {
     if (!str_contains($markup, 'layer-' . $i)) {
