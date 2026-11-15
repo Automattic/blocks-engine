@@ -2088,7 +2088,8 @@ final class ArtifactCompiler
     {
         $file['provenance']['projected_from_bytes'] ??= (int) ($file['bytes'] ?? strlen((string) ($file['content'] ?? '')));
         $file['path'] = $path;
-        $file = ArtifactNormalizer::withTextPayload($file, $content);
+        $file = ArtifactNormalizer::withTextPayload($file, CssSelectorListCompactor::stylesheet($content));
+        $content = $file['content'];
         $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
         $file['provenance']['hash'] = hash('sha256', $content);
         return $file;
@@ -2125,13 +2126,6 @@ final class ArtifactCompiler
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
             $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
-            if (is_string($text) && 'html' === ($file['kind'] ?? '')) {
-                // Stylesheet selectors are not evidence of markup reachability.
-                foreach (array_reverse(StyleTagScanner::scan($text)) as $style) {
-                    if (!StyleTagScanner::isCssType(HtmlTagScanner::attribute($style['attributes'], 'type'))) continue;
-                    $text = substr_replace($text, '', $style['offset'], $style['end_offset'] - $style['offset']);
-                }
-            }
             if (is_string($text) && '' !== $text) $texts[] = $text;
         }
         if (0 === $documents) return $files;

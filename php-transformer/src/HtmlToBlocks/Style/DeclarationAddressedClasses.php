@@ -169,9 +169,9 @@ final class DeclarationAddressedClasses
     /** Coalesced identities must not leave repeated alternatives in published CSS. */
     private function deduplicateMarkerArms(string $css): string
     {
-        if (!str_contains($css, 'blocks-engine-control-')) return $css;
+        if (!str_contains($css, 'blocks-engine-')) return $css;
         return (new CssStylesheetTransformer())->transformStyleRules($css, static function (string $selector, string $body): string {
-            if (!str_contains($selector, 'blocks-engine-control-')) return $selector . '{' . $body . '}';
+            if (!str_contains($selector, 'blocks-engine-')) return $selector . '{' . $body . '}';
             $arms = CssStylesheetTransformer::splitSelectorList(CssSelectorListCompactor::expand($selector));
             return CssSelectorListCompactor::compact(implode(',', array_values(array_unique($arms ?? array($selector))))) . '{' . $body . '}';
         });
