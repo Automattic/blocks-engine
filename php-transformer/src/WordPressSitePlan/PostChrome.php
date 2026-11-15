@@ -238,8 +238,8 @@ final class PostChrome
             $bound[$slug][$index] = $page;
         }
         foreach ($bound as $slug => $posts) {
-            // Factoring needs two posts with one layout; a template bound to a
-            // single post has nothing to factor and keeps its complete article.
+            // Peers establish article boundaries even when optional chrome
+            // later divides this template's posts into singleton layouts.
             if (count($posts) < 2) continue;
             $shared = $this->sharedIdentities($posts);
             $this->relatedSectionProjections = array();
@@ -277,7 +277,23 @@ final class PostChrome
             // Grouping is speculative; only the final factoring pass owns findings.
             $this->orderRetained = $finalFindings;
             foreach ($groups as $identity => $group) {
-                $factored = $this->factorArticleChrome($group, $parts, $runtimeDeclarations, $runtimeEntityRecords);
+                // Peer evidence is only valid for a missing whole section, not
+                // for a replacement menu, widget or header. A singleton keeps
+                // its own template, but one layout must equal the other with
+                // complete blocks removed and every remaining byte unchanged.
+                // Either layout may be richer: a singleton can supply the
+                // optional-section evidence for the smaller peer group.
+                if (1 === count($group)) {
+                    $matches = false;
+                    foreach ($groups as $peerIdentity => $peerGroup) {
+                        if ($peerIdentity !== $identity && (self::identityWithoutSections($identity, $peerIdentity) || self::identityWithoutSections($peerIdentity, $identity))) {
+                            $matches = true;
+                            break;
+                        }
+                    }
+                    if (!$matches) continue;
+                }
+                $factored = $this->factorArticleChrome($group, $parts, $runtimeDeclarations, $runtimeEntityRecords, $posts);
                 if (null === $factored['single']) continue;
                 // A partial group cannot change the template used by the other
                 // layouts (or by posts whose complete article must be retained).
@@ -313,12 +329,49 @@ final class PostChrome
         return array('pages' => $pages, 'parts' => $parts, 'templates' => array_values($bySlug));
     }
 
+    /** Whether removing whole blocks from a layout yields this post's identity. */
+    private static function identityWithoutSections(string $post, string $layout): bool
+    {
+        if ($post === $layout) return true;
+        $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($post);
+        $layoutIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($layout);
+        // Compare the literal frame around children as well as their ordered
+        // identities. Descending permits an absent section inside a wrapper,
+        // but never permits different text or attributes in a retained block.
+        $matches = static function (array $postChildren, array $layoutChildren, string $postFrame, string $layoutFrame) use ($postIndex, $layoutIndex): bool {
+            foreach (array_reverse($postChildren) as $child) $postFrame = substr_replace($postFrame, '', $child['offset'], $child['length']);
+            foreach (array_reverse($layoutChildren) as $child) $layoutFrame = substr_replace($layoutFrame, '', $child['offset'], $child['length']);
+            if (trim($postFrame) !== trim($layoutFrame)) return false;
+            $cursor = 0;
+            foreach ($postChildren as $child) {
+                $slice = substr($postIndex->markup, $child['offset'], $child['length']);
+                $found = false;
+                while (isset($layoutChildren[$cursor])) {
+                    $candidate = $layoutChildren[$cursor++];
+                    if (self::identityWithoutSections($slice, substr($layoutIndex->markup, $candidate['offset'], $candidate['length']))) {
+                        $found = true;
+                        break;
+                    }
+                }
+                if (!$found) return false;
+            }
+            return true;
+        };
+        $postRoots = $postIndex->topLevel();
+        $layoutRoots = $layoutIndex->topLevel();
+        // Unwrap one root to compare its children without recursing on itself.
+        if (1 === count($postRoots) && 1 === count($layoutRoots) && 0 === $postRoots[0]['offset'] && strlen($post) === $postRoots[0]['length'] && 0 === $layoutRoots[0]['offset'] && strlen($layout) === $layoutRoots[0]['length']) {
+            return $matches($postIndex->children($postRoots[0]), $layoutIndex->children($layoutRoots[0]), $post, $layout);
+        }
+        return $matches($postRoots, $layoutRoots, $post, $layout);
+    }
+
     private function hasDeclaredEmptyTitle(array $post): bool
     {
         return '' === ($post['metadata']['declared_content']['title'] ?? null);
     }
 
-    private function factorArticleChrome(array $pages, array $parts, array $runtimeDeclarations, array $runtimeEntityRecords): array
+    private function factorArticleChrome(array $pages, array $parts, array $runtimeDeclarations, array $runtimeEntityRecords, array $peers = array()): array
     {
         $posts = array();
         $indexes = array();
@@ -329,7 +382,7 @@ final class PostChrome
             $posts[] = $page;
             $indexes[] = $index;
         }
-        if (count($posts) < 2) {
+        if (count($posts) < 2 && count($peers) < 2) {
             return array('pages' => $pages, 'single' => null);
         }
         // Inline shell
@@ -344,7 +397,11 @@ final class PostChrome
                 }
             }
         }
-        $shared = $this->sharedIdentities($posts);
+        // A singleton layout may still have a proven article boundary among
+        // its peers. Keep its own template rather than copying optional chrome
+        // that cannot render empty for this post.
+        $evidence = count($posts) < 2 ? $peers : $posts;
+        $shared = $this->sharedIdentities($evidence);
         $this->relatedSectionProjections = array();
         // Only promote a common lead-image slot when every post owns one
         // ahead of its body, and the asset actually varies between posts.
@@ -352,7 +409,7 @@ final class PostChrome
         $leadImages = array();
         foreach ($posts as $postIndex => $post) {
             $route = (string) ($post['route']['path'] ?? '');
-            $documents[$postIndex] = $this->transformDocument($post['canonical_block_markup'], $post, $route, $shared, null, $posts);
+            $documents[$postIndex] = $this->transformDocument($post['canonical_block_markup'], $post, $route, $shared, null, $evidence);
             $retained = $documents[$postIndex]['retained'];
             if (count($retained) < 2) continue;
             $lead = $retained[0];
