@@ -456,6 +456,7 @@ final class ButtonsPattern
         $html = $buttons->materializeSvgImages($element, $html, $this->outOfFlowDecorationImage($element, $buttons)) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
         // aria-hidden controls accessibility, not paint. Keep decorative label
         // boxes and their wrapper topology so projected author CSS can paint them.
+        $html = $this->inlineDecorationWrappers($html);
         $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
         $html = $this->unwrapPresentationalSpan(trim($html));
         if ( '' !== trim($this->plainText($html)) || preg_match('/<img\b[^>]*>/i', $html) ) {
@@ -463,6 +464,30 @@ final class ButtonsPattern
         }
 
         return '';
+    }
+
+    /** Keep an icon's authored layout boxes in the inline-only button label. */
+    private function inlineDecorationWrappers(string $html): string
+    {
+        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
+        $body = $document->getElementsByTagName('body')->item(0);
+        if ( ! $body instanceof DOMElement ) return $html;
+        $wrappers = array();
+        foreach ( $body->getElementsByTagName('*') as $node ) {
+            if ( 1 === preg_match('/^(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $node->tagName)
+                && '' === trim($node->textContent ?? '') && $node->getElementsByTagName('img')->length > 0 ) {
+                $wrappers[] = $node;
+            }
+        }
+        foreach ( $wrappers as $node ) {
+            $span = $document->createElement('span');
+            foreach ( $node->attributes as $attribute ) {
+                $span->setAttribute($attribute->nodeName, $attribute->nodeValue ?? '');
+            }
+            while ( null !== $node->firstChild ) $span->appendChild($node->firstChild);
+            $node->parentNode?->replaceChild($span, $node);
+        }
+        return SourceDom::innerHtml($body);
     }
 
     /**
