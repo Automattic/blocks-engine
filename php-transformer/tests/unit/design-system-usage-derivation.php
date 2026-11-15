@@ -141,6 +141,15 @@ foreach (array('global' => 'h1,h2,h3,h4,h5,h6', 'class' => '.signin-title') as $
     $assert(is_string($minorityFamily) && str_contains($signinMarkup, $minorityFamily), "$case standalone: sign-in retains its own heading family instead of inheriting the theme default");
 }
 
+foreach (array('ancestor' => '', 'inherit' => 'h1{font-family:inherit}', 'unset' => '.signin-title{font-family:unset}') as $case => $headingCss) {
+    $signin = '<style>body{font-family:Inter,sans-serif}' . $headingCss . '</style><main><h1 class="signin-title">Sign in</h1><p>Use your account email to continue.</p></main>';
+    [$inheritedPlan, $inheritedTheme] = $compile(array('entrypoint' => 'index.html', 'files' => $sharedFiles + array('signin/index.html' => $signin)));
+    $assert('inherit' === ($inheritedTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? 'inherit'), "$case standalone: an inherited minority prevents the majority heading default");
+    foreach ($inheritedPlan['pages'] as $page) {
+        $assert(!preg_match('/<!-- wp:heading [^\\n]*"style":\\{"typography":\\{"fontFamily"/', $page['canonical_block_markup']), "$case standalone: heading families remain restylable without literal typography");
+    }
+}
+
 // Later authored heading families win without an inheritance reset (#5789).
 [, $cascadeTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>:root{--heading-font:Verdana,sans-serif}body{font-family:"Courier New",monospace}h1,h2,h3{font-family:var(--heading-font)}</style><style>h1,h2,h3{font-family:Georgia,serif}</style><h1>Main title</h1><h2>Second title</h2><h3>Third title</h3><p>Body text paragraph.</p>')));
 $cascadeFamilies = array_column($cascadeTheme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
@@ -740,7 +749,8 @@ $displayFamilies = array_column($displayTheme['settings']['typography']['fontFam
 $assert(str_contains((string) ($displayFamilies['heading'] ?? ''), 'Fraunces') && str_starts_with((string) ($displayFamilies['body'] ?? ''), '-apple-system'), 'system-stack-display-headings: heading is the webfont headings render, body the system stack (' . json_encode($displayFamilies) . ')');
 $displayMarkup = implode('', array_column($displayPlan['pages'], 'canonical_block_markup'));
 $assert(!preg_match('/<!-- wp:heading \{"className":"text-xl","level":3[^}]*"fontFamily"/', $displayMarkup), 'system-stack-display-headings: system-stack headings do not bind to the display family');
-$assert('var:preset|font-family|heading' === ($displayTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'system-stack-display-headings: the majority display family becomes the heading default while system-stack headings retain their source family');
+$assert('inherit' === ($displayTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'system-stack-display-headings: inherited minority families prevent a display heading default');
+$assert(!str_contains($displayMarkup, '"fontFamily":"sans-serif"'), 'system-stack-display-headings: ordinary headings do not pin a literal family');
 $unanimous = $displayFixture;
 $unanimous['files']['contact.html'] = str_replace('<h3 class="text-xl">', '<h3 class="font-display text-xl">', $unanimous['files']['contact.html']);
 [, $unanimousTheme] = $compile($unanimous);
