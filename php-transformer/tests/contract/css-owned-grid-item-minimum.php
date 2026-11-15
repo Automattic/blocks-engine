@@ -28,11 +28,14 @@ $cases = array(
 $browser = trim((string) shell_exec('command -v chromium 2>/dev/null'));
 $temp = sys_get_temp_dir() . '/grid-minimum-' . bin2hex(random_bytes(6)) . '.html';
 $measure = static function (string $html, string $selector) use ($browser, $temp): array {
-    $script = '<script>const grid=document.querySelector(' . json_encode($selector) . ');'
+    // Measure after `load`: the fixture image is absent, and its sizing changes
+    // once Chromium marks it broken. Measuring both pages in that settled state
+    // keeps source and native comparable on any runner speed.
+    $script = '<script>addEventListener("load",()=>{const grid=document.querySelector(' . json_encode($selector) . ');'
         . 'document.body.appendChild(Object.assign(document.createElement("pre"),{id:"measure",textContent:JSON.stringify({'
         . 'tracks:getComputedStyle(grid).gridTemplateColumns.split(" ").map(parseFloat),'
         . 'items:[...grid.children].map(n=>({min:getComputedStyle(n).minWidth,overflow:getComputedStyle(n).overflow,width:n.getBoundingClientRect().width}))'
-        . '})}));</script>';
+        . '})}));});</script>';
     file_put_contents($temp, $html . $script);
     $dom = shell_exec(escapeshellarg($browser) . ' --headless --no-sandbox --disable-gpu --allow-file-access-from-files --window-size=390,844 --dump-dom ' . escapeshellarg('file://' . $temp) . ' 2>/dev/null');
     if (! preg_match('/<pre id="measure">(.*?)<\/pre>/s', (string) $dom, $match)) {
