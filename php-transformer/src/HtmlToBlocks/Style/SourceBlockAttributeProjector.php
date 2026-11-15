@@ -995,16 +995,27 @@ final class SourceBlockAttributeProjector
 
     private function anchorPrecedesBlock(DOMElement $anchor): bool
     {
+        // Navigation lowering owns the layout of brand links beside a list.
+        // The list becomes a Navigation block, not an ordinary following Group.
+        $parent = $anchor->parentNode;
+        if ( $parent instanceof DOMElement
+            && ( 'nav' === strtolower($parent->tagName) || 'navigation' === strtolower(SourceDom::attr($parent, 'role')) ) ) {
+            return false;
+        }
         $next = $anchor->nextSibling;
         while ( $next instanceof \DOMText && '' === trim($next->textContent) ) {
             $next = $next->nextSibling;
         }
-        if ( ! $next instanceof DOMElement ) {
+        // A following flow container or heading can overlap the boxless root.
+        // Paragraphs, lists and shell landmarks have separate lowering owners;
+        // changing their preceding links also changes shared-shell identity.
+        if ( ! $next instanceof DOMElement
+            || ! in_array(strtolower($next->tagName), array('div', 'section', 'article', 'aside', 'main', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true)
+            || in_array(strtolower(SourceDom::attr($next, 'role')), array('banner', 'navigation', 'contentinfo'), true) ) {
             return false;
         }
         $display = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($next)['display'] ?? ''));
-        return in_array($display, array('block', 'flex', 'grid', 'flow-root', 'table'), true)
-            || ( '' === $display && in_array(strtolower($next->tagName), array('div', 'section', 'article', 'aside', 'nav', 'header', 'footer', 'main', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'blockquote'), true) );
+        return in_array($display, array('', 'block', 'flex', 'grid', 'flow-root', 'table'), true);
     }
 
     private function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool
