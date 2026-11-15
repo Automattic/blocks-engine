@@ -276,7 +276,8 @@ final class WrapperCoalescer
     {
         $attrs = ArrayField::array($block, 'attrs');
         // A dialog Group's identity includes its runtime shell and bindings.
-        return isset($attrs['metadata']['blocksEngineDialog'])
+        return !empty($attrs['metadata']['blocksEngineRuntimeAttributes'])
+            || isset($attrs['metadata']['blocksEngineDialog'])
             || !empty($block['_editability_runtime_owned'])
             || !empty($block['_editability_visual_owned'])
             || !empty($attrs['backgroundColor'])
@@ -510,7 +511,8 @@ final class WrapperCoalescer
      */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
-        if ( ($this->preservesScriptStateWrapper)($element) ) {
+        if ( ($this->preservesScriptStateWrapper)($element)
+            || !empty($childBlock['attrs']['metadata']['blocksEngineRuntimeAttributes']) ) {
             return null;
         }
         $textWrapper = $this->coalescedInheritedTextWrapper($element, $childBlock);

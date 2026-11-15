@@ -78,15 +78,18 @@ final class AnchorElementConverter implements ElementConverter
             return false;
         }
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($descendant) ) {
-                return false;
-            }
             $tag = strtolower($descendant->tagName);
+            // A srcless `<img>` converts to nothing on its own, whatever box
+            // authored styles give it (an agent-photo circle awaiting data),
+            // so the anchor around it follows that same disposition.
             if ( 'img' === $tag ) {
                 if ( '' !== trim(SourceDom::attr($descendant, 'src')) || '' !== trim(SourceDom::attr($descendant, 'srcset')) ) {
                     return false;
                 }
                 continue;
+            }
+            if ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($descendant) ) {
+                return false;
             }
             if ( ! in_array($tag, array('div', 'span'), true) ) {
                 return false;
