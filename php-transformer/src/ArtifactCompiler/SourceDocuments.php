@@ -50,7 +50,7 @@ final class SourceDocuments
                 'kind'         => $file['kind'],
                 'post_type'    => self::frontmatterString($frontmatter, array('post_type', 'type'), 'page'),
                 'slug'         => self::frontmatterString($frontmatter, array('slug'), ArtifactPath::slug((string) $file['path'])),
-                'title'        => self::frontmatterString($frontmatter, array('title'), DocumentTitles::titleFromPath((string) $file['path'])),
+                'title'        => self::frontmatterString($frontmatter, array('title'), ArtifactPath::title((string) $file['path'])),
                 'excerpt'      => self::frontmatterString($frontmatter, array('excerpt', 'description'), ''),
                 'date'         => self::frontmatterString($frontmatter, array('date', 'published', 'published_at'), ''),
                 'template'     => self::frontmatterString($frontmatter, array('template', 'layout'), ''),

@@ -522,7 +522,9 @@ final class PostChrome
             // Without a title, the publication date still anchors the article
             // start. Otherwise enclosing chrome can win by counting related
             // cards as body variation before their section is projected.
-            if ('title' === $kind || ('date' === $kind && $this->hasDeclaredEmptyTitle($post))) $titleEnd = $range['offset'] + $range['length'];
+            // Listing self-links can also classify as titles; only the first
+            // matching heading anchors a titled post's body.
+            if ((null === $titleEnd && $this->headingMatchesPostTitle($slice, $post)) || (0 === $titleEnd && 'date' === $kind && $this->hasDeclaredEmptyTitle($post))) $titleEnd = $range['offset'] + $range['length'];
             if ($range['offset'] === $featuredOffset) continue;
             if (isset($shared[($this->chromeIdentity)($slice)]) || (!$this->hasVaryingUrlAttributes($slice, $shared) && in_array($kind, array('title', 'date', 'comments', 'chrome', 'share', 'skip'), true))) continue;
             $varying[] = $range;
@@ -557,9 +559,20 @@ final class PostChrome
             if ('heading' !== PostBlocks::sourceBlockName($heading) || !isset($shared[($this->chromeIdentity)($heading)])) return null;
             $items = array_slice($children, 1);
             $following = $items;
-            // Unwrap only a single-child chain; flat sibling cards stay intact.
+            // Follow wrapper chains, allowing textless carousel controls beside
+            // the card list. Controls stay outside the replaced item range.
             // Stop at the list so a single li remains an item, not its contents.
-            while (1 === count($following)) {
+            while (array() !== $following) {
+                if (1 !== count($following)) {
+                    $content = array_values(array_filter($following, static fn(array $child): bool => '' !== ListingExcerptProjection::text(substr($sectionIndex->markup, $child['offset'], $child['length']))));
+                    if (1 !== count($content)) {
+                        // Some native containers expose their cards directly,
+                        // with the list wrapper carried in their saved HTML.
+                        if (isset($slice) && str_starts_with(ltrim($slice), '<!-- wp:custom/authored-carousel ')) $items = $following;
+                        break;
+                    }
+                    $following = $content;
+                }
                 $slice = substr($sectionIndex->markup, $following[0]['offset'], $following[0]['length']);
                 $nested = $sectionIndex->children($following[0]);
                 if ('list' === PostBlocks::sourceBlockName($slice) || in_array(PostBlocks::sourceAttributes($slice)['tagName'] ?? null, array('ul', 'ol'), true) || array() !== array_filter(PostBlocks::sourceAttributes($slice)['wrappers'] ?? array(), static fn(array $wrapper): bool => in_array($wrapper['tagName'] ?? null, array('ul', 'ol'), true))) {
@@ -661,12 +674,20 @@ final class PostChrome
     private function relatedSectionProjection(string $heading, callable $sectionItems, array $posts, array $shared): ?array
     {
         $cardMarkup = '';
+        $seen = array();
         foreach ($posts as $peer) {
             $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
             foreach ($peerIndex->ranges() as $owner) {
                 $peerSection = $sectionItems($peerIndex, $owner, $shared);
                 if (null === $peerSection || $heading !== $peerSection['heading']) continue;
-                foreach ($peerSection['items'] as $child) $cardMarkup .= substr($peerIndex->markup, $child['offset'], $child['length']);
+                foreach ($peerSection['items'] as $child) {
+                    $slice = substr($peerIndex->markup, $child['offset'], $child['length']);
+                    // cardRanges selects one card per route. Repeated identical
+                    // cards are the same evidence, not uncovered authored items.
+                    if (isset($seen[$slice])) continue;
+                    $seen[$slice] = true;
+                    $cardMarkup .= $slice;
+                }
                 break;
             }
         }
@@ -719,7 +740,9 @@ final class PostChrome
         foreach ($index->ranges() as $candidate) {
             $slice = substr($markup, $candidate['offset'], $candidate['length']);
             $attrs = PostBlocks::sourceAttributes($slice);
-            if ('main' !== ($attrs['tagName'] ?? null) || array() === $index->children($candidate)) continue;
+            // An explicitly untitled post cannot prove that this landmark
+            // excludes article metadata and surrounding layout by title absence.
+            if ($this->hasDeclaredEmptyTitle($post) || 'main' !== ($attrs['tagName'] ?? null) || array() === $index->children($candidate)) continue;
             $hasTitle = false;
             foreach ($index->ranges() as $descendant) {
                 if ($descendant['offset'] < $candidate['offset'] || $descendant['offset'] + $descendant['length'] > $candidate['offset'] + $candidate['length']) continue;
