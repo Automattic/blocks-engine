@@ -3,12 +3,16 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
-trait ArtifactDiagnostics
+/**
+ * Shared helpers for artifact compiler diagnostics: building a diagnostic row,
+ * deduplicating rows, and deriving the compile status from them.
+ */
+final class ArtifactDiagnostics
 {
     /**
      * @param array<int, array<string, mixed>> $diagnostics
      */
-    private function statusFromDiagnostics(array $diagnostics): string
+    public static function status(array $diagnostics): string
     {
         $warningDiagnostics = array();
         foreach ( $diagnostics as $diagnostic ) {
@@ -29,7 +33,7 @@ trait ArtifactDiagnostics
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<int, array<string, mixed>>
      */
-    private function dedupeDiagnostics(array $diagnostics): array
+    public static function dedupe(array $diagnostics): array
     {
         $seen = array();
         $deduped = array();
@@ -65,7 +69,7 @@ trait ArtifactDiagnostics
      * @param array<string, mixed> $context
      * @return array<string, mixed>
      */
-    private function diagnostic(string $code, string $severity, string $message, array $context = array()): array
+    public static function make(string $code, string $severity, string $message, array $context = array()): array
     {
         return array_filter(
             array(

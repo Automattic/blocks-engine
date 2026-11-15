@@ -18,8 +18,6 @@ use InvalidArgumentException;
 /** Derives WordPress site-plan production from a canonical transformer envelope. */
 final class WordPressSitePlanComposer
 {
-    use \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactDiagnostics;
-
     /**
      * @param array<string, int|float> $processMetrics
      */
@@ -54,7 +52,7 @@ final class WordPressSitePlanComposer
             } catch (InvalidArgumentException $exception) {
                 $diagnostics[] = $exception instanceof ValidationException
                     ? array_merge($exception->diagnostic(), array('severity' => 'error', 'source' => ArtifactCompiler::class))
-                    : $this->diagnostic('wordpress_site_plan_not_self_contained', 'error', $exception->getMessage());
+                    : ArtifactDiagnostics::make('wordpress_site_plan_not_self_contained', 'error', $exception->getMessage());
             }
         }
         if (null !== $runtimeParity) {
@@ -113,7 +111,7 @@ final class WordPressSitePlanComposer
         }
 
         return new TransformerResult(
-            status: $this->statusFromDiagnostics($diagnostics),
+            status: ArtifactDiagnostics::status($diagnostics),
             components: $envelope->components,
             blockTypes: $envelope->blockTypes,
             sourceReports: $sourceReports,
