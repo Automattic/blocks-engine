@@ -392,10 +392,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         $hasIntrinsicBox = ! $isJumpMenu && $this->nativeNavigationToggleHasIntrinsicBox($toggle);
         if ($hasIntrinsicBox && null === $source) {
             foreach ($toggle->getElementsByTagName('*') as $child) {
-                $box = $this->styleResolver->cascade->collapsedViewportDeclarations($child, array('width', 'height'));
-                foreach ( $box as $property => $value ) {
-                    $box[$property] = $this->styleResolver->customProperties->resolveAtViewport($value, $child, StyleResolver::MOBILE_REFERENCE_WIDTH);
-                }
+                $box = $this->nativeNavigationToggleChildBox($child);
                 if ($this->nativeNavigationToggleDimensionIsUsable($box['width'] ?? '') && $this->nativeNavigationToggleDimensionIsUsable($box['height'] ?? '')) {
                     if (!$hasUsableWidth) $declarations[] = 'width:' . $box['width'] . '!important';
                     if (!$hasUsableHeight) $declarations[] = 'height:' . $box['height'] . '!important';
@@ -1765,7 +1762,7 @@ final class ProjectedNavigationConverter implements ElementConverter
     private function nativeNavigationToggleHasIntrinsicBox(DOMElement $toggle): bool
     {
         foreach ( $toggle->getElementsByTagName('*') as $child ) {
-            $declarations = $this->styleResolver->cascade->collapsedViewportDeclarations($child, array('width', 'height'));
+            $declarations = $this->nativeNavigationToggleChildBox($child);
             $fontSize = null;
             $lengths = array();
             foreach ( array( 'width', 'height' ) as $property ) {
@@ -1810,13 +1807,22 @@ final class ProjectedNavigationConverter implements ElementConverter
         return $parent ? $this->nativeNavigationToggleFontSize($parent, $depth + 1) : 16.0;
     }
 
+    /** Resolve icon tokens where they are declared, before moving the box to Core's opener. */
+    private function nativeNavigationToggleChildBox(DOMElement $child): array
+    {
+        $box = $this->styleResolver->cascade->collapsedViewportDeclarations($child, array('width', 'height'));
+        foreach ($box as $property => $value) {
+            $box[$property] = $this->styleResolver->customProperties->resolveAtViewport(CssValueInspector::withoutImportant($value), $child, StyleResolver::MOBILE_REFERENCE_WIDTH);
+        }
+        return $box;
+    }
+
     private function nativeNavigationToggleDimensionIsUsable(string $value): bool
     {
-        // Variable resolution can leave a definite CSS math length. Preserve
-        // that authored box rather than imposing a larger fallback minimum.
-        if ( preg_match('/^(?:max|min|clamp|calc)\(/', $value)
-            && str_contains($value, 'px')
-            && ! preg_match('/[^0-9.\s()+*,\/%pxvwhremintacl-]/', $value) ) {
+        // Authored CSS math remains a length even when its viewport-dependent
+        // value cannot be reduced to pixels here. Do not replace that box with
+        // an accessibility floor: it changes the height of the entire header.
+        if (1 === preg_match('/^(?:calc|min|max|clamp)\(/i', $value) && !preg_match('/[{}<>;]/', $value)) {
             return true;
         }
         if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)px$/', $value, $matches) ) {
