@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 // A plain img srcset lists renditions of one image. A descriptorless candidate
 // is the 1x candidate, and an x family whose src is its 1x candidate renders at
 // the src's own size, so it lowers to editable core/image and keeps the
-// authored selection for render. Picture art direction keeps the carrier.
+// authored selection for render. Picture replay is covered separately.
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
 $compile = static function (string $image): array {
     $html = '<html><body><style>.c1-31{width:100%}</style><main><div class="wrap">' . $image . '</div><p>Body text.</p></main></body></html>';
@@ -34,7 +34,6 @@ foreach ($native as $image => $srcset) {
 
 foreach (array(
     '<img src="/media/fallback.webp" srcset="/media/a-2.webp 1x, /media/a-3.webp 2x">' => 'An x family whose 1x candidate is not src keeps the carrier without a display width.',
-    '<picture><source media="(max-width: 450px)" srcset="/media/b-3.webp"><source media="(min-width: 451px)" srcset="/media/b-4.webp"><img src="/media/b-4.webp" alt="x"></picture>' => 'Media-conditioned picture sources stay art direction.',
 ) as $image => $message) {
     $assert('custom/responsive-media' === $compile($image)[0], $message);
 }

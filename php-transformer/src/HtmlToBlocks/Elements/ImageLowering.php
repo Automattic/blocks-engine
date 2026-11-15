@@ -395,9 +395,6 @@ final class ImageLowering
                 $this->styleResolver->inlineGeometryClassName($logo, array(), array_keys($radius), $radius)
             );
         }
-        if ( null !== $picture && ! $figure instanceof DOMElement ) {
-            $attrs = array_merge($this->styleResolver->presentationAttributes($picture), $attrs);
-        }
         // Boxes flattened between the figure and the image take their inline
         // custom properties with them, yet the image's `var()` readers inherit
         // them (`<div style="--width:118px"><img>` under `.logo img{width:
@@ -575,7 +572,7 @@ final class ImageLowering
             }
         }
 
-        $selection = $this->authoredImageSelection($image, (string) $attrs['url']);
+        $selection = $this->authoredImageSelection($image, (string) $attrs['url'], $picture);
         if ( array() !== $selection ) {
             $attrs['metadata'] = array_merge(ArrayField::array($attrs, 'metadata'), array( 'blocksEngineImageSelection' => $selection ));
         }
@@ -644,11 +641,11 @@ final class ImageLowering
      * Authored `loading` belongs to it: when candidates share a URL, the first
      * fetch fixes the image's density, so eager and lazy copies render apart.
      *
-     * @return array{src?:string,srcset?:string,sizes?:string,loading?:string}
+     * @return array<string, mixed>
      */
-    private function authoredImageSelection(DOMElement $image, string $src): array
+    private function authoredImageSelection(DOMElement $image, string $src, ?DOMElement $picture = null): array
     {
-        if ( array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset')) || $this->hasUnsafeResponsiveImageSources($image) ) {
+        if ( (null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset'))) || $this->hasUnsafeResponsiveImageSources($picture ?? $image) ) {
             return array();
         }
         $loading = strtolower(trim(SourceDom::attr($image, 'loading')));
@@ -661,12 +658,39 @@ final class ImageLowering
             $sizes = (string) preg_replace('/^auto(?:\s*,\s*|$)/i', '', $sizes, 1);
         }
 
-        return array_filter(array(
+        $selection = array_filter(array(
             'src'     => $src,
             'srcset'  => SrcsetParser::rewrite(SourceDom::attr($image, 'srcset'), fn (string $url): string => $this->imageUrls->resolvedAssetUrl($url)),
             'sizes'   => $sizes,
             'loading' => in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '',
         ), static fn (string $value): bool => '' !== $value);
+        if ( $picture instanceof DOMElement ) {
+            $selection['image'] = array();
+            foreach ( array('class', 'style', 'id') as $name ) {
+                if ( $image->hasAttribute($name) ) {
+                    $selection['image'][$name] = SourceDom::attr($image, $name);
+                }
+            }
+            $selection['picture'] = array();
+            foreach ( $picture->attributes as $attribute ) {
+                if ( in_array($attribute->name, array('class', 'style', 'id', 'title', 'dir', 'lang', 'hidden', 'role'), true) || str_starts_with($attribute->name, 'aria-') || str_starts_with($attribute->name, 'data-') ) {
+                    $selection['picture'][$attribute->name] = $attribute->value;
+                }
+            }
+            $selection['sources'] = array();
+            foreach ( $picture->getElementsByTagName('source') as $source ) {
+                $attributes = array();
+                foreach ( array('media', 'type', 'srcset', 'sizes') as $name ) {
+                    if ( $source->hasAttribute($name) ) {
+                        $attributes[$name] = 'srcset' === $name
+                            ? SrcsetParser::rewrite(SourceDom::attr($source, $name), fn (string $url): string => $this->imageUrls->resolvedAssetUrl($url))
+                            : SourceDom::attr($source, $name);
+                    }
+                }
+                $selection['sources'][] = $attributes;
+            }
+        }
+        return $selection;
     }
 
     /**
@@ -822,7 +846,7 @@ final class ImageLowering
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture);
         }
 
-        return $this->convertImage($image, $figure ?? $picture, $picture, $link);
+        return $this->convertImage($image, $figure, $picture, $link);
     }
 
     public function figureLinkedMediaAnchor(DOMElement $figure): ?DOMElement
