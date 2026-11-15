@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
@@ -396,6 +397,16 @@ final class InlineGeometry
         $declarations = $carrierOwnsInlineGeometry
             ? $this->mediaTextInlineCascadeDeclarations(SourceDom::attr($element, 'style'))
             : ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
+        // Entrance startup saves the transition shorthand, overwrites it with
+        // none, then restores/removes it. Isolated longhands are cleared by
+        // that reset; a persistent CSS carrier would incorrectly survive it.
+        $entrance = json_decode($element->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true);
+        if (is_array($entrance) && isset($entrance['attributes'], $entrance['threshold'])
+            && ! isset($entrance['cssAnimations']) && ! isset($declarations['transition'])) {
+            foreach (array_keys($declarations) as $property) {
+                if (str_starts_with($property, 'transition-')) unset($declarations[$property]);
+            }
+        }
         $declarations = ($this->stripFrozenHiddenState)($element, $declarations);
         if (in_array('opacity', $forcedProperties, true)) {
             $inlineDeclarations = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
