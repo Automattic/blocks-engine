@@ -1175,9 +1175,11 @@ final class ButtonsPattern
         // Wix-style controls commonly put the visual surface on a nested label
         // span and add a sibling decorative SVG. The single-child surface rule
         // above intentionally rejects that topology, so inspect safe phrasing
-        // descendants without treating arbitrary nested content as a button.
+        // labels without treating arbitrary nested content as a button. Empty
+        // spans paint decoration, not the label's control surface: their padding,
+        // background and radius must not promote an otherwise bare text link.
         foreach ( $anchor->getElementsByTagName('span') as $label ) {
-            if ( $label instanceof DOMElement && ( ( $hasNestedLabelAndSvg && $this->signalClassifier->hasClassSignal($label) ) || $this->signalClassifier->hasTransformSignal($label, $buttons->resolvedStyle($label)) ) ) {
+            if ( $label instanceof DOMElement && '' !== trim($label->textContent) && ( ( $hasNestedLabelAndSvg && $this->signalClassifier->hasClassSignal($label) ) || $this->signalClassifier->hasTransformSignal($label, $buttons->resolvedStyle($label)) ) ) {
                 return true;
             }
         }
