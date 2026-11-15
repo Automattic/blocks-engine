@@ -300,7 +300,7 @@ final class NavigationToggleSuppressor
             $value = $this->styleResolver->declaredPresentation($node, 'display')->resolvedValueWhere(
                 fn (array $conditions): bool => $this->styleResolver->cascade->conditionsApplyAtViewport($conditions, $width)
             );
-            $value = $this->styleResolver->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant(trim($value)), $node, $width);
+            $value = $this->styleResolver->customProperties->resolveAtViewport(CssValueInspector::withoutImportant(trim($value)), $node, $width);
             if ( 'none' === strtolower(trim($value)) ) {
                 return true;
             }
@@ -633,7 +633,7 @@ final class NavigationToggleSuppressor
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
             $values = $this->styleResolver->authorViewport->collapsed($node, array('display', 'visibility', 'opacity'));
-            $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport($values['display'] ?? '', $node, StyleResolver::MOBILE_REFERENCE_WIDTH));
+            $display = CssValueInspector::comparable($this->styleResolver->customProperties->resolveAtViewport($values['display'] ?? '', $node, StyleResolver::MOBILE_REFERENCE_WIDTH));
             $visibility = CssValueInspector::comparable($values['visibility'] ?? '');
             $opacity = CssValueInspector::comparable($values['opacity'] ?? '');
             if ( $this->sourceElementIsHiddenByMarkup($node, $display)
@@ -2344,7 +2344,7 @@ final class NavigationToggleSuppressor
             $stacks = $displayOf($element)->conditionStacks();
             $declared = implode(';', array_merge(array( $displayOf($element)->base() ), array_values($displayOf($element)->conditional())));
             if ( str_contains($declared, 'var(') ) {
-                array_push($stacks, ...$this->styleResolver->customPropertyConditionStacks($declared));
+                array_push($stacks, ...$this->styleResolver->customProperties->conditionStacks($declared));
             }
             foreach ( $stacks as $stack ) {
                 foreach ( $stack as $condition ) {
@@ -2372,7 +2372,7 @@ final class NavigationToggleSuppressor
                 $value = $displayOf($element)->resolvedValueWhere(
                     fn (array $conditions): bool => $this->styleResolver->cascade->conditionsApplyAtViewport($conditions, $width)
                 );
-                $value = $this->styleResolver->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant(trim($value)), $element, $width);
+                $value = $this->styleResolver->customProperties->resolveAtViewport(CssValueInspector::withoutImportant(trim($value)), $element, $width);
                 if ( 'none' === strtolower(trim($value)) ) {
                     return true;
                 }
@@ -2474,7 +2474,7 @@ final class NavigationToggleSuppressor
                 break;
             }
             $declarations = $this->styleResolver->authorViewport->reference($node, array('display', 'visibility', 'opacity'), true);
-            $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport((string) ($declarations['display'] ?? ''), $node, StyleResolver::DESKTOP_REFERENCE_WIDTH));
+            $display = CssValueInspector::comparable($this->styleResolver->customProperties->resolveAtViewport((string) ($declarations['display'] ?? ''), $node, StyleResolver::DESKTOP_REFERENCE_WIDTH));
             $visibility = CssValueInspector::declared($declarations, 'visibility');
             $opacity = CssValueInspector::declared($declarations, 'opacity');
             if ( $this->sourceElementIsHiddenByMarkup($node, $display, true)

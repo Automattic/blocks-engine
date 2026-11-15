@@ -210,6 +210,17 @@ final class CssSelectorMatchCache
         $this->connectedDocumentKeys = new WeakMap();
     }
 
+    /**
+     * Match the element as if it also carried these classes: a runtime state
+     * script toggles (an opened menu). Use a cache dedicated to that state.
+     *
+     * @param list<string> $classes
+     */
+    public function assumeClasses(DOMElement $element, array $classes): void
+    {
+        $this->classTokens[$this->elementKey($element)] = array_values(array_unique(array_merge($this->classTokens($element), $classes)));
+    }
+
     /** @return list<string> */
     public function classTokens(DOMElement $element): array
     {

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -456,15 +458,15 @@ final class SourceElementClassifier
             SourceDom::attr($element, 'aria-label'),
         ))));
         $identifier = strtolower(trim(SourceDom::authorIdentityAttribute($element, 'id')));
-        $style = strtolower(SourceDom::attr($element, 'style'));
+        $declarations = SourceDeclarations::inline($element);
 
         if ( preg_match('/(?:^|[\s_-])(?:hero|decor|decorative|layer|overlay|grain|noise|texture|glow|atmosphere|ambient|aura|orb|blob|backdrop|background|bg)(?:$|[\s_-])/', $semanticContext)
             || preg_match('/(?:^|[\s_-])(?:hero|decor|decorative|overlay|grain|noise|texture|glow|atmosphere|ambient|aura|orb|blob|backdrop|background|bg)(?:$|[\s_-])/', $identifier) ) {
             return true;
         }
 
-        return (bool) ( preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/', $style)
-            && preg_match('/(?:^|;)\s*(?:inset|top|right|bottom|left|z-index|pointer-events|mix-blend-mode|opacity|filter|background|background-image)\s*:/', $style) );
+        return in_array(CssValueInspector::declared($declarations, 'position'), array( 'fixed', 'absolute' ), true)
+            && array() !== array_intersect_key($declarations, array_flip(array( 'inset', 'top', 'right', 'bottom', 'left', 'z-index', 'pointer-events', 'mix-blend-mode', 'opacity', 'filter', 'background', 'background-image' )));
     }
 
     /**
@@ -497,12 +499,12 @@ final class SourceElementClassifier
 
     public function isMetadataLayoutStyle(string $style): bool
     {
-        return 1 === preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?(?:grid|flex)\b/i', $style);
+        return in_array(CssValueInspector::declared(SourceDeclarations::parse($style), 'display'), array( 'grid', 'inline-grid', 'flex', 'inline-flex' ), true);
     }
 
     public function isFlexMetadataStyle(string $style): bool
     {
-        return 1 === preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/i', $style);
+        return in_array(CssValueInspector::declared(SourceDeclarations::parse($style), 'display'), array( 'flex', 'inline-flex' ), true);
     }
 
     public function isPresentationalAnimationSelector(string $selector): bool
@@ -1374,8 +1376,9 @@ final class SourceElementClassifier
         if ( $width > 0.0 ) {
             return $width;
         }
-        if ( 1 === preg_match('/(?:^|;)\s*width\s*:\s*([^;]+)/i', SourceDom::attr($element, 'style'), $matches) ) {
-            return $this->cssPixelLength($matches[1]);
+        $width = SourceDeclarations::inline($element)['width'] ?? null;
+        if ( null !== $width ) {
+            return $this->cssPixelLength($width);
         }
 
         return 0.0;
@@ -1495,7 +1498,7 @@ final class SourceElementClassifier
             $style = strtolower(SourceDom::attr($item, 'style'));
             if ( '' !== SourceDom::attr($item, 'data-slideshow-slide')
                 || in_array($hidden, array( 'true', 'false' ), true)
-                || 1 === preg_match('/(?:^|;)\s*display\s*:\s*none\b/', $style)
+                || 'none' === CssValueInspector::declared(SourceDeclarations::inline($item), 'display')
             ) {
                 return true;
             }

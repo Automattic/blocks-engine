@@ -165,14 +165,16 @@ final class ThemeJsonProjection
         $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => !isset($conditionalProperties[$candidate['target'] . "\n" . $candidate['property']]) && !isset($unrepresentableProperties[$candidate['target'] . "\n" . $candidate['property']]) && (1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:'))));
         $presets = null === $system ? $this->presets($selected, $fontFamilyStacks) : $this->systemPresets($system);
         // Unlayered type selectors have equal specificity: within the same
-        // stylesheet applicability, the last heading family is the winner.
+        // stylesheet applicability, the last body or heading family wins.
         // Keep different route scopes separate for sharedDefaults() to veto.
-        $headingFamilies = array();
+        $elementFamilies = array();
         foreach ($selected as $index => $candidate) {
-            if ('font-family' !== $candidate['property'] || '' !== $candidate['layer'] || !preg_match('/^element:h[1-6]$/', $candidate['target'])) continue;
+            if ('font-family' !== $candidate['property'] || '' !== $candidate['layer'] || !preg_match('/^(?:body|element:h[1-6])$/', $candidate['target'])) continue;
+            // Only bare body selectors have this equal-specificity guarantee.
+            if ('body' === $candidate['target'] && 'body' !== $candidate['selector']) continue;
             $key = $candidate['target'] . "\n" . json_encode($assets[$candidate['asset']]['scopes'] ?? array(array('kind' => 'global')));
-            if (isset($headingFamilies[$key])) unset($selected[$headingFamilies[$key]]);
-            $headingFamilies[$key] = $index;
+            if (isset($elementFamilies[$key])) unset($selected[$elementFamilies[$key]]);
+            $elementFamilies[$key] = $index;
         }
         $selected = $this->sharedDefaults(array_values($selected), $assets, $documentPaths);
         $responsiveBreakpoints = ResponsiveBreakpoints::fromAssets($assets);
@@ -306,13 +308,14 @@ final class ThemeJsonProjection
     private function customProperties(array $assets, array $documentPaths): array
     {
         $variables = array();
+        $definitions = array();
         $conflicts = array();
         $coverage = array();
         $scoped = array();
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$variables, &$conflicts, &$coverage, &$scoped, $asset): void {
+            $visitor->visitStyleRules($asset['content'], static function (string $prelude, string $body, array $ancestors) use (&$variables, &$definitions, &$conflicts, &$coverage, &$scoped, $asset): void {
                 if (str_starts_with(ltrim($prelude), '@')) return;
                 foreach (CssRuleAnalyzer::customProperties($body) as ['name' => $name, 'value' => $value]) {
                     // Identical scoped copies (including editor mirrors) do
@@ -321,7 +324,12 @@ final class ThemeJsonProjection
                         $scoped[$name][$value] = true;
                         continue;
                     }
-                    if (isset($variables[$name]) && $variables[$name] !== $value) $conflicts[$name] = true;
+                    if (str_contains(strtolower($value), '!important')) $conflicts[$name] = true;
+                    // Only unconditional copies of the same selector in the same
+                    // stylesheet scope can supersede each other by source order.
+                    $context = strtolower(trim($prelude)) . "\n" . json_encode($asset['scopes'] ?? array(array('kind' => 'global')));
+                    if (array() === $ancestors) $definitions[$name][$context] = $value;
+                    else $definitions[$name][$context . "\n" . json_encode($ancestors) . "\n" . $value] = $value;
                     $variables[$name] = $value;
                     foreach ($ancestors as $ancestor) if (1 !== preg_match('/^@layer(?:\s|$)/', $ancestor)) $conflicts[$name] = true;
                     foreach ($asset['scopes'] ?? array(array('kind' => 'global')) as $scope) {
@@ -332,6 +340,7 @@ final class ThemeJsonProjection
             });
         }
         foreach ($variables as $name => $value) {
+            foreach ($definitions[$name] as $other) if ($other !== $value) $conflicts[$name] = true;
             foreach ($scoped[$name] ?? array() as $other => $_) if ($other !== $value) $conflicts[$name] = true;
             if (!empty($coverage[$name]['global'])) continue;
             if (array() === $documentPaths) $conflicts[$name] = true;

@@ -211,6 +211,8 @@ final class PresetBinding
     private array $fontRules = array();
     /** @var array<string,string|false> Root custom properties; false when a value is scoped or conditional. */
     private array $variables = array();
+    /** @var array<string,array<string,string>> Unconditional root values by selector and stylesheet scope. */
+    private array $rootVariables = array();
     /** @var array<string,array<string,true>> Values custom properties take outside the root. */
     private array $scopedVariables = array();
     /** @var array<string,string> Custom properties every definition, all outside the root, sets to one value. */
@@ -226,9 +228,9 @@ final class PresetBinding
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $conditional = !in_array(strtolower(trim((string) ($asset['media'] ?? ''))), array('', 'all'), true);
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional): void {
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $asset): void {
                 $this->indexRule($prelude, $body);
-                $this->indexVariables($prelude, $body, $ancestors);
+                $this->indexVariables($prelude, $body, $conditional ? array_merge($ancestors, array('@media ' . $asset['media'])) : $ancestors, $asset['scopes'] ?? array(array('kind' => 'global')));
                 $this->indexRestingColors($prelude, $body, $conditional || array() !== $ancestors);
                 $font = self::declared(self::declarations($body), 'font-family');
                 $shorthand = self::declared(self::declarations($body), 'font');
@@ -253,6 +255,10 @@ final class PresetBinding
                     }
                 }
             });
+        }
+        foreach ($this->rootVariables as $name => $definitions) {
+            $values = array_values(array_unique($definitions));
+            if (false !== ($this->variables[$name] ?? null)) $this->variables[$name] = 1 === count($values) ? $values[0] : false;
         }
         foreach ($this->scopedVariables as $name => $values) {
             if (!array_key_exists($name, $this->variables) && 1 === count($values)) $this->uniformVariables[$name] = (string) array_key_first($values);
@@ -1593,7 +1599,7 @@ final class PresetBinding
 
     /**
      * A value with its `var(--name)` references resolved through custom
-     * properties that are set once, unconditionally, on the document root
+     * properties whose final unconditional definitions agree on the document root
      * (`:root`, `html`, `:host`). Any other definition could give the
      * variable a different value under some block, so a value that reads
      * such a property stays as written, except that a fallback
@@ -1620,21 +1626,22 @@ final class PresetBinding
         return $value;
     }
 
-    /** @param list<string> $ancestors */
-    private function indexVariables(string $prelude, string $body, array $ancestors): void
+    /** @param list<string> $ancestors @param array<int,array<string,mixed>> $scopes */
+    private function indexVariables(string $prelude, string $body, array $ancestors, array $scopes): void
     {
         $declarations = CssRuleAnalyzer::customProperties($body);
         if (array() === $declarations) return;
         $selectors = array_map(static fn(string $selector): string => strtolower(trim($selector)), CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude));
         $root = array() === array_diff($selectors, array(':root', 'html', ':host')) && array() === array_filter($ancestors, static fn(string $ancestor): bool => 1 !== preg_match('/^@layer(?:\s|$)/', $ancestor));
         foreach ($declarations as ['name' => $name, 'value' => $value]) {
-            // Any definition with another value, wherever it applies, could
-            // give the variable that value under some block. Repeating the
-            // root value (editor mirrors such as `:root :root.editor-styles-wrapper`)
-            // changes nothing.
-            if (str_contains(strtolower($value), '!important') || (array_key_exists($name, $this->variables) && $this->variables[$name] !== $value)) $this->variables[$name] = false;
-            elseif ($root) $this->variables[$name] = $value;
-            else $this->scopedVariables[$name][$value] = true;
+            // Only the same unconditional selector and applicability has a
+            // source-order winner. Other selectors and at-rules still compete.
+            if (str_contains(strtolower($value), '!important')) $this->variables[$name] = false;
+            if ($root) {
+                $context = implode(',', $selectors) . "\n" . json_encode($scopes);
+                if (array() === $ancestors) $this->rootVariables[$name][$context] = $value;
+                else $this->rootVariables[$name][$context . "\n" . json_encode($ancestors) . "\n" . $value] = $value;
+            } else $this->scopedVariables[$name][$value] = true;
         }
     }
 

@@ -72,7 +72,7 @@ final class WrapperCoalescer
     ) {
     }
 
-    private const LANDMARK_GROUP_TAGS = array('header', 'footer');
+    private const LANDMARK_GROUP_TAGS = array('header', 'footer', 'nav');
 
     // Charge shared ancestry against the saved List View depth, not only
     // against the length of each uninterrupted single-child run.
@@ -100,8 +100,13 @@ final class WrapperCoalescer
             $ancestorChain[] = array('block' => $cursor, 'descriptor' => $descriptor);
             $cursor = $cursor['innerBlocks'][0];
         }
-        if (2 <= count($ancestorChain)
-            && array() === array_filter($ancestorChain, static fn (array $entry): bool => 'nav' === ($entry['descriptor']['tagName'] ?? null))
+        // Native div/nav ancestry may retain its source boxes within the public
+        // nesting budget; do not force it through generated shell transport.
+        $nativeNavigationChain = 'div' === ($ancestorChain[0]['descriptor']['tagName'] ?? null)
+            && array() !== array_filter($ancestorChain, static fn (array $entry): bool => 'nav' === $entry['descriptor']['tagName'])
+            && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'], array('div', 'nav'), true))
+            && $depth - 1 + $this->nativeBlockHeight($block) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
+        if (! $nativeNavigationChain && 2 <= count($ancestorChain)
             && ($depth - 1 + $this->nativeBlockHeight($block) > self::MAX_NATIVE_WRAPPER_DEPTH
                 || count($ancestorChain) >= self::MAX_NATIVE_WRAPPER_DEPTH)) {
             return $this->foldWrapperChain($ancestorChain, $this->normalizeWrapperChain($cursor, $depth + 1));
@@ -122,10 +127,7 @@ final class WrapperCoalescer
             || (str_starts_with($terminalName, 'core/') && ! in_array($terminalName, array( 'core/freeform', 'core/html' ), true)))
             && ('core/freeform' === $terminalName
                 || ('core/group' === $terminalName && array() === ($terminal['innerBlocks'] ?? array()))
-                // A navigation box around a single native control is also a
-                // native Group chain. Do not extend this to branching freeform
-                // menus: those still require their existing shell transport.
-                || array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, array('div', 'nav'), true)))
+                || array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, ('div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div')), true)))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
         // Div ancestors remain editable even when their terminal is a generated
         // block or an extraction slot. The terminal's transport does not require
@@ -137,11 +139,7 @@ final class WrapperCoalescer
             ! str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-synthetic-paragraph')
             || str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-source-box-paragraph'));
         $nativeGroupTree = $nativeGroupTree || (('core/freeform' !== $terminalName || $hasSourceBox)
-            && array() === array_filter($chain, static fn (array $entry): bool => 'div' !== ($entry['descriptor']['tagName'] ?? null)
-                && ('nav' !== ($entry['descriptor']['tagName'] ?? null)
-                    || array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool =>
-                        str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-synthetic-paragraph')
-                        && ! str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-source-box-paragraph'))))
+            && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, ('div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div')), true))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth']);
         // The ratio budget belongs to the document, not each component. An
         // empty visual branch can have no content leaves while the complete
@@ -223,7 +221,7 @@ final class WrapperCoalescer
     private function foldableWrapperDescriptor(array $block): ?array
     {
         // A landmark stays its own group block: folded into a layout shell's
-        // wrapper list, a header or footer (or a `role="main"` region, which
+        // wrapper list, a header, footer or nav (or a `role="main"` region, which
         // only its block name records) loses its block identity for the editor
         // and for shell extraction. A native grid or flex
         // layout is likewise an editor control the wrapper list cannot carry.

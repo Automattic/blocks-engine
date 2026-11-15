@@ -39,6 +39,10 @@ final class FormDispatcher
      */
     public function convert(DOMElement $element, array &$fallbacks): ?array
     {
+        if ( 0 === $element->childElementCount && '' === trim($element->textContent) ) {
+            return null;
+        }
+
         $cardPurchase = null !== $this->cardPurchaseBlock ? ($this->cardPurchaseBlock)($element) : null;
         if ( null !== $cardPurchase ) {
             return $cardPurchase;

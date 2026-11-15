@@ -164,7 +164,7 @@ final class RichTextStylingHookNormalizer
         $hasStyling = false;
         foreach ( $element->attributes ?? array() as $attribute ) {
             $attributeName = strtolower($attribute->nodeName);
-            if ( 'class' !== $attributeName && 'style' !== $attributeName ) {
+            if ( ! in_array($attributeName, array( 'class', 'style', 'data-blocks-engine-richtext-marker' ), true) ) {
                 return false;
             }
             if ( '' !== trim($attribute->nodeValue ?? '') ) {
@@ -337,6 +337,11 @@ final class RichTextStylingHookNormalizer
         }
 
         if ( '' !== $marker ) {
+            // Marker-backed content was resolved against its attached source.
+            // Do not refill responsive properties from this detached fragment.
+            if ( ! $carrierReplacesSource && ! $sourceIsLink ) {
+                $declarations = $existingDeclarations;
+            }
             $declarations['--blocks-engine-richtext-marker'] = $marker;
         }
 

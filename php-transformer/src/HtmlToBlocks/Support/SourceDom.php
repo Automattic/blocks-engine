@@ -1679,11 +1679,12 @@ final class SourceDom
         $inline = self::attr($element, 'style');
         $hasZeroBox = false;
         foreach (array('width', 'height') as $axis) {
-            $styled = preg_match('/(?:^|;)\s*' . $axis . '\s*:\s*([^;!]+)/i', $inline, $match) ? $match[1] : null;
+            $declaration = CssRuleAnalyzer::declarations($inline, array($axis))[0] ?? null;
+            $styled = null !== $declaration ? (string) preg_replace('/\s*!\s*important\s*$/i', '', $declaration['value']) : null;
             $hasZeroBox = $hasZeroBox || (null !== $styled ? $zero($styled) : $zero(self::attr($element, $axis)));
         }
         $hasNoLayoutFootprint = $hasZeroBox
-            || 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\s*(?:!\s*important\s*)?(?:;|$)/i', $inline);
+            || array() !== array_filter(CssRuleAnalyzer::declarations($inline, array('position')), static fn (array $declaration): bool => in_array(strtolower((string) preg_replace('/\s*!\s*important\s*$/i', '', $declaration['value'])), array('absolute', 'fixed'), true));
         if (! $hasNoLayoutFootprint) {
             return false;
         }

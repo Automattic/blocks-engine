@@ -502,7 +502,7 @@ final class AuthorStylesheetProjector
         // above SvgMaterializer's inline-geometry carrier or replay SVG paint.
         $svgImageRule = '' === $svgImagePrelude
             ? ''
-            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . ';' . $this->styleResolver->cssDeclarationString($this->imageApplicableSvgDeclarations($declarations)) . '}'
+            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true, ! $this->everySubjectStaysOnImage($prelude, $context)) . ';' . $this->styleResolver->cssDeclarationString($this->imageApplicableSvgDeclarations($declarations)) . '}'
                 . $this->lineImageFigureRule($svgImagePrelude, $declarations, $context);
         $svgImageRule .= $this->flexItemImageBoxRule(
             $prelude,
@@ -915,7 +915,7 @@ final class AuthorStylesheetProjector
                     foreach ( $subjects as $element ) {
                         $resolved = $this->buttonDeclarationRouting->isButtonControlBoxSize($name, $value, array( $element ))
                             ? $value
-                            : $this->styleResolver->resolveCssVariablesInValue($value, $element);
+                            : $this->styleResolver->customProperties->resolve($value, $element);
                         $resolvedGroups[$resolved][] = $element;
                     }
                     // Resolve at the source element, before its custom properties
@@ -989,7 +989,7 @@ final class AuthorStylesheetProjector
         // Centered source dropdown boxes are desktop presentation, not Core's
         // open-overlay stack. Keep the authored rule outside that stack rather
         // than relying on a later, higher-specificity alignment override.
-        if ( preg_match('/(?:^|;)\s*(?:text-align|align-items|justify-content)\s*:\s*center\b/i', $body) ) {
+        if ( self::anyDeclaredAs($body, array( 'text-align', 'align-items', 'justify-content' ), array( 'center' )) ) {
             $submenuOnly = true;
             $found = false;
             foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
@@ -1429,9 +1429,24 @@ final class AuthorStylesheetProjector
         return $this->hasNativeButtonGeometryDeclaration($body, $element);
     }
 
+    /**
+     * @param list<string> $properties
+     * @param list<string> $values
+     */
+    private static function anyDeclaredAs(string $body, array $properties, array $values): bool
+    {
+        foreach ( CssRuleAnalyzer::declarations($body, $properties) as [ 'value' => $value ] ) {
+            if ( in_array(CssValueInspector::comparable($value), $values, true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function hasNativeButtonGeometryDeclaration(string $body, ?DOMElement $element = null): bool
     {
-        if ( preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)/i', $body) && preg_match('/(?:^|;)\s*(?:width|height)\s*:\s*0(?:[;\s]|$)/i', $body) ) {
+        if ( self::anyDeclaredAs($body, array( 'position' ), array( 'absolute', 'fixed' )) && self::anyDeclaredAs($body, array( 'width', 'height' ), array( '0' )) ) {
             return true;
         }
         foreach ( CssRuleAnalyzer::declarationList($body) as [ 'name' => $property, 'value' => $value ] ) {
@@ -2440,8 +2455,13 @@ final class AuthorStylesheetProjector
             // lowering. A native block can keep that source hook and topology
             // instead; retain the authored arm wherever emitted markup still
             // answers it, alongside the possible carrier forms.
-            if ( $inlineLayoutCarriers && $this->matchesEmittedMarkup($parsed, $context->emittedMarkup) ) {
-                $hasNonProjected = true;
+            $groupCarrier = false;
+            if ( $inlineLayoutCarriers ) {
+                $subject = substr($selector, (int) $parsed['rightmost_compound_span']['start']);
+                $groupCarrier = $this->matchesEmittedMarkup(CssSelectorMatcher::parse($subject . ':where(.wp-block-group)'), $context->emittedMarkup);
+                if ( $groupCarrier || $this->matchesEmittedMarkup($parsed, $context->emittedMarkup) ) {
+                    $hasNonProjected = true;
+                }
             }
             if ( $hasNonProjected ) {
                 // Control, semantic and RichText carriers also carry their
@@ -2497,6 +2517,13 @@ final class AuthorStylesheetProjector
             }
             if ( $inlineLayoutCarriers ) {
                 $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed, $addressableInlineCarriers);
+                // Potential inline leaves can instead lower to a native group
+                // when their attached source cascade establishes a block box.
+                // Keep that hook addressable even when document context (such
+                // as a body class) is absent from the emitted fragment here.
+                if ( $groupCarrier ) {
+                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':where(.wp-block-group)');
+                }
             }
         }
         $projected = implode(',', array_values(array_unique($rewritten)));
@@ -3437,7 +3464,7 @@ final class AuthorStylesheetProjector
     /** @param array<string, string> $declarations */
     private function svgFillDimension(DOMElement $element, array $declarations, string $dimension): bool
     {
-        return '100%' === trim($this->styleResolver->resolveCssVariablesInValue((string) ($declarations[$dimension] ?? ''), $element));
+        return '100%' === trim($this->styleResolver->customProperties->resolve((string) ($declarations[$dimension] ?? ''), $element));
     }
 
     /** @param array<string, string> $declarations */
@@ -3541,9 +3568,24 @@ final class AuthorStylesheetProjector
             return '';
         }
 
-        return str_replace('.wp-block-image', '.wp-block-image:where(.' . implode(',.', $figures) . ')', $imagePrelude)
+        $rule = str_replace('.wp-block-image', '.wp-block-image:where(.' . implode(',.', $figures) . ')', $imagePrelude)
             . '{display:' . ($declarations['display'] ?? 'inline')
             . ( isset($declarations['vertical-align']) ? ';vertical-align:' . $declarations['vertical-align'] : '' ) . '}';
+        // The inline synthetic figure is display:contents, so class-owned
+        // dimensions cannot size it. Keep the replaced box on the image,
+        // after the generic 100% bridge and at the author's cascade position
+        // (including responsive conditions). Placement is routed separately.
+        if ( in_array(SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS, $figures, true) ) {
+            $box = array_filter($declarations, static fn (string $property): bool =>
+                NativeImageLeafPresentation::isBoxProperty($property)
+                && ! NativeImageLeafPresentation::isPlacementProperty($property), ARRAY_FILTER_USE_KEY);
+            if ( array() !== $box ) {
+                $rule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . ')', $imagePrelude)
+                    . '{' . $this->styleResolver->cssDeclarationString($box) . '}';
+            }
+        }
+
+        return $rule;
     }
 
     /**
@@ -3552,7 +3594,8 @@ final class AuthorStylesheetProjector
      * moves to the figure, so the source rule still paints the image itself:
      * inheriting the figure's corners there would replace the image's own
      * radius at the same specificity, later in the cascade. A universal
-     * subject (`*`) matches the image the same way.
+     * subject (`*`) matches the image the same way, as does a bare `svg`
+     * subject for the image an inline SVG is materialized into.
      *
      * @param array<string, string> $declarations
      */
@@ -3569,6 +3612,13 @@ final class AuthorStylesheetProjector
         return '' === $movedPrelude ? $rule : $rule . $movedPrelude . '{border-radius:inherit}';
     }
 
+    private function everySubjectStaysOnImage(string $prelude, AuthorStylesheetProjectionContext $context): bool
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude) ?? array();
+
+        return array() !== $selectors && array() === array_filter($selectors, fn (string $selector): bool => ! $this->subjectStaysOnImage($selector, $context));
+    }
+
     private function subjectStaysOnImage(string $selector, AuthorStylesheetProjectionContext $context): bool
     {
         $parsed = $context->sourceStyles->parsedSelector($selector);
@@ -3578,7 +3628,7 @@ final class AuthorStylesheetProjector
         $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
 
         // A universal subject matches the image itself, exactly like `img`.
-        return in_array(strtolower((string) ($subject['type'] ?? '*')), array( 'img', '*' ), true)
+        return in_array(strtolower((string) ($subject['type'] ?? '*')), array( 'img', 'svg', '*' ), true)
             && array() === ($subject['classes'] ?? array())
             && array() === ($subject['ids'] ?? array())
             && array() === ($subject['attributes'] ?? array());

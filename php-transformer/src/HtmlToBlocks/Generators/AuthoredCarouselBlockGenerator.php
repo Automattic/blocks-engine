@@ -18,6 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttribu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ResponsivePropertyFamily;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
@@ -1192,14 +1193,22 @@ JS;
                 $geometryStyles = $this->carrySourceGeometryIntoBlockTree($item, $styleResolver);
                 try {
                     $slideFallbacks = array();
-                    $children = $tree->children($item, $slideFallbacks, true);
+                    if ( $this->hasBackgroundImage($item) ) {
+                        // Convert the painted owner itself: child-only conversion
+                        // loses its background, including entirely empty slides.
+                        $item->setAttribute('style', $styleResolver->specificityResolvedPresentationStyle($item));
+                        $slide = $tree->element($item, $slideFallbacks, true);
+                        $children = null === $slide ? array() : array($slide);
+                    } else {
+                        $children = $tree->children($item, $slideFallbacks, true);
+                        $slide = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($item), $children, $item);
+                    }
                     if ( array() === $children || array() !== $slideFallbacks ) {
                         if ( $temporary ) {
                             $item->parentNode?->removeChild($item);
                         }
                         return null;
                     }
-                    $slide = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($item), $children, $item);
                 } finally {
                     $this->restoreInlineStyles($geometryStyles);
                 }
@@ -1235,6 +1244,14 @@ JS;
             ) {
                 $presentation = 'slideshow';
             }
+        }
+        // Stacked frames: one item exposed, the rest hidden from assistive
+        // technology, layered by z-index — one slide is on stage at a time.
+        $exposed = array_filter($items, static fn (DOMElement $item): bool => 'true' !== strtolower(SourceDom::attr($item, 'aria-hidden')));
+        if ( 1 < count($items) && 1 === count($exposed)
+            && '' !== CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations(reset($exposed))['z-index'] ?? ''))
+        ) {
+            $presentation = 'slideshow';
         }
         // Selecting a slide from a thumbnail means one slide is on stage.
         if ( 1 < count($pagerItems) ) {
@@ -1341,7 +1358,7 @@ JS;
             ? $this->stageBoxForItems($items, $styleResolver)
             : array('ratio' => '', 'width' => 0);
 
-        $declaredRatio = $styleResolver->resolveStructuralCssVariablesInValue((string) ($geometryDeclarations['aspect-ratio'] ?? ''), $geometryList);
+        $declaredRatio = $styleResolver->customProperties->resolveCascaded((string) ($geometryDeclarations['aspect-ratio'] ?? ''), $geometryList);
         $declaredRatio = $this->normalizedAspectRatio(preg_replace('/\s+/', '', $declaredRatio));
         if ('' !== $declaredRatio && 0 === $viewportHeight) {
             $stageBox['ratio'] = $declaredRatio;
@@ -1353,7 +1370,7 @@ JS;
             foreach (array('thumbnailWidth' => array($pagerItems[0], 'width'), 'thumbnailGap' => array($pagerRoot, in_array($thumbnailPosition, array('left', 'right'), true) ? 'row-gap' : 'column-gap'), 'stageGap' => array($layoutRoot, in_array($thumbnailPosition, array('left', 'right'), true) ? 'column-gap' : 'row-gap')) as $name => [$target, $property]) {
                 if (!$target instanceof DOMElement) continue;
                 $declarations = $styleResolver->structuralPresentationDeclarations($target);
-                $value = $styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations[$property] ?? ($property !== 'width' ? ($declarations['gap'] ?? '') : '')), $target);
+                $value = $styleResolver->customProperties->resolveCascaded((string) ($declarations[$property] ?? ($property !== 'width' ? ($declarations['gap'] ?? '') : '')), $target);
                 if (preg_match('/^[0-9]+(?:\.[0-9]+)?(?:px|rem|em|%)$/D', trim($value))) $thumbnailGeometry[$name] = trim($value);
             }
         }
@@ -2633,12 +2650,19 @@ JS;
             }
             if ( 0 === $item->getElementsByTagName('img')->length
                 && ! $this->sourceElementClassifier->isNativeVideoSlide($item)
+                && ! $this->hasBackgroundImage($item)
                 && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
             ) {
                 return false;
             }
         }
         return true;
+    }
+
+    private function hasBackgroundImage(DOMElement $element): bool
+    {
+        return null !== $this->styleResolver
+            && '' !== (new BackgroundImageExtractor())->urlFromStyle($this->styleResolver->specificityResolvedPresentationStyle($element));
     }
 
     private function carouselPaginationCount(DOMElement $root): int
@@ -2690,13 +2714,14 @@ JS;
     private function isSlideStatus(DOMElement $element): bool
     {
         return 'status' === SourceDom::role($element)
+            || $element->hasAttribute('aria-live')
             || 1 === preg_match('~^\s*[0-9]+\s*/\s*[0-9]+\s*$~', $element->textContent ?? '');
     }
 
     private function slideStatus(DOMElement $list): ?DOMElement
     {
         foreach ($list->childNodes as $child) {
-            if ($child instanceof DOMElement && $this->isSlideStatus($child)) return $child;
+            if ($child instanceof DOMElement && $this->isSlideStatus($child) && 'off' !== SourceDom::attr($child, 'aria-live')) return $child;
         }
         return null;
     }
@@ -2728,7 +2753,7 @@ JS;
                 SourceDom::attr($child, 'data-testid'),
             )));
             if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item|group)(?:[^a-z0-9]|$)/', $identity)
-                && (0 < $child->getElementsByTagName('img')->length || $this->sourceElementClassifier->isNativeVideoSlide($child))
+                && (0 < $child->getElementsByTagName('img')->length || $this->sourceElementClassifier->isNativeVideoSlide($child) || $this->hasBackgroundImage($child))
             ) {
                 $items[] = $child;
                 continue;
