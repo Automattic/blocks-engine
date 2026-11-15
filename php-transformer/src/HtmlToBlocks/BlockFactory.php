@@ -1215,7 +1215,7 @@ final class BlockFactory
     private function styleSupport(mixed $style): array
     {
         if ( is_array($style) ) {
-            return $this->styleMapper()->serialize($style);
+            return $this->styleMapper()->serialize($style, true);
         }
 
         return array(
