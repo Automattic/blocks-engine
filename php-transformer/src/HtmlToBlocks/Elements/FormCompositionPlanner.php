@@ -44,13 +44,14 @@ final class FormCompositionPlanner
         } finally {
             $provenance->releaseFormControlSlot($path);
         }
-        $slotBlock = $this->blockForBindingToken($children, $token);
+        $block = $this->createBlock->createBlock('core/group', $this->presentation->presentationAttributes($form), $children, $form);
+        $slotBlock = $slot->isSameNode($form) ? $block : $this->blockForBindingToken($children, $token);
         if ( array() === $children || null === $slotBlock ) {
             return null;
         }
 
         return array(
-            'block' => $this->createBlock->createBlock('core/group', $this->presentation->presentationAttributes($form), $children, $form),
+            'block' => $block,
             'slot'  => $slotBlock,
         );
     }
@@ -115,7 +116,9 @@ final class FormCompositionPlanner
         if ( null !== $slot ) {
             foreach ( $form->getElementsByTagName('label') as $label ) {
                 if ( '' === SourceDom::attr($label, 'for') && ! $this->elementContains($slot, $label) ) {
-                    return null;
+                    // Replace the whole composed form without switching to the
+                    // degraded readable layout: its source spacing still matters.
+                    return $form;
                 }
             }
         }

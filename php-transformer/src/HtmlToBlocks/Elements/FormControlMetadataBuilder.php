@@ -1007,8 +1007,9 @@ final class FormControlMetadataBuilder
                 }
             }
             // Provider help is rendered independently of the source CSS box.
-            // Preserve trunk's hidden-state analysis and inherited aria-hidden.
-            $hidden = null !== $this->hiddenState($node, $wrapper);
+            // Preserve resolved hidden state as well as inherited aria-hidden.
+            $hidden = ($this->styleResolver?->isVisuallyHiddenAtRest($node) ?? false)
+                || null !== $this->hiddenState($node, $wrapper);
             for ( $ancestor = $node; $ancestor instanceof DOMElement && ! $ancestor->isSameNode($wrapper); $ancestor = $ancestor->parentNode ) {
                 if ( $ancestor->hasAttribute('hidden')
                     || 'true' === strtolower(SourceDom::attr($ancestor, 'aria-hidden'))

@@ -2031,18 +2031,14 @@ final class ShellExtraction
                 [$templateSlugs, $excludedTemplateSlugs] = $assignment;
             }
             $singlePage = 1 === count($applicable) && 1 === count($cluster['indexes']);
-            if (null !== $bindingHoist && $singlePage) {
-                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because it contains a runtime entity binding anchor.", 'area' => $area, 'source_path' => $pages[$cluster['indexes'][0]]['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding', $candidates));
-                continue;
-            }
             foreach ($withoutShells as $index => $withoutShell) {
                 $pages[$index]['canonical_block_markup'] = $withoutShell;
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
             }
-            if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, 'wordpress-site-plan/shared/' . $partSlug . '#' . $area);
+            $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $partSlug;
+            if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, $sourcePath . '#' . $area);
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
             $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
-            $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $partSlug;
             $placement = $inlineShell ? 'inline_shared_shell' : ($singlePage ? 'entry_shell' : 'shared_shell');
             if ($inlineShell) { $templateSlugs = array(); $excludedTemplateSlugs = array(); }
             elseif ($singlePage) $templateSlugs = WordPressSitePlan::NATIVE_TEMPLATE_SLUGS;
@@ -2079,10 +2075,12 @@ final class ShellExtraction
                 $row = $rows[0];
                 $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($row['markup']))->tokens();
                 $attrs = json_decode($tokens[0]['attributes'] ?? '', true);
-                // Descendant-only differences may be navigation current state or
-                // deliberately retained route content. A shared anchor alone is
-                // not evidence of a distinct landmark presentation.
-                if (!isset($anchors[$attrs['anchor'] ?? '']) || array($attrs['style'] ?? array(), $attrs['className'] ?? '') === $anchors[$attrs['anchor']]) continue;
+                if (!isset($anchors[$attrs['anchor'] ?? ''])) continue;
+                // Descendant paint and navigation selection remain route-owned.
+                // Layout differences, however, can describe a distinct shell
+                // even when its landmark wrapper has identical attributes.
+                if (array($attrs['style'] ?? array(), $attrs['className'] ?? '') === $anchors[$attrs['anchor']]
+                    && self::descendantShellLayout($row['markup']) === self::descendantShellLayout($part['canonical_block_markup'])) continue;
                 if (self::textRuns($row['markup']) !== self::textRuns($part['canonical_block_markup'])) continue;
                 $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
                 if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
@@ -2096,6 +2094,21 @@ final class ShellExtraction
         }
         foreach ($pages as &$page) unset($page['shell_candidates'], $page['_source_shared_variant_identities']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /** Layout evidence below the landmark, excluding menu-item state and paint. */
+    private static function descendantShellLayout(string $markup): array
+    {
+        $layout = array();
+        $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->tokens();
+        foreach ($tokens as $token) {
+            if ($token['closing']) continue;
+            $attrs = json_decode($token['attributes'], true);
+            if (!self::isGroupBlock($token['token']) || 'header' === ($attrs['tagName'] ?? '')) continue;
+            $style = array_intersect_key($attrs['style'] ?? array(), array_flip(array('spacing', 'dimensions', 'layout', 'position', 'shadow')));
+            if (array() !== $style) $layout[] = $style;
+        }
+        return $layout;
     }
 
     /**
