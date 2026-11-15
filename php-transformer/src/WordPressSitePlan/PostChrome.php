@@ -268,6 +268,22 @@ final class PostChrome
             }
             $this->pendingFindings = array();
             foreach ($groups as $identity => $group) {
+                // Peer evidence is only valid for a missing whole section, not
+                // for a replacement menu, widget or header. A singleton keeps
+                // its own template, but one layout must equal the other with
+                // complete blocks removed and every remaining byte unchanged.
+                // Either layout may be richer: a singleton can supply the
+                // optional-section evidence for the smaller peer group.
+                if (1 === count($group)) {
+                    $matches = false;
+                    foreach ($groups as $peerIdentity => $peerGroup) {
+                        if ($peerIdentity !== $identity && (self::identityWithoutSections($identity, $peerIdentity) || self::identityWithoutSections($peerIdentity, $identity))) {
+                            $matches = true;
+                            break;
+                        }
+                    }
+                    if (!$matches) continue;
+                }
                 $factored = $this->factorArticleChrome($group, $parts, $runtimeDeclarations, $runtimeEntityRecords, $posts);
                 foreach ($this->pendingFindings as $finding) ($this->recordFinding)($finding);
                 $this->pendingFindings = array();
@@ -299,6 +315,43 @@ final class PostChrome
             }
         }
         return array('pages' => $pages, 'parts' => $parts, 'templates' => array_values($bySlug));
+    }
+
+    /** Whether removing whole blocks from a layout yields this post's identity. */
+    private static function identityWithoutSections(string $post, string $layout): bool
+    {
+        if ($post === $layout) return true;
+        $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($post);
+        $layoutIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($layout);
+        // Compare the literal frame around children as well as their ordered
+        // identities. Descending permits an absent section inside a wrapper,
+        // but never permits different text or attributes in a retained block.
+        $matches = static function (array $postChildren, array $layoutChildren, string $postFrame, string $layoutFrame) use ($postIndex, $layoutIndex): bool {
+            foreach (array_reverse($postChildren) as $child) $postFrame = substr_replace($postFrame, '', $child['offset'], $child['length']);
+            foreach (array_reverse($layoutChildren) as $child) $layoutFrame = substr_replace($layoutFrame, '', $child['offset'], $child['length']);
+            if (trim($postFrame) !== trim($layoutFrame)) return false;
+            $cursor = 0;
+            foreach ($postChildren as $child) {
+                $slice = substr($postIndex->markup, $child['offset'], $child['length']);
+                $found = false;
+                while (isset($layoutChildren[$cursor])) {
+                    $candidate = $layoutChildren[$cursor++];
+                    if (self::identityWithoutSections($slice, substr($layoutIndex->markup, $candidate['offset'], $candidate['length']))) {
+                        $found = true;
+                        break;
+                    }
+                }
+                if (!$found) return false;
+            }
+            return true;
+        };
+        $postRoots = $postIndex->topLevel();
+        $layoutRoots = $layoutIndex->topLevel();
+        // Unwrap one root to compare its children without recursing on itself.
+        if (1 === count($postRoots) && 1 === count($layoutRoots) && 0 === $postRoots[0]['offset'] && strlen($post) === $postRoots[0]['length'] && 0 === $layoutRoots[0]['offset'] && strlen($layout) === $layoutRoots[0]['length']) {
+            return $matches($postIndex->children($postRoots[0]), $layoutIndex->children($layoutRoots[0]), $post, $layout);
+        }
+        return $matches($postRoots, $layoutRoots, $post, $layout);
     }
 
     private function hasDeclaredEmptyTitle(array $post): bool
