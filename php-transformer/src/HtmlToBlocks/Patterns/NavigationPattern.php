@@ -209,14 +209,14 @@ final class NavigationPattern implements PatternRecognizerInterface
      * the row runs out of room. With no label of its own and only destinations
      * its visible siblings already have, it holds nothing for native navigation.
      */
-    private function isHiddenNavigationOverflowCopy(DOMElement $item, DOMElement $list, ?NavigationPatternContext $navigationContext): bool
+    private function isHiddenNavigationOverflowCopy(DOMElement $item, DOMElement $list, NavigationPatternContext $navigationContext): bool
     {
         if ( 'li' !== strtolower($item->tagName) ) {
             return false;
         }
         $style = strtolower(preg_replace('/\s+/', '', SourceDom::attr($item, 'style')) ?? '');
         if ( ! $item->hasAttribute('hidden') && ! str_contains($style, 'display:none')
-            && ! ( $navigationContext?->isHiddenAtReferenceViewport($item) ?? false ) ) {
+            && ! $navigationContext->isHiddenAtReferenceViewport($item) ) {
             return false;
         }
         $visible = array();
@@ -283,25 +283,28 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $result = $this->recognizeNavigation($element, $context);
+        $navigationContext = $context->navigationContext();
+        if ( null === $navigationContext ) {
+            return null;
+        }
+        $result = $this->recognizeNavigation($element, $context, $navigationContext);
         if (null !== $result) {
             $blocks = array($result->block());
             // Recognition can rebuild the same menu at its list and again at
             // an enclosing landmark (for example, beside a toggle button).
             // Both passes must publish subjects under the items' source list,
             // not allocate a second instance for the enclosing layout.
-            $context->navigationContext()?->recordNavigationSubjects($blocks, $this->navigationListSource($element) ?? $element);
+            $navigationContext->recordNavigationSubjects($blocks, $this->navigationListSource($element) ?? $element);
             $result = new PatternRecognitionResult($blocks[0], $result->fallbacks());
         }
         return $result;
     }
 
-    private function recognizeNavigation(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
+    private function recognizeNavigation(DOMElement $element, PatternContext $context, NavigationPatternContext $navigationContext): ?PatternRecognitionResult
     {
         $presentationAttributes = $context->presentationAttributes(...);
         $innerHtml = SourceDom::innerHtml(...);
         $createBlock = $this->createBlock->createBlock(...);
-        $navigationContext = $context->navigationContext();
 
         // A breadcrumb trail is the route's own ancestry, not one site menu:
         // core renders it from the page hierarchy, so the trail becomes one
@@ -319,7 +322,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // aside so recursion reaches the list, which the trail path above
         // recognizes on its own. A list that only resembles a trail (no
         // qualifying ancestor walk) never defers its landmark.
-        if ( null !== $navigationContext && null !== $this->breadcrumbs->wrappedBreadcrumbTrailList($element, $navigationContext) ) {
+        if ( null !== $this->breadcrumbs->wrappedBreadcrumbTrailList($element, $navigationContext) ) {
             return null;
         }
 
@@ -359,7 +362,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             && null !== SourceDom::documentVariantRoot($element)
             && $this->hasOnlyNestedListDestinations($element)
             && ! $this->isInsideCapturedDialogPanel($element)
-            && 'never' === ($navigationContext?->overlayMenu($element) ?? 'never') ) {
+            && 'never' === $navigationContext->overlayMenu($element) ) {
             // A layout wrapper owns the occurrence's containing box, not the
             // list. Keep it around the recursively converted native menu.
             return null;
@@ -454,13 +457,13 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $this->withResolvedVerticalNavigationOrientation($navigationAttrs, $navigationSource, $navigationContext);
         $navigationAttrs = $this->withNoWrapNavigationRow($navigationAttrs, $navigationSource, $listSource, $navigationContext);
         $navigationAttrs = $this->withCollapsedItemBand($navigationAttrs, $navigationSource, $navigationContext);
-        if ( $splitLandmarkOwnership && $navigationContext?->isOutOfFlow($element)
+        if ( $splitLandmarkOwnership && $navigationContext->isOutOfFlow($element)
             && $listSource instanceof DOMElement && ! $this->isResolvedNavigationRow($listSource, $navigationContext) ) {
             // Persist a positioned rail's stack, but let an authored list row keep
             // its resolved layout: landmark positioning says nothing about orientation.
             $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
         }
-        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->inlineMirrorMarker($element) ?? '');
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->inlineMirrorMarker($element));
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'never' === $navigationAttrs['overlayMenu'] && ! $label instanceof DOMElement ) {
             $navigationAttrs = $this->withStackedBlockListLayout($navigationAttrs, $navigationSource, $listSource, $navigationContext);
@@ -492,7 +495,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( ! $splitLandmarkOwnership ) {
                 // In-flow core/navigation still owns the source list directly.
                 // Its generated list needs the existing single-box reset.
-                $navigationContext?->projectSourceToNativeTarget(
+                $navigationContext->projectSourceToNativeTarget(
                     $listSource,
                     '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
                     'padding:0!important;margin:0!important;border-width:0!important'
@@ -528,15 +531,15 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $this->withNavigationLinkColorClasses($navigationAttrs, $links);
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $navigationSource, $navigationContext);
-        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($navigationSource, 'never' === ($navigationAttrs['overlayMenu'] ?? '') ? $listSource : null, 'default' === ($navigationAttrs['layout']['type'] ?? '') ? ($navigationAttrs['style']['spacing']['blockGap'] ?? null) : null) ?? '');
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->navigationListHostIdentity($navigationSource, 'never' === ($navigationAttrs['overlayMenu'] ?? '') ? $listSource : null, 'default' === ($navigationAttrs['layout']['type'] ?? '') ? ($navigationAttrs['style']['spacing']['blockGap'] ?? null) : null));
         $navigationAttrs = $this->withSourceSubmenuIndicator($navigationAttrs, $element, $navigationContext);
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $navigationSource);
         // Presentation recovery and container resets must target the created
         // block's importer identity when the source carries only core classes.
         $scopedClasses = $this->scopedNavigationClasses($authorClasses, $navigation);
-        $navigationContext?->recordInheritedPresentation($navigationSource, $scopedClasses, ! $this->hasDirectListItemCorrespondence($listSource));
+        $navigationContext->recordInheritedPresentation($navigationSource, $scopedClasses, ! $this->hasDirectListItemCorrespondence($listSource));
         // WordPress copies the emitted block's classes onto its inner list.
-        $navigationContext?->recordNavigationContainerReset(
+        $navigationContext->recordNavigationContainerReset(
             $navigationSource,
             $scopedClasses,
             $listSource
@@ -578,7 +581,8 @@ final class NavigationPattern implements PatternRecognizerInterface
     public function recognizeLabeledSection(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $converter = $context->recursiveConverter();
-        if ( 'nav' === strtolower($element->tagName) || null === $converter ) {
+        $navigationContext = $context->navigationContext();
+        if ( 'nav' === strtolower($element->tagName) || null === $converter || null === $navigationContext ) {
             return null;
         }
 
@@ -623,18 +627,18 @@ final class NavigationPattern implements PatternRecognizerInterface
             $links[] = $this->createBlock->createBlock('core/navigation-link', array_filter(array(
                 'label' => SourceDom::innerHtmlWithProjectedMarkers(
                     $anchor,
-                    static fn (DOMElement $labelElement): array => $context->navigationContext()?->sourcePresentationMarkers($labelElement) ?? array(),
-                    static fn (DOMElement $labelElement): string => $context->navigationContext()?->serializedInlineStyle($labelElement) ?? SourceDom::attr($labelElement, 'style')
+                    static fn (DOMElement $labelElement): array => $navigationContext->sourcePresentationMarkers($labelElement),
+                    static fn (DOMElement $labelElement): string => $navigationContext->serializedInlineStyle($labelElement)
                 ),
                 'url' => SourceDom::safeNavigationUrl(SourceDom::attr($anchor, 'href')),
                 'kind' => 'custom',
             ), static fn ($value): bool => '' !== $value), array(), $anchor);
         }
-        $overlayMenu = $this->overlayMenu($element, $context->navigationContext());
+        $overlayMenu = $this->overlayMenu($element, $navigationContext);
         $navigationAttrs = array('overlayMenu' => $overlayMenu);
         if ( 'mobile' === $overlayMenu ) {
             $navigationAttrs['className'] = 'blocks-engine-native-responsive-navigation';
-            $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $context->navigationContext());
+            $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
         }
         $blocks[] = $this->createBlock->createBlock('core/navigation', $navigationAttrs, $links, $element);
 
@@ -654,15 +658,15 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function withProjectedFontFamily(array $attrs, DOMElement $element, ?NavigationPatternContext $context): array
+    private function withProjectedFontFamily(array $attrs, DOMElement $element, NavigationPatternContext $navigationContext): array
     {
         $family = trim((string) ($attrs['style']['typography']['fontFamily'] ?? ''));
-        if ( '' === $family || null === $context ) {
+        if ( '' === $family ) {
             return $attrs;
         }
 
         $marker = 'blocks-engine-navigation-font-family-' . substr(hash('sha256', $family), 0, 12);
-        $context->projectSourceToNativeTarget($element, '.wp-block-navigation.' . $marker, 'font-family:' . $family);
+        $navigationContext->projectSourceToNativeTarget($element, '.wp-block-navigation.' . $marker, 'font-family:' . $family);
         $attrs = $this->withClassName($attrs, $marker);
         unset($attrs['style']['typography']['fontFamily']);
         if ( array() === $attrs['style']['typography'] ) {
@@ -675,13 +679,13 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $attrs;
     }
 
-    private function overlayMenu(DOMElement $element, ?NavigationPatternContext $context): string
+    private function overlayMenu(DOMElement $element, NavigationPatternContext $navigationContext): string
     {
         if ( $this->isInsideCapturedDisclosurePanel($element) || $this->isMenuPanelContent($element) || $this->isInsideCapturedDialog($element) ) {
             return 'never';
         }
 
-        return $context?->overlayMenu($element) ?? 'never';
+        return $navigationContext->overlayMenu($element);
     }
 
     /**
@@ -767,7 +771,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param list<array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
-    private function brandAnchorCarrier(DOMElement $element, array &$fallbacks, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?PatternTreeConverter $converter, ?NavigationPatternContext $navigationContext, ?ImageLowering $images): ?array
+    private function brandAnchorCarrier(DOMElement $element, array &$fallbacks, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?PatternTreeConverter $converter, NavigationPatternContext $navigationContext, ?ImageLowering $images): ?array
     {
         if ( null === $converter ) {
             return null;
@@ -811,7 +815,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             ) {
                 // Chrome that scripts drive at runtime is not decoration: a
                 // carrier group would drop it, so keep the source shape.
-                if ( $navigationContext?->isRuntimeDomTarget($child) || $this->containsDialogCloseTarget($child) || SourceDom::isBoundCapturedDialogTrigger($child) ) {
+                if ( $navigationContext->isRuntimeDomTarget($child) || $this->containsDialogCloseTarget($child) || SourceDom::isBoundCapturedDialogTrigger($child) ) {
                     return null;
                 }
                 continue;
@@ -848,7 +852,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 // alone cannot tell a CTA from an ordinary menu item sitting
                 // outside the list, so the container still defers and the anchor
                 // is absorbed into the menu exactly as it is today.
-                if ( ! $buttonSignals->hasTransformSignal($child, $navigationContext?->resolvedStyle($child) ?? '') ) {
+                if ( ! $buttonSignals->hasTransformSignal($child, $navigationContext->resolvedStyle($child)) ) {
                     return null;
                 }
 
@@ -888,7 +892,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( $clusterMenu instanceof DOMElement && $child instanceof DOMElement
                 && ( 'button' === strtolower($child->tagName)
                     || ( 'a' === strtolower($child->tagName)
-                        && $buttonSignals->hasTransformSignal($child, $navigationContext?->resolvedStyle($child) ?? '') ) )
+                        && $buttonSignals->hasTransformSignal($child, $navigationContext->resolvedStyle($child)) ) )
                 && ! $this->isNavigationChromeElement($child) ) {
                 $clusterControls[] = $child;
                 continue;
@@ -960,7 +964,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $splitLandmarkOwnership ) {
             $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
         }
-        if ( null !== $navigationContext && $listSource instanceof DOMElement ) {
+        if ( $listSource instanceof DOMElement ) {
             $clusterSpacing = $this->resolvedNavigationSpacing($navigationContext->resolvedStyle($cluster));
             $blockGap = trim((string) ($clusterSpacing['blockGap'] ?? ''));
             if ( '' !== $blockGap ) {
@@ -997,7 +1001,6 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         $isDirectDivCluster = 'div' === strtolower($cluster->tagName);
         $isDirectDivCascadeCollision = $isDirectDivCluster
-            && null !== $navigationContext
             && $this->hasDirectNavigationBoxCollision(
                 $navigationContext->resolvedStyle($element),
                 $navigationContext->resolvedStyle($cluster)
@@ -1006,8 +1009,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $navigationAttrs = $this->withClassName($navigationAttrs, self::DIRECT_NAVIGATION_CLASS);
             $links = $this->markDirectNavigationLinkColors($links);
             foreach ( array( 'margin', 'padding', 'max-width' ) as $family ) {
-                if ( null !== $navigationContext
-                    && $this->resolvedStyleDeclaresFamily($navigationContext->resolvedStyle($element), $family)
+                if ( $this->resolvedStyleDeclaresFamily($navigationContext->resolvedStyle($element), $family)
                     && ! $this->resolvedStyleDeclaresFamily($navigationContext->resolvedStyle($cluster), $family)
                 ) {
                     $marker = self::DIRECT_NAVIGATION_CLASS . '-reset-' . $family;
@@ -1028,13 +1030,13 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $this->withNavigationLinkColorClasses($navigationAttrs, $links);
 
         $navigationAttrs = $this->withProjectedFontFamily($navigationAttrs, $cluster, $navigationContext);
-        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->navigationListHostIdentity($cluster) ?? '');
+        $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->navigationListHostIdentity($cluster));
         $navigationAttrs = $this->withSourceSubmenuIndicator($navigationAttrs, $cluster, $navigationContext);
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $cluster);
         // The cluster's classes travel onto this block and, through WordPress,
         // onto its inner list; keep what the cluster states placed once.
         $clusterClasses = $this->authorClassNames((string) ($navigationAttrs['className'] ?? ''));
-        $navigationContext?->recordNavigationContainerReset(
+        $navigationContext->recordNavigationContainerReset(
             $cluster,
             $this->scopedNavigationClasses($clusterClasses, $navigation),
             $listSource
@@ -1103,7 +1105,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * row's group. A row whose other children cannot convert natively is left
      * alone.
      */
-    private function menuRowBesideControls(DOMElement $row, PatternContext $context, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext): ?PatternRecognitionResult
+    private function menuRowBesideControls(DOMElement $row, PatternContext $context, callable $presentationAttributes, callable $innerHtml, callable $createBlock, NavigationPatternContext $navigationContext): ?PatternRecognitionResult
     {
         $converter = $context->recursiveConverter();
         $trailingControl = $this->hasTrailingNavigationControl($row, $navigationContext);
@@ -1118,10 +1120,10 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         // A captured mobile menu that repeats this row belongs to the row's
         // own navigation. It stays only if the row can take it over whole.
-        $fold = $navigationContext?->capturedMenuFold($row);
+        $fold = $navigationContext->capturedMenuFold($row);
         $result = $this->menuRowSlots($row, $converter, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $fold);
         if ( null === $result && $fold instanceof CapturedMenuDialogFold ) {
-            $navigationContext?->releaseCapturedMenuFold($fold);
+            $navigationContext->releaseCapturedMenuFold($fold);
             return $this->menuRowSlots($row, $converter, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, null);
         }
 
@@ -1129,7 +1131,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /** A landmark's link run may end in one native CTA, not arbitrary content. */
-    private function hasTrailingNavigationControl(DOMElement $row, ?NavigationPatternContext $navigationContext): bool
+    private function hasTrailingNavigationControl(DOMElement $row, NavigationPatternContext $navigationContext): bool
     {
         if ( 'nav' !== strtolower($row->tagName) ) {
             return false;
@@ -1149,19 +1151,19 @@ final class NavigationPattern implements PatternRecognizerInterface
             || $this->isNavigationChromeElement($control)
             || ( 'button' !== strtolower($control->tagName)
                 && ! ( 'a' === strtolower($control->tagName)
-                    && (new ButtonSignalClassifier())->hasTransformSignal($control, $navigationContext?->resolvedStyle($control) ?? '') ) ) ) {
+                    && (new ButtonSignalClassifier())->hasTransformSignal($control, $navigationContext->resolvedStyle($control)) ) ) ) {
             return false;
         }
         foreach ( $children as $child ) {
             if ( 'a' !== strtolower($child->tagName) || '' === trim($child->getAttribute('href'))
-                || (new ButtonSignalClassifier())->hasTransformSignal($child, $navigationContext?->resolvedStyle($child) ?? '') ) {
+                || (new ButtonSignalClassifier())->hasTransformSignal($child, $navigationContext->resolvedStyle($child)) ) {
                 return false;
             }
         }
         return true;
     }
 
-    private function menuRowSlots(DOMElement $row, PatternTreeConverter $converter, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext, ?CapturedMenuDialogFold $fold): ?PatternRecognitionResult
+    private function menuRowSlots(DOMElement $row, PatternTreeConverter $converter, callable $presentationAttributes, callable $innerHtml, callable $createBlock, NavigationPatternContext $navigationContext, ?CapturedMenuDialogFold $fold): ?PatternRecognitionResult
     {
         $buttonSignals = new ButtonSignalClassifier();
         $slots = array();
@@ -1175,7 +1177,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $isItem = null !== $this->buttonDropdownItem($child)
                 || ( 'a' === strtolower($child->tagName)
                     && '' !== $this->anchorLabel($child, $innerHtml)
-                    && ! $buttonSignals->hasTransformSignal($child, $navigationContext?->resolvedStyle($child) ?? '') );
+                    && ! $buttonSignals->hasTransformSignal($child, $navigationContext->resolvedStyle($child)) );
             $last = count($slots) - 1;
             if ( $isItem && 0 <= $last && 'items' === $slots[$last]['kind'] ) {
                 $slots[$last]['elements'][] = $child;
@@ -1236,7 +1238,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 $attrs = $this->withResponsiveToggleMarker($attrs, $row, $navigationContext);
                 $attrs = $this->withResponsiveOverlayMarker($attrs, $row, $navigationContext);
             }
-            $gap = trim((string) ( $this->resolvedNavigationSpacing($navigationContext?->resolvedStyle($row) ?? '')['blockGap'] ?? '' ));
+            $gap = trim((string) ( $this->resolvedNavigationSpacing($navigationContext->resolvedStyle($row))['blockGap'] ?? '' ));
             if ( '' !== $gap ) {
                 $attrs['style']['spacing']['blockGap'] = $gap;
             }
@@ -1257,7 +1259,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( $trailingControl ) {
                 // The landmark's classes stay on the row group, so the link
                 // presentation the items inherit is scoped to this block.
-                $navigationContext?->recordInheritedPresentation($row, $this->scopedNavigationClasses(array(), $navigation));
+                $navigationContext->recordInheritedPresentation($row, $this->scopedNavigationClasses(array(), $navigation));
             }
             $children[] = $navigation;
         }
@@ -1275,12 +1277,12 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $trailingResponsive ) {
             // The source hides this whole row on phones. Once its toggle is
             // owned by the inner navigation, expose the row but not the CTA.
-            $toggle = $navigationContext?->navigationToggleControl($row);
-            $boundary = $toggle instanceof DOMElement ? $navigationContext?->menuCollapseBreakpoint($row, $toggle) : null;
+            $toggle = $navigationContext->navigationToggleControl($row);
+            $boundary = $toggle instanceof DOMElement ? $navigationContext->menuCollapseBreakpoint($row, $toggle) : null;
             $below = null === $boundary || $boundary <= 600 ? 599 : (int) floor($boundary);
             $rule = '@media(max-width:' . $below . 'px){.wp-block-group.%s{display:flex!important}.wp-block-group.%s>.' . self::MENU_FOLD_HIDE_CLASS . '{display:none!important}}';
             $foldMarker = 'blocks-engine-menu-fold-' . substr(hash('sha256', $rule), 0, 12);
-            $navigationContext?->registerMenuFoldRule($foldMarker, str_replace('%s', $foldMarker, $rule));
+            $navigationContext->registerMenuFoldRule($foldMarker, str_replace('%s', $foldMarker, $rule));
         }
         if ( '' !== $foldMarker ) {
             $groupAttrs = $this->withClassName($groupAttrs, $foldMarker);
@@ -1308,12 +1310,8 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array{0: array<string, mixed>, 1: array<int, array<string, mixed>>, 2: string}|null The attributes, the overlay-only blocks, and the row marker.
      */
-    private function foldedOverlayAttributes(DOMElement $row, CapturedMenuDialogFold $fold, array $attrs, array $itemLinks, PatternTreeConverter $converter, callable $createBlock, ?NavigationPatternContext $navigationContext, array &$fallbacks): ?array
+    private function foldedOverlayAttributes(DOMElement $row, CapturedMenuDialogFold $fold, array $attrs, array $itemLinks, PatternTreeConverter $converter, callable $createBlock, NavigationPatternContext $navigationContext, array &$fallbacks): ?array
     {
-        if ( null === $navigationContext ) {
-            return null;
-        }
-
         $extras = array();
         foreach ( $fold->dialog->getElementsByTagName('a') as $anchor ) {
             if ( ! $anchor instanceof DOMElement
@@ -1427,9 +1425,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function withResponsiveToggleMarker(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    private function withResponsiveToggleMarker(array $attrs, DOMElement $element, NavigationPatternContext $navigationContext): array
     {
-        $marker = $navigationContext?->responsiveToggleMarker($element) ?? '';
+        $marker = $navigationContext->responsiveToggleMarker($element);
         if ( '' === $marker ) {
             return $attrs;
         }
@@ -1444,7 +1442,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( null === $this->navigationListSource($element) ) {
             $attrs = $this->withClassName($attrs, self::ANCHOR_ITEMS_NAVIGATION_CLASS);
         }
-        $attrs = $navigationContext?->withSourceOpener($attrs, $element) ?? $attrs;
+        $attrs = $navigationContext->withSourceOpener($attrs, $element);
         return $this->withClassName($attrs, $marker);
     }
 
@@ -1455,21 +1453,17 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function withResponsiveOverlayMarker(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    private function withResponsiveOverlayMarker(array $attrs, DOMElement $element, NavigationPatternContext $navigationContext): array
     {
-        $marker = $navigationContext?->responsiveOverlayMarker($element) ?? '';
-        $attrs = array_replace_recursive($attrs, $navigationContext?->responsiveOverlayAttributes($element) ?? array());
+        $marker = $navigationContext->responsiveOverlayMarker($element);
+        $attrs = array_replace_recursive($attrs, $navigationContext->responsiveOverlayAttributes($element));
 
         return '' === $marker ? $attrs : $this->withClassName($attrs, $marker);
     }
 
     /** @param array<string, mixed> $attrs @return array<string, mixed> */
-    private function withInlineNavigationDisplay(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    private function withInlineNavigationDisplay(array $attrs, DOMElement $element, NavigationPatternContext $navigationContext): array
     {
-        if ( null === $navigationContext ) {
-            return $attrs;
-        }
-
         $display = CssValueInspector::declared(SourceDeclarations::parse($navigationContext->resolvedStyle($element)), 'display');
         if ( in_array($display, array( 'inline', 'inline-block', 'inline-flex' ), true) ) {
             return $this->withClassName($attrs, self::INLINE_NAVIGATION_CLASS);
@@ -1496,12 +1490,8 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function withCollapsedItemBand(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    private function withCollapsedItemBand(array $attrs, DOMElement $element, NavigationPatternContext $navigationContext): array
     {
-        if ( null === $navigationContext ) {
-            return $attrs;
-        }
-
         $band = null;
         foreach ( $element->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) {
@@ -1657,9 +1647,9 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /** @param array<string, mixed> $attrs @return array<string, mixed> */
-    private function withResolvedNonFlexNavigationLayout(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    private function withResolvedNonFlexNavigationLayout(array $attrs, DOMElement $element, NavigationPatternContext $navigationContext): array
     {
-        if ( null === $navigationContext || is_array($attrs['layout'] ?? null) ) {
+        if ( is_array($attrs['layout'] ?? null) ) {
             return $attrs;
         }
 
@@ -1692,9 +1682,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function withStackedBlockListLayout(array $attrs, DOMElement $host, ?DOMElement $list, ?NavigationPatternContext $navigationContext): array
+    private function withStackedBlockListLayout(array $attrs, DOMElement $host, ?DOMElement $list, NavigationPatternContext $navigationContext): array
     {
-        if ( null === $navigationContext || ! $list instanceof DOMElement || is_array($attrs['layout'] ?? null)
+        if ( ! $list instanceof DOMElement || is_array($attrs['layout'] ?? null)
             || ! in_array($navigationContext->cascadeDisplay($host, true), array( 'block', 'flow-root' ), true)
             || ! in_array($navigationContext->cascadeDisplay($list, true), array( 'block', 'flow-root' ), true)
         ) {
@@ -1738,9 +1728,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      *
      * @param array<string, mixed> $attrs @return array<string, mixed>
      */
-    private function withResolvedVerticalNavigationOrientation(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    private function withResolvedVerticalNavigationOrientation(array $attrs, DOMElement $element, NavigationPatternContext $navigationContext): array
     {
-        if ( null === $navigationContext || is_array($attrs['layout'] ?? null) ) {
+        if ( is_array($attrs['layout'] ?? null) ) {
             return $attrs;
         }
 
@@ -1773,9 +1763,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function withNoWrapNavigationRow(array $attrs, DOMElement $element, ?DOMElement $list, ?NavigationPatternContext $navigationContext): array
+    private function withNoWrapNavigationRow(array $attrs, DOMElement $element, ?DOMElement $list, NavigationPatternContext $navigationContext): array
     {
-        if ( null === $navigationContext || is_array($attrs['layout'] ?? null) ) {
+        if ( is_array($attrs['layout'] ?? null) ) {
             return $attrs;
         }
 
@@ -1851,12 +1841,8 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function withResolvedListPackingJustification(array $attrs, DOMElement $list, ?NavigationPatternContext $navigationContext): array
+    private function withResolvedListPackingJustification(array $attrs, DOMElement $list, NavigationPatternContext $navigationContext): array
     {
-        if ( ! $navigationContext instanceof NavigationPatternContext ) {
-            return $attrs;
-        }
-
         $style = $navigationContext->resolvedStyle($list);
         if ( ! in_array($navigationContext->resolvedDisplay($list), array( 'flex', 'inline-flex' ), true)
             && $this->isResolvedNavigationRow($list, $navigationContext) ) {
@@ -1989,11 +1975,10 @@ final class NavigationPattern implements PatternRecognizerInterface
      * lost or the list's inline formatting or rail placement also acts
      * on the landmark that contains it.
      */
-    private function shouldSplitLandmarkOwnership(DOMElement $element, ?DOMElement $listSource, ?NavigationPatternContext $navigationContext): bool
+    private function shouldSplitLandmarkOwnership(DOMElement $element, ?DOMElement $listSource, NavigationPatternContext $navigationContext): bool
     {
         if ( ! $listSource instanceof DOMElement
             || $listSource->isSameNode($element)
-            || ! $navigationContext instanceof NavigationPatternContext
         ) {
             return false;
         }
@@ -2387,7 +2372,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      *        one-to-one check, each direct anchor that became an item of its own.
      * @return array<int, array<string, mixed>>
      */
-    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null, bool $allowsDescriptiveChrome = false, bool $itemsAreVouched = false, ?array &$directAnchors = null, ?array &$listItems = null): array
+    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, NavigationPatternContext $navigationContext, bool $allowsDescriptiveChrome = false, bool $itemsAreVouched = false, ?array &$directAnchors = null, ?array &$listItems = null): array
     {
         // List items reach $listItems only when this call yields blocks, so a
         // list or submenu that converts partly and is then given up leaves no
@@ -2404,7 +2389,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param list<DOMElement> $collected Source list items converted so far by this call.
      * @return array<int, array<string, mixed>>
      */
-    private function navigationBlocksUnbuffered(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null, bool $allowsDescriptiveChrome = false, bool $itemsAreVouched = false, ?array &$directAnchors = null, array &$collected = array()): array
+    private function navigationBlocksUnbuffered(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, NavigationPatternContext $navigationContext, bool $allowsDescriptiveChrome = false, bool $itemsAreVouched = false, ?array &$directAnchors = null, array &$collected = array()): array
     {
         $blocks = array();
         $hasListBackedMenu = false;
@@ -2470,7 +2455,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $blocks[] = $createBlock('core/html', array('content' => SourceDom::outerHtml($child)), array(), $child);
                     continue;
                 }
-                if ( $navigationContext?->isRuntimeDomTarget($child)
+                if ( $navigationContext->isRuntimeDomTarget($child)
                     && ! $this->isInertOverlayNavigationChrome($child)
                     && ! $hasListBackedMenu
                     // The native responsive overlay takes over its source opener,
@@ -2563,17 +2548,13 @@ final class NavigationPattern implements PatternRecognizerInterface
      * neutral wrapper is equally safe only when every descendant is hidden from
      * assistive technology and cannot receive focus or navigate anywhere.
      */
-    private function isInertNavigationSupportChild(DOMElement $element, DOMElement $navigation, ?NavigationPatternContext $navigationContext): bool
+    private function isInertNavigationSupportChild(DOMElement $element, DOMElement $navigation, NavigationPatternContext $navigationContext): bool
     {
-        if ( $navigationContext?->isRuntimeDomTarget($element)
+        if ( $navigationContext->isRuntimeDomTarget($element)
             && '' === trim($element->textContent ?? '')
             && 0 === $element->childElementCount
         ) {
             return true;
-        }
-
-        if ( null === $navigationContext ) {
-            return false;
         }
 
         $style = strtolower($navigationContext->resolvedStyle($element));
@@ -2656,7 +2637,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function navigationBlocksFromList(DOMElement $list, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null, ?array &$listItems = null): array
+    private function navigationBlocksFromList(DOMElement $list, callable $presentationAttributes, callable $innerHtml, callable $createBlock, NavigationPatternContext $navigationContext, ?array &$listItems = null): array
     {
         $blocks = array();
         $collected = array();
@@ -2769,7 +2750,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
-    private function navigationImageLinkBlock(DOMElement $item, callable $presentationAttributes, callable $createBlock, ?NavigationPatternContext $navigationContext): ?array
+    private function navigationImageLinkBlock(DOMElement $item, callable $presentationAttributes, callable $createBlock, NavigationPatternContext $navigationContext): ?array
     {
         $anchor = $this->primaryNavigationAnchor($item);
         if ( ! $anchor instanceof DOMElement || ! SourceDom::navigatesToDestination($anchor) ) {
@@ -2865,7 +2846,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         return true;
     }
 
-    private function navigationBlockFromItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null, ?array &$listItems = null): ?array
+    private function navigationBlockFromItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, NavigationPatternContext $navigationContext, ?array &$listItems = null): ?array
     {
         $block = $this->navigationBlockFromListItem($element, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $listItems);
         if ( null !== $block && null !== $listItems ) {
@@ -2877,7 +2858,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /** @return array<string, mixed>|null */
-    private function navigationBlockFromListItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null, ?array &$listItems = null): ?array
+    private function navigationBlockFromListItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, NavigationPatternContext $navigationContext, ?array &$listItems = null): ?array
     {
         $jumpMenu = $this->jumpSelectItem($element);
         if ( null !== $jumpMenu ) {
@@ -2888,7 +2869,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             // The select has no destination of its own, so core opens the
             // submenu on activation, as the source opened its option list.
             $attrs = $this->navigationItemAttributes($element, $jumpMenu['select'], null, array( 'label' => $jumpMenu['label'], 'kind' => 'custom' ), $presentationAttributes, $navigationContext);
-            $resets = $navigationContext?->formControlTextResets($jumpMenu['select']) ?? '';
+            $resets = $navigationContext->formControlTextResets($jumpMenu['select']);
             if ( '' !== $resets && isset($attrs['metadata']['blocksEngineNavigationAnchor']) ) {
                 $style = (string) ($attrs['metadata']['blocksEngineNavigationAnchor']['style'] ?? '');
                 $attrs['metadata']['blocksEngineNavigationAnchor']['style'] = $resets . ('' === $style ? '' : ';' . $style);
@@ -2897,9 +2878,9 @@ final class NavigationPattern implements PatternRecognizerInterface
                 // The source's own glyph stays beside the label, where its
                 // rules place it; core's icon would draw a second indicator.
                 $indicator = $jumpMenu['indicator'];
-                $typography = $navigationContext?->indicatorTypography($indicator, $jumpMenu['select']) ?? '';
+                $typography = $navigationContext->indicatorTypography($indicator, $jumpMenu['select']);
                 $attrs['label'] .= '<span class="' . htmlspecialchars(trim($indicator->getAttribute('class')), ENT_QUOTES) . '"' . ('' === $typography ? '' : ' style="' . htmlspecialchars($typography, ENT_QUOTES) . '"') . ' aria-hidden="true">' . htmlspecialchars(trim($indicator->textContent ?? ''), ENT_QUOTES) . '</span>';
-                $navigationContext?->recordSubmenuIndicator($element);
+                $navigationContext->recordSubmenuIndicator($element);
             }
             return $createBlock('core/navigation-submenu', $attrs, $children, $element);
         }
@@ -2967,7 +2948,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $this->navigationLinkBlock($anchor, $presentationAttributes, $innerHtml, $createBlock, $element, $navigationContext);
     }
 
-    private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null, ?NavigationPatternContext $navigationContext = null): array
+    private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item, NavigationPatternContext $navigationContext): array
     {
         // An empty anchor (a CSS-painted dot or swatch) is named only by its
         // `aria-label`/`title`. core/navigation-link renders nothing without a
@@ -2983,9 +2964,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         // core/navigation-link has nowhere to store the artwork that name
         // described. Carry an opaque marker so the recovered source icon can be
         // projected onto the rendered item without leaving native navigation.
-        $artwork = isset($linkAttrs['metadata']['blocksEngineNavigationAnchor']) ? ($navigationContext?->navigationAnchorArtwork($anchor) ?? '') : '';
+        $artwork = isset($linkAttrs['metadata']['blocksEngineNavigationAnchor']) ? $navigationContext->navigationAnchorArtwork($anchor) : '';
         if ('' !== $artwork) $linkAttrs['metadata']['blocksEngineNavigationAnchor']['svg'] = $artwork;
-        else $linkAttrs = $this->withClassName($linkAttrs, $navigationContext?->linkIconMarker($anchor) ?? '');
+        else $linkAttrs = $this->withClassName($linkAttrs, $navigationContext->linkIconMarker($anchor));
 
         return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
     }
@@ -3043,11 +3024,8 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param list<DOMElement> $directAnchors
      * @param list<DOMElement> $listItems
      */
-    private function recordNavigationSources(array $links, array $directAnchors, array $listItems, DOMElement $navigationSource, ?NavigationPatternContext $navigationContext): void
+    private function recordNavigationSources(array $links, array $directAnchors, array $listItems, DOMElement $navigationSource, NavigationPatternContext $navigationContext): void
     {
-        if ( null === $navigationContext ) {
-            return;
-        }
         $this->recordOneToOneDirectAnchors($links, $directAnchors, $navigationContext);
         $this->recordNavigationListItems($listItems, $navigationContext);
         if ( in_array(strtolower($navigationSource->tagName), array( 'ul', 'ol' ), true) ) {
@@ -3113,7 +3091,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         return '';
     }
 
-    private function anchorLabel(DOMElement $anchor, callable $innerHtml, ?NavigationPatternContext $navigationContext = null): string
+    private function anchorLabel(DOMElement $anchor, callable $innerHtml, NavigationPatternContext $navigationContext): string
     {
         $label = $this->navigationLabel($this->labelHtml($anchor, $innerHtml, $navigationContext));
         if ( '' !== $label ) {
@@ -3156,10 +3134,10 @@ final class NavigationPattern implements PatternRecognizerInterface
      * stamped on it and the rewritten rules match nothing. Carry them here so the
      * source's own menu typography and color survive to the front end.
      */
-    private function labelHtml(DOMElement $anchor, callable $innerHtml, ?NavigationPatternContext $navigationContext): string
+    private function labelHtml(DOMElement $anchor, callable $innerHtml, NavigationPatternContext $navigationContext): string
     {
         $measurementCopies = array();
-        $displayNone = null !== $navigationContext ? $navigationContext->isDisplayNoneAtEveryViewport(...) : null;
+        $displayNone = $navigationContext->isDisplayNoneAtEveryViewport(...);
         foreach ( $anchor->getElementsByTagName('*') as $index => $descendant ) {
             if ( InertScaffoldingSuppressor::isMeasurementCopy($descendant, $displayNone) ) {
                 $measurementCopies[$index] = true;
@@ -3183,10 +3161,6 @@ final class NavigationPattern implements PatternRecognizerInterface
             $anchor = $clone;
         }
         $live = static fn (DOMElement $element): DOMElement => isset($liveNodes[$element]) ? $liveNodes[$element] : $element;
-
-        if ( ! $navigationContext instanceof NavigationPatternContext ) {
-            return preg_replace('/<!--[\s\S]*?-->/', '', $innerHtml($anchor)) ?? $innerHtml($anchor);
-        }
 
         $inlineStyle = static fn (DOMElement $element): string => $navigationContext->serializedInlineStyle($live($element));
         $markered = SourceDom::innerHtmlWithProjectedMarkers(
@@ -3278,11 +3252,10 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function withSourceSubmenuIndicator(array $attrs, DOMElement $source, ?NavigationPatternContext $navigationContext): array
+    private function withSourceSubmenuIndicator(array $attrs, DOMElement $source, NavigationPatternContext $navigationContext): array
     {
-        if ( null !== $navigationContext
-            && ( $navigationContext->hasSubmenuToggleIndicatorWithin($source)
-                || $navigationContext->hasUnindicatedSubmenuParentWithin($source) ) ) {
+        if ( $navigationContext->hasSubmenuToggleIndicatorWithin($source)
+            || $navigationContext->hasUnindicatedSubmenuParentWithin($source) ) {
             $attrs['showSubmenuIcon'] = false;
         }
         return $attrs;
@@ -3292,7 +3265,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * Whether the source item has a button that stands in for its label or
      * opens the submenu beside it.
      */
-    private function hasSubmenuDisclosureControl(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, ?NavigationPatternContext $navigationContext): bool
+    private function hasSubmenuDisclosureControl(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, NavigationPatternContext $navigationContext): bool
     {
         // A link that announces its popup but leads to a page is still a link;
         // its submenu opens on hover/focus. So is a link that is not a button
@@ -3300,7 +3273,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $this->isSubmenuToggleControl($anchor) && ! $this->leadsToPage($anchor) && ! $this->isHoverRevealedLabel($item, $anchor, $submenuContainer, $navigationContext) ) return true;
         foreach ( $item->getElementsByTagName('button') as $button ) {
             // A visually hidden button is a keyboard affordance; it paints no indicator.
-            if ( ! $button instanceof DOMElement || $navigationContext?->isVisuallyHiddenControl($button) ) continue;
+            if ( ! $button instanceof DOMElement || $navigationContext->isVisuallyHiddenControl($button) ) continue;
             for ( $node = $button; $node instanceof DOMElement; $node = $node->parentNode ) {
                 if ( null !== $submenuContainer && $node->isSameNode($submenuContainer) ) continue 2;
             }
@@ -3309,10 +3282,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         return false;
     }
 
-    private function isHoverRevealedLabel(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, ?NavigationPatternContext $navigationContext): bool
+    private function isHoverRevealedLabel(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, NavigationPatternContext $navigationContext): bool
     {
         return 'a' === strtolower($anchor->tagName) && 'button' !== SourceDom::role($anchor)
-            && null !== $submenuContainer && true === $navigationContext?->revealsSubmenuOnItemState($item, $submenuContainer);
+            && null !== $submenuContainer && true === $navigationContext->revealsSubmenuOnItemState($item, $submenuContainer);
     }
 
     /** Whether the label is a link to a destination rather than a button. */
@@ -3339,7 +3312,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $baseAttrs
      * @return array<string, mixed>
      */
-    private function navigationItemAttributes(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, array $baseAttrs, callable $presentationAttributes, ?NavigationPatternContext $navigationContext = null): array
+    private function navigationItemAttributes(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, array $baseAttrs, callable $presentationAttributes, NavigationPatternContext $navigationContext): array
     {
         $hasAuthoredCurrentState = $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor);
         // A source box between the item and its link can carry the state.
@@ -3347,16 +3320,16 @@ final class NavigationPattern implements PatternRecognizerInterface
             $hasAuthoredCurrentState = $this->hasCurrentNavigationSignal($box);
         }
         $isCurrentNavigationItem = $hasAuthoredCurrentState
-            || (null !== $navigationContext && $navigationContext->targetsCurrentDocument($anchor->getAttribute('href')));
+            || $navigationContext->targetsCurrentDocument($anchor->getAttribute('href'));
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
-        if ($isCurrentNavigationItem) $navigationContext?->recordCurrentNavigationItem($item, $anchor);
+        if ($isCurrentNavigationItem) $navigationContext->recordCurrentNavigationItem($item, $anchor);
         // Submenu toggles (buttons, or links declared as buttons) have their
         // own rendered content subject, just like ordinary links. A linked
         // submenu does too once its link sits inside wrapper boxes, so it keeps
         // the boxes its sibling links keep; a link placed directly in its item
         // stays on the plain linked-submenu path.
-        $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor) && $anchor->parentNode?->isSameNode($item)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
+        $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor) && $anchor->parentNode?->isSameNode($item)) ? '' : $navigationContext->navigationAnchorSubjectMarker($anchor, $item);
         if ('' !== $subjectMarker) {
             $anchorClassName = (string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class'));
             // The subject renders on every route; the served route's own hooks do not.
@@ -3385,9 +3358,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $navigationContext->navigationItemSubjectMarker($item));
         }
         if ( $submenuContainer instanceof DOMElement ) {
-            $iconMarker = $navigationContext?->submenuIconGeometryMarker($item, $anchor, $submenuContainer) ?? '';
+            $iconMarker = $navigationContext->submenuIconGeometryMarker($item, $anchor, $submenuContainer);
             $itemAttrs = $this->withClassName($itemAttrs, $iconMarker);
-            if ( true === $navigationContext?->clipsSubmenuAtRest($item, $submenuContainer) ) {
+            if ( true === $navigationContext->clipsSubmenuAtRest($item, $submenuContainer) ) {
                 $itemAttrs = $this->withClassName($itemAttrs, NavigationPatternContext::CLIPPED_SUBMENU_CLASS);
             }
             // A separate source glyph is what core's icon stands in for. Without
@@ -3396,7 +3369,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             // that paints nothing and carries no disclosure control is
             // indicator-free.
             if ( '' === $iconMarker && ! $item->isSameNode($anchor) ) {
-                $navigationContext?->recordSubmenuToggle(
+                $navigationContext->recordSubmenuToggle(
                     $anchor,
                     $this->hasSubmenuDisclosureControl($item, $anchor, $submenuContainer, $navigationContext)
                 );
@@ -3420,8 +3393,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         $itemClasses = SourceDom::tokens((string) ($itemAttrs['className'] ?? ''));
         $anchorClasses = SourceDom::tokens((string) ($anchorAttrs['className'] ?? ''));
-        $classes = array_values(array_unique(array_filter(array_merge($itemClasses, $anchorClasses, array($subjectMarker, $navigationContext?->navigationLabelWidthMarker($anchor) ?? '')))));
-        if ( ! $item->isSameNode($anchor) && null !== $navigationContext ) {
+        $classes = array_values(array_unique(array_filter(array_merge($itemClasses, $anchorClasses, array($subjectMarker, $navigationContext->navigationLabelWidthMarker($anchor))))));
+        if ( ! $item->isSameNode($anchor) ) {
             $classes = array_values(array_unique(array_merge($classes, $navigationContext->sourcePresentationMarkers($item))));
         }
         if ( array() === $classes ) {
@@ -3432,7 +3405,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $itemAttrs['className'] = implode(' ', $classes);
         }
         $itemAttrs = array_replace_recursive($itemAttrs, $this->navigationAnchorTextAttributes($anchorAttrs, 'a' === strtolower($item?->tagName ?? 'a')));
-        if ( null !== $navigationContext && '' === $subjectMarker ) {
+        if ( '' === $subjectMarker ) {
             $lineHeightMarker = $navigationContext->navigationAnchorLineHeightMarker($anchorAttrs, $anchor, $item);
             if ('' !== $lineHeightMarker) {
                 $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $lineHeightMarker);
@@ -3454,7 +3427,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // still holds a colour function: `color:hsl(var(--x))` renders as
         // nothing. Carry that resting colour through the state-aware colour
         // rules instead; colours core keeps inline stay on the anchor.
-        if (null !== $navigationContext && '' !== $subjectMarker
+        if ('' !== $subjectMarker
             && 0 !== $this->navigationColorStateMask($anchor, $navigationContext)
             && str_contains(SourceDeclarations::inline($anchor)['color'] ?? '', '(')
         ) {
@@ -3471,7 +3444,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $currentPresentation = array();
         $currentReset = '';
         $restingBox = null;
-        $atRest = $hasAuthoredCurrentState && null !== $navigationContext && '' === $subjectMarker;
+        $atRest = $hasAuthoredCurrentState && '' === $subjectMarker;
         if ( $atRest ) {
             $sourceItem = $item->isSameNode($anchor) ? null : $item;
             $restingColor = $this->navigationTextColorFromStyle($navigationContext->restingStyle($anchor));
@@ -3497,7 +3470,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
-        if ( null !== $navigationContext && '' === $subjectMarker ) {
+        if ( '' === $subjectMarker ) {
             $boxMarker = $restingBox ?? $navigationContext->navigationLinkBoxMarker(
                 $anchor,
                 $item->isSameNode($anchor) ? null : $item
@@ -3533,7 +3506,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 $itemAttrs['className'] .= ' ' . self::CURRENT_COLOR_CLASS_PREFIX
                     . hash('sha256', $textColor . "\0" . $stateMask);
             }
-            $decorationColor = null === $navigationContext ? '' : trim($navigationContext->underlineColor($item, $anchor));
+            $decorationColor = trim($navigationContext->underlineColor($item, $anchor));
             $sourceDecoration = strtolower(trim((string) ($anchorAttrs['style']['typography']['textDecoration'] ?? $itemAttrs['style']['typography']['textDecoration'] ?? '')));
             if ( 'underline' === $sourceDecoration || '' !== $decorationColor ) {
                 $itemAttrs['className'] .= ' blocks-engine-current-navigation-underline';
@@ -3687,12 +3660,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $only;
     }
 
-    private function projectBlockListDisplay(DOMElement $listSource, ?NavigationPatternContext $navigationContext, bool $preserveSemanticBlockStack = false): void
+    private function projectBlockListDisplay(DOMElement $listSource, NavigationPatternContext $navigationContext, bool $preserveSemanticBlockStack = false): void
     {
-        if ( ! $navigationContext instanceof NavigationPatternContext ) {
-            return;
-        }
-
         $display = strtolower(trim($navigationContext->resolvedDisplay($listSource)));
         if ( ! $preserveSemanticBlockStack && in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
             return;
@@ -3779,12 +3748,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         return '';
     }
 
-    private function navigationColorStateMask(DOMElement $anchor, ?NavigationPatternContext $navigationContext): int
+    private function navigationColorStateMask(DOMElement $anchor, NavigationPatternContext $navigationContext): int
     {
-        if ( null === $navigationContext ) {
-            return 0;
-        }
-
         $mask = 0;
         $bits = array( 'hover' => 1, 'focus' => 2, 'focus-visible' => 4, 'active' => 8 );
         foreach ( $navigationContext->colorInteractionStates($anchor) as $state ) {
@@ -3914,11 +3879,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         return false;
     }
 
-    private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes, ?NavigationPatternContext $navigationContext = null): array
+    private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes, NavigationPatternContext $navigationContext): array
     {
         $attrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
-        $toggle = $navigationContext?->navigationToggleControl($element);
-        if ( $toggle instanceof DOMElement && null !== $navigationContext && $this->isHiddenPanelBehind($element, $toggle, $navigationContext) ) {
+        $toggle = $navigationContext->navigationToggleControl($element);
+        if ( $toggle instanceof DOMElement && $this->isHiddenPanelBehind($element, $toggle, $navigationContext) ) {
             // The element is the hidden panel an outside opener reveals: the
             // navigation root renders that opener, so the panel's resting box
             // belongs to Core's responsive container.
@@ -3946,7 +3911,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $attrs['metadata']['blocksEngineNavigationContainer']['className'] = SourceDom::mergeClassNames(
                         (string) ($attrs['metadata']['blocksEngineNavigationContainer']['className'] ?? ''),
                         $listClasses,
-                        implode(' ', $navigationContext?->sourcePresentationMarkers($list) ?? array())
+                        implode(' ', $navigationContext->sourcePresentationMarkers($list))
                     );
                 } else {
                     $attrs['className'] = implode(' ', array_values(array_unique(array_filter(SourceDom::tokens((string) ($attrs['className'] ?? '') . ' ' . $listClasses)))));
@@ -3975,11 +3940,10 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function withEmptySiblingNavigationSpacing(array $attrs, ?DOMElement $list, ?NavigationPatternContext $context): array
+    private function withEmptySiblingNavigationSpacing(array $attrs, ?DOMElement $list, NavigationPatternContext $navigationContext): array
     {
-        if (null === $list || null === $context
-            || 'vertical' === ($attrs['layout']['orientation'] ?? '')
-            || str_starts_with($context->resolvedDeclarations($list)['flex-direction'] ?? '', 'column')
+        if (null === $list || 'vertical' === ($attrs['layout']['orientation'] ?? '')
+            || str_starts_with($navigationContext->resolvedDeclarations($list)['flex-direction'] ?? '', 'column')
         ) {
             return $attrs;
         }
@@ -3988,14 +3952,14 @@ final class NavigationPattern implements PatternRecognizerInterface
             if (!$item instanceof DOMElement) {
                 continue;
             }
-            $display = $context->resolvedDisplay($item);
+            $display = $navigationContext->resolvedDisplay($item);
             $row = in_array($display, array('inline-table', 'inline-block', 'inline-flex', 'flex'), true)
-                || in_array($context->resolvedDisplay($list), array('flex', 'inline-flex'), true);
+                || in_array($navigationContext->resolvedDisplay($list), array('flex', 'inline-flex'), true);
             if (!$row || 'li' !== strtolower($item->tagName)) {
                 return $attrs;
             }
-            $itemStyle = $context->resolvedDeclarations($item);
-            if (str_starts_with($itemStyle['flex-direction'] ?? '', 'column') || $context->isOutOfFlow($item)) {
+            $itemStyle = $navigationContext->resolvedDeclarations($item);
+            if (str_starts_with($itemStyle['flex-direction'] ?? '', 'column') || $navigationContext->isOutOfFlow($item)) {
                 return $attrs;
             }
             $anchor = $this->primaryNavigationAnchor($item);
@@ -4020,21 +3984,21 @@ final class NavigationPattern implements PatternRecognizerInterface
                     || 0 !== $child->getElementsByTagName('*')->length
                     || $child->hasAttribute('tabindex')
                     || $child->hasAttribute('role')
-                    || $context->isRuntimeDomTarget($child)
+                    || $navigationContext->isRuntimeDomTarget($child)
                 ) {
                     return $attrs;
                 }
-                if ($context->isOutOfFlow($child) || $context->isHiddenAtReferenceViewport($child)) {
+                if ($navigationContext->isOutOfFlow($child) || $navigationContext->isHiddenAtReferenceViewport($child)) {
                     continue;
                 }
                 // A block stacked below a link has no horizontal contribution.
-                if ('table-cell' !== $context->resolvedDisplay($child)
+                if ('table-cell' !== $navigationContext->resolvedDisplay($child)
                     && !in_array($display, array('flex', 'inline-flex'), true)
-                    && !in_array($context->resolvedDisplay($child), array('inline-block', 'inline'), true)
+                    && !in_array($navigationContext->resolvedDisplay($child), array('inline-block', 'inline'), true)
                 ) {
                     return $attrs;
                 }
-                $extent = $context->emptyBoxWidth($child);
+                $extent = $navigationContext->emptyBoxWidth($child);
                 if (null === $extent) {
                     return $attrs;
                 }
@@ -4052,7 +4016,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         if (array() !== $gaps && 1 === count(array_unique($gaps)) && '0px' !== $gaps[0]) {
             // Authored gap has no used extent on a table/block list.
-            $gap = in_array($context->resolvedDisplay($list), array('flex', 'inline-flex', 'grid', 'inline-grid'), true)
+            $gap = in_array($navigationContext->resolvedDisplay($list), array('flex', 'inline-flex', 'grid', 'inline-grid'), true)
                 ? CssLength::toPx((string) ($attrs['style']['spacing']['blockGap'] ?? '0px')) : 0.0;
             if (null !== $gap) {
                 $attrs['style']['spacing']['blockGap'] = CssLength::format($gap + (CssLength::toPx($gaps[0]) ?? 0.0));
@@ -4241,7 +4205,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * A signalled submenu can be paired with a text label or a link carrier.
      * Empty capture-counterpart anchors do not supply or compete for its label.
      */
-    private function submenuSiblingLabel(DOMElement $element, callable $innerHtml, ?NavigationPatternContext $navigationContext): ?DOMElement
+    private function submenuSiblingLabel(DOMElement $element, callable $innerHtml, NavigationPatternContext $navigationContext): ?DOMElement
     {
         // Landmarks and lists hold peer items, not their own toggle label.
         if ( in_array(strtolower($element->tagName), array( 'nav', 'ul', 'ol' ), true) ) {
@@ -5020,9 +4984,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * equivalent destination-link signature — not by overlay class names —
      * so a genuinely visible second group is kept.
      */
-    private function isCollapsedNavigationDuplicate(DOMElement $element, DOMElement $scope, ?NavigationPatternContext $navigationContext): bool
+    private function isCollapsedNavigationDuplicate(DOMElement $element, DOMElement $scope, NavigationPatternContext $navigationContext): bool
     {
-        if ( null === $navigationContext || ! $navigationContext->isHiddenAtReferenceViewport($element) ) {
+        if ( ! $navigationContext->isHiddenAtReferenceViewport($element) ) {
             return false;
         }
 
@@ -5266,7 +5230,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * to carry a button signal so a genuine nav menu with one incidental
      * button-classed link is not misclassified.
      */
-    private function hasButtonStyledLinkChildren(DOMElement $element, ?NavigationPatternContext $navigationContext): bool
+    private function hasButtonStyledLinkChildren(DOMElement $element, NavigationPatternContext $navigationContext): bool
     {
         $classifier = new ButtonSignalClassifier();
         $anchors = array();
@@ -5280,7 +5244,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         foreach ( $anchors as $anchor ) {
-            if ( ! $classifier->hasTransformSignal($anchor, $navigationContext?->resolvedStyle($anchor) ?? '') ) {
+            if ( ! $classifier->hasTransformSignal($anchor, $navigationContext->resolvedStyle($anchor)) ) {
                 return false;
             }
         }
