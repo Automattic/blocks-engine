@@ -258,7 +258,6 @@ final class DesignUsageCollector
         ++$this->elements;
         $context = $this->inherit($parent, $element, $declarations);
         $background = $this->backgroundColor($declarations);
-        $rgba = null !== $background ? CssColor::parse($background) : null;
         $opaque = null !== $background && CssColor::opaque($background);
         $control = in_array($tag, array('button', 'a'), true) || 'button' === strtolower($element->getAttribute('role'));
         if ($opaque) {
@@ -319,17 +318,13 @@ final class DesignUsageCollector
             if ($opaque) $context['role'] = 'button';
             $this->addText($context, $inputMass);
         }
-        // Keep translucent paint as usage evidence without treating it as an
-        // opaque inherited canvas. Its alpha must survive preset binding.
-        if (null !== $background && null !== $rgba && $rgba[3] > 0) {
-            $this->addBackground(
-                $opaque ? (string) CssColor::hex($background) : $background,
-                $control || 'input' === $tag ? 'cta' : 'surface',
-                $mass + 1,
-                $background,
-                $control ? $this->hoverColor($element, array('background-color', 'background')) : null,
-                $control && ($this->resolver->hasConditionalStyleFamily($element, 'background') || $this->resolver->readsConditionalCustomProperty($element, array('background', 'background-color')))
-            );
+        if ($opaque) $this->addBackground((string) CssColor::hex($background), $control || 'input' === $tag ? 'cta' : 'surface', $mass + 1, $background, $control ? $this->hoverColor($element, array('background-color', 'background')) : null, $control && ($this->resolver->hasConditionalStyleFamily($element, 'background') || $this->resolver->readsConditionalCustomProperty($element, array('background', 'background-color'))));
+        // Uniform border paint is a palette candidate even without a fill.
+        foreach (array('border', 'border-color') as $property) {
+            foreach (CssValueSplitter::splitTopLevelWhitespace($declarations[$property] ?? '') as $value) {
+                $hex = CssColor::hex($value);
+                if (null !== $hex) $this->addBackground($hex, 'border', 1, $value, null, false);
+            }
         }
         $this->spacingFrom($element, $declarations, $context['size']);
         $this->widthFrom($declarations, $context['size'], $mass);

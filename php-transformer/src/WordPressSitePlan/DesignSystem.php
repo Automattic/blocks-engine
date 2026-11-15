@@ -190,7 +190,7 @@ final class DesignSystem
         $textByColor = $backgroundByColor = $ctaByColor = $prominence = $sizeWeights = $bodySizeWeights = $spacingRows = $widthRows = array();
         $familyWeights = $familyStacks = $headingFamilyWeights = $headingFamilyProminence = $bodyFamilyWeights = array();
         $textOnBackground = $headingSizes = array();
-        $rootPx = $sourceRoles = $translucentBases = array();
+        $rootPx = $sourceRoles = array();
         foreach ($usageBySource as $usage) {
             $px = (float) ($usage['root_font_size_px'] ?? 16);
             // Older usage payloads lack the evidence flag; retain their explicit
@@ -204,16 +204,6 @@ final class DesignSystem
             }
             $documentMass = self::documentMass($usage);
             $documentRuns = self::documentRuns($usage);
-            // A translucent surface may be the only use of its underlying
-            // colour. Reserve its exact base in the same bounded palette so
-            // the observed tint can still follow a Global Styles edit.
-            foreach (array_merge($usage['text'] ?? array(), $usage['backgrounds'] ?? array()) as $row) {
-                $rgba = is_string($row['color'] ?? null) ? CssColor::parse($row['color']) : null;
-                if (null === $rgba || $rgba[3] <= 0 || $rgba[3] >= 1) continue;
-                $base = sprintf('#%02x%02x%02x', (int) round($rgba[0]), (int) round($rgba[1]), (int) round($rgba[2]));
-                $weight = self::documentShare((int) ($row['weight'] ?? 0), $documentMass);
-                if ($weight > 0) $translucentBases[$base] = ($translucentBases[$base] ?? 0) + self::prominence($weight, (int) ($row['count'] ?? 1), $documentRuns);
-            }
             $documentHeadings = array();
             foreach ($usage['text'] ?? array() as $row) {
                 $weight = self::documentShare((int) ($row['weight'] ?? 0), $documentMass);
@@ -279,7 +269,6 @@ final class DesignSystem
                 break;
             }
         }
-        foreach ($translucentBases as $base => $weight) $prominence[$base] = ($prominence[$base] ?? 0) + $weight;
         $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root, $sourceRoles);
         $literalColors = array_keys(array_diff_key($prominence, array_flip(array_column($colors, 'color'))));
         usort($literalColors, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: strcmp($a, $b));

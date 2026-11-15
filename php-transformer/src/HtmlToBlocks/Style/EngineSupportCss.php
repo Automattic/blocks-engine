@@ -164,6 +164,16 @@ final class EngineSupportCss
                 // static there so the image resolves against the same
                 // containing block as on the front end.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{position:static}'
+                // Background/fill layers may be absolute inside fixed grid
+                // tracks. Giving only the figure a box leaves it underneath
+                // later editable groups. Expand its entire editor ancestry in
+                // normal flow; the source geometry remains front-end-only.
+                // Size query containers also suppress descendant contributions
+                // to auto height. Release that containment in the editor or the
+                // expanded media still overflows beneath the following section.
+                . ':root .editor-styles-wrapper .wp-block-group:has(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '){display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;overflow:visible!important;transform:none!important;container-type:normal!important;contain:none!important}'
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . ' img{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
                 // A linked image adds core's inline-block anchor between the
                 // figure and the image. Shrink-to-fit, it sizes from the image
                 // whose percentages size from it, so the fill collapses. Let
@@ -614,9 +624,36 @@ final class EngineSupportCss
      */
     public function deviceVisibilityCss(string $serializedBlocks): array
     {
+        $editorVariants = array();
+        foreach (array(CaptureEvidence::DESKTOP_ONLY_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS) as $class) {
+            if (str_contains($serializedBlocks, $class)) {
+                $editorVariants[$class] = ':root .editor-styles-wrapper .' . $class;
+            }
+        }
+        // Captured device islands remain separate editable content. Their
+        // viewport visibility sheet belongs to the front end: hiding an island
+        // in the editor makes its native blocks impossible to select or replace.
+        $editorCss = '';
+        foreach ($editorVariants as $class => $selector) {
+            // Device copies often share absolute source coordinates. Once both
+            // are exposed, they must occupy separate editor flow boxes, rather
+            // than covering each other's block selection targets. Ancestor
+            // tracks and out-of-flow media wrappers must expand too; otherwise
+            // the second variant overflows underneath the next editable group.
+            // Use normal block flow for those editor ancestors: retained grid
+            // placement and flex tracks can still overlap the expanded copies,
+            // even with auto heights. The front-end layout stays source-owned.
+            $editorCss .= $selector . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;transform:none!important}'
+                . $selector . ' figure.wp-block-image{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
+                . $selector . ' img{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
+                . ':root .editor-styles-wrapper .wp-block-group:has(.' . $class . '){display:block!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;grid-template-rows:none!important;grid-auto-rows:auto!important;position:relative!important;inset:auto!important;overflow:visible!important}';
+        }
+        $editorRules = '' !== $editorCss
+            ? array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, $editorCss))
+            : array();
         $prefixes = preg_quote(EngineMarker::DEVICE_ONLY_CLASS_PREFIX, '/') . '|' . preg_quote(EngineMarker::DEVICE_HIDE_CLASS_PREFIX, '/');
         if (! preg_match_all('/(?<![\\w-])(' . $prefixes . ')([a-z][a-z0-9_-]{0,63})(?![\\w-])/', $serializedBlocks, $matches, PREG_SET_ORDER)) {
-            return array();
+            return $editorRules;
         }
         $selected = CaptureEvidence::SELECTED_DOCUMENT;
         $selectors = array();
@@ -637,7 +674,7 @@ final class EngineSupportCss
         }
         $selectors = array_values(array_unique($selectors));
         sort($selectors);
-        return array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, implode(',', $selectors) . '{display:none!important}'));
+        return array_merge($editorRules, array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, implode(',', $selectors) . '{display:none!important}')));
     }
 
     public function socialLinkCss(string $serializedBlocks): array
