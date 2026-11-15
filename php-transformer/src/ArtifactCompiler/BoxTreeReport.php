@@ -69,6 +69,12 @@ final class BoxTreeReport
                 if ($child instanceof DOMElement) $children[] = $child->getAttribute(BoxTree::NODE_ATTRIBUTE);
             }
             if ($children !== ($node['children'] ?? null)) return 'box_tree_identity_stale';
+            if (array_key_exists('interaction_states', $node)) {
+                if (!is_array($node['interaction_states']) || !array_is_list($node['interaction_states']) || count($node['interaction_states']) > 32) return 'box_tree_states_invalid';
+                foreach ($node['interaction_states'] as $state) {
+                    if (!BoxTree::validId($state)) return 'box_tree_states_invalid';
+                }
+            }
             $observations = $node['viewports'] ?? null;
             if (!is_array($observations) || count($observations) !== count($viewports)) return 'box_tree_viewport_invalid';
             foreach ($viewports as $name => $_) {
@@ -81,9 +87,12 @@ final class BoxTreeReport
                     if ((!is_int($value) && !is_float($value)) || !is_finite((float) $value) || abs($value) > 100000000 || (in_array($axis, array('width', 'height'), true) && $value < 0)) return 'box_tree_geometry_invalid';
                 }
                 $styles = $observation['used_styles'] ?? null;
-                if (!is_array($styles) || count($styles) !== count(BoxTree::PROPERTIES)) return 'box_tree_styles_invalid';
+                if (!is_array($styles) || array_diff(array_keys($styles), array_merge(BoxTree::PROPERTIES, BoxTree::MOTION_PROPERTIES))) return 'box_tree_styles_invalid';
                 foreach (BoxTree::PROPERTIES as $property) {
                     if (!is_string($styles[$property] ?? null) || '' === $styles[$property] || strlen($styles[$property]) > 4096) return 'box_tree_styles_invalid';
+                }
+                foreach (BoxTree::MOTION_PROPERTIES as $property) {
+                    if (array_key_exists($property, $styles) && (!is_string($styles[$property]) || '' === $styles[$property] || strlen($styles[$property]) > 4096)) return 'box_tree_styles_invalid';
                 }
             }
         }
@@ -97,7 +106,8 @@ final class BoxTreeReport
             if ('html' !== ($file['kind'] ?? null)) continue;
             $total = HtmlSerialization::parseDocument($file['content'])->getElementsByTagName('*')->length;
             $count = count($file['box_tree']['nodes'] ?? array());
-            $reports[$file['path']] = array('nodes_with_evidence' => $count, 'source_nodes' => $total, 'coverage' => $total > 0 ? $count / $total : 0.0);
+            $reports[$file['path']] = array('nodes_with_evidence' => $count, 'source_nodes' => $total, 'coverage' => $total > 0 ? $count / $total : 0.0,
+                'classification' => BoxTreeClassifier::report($file['content'], $file['box_tree'] ?? array()));
         }
         return $reports;
     }
