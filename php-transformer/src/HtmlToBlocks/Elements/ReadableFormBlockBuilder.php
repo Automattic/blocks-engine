@@ -386,15 +386,22 @@ final class ReadableFormBlockBuilder
                     && (0 === $element->attributes->length
                         || (1 === $element->attributes->length && $element->hasAttribute('class')))
                     && null === $controlBox;
-                // An unowned chain of ordinary class-only div boxes has a
-                // native representation too. Keep control-box transport intact:
-                // providers replace that box together with its control. Multiple
-                // children can be a composite control (country trigger + phone),
-                // whose shared frame must remain in the shell transport.
-                $nativeChain = null === $controlBox && 1 === count($inner) && count($elements) > 1;
+                // Unowned div chains can also contain a control with help/error
+                // text. Those siblings do not make a composite control. Keep
+                // actual composite controls and provider-owned boxes in shell
+                // transport, where providers replace their complete frame.
+                $controls = array_filter($inner, static fn (array $block): bool => isset($block['form_control_index']));
+                $feedback = array_filter($inner, static fn (array $block): bool =>
+                    'core/paragraph' === ($block['blockName'] ?? null));
+                $controlWithFeedback = 1 === count($controls) && count($feedback) > 0
+                    && count($controls) + count($feedback) === count($inner);
+                $nativeChain = null === $controlBox && count($elements) > 1
+                    && (1 === count($inner) || $controlWithFeedback);
                 foreach ($elements as $source) {
                     $nativeChain = $nativeChain && 'div' === strtolower($source->tagName)
-                        && 1 === $source->attributes->length && $source->hasAttribute('class');
+                        && $source->hasAttribute('class')
+                        && ($source->attributes->length === 1
+                            || ($source->attributes->length === 2 && $source->hasAttribute('style') && '' === trim($source->getAttribute('style'))));
                 }
                 if ($nativeChain) {
                     $nested = $inner;
