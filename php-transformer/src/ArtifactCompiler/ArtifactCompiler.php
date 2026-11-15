@@ -2125,6 +2125,15 @@ final class ArtifactCompiler
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
             $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
+            if (is_string($text) && 'html' === ($file['kind'] ?? '')) {
+                // Inline sheets are CSS too, not evidence that their selectors
+                // occur in markup. Otherwise every unused inline rule proves
+                // itself live (and can also keep linked framework rules live).
+                foreach (array_reverse(StyleTagScanner::scan($text)) as $style) {
+                    if (!StyleTagScanner::isCssType(HtmlTagScanner::attribute($style['attributes'], 'type'))) continue;
+                    $text = substr_replace($text, '', $style['offset'], $style['end_offset'] - $style['offset']);
+                }
+            }
             if (is_string($text) && '' !== $text) $texts[] = $text;
         }
         if (0 === $documents) return $files;
