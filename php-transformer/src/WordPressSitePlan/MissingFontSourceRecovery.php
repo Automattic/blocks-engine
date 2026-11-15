@@ -66,15 +66,18 @@ final class MissingFontSourceRecovery
                     $missing = true;
                     return $url;
                 });
-                if (!$missing) $kept[] = trim($entry);
+                if (!$missing && '' !== trim($entry)) $kept[] = trim($entry);
                 else $changed = true;
             }
             $hasSource = $hasSource || array() !== $kept;
             $declaration = array() === $kept ? '' : $match[1] . implode(', ', $kept);
         }
         unset($declaration);
+        // A capture may already have stripped every source. Descriptors alone
+        // cannot load a font, even when this pass did not remove a URL.
+        if (!$hasSource) return null;
         if (!$changed) return $body;
-        return $hasSource ? implode(';', array_filter($declarations, static fn(string $value): bool => '' !== $value)) . ';' : null;
+        return implode(';', array_filter($declarations, static fn(string $value): bool => '' !== $value)) . ';';
     }
 
     private function record(string $family, string $url, string $origin): void

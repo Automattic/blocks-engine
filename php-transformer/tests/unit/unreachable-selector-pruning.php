@@ -11,6 +11,8 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 $css = '/*! Theme v1 */ .card .absent-widget,.card{color:red}'
     . '#absent-id .card{color:blue}'
     . '.card:not(.absent-modifier){color:green}'
+    . ':is(.absent-one,.absent-two) .card{outline-color:salmon}'
+    . ':where(.absent-one,.card){outline-color:lime}'
     . '.slot-3{color:teal}'
     . '.card.is-open{color:orange}'
     . '.card [class*=absent-]{color:purple}'
@@ -21,7 +23,7 @@ $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html'
     'site.css' => $css,
 )))->toArray();
 $out = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($compiled['assets'] ?? array(), static fn (array $asset): bool => 'site.css' === ($asset['path'] ?? null))));
-$expected = array('red' => true, 'blue' => false, 'green' => true, 'teal' => true, 'orange' => true, 'purple' => true, 'navy' => false, 'absent-widget' => false, 'Theme v1' => true, '@media' => false);
+$expected = array('red' => true, 'blue' => false, 'green' => true, 'teal' => true, 'orange' => true, 'purple' => true, 'navy' => false, 'salmon' => false, 'lime' => true, 'absent-widget' => false, 'Theme v1' => true, '@media' => false);
 foreach ($expected as $needle => $kept) {
     if ($kept !== str_contains($out, $needle)) {
         throw new RuntimeException(sprintf('%s should %sremain:%s%s', $needle, $kept ? '' : 'not ', PHP_EOL, $out));
