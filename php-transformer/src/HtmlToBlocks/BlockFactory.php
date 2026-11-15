@@ -116,6 +116,17 @@ final class BlockFactory
             }
         }
 
+        if ( 'core/social-links' === $name ) {
+            // Core saves size verbatim as a class, not as a preset slug.
+            if ( in_array($attrs['size'] ?? '', array('small', 'normal', 'large', 'huge'), true) ) {
+                $attrs['size'] = 'has-' . $attrs['size'] . '-icon-size';
+            }
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-cluster');
+            // Social Links has no typography support. Source glyph sizing lives
+            // in the projected stylesheet, never in unregistered inline HTML.
+            unset($attrs['inlineGeometryStyle']);
+        }
+
         $attrs = $this->normalizeClassNameAttr($attrs, $name);
 
         // Group save() renders the stored tagName, so the attribute must name the
@@ -505,18 +516,15 @@ final class BlockFactory
         // social-link child renders dynamically and therefore saves no HTML.
         if ( 'core/social-links' === $name ) {
             $size = $this->safeSlug((string) ($attrs['size'] ?? ''));
-            $sizeClass = in_array($size, array( 'small', 'normal', 'large', 'huge' ), true)
-                ? $size . ' has-' . $size . '-icon-size'
-                : '';
+            $sizeClass = $size;
             $labelsClass = ! empty($attrs['showLabels']) ? 'has-visible-labels' : '';
             $justification = $this->safeSlug((string) ($attrs['justifyContent'] ?? ''));
             $justificationClass = in_array($justification, array( 'left', 'center', 'right', 'space-between' ), true) ? 'is-content-justification-' . $justification : '';
             $iconColorClass = '' !== trim((string) ($attrs['iconColorValue'] ?? '')) ? 'has-icon-color' : '';
             $iconBackgroundClass = '' !== trim((string) ($attrs['iconBackgroundColorValue'] ?? '')) ? 'has-icon-background-color' : '';
-            // The importer class keys the social-links support rules in
-            // EngineSupportCss so they do not stand on the bare core list class
-            // alone; every social-links list the importer emits carries it.
-            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links blocks-engine-social-source-cluster ' . $labelsClass . ' ' . $sizeClass . ' ' . $justificationClass . ' ' . $iconColorClass . ' ' . $iconBackgroundClass)) . '>', 'closing' => '</ul>' );
+            // Importer selectors ride in className (normalized above), so
+            // core save() can reproduce them rather than seeing extra classes.
+            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $sizeClass . ' ' . $labelsClass . ' ' . $justificationClass . ' ' . $iconColorClass . ' ' . $iconBackgroundClass)) . '>', 'closing' => '</ul>' );
         }
 
         if ( 'core/social-link' === $name ) {

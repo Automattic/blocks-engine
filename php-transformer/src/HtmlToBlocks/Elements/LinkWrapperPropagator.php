@@ -65,6 +65,9 @@ final class LinkWrapperPropagator
 
     public const PROPAGATED_LINK_CARRIER_CLASS = SourceBlockAttributeProjector::PROPAGATED_LINK_CLASS;
 
+    public const STRETCHED_LINK_GROUP_CLASS = 'blocks-engine-stretched-link';
+    public const STRETCHED_LINK_CARRIER_CLASS = 'blocks-engine-stretched-link-carrier';
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly BlockFactory $blockFactory
@@ -266,6 +269,46 @@ final class LinkWrapperPropagator
         return $preserved;
     }
 
+    /**
+     * Give a card one editable destination, preferring its first heading.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<string, string> $linkAttrs
+     */
+    public function propagateStretchedLink(array &$blocks, array $linkAttrs): bool
+    {
+        $linkAttrs['color'] = 'inherit';
+        $linkAttrs['stretched'] = 'true';
+        foreach ( array( array('core/heading'), self::LINK_BEARING_TEXT_BLOCKS ) as $names ) {
+            if ( $this->propagateFirstTextLink($blocks, $linkAttrs, $names) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<string, string> $linkAttrs
+     * @param list<string> $names
+     */
+    private function propagateFirstTextLink(array &$blocks, array $linkAttrs, array $names): bool
+    {
+        foreach ( $blocks as &$block ) {
+            $name = (string) ($block['blockName'] ?? '');
+            if ( in_array($name, self::LINK_SELF_MANAGING_BLOCKS, true) ) {
+                continue;
+            }
+            if ( in_array($name, $names, true) && $this->propagateInlineLink($block, $linkAttrs) ) {
+                return true;
+            }
+            if ( isset($block['innerBlocks']) && $this->propagateFirstTextLink($block['innerBlocks'], $linkAttrs, $names) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private function propagateLinkOntoImage(array &$block, array $linkAttrs): bool
     {
         $attrs = ArrayField::array($block, 'attrs');
@@ -326,6 +369,9 @@ final class LinkWrapperPropagator
         }
 
         $replacementAttrs = array_merge($attrs, array( 'content' => $wrapped ));
+        if ( 'true' === ($linkAttrs['stretched'] ?? '') ) {
+            $replacementAttrs['className'] = SourceDom::mergeClassNames((string) ($replacementAttrs['className'] ?? ''), self::STRETCHED_LINK_CARRIER_CLASS);
+        }
         if ( 'inherit' === (string) ($linkAttrs['color'] ?? '') ) {
             $replacementAttrs['className'] = SourceDom::mergeClassNames(
                 (string) ($replacementAttrs['className'] ?? ''),

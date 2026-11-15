@@ -232,6 +232,30 @@ final class CssSyntaxScanner
     }
 
     /**
+     * Offset of the `)`, `]` or quote closing the group opened at $open, or
+     * null when it never closes. Strings, comments, escapes and unquoted
+     * `url()` bodies are consumed as tokens, so `[title="a)"]`, `.w-\(` and
+     * `var(--a, ")")` close where the browser closes them.
+     */
+    public static function matchingClose(string $value, int $open): ?int
+    {
+        $state = self::state();
+        $length = strlen($value);
+        for ( $offset = $open; $offset < $length; ) {
+            $next = self::consume($value, $offset, $state);
+            if ( null === $next ) {
+                return null;
+            }
+            if ( self::isTopLevel($state) ) {
+                return $next - 1;
+            }
+            $offset = $next;
+        }
+
+        return null;
+    }
+
+    /**
      * The stylesheet as CSS Syntax reads it to its end, written so that
      * nothing is left open.
      *

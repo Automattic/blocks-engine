@@ -140,7 +140,10 @@ final class EngineSupportCss
             // the image. Keep the wrapper in the DOM for Gutenberg, but remove
             // its layout box so the source image retains its native replaced-
             // element min-content and flex-shrink behavior.
-            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}';
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}'
+                // Gutenberg selects the block root, not its img. A transparent
+                // root has no hit-test box and cannot expose the image toolbar.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block}';
             // With no figure box there is nothing for the image to fit, so the
             // `max-width:100%` that core and the base support rule put on
             // a core/image <img> is not the source's: its percentage zeroes the
@@ -219,6 +222,9 @@ final class EngineSupportCss
             // cyclic shrink-to-fit basis. Keep the image itself inline too.
             $inlineFigure = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS;
             $parts[] = $inlineFigure . '{display:contents}'
+                // Keep a selectable, shrink-wrapped root in Gutenberg only.
+                // The front end still needs the transparent percentage basis.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '.wp-block-image{display:inline-block}'
                 . $inlineFigure . ' img{display:inline}'
                 // A propagated card link adds another synthetic box. Core's
                 // inline-block anchor would make percentage images shrink to
@@ -575,6 +581,17 @@ final class EngineSupportCss
                 . "\n" . ':where(.blocks-engine-layout-table-cell){vertical-align:middle;padding:1px}'
                 . "\n" . ':root .blocks-engine-layout-table-cell .blocks-engine-synthetic-image-figure-inline{display:contents;margin:0}'
                 . "\n" . '.blocks-engine-layout-table-cell :where(.blocks-engine-synthetic-image-figure-inline) img{display:inline;max-width:none;vertical-align:baseline}';
+        }
+        if ( str_contains($serializedBlocks, LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS) ) {
+            // One shared rule per site, independent of the number of cards.
+            // The card's own author position wins (zero specificity), and the
+            // hitbox exists only on the front end so the editor keeps every
+            // inner block selectable.
+            $frontEnd = ':where(body:not(.editor-styles-wrapper):not(.wp-admin)) ';
+            $link = '.' . LinkWrapperPropagator::STRETCHED_LINK_CARRIER_CLASS . '>a';
+            $parts[] = ':where(.' . LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS . '){position:relative}'
+                . $link . '{color:inherit;text-decoration:inherit}'
+                . $frontEnd . $link . '::after{content:"";position:absolute;inset:0}';
         }
         if ( str_contains($serializedBlocks, LinkWrapperPropagator::PROPAGATED_LINK_CARRIER_CLASS) ) {
             // A propagated card link wraps all of the block's source children.

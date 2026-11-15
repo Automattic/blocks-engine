@@ -67,6 +67,10 @@ $assert(!str_contains(json_encode($outer), 'layout-shell'), 'No generated shell 
 $assert(str_contains($outer['innerContent'][0] ?? '', 'wp-block-group outer')
     && str_contains($inner['innerContent'][0] ?? '', 'wp-block-group inner'), 'Both source classes survive in saved native wrapper markup.');
 $assert(!isset($inner['innerBlocks'][0]['_form_field_box']), 'The consumed inner field box is not duplicated below the native chain.');
+foreach (array($outer, $inner) as $frame) {
+    $assert(str_contains($frame['attrs']['className'] ?? '', 'blocks-engine-css-owned-layout')
+        && str_contains($frame['attrs']['className'] ?? '', 'blocks-engine-css-owned-flow'), 'Every native form frame preserves source flow without introducing WordPress block gaps.');
+}
 $phone = $blocks['phone-root'] ?? array();
 $assert(str_ends_with($phone['blockName'] ?? '', '/layout-shell'), 'Composite phone frames retain the provider shell transport.');
 $assert(2 === count($phone['attrs']['wrappers'] ?? array()), 'The phone shell transports both source frames together.');
