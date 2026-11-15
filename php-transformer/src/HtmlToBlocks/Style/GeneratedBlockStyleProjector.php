@@ -120,6 +120,11 @@ final class GeneratedBlockStyleProjector
 
         $fallbackStyle = $this->styleResolver->styleAttributeMapper()->serialize($fallback)['style'];
         $fallbackDeclarations = SourceDeclarations::parse($fallbackStyle);
+        // Unsupported blockGap has no save-style representation. Preserve it
+        // on the generated stylesheet instead of dropping the source spacing.
+        if ( isset($fallback['spacing']['blockGap']) ) {
+            $fallbackDeclarations['gap'] = (string) $fallback['spacing']['blockGap'];
+        }
         $inlineDeclarations = SourceDeclarations::parse($sourceElement->getAttribute('style'));
         $inlineMapped = $this->styleResolver->styleAttributeMapper()->map($inlineDeclarations);
         $inlineFallbackDeclarations = SourceDeclarations::parse($this->styleResolver->styleAttributeMapper()->serialize($inlineMapped['style'] ?? array())['style']);

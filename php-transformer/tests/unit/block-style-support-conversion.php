@@ -103,7 +103,7 @@ $assert(str_contains($groupInnerHtml, 'wp-block-group') && str_contains($groupIn
 $assert(! str_contains($groupInnerHtml, 'is-layout-flex'), '12: CSS-owned layout does not opt into core flex layout CSS', $groupInnerHtml);
 $assert(! str_contains($groupInnerHtml, 'gap:1rem'), '13: author layout wrapper stores no blockGap', $groupInnerHtml);
 $assert(! str_contains($groupInnerHtml, 'display:flex') && ! str_contains($groupInnerHtml, 'justify-content:center'), '14: source CSS remains the layout authority', $groupInnerHtml);
-$assert(! isset($groupAttrs['style']['spacing']['blockGap']), '15: core group save omits block gap without a core layout attribute', json_encode($groupAttrs));
+$assert('1rem' === ($groupAttrs['style']['spacing']['blockGap'] ?? null), '15: core group keeps block gap available to layout support', json_encode($groupAttrs));
 $assert(str_contains($groupInnerHtml, 'min-height:100svh'), '16: core group retains supported dimensions', $groupInnerHtml);
 
 $nativeGridHtml = '<div class="tpl-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(290px, 1fr));gap:1.2rem"><p>Fallback card</p></div>';
@@ -114,7 +114,7 @@ $nativeGridMarkup = (string) ($nativeGridResult['serialized_blocks'] ?? '');
 $nativeGridCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($nativeGridResult['assets'] ?? null) ? $nativeGridResult['assets'] : array()));
 
 $assert('grid' === ($nativeGridAttrs['layout']['type'] ?? ''), '16a: representative tpl-grid shape retains native Group grid layout', json_encode($nativeGridAttrs));
-$assert(! isset($nativeGridAttrs['style']['spacing']['blockGap']), '16b: native Group grids do not emit noncanonical blockGap attributes', json_encode($nativeGridAttrs));
+$assert('1.2rem' === ($nativeGridAttrs['style']['spacing']['blockGap'] ?? null), '16b: native Group grids retain editable blockGap attributes', json_encode($nativeGridAttrs));
 $assert(! str_contains($nativeGridMarkup, 'gap:1.2rem'), '16c: native Group grid markup omits inline gap that Gutenberg save does not reproduce', $nativeGridMarkup);
 $assert(str_contains($nativeGridCss, 'gap:1.2rem !important'), '16d: inline native Group grid gap moves to the generated geometry carrier', $nativeGridCss);
 

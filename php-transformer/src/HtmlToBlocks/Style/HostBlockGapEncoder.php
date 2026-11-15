@@ -719,43 +719,14 @@ final class HostBlockGapEncoder
     private function withMargins(array $block, array $sides): array
     {
         $attrs = ArrayField::array($block, 'attrs');
-        // The factory drops a group's blockGap (layout renders it, save does
-        // not); carry the one this encoder wrote across the rebuild.
-        $blockGap = $attrs['style']['spacing']['blockGap'] ?? null;
-        if ( null !== $blockGap ) {
-            $attrs = $this->withoutBlockGap($attrs);
-            $block['attrs'] = $attrs;
-        }
         $same = $this->blockFactory->rebuild($block, $attrs);
         if ( ($same['innerContent'] ?? null) !== ($block['innerContent'] ?? null) || ($same['attrs'] ?? null) !== $attrs ) {
-            return null === $blockGap ? $block : array_merge($block, array( 'attrs' => $this->withBlockGap($attrs, $blockGap) ));
+            return $block;
         }
         foreach ( $sides as $side => $length ) {
             $attrs['style']['spacing']['margin'][$side] = $length;
         }
-        $rebuilt = $this->blockFactory->rebuild($block, $attrs);
-        if ( null !== $blockGap ) {
-            $rebuilt['attrs'] = $this->withBlockGap(ArrayField::array($rebuilt, 'attrs'), $blockGap);
-        }
-
-        return $rebuilt;
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     * @return array<string, mixed>
-     */
-    private function withoutBlockGap(array $attrs): array
-    {
-        unset($attrs['style']['spacing']['blockGap']);
-        if ( empty($attrs['style']['spacing']) ) {
-            unset($attrs['style']['spacing']);
-        }
-        if ( empty($attrs['style']) ) {
-            unset($attrs['style']);
-        }
-
-        return $attrs;
+        return $this->blockFactory->rebuild($block, $attrs);
     }
 
     /**

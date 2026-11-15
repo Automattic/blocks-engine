@@ -193,16 +193,6 @@ final class BlockFactory
             }
         }
 
-        if ( in_array($name, array( 'core/buttons', 'core/column', 'core/columns', 'core/group', 'core/heading', 'core/list', 'core/list-item', 'core/media-text', 'core/paragraph' ), true) ) {
-            unset($attrs['style']['spacing']['blockGap']);
-            if ( empty($attrs['style']['spacing']) ) {
-                unset($attrs['style']['spacing']);
-            }
-            if ( empty($attrs['style']) ) {
-                unset($attrs['style']);
-            }
-        }
-
         return $attrs;
     }
 
@@ -438,9 +428,6 @@ final class BlockFactory
                 $label = is_array($tab) ? (string) ($tab['label'] ?? '') : '';
                 $buttons .= '<button type="button" role="tab">' . $this->preserveRichTextPunctuation($label) . '</button>';
             }
-            // Layout renders blockGap as scoped CSS, not a saved inline gap.
-            // Retain the attribute for the editor and server layout engine.
-            unset($attrs['style']['spacing']['blockGap']);
             $ariaLabel = HtmlSerialization::attributes(array('aria-label' => (string) ($attrs['ariaLabel'] ?? '')));
             return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-tab-list') . ' role="tablist"' . $ariaLabel . '>' . $buttons . '</div>';
         }

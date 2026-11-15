@@ -217,10 +217,8 @@ final class StyleAttributeMapper
                 }
             }
         }
-        $blockGap = trim((string) ($spacing['blockGap'] ?? ''));
-        if ( '' !== $blockGap ) {
-            $declarations[] = 'gap:' . $blockGap;
-        }
+        // blockGap is rendered by layout support as scoped CSS, never by
+        // core's save style engine as an inline gap declaration.
 
         $typography    = ArrayField::array($style, 'typography');
         $typographyMap = array(
