@@ -181,7 +181,7 @@ final class CssSelectorMatcher
                 $nameEnd = $offset + 1;
                 $name = self::identifier($selector, $nameEnd);
                 if ( null !== $name && '(' === ($selector[$nameEnd] ?? '') ) {
-                    $closing = self::matchingParenthesis($selector, $nameEnd);
+                    $closing = CssSyntaxScanner::matchingClose($selector, $nameEnd);
                     if ( null === $closing ) {
                         break;
                     }
@@ -603,7 +603,7 @@ final class CssSelectorMatcher
                 }
                 $lowerName = strtolower($name);
                 if ( in_array($lowerName, array( 'is', 'where' ), true) && '(' === ($source[ $offset ] ?? '') ) {
-                    $listClosing = self::matchingParenthesis($source, $offset);
+                    $listClosing = CssSyntaxScanner::matchingClose($source, $offset);
                     $alternatives = null === $listClosing ? null : CssStylesheetTransformer::splitSelectorList(substr($source, $offset + 1, $listClosing - $offset - 1));
                     if ( is_array($alternatives) && count($alternatives) > 1 ) {
                         $group = self::parseSelectorListArgument($alternatives, 'where' === $lowerName);
@@ -658,7 +658,7 @@ final class CssSelectorMatcher
                     continue;
                 }
                 if ( 'not' === $lowerName && '(' === ($source[ $offset ] ?? '') ) {
-                    $closing = self::matchingParenthesis($source, $offset);
+                    $closing = CssSyntaxScanner::matchingClose($source, $offset);
                     if ( null === $closing ) {
                         return null;
                     }
@@ -714,7 +714,7 @@ final class CssSelectorMatcher
                 // alternative may lead with a combinator, and a bare one implies
                 // a descendant relationship to the element under test.
                 if ( 'has' === $lowerName && '(' === ($source[ $offset ] ?? '') ) {
-                    $listClosing = self::matchingParenthesis($source, $offset);
+                    $listClosing = CssSyntaxScanner::matchingClose($source, $offset);
                     if ( null === $listClosing ) {
                         return null;
                     }
@@ -829,45 +829,6 @@ final class CssSelectorMatcher
         }
 
         return $hasSimple ? array( 'compound' => $compound, 'suffix' => $suffix, 'type_span' => $typeSpan ) : null;
-    }
-
-    /**
-     * Offset of the `)` closing the `(` at $open, or null when it never
-     * closes. The scan ignores parentheses inside strings, comments, and
-     * nested functional pseudo-classes, so a `:not()` argument such as
-     * `:where(.a)` or `[title="x)"]` extracts intact.
-     */
-    private static function matchingParenthesis(string $source, int $open): ?int
-    {
-        $state = CssSyntaxScanner::state();
-        $depth = 1;
-        $length = strlen($source);
-        // Consume the opening parenthesis so the scanner's own paren counter
-        // stays balanced for the rest of the scan.
-        $offset = CssSyntaxScanner::consume($source, $open, $state);
-        if ( null === $offset ) {
-            return null;
-        }
-        for ( ; $offset < $length; ) {
-            $character = $source[ $offset ];
-            $before = $state['parens'];
-            $next = CssSyntaxScanner::consume($source, $offset, $state);
-            if ( null === $next ) {
-                return null;
-            }
-            // The scanner's own paren counter only moves for structural
-            // parentheses, so a depth change on a raw bracket byte marks one.
-            if ( $next === $offset + 1 && '(' === $character && $state['parens'] === $before + 1 ) {
-                ++$depth;
-            } elseif ( $next === $offset + 1 && ')' === $character && $state['parens'] === $before - 1 ) {
-                --$depth;
-                if ( 0 === $depth ) {
-                    return $offset;
-                }
-            }
-            $offset = $next;
-        }
-        return null;
     }
 
     /** @return array{name: string, operator: string|null, value: string|null, flag: string|null}|null */

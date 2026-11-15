@@ -20,7 +20,8 @@ $strip = static function (array $value) use (&$strip): array {
     return $value;
 };
 $hash = hash('sha256', json_encode($strip($result), JSON_THROW_ON_ERROR));
-if ('c1d2fae1bb1abe7d03b9c457e9f7e5e39b82bdca7cd8262af17bf6c3cad434a9' !== $hash) throw new RuntimeException('Non-diagnostic output must retain form intent and the control-row presentation baseline: ' . $hash);
+// Branching form containers now serialize as native Groups.
+if ('9e835f52c726fe24f0ea8d06c721db4f6f8a4ce99378caea1199b48f37617f1c' !== $hash) throw new RuntimeException('Non-diagnostic output must retain form intent and the control-row presentation baseline: ' . $hash);
 $invalid = $graph;
 $invalid['diagnostics'][] = 'unsupported_selector::host(.extra)';
 try {

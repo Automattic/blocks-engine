@@ -603,6 +603,24 @@ final class SourceElementClassifier
             $extension = strtolower((string) pathinfo(is_string($path) ? $path : '', PATHINFO_EXTENSION));
             $imageType = array('jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'avif' => 'image/avif', 'png' => 'image/png', 'webp' => 'image/webp', 'gif' => 'image/gif')[$extension] ?? '';
         }
+        // Native image metadata can replay viewport selection without proving
+        // equal crops. Keep format negotiation on the companion path: the
+        // fallback must be a known raster and explicit types must match it.
+        $replayable = '' !== $imageType;
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( str_contains($parent->tagName, '-') ) {
+                $replayable = false;
+            }
+        }
+        foreach ( $element->getElementsByTagName('source') as $source ) {
+            $type = strtolower(trim(SourceDom::attr($source, 'type')));
+            if ( '' !== $type && $type !== $imageType ) {
+                $replayable = false;
+            }
+        }
+        if ( $replayable ) {
+            return false;
+        }
         foreach ( $element->getElementsByTagName('source') as $source ) {
             if ( ! $source instanceof DOMElement || '' === SourceDom::attr($source, 'srcset') ) {
                 continue;

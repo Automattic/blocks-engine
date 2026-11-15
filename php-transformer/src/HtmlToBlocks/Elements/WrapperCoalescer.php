@@ -74,9 +74,14 @@ final class WrapperCoalescer
 
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
 
+    // Semantic Groups have the same native transport as div Groups. Their tag
+    // does not by itself justify replacing editable structure with a companion.
+    private const NATIVE_GROUP_TAGS = array('div', 'main', 'section', 'article', 'aside');
+
     // Charge shared ancestry against the saved List View depth, not only
-    // against the length of each uninterrupted single-child run.
-    private const MAX_NATIVE_WRAPPER_DEPTH = 8;
+    // against the length of each uninterrupted single-child run. Use the
+    // document policy: a stricter local cap creates needless non-core shells.
+    private const MAX_NATIVE_WRAPPER_DEPTH = EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
 
     private bool $wrapperBudgetExceeded = false;
 
@@ -106,8 +111,19 @@ final class WrapperCoalescer
             && array() !== array_filter($ancestorChain, static fn (array $entry): bool => 'nav' === $entry['descriptor']['tagName'])
             && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'], array('div', 'nav'), true))
             && $depth - 1 + $this->nativeBlockHeight($block) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
+        // Semantic-only ancestry is a local region, not a reason to lower
+        // otherwise editable ancestors before its descendants normalize.
+        $semanticRegion = 2 <= count($ancestorChain)
+            && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, array('main', 'section', 'article', 'aside'), true));
+        $wrapperHeight = ($semanticRegion ? 0 : $depth - 1) + $this->nativeBlockHeight($block);
+        // Mixed container/semantic runs retain their established compression
+        // budget. Plain div chains can use the full document depth budget.
+        $semanticTags = array('main', 'section', 'article', 'aside');
+        $hasSemanticRegion = in_array($cursor['attrs']['tagName'] ?? null, $semanticTags, true)
+            || array() !== array_filter($ancestorChain, static fn (array $entry): bool => in_array($entry['descriptor']['tagName'], $semanticTags, true));
+        $depthBudget = $hasSemanticRegion && ! $semanticRegion ? 8 : self::MAX_NATIVE_WRAPPER_DEPTH;
         if (! $nativeNavigationChain && 2 <= count($ancestorChain)
-            && ($depth - 1 + $this->nativeBlockHeight($block) > self::MAX_NATIVE_WRAPPER_DEPTH
+            && ($wrapperHeight > $depthBudget
                 || count($ancestorChain) >= self::MAX_NATIVE_WRAPPER_DEPTH)) {
             return $this->foldWrapperChain($ancestorChain, $this->normalizeWrapperChain($cursor, $depth + 1));
         }
@@ -129,7 +145,7 @@ final class WrapperCoalescer
                 || ('core/group' === $terminalName && array() === ($terminal['innerBlocks'] ?? array()))
                 || array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, ('div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div')), true)))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
-        // Div ancestors remain editable even when their terminal is a generated
+        // Native Group ancestors remain editable even when their terminal is a generated
         // block or an extraction slot. The terminal's transport does not require
         // transporting its native parent boxes in a generated shell too.
         // Inline-only fragments retain their existing shell transport. Source
@@ -138,8 +154,14 @@ final class WrapperCoalescer
         $hasSourceBox = array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool =>
             ! str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-synthetic-paragraph')
             || str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-source-box-paragraph'));
+        $nativeTags = 'div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div');
+        // Extend native transport to semantic-only region chains, not mixed
+        // chains whose inner containers already have established lowering.
+        if (2 <= count($chain) && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, array('main', 'section', 'article', 'aside'), true))) {
+            $nativeTags = self::NATIVE_GROUP_TAGS;
+        }
         $nativeGroupTree = $nativeGroupTree || (('core/freeform' !== $terminalName || $hasSourceBox)
-            && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, ('div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div')), true))
+            && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, $nativeTags, true))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth']);
         // The ratio budget belongs to the document, not each component. An
         // empty visual branch can have no content leaves while the complete
@@ -170,13 +192,14 @@ final class WrapperCoalescer
     }
 
     /** @param array<string,mixed> $block */
-    private function containsNativeNavigation(array $block): bool
+    private function containsResponsiveNavigation(array $block): bool
     {
-        if (in_array($block['blockName'] ?? null, array('core/navigation', 'core/list'), true)) return true;
-        foreach (ArrayField::array($block, 'innerBlocks') as $child) {
-            if ($this->containsNativeNavigation($child)) return true;
-        }
-        return false;
+        if ('core/navigation' === ($block['blockName'] ?? null)
+            && in_array($block['attrs']['overlayMenu'] ?? null, array('mobile', 'always'), true)) return true;
+        $children = ArrayField::array($block, 'innerBlocks');
+        return 'core/group' === ($block['blockName'] ?? null)
+            && 1 === count($children)
+            && $this->containsResponsiveNavigation($children[0]);
     }
 
     /**
@@ -236,10 +259,15 @@ final class WrapperCoalescer
         // and for shell extraction. A native grid or flex
         // layout is likewise an editor control the wrapper list cannot carry.
         if (!in_array($block['blockName'] ?? null, array('core/group'), true) || in_array($block['attrs']['layout']['type'] ?? null, array('grid', 'flex'), true) || isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true) || ShellLandmarkPolicy::namesRoleOnlyLandmark(ArrayField::array($block, 'attrs'))) return null;
-        // A converted menu already owns navigation semantics. Preserve its
-        // established shell transport; control-only nav regions instead keep
-        // their independently editable landmark Group.
-        if ('nav' === strtolower((string) ($block['attrs']['tagName'] ?? 'div')) && ! $this->containsNativeNavigation($block)) return null;
+        // Responsive navigation is projected into the source opener's boxes.
+        // Keep that landmark independently editable instead of hiding its
+        // control ancestry in generated shell transport. Ordinary link menus
+        // retain their existing folding and shared-template style contract.
+        if ('nav' === strtolower((string) ($block['attrs']['tagName'] ?? 'div'))
+            && array() !== array_filter(ArrayField::array($block, 'innerBlocks'), fn (array $child): bool =>
+                'core/group' === ($child['blockName'] ?? null)
+                && 'div' === ($child['attrs']['tagName'] ?? 'div')
+                && $this->containsResponsiveNavigation($child))) return null;
         return $this->groupWrapperDescriptor($block);
     }
 
