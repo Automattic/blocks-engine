@@ -84,8 +84,6 @@ final class DesignUsageCollector
     private array $text = array();
     /** @var array<string,array<string,mixed>> */
     private array $backgrounds = array();
-    /** @var array<string,int> Colors painted by borders, independent of surface roles. */
-    private array $borderColors = array();
     /** @var array<string,array<string,mixed>> */
     private array $spacing = array();
     /** @var array<string,array<string,mixed>> */
@@ -115,7 +113,6 @@ final class DesignUsageCollector
         foreach ($buttonElements as $element) $this->buttonElements->offsetSet($element);
         $this->text = $this->backgrounds = $this->spacing = $this->widths = $this->classStyles = array();
         $this->elements = 0;
-        $this->borderColors = array();
         $this->headingTypography = $this->buttonLooks = array();
         $resolvedRootPx = $this->resolver->documentRootFontSize($body);
         $this->rootPx = $resolvedRootPx ?? 16.0;
@@ -182,7 +179,6 @@ final class DesignUsageCollector
             'root_color_tokens' => $rootColorTokens,
             'text' => self::rows($this->text),
             'backgrounds' => self::rows($this->backgrounds),
-            'border_colors' => $this->borderColors,
             'spacing' => self::rows($this->spacing),
             'widths' => self::rows($this->widths),
             'class_styles' => $this->classStyleRows(),
@@ -240,9 +236,9 @@ final class DesignUsageCollector
      */
     private function walkReferenceHeadings(DOMElement $element, array $parent, array $declarations): void
     {
-        $usage = array($this->text, $this->backgrounds, $this->spacing, $this->widths, $this->classStyles, $this->buttonLooks, $this->elements, $this->borderColors);
+        $usage = array($this->text, $this->backgrounds, $this->spacing, $this->widths, $this->classStyles, $this->buttonLooks, $this->elements);
         $this->walkVisible($element, $parent, $declarations, strtolower($element->tagName));
-        [$this->text, $this->backgrounds, $this->spacing, $this->widths, $this->classStyles, $this->buttonLooks, $this->elements, $this->borderColors] = $usage;
+        [$this->text, $this->backgrounds, $this->spacing, $this->widths, $this->classStyles, $this->buttonLooks, $this->elements] = $usage;
     }
 
     /** Whether a media rule that applies at the desktop reference viewport overrides a resting `display: none`. */
@@ -296,14 +292,6 @@ final class DesignUsageCollector
                 }
             }
             $this->buttonLooks[] = $look;
-        }
-        // Border-only paint must be available to the same exact-color binding
-        // as text and surfaces, without competing for background/text roles.
-        foreach (array('border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-color', 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color') as $property) {
-            foreach (CssValueSplitter::splitTopLevelWhitespace(self::clean($declarations[$property] ?? '')) as $part) {
-                $hex = CssColor::opaque($part) ? CssColor::hex($part) : null;
-                if (null !== $hex) $this->borderColors[$hex] = ($this->borderColors[$hex] ?? 0) + 1;
-            }
         }
         $mass = $this->walkChildren($element, $context);
         if (isset(self::HEADING_EM[$tag])) {

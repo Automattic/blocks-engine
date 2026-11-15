@@ -358,7 +358,7 @@ $slug = (string) $bindSystem?->colorSlug('#e11d48');
 $assert('<!-- wp:paragraph {"textColor":"' . $slug . '","fontSize":"large"} --><p class="has-text-color has-' . $slug . '-color has-large-font-size">Hi</p><!-- /wp:paragraph -->' === $bound, 'a literal colour and size become preset attributes with their classes, and the inline declarations are removed');
 $assert($bound === $binding->bind($bound), 'binding is idempotent');
 $importantBound = (new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => 'main p{color:red!important}'))))->bind($paragraph);
-$assert(!str_contains($importantBound, 'textColor') && str_contains($importantBound, '"fontSize":"large"'), 'an !important author colour on the same subject avoids a forced color class but not the unrelated size');
+$assert(!str_contains($importantBound, 'textColor') && str_contains($importantBound, '"fontSize":"large"'), 'an !important author colour on the same subject keeps the literal colour but not the unrelated size');
 $assert(!str_contains((new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => '[style*="color"]{outline:0}'))))->bind($paragraph), 'textColor'), 'a selector reading the inline style text keeps the literal colour');
 // Important subjects must reach this element and override the bound property.
 foreach (array(
@@ -374,9 +374,8 @@ foreach (array(
     $guard = new PresetBinding($bindSystem, array(array('kind' => 'css', 'content' => $css)));
     $result = $guard->bind($markup);
     $assert($binds === str_contains($result, '"' . $preset . '":"' . $slug . '"'), $case . ': only reachable important overrides refuse a preset');
-    $assert(0 === $guard->refusals(array($result))['important'], $case . ': exact inline binding preserves important overrides without a refusal');
-    $assert(!str_contains($result, $property . ':#e11d48'), $case . ': binding removes the literal');
-    if (!$binds) $assert(str_contains($result, $property . ':var(--wp--preset--color--' . $slug . ')'), $case . ': an inline preset preserves cascade position instead of forcing a class');
+    $assert(($binds ? 0 : 1) === $guard->refusals(array($result))['important'], $case . ': important refusal accounting follows reachability');
+    $assert($binds ? !str_contains($result, $property . ':#e11d48') : $result === $markup, $case . ': binding removes the literal, refusal preserves markup');
 }
 $mismatch = '<!-- wp:paragraph {"style":{"color":{"text":"#e11d48"}}} --><p class="has-text-color" style="color:#E11D48">Hi</p><!-- /wp:paragraph -->';
 $assert($mismatch === $binding->bind($mismatch), 'markup whose inline style was not serialized from the attributes is left alone');

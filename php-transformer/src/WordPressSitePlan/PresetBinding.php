@@ -60,8 +60,8 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  * step aside for `.has-text-color` and `.has-background` (see
  * AuthorStylesheetProjector and GeneratedBlockStyleProjector), the same way
  * they step aside for an inline value, so they do not block colour binding.
- * Button typography binds through inline preset variables on the link,
- * where those rules preserve inline font declarations.
+ * Button typography is not bound: core serializes it on the link, where
+ * those rules reset `font` for every value that is not inline.
  *
  * Each block is rewritten on its own, from its delimiter and its own opening
  * tag, so the rewrite gives the same result on a whole page and on any
@@ -74,8 +74,8 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  *   serialized (the markup was not produced from these attributes);
  * - re-encoding the delimiter JSON would not reproduce it byte for byte;
  * - a stylesheet declares the property `!important` for a selector whose
- *   subject this block could match: class-driven binding is refused, while
- *   an exact inline literal can read a preset without changing precedence;
+ *   subject this block could match, unless the selector excludes the classes
+ *   the bound block carries;
  * - a stylesheet selects on the inline style text (`[style*=…]`) for that
  *   property in a way the rewrite would change;
  * - a `:hover`, `:focus`, `:focus-visible`, `:focus-within` or `:active`
@@ -84,8 +84,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  *   button whose literal colour is the `button` element style's token, and
  *   whose state rule the element's `:hover` restates, drops the literal
  *   instead, as does a button painted by a matching bound author class
- *   (rendersThroughElement()). Other exact inline colours retain their
- *   declaration and read the preset variable without adding a class;
+ *   (rendersThroughElement());
  * - the source renders the property differently under a media condition
  *   (breakpoint or colour scheme), unless every such value matches the same
  *   token;
@@ -196,8 +195,14 @@ final class PresetBinding
     private array $classStyles = array();
     /** @var array<string,array<string,list<string>>> Unconditional single-class colour declarations. */
     private array $classColors = array();
+    /** @var array<string,list<array<string,mixed>>> Subjects of plain colour rules per family, with their value; null when a condition or layer applies. */
+    private array $restingColors = array();
+    /** @var list<array<string,mixed>> Unconditional local custom-property rules. */
+    private array $localVariables = array();
     /** @var array<string,array<string,array<string,list<int>>>> Rule indexes by kind, family and required subject token. */
     private array $subjectBuckets = array();
+    /** @var array<string,bool> restsOn() results by property, literal and token sets. */
+    private array $restsOnResults = array();
     private int $bound = 0;
     /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
     private array $fontDefaults = array();
@@ -231,6 +236,7 @@ final class PresetBinding
             $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $asset): void {
                 $this->indexRule($prelude, $body);
                 $this->indexVariables($prelude, $body, $conditional ? array_merge($ancestors, array('@media ' . $asset['media'])) : $ancestors, $asset['scopes'] ?? array(array('kind' => 'global')));
+                $this->indexRestingColors($prelude, $body, $conditional || array() !== $ancestors);
                 $font = self::declared(self::declarations($body), 'font-family');
                 $shorthand = self::declared(self::declarations($body), 'font');
                 if (null !== $font || null !== $shorthand || str_contains($body, '{')) {
@@ -828,10 +834,11 @@ final class PresetBinding
                 ++$bound;
                 continue;
             }
-            if (!$safe && null !== $slug && is_string($literal) && $this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $declarations, $property, $literal)) {
-                // A preset class could mask author state or important rules.
-                // An exact inline variable keeps the original cascade position,
-                // including any overrides; only style-text selectors forbid it.
+            if (!$safe && 'state_variant' === $reason && null !== $slug && is_string($literal) && $this->restsOn($property, $literal, $tokens, 'button' === $name ? array($this->tagTokens($html, $classes, true), $this->tagTokens('<div>', 'wp-block-button ' . (is_string($attributes->className ?? null) ? $attributes->className : ''))) : null) && $this->inlinePreset($style->color, $key, 'color', $slug, $declarations, $property, $literal)) {
+                // A preset class is !important and would mask the state
+                // rule. The resting rules paint this exact colour, so the
+                // inline declaration keeps its place in the cascade and only
+                // reads its value from the token.
                 ++$bound;
                 continue;
             }
@@ -889,9 +896,10 @@ final class PresetBinding
         foreach ($typography as $key => [$attribute, $property, $presetClass]) {
             if ('fontFamily' === $key && !$this->themeDefaultsReady) continue;
             if ($isLink) {
-                // Keep typography on the link, without an !important preset
-                // class: both size and family can read their exact token inline.
-                if (isset($attributes->{$attribute})) continue;
+                // Button links carry no font preset class; a family equal to
+                // a preset stack reads its variable from the same inline
+                // declaration. Sizes stay as authored beside the element size.
+                if ('fontFamily' !== $key || isset($attributes->{$attribute})) continue;
                 $literal = $style->typography->{$key} ?? null;
                 $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? $this->presetSlug($property, $literal, null) : null;
                 if (null !== $slug && $this->inlinePreset($style->typography, $key, $property, $slug, $declarations, $property, $literal)) ++$bound;
@@ -1816,6 +1824,205 @@ final class PresetBinding
             }
             $this->stateTokens[$family][] = $subject + array('attributes' => self::subjectAttributes($selector));
         }
+    }
+
+    /**
+     * Records the subject, specificity, source order and value of every
+     * plain style rule that declares a colour, so a state-guarded literal can
+     * be compared with the resting cascade of its element. A declaration
+     * under a condition, a layer or a media-scoped stylesheet is recorded
+     * with a null value: it is not a resting value every viewport renders.
+     */
+    private function indexRestingColors(string $prelude, string $body, bool $conditional): void
+    {
+        if (str_contains($body, '{')) return;
+        $values = array();
+        foreach (self::declarations($body) as [$property, $value]) {
+            if (!in_array($property, array('color', 'background-color', 'background'), true)) continue;
+            foreach (self::families($property) as $family) $values[$family][] = $conditional ? null : $value;
+        }
+        $variables = array();
+        foreach (self::declarations($body) as [$property, $value]) {
+            if (str_starts_with($property, '--')) $variables[$property] = $conditional ? null : $value;
+        }
+        if (array() === $values && array() === $variables) return;
+        foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
+            if (1 === preg_match(self::STATE_PSEUDO, $selector)) continue;
+            $subject = self::subjectTokens($selector);
+            if (null === $subject) continue;
+            $subject['attributes'] = self::subjectAttributes($selector);
+            $subject['rank'] = null;
+            $parsed = CssSelectorMatcher::parse($selector);
+            if ($parsed['supported'] && array() !== $parsed['compounds']) {
+                $compounds = $parsed['compounds'];
+                $subject['compound'] = $compounds[array_key_last($compounds)];
+                $combinators = $parsed['combinators'];
+                if (count($compounds) > 1 && '>' === ($combinators[array_key_last($combinators)] ?? null)) $subject['parent'] = $compounds[count($compounds) - 2];
+                $subject['depth'] = count($compounds);
+                $weight = CssSelectorMatcher::specificityCounts($parsed);
+                $subject['rank'] = array($weight['ids'], $weight['classes'], $weight['types']);
+            }
+            foreach ($values as $family => $list) {
+                foreach ($list as $value) $this->restingColors[$family][] = $subject + array('value' => $value, 'order' => count($this->restingColors[$family] ?? array()));
+            }
+            foreach ($variables as $property => $value) $this->localVariables[] = $subject + array('property' => $property, 'value' => $value, 'order' => count($this->localVariables));
+        }
+    }
+
+    /**
+     * Whether the element's resting cascade paints exactly this colour: the
+     * highest-ranked unconditional rule that certainly selects the element
+     * declares it, every rule that could reach the element and outrank that
+     * one declares it too, and no `!important` or style-text rule competes.
+     * The literal then only restates what the stylesheet paints at rest, so
+     * an inline preset variable for it renders the same as the literal,
+     * without the `!important` preset class that would mask the state rule.
+     * No resting rule, a different or conditional resting colour, or a
+     * competitor keeps the literal.
+     *
+     * A button's block classes sit on its wrapper, the link's direct parent.
+     * `$button` holds the link's own tokens and the wrapper's: a rule whose
+     * parent compound requires an engine class the wrapper lacks cannot
+     * reach the link, and a rule is certain only when the link and the
+     * wrapper each satisfy their own compound.
+     *
+     * @param array<string,true> $tokens
+     * @param array{0:array<string,true>,1:array<string,true>}|null $button
+     */
+    private function restsOn(string $property, string $literal, array $tokens, ?array $button): bool
+    {
+        // Pure over the indexed stylesheets, and asked again for every
+        // repeat of the same block across documents.
+        return $this->restsOnResults[serialize(array($property, $literal, $tokens, $button))] ??= $this->resolvesRestingColor($property, $literal, $tokens, $button);
+    }
+
+    /**
+     * @param array<string,true> $tokens
+     * @param array{0:array<string,true>,1:array<string,true>}|null $button
+     */
+    private function resolvesRestingColor(string $property, string $literal, array $tokens, ?array $button): bool
+    {
+        $color = CssColor::parse($this->resolve($literal));
+        if (null === $color) return false;
+        [$own, $parentTokens] = $button ?? array($tokens, null);
+        foreach (self::families($property) as $family) {
+            $reaching = array();
+            $winner = null;
+            foreach ($this->subjectCandidates('resting', $family, $this->restingColors[$family] ?? array(), $tokens) as $rule) {
+                if (!self::stateSubjectApplies($rule, $tokens)) continue;
+                if (null !== $parentTokens && isset($rule['parent']) && self::requiresAbsentEngineClass($rule['parent'], $parentTokens)) continue;
+                $reaching[] = $rule;
+                // Certain only when every compound is verified: the subject,
+                // and for a button link its wrapper as the direct parent.
+                $certain = null !== $rule['value'] && null !== $rule['rank'] && isset($rule['compound']) && self::certainlyMatches($rule['compound'], $own)
+                    && (1 === $rule['depth'] || (2 === $rule['depth'] && isset($rule['parent']) && null !== $parentTokens && self::certainlyMatches($rule['parent'], $parentTokens)));
+                if ($certain && (null === $winner || self::outranks($rule, $winner))) $winner = $rule;
+            }
+            if (null === $winner || CssColor::parse($this->resolveLocalColor($winner['value'], $own, $parentTokens)) !== $color) return false;
+            foreach ($reaching as $rule) {
+                if (!self::outranks($rule, $winner)) continue;
+                if (null === $rule['value'] || CssColor::parse($this->resolveLocalColor($rule['value'], $own, $parentTokens)) !== $color) return false;
+            }
+        }
+        return $this->safe($property, $tokens, array(), false, false, $reason, true);
+    }
+
+    /** Resolve a resting colour variable on the link, then its known parent.
+     * @param array<string,true> $own
+     * @param array<string,true>|null $parent
+     */
+    private function resolveLocalColor(string $value, array $own, ?array $parent): string
+    {
+        $resolved = $this->resolve($value);
+        if (null !== CssColor::parse($resolved)) return $resolved;
+        if (1 !== preg_match('/^var\((--[\w-]+)\)$/', trim($value), $match)) return $resolved;
+        foreach (array($own, $parent) as $tokens) {
+            if (null === $tokens) continue;
+            $winner = null;
+            $reaching = array();
+            foreach ($this->localVariables as $rule) {
+                if ($rule['property'] !== $match[1] || !self::stateSubjectApplies($rule, $tokens)) continue;
+                $reaching[] = $rule;
+                if (1 === ($rule['depth'] ?? 0) && null !== $rule['value'] && isset($rule['compound']) && self::certainlyMatches($rule['compound'], $tokens) && (null === $winner || self::outranks($rule, $winner))) $winner = $rule;
+            }
+            if (null === $winner) continue;
+            foreach ($reaching as $rule) if (self::outranks($rule, $winner) && $rule['value'] !== $winner['value']) return $resolved;
+            return $this->resolve($winner['value']);
+        }
+        return $resolved;
+    }
+
+    /**
+     * Cascade order of two resting rules: specificity, then source order. A
+     * rule whose specificity is unknown is assumed to win.
+     *
+     * @param array<string,mixed> $rule
+     * @param array<string,mixed> $other
+     */
+    private static function outranks(array $rule, array $other): bool
+    {
+        if (null === $rule['rank']) return true;
+        if (null === $other['rank']) return false;
+        $order = $rule['rank'] <=> $other['rank'];
+        return 0 !== $order ? 1 === $order : $rule['order'] > $other['order'];
+    }
+
+    /**
+     * Whether a compound requires, on every path, an engine class
+     * (`blocks-engine-…`, `be-…`) these tokens lack. Engine classes are only ever
+     * written by the engine, so their absence is certain.
+     *
+     * @param array<string,mixed> $compound
+     * @param array<string,true> $tokens
+     */
+    private static function requiresAbsentEngineClass(array $compound, array $tokens): bool
+    {
+        foreach ($compound['classes'] ?? array() as $class) {
+            if ((str_starts_with($class, 'blocks-engine-') || str_starts_with($class, 'be-')) && !isset($tokens['class:' . $class])) return true;
+        }
+        foreach ($compound['any'] ?? array() as $group) {
+            if (array() === $group['alternatives']) continue;
+            foreach ($group['alternatives'] as $alternative) {
+                $subjects = $alternative['compounds'];
+                if (array() === $subjects || !self::requiresAbsentEngineClass($subjects[array_key_last($subjects)], $tokens)) continue 2;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether a compound certainly selects an element with these tokens: its
+     * type, classes and ids are present, one alternative of each `:is()` /
+     * `:where()` certainly selects it, and each `:not()` excludes a type or
+     * engine class the element certainly lacks. Attributes and structural
+     * pseudo-classes are not proof.
+     *
+     * @param array<string,mixed> $compound
+     * @param array<string,true> $tokens
+     */
+    private static function certainlyMatches(array $compound, array $tokens): bool
+    {
+        if (array() !== ($compound['attributes'] ?? array())) return false;
+        if (null !== ($compound['nth_child'] ?? null) || !empty($compound['first_child']) || !empty($compound['last_child']) || !empty($compound['root'])) return false;
+        if (is_string($compound['type'] ?? null) && !isset($tokens['tag:' . strtolower($compound['type'])])) return false;
+        foreach (array('classes' => 'class:', 'ids' => 'id:') as $key => $prefix) {
+            foreach ($compound[$key] ?? array() as $value) if (!isset($tokens[$prefix . $value])) return false;
+        }
+        foreach ($compound['any'] ?? array() as $group) {
+            $certain = false;
+            foreach ($group['alternatives'] as $alternative) {
+                if (1 === count($alternative['compounds']) && self::certainlyMatches($alternative['compounds'][0], $tokens)) $certain = true;
+            }
+            if (!$certain) return false;
+        }
+        foreach ($compound['not'] ?? array() as $negation) {
+            if (1 !== count($negation['compounds'] ?? array())) return false;
+            $inner = $negation['compounds'][0];
+            $otherType = is_string($inner['type'] ?? null) && !isset($tokens['tag:' . strtolower($inner['type'])]);
+            if (!$otherType && !self::requiresAbsentEngineClass($inner, $tokens)) return false;
+        }
+        return true;
     }
 
     /**
