@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjectionContext;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 
@@ -25,9 +25,8 @@ $projections->ensureTagMarker('a');
 $context = new AuthorStylesheetProjectionContext($styles, new SourceStyleResolutionState(), $projections, new TransformationEvidenceState());
 // Isolate selector projection from native-control materialization: the consumer
 // is free to render the source input as any tag, provided it carries its marker.
-$projector = (new ReflectionClass(AuthorStylesheetProjector::class))->newInstanceWithoutConstructor();
-$rewrite = new ReflectionMethod(AuthorStylesheetProjector::class, 'rewriteSourceTagTypes');
-$project = static fn(string $selector): string => $rewrite->invoke($projector, $selector, CssSelectorMatcher::parse($selector), $context);
+$projector = (new ReflectionClass(AuthorSelectorProjector::class))->newInstanceWithoutConstructor();
+$project = static fn(string $selector): string => $projector->rewriteSourceTagTypes($selector, CssSelectorMatcher::parse($selector), $context);
 $projectedCss = (new CssStylesheetTransformer())->transformStyleRules($css, static fn(string $selector, string $body): string => $project($selector) . '{' . $body . '}');
 $assert(str_contains($projectedCss, 'color:#fff!important') && str_contains($projectedCss, 'color:#3c3c3c;background:#fff'), 'Declarations and importance survive');
 $source = CssSelectorMatcher::parse('.theme :not(a):not(input)');

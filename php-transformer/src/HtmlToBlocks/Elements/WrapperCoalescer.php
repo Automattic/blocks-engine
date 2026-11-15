@@ -74,6 +74,12 @@ final class WrapperCoalescer
 
     private const LANDMARK_GROUP_TAGS = array('header', 'footer');
 
+    // Semantic Groups have the same native transport as div Groups. Their tag
+    // does not by itself justify replacing editable structure with a companion.
+    private const NATIVE_GROUP_TAGS = array('div', 'main', 'section', 'article', 'aside');
+
+    // Charge shared ancestry against the saved List View depth, not only
+    // against the length of each uninterrupted single-child run.
     private const MAX_NATIVE_WRAPPER_DEPTH = 8;
 
     private bool $wrapperBudgetExceeded = false;
@@ -104,11 +110,18 @@ final class WrapperCoalescer
             && array() !== array_filter($ancestorChain, static fn (array $entry): bool => 'nav' === $entry['descriptor']['tagName'])
             && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'], array('div', 'nav'), true))
             && $depth - 1 + $this->nativeBlockHeight($block) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
-        // Total saved depth and uninterrupted wrapper runs have different
-        // budgets: a short chain above branching content is not an eight-box
-        // chain. Keep the run limit without charging descendant blocks to it.
+        // Semantic-only ancestry is a local region, not a reason to lower
+        // otherwise editable ancestors before its descendants normalize.
+        $semanticRegion = 2 <= count($ancestorChain)
+            && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, array('main', 'section', 'article', 'aside'), true));
+        $wrapperHeight = ($semanticRegion ? 0 : $depth - 1) + $this->nativeBlockHeight($block);
+        // Pure div ancestry spends the public saved-tree budget. Navigation
+        // and mixed semantic runs retain their established local boundaries.
+        $pureDivChain = 'div' === ($cursor['attrs']['tagName'] ?? 'div')
+            && array() === array_filter($ancestorChain, static fn (array $entry): bool => 'div' !== $entry['descriptor']['tagName']);
+        $depthBudget = $pureDivChain ? EditabilityPolicy::THRESHOLDS['max_nesting_depth'] : self::MAX_NATIVE_WRAPPER_DEPTH;
         if (! $nativeNavigationChain && 2 <= count($ancestorChain)
-            && ($depth - 1 + $this->nativeBlockHeight($block) > EditabilityPolicy::THRESHOLDS['max_nesting_depth']
+            && ($wrapperHeight > $depthBudget
                 || count($ancestorChain) >= self::MAX_NATIVE_WRAPPER_DEPTH)) {
             return $this->foldWrapperChain($ancestorChain, $this->normalizeWrapperChain($cursor, $depth + 1));
         }
@@ -130,7 +143,7 @@ final class WrapperCoalescer
                 || ('core/group' === $terminalName && array() === ($terminal['innerBlocks'] ?? array()))
                 || array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, ('div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div')), true)))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
-        // Div ancestors remain editable even when their terminal is a generated
+        // Native Group ancestors remain editable even when their terminal is a generated
         // block or an extraction slot. The terminal's transport does not require
         // transporting its native parent boxes in a generated shell too.
         // Inline-only fragments retain their existing shell transport. Source
@@ -139,8 +152,14 @@ final class WrapperCoalescer
         $hasSourceBox = array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool =>
             ! str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-synthetic-paragraph')
             || str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-source-box-paragraph'));
+        $nativeTags = 'div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div');
+        // Extend native transport to semantic-only region chains, not mixed
+        // chains whose inner containers already have established lowering.
+        if (2 <= count($chain) && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, array('main', 'section', 'article', 'aside'), true))) {
+            $nativeTags = self::NATIVE_GROUP_TAGS;
+        }
         $nativeGroupTree = $nativeGroupTree || (('core/freeform' !== $terminalName || $hasSourceBox)
-            && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, ('div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div')), true))
+            && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, $nativeTags, true))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth']);
         // The ratio budget belongs to the document, not each component. An
         // empty visual branch can have no content leaves while the complete
