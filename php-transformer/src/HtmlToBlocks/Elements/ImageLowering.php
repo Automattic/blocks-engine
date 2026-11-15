@@ -501,6 +501,11 @@ final class ImageLowering
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $boxCarrier);
         }
 
+        $frameOverflow = $this->styleResolver->flattenedImageFrameOverflowClassName($image, $figure);
+        if ( '' !== $frameOverflow ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $frameOverflow);
+        }
+
         if ( $figure instanceof DOMElement ) {
             $caption = SourceDom::firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
