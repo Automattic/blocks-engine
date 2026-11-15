@@ -573,6 +573,24 @@ final class PostChrome
             }
         }
         if (null === $best) return $fallback;
+        // Ties select the smallest wrapper. Keep authored empty siblings and
+        // their enclosing body anchor with the body, not in shared chrome.
+        while (true) {
+            $parent = null;
+            foreach ($index->ranges() as $candidate) {
+                if ($candidate['offset'] < $titleEnd || $candidate['offset'] > $best['offset'] || $candidate['offset'] + $candidate['length'] < $best['offset'] + $best['length'] || $candidate['length'] <= $best['length']) continue;
+                if (null === $parent || $candidate['length'] < $parent['length']) $parent = $candidate;
+            }
+            if (null === $parent) break;
+            foreach ($index->ranges() as $sibling) {
+                if ($sibling['offset'] < $parent['offset'] || $sibling['offset'] + $sibling['length'] > $parent['offset'] + $parent['length']) continue;
+                // Inspect only blocks outside the chosen body, not ancestors.
+                if ($sibling['offset'] < $best['offset'] + $best['length'] && $sibling['offset'] + $sibling['length'] > $best['offset']) continue;
+                $slice = substr($index->markup, $sibling['offset'], $sibling['length']);
+                if ('' !== ListingExcerptProjection::text($slice) || in_array(PostBlocks::sourceBlockName($slice), array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true) || preg_match('/<(?:img|video|iframe|picture|audio|svg|object|embed)\b/i', $slice)) break 2;
+            }
+            $best = $parent;
+        }
         $slots = array();
         $fields = array();
         $featured = null;

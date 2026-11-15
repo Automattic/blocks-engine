@@ -75,6 +75,74 @@ HTML;
         if (str_contains($finding['code'] ?? '', 'post_chrome_order_retained')) $failures[] = $fixture . ': no order-retained findings';
     }
 }
+// Real UIkit/Blogger layout: Docs wrappers and per-post anchors must stay
+// body-owned. Identical text-only related lists isolate this from #6159.
+$realTitles = array('x' => 'X notes', 'y' => 'Y notes', 'z' => 'Z notes');
+$realCss = '.uk-container{max-width:1200px;margin:0 auto}.uk-grid{display:flex;gap:24px;list-style:none;padding:0}.main{flex:2}.side{flex:1}.post_title{font-size:2rem}';
+$related = '<div class="post_related"><h3 class="post_related_title">Related Posts</h3><ul>';
+$popular = '<div class="widget PopularPosts"><h3>Popular Posts</h3><ul>';
+$indexLinks = '';
+foreach ($realTitles as $slug => $title) {
+    $link = '<a href="/2023/11/' . $slug . '.html">' . $title . '</a>';
+    $related .= '<li>' . $link . '</li>';
+    $popular .= '<li><h4 class="post_title">' . $link . '</h4></li>';
+    $indexLinks .= '<p>' . $link . '</p>';
+}
+$related .= '</ul></div>';
+$popular .= '</ul></div>';
+$files = array(array('path' => 'index.html', 'content' => '<!doctype html><html><head><title>Example Journal</title></head><body><div class="uk-container"><h1>Example Journal</h1>' . $indexLinks . '</div></body></html>'));
+$expectedIds = array();
+$i = 0;
+foreach ($realTitles as $slug => $title) {
+    $date = '2023-11-' . (10 + $i);
+    $label = 'Nov ' . (10 + $i) . ', 2023';
+    $pid = '627533715478939800' . $i++;
+    $expectedIds[$slug] = 'post_body_' . $pid;
+    $paragraphs = '';
+    for ($n = 1; $n <= 8; ++$n) $paragraphs .= '<p dir="ltr"><span style="font-size:12pt">' . $slug . ' paragraph ' . $n . '.</span></p>';
+    $docs = '<p></p><div class="separator" style="clear: both"><b id="docs-internal-guid-' . substr($pid, 0, 8) . '-7fff" style="font-weight:normal">' . $paragraphs . '</b></div>' . ('x' === $slug ? '<br>' : '') . '<p></p>';
+    $html = <<<HTML
+<!doctype html><html><head><title>{$title}</title><style>{$realCss}</style></head><body>
+{$header}
+<div class="uk-container"><div class="uk-grid">
+<div class="main"><div id="single_post" class="single_post hfeed"><article class="post hentry"><div class="post_content">
+<h1 class="post_title entry-title uk-article-title">{$title}</h1>
+<div class="post_header uk-article-meta"><span class="post_timestamp"><time datetime="{$date}">{$label}</time></span></div>
+<div class="post_body entry-content" id="post_body_{$pid}">{$docs}</div>
+{$related}
+</div></article></div></div>
+<div class="side"><div class="widget About"><h3>About</h3><p>Sidebar text.</p></div>{$popular}</div>
+</div></div>
+{$footer}
+</body></html>
+
+HTML;
+    $files[] = array(
+        'path' => '2023/11/' . $slug . '.html',
+        'metadata' => array('post_type' => 'post', 'declared_content' => array('title' => $title, 'slug' => $slug, 'published' => $date . 'T00:00:00Z', 'updated' => $date . 'T00:00:00Z', 'author' => 'Example Author', 'terms' => array('Notes'))),
+        'content' => $html,
+    );
+}
+$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+$posts = array_values(array_filter($plan['pages'], static fn(array $page): bool => 'post' === ($page['post_type'] ?? null)));
+$templates = array_values(array_filter($plan['templates'], static fn(array $template): bool => str_starts_with($template['slug'], 'single')));
+if (3 !== count($posts)) $failures[] = 'self-link-listing-real: three posts';
+if (1 !== count($templates)) $failures[] = 'self-link-listing-real: one shared single-post template';
+foreach ($posts as $post) {
+    $slug = basename($post['source_path'], '.html');
+    if (($post['route_template'] ?? 'single') !== ($templates[0]['slug'] ?? null)) $failures[] = 'self-link-listing-real: ' . $slug . ' uses shared template';
+    $body = $post['canonical_block_markup'];
+    $text = trim(preg_replace('/\s+/', ' ', strip_tags(preg_replace('/<!--.*?-->/s', '', $body))));
+    $expectedText = '';
+    for ($n = 1; $n <= 8; ++$n) $expectedText .= $slug . ' paragraph ' . $n . '.';
+    if ($expectedText !== $text) $failures[] = 'self-link-listing-real: ' . $slug . ' body only: ' . $text;
+    if (!str_contains($body, 'id="' . $expectedIds[$slug] . '"') || !str_contains($body, 'post_body')) $failures[] = 'self-link-listing-real: ' . $slug . ' retains body wrapper and anchor';
+    if (str_contains($templates[0]['canonical_block_markup'] ?? '', $expectedIds[$slug])) $failures[] = 'self-link-listing-real: body anchor is not template-owned';
+    echo 'self-link-listing-real ' . $slug . ': ' . strlen($body) . " B\n";
+}
+$findings = array_values(array_filter($plan['diagnostics'], static fn(array $finding): bool => 'info' !== ($finding['severity'] ?? null)));
+if (array() !== $findings) $failures[] = 'self-link-listing-real: zero findings ' . json_encode($findings);
+
 if (array() !== $failures) {
     fwrite(STDERR, 'FAIL: ' . implode("\nFAIL: ", $failures) . "\n");
     exit(1);
