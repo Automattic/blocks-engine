@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
@@ -744,7 +745,7 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
             // Other runtime targets still require the complete custom element.
             if ( ( $this->isRuntimeDomTarget($candidate) && ! $this->isCapturedDialogRuntimeBinding($candidate, true) )
                 || array() !== SourceDom::eventMetadata($candidate)
-                || (! $allowMotionStructure && $this->sourceElementClassifier->hasMotionStructureToken($candidate))
+                || (! $allowMotionStructure && $this->hasMotionPresentation($candidate))
             ) {
                 return false;
             }
@@ -757,6 +758,40 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         }
 
         return true;
+    }
+
+    /** Class/id motion words alone do not establish a runtime-owned surface. */
+    private function hasMotionPresentation(DOMElement $element): bool
+    {
+        if ( ! $this->sourceElementClassifier->hasMotionStructureToken($element) ) {
+            return false;
+        }
+
+        $declarations = SourceDeclarations::inline($element);
+        foreach ( $this->session->authorStyleRuleCandidates($element) as $candidate ) {
+            if ( ($candidate['parsed']['supported'] ?? false)
+                && $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
+            ) {
+                $declarations = array_merge($declarations, $candidate['declarations']);
+            }
+        }
+        foreach ( $declarations as $property => $value ) {
+            if ( 1 === preg_match('/^(?:animation(?:-|$)|transform$|translate$|rotate$|scale$|perspective$)/', $property)
+                && ! in_array(strtolower(trim($value)), array('', 'none', 'initial', 'inherit', 'unset'), true)
+            ) {
+                return true;
+            }
+        }
+        // Positioned slide stacks are also motion topology, even before a
+        // runtime has written its first transform onto the track.
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $this->sourceElementClassifier->isCarouselSlideChild($descendant)
+                && in_array(SourceDeclarations::inline($descendant)['position'] ?? '', array('absolute', 'fixed'), true)
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function hasWorkspaceSurface(DOMElement $element): bool

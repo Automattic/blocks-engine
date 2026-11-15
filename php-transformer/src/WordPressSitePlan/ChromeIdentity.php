@@ -101,6 +101,7 @@ final class ChromeIdentity
 
     public static function markup(string $markup): string
     {
+        $markup = self::nativeWrapperEncoding($markup);
         // Emission-only landmark transport must not prevent producer/capture matching.
         $markup = str_replace(array(',"className":"blocks-engine-shell-landmark"', ' blocks-engine-shell-landmark'), '', $markup);
         $markup = RestingNavigation::markup($markup, true);
@@ -131,6 +132,60 @@ final class ChromeIdentity
         // between them is read as tags.
         $markup = implode('', array_map(static fn (string $piece): string => str_starts_with($piece, '<!--') ? $piece : RenderEquivalentMarkup::canonical($piece, true), preg_split('/(<!--.*?-->)/s', $markup, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array($markup)));
         return ChromeStackingIdentity::normalize(ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup));
+    }
+
+    /** Expand folded wrappers for comparison only; saved templates keep their depth budget. */
+    private static function nativeWrapperEncoding(string $markup): string
+    {
+        $stack = array();
+        return preg_replace_callback('/<!--\s*(\/?)wp:custom\/layout-shell\b(.*?)-->/s', static function (array $match) use (&$stack): string {
+            if ('' !== $match[1]) return array_pop($stack) ?? $match[0];
+            $attrs = json_decode(trim($match[2]), true);
+            if (!is_array($attrs['wrappers'] ?? null)) {
+                $stack[] = '<!-- /wp:custom/layout-shell -->';
+                return $match[0];
+            }
+            $opening = '';
+            $closing = '';
+            foreach ($attrs['wrappers'] as $wrapper) {
+                $tag = $wrapper['tagName'] ?? 'div';
+                $attributes = $wrapper['attributes'] ?? array();
+                $group = array();
+                if ('div' !== $tag) $group['tagName'] = $tag;
+                if (isset($attributes['class'])) $group['className'] = $attributes['class'];
+                if (isset($attributes['id'])) $group['anchor'] = $attributes['id'];
+                $opening .= '<!-- wp:group ' . BlockAttributes::encode($group) . ' -->';
+                // Insert each native boundary between the saved wrapper tags.
+                $opening .= '<' . $tag;
+                foreach ($attributes as $name => $value) $opening .= ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '"';
+                $opening .= '>';
+                $closing = '</' . $tag . '><!-- /wp:group -->' . $closing;
+            }
+            $stack[] = $closing;
+            return $opening;
+        }, self::withoutFoldedWrapperHtml($markup)) ?? $markup;
+    }
+
+    /** Remove only the saved wrapper tags that the comparison expansion recreates. */
+    private static function withoutFoldedWrapperHtml(string $markup): string
+    {
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $edits = array();
+        foreach ($index->ranges() as $range) {
+            $block = substr($markup, $range['offset'], $range['length']);
+            if (!preg_match('/^<!-- wp:custom\/layout-shell (\{.*?\}) -->/s', $block, $match)) continue;
+            $attrs = json_decode($match[1], true);
+            if (!is_array($attrs['wrappers'] ?? null)) continue;
+            $children = $index->children($range);
+            if (array() === $children) continue;
+            $start = $range['offset'] + strlen($match[0]);
+            $end = $children[array_key_last($children)]['offset'] + $children[array_key_last($children)]['length'];
+            $edits[$start] = $children[0]['offset'] - $start;
+            $edits[$end] = $range['offset'] + $range['length'] - strlen('<!-- /wp:custom/layout-shell -->') - $end;
+        }
+        krsort($edits);
+        foreach ($edits as $offset => $length) $markup = substr_replace($markup, '', $offset, $length);
+        return $markup;
     }
 
     private static function withoutScrollStateCarrierIdentity(string $markup): string
