@@ -13,16 +13,39 @@ foreach (array(array('a', 'b', 'u'), array('u', 'a', 'b')) as $order) {
     $footer = '<footer class="site-footer"><p>Footer text</p></footer>';
     $links = '';
     foreach ($titles as $slug => $title) $links .= '<p><a href="/2024/01/' . $slug . '.html">' . ($title ?: 'Untitled') . '</a></p>';
-    $files = array(array('path' => 'index.html', 'content' => '<!doctype html><html><head><title>Example Journal</title></head><body>' . $header . '<div class="main-content"><h1>Example Journal</h1>' . $links . '</div>' . $footer . '</body></html>'));
-    // Use the generator's `none` related-section state for all three posts.
+    $files = array(array('path' => 'index.html', 'content' => '<!doctype html><html><head><title>Example Journal</title></head><body>' . "\n" . $header . "\n" . '<div class="main-content"><h1>Example Journal</h1>' . $links . '</div>' . "\n" . $footer . "\n" . '</body></html>' . "\n"));
+    // Generator defaults: cardDepth=1 and filled related sections on every post.
     foreach ($order as $slug) {
         $title = $titles[$slug];
         $date = array('a' => '2024-01-10', 'b' => '2024-01-12', 'u' => '2024-01-14')[$slug];
         $heading = '' === $title ? '' : '<h1 class="post-title">' . $title . '</h1>';
+        $cards = '';
+        foreach ($titles as $otherSlug => $otherTitle) {
+            if ($otherSlug === $slug) continue;
+            $cards .= '<li><div class="card-0"><a href="/2024/01/' . $otherSlug . '.html">' . ($otherTitle ?: 'Untitled') . '</a></div></li>';
+        }
+        $related = '<div class="related"><h3 class="related-title">Related Posts</h3><ul class="related-list">' . $cards . '</ul></div>';
+        $documentTitle = $title ?: 'Example Journal';
+        $html = <<<HTML
+<!doctype html><html><head><title>{$documentTitle}</title><meta property="article:published_time" content="{$date}T00:00:00Z"><style>.main-content{max-width:1200px;margin:0 auto;padding:0 16px}.grid{display:flex;gap:24px}.col-main{flex:2}.col-side{flex:1}</style></head><body>
+<header class="site-header"><p>Shared header</p></header>
+<div class="main-content"><div class="grid">
+<div class="col-main"><div class="blog"><article class="post"><div class="post-content">
+{$heading}
+<p class="post-date"><time datetime="{$date}">{$date}</time></p>
+<div class="post-body"><p>{$slug} opening paragraph.</p><p>{$slug} middle paragraph.</p><p>{$slug} closing paragraph.</p></div>
+{$related}
+</div></article></div></div>
+<div class="col-side"><div class="sidebar"><h2>About</h2><p>Sidebar text.</p></div></div>
+</div></div>
+<footer class="site-footer"><p>Footer text</p></footer>
+</body></html>
+
+HTML;
         $files[] = array(
             'path' => '2024/01/' . $slug . '.html',
-            'metadata' => array('post_type' => 'post', 'declared_content' => array('title' => $title, 'slug' => $slug, 'published' => $date . 'T00:00:00Z', 'updated' => $date . 'T00:00:00Z', 'author' => 'Example Author', 'terms' => array())),
-            'content' => '<!doctype html><html><head><title>' . ($title ?: 'Example Journal') . '</title><meta property="article:published_time" content="' . $date . 'T00:00:00Z"><style>.main-content{max-width:1200px;margin:0 auto;padding:0 16px}.grid{display:flex;gap:24px}.col-main{flex:2}.col-side{flex:1}</style></head><body>' . $header . '<div class="main-content"><div class="grid"><div class="col-main"><div class="blog"><article class="post"><div class="post-content">' . $heading . '<p class="post-date"><time datetime="' . $date . '">' . $date . '</time></p><div class="post-body"><p>' . $slug . ' opening paragraph.</p><p>' . $slug . ' middle paragraph.</p><p>' . $slug . ' closing paragraph.</p></div></div></article></div></div><div class="col-side"><div class="sidebar"><h2>About</h2><p>Sidebar text.</p></div></div></div></div>' . $footer . '</body></html>',
+            'metadata' => array('post_type' => 'post', 'declared_content' => array('title' => $title, 'slug' => $slug, 'published' => $date . 'T00:00:00Z', 'updated' => $date . 'T00:00:00Z', 'author' => 'Example Author', 'terms' => array('Notes'))),
+            'content' => $html,
         );
     }
     $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];

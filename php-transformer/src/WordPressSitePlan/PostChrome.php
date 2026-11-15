@@ -510,7 +510,10 @@ final class PostChrome
             if (array() !== $index->children($range)) continue;
             $slice = substr($index->markup, $range['offset'], $range['length']);
             $kind = $this->classifyBlock($slice, $post, $route, $index);
-            if ('title' === $kind) $titleEnd = $range['offset'] + $range['length'];
+            // Without a title, the publication date still anchors the article
+            // start. Otherwise enclosing chrome can win by counting related
+            // cards as body variation before their section is projected.
+            if ('title' === $kind || ('date' === $kind && $this->hasDeclaredEmptyTitle($post))) $titleEnd = $range['offset'] + $range['length'];
             if ($range['offset'] === $featuredOffset) continue;
             if (isset($shared[($this->chromeIdentity)($slice)]) || (!$this->hasVaryingUrlAttributes($slice, $shared) && in_array($kind, array('title', 'date', 'comments', 'chrome', 'share', 'skip'), true))) continue;
             $varying[] = $range;
