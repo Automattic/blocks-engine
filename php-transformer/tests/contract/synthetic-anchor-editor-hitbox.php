@@ -6,8 +6,8 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $result = (new HtmlTransformer())->transform(
-    '<style>.bar{display:flex;height:64px;align-items:center;justify-content:space-between}.brand{font-size:20px}</style>'
-    . '<header><div class="bar"><a class="brand" href="/">APEX <span>ATELIER</span></a><p>Shop</p></div></header>'
+    '<style>.eyebrow{font-size:12px;text-transform:uppercase}</style>'
+    . '<main><div><a class="eyebrow" href="/">Interior</a><div><h1>Steering wheel</h1><p>Details</p></div></div></main>'
 )->toArray();
 $markup = $result['serialized_blocks'] ?? '';
 $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));

@@ -59,7 +59,7 @@ $assert(1 === count($synthetic), 'synthetic paragraph emits one before-author ru
 $coreDefaults = implode("\n", $css->coreDefaultResetCss(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS));
 $assert(str_contains($coreDefaults, ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}'), 'synthetic paragraph margin reset cancels a core default');
 $assert(str_contains($synthetic[0], ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:inline}'), 'synthetic paragraph has a focusable inline box unless it is a lowered source box');
-$assert(! str_contains($synthetic[0], ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'), 'synthetic anchor paragraphs retain a focusable box');
+$assert(str_contains($synthetic[0], ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'), 'layout-owning anchors retain transparent carriers');
 
 $layoutShell = $css->beforeAuthorCss('<!-- wp:blocks-engine/layout-shell -->', 'blocks-engine/layout-shell');
 $assert(array() === $layoutShell, 'layout shells require no editor layer repair');
