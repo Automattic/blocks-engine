@@ -7,9 +7,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 // A single div before a branching section is not a long wrapper chain.
 // Building a synthetic freeform terminal here incorrectly activates the mixed
-// semantic chain's local eight-level cap, despite the native document budget.
+// semantic chain's local cap. Keep this tree within the group-heavy budget.
 $branch = '<p>Editable leaf</p>';
-for ($i = 0; $i < 6; ++$i) {
+for ($i = 0; $i < 4; ++$i) {
     $branch = '<div id="leaf-' . $i . '">' . $branch . '</div>';
 }
 $html = '<div id="outer"><section id="fork">' . $branch

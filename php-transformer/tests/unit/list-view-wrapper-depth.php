@@ -9,7 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 // Descendant selectors require every source box to survive. Below the public
 // editability depth budget those boxes must remain native editable Groups.
 $html = '<p>Editable content</p>';
-for ($i = 11; $i >= 0; --$i) {
+for ($i = 5; $i >= 0; --$i) {
     $html = '<div class="layer-' . $i . '">' . $html . '</div>';
 }
 $result = (new HtmlTransformer())->transform('<style>.layer-0 p{color:red}</style>' . $html)->toArray();
@@ -20,13 +20,13 @@ $height = static function (array $blocks) use (&$height): int {
     }
     return $max;
 };
-if (13 !== $height($result['blocks']) || str_contains($result['serialized_blocks'], '/layout-shell')) {
+if (7 !== $height($result['blocks']) || str_contains($result['serialized_blocks'], '/layout-shell')) {
     throw new RuntimeException('A chain within the editability depth budget must remain native.');
 }
 // Verify source parent-child edges, not just class names somewhere in the
 // output: selector projection depends on each box keeping its own identity.
 $cursor = $result['blocks'][0];
-for ($i = 0; $i < 12; ++$i) {
+for ($i = 0; $i < 6; ++$i) {
     if ('core/group' !== ($cursor['blockName'] ?? '')
         || !in_array('layer-' . $i, explode(' ', $cursor['attrs']['className'] ?? ''), true)
         || 1 !== count($cursor['innerBlocks'] ?? array())) {
@@ -38,7 +38,7 @@ if ('core/paragraph' !== ($cursor['blockName'] ?? '')) {
     throw new RuntimeException('Native wrapper ancestry must terminate at editable content.');
 }
 $markup = $result['serialized_blocks'];
-for ($i = 0; $i < 12; ++$i) {
+for ($i = 0; $i < 6; ++$i) {
     if (!str_contains($markup, 'layer-' . $i)) {
         throw new RuntimeException('Shell transport lost a source selector identity.');
     }

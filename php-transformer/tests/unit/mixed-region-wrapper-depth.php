@@ -27,11 +27,9 @@ foreach (array('section', 'div') as $tag) {
             throw new RuntimeException('Mixed region ancestry must compress containers without losing the native section.');
         }
     } else {
-        for ($i = 2; $i >= 0; --$i) {
-            if ('core/group' !== ($cursor['blockName'] ?? '') || 'local-' . $i !== ($cursor['attrs']['anchor'] ?? '')) {
-                throw new RuntimeException('Ordinary div ancestry must retain native editable boxes within the document budget.');
-            }
-            $cursor = $cursor['innerBlocks'][0];
+        if (!str_ends_with($cursor['blockName'] ?? '', '/layout-shell')
+            || array('div', 'div', 'div') !== array_column($cursor['attrs']['wrappers'] ?? array(), 'tagName')) {
+            throw new RuntimeException('Group-heavy div ancestry must share the List View depth budget.');
         }
     }
 }
