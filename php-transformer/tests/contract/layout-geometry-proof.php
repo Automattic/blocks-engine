@@ -20,6 +20,12 @@ $proof = array('schema' => LayoutGeometryProof::SCHEMA, 'nodes' => array(
 ), 'reductions' => array(array('wrapper' => 'wrapper', 'target' => 'target', 'invariants' => array('selectors' => true, 'runtime' => true, 'semantics' => true, 'viewports' => true), 'corrective_css' => array('declarations' => array(array('property' => 'width', 'value' => '80%'))))));
 $compile = static fn(array $proof): array => (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html), 'layout_geometry_proof' => $proof))->toArray();
 
+foreach (array('blocks-engine-capture/layout-geometry-proof/v1', 'blocks-engine/php-transformer/layout-geometry-proof/v1') as $obsoleteSchema) {
+    $obsolete = $proof;
+    $obsolete['schema'] = $obsoleteSchema;
+    $assert(in_array('layout_geometry_proof_schema_invalid', array_column($compile($obsolete)['diagnostics'], 'code'), true), 'Obsolete producer-specific proof schemas are rejected, not aliased.');
+}
+
 $coalesced = $compile($proof);
 $root = $coalesced['blocks'][0] ?? array();
 $markup = (string) ($coalesced['serialized_blocks'] ?? '');

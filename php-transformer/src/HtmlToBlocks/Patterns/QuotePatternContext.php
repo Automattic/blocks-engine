@@ -17,7 +17,16 @@ final class QuotePatternContext
     {
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'cite', 'footer', 'figcaption' ), true) ) {
-                return $this->styleResolver->innerHtml($child);
+                $content = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom::innerHtmlWithProjectedMarkers(
+                    $child,
+                    $this->styleResolver->richTextSourceMarkers(...),
+                    $this->styleResolver->serializedInlineStyle(...)
+                );
+                $class = trim($child->getAttribute('class'));
+                if ( '' !== $class ) {
+                    $content = '<span class="' . htmlspecialchars($class, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
+                }
+                return $content;
             }
         }
 

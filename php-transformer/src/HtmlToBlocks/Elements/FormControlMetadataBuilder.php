@@ -1009,6 +1009,7 @@ final class FormControlMetadataBuilder
             // Hidden source copy is not permanent field help. Providers render
             // descriptions independently of the original node and its CSS box.
             if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden'))
+                || $this->styleResolver?->isVisuallyHiddenAtRest($node)
                 || null !== $this->hiddenState($node, $wrapper)
             ) {
                 continue;

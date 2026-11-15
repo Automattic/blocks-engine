@@ -88,6 +88,13 @@ final class FormCompositionPlanner
             return null;
         }
 
+        // A controls row with a preceding caption needs the whole form tree:
+        // substituting just the row would repeat the caption and outer spacing.
+        foreach ( $form->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'label' === strtolower($child->tagName) ) {
+                return null;
+            }
+        }
         $formPath = $form->getNodePath();
         $slot = null;
         for ( $candidate = $controls[0]->parentNode; $candidate instanceof DOMElement && $candidate->getNodePath() !== $formPath; $candidate = $candidate->parentNode ) {
