@@ -134,7 +134,8 @@ foreach (array('h1', 'h2', 'h3') as $level) {
 $assert('inherit' !== ($cascadeTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'authored heading cascade: no heading inheritance reset overrides source families');
 
 // Channel custom properties are colours only in the consuming function, not
-// standalone palette values. Keep the authored expression as the CSS fallback.
+// standalone palette values. Root paint yields to Global Styles; compound
+// uses keep the authored expression as the CSS fallback.
 foreach (array('hsl(var(--foreground))', 'hsl(var(--foreground) / 1)', 'rgb(var(--channels))', 'rgb(var(--channels) / 100%)') as $expression) {
     [$channelPlan, $channelTheme] = $compile(array(
         'entrypoint' => 'index.html',
@@ -147,7 +148,7 @@ foreach (array('hsl(var(--foreground))', 'hsl(var(--foreground) / 1)', 'rgb(var(
     $assert('var:preset|color|' . $channelSlug === ($channelTheme['styles']['color']['text'] ?? null), $expression . ': root text references its matching preset');
     $assert('var:preset|color|base' === ($channelTheme['styles']['color']['background'] ?? null), $expression . ': root background references its matching preset');
     $channelCss = implode("\n", array_column($channelPlan['assets'], 'content'));
-    $assert(str_contains($channelCss, 'color:var(--wp--preset--color--' . $channelSlug . ',' . $expression . ')'), $expression . ': CSS binds with the original expression as fallback');
+    $assert(!str_contains($channelCss, 'body{color:'), $expression . ': matching body paint yields to Global Styles');
     $assert(str_contains($channelCss, 'linear-gradient(var(--wp--preset--color--' . $channelSlug . ',' . $expression . '),var(--wp--preset--color--base,rgb(var(--paper) / 100%)))'), $expression . ': compound colour tokens resolve and retain their original fallbacks too');
 }
 
@@ -488,6 +489,10 @@ $assert('.a{font-family:var(--wp--preset--font-family--body,Inter, sans-serif)}.
 $fontVariables = ':root{--family:Inter, sans-serif;--other:Inter,Arial}.a{font-family:var(--family)}.b{font-family:var(--other)}';
 $assert(str_contains($sheet($fontVariables), '.a{font-family:var(--wp--preset--font-family--body,var(--family))}') && str_contains($sheet($fontVariables), '.b{font-family:var(--wp--preset--font-family--body,var(--other))}'), 'resolved font declarations bind their primary family and retain the original variable fallback');
 $assert('.a{font-family:var(--wp--preset--font-family--body,"Inter",sans-serif)}.b{font-family:"In ter",sans-serif}' === $sheet('.a{font-family:"Inter",sans-serif}.b{font-family:"In ter",sans-serif}'), 'font stack comparison preserves spaces inside family names');
+
+// Custom properties accept bare stacks as well as complete font shorthands,
+// but sharing only the primary family is not an exact-stack match (#6058).
+$assert(':root{--body-font:var(--wp--preset--font-family--body,"Inter",sans-serif)!important;--heading-font:italic 700 24px/1.2 var(--wp--preset--font-family--body);--other-font:"Inter",serif;--length:24px;--ink:var(--wp--preset--color--' . $slug . ',#e11d48)}' === $sheet(':root{--body-font:"Inter",sans-serif!important;--heading-font:italic 700 24px/1.2 "Inter",sans-serif;--other-font:"Inter",serif;--length:24px;--ink:#e11d48}'), 'custom-property font stacks bind exact presets, preserving shorthand prefixes, importance and non-font binders');
 
 // Compound colour values follow the palette without interpreting positions,
 // variable fallbacks or URLs as colour tokens.

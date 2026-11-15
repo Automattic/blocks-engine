@@ -776,7 +776,7 @@ final class ListingQueryLoops
             }
         }
         $name = PostBlocks::sourceBlockName($slice);
-        if ($hasRouteLink && (in_array($name, array('heading', 'post-title'), true) || ('paragraph' === $name && ListingExcerptProjection::text($slice) === ($post['title'] ?? null)))) {
+        if ($hasRouteLink && (in_array($name, array('heading', 'post-title'), true) || (in_array($name, array('paragraph', 'list-item'), true) && ListingExcerptProjection::text($slice) === ($post['title'] ?? null)))) {
             return 'title';
         }
         $timestamp = is_string($post['publication_timestamp'] ?? null) ? $post['publication_timestamp'] : null;

@@ -301,17 +301,21 @@ final class CssRuleAnalyzer
     /**
      * Every `--name: value` custom-property declaration in `$css`, in source
      * order with values trimmed. Reads a rule body or a whole stylesheet.
+     * Declarations split only at top-level `;`, `{` and `}`, so a value keeps
+     * the `;` inside a string or function such as a `data:` URI.
      *
      * @return list<array{name: string, value: string}>
      */
     public static function customProperties(string $css): array
     {
-        if ( ! str_contains($css, '--') || ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
+        if ( ! str_contains($css, '--') ) {
             return array();
         }
         $properties = array();
-        foreach ( $matches as $match ) {
-            $properties[] = array( 'name' => $match[1], 'value' => trim($match[2]) );
+        foreach ( CssValueSplitter::splitTopLevel(CssSyntaxScanner::withoutComments($css), array( ';', '{', '}' )) as $declaration ) {
+            if ( 1 === preg_match('/^(--[A-Za-z0-9_-]+)\s*:\s*(.*)$/s', $declaration, $match) && '' !== trim($match[2]) ) {
+                $properties[] = array( 'name' => $match[1], 'value' => trim($match[2]) );
+            }
         }
         return $properties;
     }

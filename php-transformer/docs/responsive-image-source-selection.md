@@ -11,13 +11,23 @@ families and other families whose rendered width is unknown keep the existing `r
 `blocks-engine/responsive-media/v1` renderer. In that last case the intrinsic
 size depends on the chosen candidate's descriptor (a `w` family renders at its
 `sizes` slot, which the src-derived dimensions core adds would override). Art
-direction (`<picture>` sources) also keeps that boundary.
+direction in a raster `<picture>` now lowers natively too: ordered sources
+replay the authored viewport switch, including crops, without needing pixel
+measurements. Explicit source types must match the fallback raster type;
+format negotiation and custom-element hosts keep the companion boundary to
+avoid changing their existing fallback/host behavior.
 
 WordPress `core/image` serializes a fallback URL and attachment identity, but
 not authored `srcset`/`sizes`. Attachment-generated candidates describe file
 widths rather than authored descriptors, so the browser would decode different
 bytes. The lowered block therefore records
 `metadata.blocksEngineImageSelection` = `{src, srcset, sizes, loading}`.
+For a picture it additionally records `sources` (ordered objects containing
+`media`, `type`, `srcset`, `sizes` when authored), `picture` (the picture's
+presentation attributes), and `image` (the leaf's class/style/id). Sources use
+the same recursive srcset asset-token binding as the image selection. The
+renderer restores `<picture><source …><img …></picture>` inside the saved
+figure/link, keeping picture and image presentation on their own boxes.
 The site plan installs a `render_block_core/image` filter that restores those
 attributes only while the rendered `<img src>` still equals the selection's
 `src`. Authored `loading` belongs to the selection: when candidates share a URL,

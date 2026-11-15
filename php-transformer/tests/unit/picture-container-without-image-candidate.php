@@ -45,11 +45,11 @@ $assert($markup === (string) ( $divResult['serialized_blocks'] ?? '' ), 'the pic
 $assert(str_contains($cssAssets($result), 'mask-image:url(quote.svg)'), 'the author mask rule stays in the projected stylesheet', $cssAssets($result));
 $assert('pass' === ( $result['source_reports']['wp_block_validity']['status'] ?? '' ), 'the output stays editor-valid');
 
-// A picture that does carry an image candidate keeps the media path.
+// A picture with an image candidate records native source selection.
 $media = ( new HtmlTransformer() )->transform(
     '<picture><source srcset="wide.jpg" media="(min-width: 800px)"><img src="narrow.jpg" alt="Hero" width="800" height="400"></picture>'
 )->toArray();
-$assert(str_contains((string) ( $media['serialized_blocks'] ?? '' ), 'responsive-media'), 'a picture with an image candidate still converts as media', (string) ( $media['serialized_blocks'] ?? '' ));
+$assert(str_contains((string) ( $media['serialized_blocks'] ?? '' ), 'blocksEngineImageSelection'), 'a picture with an image candidate converts as native selection', (string) ( $media['serialized_blocks'] ?? '' ));
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "picture container without image candidate FAILED: {$passes} passed, {$failures} failed\n");

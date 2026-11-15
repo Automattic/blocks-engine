@@ -1006,9 +1006,8 @@ final class FormControlMetadataBuilder
                     continue;
                 }
             }
-            // Provider help text is always rendered. Copy hidden by the source
-            // (for example, validation feedback) must stay in its original
-            // context, not become a permanently visible field description.
+            // Hidden source copy is not permanent field help. Providers render
+            // descriptions independently of the original node and its CSS box.
             if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden'))
                 || $this->styleResolver?->isVisuallyHiddenAtRest($node)
                 || null !== $this->hiddenState($node, $wrapper)
