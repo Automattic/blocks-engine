@@ -576,6 +576,19 @@ final class WrapperCoalescer
                     || ($property === $spacing[1] && str_starts_with($childProperty, $property . '-'))) return null;
             }
         }
+        // Zero-width child borders are neutral only on their original box.
+        // After absorption their selectors would also reset the parent's paint.
+        // Keep border owners separate, including shorthand/longhand overlaps;
+        // border-radius has its own reset family (border does not reset it).
+        foreach ($parentDeclarations as $property => $value) {
+            if (!str_starts_with($property, 'border')
+                || $this->isRenderNeutralGeometryDeclaration($property, $value)) continue;
+            $radius = str_contains($property, 'radius');
+            foreach (array_keys($childDeclarations) as $childProperty) {
+                if (str_starts_with($childProperty, 'border')
+                    && $radius === str_contains($childProperty, 'radius')) return null;
+            }
+        }
         // Paragraphs have UA block margins even without author declarations.
         if ('core/paragraph' === $name) {
             $declarations = $this->matchingAuthorDeclarations($child);

@@ -37,4 +37,10 @@ $spacing = $transform('<style>.surface{padding:2rem;background:#eee;margin:3rem}
 $assert('core/group' === $spacing['blocks'][0]['blockName'], 'A child margin reset must not compete with the wrapper margin on one host.');
 $assert('core/paragraph' === $spacing['blocks'][0]['innerBlocks'][0]['blockName'], 'The paragraph remains independently editable inside the spacing box.');
 
+foreach (array('border:4px solid red', 'border-top:4px solid red', 'border-radius:12px') as $paint) {
+    $border = $transform('<style>.surface{padding:2rem;background:#eee;' . $paint . '}p{margin:0;border:0;border-radius:0}</style><div class="surface"><p>Separate border owners</p></div>');
+    $assert('core/group' === $border['blocks'][0]['blockName'], 'A neutral child border reset must not erase the parent border or radius.');
+    $assert('core/paragraph' === $border['blocks'][0]['innerBlocks'][0]['blockName'], 'The text stays a native paragraph within its painted box.');
+}
+
 fwrite(STDOUT, "Neutral child wrapper absorption passed\n");
