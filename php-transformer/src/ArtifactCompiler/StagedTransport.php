@@ -309,7 +309,7 @@ trait StagedTransport
             $pageArtifact['files'] = FileOwnership::withoutOmittedPages($pageArtifact['files'], array_keys($omittedPages));
             $files = FileOwnership::withoutOmittedPages($files, array_keys($omittedPages));
         }
-        $pageDocuments = $stageCompiler->compileSourceDocuments($pageArtifact);
+        $pageDocuments = SourceDocuments::compile($pageArtifact);
         $entryBlocks = null;
         foreach ($pageArtifact['files'] as $file) {
             if (($file['path'] ?? null) === $entryPath && 'html' === ($file['kind'] ?? null)) {
@@ -389,7 +389,7 @@ trait StagedTransport
             'owned_transformable_paths' => $this->ownedTransformablePaths($pageArtifact['files'], (string) $pagePlan['page_id']),
             'entry_blocks' => $entryBlocks,
             'component_facts' => ComponentDetection::collectFacts($pageArtifact['files'], $pageDocuments['components']),
-            'block_types' => $this->detectBlockTypes($files, $pageDocuments['diagnostics']),
+            'block_types' => BlockTypes::detect($files, $pageDocuments['diagnostics']),
         );
     }
 

@@ -326,15 +326,19 @@ final class PostChrome
             $image = PostBlocks::leadImage(substr($post['canonical_block_markup'], $lead['offset'], $lead['length']));
             if (null !== $image) $leadImages[$postIndex] = $image;
         }
+        // Prefer the depth-bounded encoding regardless of source post order.
+        // Equivalent native wrapper chains compare equal, but must not replace
+        // a folded template required by a deeper member's content.
+        uasort($documents, static fn(array $a, array $b): int => substr_count($b['template'], '<!-- wp:custom/layout-shell') <=> substr_count($a['template'], '<!-- wp:custom/layout-shell'));
         $promoteLead = count($leadImages) === count($posts) && count(array_unique(array_column($leadImages, 'asset_token'))) > 1;
         $single = null;
         $singleMenus = array();
         $bodies = array();
         $postMeta = array();
         $featuredImages = array();
-        foreach ($posts as $postIndex => $post) {
+        foreach ($documents as $postIndex => $transformed) {
+            $post = $posts[$postIndex];
             $route = is_string($post['route']['path'] ?? null) ? $post['route']['path'] : '';
-            $transformed = $documents[$postIndex];
             if ($promoteLead) {
                 $transformed = $this->transformDocument($post['canonical_block_markup'], $post, $route, $shared, $transformed['retained'][0]['offset'], $posts);
             }
@@ -453,10 +457,12 @@ final class PostChrome
             $texts = null === $texts ? $postTexts : array_intersect_key($texts, $postTexts);
         }
         $shared = null;
+        $headings = array();
         foreach ($posts as $key => $post) {
             $identities = array();
             foreach ($indexes[$key]->ranges() as $range) {
                 $slice = substr($post['canonical_block_markup'], $range['offset'], $range['length']);
+                if ('heading' === PostBlocks::sourceBlockName($slice)) $headings[($this->chromeIdentity)($slice)][$key] = true;
                 if (!isset($texts[self::chromeTextKey($slice)])) continue;
                 $identity = ($this->chromeIdentity)($slice);
                 if ('' !== $identity) {
@@ -465,6 +471,9 @@ final class PostChrome
             }
             $shared = null === $shared ? $identities : array_intersect_key($shared, $identities);
         }
+        // Optional sections can be absent on some posts; a repeated heading
+        // still establishes their shared section identity.
+        foreach ($headings as $identity => $owners) if (count($owners) >= 2) $shared[$identity] = true;
         return $shared ?? array();
     }
 
@@ -539,7 +548,7 @@ final class PostChrome
             while (1 === count($following)) {
                 $slice = substr($sectionIndex->markup, $following[0]['offset'], $following[0]['length']);
                 $nested = $sectionIndex->children($following[0]);
-                if ('list' === PostBlocks::sourceBlockName($slice)) {
+                if ('list' === PostBlocks::sourceBlockName($slice) || in_array(PostBlocks::sourceAttributes($slice)['tagName'] ?? null, array('ul', 'ol'), true) || array() !== array_filter(PostBlocks::sourceAttributes($slice)['wrappers'] ?? array(), static fn(array $wrapper): bool => in_array($wrapper['tagName'] ?? null, array('ul', 'ol'), true))) {
                     if (array() !== $nested) $items = $nested;
                     break;
                 }
@@ -564,6 +573,33 @@ final class PostChrome
             $end = $items[count($items) - 1]['offset'] + $items[count($items) - 1]['length'];
             $slots[$section['owner']['offset']] = substr($index->markup, $section['owner']['offset'], $start - $section['owner']['offset']) . PostBlocks::query(count($items), $projection['template']) . substr($index->markup, $end, $section['owner']['offset'] + $section['owner']['length'] - $end);
             foreach ($projection['fields'] as $source => $values) $fields[$source] = ($fields[$source] ?? array()) + $values;
+        }
+        // A textless counterpart of a proven related section is its empty
+        // loading state, not a second article body. Use the same query slot.
+        foreach ($posts as $peer) {
+            $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
+            foreach ($peerIndex->ranges() as $owner) {
+                $section = $sectionItems($peerIndex, $owner, $shared);
+                if (null === $section) continue;
+                if (!array_key_exists($section['heading'], $this->relatedSectionProjections)) $this->relatedSectionProjections[$section['heading']] = $this->relatedSectionProjection($section['heading'], $sectionItems, $posts, $shared);
+                $projection = $this->relatedSectionProjections[$section['heading']];
+                if (null === $projection) continue;
+                $slice = substr($peerIndex->markup, $owner['offset'], $owner['length']);
+                $class = PostBlocks::sourceAttributes($slice)['className'] ?? '';
+                $class = preg_replace('/\s*be-inline-geometry-[\w-]+/', '', $class);
+                if ('' === $class) continue;
+                foreach ($index->ranges() as $candidate) {
+                    if ($candidate['offset'] < $best['offset'] + $best['length'] || isset($slots[$candidate['offset']])) continue;
+                    $empty = substr($index->markup, $candidate['offset'], $candidate['length']);
+                    $emptyClass = preg_replace('/\s*be-inline-geometry-[\w-]+/', '', PostBlocks::sourceAttributes($empty)['className'] ?? '');
+                    if ($class !== $emptyClass || '' !== ListingExcerptProjection::text($empty)) continue;
+                    $items = $section['items'];
+                    $start = $items[0]['offset'] - $owner['offset'];
+                    $last = $items[array_key_last($items)];
+                    $end = $last['offset'] + $last['length'] - $owner['offset'];
+                    $slots[$candidate['offset']] = substr($slice, 0, $start) . PostBlocks::query(count($items), $projection['template']) . substr($slice, $end);
+                }
+            }
         }
         foreach ($varying as $leaf) {
             if ($leaf['offset'] >= $best['offset'] && $leaf['offset'] < $best['offset'] + $best['length']) continue;
@@ -639,6 +675,7 @@ final class PostChrome
                 if ($range['offset'] < $card['offset'] || $range['offset'] + $range['length'] > $card['offset'] + $card['length']) continue;
                 $slice = substr($cardMarkup, $range['offset'], $range['length']);
                 if ('paragraph' !== PostBlocks::sourceBlockName($slice)) continue;
+                if ('title' === $this->listings->classifyCardBlock($slice, $card['post'], $card['route'], $cardIndex)) continue;
                 $key = 'blocks_engine_post_field_' . substr(hash('sha256', $heading . ':' . $ordinal++), 0, 12);
                 $cardFields[$card['post']['source_path']][$key] = ListingFieldProjection::content(array($slice));
                 $bound[$range['offset']] = ListingFieldProjection::paragraph($slice, PostBlocks::sourceAttributes($slice), $key, '');

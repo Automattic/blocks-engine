@@ -381,7 +381,7 @@ final class ArtifactCompiler
         $this->routeSets = array();
         $capturedDialogs = is_array($reduction['captured_dialogs'] ?? null) ? $reduction['captured_dialogs'] : array('diagnostics' => array(), 'projected_count' => 0);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
-        $documents = is_array($reduction['source_documents'] ?? null) ? $reduction['source_documents'] : $this->compileSourceDocuments($normalized);
+        $documents = is_array($reduction['source_documents'] ?? null) ? $reduction['source_documents'] : SourceDocuments::compile($normalized);
         $diagnostics = array_merge($this->operatorFacingNormalizationDiagnostics($normalized['diagnostics']), $capturedDialogs['diagnostics'], $documents['diagnostics'], $this->svgAssetDiagnostics($normalized['files']));
 
         if ( null === $entry && array() === $documents['documents'] ) {
@@ -392,7 +392,7 @@ final class ArtifactCompiler
         $this->generatedAssetRoot = '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/');
         $html = is_array($entry) ? (string) $entry['content'] : '';
         $components = is_array($reduction['components'] ?? null) ? $reduction['components'] : ComponentDetection::detect($normalized['files'], $entryPath, $documents['components']);
-        $blockTypes = is_array($reduction['block_types'] ?? null) ? $reduction['block_types'] : $this->detectBlockTypes($normalized['files'], $diagnostics);
+        $blockTypes = is_array($reduction['block_types'] ?? null) ? $reduction['block_types'] : BlockTypes::detect($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $normalized['files'] = LinkedStylesheets::withDocumentMedia($normalized['files']);
         $normalized['files'] = LinkedStylesheets::separateUnlinked($normalized['files'], $normalized['runtime_declarations']);
@@ -535,8 +535,8 @@ final class ArtifactCompiler
             }
         }
         $this->indexFiles($normalized['files']);
-        $normalized['files'] = RuntimeScriptProjections::applyToFiles($normalized['files'], $runtimeScriptProjections);
-        $runtimeIslandPackage = RuntimeScriptProjections::applyToPackage(
+        $normalized['files'] = RuntimeScriptRewrites::applyToFiles($normalized['files'], $runtimeScriptProjections);
+        $runtimeIslandPackage = RuntimeScriptRewrites::applyToPackage(
             ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath),
             $runtimeScriptProjections
         );
@@ -2510,7 +2510,7 @@ final class ArtifactCompiler
                     $area = ShellLandmarkPolicy::landmarkKind($tag, trim($child->getAttribute('role')));
                     if (!$content && isset($rows[$area])) {
                         $markup = $dom->saveHTML($child);
-                        if (is_string($markup) && '' !== $markup) $rows[$area][] = array('markup' => $markup, 'identity' => self::normalizeSourceShellIdentity($markup), 'context' => self::sourceShellAncestorContext($child));
+                        if (is_string($markup) && '' !== $markup) $rows[$area][] = array('markup' => $markup, 'identity' => SourceShells::identity($markup), 'context' => SourceShells::ancestorContext($child));
                     }
                     $walk($child, $content);
                 }
@@ -2552,9 +2552,9 @@ final class ArtifactCompiler
                 $canonicalSource = $members[$sourcePath]['rows'][$area][$variant]['markup'];
                 foreach ($members as $member) {
                     $candidate = $member['rows'][$area][$variant]['markup'];
-                    if (self::sourceShellEvidenceCount($candidate) > self::sourceShellEvidenceCount($canonicalSource)) $canonicalSource = $candidate;
+                    if (SourceShells::evidenceCount($candidate) > SourceShells::evidenceCount($canonicalSource)) $canonicalSource = $candidate;
                 }
-                $canonicalMarkup = self::normalizeSourceShellIdentity($canonicalSource, false);
+                $canonicalMarkup = SourceShells::identity($canonicalSource, false);
                 $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $members[$sourcePath]['content'], $headMatch) ? $headMatch[1] : '';
                 // A route-only stylesheet must not seed the shared part, even
                 // when that route is the entrypoint. Only style sources common
@@ -2570,10 +2570,10 @@ final class ArtifactCompiler
                 // custom properties) resolve as they do on every member page.
                 // Member-specific ancestor attributes are dropped like route-only
                 // stylesheets, keeping the shell canonical rather than page-seeded.
-                $context = self::sharedSourceShellAncestorContext(array_map(static fn(array $member): array => $member['rows'][$area][$variant]['context'], $members));
+                $context = SourceShells::sharedAncestorContext(array_map(static fn(array $member): array => $member['rows'][$area][$variant]['context'], $members));
                 $open = ''; $close = '';
-                foreach (array_slice($context, 2) as $ancestor) { $open .= '<' . $ancestor['tag'] . self::sourceShellAttributes($ancestor['attributes']) . '>'; $close = '</' . $ancestor['tag'] . '>' . $close; }
-                $synthetic = '<!doctype html><html' . self::sourceShellAttributes($context[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . self::sourceShellAttributes($context[1]['attributes'] ?? array()) . '>' . $open . $canonicalMarkup . $close . '</body></html>';
+                foreach (array_slice($context, 2) as $ancestor) { $open .= '<' . $ancestor['tag'] . SourceShells::attributes($ancestor['attributes']) . '>'; $close = '</' . $ancestor['tag'] . '>' . $close; }
+                $synthetic = '<!doctype html><html' . SourceShells::attributes($context[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . SourceShells::attributes($context[1]['attributes'] ?? array()) . '>' . $open . $canonicalMarkup . $close . '</body></html>';
                 $compiled = $this->compileHtmlDocumentBlocks($synthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($context) - 2));
                 $generatedBlocks = array_merge($generatedBlocks, $compiled['generated_blocks'] ?? array());
                 $shell = current(array_filter($compiled['shell_artifacts'], static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
@@ -2601,12 +2601,12 @@ final class ArtifactCompiler
                 foreach ($documents as $document) {
                     $siteContexts[] = $document['rows'][$area][$variant]['context'] ?? array();
                 }
-                $siteContext = self::sharedSourceShellAncestorContext($siteContexts);
+                $siteContext = SourceShells::sharedAncestorContext($siteContexts);
                 $contextMatches = null;
                 if ($context !== $siteContext) {
                     $siteOpen = ''; $siteClose = '';
-                    foreach (array_slice($siteContext, 2) as $ancestor) { $siteOpen .= '<' . $ancestor['tag'] . self::sourceShellAttributes($ancestor['attributes']) . '>'; $siteClose = '</' . $ancestor['tag'] . '>' . $siteClose; }
-                    $siteSynthetic = '<!doctype html><html' . self::sourceShellAttributes($siteContext[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . self::sourceShellAttributes($siteContext[1]['attributes'] ?? array()) . '>' . $siteOpen . $canonicalMarkup . $siteClose . '</body></html>';
+                    foreach (array_slice($siteContext, 2) as $ancestor) { $siteOpen .= '<' . $ancestor['tag'] . SourceShells::attributes($ancestor['attributes']) . '>'; $siteClose = '</' . $ancestor['tag'] . '>' . $siteClose; }
+                    $siteSynthetic = '<!doctype html><html' . SourceShells::attributes($siteContext[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . SourceShells::attributes($siteContext[1]['attributes'] ?? array()) . '>' . $siteOpen . $canonicalMarkup . $siteClose . '</body></html>';
                     $contextMatches = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex(array(
                         'member' => HtmlSerialization::parseDocument($synthetic),
                         'site' => HtmlSerialization::parseDocument($siteSynthetic),
@@ -2654,180 +2654,6 @@ final class ArtifactCompiler
             });
         }
         return $depends;
-    }
-
-    /**
-     * The landmark's ancestors, outermost first: `html`, `body`, then each
-     * wrapper down to its parent.
-     *
-     * @return list<array{tag:string,attributes:array<string,string>}>
-     */
-    private static function sourceShellAncestorContext(\DOMElement $landmark): array
-    {
-        $context = array();
-        for ($cursor = $landmark->parentNode; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
-            $attributes = array();
-            foreach ($cursor->attributes ?? array() as $attribute) $attributes[strtolower($attribute->name)] = $attribute->value;
-            array_unshift($context, array('tag' => strtolower($cursor->tagName), 'attributes' => $attributes));
-        }
-        return $context;
-    }
-
-    /**
-     * Ancestor context every member shares: depth-wise while tags agree, with
-     * only attribute values (and class tokens) common to all members.
-     *
-     * @param array<int|string,list<array{tag:string,attributes:array<string,string>}>> $contexts
-     * @return list<array{tag:string,attributes:array<string,string>}>
-     */
-    private static function sharedSourceShellAncestorContext(array $contexts): array
-    {
-        $contexts = array_values($contexts);
-        $shared = array();
-        if (array() === $contexts) return $shared;
-        for ($depth = 0; ; ++$depth) {
-            $level = array();
-            foreach ($contexts as $context) {
-                if (!isset($context[$depth]) || (array() !== $level && $context[$depth]['tag'] !== $level[0]['tag'])) break 2;
-                $level[] = $context[$depth];
-            }
-            $attributes = $level[0]['attributes'];
-            foreach (array_slice($level, 1) as $ancestor) {
-                foreach ($attributes as $name => $value) {
-                    if (!array_key_exists($name, $ancestor['attributes'])) { unset($attributes[$name]); continue; }
-                    if ('class' === $name) {
-                        $tokens = SourceDom::tokens($ancestor['attributes'][$name]);
-                        $attributes[$name] = implode(' ', array_values(array_intersect(SourceDom::tokens($value), $tokens)));
-                        if ('' === $attributes[$name]) unset($attributes[$name]);
-                    } elseif ($ancestor['attributes'][$name] !== $value) {
-                        unset($attributes[$name]);
-                    }
-                }
-            }
-            $shared[] = array('tag' => $level[0]['tag'], 'attributes' => $attributes);
-        }
-        return $shared;
-    }
-
-    /** @param array<int|string,string> $attributes */
-    private static function sourceShellAttributes(array $attributes): string
-    {
-        $html = '';
-        foreach ($attributes as $name => $value) {
-            if (!is_string($name) || 1 !== preg_match('/^[a-z_:][a-z0-9_:.-]*$/', $name)) continue;
-            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-        return $html;
-    }
-
-    /**
-     * The current item's state can be marked by a class on a descendant, for
-     * example a current-page class on the link inside the current `li`. Mirror
-     * the ancestor sibling-class intersection inside the subtree: keep on each
-     * descendant only the classes its counterparts at the same position and tag
-     * in the sibling items also carry.
-     *
-     * @param list<\DOMElement> $counterparts Same-position, same-tag elements in the sibling items.
-     */
-    private static function neutralizeCurrentSubtreeShellClasses(\DOMElement $node, array $counterparts): void
-    {
-        $counterpartClasses = array();
-        foreach ($counterparts as $counterpart) {
-            foreach (SourceDom::tokens($counterpart->getAttribute('class')) as $class) if ('' !== $class) $counterpartClasses[$class] = true;
-        }
-        $classes = SourceDom::tokens($node->getAttribute('class'));
-        if (array() !== $classes && array() !== $counterpartClasses) $node->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($counterpartClasses[$class])))));
-        $children = array();
-        foreach ($node->childNodes as $child) if ($child instanceof \DOMElement) $children[] = $child;
-        $peerLists = array();
-        foreach ($counterparts as $counterpart) {
-            $peers = array();
-            foreach ($counterpart->childNodes as $peer) if ($peer instanceof \DOMElement) $peers[] = $peer;
-            $peerLists[] = $peers;
-        }
-        foreach ($children as $index => $child) {
-            $childCounterparts = array();
-            foreach ($peerLists as $peers) if (isset($peers[$index]) && $peers[$index]->tagName === $child->tagName) $childCounterparts[] = $peers[$index];
-            if (array() === $childCounterparts) continue;
-            self::neutralizeCurrentSubtreeShellClasses($child, $childCounterparts);
-        }
-    }
-
-    private static function sourceShellEvidenceCount(string $markup): int
-    {
-        $dom = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
-        $count = 0;
-        foreach ($dom->getElementsByTagName('*') as $node) {
-            foreach (array(CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::GLYPH_COLOR) as $attribute) if ($node->hasAttribute($attribute)) ++$count;
-            foreach (SourceDom::tokens($node->getAttribute('class')) as $class) if (str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX)) ++$count;
-        }
-        return $count;
-    }
-
-    private static function normalizeSourceShellIdentity(string $markup, bool $ignoreViewportEntrance = true): string
-    {
-        $dom = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
-        $xpath = new \DOMXPath($dom);
-        if ($ignoreViewportEntrance) {
-            foreach ($xpath->query('//*[@' . CaptureEvidence::VIEWPORT_ENTRANCE . ']') ?: array() as $node) {
-                if (!$node instanceof \DOMElement) continue;
-                $evidence = json_decode($node->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true);
-                foreach (ArrayField::array($evidence, 'attributes') as $name => $state) {
-                    // Only recorded after states are incidental. An unrelated or
-                    // subsequently changed attribute remains structural.
-                    if (is_string($name) && is_array($state) && array_key_exists('after', $state) && is_string($state['after']) && $node->getAttribute($name) === $state['after']) $node->removeAttribute($name);
-                }
-                $node->removeAttribute(CaptureEvidence::VIEWPORT_ENTRANCE);
-            }
-        }
-        if ($ignoreViewportEntrance) {
-            foreach ($xpath->query('//*') ?: array() as $node) {
-                if (!$node instanceof \DOMElement) continue;
-                // The source still owns provenance here: do not infer sampled
-                // paint from the SVG produced later by social-link lowering.
-                $node->removeAttribute(CaptureEvidence::GLYPH_COLOR);
-                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX)));
-                if (array() === $classes) $node->removeAttribute('class');
-                else $node->setAttribute('class', implode(' ', $classes));
-            }
-        }
-        $currentNodes = array();
-        foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;
-        foreach ($currentNodes as $node) {
-            for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
-                if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
-                $classes = SourceDom::tokens($cursor->getAttribute('class'));
-                if (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
-                    $siblingClasses = array();
-                    foreach ($cursor->parentNode->childNodes as $sibling) {
-                        if (!$sibling instanceof \DOMElement || $sibling === $cursor || $sibling->tagName !== $cursor->tagName) continue;
-                        foreach (SourceDom::tokens($sibling->getAttribute('class')) as $class) $siblingClasses[$class] = true;
-                    }
-                    if (array() !== $siblingClasses) $cursor->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($siblingClasses[$class])))));
-                }
-                if ('nav' === strtolower($cursor->tagName) || 'navigation' === strtolower($cursor->getAttribute('role'))) break;
-            }
-            if ($node->hasAttribute('aria-current') && 'false' !== strtolower(trim($node->getAttribute('aria-current')))) {
-                if ($node->hasAttribute('data-is-current')) $node->setAttribute('data-is-current', 'false');
-                $siblings = array();
-                foreach ($node->parentNode?->childNodes ?? array() as $sibling) {
-                    if ($sibling instanceof \DOMElement && $sibling !== $node && $sibling->tagName === $node->tagName) $siblings[] = $sibling;
-                }
-                if (array() !== $siblings) self::neutralizeCurrentSubtreeShellClasses($node, $siblings);
-            }
-        }
-        foreach ($xpath->query('//*[@aria-current]') ?: array() as $node) if ($node instanceof \DOMElement) $node->removeAttribute('aria-current');
-        foreach ($xpath->query('//*[@style]') ?: array() as $node) {
-            if (!$node instanceof \DOMElement) continue;
-            $style = strtolower(preg_replace('/\s+/', '', $node->getAttribute('style')) ?? '');
-            $style = rtrim($style, ';');
-            if ('' === $style) $node->removeAttribute('style');
-            else $node->setAttribute('style', $style);
-        }
-        $body = $dom->getElementsByTagName('body')->item(0);
-        $root = $body instanceof \DOMElement ? $body->firstElementChild : null;
-        $identity = $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $markup) : $markup;
-        return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($identity);
     }
 
     /**
@@ -3389,7 +3215,7 @@ final class ArtifactCompiler
                 array(
                     'source_path'  => $path,
                     'slug'         => $slug,
-                    'title'        => $this->titles->titleFromPath($path),
+                    'title'        => DocumentTitles::titleFromPath($path),
                     'area'         => $area,
                     'tag_name'     => $tagName,
                     'body_format'  => (string) ($file['kind'] ?? ''),
@@ -3585,100 +3411,6 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array{files: array<int, array<string, mixed>>} $artifact
-     * @return array{documents: array<int, array<string, mixed>>, components: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>}
-     */
-    private function compileSourceDocuments(array $artifact): array
-    {
-        $documents = array();
-        $components = array();
-        $diagnostics = array();
-
-        foreach ( $artifact['files'] as $file ) {
-            if ( ! in_array($file['kind'], array('markdown', 'mdx'), true) || ! empty($file['binary']) ) {
-                continue;
-            }
-
-            $parsed = $this->parseFrontmatter((string) $file['content']);
-            $body = $parsed['body'];
-            $frontmatter = $parsed['frontmatter'];
-            $documentDiagnostics = array();
-
-            if ( 'mdx' === $file['kind'] ) {
-                $mdx = $this->extractMdxSemantics($body, $file, $artifact);
-                $body = $mdx['markdown_body'];
-                $components = array_merge($components, $mdx['components']);
-                $documentDiagnostics = array_merge($documentDiagnostics, $mdx['diagnostics']);
-            }
-
-            $conversion = $this->convertMarkdownToBlocks($body);
-            $documentDiagnostics = array_merge($documentDiagnostics, $conversion['diagnostics']);
-            $diagnostics = array_merge($diagnostics, $documentDiagnostics);
-
-            $documents[] = array(
-                'source_path'  => $file['path'],
-                'kind'         => $file['kind'],
-                'post_type'    => $this->frontmatterString($frontmatter, array('post_type', 'type'), 'page'),
-                'slug'         => $this->frontmatterString($frontmatter, array('slug'), ArtifactPath::slug((string) $file['path'])),
-                'title'        => $this->frontmatterString($frontmatter, array('title'), $this->titles->titleFromPath((string) $file['path'])),
-                'excerpt'      => $this->frontmatterString($frontmatter, array('excerpt', 'description'), ''),
-                'date'         => $this->frontmatterString($frontmatter, array('date', 'published', 'published_at'), ''),
-                'template'     => $this->frontmatterString($frontmatter, array('template', 'layout'), ''),
-                'taxonomies'   => $this->frontmatterTaxonomies($frontmatter),
-                'frontmatter'  => $frontmatter,
-                'body'         => $body,
-                'body_format'  => 'mdx' === $file['kind'] ? 'mdx' : 'markdown',
-                'block_markup' => $conversion['serialized_blocks'],
-                'diagnostics'  => $documentDiagnostics,
-                'provenance'   => $file['provenance'],
-            );
-        }
-
-        return array(
-            'documents'   => $documents,
-            'components'  => $components,
-            'diagnostics' => ArtifactDiagnostics::dedupe($diagnostics),
-        );
-    }
-
-    /**
-     * @return array{serialized_blocks: string, diagnostics: array<int, array<string, mixed>>}
-     */
-    private function convertMarkdownToBlocks(string $markdown): array
-    {
-        $result = ( new FormatBridge() )->convertResult(
-            $markdown,
-            'markdown',
-            'blocks',
-            array(
-                'source'  => 'artifact_compiler',
-                'context' => array(
-                    'source_format' => 'markdown',
-                    'target_format' => 'blocks',
-                ),
-            )
-        )->toArray();
-
-        if ( 'failed' !== (string) ( $result['status'] ?? '' ) ) {
-            return array(
-                'serialized_blocks' => (string) ( $result['serialized_blocks'] ?? '' ),
-                'diagnostics'       => array_values(array_filter(
-                    ArrayField::array($result, 'diagnostics'),
-                    static fn (array $diagnostic): bool => 'format_bridge_conversion_completed' !== (string) ($diagnostic['code'] ?? '')
-                )),
-            );
-        }
-
-        $diagnostics = ArrayField::array($result, 'diagnostics');
-        $diagnostics[] = ArtifactDiagnostics::make('markdown_adapter_unavailable', 'warning', 'A Markdown adapter is unavailable; preserved source Markdown as a core/html fallback.');
-
-        return array(
-            'serialized_blocks' => '<!-- wp:html -->' . "\n" . $markdown . "\n" . '<!-- /wp:html -->',
-            'diagnostics'       => $diagnostics,
-        );
-    }
-
-    /**
      * @param array<int, array<string, mixed>> $files
      * @param array<int, string> $entrypoints
      * @return array<string, mixed>|null
@@ -3728,20 +3460,6 @@ final class ArtifactCompiler
     private function isBlockMarkup(string $content): bool
     {
         return str_starts_with(ltrim($content), '<!-- wp:');
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     */
-    private function fileHashPayload(array $files): string
-    {
-        $payload = '';
-        foreach ( $files as $file ) {
-            $content = isset($file['content_base64']) ? (string) $file['content_base64'] : (string) $file['content'];
-            $payload .= $file['path'] . "\0" . $file['kind'] . "\0" . ($file['mime_type'] ?? '') . "\0" . $content . "\0";
-        }
-
-        return $payload;
     }
 
     /**
@@ -4040,422 +3758,6 @@ final class ArtifactCompiler
     {
         $this->fileIndex->index($files);
         $this->runtimeScriptEvidenceAnalyzer->resetCache();
-    }
-
-    /**
-     * @return array{frontmatter: array<string, mixed>, body: string}
-     */
-    private function parseFrontmatter(string $content): array
-    {
-        if ( ! preg_match('/\A---\s*\R(.*?)\R---\s*\R?/s', $content, $matches) ) {
-            return array(
-                'frontmatter' => array(),
-                'body'        => $content,
-            );
-        }
-
-        $frontmatter = array();
-        $lines = preg_split('/\R/', trim($matches[1]));
-        foreach ( false === $lines ? array() : $lines as $line ) {
-            if ( ! preg_match('/^([A-Za-z0-9_-]+)\s*:\s*(.*)$/', $line, $pair) ) {
-                continue;
-            }
-
-            $value = trim($pair[2], " \t\n\r\0\x0B\"'");
-            if ( preg_match('/^\[(.*)\]$/', $value, $list) ) {
-                $value = array_values(array_filter(array_map(static fn (string $item): string => trim($item, " \t\n\r\0\x0B\"'"), explode(',', $list[1])), static fn (string $item): bool => '' !== $item));
-            }
-
-            $frontmatter[ArtifactPath::sanitizeKey($pair[1])] = $value;
-        }
-
-        return array(
-            'frontmatter' => $frontmatter,
-            'body'        => substr($content, strlen($matches[0])),
-        );
-    }
-
-    /**
-     * @param array<string, mixed> $file
-     * @param array{files: array<int, array<string, mixed>>} $artifact
-     * @return array{markdown_body: string, components: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>}
-     */
-    private function extractMdxSemantics(string $body, array $file, array $artifact): array
-    {
-        $imports = $this->extractMdxImports($body);
-        $components = array();
-        $diagnostics = array();
-        $sourcePath = (string) $file['path'];
-
-        if ( preg_match_all('/<([A-Z][A-Za-z0-9._-]*)(?:\s[^>]*)?\s*(?:>|\/>)/', $body, $matches) ) {
-            foreach ( $matches[1] as $name ) {
-                $import = $imports[$name] ?? null;
-                $resolved = is_array($import) ? $this->resolveComponentImport((string) $import['path'], $sourcePath, $artifact) : '';
-                $component = array(
-                    'name'        => $name,
-                    'source'      => $sourcePath,
-                    'signal'      => 'mdx-jsx',
-                    'occurrences' => ($components[$name]['occurrences'] ?? 0) + 1,
-                    'provenance'  => array('source_path' => $sourcePath),
-                );
-
-                if ( is_array($import) ) {
-                    $component['import_path'] = $import['path'];
-                }
-                if ( '' !== $resolved ) {
-                    $component['resolved_path'] = $resolved;
-                }
-
-                $components[$name] = $component;
-
-                if ( ! is_array($import) ) {
-                    $diagnostics[] = ArtifactDiagnostics::make('mdx_component_unresolved', 'warning', 'MDX component reference has no matching import.', array('path' => $sourcePath, 'component' => $name));
-                } elseif ( '' === $resolved && str_starts_with((string) $import['path'], '.') ) {
-                    $diagnostics[] = ArtifactDiagnostics::make('mdx_import_unresolved', 'warning', 'MDX component import could not be linked to a generated source file.', array('path' => $sourcePath, 'component' => $name, 'import_path' => $import['path']));
-                }
-            }
-        }
-
-        $markdownBody = preg_replace('/^\s*import\s+[^;\r\n]+;?\s*$/m', '', $body) ?? $body;
-        $markdownBody = preg_replace('/^\s*export\s+[^\r\n]+\s*$/m', '', $markdownBody) ?? $markdownBody;
-        $markdownBody = preg_replace('/<([A-Z][A-Za-z0-9._-]*)(?:\s[^>]*)?\s*\/>/', '', $markdownBody) ?? $markdownBody;
-        $markdownBody = preg_replace('/<\/?[A-Z][A-Za-z0-9._-]*(?:\s[^>]*)?>/', '', $markdownBody) ?? $markdownBody;
-
-        return array(
-            'markdown_body' => trim($markdownBody),
-            'components'    => array_values($components),
-            'diagnostics'   => ArtifactDiagnostics::dedupe($diagnostics),
-        );
-    }
-
-    /**
-     * @return array<string, array{path: string}>
-     */
-    private function extractMdxImports(string $body): array
-    {
-        $imports = array();
-        if ( ! preg_match_all('/^\s*import\s+(.+?)\s+from\s+["\']([^"\']+)["\'];?\s*$/m', $body, $matches, PREG_SET_ORDER) ) {
-            return $imports;
-        }
-
-        foreach ( $matches as $match ) {
-            $clause = trim($match[1]);
-            $path = $match[2];
-            if ( preg_match('/^([A-Z][A-Za-z0-9_]*)/', $clause, $default) ) {
-                $imports[$default[1]] = array('path' => $path);
-            }
-            if ( preg_match('/\{([^}]+)\}/', $clause, $named) ) {
-                foreach ( explode(',', $named[1]) as $name ) {
-                    $parts = preg_split('/\s+as\s+/i', trim($name));
-                    $alias = trim((string) end($parts));
-                    if ( preg_match('/^[A-Z][A-Za-z0-9_]*$/', $alias) ) {
-                        $imports[$alias] = array('path' => $path);
-                    }
-                }
-            }
-        }
-
-        return $imports;
-    }
-
-    /**
-     * @param array{files: array<int, array<string, mixed>>} $artifact
-     */
-    private function resolveComponentImport(string $importPath, string $sourcePath, array $artifact): string
-    {
-        if ( ! str_starts_with($importPath, '.') ) {
-            return '';
-        }
-
-        $path = ArtifactPath::resolveRelativePath($importPath, $sourcePath, true);
-        if ( '' === $path ) {
-            return '';
-        }
-
-        $candidates = array($path);
-        foreach ( array('js', 'jsx', 'ts', 'tsx', 'mdx') as $extension ) {
-            $candidates[] = $path . '.' . $extension;
-            $candidates[] = $path . '/index.' . $extension;
-        }
-
-        foreach ( $artifact['files'] as $file ) {
-            if ( in_array($file['path'], $candidates, true) ) {
-                return (string) $file['path'];
-            }
-        }
-
-        return '';
-    }
-
-    /**
-     * @param array<string, mixed> $frontmatter
-     * @param array<int, string> $keys
-     */
-    private function frontmatterString(array $frontmatter, array $keys, string $fallback): string
-    {
-        foreach ( $keys as $key ) {
-            if ( isset($frontmatter[$key]) && is_scalar($frontmatter[$key]) && '' !== trim((string) $frontmatter[$key]) ) {
-                return (string) $frontmatter[$key];
-            }
-        }
-
-        return $fallback;
-    }
-
-    /**
-     * @param array<string, mixed> $frontmatter
-     * @return array<string, mixed>
-     */
-    private function frontmatterTaxonomies(array $frontmatter): array
-    {
-        $taxonomies = array();
-        foreach ( array('category', 'categories', 'tag', 'tags') as $key ) {
-            if ( isset($frontmatter[$key]) ) {
-                $taxonomies[$key] = $frontmatter[$key];
-            }
-        }
-
-        return $taxonomies;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, array<string, mixed>>
-     */
-    private function detectBlockTypes(array $files, array &$diagnostics): array
-    {
-        $blockTypes = array();
-        $blockRoots = array();
-
-        foreach ( $files as $file ) {
-            if ( 'block.json' !== basename((string) $file['path']) ) {
-                continue;
-            }
-            $directory = dirname((string) $file['path']);
-            $directory = '.' === $directory ? '' : $directory;
-            $blockRoots[$directory] = $file;
-        }
-
-        foreach ( $blockRoots as $directory => $blockJsonFile ) {
-            $blockJson = json_decode((string) $blockJsonFile['content'], true);
-            if ( ! is_array($blockJson) ) {
-                $blockJson = array();
-                $diagnostics[] = ArtifactDiagnostics::make('invalid_block_json', 'warning', 'A generated block.json file could not be decoded.', array('path' => $blockJsonFile['path']));
-            }
-
-            $name = isset($blockJson['name']) && is_string($blockJson['name']) ? trim($blockJson['name']) : '';
-            if ( '' === $name ) {
-                $name = 'generated/' . ('' === $directory ? 'block' : ArtifactPath::sanitizeKey(basename($directory)));
-                $diagnostics[] = ArtifactDiagnostics::make('block_json_missing_name', 'warning', 'A generated block.json file did not declare a name; a stable generated name was assigned.', array('path' => $blockJsonFile['path'], 'name' => $name));
-            }
-
-            $blockFiles = $this->filesUnderDirectory($files, $directory);
-            $blockTypes[] = array(
-                'schema'          => 'chubes4/wordpress-block-type-artifact/v1',
-                'name'            => $name,
-                'slug'            => ArtifactPath::sanitizeKey(basename($name)),
-                'directory'       => $directory,
-                'block_json_path' => $blockJsonFile['path'],
-                'block_json'      => $blockJson,
-                'metadata'        => $this->blockMetadataContract($blockJson),
-                'assets'          => $this->blockAssetContract($blockJson, $blockFiles),
-                'dependencies'    => $this->blockDependencyContract($blockJson, $blockFiles),
-                'provenance'      => array(
-                    'source'      => $blockJsonFile['source'] ?? 'artifact',
-                    'source_hash' => hash('sha256', $this->fileHashPayload($blockFiles)),
-                    'files'       => array_values(array_map(static fn (array $file): string => (string) $file['path'], $blockFiles)),
-                ),
-                'files'           => array_values(
-                    array_map(
-                        static fn (array $file): array => array(
-                            'path'  => $file['path'],
-                            'kind'  => $file['kind'],
-                            'bytes' => $file['bytes'],
-                        ),
-                        $blockFiles
-                    )
-                ),
-            );
-        }
-
-        usort(
-            $blockTypes,
-            static fn (array $left, array $right): int => strcmp((string) $left['name'], (string) $right['name'])
-        );
-
-        return $blockTypes;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, array<string, mixed>>
-     */
-    private function filesUnderDirectory(array $files, string $directory): array
-    {
-        $matched = array();
-        $prefix = '' === $directory ? '' : $directory . '/';
-        foreach ( $files as $file ) {
-            if ( '' === $prefix || str_starts_with((string) $file['path'], $prefix) ) {
-                $matched[] = $file;
-            }
-        }
-
-        return $matched;
-    }
-
-    /**
-     * @param array<string, mixed> $blockJson
-     * @return array<string, mixed>
-     */
-    private function blockMetadataContract(array $blockJson): array
-    {
-        $metadata = array();
-        foreach ( array('apiVersion', 'title', 'category', 'description', 'keywords', 'attributes', 'supports', 'usesContext', 'providesContext', 'textdomain', 'example', 'variations', 'parent', 'ancestor', 'allowedBlocks') as $key ) {
-            if ( array_key_exists($key, $blockJson) ) {
-                $metadata[$key] = $blockJson[$key];
-            }
-        }
-
-        return $metadata;
-    }
-
-    /**
-     * @param array<string, mixed> $blockJson
-     * @param array<int, array<string, mixed>> $files
-     * @return array<string, array<int, array<string, mixed>>>
-     */
-    private function blockAssetContract(array $blockJson, array $files): array
-    {
-        $assets = array(
-            'render'        => array(),
-            'editor_script' => array(),
-            'script'        => array(),
-            'view_script'   => array(),
-            'editor_style'  => array(),
-            'style'         => array(),
-            'view_style'    => array(),
-        );
-
-        foreach ( array(
-            'render'       => 'render',
-            'editorScript' => 'editor_script',
-            'script'       => 'script',
-            'viewScript'   => 'view_script',
-            'editorStyle'  => 'editor_style',
-            'style'        => 'style',
-            'viewStyle'    => 'view_style',
-        ) as $sourceField => $targetField ) {
-            foreach ( $this->normalizeAssetReferences($blockJson[$sourceField] ?? null, $files, $sourceField) as $reference ) {
-                $assets[$targetField][] = $reference;
-            }
-        }
-
-        return $assets;
-    }
-
-    /**
-     * @param mixed $value
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, array<string, mixed>>
-     */
-    private function normalizeAssetReferences(mixed $value, array $files, string $sourceField): array
-    {
-        $references = array();
-        $values = is_array($value) ? array_values($value) : array($value);
-        foreach ( $values as $item ) {
-            if ( ! is_string($item) || '' === trim($item) ) {
-                continue;
-            }
-
-            $item = trim($item);
-            $isFileRef = str_starts_with($item, 'file:');
-            $file = $isFileRef ? $this->findBlockFileByRelativePath($files, substr($item, 5)) : null;
-
-            $reference = array(
-                'reference'    => $item,
-                'source_field' => $sourceField,
-                'type'         => $isFileRef ? 'file' : 'handle',
-            );
-            if ( is_array($file) ) {
-                $reference['path'] = $file['path'];
-                $reference['kind'] = $file['kind'];
-                $reference['bytes'] = $file['bytes'];
-            }
-
-            $references[] = $reference;
-        }
-
-        return $references;
-    }
-
-    /**
-     * @param array<string, mixed> $blockJson
-     * @param array<int, array<string, mixed>> $files
-     * @return array<string, mixed>
-     */
-    private function blockDependencyContract(array $blockJson, array $files): array
-    {
-        $declared = array();
-        foreach ( array('editorScript', 'script', 'viewScript', 'editorStyle', 'style', 'viewStyle') as $field ) {
-            if ( array_key_exists($field, $blockJson) ) {
-                $declared[$field] = $blockJson[$field];
-            }
-        }
-
-        $assetFiles = array();
-        foreach ( $files as $file ) {
-            if ( ! str_ends_with((string) $file['path'], '.asset.php') ) {
-                continue;
-            }
-
-            $assetFile = array(
-                'path'  => $file['path'],
-                'kind'  => $file['kind'],
-                'bytes' => $file['bytes'],
-            );
-            $parsed = $this->parseAssetPhpManifest((string) ($file['content'] ?? ''));
-            if ( array() !== $parsed ) {
-                $assetFile['manifest'] = $parsed;
-            }
-            $assetFiles[] = $assetFile;
-        }
-
-        return array(
-            'declared'    => $declared,
-            'asset_files' => $assetFiles,
-        );
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function parseAssetPhpManifest(string $content): array
-    {
-        $manifest = array();
-        if ( preg_match('/["\']version["\']\s*=>\s*["\']([^"\']+)["\']/', $content, $version) ) {
-            $manifest['version'] = $version[1];
-        }
-        if ( preg_match('/["\']dependencies["\']\s*=>\s*array\s*\((.*?)\)/s', $content, $dependencies) && preg_match_all('/["\']([^"\']+)["\']/', $dependencies[1], $matches) ) {
-            $manifest['dependencies'] = array_values($matches[1]);
-        }
-
-        return $manifest;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<string, mixed>|null
-     */
-    private function findBlockFileByRelativePath(array $files, string $relativePath): ?array
-    {
-        $relativePath = ltrim(str_replace('\\', '/', $relativePath), './');
-        foreach ( $files as $file ) {
-            if ( basename((string) $file['path']) === $relativePath || str_ends_with((string) $file['path'], '/' . $relativePath) ) {
-                return $file;
-            }
-        }
-
-        return null;
     }
 
     /**
