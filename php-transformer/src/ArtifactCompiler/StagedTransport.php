@@ -275,7 +275,7 @@ trait StagedTransport
                 continue;
             }
             $path = (string) ($file['path'] ?? '');
-            if ($pagePlan['page_id'] !== $stageCompiler->fileOwnership($file)['id']) {
+            if ($pagePlan['page_id'] !== FileOwnership::of($file)['id']) {
                 continue;
             }
             // The owned document supplies ordered instances; shared files
@@ -306,8 +306,8 @@ trait StagedTransport
         if (array() !== $omittedPages) {
             // The receipt owns nothing of a dropped page, so composition sees the
             // same site whole compilation produces without it.
-            $pageArtifact['files'] = $stageCompiler->withoutOmittedPageFiles($pageArtifact['files'], array_keys($omittedPages));
-            $files = $stageCompiler->withoutOmittedPageFiles($files, array_keys($omittedPages));
+            $pageArtifact['files'] = FileOwnership::withoutOmittedPages($pageArtifact['files'], array_keys($omittedPages));
+            $files = FileOwnership::withoutOmittedPages($files, array_keys($omittedPages));
         }
         $pageDocuments = $stageCompiler->compileSourceDocuments($pageArtifact);
         $entryBlocks = null;
@@ -1222,7 +1222,7 @@ trait StagedTransport
     {
         $paths = array();
         foreach ($files as $file) {
-            if ('html' === ($file['kind'] ?? null) && !HtmlFragmentIncludes::isTemplatePartFile($file) && $pageId === $this->fileOwnership($file)['id']) $paths[] = (string) $file['path'];
+            if ('html' === ($file['kind'] ?? null) && !HtmlFragmentIncludes::isTemplatePartFile($file) && $pageId === FileOwnership::of($file)['id']) $paths[] = (string) $file['path'];
         }
         sort($paths, SORT_STRING);
         return $paths;
@@ -1233,7 +1233,7 @@ trait StagedTransport
     {
         $paths = array();
         foreach ($files as $file) {
-            if (in_array($file['kind'] ?? null, array('html', 'markdown', 'mdx'), true) && !HtmlFragmentIncludes::isTemplatePartFile($file) && $pageId === $this->fileOwnership($file)['id']) $paths[] = (string) $file['path'];
+            if (in_array($file['kind'] ?? null, array('html', 'markdown', 'mdx'), true) && !HtmlFragmentIncludes::isTemplatePartFile($file) && $pageId === FileOwnership::of($file)['id']) $paths[] = (string) $file['path'];
         }
         sort($paths, SORT_STRING);
         return $paths;
