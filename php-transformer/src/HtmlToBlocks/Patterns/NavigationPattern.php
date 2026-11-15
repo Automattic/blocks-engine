@@ -1563,7 +1563,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         $top = 0;
         $bottom = 0;
         for ( $node = $item; $node instanceof DOMElement && ! $node->isSameNode($anchor); ) {
-            $margins = self::blockAxisMargins($navigationContext->resolvedStyle($node));
+            // Native list items survive as core/navigation-item hosts. Their
+            // margins are projected there, not discarded with the wrappers.
+            $margins = 'li' === strtolower($node->tagName)
+                ? array('top' => 0, 'bottom' => 0)
+                : self::blockAxisMargins($navigationContext->resolvedStyle($node));
             if ( null === $margins ) {
                 return null;
             }
