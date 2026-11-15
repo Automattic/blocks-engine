@@ -1363,7 +1363,9 @@ final class AuthorStylesheetProjector
         $at = strpos($arm, '> :where(.wp-block-button__link)');
         return false === $at
             ? $arm
-            : substr($arm, 0, $at) . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')' . substr($arm, $at);
+            // Core applies width:100% with two class weights. The flattened
+            // link is the authored box, so its geometry must beat that reset.
+            : substr($arm, 0, $at) . '.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . substr($arm, $at);
     }
 
     private function nativeButtonControlSelector(string $selector, array $parsed, string $marker, AuthorStylesheetProjectionContext $context): string
