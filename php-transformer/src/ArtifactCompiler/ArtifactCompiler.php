@@ -406,7 +406,7 @@ final class ArtifactCompiler
             ? $reduction['inline_shell_compilation']
             : $this->compileSharedInlineShells($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
         if (array() !== $omittedPages) {
-            $normalized['files'] = $this->withoutOmittedPageFiles($normalized['files'], array_keys($omittedPages));
+            $normalized['files'] = FileOwnership::withoutOmittedPages($normalized['files'], array_keys($omittedPages));
             $inlineShellCompilation = $this->withoutOmittedInlineShellSources($inlineShellCompilation, array_keys($omittedPages));
             $this->indexFiles($normalized['files']);
         }
@@ -464,7 +464,7 @@ final class ArtifactCompiler
         $filesByPath = array_column($normalized['files'], null, 'path');
         $ownedBy = function (array $projections, string $sourcePath) use ($filesByPath): array {
             $file = $filesByPath[$sourcePath] ?? array( 'path' => $sourcePath, 'kind' => 'html' );
-            $ownership = $this->fileOwnership($file);
+            $ownership = FileOwnership::of($file);
             $owner = 'page' === $ownership['scope'] && ! isset($file['metadata']['template_surface']) ? $ownership['id'] : '';
             return array_map(static fn (array $projection): array => $projection + array( 'owner' => $owner ), $projections);
         };
@@ -542,7 +542,7 @@ final class ArtifactCompiler
         );
         $referenceReports = $this->referenceReports($normalized['files'], $entryPath);
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
-        $entryOwnership = is_array($entry) ? $this->fileOwnership($entry) : array('scope' => 'page', 'id' => $entryPath);
+        $entryOwnership = is_array($entry) ? FileOwnership::of($entry) : array('scope' => 'page', 'id' => $entryPath);
         $generatedAssets = $this->generatedAssetsForDocuments($entryBlocks['assets'], $entryOwnership, $compiledHtmlDocuments, $normalized['files']);
         $generatedAssetIdentities = array();
         foreach ($generatedAssets as $asset) $generatedAssetIdentities[hash('sha256', (string) ($asset['path'] ?? '') . "\0" . (string) ($asset['content'] ?? ''))] = true;
@@ -855,39 +855,6 @@ final class ArtifactCompiler
         return $merged;
     }
 
-    /** @param array<string,mixed> $file @return array{scope:string,id:string} */
-    private function fileOwnership(array $file): array
-    {
-        $ownership = $file['metadata']['compilation'] ?? null;
-        if (null === $ownership) {
-            if (in_array(($file['kind'] ?? null), array('html', 'markdown', 'mdx'), true)) {
-                return array('scope' => 'page', 'id' => (string) $file['path']);
-            }
-            // Inline styles/scripts expanded out of an unannotated page must
-            // follow that page: parking page-varying content in the immutable
-            // shared plan would invalidate every page plan on a page edit.
-            $inlineOwnership = ArtifactNormalizer::inlineExpansionOwnership($file);
-            if (null !== $inlineOwnership) {
-                return $inlineOwnership + array('id' => '');
-            }
-            if (isset($file['source_path']) && in_array($file['source'] ?? '', array('inline-style', 'inline-script'), true)) return array('scope' => 'page', 'id' => $file['source_path']);
-            return array('scope' => 'shared', 'id' => '');
-        }
-        if (!is_array($ownership) || !is_string($ownership['scope'] ?? null) || !in_array($ownership['scope'], array('shared', 'page'), true)) {
-            throw new \InvalidArgumentException('File compilation ownership requires a shared or page scope.');
-        }
-        if ('shared' === $ownership['scope']) {
-            if (isset($ownership['id'])) {
-                throw new \InvalidArgumentException('Shared file compilation ownership cannot declare a page id.');
-            }
-            return array('scope' => 'shared', 'id' => '');
-        }
-        if (!is_string($ownership['id'] ?? null) || '' === trim($ownership['id']) || strlen($ownership['id']) > 255) {
-            throw new \InvalidArgumentException('Page file compilation ownership requires a bounded nonblank page id.');
-        }
-        return array('scope' => 'page', 'id' => $ownership['id']);
-    }
-
     /**
      * @param array<int,array<string,mixed>> $entryAssets
      * @param array{scope:string,id:string} $entryOwnership
@@ -957,7 +924,7 @@ final class ArtifactCompiler
             $file = $filesByPath[$sourcePath] ?? array('path' => $sourcePath, 'kind' => 'html');
             $append(
                 ArrayField::array($compiledHtmlDocument, 'assets'),
-                $this->fileOwnership($file)
+                FileOwnership::of($file)
             );
         }
 
@@ -1286,7 +1253,7 @@ final class ArtifactCompiler
             // place, conditions attached; projections keep the authored bytes.
             'author_stylesheet_assets'  => $this->authorStylesheetAssetsWithImports($stylesheetAssets, $files),
             'author_layer_order'        => (new AuthorCascadeLayerOrder())->statement($layerOrderCss),
-            'shared_stylesheet_paths'   => $this->sharedStylesheetPathsFromFiles($files),
+            'shared_stylesheet_paths'   => FileOwnership::sharedStylesheetPaths($files),
             'skip_author_stylesheet_materialization' => true,
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files, $html),
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
@@ -1587,26 +1554,6 @@ final class ArtifactCompiler
     }
 
     /**
-     * Linked CSS files are shared artifact assets. Their class-bound rules must
-     * keep addressing authored classes across every consuming document.
-     *
-     * @param array<int, array<string, mixed>> $files
-     * @return list<string>
-     */
-    private function sharedStylesheetPathsFromFiles(array $files): array
-    {
-        $paths = array();
-        foreach ( $files as $file ) {
-            if ( 'css' !== ($file['kind'] ?? '') || ! is_string($file['path'] ?? null) || 'shared' !== $this->fileOwnership($file)['scope'] ) {
-                continue;
-            }
-            $paths[$file['path']] = true;
-        }
-
-        return array_keys($paths);
-    }
-
-    /**
      * Preserve authored stylesheet boundaries and document order for selector
      * projection. Inline CSS is normalized as its own asset by ArtifactNormalizer.
      *
@@ -1734,14 +1681,14 @@ final class ArtifactCompiler
             // An included component is replayed inside each document that includes it.
             if (!empty($document['metadata']['compilation']['included_component'])) continue;
             $sourcePath = (string) $document['path'];
-            $ownership = $this->fileOwnership($document);
+            $ownership = FileOwnership::of($document);
             $documentFiles = $files;
             $parts = array();
             $stylesheets = $this->stylesheetAssetsForSource($document['content'], $sourcePath, $documentFiles);
             foreach ($stylesheets as $stylesheet) {
                 $unit = array($this->stylesheetOccurrenceContent($stylesheet, $documentFiles));
                 $deltas = array_filter($files, fn(array $file): bool =>
-                    ($file['metadata']['page_stylesheet_of'] ?? null) === $stylesheet['path'] && $this->fileOwnership($file) === $ownership
+                    ($file['metadata']['page_stylesheet_of'] ?? null) === $stylesheet['path'] && FileOwnership::of($file) === $ownership
                 );
                 usort($deltas, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
                 foreach ($deltas as $delta) {
@@ -1967,7 +1914,7 @@ final class ArtifactCompiler
         foreach ($files as $document) {
             if ('html' !== ($document['kind'] ?? '')) continue;
             $source = (string) $document['path'];
-            $owner = $this->fileOwnership($document)['id'];
+            $owner = FileOwnership::of($document)['id'];
             $routeIdentities[$owner] = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
             if (!isset($pageMarkup[$owner])) continue;
             // Parse the lowered markup once per route, never once per arm or
@@ -3854,7 +3801,7 @@ final class ArtifactCompiler
                     $asset['stylesheet_source_path'] = $file['stylesheet_source_path'];
                 }
                 if (is_array($file['metadata']['compilation'] ?? null) || isset($file['inline_references']) || in_array($file['source'] ?? '', array('inline-style', 'inline-script'), true)) {
-                    $asset['compilation'] = $this->fileOwnership($file);
+                    $asset['compilation'] = FileOwnership::of($file);
                 }
                 if ( is_int($file['stylesheet_link_position'] ?? null) ) {
                     $asset['stylesheet_link_position'] = $file['stylesheet_link_position'];
@@ -4295,24 +4242,6 @@ final class ArtifactCompiler
             'reason_code' => self::PAGE_OMITTED_REASON_CODE,
             'message' => mb_strcut($error->getMessage(), 0, 256, 'UTF-8'),
         );
-    }
-
-    /**
-     * Remove everything a dropped page owns: its document and the page-scoped
-     * files expanded out of it. Shared files stay.
-     *
-     * @param array<int,array<string,mixed>> $files
-     * @param array<int,string> $omittedPaths
-     * @return array<int,array<string,mixed>>
-     */
-    private function withoutOmittedPageFiles(array $files, array $omittedPaths): array
-    {
-        $omitted = array_flip($omittedPaths);
-        return array_values(array_filter($files, function (array $file) use ($omitted): bool {
-            if (isset($omitted[(string) ($file['path'] ?? '')])) return false;
-            $ownership = $this->fileOwnership($file);
-            return !('page' === $ownership['scope'] && isset($omitted[$ownership['id']]));
-        }));
     }
 
     /**
