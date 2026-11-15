@@ -266,7 +266,7 @@ final class DocumentTitles
                 }
             }
             $label = $this->inboundPageLabel($files, $path);
-            return '' !== $label ? $label : $this->titleFromPath($path);
+            return '' !== $label ? $label : self::titleFromPath($path);
         }
         if ( array() !== $siteNameSegments && null !== $titleDeclaration ) {
             $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, $normalize($titleDeclaration['content'])) ?: array();
@@ -381,7 +381,7 @@ final class DocumentTitles
             }
         }
 
-        return $this->titleFromPath($path);
+        return self::titleFromPath($path);
     }
 
     /** Remove heading candidates in comments/complementary regions or after the entry body. */
@@ -585,7 +585,7 @@ final class DocumentTitles
         return $anchors;
     }
 
-    public function titleFromPath(string $path): string
+    public static function titleFromPath(string $path): string
     {
         $normalized = str_replace('\\', '/', $path);
         $base = basename($normalized);
