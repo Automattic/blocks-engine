@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EmptyElementFootprint;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -34,7 +34,6 @@ final class RenderNeutralElements
 
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly StyleResolver $styleResolver,
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly SourceElementDescription $sourceElementDescription,
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
@@ -71,7 +70,7 @@ final class RenderNeutralElements
         }
         // Attribute spelling is not presentation. Check matched author rules
         // (including conditional rules) as well as the inline declarations.
-        $declarations = $this->styleResolver->inlineDeclarations($element);
+        $declarations = SourceDeclarations::inline($element);
         foreach ($this->session->authorStyleRuleCandidates($element) as $candidate) {
             if (! ($candidate['parsed']['supported'] ?? false)) return false;
             if ($this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']) {
@@ -95,7 +94,6 @@ final class RenderNeutralElements
             || '' !== trim(SourceDom::attr($element, 'class'))
             || '' !== trim(SourceDom::attr($element, 'id'))
             || $element->hasAttribute('hidden')
-            || '' === trim($element->textContent ?? '')
             || ! $this->isRenderNeutralWrapper($element)
             || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, false, true)
         ) {
@@ -103,7 +101,7 @@ final class RenderNeutralElements
         }
 
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( 'none' === ($this->styleResolver->inlineDeclarations($descendant)['display'] ?? '') ) {
+            if ( 'none' === (SourceDeclarations::inline($descendant)['display'] ?? '') ) {
                 return false;
             }
         }
@@ -113,7 +111,9 @@ final class RenderNeutralElements
             if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
                 continue;
             }
-            if ( ! $child instanceof DOMElement || ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($child) ) {
+            // Native buttons (including icon-only buttons) are ordinary light
+            // DOM content too; their own converter retains control semantics.
+            if ( ! $child instanceof DOMElement || ( 'button' !== strtolower($child->tagName) && ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($child) ) ) {
                 return false;
             }
             $children[] = $child;
@@ -121,7 +121,8 @@ final class RenderNeutralElements
 
         // Repeated siblings may be a cohesive component; retain that existing
         // disposition rather than reclassifying collections as wrappers.
-        return 1 === count($children);
+        return 1 === count($children)
+            && ( '' !== trim($element->textContent ?? '') || 'button' === strtolower($children[0]->tagName) );
     }
 
     /**
@@ -198,7 +199,7 @@ final class RenderNeutralElements
         if ( '' === $style ) {
             return true;
         }
-        foreach ( array_keys($this->styleResolver->cssDeclarations($style)) as $property ) {
+        foreach ( array_keys(SourceDeclarations::parse($style)) as $property ) {
             if ( 'display' !== strtolower(trim((string) $property)) ) {
                 return false;
             }
@@ -236,7 +237,7 @@ final class RenderNeutralElements
         foreach ( CssValueSplitter::ruleBlocks($css) as $rule ) {
             if ( 1 === preg_match($tagPattern, $rule['selector']) ) {
                 // The host tag's own presentation stays display-only.
-                foreach ( array_keys($this->styleResolver->cssDeclarations($rule['declarations'])) as $property ) {
+                foreach ( array_keys(SourceDeclarations::parse($rule['declarations'])) as $property ) {
                     if ( 'display' !== strtolower(trim((string) $property)) ) {
                         return false;
                     }

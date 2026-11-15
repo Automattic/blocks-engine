@@ -131,7 +131,7 @@ final class AuthorLayoutBlockLowering implements AuthorLayoutLowering
      */
     private function textOnlyLayoutDivParagraph(DOMElement $element): ?array
     {
-        if ( 'div' !== strtolower($element->tagName) || 0 !== SourceDom::childElementCount($element) || SourceDom::documentVariantRoot($element) === $element ) {
+        if ( 'div' !== strtolower($element->tagName) || 0 !== SourceDom::childElementCount($element) || SourceDom::isDocumentVariantRoot($element) ) {
             return null;
         }
         $content = $this->richTextMaterializer->content($element);

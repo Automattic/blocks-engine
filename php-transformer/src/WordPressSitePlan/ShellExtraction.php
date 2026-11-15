@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifes
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
 /**
  * Sole owner of header/footer shell-candidate location and removal.
@@ -1858,6 +1859,8 @@ final class ShellExtraction
                 if (null === $partitioned) {
                     $reason = array() === $clusters ? 'incomplete' : 'non_equivalent';
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_' . ('incomplete' === $reason ? 'incomplete' : 'ambiguous'), 'severity' => 'info', 'message' => "{$area} shell candidates do not establish a dominant semantic cluster.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', $reason, $candidates));
+                    $native = $partitionTypes && $partitionHeaders && $area === $partSlug ? $this->nativeTemplateShell($clusters, $clusterIdentities, $pages, $applicable, $area, $partSlug, $candidates) : null;
+                    if (null !== $native) { $parts[] = $native; $diagnostics[] = array('code' => 'wordpress_site_plan_shell_native_template_fallback', 'severity' => 'info', 'message' => "Routes keep their own {$area}; templates without a source route use the {$area} from {$native['placement']['source_path']}.", 'area' => $area, 'source_path' => $native['placement']['source_path']); }
                     continue;
                 }
                 foreach ($partitioned['pages'] as $index => $withoutShell) {
@@ -2024,6 +2027,59 @@ final class ShellExtraction
         }
         foreach ($pages as &$page) unset($page['shell_candidates'], $page['_source_shared_variant_identities']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * Routes whose chrome differs only in where its internal links point
+     * (the home page links its own sections as `#about` and leaves out its
+     * own nav item; inner pages link `/` and `/#about`) keep that chrome
+     * page-owned, but it is still one site design. Templates with no source
+     * route (404, search, archives, plugin templates that include the theme's
+     * header and footer parts) get it from an inner route, whose links already
+     * leave the page they sit on. The part binds only to native templates no
+     * source route renders, so no page shows it next to its own copy. Chrome
+     * that differs in anything else (text, external URLs, ids, classes,
+     * styles) is route content, and native templates stay without it.
+     *
+     * @param array<string,array<string,mixed>> $clusters
+     * @param array<int,string> $identities
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $applicable
+     * @param array<int,list<array<string,mixed>>> $candidates
+     * @return array<string,mixed>|null
+     */
+    private function nativeTemplateShell(array $clusters, array $identities, array $pages, array $applicable, string $area, string $partSlug, array $candidates): ?array
+    {
+        if (array() === $clusters) return null;
+        $designs = array();
+        foreach ($clusters as $cluster) $designs[self::withoutInternalLinkTargets((string) ($identities[$cluster['indexes'][0]] ?? ''))] = true;
+        if (1 !== count($designs)) return null;
+        $size = count(reset($clusters)['indexes']);
+        $donor = null;
+        foreach ($clusters as $identity => $cluster) {
+            if (count($cluster['indexes']) < $size) break;
+            $inner = array_values(array_filter($cluster['indexes'], static fn(int $index): bool => empty($pages[$index]['entrypoint'])));
+            if (array() === $inner) continue;
+            $donor = array('identity' => $identity, 'index' => $inner[0], 'indexes' => $cluster['indexes']);
+            break;
+        }
+        if (null === $donor) return null;
+        $candidate = $candidates[$donor['index']][0];
+        $routeTemplates = array();
+        foreach ($applicable as $page) $routeTemplates[] = TemplateSlugs::genericForPage($page, array());
+        $templateSlugs = array_values(array_diff(WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS, $routeTemplates));
+        if (array() === $templateSlugs || !is_string($candidate['template_part_markup'] ?? null)) return null;
+        $sourcePath = (string) $pages[$donor['index']]['source_path'];
+        $markup = $candidate['template_part_markup'];
+        return array('source_path' => 'wordpress-site-plan/shared/' . $partSlug . '#' . $area, 'slug' => $partSlug, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => 'div', 'placement' => array('kind' => 'shared_shell', 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs), 'canonical_block_markup' => $markup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => 'wordpress-site-plan/shared/' . $partSlug . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'native_template_fallback', array_intersect_key($candidates, array_flip($donor['indexes'])), $donor['identity']), 'reconciliation_identity' => WordPressSitePlan::identity('template-part', 'wordpress-site-plan/shared/' . $partSlug . '#' . $area, 'parts/' . $partSlug . '.html'), 'content_hash' => WordPressSitePlan::contentHash($markup)) + (is_array($candidate['ancestor_context'] ?? null) ? array('ancestor_context' => $candidate['ancestor_context']) : array());
+    }
+
+    /** Shell identity markup without the route state of its internal links. */
+    private static function withoutInternalLinkTargets(string $markup): string
+    {
+        $internal = '(?:#|/(?!/)|\.\.?/)[^"]*';
+        $markup = (string) preg_replace('~<!-- wp:navigation-link \{(?:(?!-->).)*?"url":"' . $internal . '"(?:(?!-->).)*?/-->~s', '', str_replace('\\/', '/', $markup));
+        return (string) preg_replace(array('~\bhref="' . $internal . '"~', '~"url":"' . $internal . '"~'), array('href=""', '"url":""'), $markup);
     }
 
     /**
@@ -3550,13 +3606,19 @@ final class ShellExtraction
         $properties = array('color', 'text-decoration', 'text-decoration-line', 'font-size', 'font-family', 'font-style', 'font-weight', 'letter-spacing', 'line-height', 'text-transform');
         $analysis = (new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer())->analyze(
             array_values(array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))),
-            '', $properties, 4000000, 50000, 100000, 16
+            '', array('*'), 4000000, 50000, 100000, 16
         );
         if ($analysis['truncated']) return $pages;
         $entry = null;
         foreach ($pages as $page) if (!empty($page['entrypoint'])) $entry = $page['route']['path'] ?? '/';
         if (null === $entry) return $pages;
         $subjectIndex = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::build($analysis['rules']);
+        $visibility = (new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer())->analyze(
+            array_values(array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))),
+            '', array('display'), 4000000, 50000, 100000, 16
+        );
+        if ($visibility['truncated']) return $pages;
+        $visibilityIndex = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::build($visibility['rules']);
         $fragments = array();
         $evidence = array(); $applicable = 0;
         foreach ($pages as $index => $page) {
@@ -3593,14 +3655,30 @@ final class ShellExtraction
                             foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
                                 if ('' !== $class && !str_starts_with($class, 'wp-block-') && !str_starts_with($class, 'blocks-engine-synthetic-') && !str_starts_with($class, 'blocks-engine-propagated-') && !preg_match('/^has-(?:.+-font-(?:size|family)|text-color|.+-color)$/', $class)) $classes[$class] = true;
                             }
-                            foreach (explode(';', $element->getAttribute('style')) as $style) {
+                            foreach (CssValueSplitter::splitTopLevel($element->getAttribute('style'), array(';')) as $style) {
                                 $style = trim($style);
                                 // Bare links are lowered to a zero-margin paragraph;
                                 // typography is compared through the resolved presentation.
                                 if ('' !== $style && !preg_match('/^(?:color|text-decoration(?:-line)?|font-size|font-family|font-style|font-weight|letter-spacing|line-height|text-transform)\s*:/', $style) && !preg_match('/^margin-(?:top|right|bottom|left):0$/', $style)) $styles[$style] = true;
                             }
+                            // Core Site Title cannot retain the inner anchor's box
+                            // or conditional presentation. Classes alone are not
+                            // evidence: unconditional typography can be promoted.
+                            if ('a' === $element->tagName && '' !== trim($element->getAttribute('class')) && self::wordmarkAnchorNeedsPresentation($element, $subjectIndex, $properties)) { $valid = false; break; }
                             $presentation = self::wordmarkPresentation($element, $presentation, $subjectIndex, $properties);
-                            if ('a' === $element->tagName) $links[] = html_entity_decode($element->getAttribute('href'));
+                            if ('a' === $element->tagName) {
+                                // Core's live title replaces this anchor. Conditional
+                                // visibility belongs to that source box, not its new
+                                // paragraph carrier; leave responsive wordmarks intact.
+                                foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::entries($element, $visibilityIndex) as $visibilityEntry) {
+                                    $rule = $visibilityEntry['rule'];
+                                    if (null === $rule['condition'] || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches']) continue;
+                                    foreach ($rule['declarations'] as $declaration) {
+                                        if ('display' === $declaration['name']) $valid = false;
+                                    }
+                                }
+                                $links[] = html_entity_decode($element->getAttribute('href'));
+                            }
                         }
                         ksort($classes); ksort($styles);
                         $fragments[$fragment] = array($text, $classes, $styles, $links, $presentation, $valid);
@@ -3670,7 +3748,9 @@ final class ShellExtraction
      *
      * A submenu whose descendant link names the served route is its current
      * ancestor and can carry an active look of its own; on the routes outside
-     * it, the same submenu rests, so it is given that resting look too. Links
+     * it, the same submenu rests, so it is given that resting look too. A link
+     * naming an ancestor of the served route (a section above its post) can
+     * wear the current look as well, so it is no evidence of a resting look. Links
      * and submenus are compared by area, label, URL and occurrence, so a menu
      * repeated in one header (a bar and its drawer) keeps each copy's look.
      * Resting looks are read among candidates of one design, the same markup
@@ -3690,8 +3770,10 @@ final class ShellExtraction
             if (array() === $kept) unset($attrs['className']); else $attrs['className'] = implode(' ', $kept);
             return $attrs;
         };
-        $names = static fn (array $attrs, string $route): bool => is_string($attrs['url'] ?? null) && !str_contains($attrs['url'], '#')
-            && ('' === ($path = rtrim(explode('?', $attrs['url'])[0], '/')) ? '/' : $path) === $route;
+        $urlPath = static fn (array $attrs): ?string => is_string($attrs['url'] ?? null) && !str_contains($attrs['url'], '#')
+            ? ('' === ($path = rtrim(explode('?', $attrs['url'])[0], '/')) ? '/' : $path) : null;
+        $names = static fn (array $attrs, string $route): bool => $urlPath($attrs) === $route;
+        $namesAncestor = static fn (array $attrs, string $route): bool => !in_array($urlPath($attrs), array(null, '/'), true) && str_starts_with($route, $urlPath($attrs) . '/');
         // An item's attributes as the shell identity sees them, without
         // generated markers (a label's per-document semantic class).
         $asIdentity = static fn (array $attrs): array => json_decode(preg_replace('/^<!-- wp:navigation-submenu (.*) -->$/s', '$1', ChromeIdentity::markup('<!-- wp:navigation-submenu ' . BlockAttributes::encode($attrs) . ' -->')) ?? '', true) ?: array();
@@ -3724,7 +3806,7 @@ final class ShellExtraction
             $route = (string) ($page['route']['path'] ?? '');
             foreach ($page['shell_candidates'] ?? array() as $candidate) {
                 foreach ($items($candidate['markup'], $design($candidate) . "\0" . $candidate['area'], $route) as $row) {
-                    if (!$row['valid'] || $row['current']) continue;
+                    if (!$row['valid'] || $row['current'] || $namesAncestor($row['attrs'], $route)) continue;
                     $rest = $atRest($row['attrs']);
                     // One look is one presentation: per-document generated markers
                     // (an item's anchor or label semantic class) do not split it.
@@ -3797,6 +3879,27 @@ final class ShellExtraction
         return $pages;
     }
 
+    /** Presentation that cannot move from the authored link to Core's title. */
+    private static function wordmarkAnchorNeedsPresentation(\DOMElement $element, array $subjectIndex, array $properties): bool
+    {
+        $rules = array_column(\Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::entries($element, $subjectIndex), 'rule');
+        $rules[] = array('declarations' => \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($element->getAttribute('style'), array('*')), 'inline' => true);
+        foreach ($rules as $rule) {
+            if (empty($rule['inline']) && !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches']) continue;
+            foreach ($rule['declarations'] as $declaration) {
+                $name = $declaration['name'];
+                $value = trim(preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value']);
+                if (null !== ($rule['condition'] ?? null)) return true;
+                if (in_array($name, $properties, true)) continue;
+                // Lowering bare links adds zero paragraph margins; those do
+                // not require preserving an independently styled anchor box.
+                if (preg_match('/^margin(?:-(?:top|right|bottom|left))?$/', $name) && preg_match('/^0(?:px)?$/', $value)) continue;
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Resolve the single text leaf through its wrappers, not block-support placement. */
     private static function wordmarkPresentation(\DOMElement $element, array $inherited, array $subjectIndex, array $properties): array
     {
@@ -3806,6 +3909,7 @@ final class ShellExtraction
         foreach ($rules as $rule) {
             if (empty($rule['inline']) && (null !== $rule['condition'] || !\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($element, $rule['parsed_selector'])['matches'])) continue;
             foreach ($rule['declarations'] as $declaration) {
+                if (!in_array($declaration['name'], $properties, true)) continue;
                 $value = $declaration['value'];
                 $important = (bool) preg_match('/\s*!important\s*$/i', $value);
                 $value = trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value);

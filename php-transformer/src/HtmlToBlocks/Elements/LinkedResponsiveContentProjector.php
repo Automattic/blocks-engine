@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -295,7 +296,7 @@ final class LinkedResponsiveContentProjector
             CssValueSplitter::splitTopLevel($authored, array( ';' )),
             static fn (string $part): bool => str_contains($part, ':')
         ));
-        $parsed = $this->styles->verbatimCssDeclarations($authored);
+        $parsed = SourceDeclarations::verbatim($authored);
         if ( array() === $parsed || count($parsed) !== count($parts) ) {
             return null;
         }

@@ -154,4 +154,29 @@ foreach (RuntimeDeclarations::materialize($stalePlan['runtime_declarations'], $s
 $staleFindings = array_values(array_filter($stalePlan['diagnostics'], static fn(array $row): bool => 'runtime_entity_binding_unanchored' === ($row['code'] ?? null)));
 $assert(array() === array_filter($staleBindings, static fn(array $binding): bool => str_contains((string) $binding['search_block_markup'], 'Stale')) && array() !== $staleFindings && 'binding' === $staleFindings[0]['unit'] && 'anchor_not_emitted' === $staleFindings[0]['reason_code'], 'Stale manifest bindings are dropped and reported instead of failing the plan.');
 
+// A shared cart opener's generated SVG must use the part's asset token in
+// its source anchor, not any route's relative materialized asset path. A
+// route-specific header label keeps that route's copy inline; cart navigation
+// still rehomes its identical opener onto the shared header.
+$cartPage = static fn(string $title): string => '<!doctype html><html><body><main><header><p>Shop</p><div id="floatingCart" class="floating-cart hidden"><a href="/cart/index.html" class="icon icon--stroke icon--fill icon--cart sqs-custom-cart" aria-label="View cart"><svg width="24" height="24" viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg>Cart</a></div></header><h1>' . $title . '</h1></main></body></html>';
+$cartArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $cartPage('Home'),
+    'about/index.html' => $cartPage('About'),
+    'work/item/index.html' => str_replace('>Shop</p>', '>Different shop</p>', $cartPage('Item')),
+));
+$cartCompiler = new ArtifactCompiler();
+$cartShared = $cartCompiler->prepareShared($cartArtifact);
+$cartPlan = $cartCompiler->compose($cartShared, $cartCompiler->compilePreparedPages($cartShared, $cartCompiler->preparePages($cartArtifact, $cartShared)))->toWordPressSitePlanView()['wordpress_site_plan'];
+$assert(isset($cartPlan['template_parts']), 'The multi-depth SVG cart fixture produces a site plan rather than failing canonical binding projection.');
+$cartHeaders = array_values(array_filter($cartPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$cartEntities = array_values(array_filter($entities($cartPlan), static fn(array $entity): bool => 'commerce_cart_link' === ($entity['bindings'][0]['role'] ?? null)));
+$assert(1 === count($cartHeaders) && 1 === count($cartEntities), 'All route depths share one header and one cart opener binding.');
+$cartBinding = $cartEntities[0]['bindings'][0];
+$assert($cartHeaders[0]['source_path'] === $cartBinding['source_path'] && $cartBinding['source_path'] === $cartEntities[0]['source_path'], 'The cart entity and binding belong to the shared header.');
+$assert(str_contains($cartBinding['search_block_markup'], '{{wordpress-site-plan:asset:') && 1 === substr_count($cartHeaders[0]['canonical_block_markup'], $cartBinding['search_block_markup']), 'The shared opener contains a materialized SVG asset token and matches exactly once.');
+$cartResolved = (new WordPressSitePlanResolver())->resolve($cartPlan, array('theme_uri' => 'https://example.test/wp-content/themes/captured'));
+$cartResolvedHeader = array_values(array_filter($cartResolved['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0];
+$cartResolvedBinding = array_values(array_filter($entities($cartResolved), static fn(array $entity): bool => 'commerce_cart_link' === ($entity['bindings'][0]['role'] ?? null)))[0]['bindings'][0];
+$assert(str_contains($cartResolvedBinding['search_block_markup'], 'https://example.test/wp-content/themes/captured/') && $cartResolvedBinding['search_block_markup'] === substr($cartResolvedHeader['resolved_block_markup'], $cartResolvedBinding['position']['offset'], $cartResolvedBinding['position']['length']), 'Materialization resolves the SVG and binding to the exact emitted shared-header block.');
+
 echo "Shared shell entity bindings contract passed.\n";

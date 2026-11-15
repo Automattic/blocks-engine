@@ -21,6 +21,9 @@ final class LabelElementConverter implements ElementConverter
         if ( 'label' !== $tagName ) {
             return ConversionOutcome::unhandled();
         }
+        if ( $element->hasAttribute('hidden') ) {
+            return $this->flowContainers->convertUnknownElement($element, $fallbacks);
+        }
         $label = $this->readableControls->convert($element);
         // A label wrapping a control the page cannot represent (a hidden
         // file picker, say) is still the visible box around its content.

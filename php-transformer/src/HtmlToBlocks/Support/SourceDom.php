@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
@@ -293,6 +293,22 @@ final class SourceDom
                 $targets[$index]->removeAttribute('style');
             } else {
                 $targets[$index]->setAttribute('style', $style);
+            }
+        }
+    }
+
+    /** Normalize inert CTA placeholders while the whole source document is available. */
+    public static function normalizeHashbangPlaceholders(DOMElement $root): void
+    {
+        $xpath = new \DOMXPath($root->ownerDocument);
+        // Do not rewrite a real authored section named "!".
+        if ( 0 !== $xpath->query('//*[@id="!"] | //a[@name="!"]')->length ) {
+            return;
+        }
+        foreach ( $root->getElementsByTagName('a') as $anchor ) {
+            if ( '#!' === trim($anchor->getAttribute('href')) ) {
+                // Keep the link editable without publishing a dangling target.
+                $anchor->setAttribute('href', '#');
             }
         }
     }
@@ -1663,11 +1679,12 @@ final class SourceDom
         $inline = self::attr($element, 'style');
         $hasZeroBox = false;
         foreach (array('width', 'height') as $axis) {
-            $styled = preg_match('/(?:^|;)\s*' . $axis . '\s*:\s*([^;!]+)/i', $inline, $match) ? $match[1] : null;
+            $declaration = CssRuleAnalyzer::declarations($inline, array($axis))[0] ?? null;
+            $styled = null !== $declaration ? (string) preg_replace('/\s*!\s*important\s*$/i', '', $declaration['value']) : null;
             $hasZeroBox = $hasZeroBox || (null !== $styled ? $zero($styled) : $zero(self::attr($element, $axis)));
         }
         $hasNoLayoutFootprint = $hasZeroBox
-            || 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\s*(?:!\s*important\s*)?(?:;|$)/i', $inline);
+            || array() !== array_filter(CssRuleAnalyzer::declarations($inline, array('position')), static fn (array $declaration): bool => in_array(strtolower((string) preg_replace('/\s*!\s*important\s*$/i', '', $declaration['value'])), array('absolute', 'fixed'), true));
         if (! $hasNoLayoutFootprint) {
             return false;
         }
@@ -2048,9 +2065,8 @@ final class SourceDom
         if ( '' !== ( new BackgroundImageExtractor() )->urlFromStyle($style) ) {
             return true;
         }
-        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            [$name, $value] = array_map('trim', explode(':', $declaration, 2) + array( '', '' ));
-            if ( in_array(strtolower($name), array( 'background', 'background-color' ), true)
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $name, 'value' => $value ] ) {
+            if ( in_array($name, array( 'background', 'background-color' ), true)
                 && ! str_contains(strtolower($value), 'url(')
                 && 1 !== preg_match('/^(?:|none|transparent|initial|inherit|unset|revert(?:-layer)?)$/i', preg_replace('/\s*!important$/i', '', $value) ?? '')
             ) {

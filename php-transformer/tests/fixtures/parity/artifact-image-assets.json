@@ -36,7 +36,7 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "assets/logo.svg", "alt": "Logo", "width": "120px", "height": "80px", "caption": "Brand", "className": "hero-logo rounded is-resized be-inline-geometry-e842990d8b1fdafb blocks-engine-semantic-3d06f967a440-0", "id": 42, "sizeSlug": "medium" } }
+    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "assets/logo.svg", "alt": "Logo", "width": "120px", "height": "80px", "caption": "Brand", "className": "hero-logo rounded is-resized be-inline-geometry-7c1eb5e2dafe5a40 blocks-engine-semantic-6d5caf015ebf-0", "id": 42, "sizeSlug": "medium" } }
   ],
   "expected_fallbacks": [],
   "expect": [

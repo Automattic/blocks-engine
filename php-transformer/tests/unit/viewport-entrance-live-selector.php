@@ -56,4 +56,15 @@ if (!str_contains($editor, 'blocks-engine-editor-anchor-title')
     || str_contains($editor, 'transform:none!important;clip-path:none!important')) {
     throw new RuntimeException('Editor replay owners need an identity-scoped visible resting state, not a geometry reset.');
 }
+// A replay owner is an independent box, even when its child is another
+// Group. Coalescing must not move its binding or discard the child's scope.
+$nested = (new HtmlTransformer())->transform(
+    '<main><div class="outer"><div id="replay" data-blocks-engine-capture-viewport-entrance="' . $state . '"><div class="inner"><h2>Hi</h2><p>Text</p></div></div></div></main>',
+    array('static_css' => '#replay{animation:reveal 1s paused}.inner{display:block}')
+)->toArray();
+$markup = $nested['serialized_blocks'] ?? '';
+if (!str_contains($markup, 'blocksEngineRuntimeAttributes')
+    || !str_contains($markup, '<div class="wp-block-group outer"><!-- wp:group {"anchor":"replay"')) {
+    throw new RuntimeException('Wrapper normalization must retain replay-owned native Group metadata.');
+}
 echo "Viewport entrance live selector passed.\n";

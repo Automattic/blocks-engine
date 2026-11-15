@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
@@ -67,7 +70,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         }
         $anchors = $this->anchors($element);
         $explicit = $explicit || self::isExplicitSocialCluster($element);
-        if ( array() === $anchors || (! $explicit && ! $this->isSocialCluster($element, $anchors)) ) {
+        if ( array() === $anchors || (! $explicit && ! $this->isSocialCluster($element, $anchors, $context)) ) {
             return null;
         }
 
@@ -232,8 +235,9 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
         $attrs = $context->presentationAttributes($element);
         for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode ) {
-            if ( preg_match('/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/i', SourceDom::attr($carrier, 'style'), $alignment) ) {
-                $attrs['justifyContent'] = strtolower($alignment[1]);
+            $alignment = CssValueInspector::declared(SourceDeclarations::inline($carrier), 'text-align');
+            if ( in_array($alignment, array( 'left', 'center', 'right' ), true) ) {
+                $attrs['justifyContent'] = $alignment;
                 break;
             }
         }
@@ -260,15 +264,6 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             if ( ! $nativeArtwork ) {
                 $attrs['size'] = $this->iconSize($anchors, $element, $context) ?? 'small';
             }
-            $glyphSizes = array();
-            foreach ($anchors as $anchor) {
-                foreach ($anchor->getElementsByTagName('*') as $glyph) {
-                    if (!$this->isFontGlyph($glyph)) continue;
-                    $size = $context->socialPresentationDeclarations($glyph)['font-size'] ?? '';
-                    if (preg_match('/^\d+(?:\.\d+)?px$/', $size)) $glyphSizes[$size] = true;
-                }
-            }
-            if (1 === count($glyphSizes)) $attrs['inlineGeometryStyle'] = 'font-size:' . array_key_first($glyphSizes);
             $iconColor = $this->uniformIconColor($linkAnchors, $context);
             if ( '' !== $iconColor ) {
                 $attrs['iconColorValue'] = $iconColor;
@@ -508,7 +503,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     }
 
     /** @param array<int,DOMElement> $anchors */
-    private function isSocialCluster(DOMElement $element, array $anchors): bool
+    private function isSocialCluster(DOMElement $element, array $anchors, PatternContext $context): bool
     {
         if ( self::isExplicitSocialCluster($element) ) {
             return true;
@@ -517,8 +512,13 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         if ( count($anchors) < 2 ) {
             return false;
         }
+        // Without a named social region, a visible text label with no icon
+        // makes the links a text list ("Instagram", "Facebook"), not a social
+        // row: core/social-link always paints its service glyph, so it would
+        // gain artwork and brand pills the source never had.
         foreach ( $anchors as $anchor ) {
-            if ( null === self::serviceForUrl(LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'))) ) {
+            if ( null === self::serviceForUrl(LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href')))
+                || ('' !== $this->visibleText($anchor, $context) && ! $this->hasIcon($anchor) && ! $this->hasIconHook($anchor)) ) {
                 return false;
             }
         }
@@ -638,6 +638,15 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             if ($this->isFontGlyph($glyph)) return true;
         }
         return '' === trim((string) $anchor->textContent) && 0 < $anchor->getElementsByTagName('span')->length;
+    }
+
+    /** An empty element named as an icon, painted by CSS (`.icon-facebook::before`). */
+    private function hasIconHook(DOMElement $anchor): bool
+    {
+        foreach ($anchor->getElementsByTagName('*') as $hook) {
+            if ('' === trim($hook->textContent) && 1 === preg_match('/icon|glyph|(?:^|\s)fa[bsrl]?(?:\s|$|-)/i', $hook->getAttribute('class'))) return true;
+        }
+        return false;
     }
 
     /** @param array<int,DOMElement> $anchors */
@@ -909,8 +918,9 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             return '';
         }
         foreach ( array( 'fill', 'color' ) as $property ) {
-            if ( 1 === preg_match('/(?:^|;)\s*' . $property . '\s*:\s*([^;]+)/i', $style, $match) ) {
-                $color = $this->concreteColor($match[1]);
+            $declaration = CssRuleAnalyzer::declarations($style, array( $property ))[0] ?? null;
+            if ( null !== $declaration ) {
+                $color = $this->concreteColor($declaration['value']);
                 if ( '' !== $color ) {
                     return $color;
                 }

@@ -60,4 +60,14 @@ $form = $dom->getElementsByTagName('form')->item(0);
 $assert($form instanceof DOMElement && $form->hasAttribute('hidden'), 'Materialized form starts hidden.');
 $form->removeAttribute('hidden');
 $assert(!$form->hasAttribute('hidden') && !$form->hasAttribute('style'), 'Removing hidden reveals the form without a permanent hiding style.');
-echo "Hidden form: provider root, control coverage, and rendered hidden default preserved.\n";
+
+// Any block keeps the same default: a script-toggled list row starts hidden.
+$list = (new HtmlTransformer())->transform('<ul><li><a href="mailto:a@b.c">a@b.c</a></li><li hidden><a href="#c">Teléfono próximamente</a></li></ul>')->toArray();
+$items = $list["blocks"];
+$row = $items[0]['innerBlocks'][1] ?? array();
+$assert('core/list-item' === ($row['blockName'] ?? null) && !isset($items[0]['innerBlocks'][0]['attrs']['metadata']), 'Only the hidden list row carries runtime state.');
+$dom = new DOMDocument();
+@$dom->loadHTML('<?xml encoding="utf-8"?>' . $GLOBALS['hiddenFormRenderFilter']($row['innerHTML'], $row));
+$assert($dom->getElementsByTagName('li')->item(0)?->hasAttribute('hidden') ?? false, 'Materialized list row starts hidden.');
+$assert('pass' === ($list['source_reports']['wp_block_validity']['status'] ?? null), 'The hidden row stays editor-valid.');
+echo "Hidden form and list row: provider root, control coverage, and rendered hidden default preserved.\n";

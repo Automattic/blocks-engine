@@ -196,6 +196,10 @@ jobs:
           php tests/unit/captured-dialog-class-hidden-resting-panel.php
           PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/captured-dialog-resting-content-browser.mjs
 
+      - name: Verify the editor canvas paints the front end resting state
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/editor-resting-state-browser.mjs
+
       - name: Verify native button default background neutralization
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/native-button-default-background-browser.mjs
@@ -253,6 +257,12 @@ jobs:
         env:
           BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/neutral-button-fixed-height-browser.mjs
+
+      - name: Verify a centred submit carrier keeps its source position
+        working-directory: php-transformer
+        run: |
+          php tests/unit/form-submit-centred-carrier.php
+          PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/form-submit-centred-carrier-browser.mjs
 
       - name: Verify a propagated card link keeps its author layout
         working-directory: php-transformer

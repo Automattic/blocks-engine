@@ -5,6 +5,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use InvalidArgumentException;
 
@@ -412,14 +414,16 @@ final class FontMaterializationPlanBuilder
             foreach ( $matches as $index => $match ) {
                 if ( count($faces) >= 64 ) break;
                 $declaration = (string) $match[1];
-                if ( ! preg_match('/(?:^|;)\s*font-family\s*:\s*([^;{}]+)/i', $declaration, $familyMatch) || ! preg_match('/(?:^|;)\s*src\s*:\s*[^;{}]*url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s\)]+))\s*\)/i', $declaration, $sourceMatch) ) continue;
-                $family = $this->normalizeFamily((string) $familyMatch[1]);
+                $descriptors = array();
+                foreach ( array_reverse(CssRuleAnalyzer::declarations($declaration, array( 'font-family', 'src', 'font-style', 'font-weight' ))) as [ 'name' => $name, 'value' => $value ] ) {
+                    $descriptors[$name] = $value;
+                }
+                if ( ! isset($descriptors['font-family']) || ! preg_match('/url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s\)]+))\s*\)/i', $descriptors['src'] ?? '', $sourceMatch) ) continue;
+                $family = $this->normalizeFamily($descriptors['font-family']);
                 $sourceUrl = html_entity_decode((string) (($sourceMatch[1] ?? '') ?: ($sourceMatch[2] ?? '') ?: ($sourceMatch[3] ?? '')), ENT_QUOTES | ENT_HTML5);
                 if ( '' === $family || $this->isWebSafeFontFamily($family) || $this->isInvalidFontFamily($family) || ! $this->isEligibleDirectFontSourceUrl($sourceUrl) ) continue;
-                preg_match('/(?:^|;)\s*font-style\s*:\s*([^;{}]+)/i', $declaration, $styleMatch);
-                preg_match('/(?:^|;)\s*font-weight\s*:\s*([^;{}]+)/i', $declaration, $weightMatch);
-                $style = strtolower(trim((string) ($styleMatch[1] ?? 'normal')));
-                $weight = $this->typedWeight(trim((string) ($weightMatch[1] ?? '400')));
+                $style = strtolower($descriptors['font-style'] ?? 'normal');
+                $weight = $this->typedWeight($descriptors['font-weight'] ?? '400');
                 if ( ! in_array($style, array('normal', 'italic', 'oblique'), true) ) continue;
                 $faces[] = array('family' => $family, 'style' => $style, 'weight' => $weight, 'source_url' => $sourceUrl, 'provenance' => array('source_kind' => 'css_font_face', 'source_path' => $source['source_path'], 'source_hash' => $source['source_hash'], 'selector' => 'css:@font-face(' . ($index + 1) . ')'));
             }
@@ -634,11 +638,11 @@ final class FontMaterializationPlanBuilder
         $visitor = new CssStylesheetTransformer();
         foreach ( $stylesheets as $css ) {
             $visitor->visitStyleRules($css, static function (string $prelude, string $body) use (&$variables): void {
-                if ( str_starts_with(ltrim($prelude), '@') || ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER) ) {
+                if ( str_starts_with(ltrim($prelude), '@') ) {
                     return;
                 }
-                foreach ( $matches as $match ) {
-                    $variables[(string) $match[1]] = trim((string) $match[2]);
+                foreach ( CssRuleAnalyzer::customProperties($body) as $declaration ) {
+                    $variables[ $declaration['name'] ] = $declaration['value'];
                 }
             });
         }
@@ -709,9 +713,8 @@ final class FontMaterializationPlanBuilder
      */
     private function primaryFamily(string $declaration): string
     {
-        foreach ( explode(',', $declaration) as $candidate ) {
-            $family = $this->normalizeFamily($candidate);
-            if ( '' !== $family && ! $this->isWebSafeFontFamily($family) && ! $this->isInvalidFontFamily($family) ) {
+        foreach ( CssFontFamily::names(preg_replace('/\s*!important\s*$/i', '', $declaration) ?? $declaration) as $family ) {
+            if ( ! $this->isWebSafeFontFamily($family) && ! $this->isInvalidFontFamily($family) ) {
                 return $family;
             }
         }
@@ -790,16 +793,7 @@ final class FontMaterializationPlanBuilder
      */
     private function cssCustomProperties(string $css): array
     {
-        if ( ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        $vars = array();
-        foreach ( $matches as $match ) {
-            $vars[(string) $match[1]] = trim((string) $match[2]);
-        }
-
-        return $vars;
+        return array_column(CssRuleAnalyzer::customProperties($css), 'value', 'name');
     }
 
     /**

@@ -46,6 +46,7 @@
     "parity": "@test:parity",
     "static-parity": "php tools/static-parity/run.php",
     "live-wp-parity": "php tools/live-wp-parity/run.php",
+    "visual:navigation-item-space": "node tools/visual-parity/tests/navigation-item-space.mjs",
     "visual:image-custom-host-promotion": "node tools/visual-parity/tests/image-custom-host-promotion.mjs",
     "visual:empty-destination-anchor": "node tools/visual-parity/tests/empty-destination-anchor.mjs",
     "visual:empty-css-sized-paint": "node tools/visual-parity/tests/empty-css-sized-paint.mjs",
@@ -69,6 +70,7 @@
     "test:detached-auto-inset-backdrop-browser": "node tests/unit/detached-auto-inset-backdrop-browser.mjs",
     "test:social-profile-flex-cluster-browser": "node tests/unit/social-profile-flex-cluster-browser.mjs",
     "test:stretched-button-box-sizing-browser": "node tests/unit/stretched-button-box-sizing-browser.mjs",
+    "test:form-submit-centred-carrier-browser": "node tests/unit/form-submit-centred-carrier-browser.mjs",
     "test:search-input-group-browser": "node tests/unit/search-input-group-browser.mjs",
     "test:sibling-link-lists-browser": "node tests/contract/sibling-link-lists-browser.mjs",
     "test:navigation-icon-reset-browser": "node tests/unit/navigation-icon-reset-browser.mjs",
@@ -104,7 +106,8 @@
     "test:scripts": [
       "Composer\\Config::disableProcessTimeout",
       "php tests/run.php",
-      "php tests/contract/shared-trailing-newsletter-overlay.php"
+      "php tests/contract/shared-trailing-newsletter-overlay.php",
+      "php tests/contract/shared-responsive-wordmark.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",

@@ -16,12 +16,12 @@ final class IntrinsicVisualMediaHeight
     {
         $geometry = array();
         $presentation = $this->styleResolver->presentationDeclarations($element);
-        $inline = $this->styleResolver->inlineDeclarations($element);
+        $inline = SourceDeclarations::inline($element);
         foreach ( array( 'height', 'min-height' ) as $property ) {
             if ( 'height' === $property && $unsafeFixedHeightTopologyChange ) {
                 continue;
             }
-            $family = $this->styleResolver->responsivePropertyFamily($property);
+            $family = ResponsivePropertyFamily::of($property);
             if ( array() !== $this->sourceStyleResolutionState->conditionalRules()
                 && $this->styleResolver->hasConditionalStyleFamily($element, $family)
                 && ! $this->styleResolver->inlineOwnsResponsiveProperty($property, $family, $inline)

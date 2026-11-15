@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+
 /** Bounded substitution shared by element-scoped custom-property resolvers. */
 final class CssVariableExpander
 {
@@ -28,7 +30,7 @@ final class CssVariableExpander
         $result = '';
         $offset = 0;
         while ( false !== ($start = strpos($value, 'var(', $offset)) ) {
-            $close = self::matchingParenthesis($value, $start + 3);
+            $close = CssSyntaxScanner::matchingClose($value, $start + 3);
             if ( null === $close ) {
                 return null;
             }
@@ -62,19 +64,6 @@ final class CssVariableExpander
         $result .= substr($value, $offset);
 
         return strlen($result) > self::MAX_EXPANDED_BYTES ? null : trim($result);
-    }
-
-    private static function matchingParenthesis(string $value, int $open): ?int
-    {
-        $depth = 0;
-        for ( $index = $open, $length = strlen($value); $index < $length; ++$index ) {
-            if ( '(' === $value[$index] ) {
-                ++$depth;
-            } elseif ( ')' === $value[$index] && 0 === --$depth ) {
-                return $index;
-            }
-        }
-        return null;
     }
 
     private static function topLevelComma(string $arguments): ?int

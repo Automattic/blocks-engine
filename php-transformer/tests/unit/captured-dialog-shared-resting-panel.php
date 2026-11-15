@@ -62,6 +62,23 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index
 $markup = implode('', array_column($result['source_reports']['wordpress_site_plan']['pages'] ?? array(), 'canonical_block_markup'))
     . json_encode($result['source_reports']['wordpress_site_plan']['template_parts'] ?? array(), JSON_UNESCAPED_SLASHES);
 $markup = stripslashes($markup);
+// Saving a menu must not depend on whether its host is inside a dropdown.
+$plan = $result['source_reports']['wordpress_site_plan'];
+$menus = array_values(array_filter($plan['menus'], static fn(array $menu): bool => isset($menu['token'])));
+$assert(1 === count($menus), 'the in-place dropdown owns a saved navigation entity');
+$assert(isset($menus[0]['token']) && str_contains($markup, '{{wordpress-site-plan:navigation:' . $menus[0]['token'] . '}}'), 'the dropdown navigation references its saved entity', $markup);
+$assert(str_contains($menus[0]['block_markup'] ?? '', 'Services') && str_contains($menus[0]['block_markup'] ?? '', 'Work'), 'the saved entity preserves both panel links');
+$documents = implode('', array_column($plan['pages'], 'canonical_block_markup'))
+    . implode('', array_column($plan['template_parts'], 'canonical_block_markup'));
+$blocks = new Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($documents);
+$hosts = array();
+foreach ($blocks->ranges() as $range) {
+    $block = substr($documents, $range['offset'], $range['length']);
+    if (preg_match('/^<!-- wp:navigation (\{.*?\}) \/-->$/s', $block, $match)) $hosts[] = json_decode($match[1], true);
+}
+$assert(1 === count($hosts), 'saving the panel leaves exactly one navigation host, not an inline or duplicate copy');
+$assert('nav' === ($hosts[0]['anchor'] ?? null) && 'never' === ($hosts[0]['overlayMenu'] ?? null), 'the saved reference retains the source anchor and does not add a Core overlay');
+$assert(!str_contains($menus[0]['block_markup'] ?? '', 'wp:group') && !str_contains($menus[0]['block_markup'] ?? '', 'wp:navigation '), 'the entity holds only items, not the placement shell or navigation host');
 $assert(1 === preg_match('/<!-- wp:group \{"metadata":\{"blocksEngineDialog":\{"adopt":true[^>]*"data-blocks-engine-placement":"in-place"[^>]*"data-blocks-engine-resting":"authored"[^>]*--><div class="wp-block-group">\s*<!-- wp:navigation \{[^}]*"anchor":"nav"/', $markup), 'the panel converts to the header navigation, adopted as its toggle\'s in-place dropdown', $markup);
 $assert(! str_contains($markup, '<dialog') && ! str_contains($markup, 'data-blocks-engine-capture'), 'no dialog box or capture-only attribute is left', $markup);
 

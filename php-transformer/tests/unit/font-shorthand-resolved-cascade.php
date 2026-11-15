@@ -66,10 +66,10 @@ foreach (array('font:bold 18px Arial' => 'bold 18px Arial') as $style => $font) 
     $cascade = CssFontShorthand::expand($font);
     foreach (array(false, true, false, true) as $expandFont) {
         $expected = $expandFont ? $cascade : $authored;
-        $parsed = $resolver->verbatimCssDeclarations($style, $expandFont);
+        $parsed = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations::verbatim($style, $expandFont);
         $assert($expected === $parsed, 'cached declarations keep font expansion modes separate');
         $parsed['font'] = 'changed by consumer';
-        $assert($expected === $resolver->verbatimCssDeclarations($style, $expandFont), 'consumer mutation does not change cached declarations');
+        $assert($expected === \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations::verbatim($style, $expandFont), 'consumer mutation does not change cached declarations');
     }
 }
 fwrite(STDOUT, "Font shorthand resolved cascade passed\n");

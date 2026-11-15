@@ -52,7 +52,7 @@ final class SourceElementVisibility
 
     public function startsHidden(DOMElement $element): bool
     {
-        if ( SourceDom::documentVariantRoot($element) === $element ) {
+        if ( SourceDom::isDocumentVariantRoot($element) ) {
             return false;
         }
         // A projected captured dialog is the panel's open state. Its source
@@ -109,10 +109,10 @@ final class SourceElementVisibility
             $candidate instanceof DOMElement;
             $candidate = $candidate->parentNode instanceof DOMElement ? $candidate->parentNode : null
         ) {
-            if ( SourceDom::documentVariantRoot($candidate) === $candidate ) {
+            if ( SourceDom::isDocumentVariantRoot($candidate) ) {
                 return false;
             }
-            $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($candidate));
+            $declarations = SourceDeclarations::parse($this->styleResolver->controlSurfaceResolvedStyle($candidate));
             $display = CssValueInspector::declared($declarations, 'display');
             if ( 'none' === $display ) {
                 return true;
@@ -143,10 +143,10 @@ final class SourceElementVisibility
             $candidate instanceof DOMElement && 'body' !== strtolower($candidate->tagName);
             $candidate = $candidate->parentNode
         ) {
-            if ( SourceDom::documentVariantRoot($candidate) === $candidate ) {
+            if ( SourceDom::isDocumentVariantRoot($candidate) ) {
                 return false;
             }
-            $declarations = $this->styleResolver->collapsedViewportDeclarations($candidate, array( 'display', 'visibility' ));
+            $declarations = $this->styleResolver->cascade->collapsedViewportDeclarations($candidate, array( 'display', 'visibility' ));
             if ( 'none' === CssValueInspector::declared($declarations, 'display')
                 || in_array(CssValueInspector::declared($declarations, 'visibility'), array( 'hidden', 'collapse' ), true) ) {
                 return true;

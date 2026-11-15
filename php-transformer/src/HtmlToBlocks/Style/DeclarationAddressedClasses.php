@@ -107,7 +107,7 @@ final class DeclarationAddressedClasses
         $paths = array();
         foreach ($assets as $asset) {
             if (!self::isContentAddressedStylesheet($asset)) continue;
-            $content = $this->rewrite($asset['content'], $replacements);
+            $content = $this->deduplicateMarkerArms($this->rewrite($asset['content'], $replacements));
             $path = $asset['path'];
             $paths[$path] = substr($path, 0, -20) . substr(hash('sha256', $content), 0, 16) . '.css';
         }
@@ -166,6 +166,17 @@ final class DeclarationAddressedClasses
         return $this->rewriteValue($value, $replacements, $paths);
     }
 
+    /** Coalesced identities must not leave repeated alternatives in published CSS. */
+    private function deduplicateMarkerArms(string $css): string
+    {
+        if (!str_contains($css, 'blocks-engine-control-')) return $css;
+        return (new CssStylesheetTransformer())->transformStyleRules($css, static function (string $selector, string $body): string {
+            if (!str_contains($selector, 'blocks-engine-control-')) return $selector . '{' . $body . '}';
+            $arms = CssStylesheetTransformer::splitSelectorList(CssSelectorListCompactor::expand($selector));
+            return CssSelectorListCompactor::compact(implode(',', array_values(array_unique($arms ?? array($selector))))) . '{' . $body . '}';
+        });
+    }
+
     /**
      * Partition the replacement map once, not once per scalar compilation fact.
      * @param array<string, string> $replacements
@@ -185,6 +196,9 @@ final class DeclarationAddressedClasses
             $rewritten[is_string($key) ? strtr($key, $replacements) : $key] = $this->rewriteValue($item, $replacements, $paths);
         }
         $value = $rewritten;
+        if ('css' === ($value['kind'] ?? '') && is_string($value['content'] ?? null)) {
+            $value['content'] = $this->deduplicateMarkerArms($value['content']);
+        }
         if (is_string($originalContent) && $originalContent !== $value['content']) {
             if (isset($value['bytes'])) $value['bytes'] = strlen($value['content']);
             foreach (array('hash', 'content_hash') as $key) {

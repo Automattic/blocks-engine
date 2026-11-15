@@ -27,7 +27,7 @@ if ('core/group' !== ($wrapper['blockName'] ?? '') || !str_contains((string) ($w
 if ('core/social-links' !== ($social['blockName'] ?? '') || !str_contains((string) ($social['attrs']['className'] ?? ''), 'icon-row')) {
     throw new RuntimeException('The native Social Links block must carry the actual row classes that own responsive gap and margins.');
 }
-if ('normal' !== ($social['attrs']['size'] ?? '') || 2 !== count($social['innerBlocks'] ?? array())) {
+if ('has-normal-icon-size' !== ($social['attrs']['size'] ?? '') || 2 !== count($social['innerBlocks'] ?? array())) {
     throw new RuntimeException('Preserving the row must retain native icon sizing and every social link.');
 }
 if ('pass' !== ($wrapped['source_reports']['wp_block_validity']['status'] ?? '')) {

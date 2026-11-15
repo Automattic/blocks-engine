@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -149,8 +150,9 @@ final class FormControlMetadataBuilder
                 $output['id'] = $status->getAttribute('id');
             }
             foreach ( array('top', 'bottom') as $side ) {
-                if ( preg_match('/(?:^|;)\s*margin-' . $side . '\s*:\s*(-?[0-9]+(?:\.[0-9]+)?(?:px|em|rem|vh|vw|%)|0)\s*(?:;|$)/i', $status->getAttribute('style'), $match) ) {
-                    $output['margin_' . $side] = $match[1];
+                $margin = SourceDeclarations::inline($status)['margin-' . $side] ?? '';
+                if ( preg_match('/^(?:-?[0-9]+(?:\.[0-9]+)?(?:px|em|rem|vh|vw|%)|0)$/Di', $margin) ) {
+                    $output['margin_' . $side] = $margin;
                 }
             }
             $metadata['trailing_status'] = $output;
@@ -178,11 +180,9 @@ final class FormControlMetadataBuilder
      * not a control, so nothing in the control manifest carries it. Record it
      * against the controls it sits around so a materialized form can keep it.
      *
-     * Copy that sits between two controls cannot be placed by position alone
-     * (see `interleaved_context`), but the text itself is still reported —
-     * bounded, under `unrepresented_context` — instead of being discarded
-     * outright, so a caller can turn it into a named diagnostic rather than a
-     * silent loss.
+     * Prose between controls is context_after anchored to the preceding
+     * control selector. Unassociated labels without a unique owner remain
+     * unrepresented: treating those as prose would hide an ambiguous field name.
      *
      * @return array{context_before: array<int, array<string, mixed>>, context_after: array<int, array<string, mixed>>, interleaved_context: bool, unrepresented_context: array<int, array<string, mixed>>}
      */
@@ -194,6 +194,7 @@ final class FormControlMetadataBuilder
         $interleaved = false;
         $seenControls = 0;
         $totalControls = 0;
+        $precedingControl = null;
 
         // Copy a control already owns — its label, its field description — is
         // carried by the control manifest, so it must not also surface here.
@@ -227,6 +228,14 @@ final class FormControlMetadataBuilder
             }
         }
 
+        foreach ( $form->getElementsByTagName('*') as $group ) {
+            if ( ! $group instanceof DOMElement ) continue;
+            $groupLabel = FormControlLabel::choiceGroupLabel($group);
+            if ( $groupLabel instanceof DOMElement && '' !== trim($groupLabel->textContent) && strlen(trim($groupLabel->textContent)) <= 200 ) {
+                $claimedLabels[] = $groupLabel;
+            }
+        }
+
         $recorded = array();
         foreach ( $form->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
@@ -235,6 +244,7 @@ final class FormControlMetadataBuilder
             if ( FormControlClassifier::isControlElement($node) ) {
                 if ( ! FormControlClassifier::isNonAuthoredControl($node) ) {
                     ++$seenControls;
+                    $precedingControl = $node;
                 }
                 continue;
             }
@@ -254,7 +264,12 @@ final class FormControlMetadataBuilder
                 $after[] = $item;
             } else {
                 $interleaved = true;
-                $unrepresented[] = $item;
+                if ( 'label' !== strtolower($node->tagName) && $precedingControl instanceof DOMElement ) {
+                    $item['after_control_selector'] = SourceDom::elementSelector($precedingControl);
+                    $after[] = $item;
+                } else {
+                    $unrepresented[] = $item;
+                }
             }
         }
 
@@ -991,7 +1006,11 @@ final class FormControlMetadataBuilder
                     continue;
                 }
             }
-            if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden')) ) {
+            // Hidden source copy is not permanent field help. Providers render
+            // descriptions independently of the original node and its CSS box.
+            if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden'))
+                || null !== $this->hiddenState($node, $wrapper)
+            ) {
                 continue;
             }
             $alreadyCounted = false;
@@ -1295,7 +1314,7 @@ final class FormControlMetadataBuilder
             if ( $node->hasAttribute('hidden') ) {
                 return '';
             }
-            $declarations = $this->styleResolver?->collapsedViewportAuthorDeclarations($node, array( 'display', 'visibility' )) ?? array();
+            $declarations = $this->styleResolver?->authorViewport->collapsed($node, array( 'display', 'visibility' )) ?? array();
             $display = strtolower(trim(CssValueInspector::withoutImportant($declarations['display'] ?? '')));
             $visibility = strtolower(trim(CssValueInspector::withoutImportant($declarations['visibility'] ?? '')));
             if ( 'none' === $display || 'hidden' === $visibility ) {

@@ -46,7 +46,7 @@ $assert('' !== $chrome, 'a browser is required for the synthetic figure margin c
 $temp = tempnam(sys_get_temp_dir(), 'synthetic-margin-');
 $file = $temp . '.html';
 unlink($temp);
-$profile = '/tmp/synthetic-margin-profile-' . getmypid();
+$profile = sys_get_temp_dir() . '/synthetic-margin-profile-' . getmypid();
 try {
     foreach (array(false, true) as $authored) {
         $source = '<style>@layer a{.x{margin-bottom:5px}}</style><div><img '
@@ -57,11 +57,12 @@ try {
         // and loaded last, so source order cannot hide a layered reset regression.
         file_put_contents($file, '<!doctype html><style>' . $outputCss . '</style>'
             . '<style>:where(figure){margin:0 0 1em}</style>' . $result['serialized_blocks']
-            . '<script>document.body.dataset.margin=getComputedStyle(document.querySelector("figure")).marginBottom</script>');
+            . '<script>document.body.dataset.margin=getComputedStyle(document.querySelector("figure")).marginBottom;document.body.dataset.leafMargin=getComputedStyle(document.querySelector("img")).marginBottom</script>');
         $output = shell_exec(HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --user-data-dir='
             . escapeshellarg($profile) . ' --dump-dom --virtual-time-budget=1000 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
+        $assert(str_contains((string) $output, 'data-margin="0px"'), 'synthetic figure bottom margin stays zero against unlayered Core CSS: ' . (string) $output);
         $expected = $authored ? '5px' : '0px';
-        $assert(str_contains((string) $output, 'data-margin="' . $expected . '"'), 'synthetic figure bottom margin is ' . $expected . ' against unlayered Core CSS: ' . (string) $output);
+        $assert(str_contains((string) $output, 'data-leaf-margin="' . $expected . '"'), 'authored bottom margin belongs to the image leaf: ' . (string) $output);
     }
 } finally {
     @unlink($file);

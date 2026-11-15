@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
@@ -297,9 +298,9 @@ final class NavigationToggleSuppressor
                 return false;
             }
             $value = $this->styleResolver->declaredPresentation($node, 'display')->resolvedValueWhere(
-                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                fn (array $conditions): bool => $this->styleResolver->cascade->conditionsApplyAtViewport($conditions, $width)
             );
-            $value = $this->styleResolver->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant(trim($value)), $node, $width);
+            $value = $this->styleResolver->customProperties->resolveAtViewport(CssValueInspector::withoutImportant(trim($value)), $node, $width);
             if ( 'none' === strtolower(trim($value)) ) {
                 return true;
             }
@@ -328,7 +329,7 @@ final class NavigationToggleSuppressor
     /** A collapsed panel cannot host the replacement opener in the header row. */
     private function isOutOfFlowNavigationPanel(DOMElement $target): bool
     {
-        $declarations = $this->styleResolver->collapsedViewportAuthorDeclarations($target, array('position'));
+        $declarations = $this->styleResolver->authorViewport->collapsed($target, array('position'));
         $position = strtolower(CssValueInspector::withoutImportant(trim((string) ($declarations['position'] ?? ''))));
 
         return in_array($position, array('absolute', 'fixed'), true);
@@ -340,7 +341,7 @@ final class NavigationToggleSuppressor
         if ( $this->isSemanticDialog($target) || ! $this->isOutOfFlowNavigationPanel($target) ) {
             return false;
         }
-        $declarations = $this->styleResolver->collapsedViewportAuthorDeclarations($target, array('visibility', 'max-height'));
+        $declarations = $this->styleResolver->authorViewport->collapsed($target, array('visibility', 'max-height'));
         foreach ( $declarations as $property => $value ) {
             $value = strtolower(CssValueInspector::withoutImportant(trim($value)));
             if ( ('visibility' === $property && 'hidden' === $value)
@@ -486,9 +487,9 @@ final class NavigationToggleSuppressor
                     continue;
                 }
 
-                // Hidden items inside a menu the page shows belong to that menu
-                // (a "More" list, say); they are not this control's panel.
-                if ( $this->isInsideVisibleNavigation($candidate, $control) ) {
+                // A landmark's own dropdown belongs to that menu even when
+                // the entire landmark is hidden in a responsive row.
+                if ( $this->isInsideNavigation($candidate, $control) ) {
                     continue;
                 }
 
@@ -533,12 +534,11 @@ final class NavigationToggleSuppressor
         return null;
     }
 
-    private function isInsideVisibleNavigation(DOMElement $candidate, DOMElement $control): bool
+    private function isInsideNavigation(DOMElement $candidate, DOMElement $control): bool
     {
         for ( $node = $candidate->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( $this->isNavigationLandmark($node)
-                && ! SourceDom::elementContains($node, $control)
-                && ! $this->isHiddenAtDefaultViewport($node) ) {
+                && ! SourceDom::elementContains($node, $control) ) {
                 return true;
             }
         }
@@ -632,8 +632,8 @@ final class NavigationToggleSuppressor
     private function hiddenAtCollapsedViewport(DOMElement $element, bool $includeAncestors = false): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $values = $this->styleResolver->collapsedViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'));
-            $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport($values['display'] ?? '', $node, StyleResolver::MOBILE_REFERENCE_WIDTH));
+            $values = $this->styleResolver->authorViewport->collapsed($node, array('display', 'visibility', 'opacity'));
+            $display = CssValueInspector::comparable($this->styleResolver->customProperties->resolveAtViewport($values['display'] ?? '', $node, StyleResolver::MOBILE_REFERENCE_WIDTH));
             $visibility = CssValueInspector::comparable($values['visibility'] ?? '');
             $opacity = CssValueInspector::comparable($values['opacity'] ?? '');
             if ( $this->sourceElementIsHiddenByMarkup($node, $display)
@@ -656,7 +656,7 @@ final class NavigationToggleSuppressor
         $authorPanel = ! $this->insideOwnedNavigationPanel($target)
             && ! $this->isInsideAdoptedRestingPanel($target)
             && $this->isOutOfFlowNavigationPanel($target)
-            && 'hidden' === CssValueInspector::comparable($this->styleResolver->collapsedViewportAuthorDeclarations($target, array('visibility'))['visibility'] ?? '');
+            && 'hidden' === CssValueInspector::comparable($this->styleResolver->authorViewport->collapsed($target, array('visibility'))['visibility'] ?? '');
         if ( ! $this->sourceElementIsHidden($target) && ! $this->isCollapsedOutOfFlowPanel($target)
             && ! ( $authorPanel && $this->hiddenAtCollapsedViewport($target) ) ) {
             return null;
@@ -729,7 +729,7 @@ final class NavigationToggleSuppressor
             || $this->isHiddenAtDefaultViewport($target) ) {
             return false;
         }
-        $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($target, array('position'), true);
+        $declarations = $this->styleResolver->authorViewport->reference($target, array('position'), true);
         $position = CssValueInspector::declared($declarations, 'position');
 
         return ! in_array($position, array('absolute', 'fixed'), true);
@@ -1657,7 +1657,7 @@ final class NavigationToggleSuppressor
      */
     private function hidesTextVisually(DOMElement $element, bool $isLabelDescendant): bool
     {
-        $resolved = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        $resolved = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element));
         if ( $isLabelDescendant && 1 === preg_match('/^none(?:\s*!important)?$/i', trim((string) ($resolved['display'] ?? ''))) ) {
             return true;
         }
@@ -1817,7 +1817,7 @@ final class NavigationToggleSuppressor
             }
             $display = $this->styleResolver->declaredPresentation($select, 'display');
             $at = fn (float $width): string => strtolower(CssValueInspector::withoutImportant(trim($display->resolvedValueWhere(
-                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                fn (array $conditions): bool => $this->styleResolver->cascade->conditionsApplyAtViewport($conditions, $width)
             ))));
             $menu = $navigation;
             if ( SourceDom::elementContains($navigation, $select) ) {
@@ -1830,7 +1830,7 @@ final class NavigationToggleSuppressor
             }
             $navDisplay = $this->styleResolver->declaredPresentation($menu, 'display');
             $navAt = fn (float $width): string => strtolower(CssValueInspector::withoutImportant(trim($navDisplay->resolvedValueWhere(
-                fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                fn (array $conditions): bool => $this->styleResolver->cascade->conditionsApplyAtViewport($conditions, $width)
             ))));
             if ( 'none' === $at($boundary + 1) && '' !== $at($boundary) && 'none' !== $at($boundary)
                 && 'none' === $navAt($boundary) && 'none' !== $navAt($boundary + 1) ) {
@@ -1941,7 +1941,7 @@ final class NavigationToggleSuppressor
             return false;
         }
         for ( $node = $navigation; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            if ( SourceDom::documentVariantRoot($node) === $node ) {
+            if ( SourceDom::isDocumentVariantRoot($node) ) {
                 break;
             }
             if ( '#' === $match[1] ? $match[2] === SourceDom::attr($node, 'id') : in_array($match[2], preg_split('/\s+/', SourceDom::attr($node, 'class')) ?: array(), true) ) {
@@ -2030,10 +2030,11 @@ final class NavigationToggleSuppressor
             return false;
         }
 
+        $variantRoot = SourceDom::documentVariantRoot($navigationRoot);
         foreach ( $document->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement
                 || $candidate->isSameNode($navigationRoot)
-                || SourceDom::documentVariantRoot($candidate) !== SourceDom::documentVariantRoot($navigationRoot)
+                || SourceDom::documentVariantRoot($candidate) !== $variantRoot
                 || $this->isInsideProjectedNavigationSuppressed($candidate)
                 || $this->isInsideNativeDisclosure($candidate)
                 || SourceDom::elementContains($navigationRoot, $candidate)
@@ -2045,7 +2046,7 @@ final class NavigationToggleSuppressor
             if ( $signature === $this->sourceNavigationSignature($candidate)
                 && ($this->hasMobileNavigationSignal($navigationRoot)
                     || ($this->hasMobileNavigationSignal($candidate) && ! $this->isContentNavigationBesideChromeVariant($navigationRoot, $candidate)))
-                && (null === SourceDom::documentVariantRoot($navigationRoot) || $this->hasMenuVisibilityEvidence($navigationRoot) || $this->hasMenuVisibilityEvidence($candidate))
+                && (null === $variantRoot || $this->hasMenuVisibilityEvidence($navigationRoot) || $this->hasMenuVisibilityEvidence($candidate))
             ) {
                 return true;
             }
@@ -2141,7 +2142,7 @@ final class NavigationToggleSuppressor
             return true;
         }
         for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            if ( SourceDom::documentVariantRoot($node) === $node ) {
+            if ( SourceDom::isDocumentVariantRoot($node) ) {
                 break;
             }
             $identity = strtolower(trim(SourceDom::attr($node, 'id') . ' ' . SourceDom::attr($node, 'class') . ' ' . SourceDom::attr($node, 'aria-label')));
@@ -2157,7 +2158,7 @@ final class NavigationToggleSuppressor
     private function hasMenuVisibilityEvidence(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            if ( SourceDom::documentVariantRoot($node) === $node ) {
+            if ( SourceDom::isDocumentVariantRoot($node) ) {
                 break;
             }
             if ( $this->sourceElementIsHidden($node) ) {
@@ -2343,7 +2344,7 @@ final class NavigationToggleSuppressor
             $stacks = $displayOf($element)->conditionStacks();
             $declared = implode(';', array_merge(array( $displayOf($element)->base() ), array_values($displayOf($element)->conditional())));
             if ( str_contains($declared, 'var(') ) {
-                array_push($stacks, ...$this->styleResolver->customPropertyConditionStacks($declared));
+                array_push($stacks, ...$this->styleResolver->customProperties->conditionStacks($declared));
             }
             foreach ( $stacks as $stack ) {
                 foreach ( $stack as $condition ) {
@@ -2369,9 +2370,9 @@ final class NavigationToggleSuppressor
         $hiddenAt = function (array $path, float $width) use ($displayOf): bool {
             foreach ( $path as $element ) {
                 $value = $displayOf($element)->resolvedValueWhere(
-                    fn (array $conditions): bool => $this->styleResolver->conditionsApplyAtViewport($conditions, $width)
+                    fn (array $conditions): bool => $this->styleResolver->cascade->conditionsApplyAtViewport($conditions, $width)
                 );
-                $value = $this->styleResolver->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant(trim($value)), $element, $width);
+                $value = $this->styleResolver->customProperties->resolveAtViewport(CssValueInspector::withoutImportant(trim($value)), $element, $width);
                 if ( 'none' === strtolower(trim($value)) ) {
                     return true;
                 }
@@ -2472,8 +2473,8 @@ final class NavigationToggleSuppressor
             if ( SourceDom::isDocumentVariantRoot($node) || in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
                 break;
             }
-            $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array('display', 'visibility', 'opacity'), true);
-            $display = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesAtViewport((string) ($declarations['display'] ?? ''), $node, StyleResolver::DESKTOP_REFERENCE_WIDTH));
+            $declarations = $this->styleResolver->authorViewport->reference($node, array('display', 'visibility', 'opacity'), true);
+            $display = CssValueInspector::comparable($this->styleResolver->customProperties->resolveAtViewport((string) ($declarations['display'] ?? ''), $node, StyleResolver::DESKTOP_REFERENCE_WIDTH));
             $visibility = CssValueInspector::declared($declarations, 'visibility');
             $opacity = CssValueInspector::declared($declarations, 'opacity');
             if ( $this->sourceElementIsHiddenByMarkup($node, $display, true)
