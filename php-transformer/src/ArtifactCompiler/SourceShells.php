@@ -156,6 +156,34 @@ final class SourceShells
         foreach ($xpath->query('//comment()') ?: array() as $comment) {
             if (preg_match('/^\/?\$(?:[!?])?$/', trim($comment->nodeValue ?? ''))) $comment->parentNode?->removeChild($comment);
         }
+        // Some menus mark the link's wrapper rather than the anchor. Only
+        // navigation wrappers containing links establish route-current state;
+        // selected tabs, choices and other content remain structural.
+        foreach ($xpath->query('//*[@data-selected="true"][ancestor::nav or ancestor::*[@role="navigation"]]') ?: array() as $node) {
+            if (!$node instanceof \DOMElement || 0 === $node->getElementsByTagName('a')->length) continue;
+            $peers = array();
+            // A wrapper's counterparts may live inside sibling list items.
+            $item = $node;
+            while ($item->parentNode instanceof \DOMElement && 'li' !== strtolower($item->tagName) && 'nav' !== strtolower($item->parentNode->tagName)) $item = $item->parentNode;
+            if ('li' !== strtolower($item->tagName)) continue;
+            foreach ($item->parentNode?->childNodes ?? array() as $sibling) {
+                if (!$sibling instanceof \DOMElement || $sibling === $item || $sibling->tagName !== $item->tagName) continue;
+                foreach ($sibling->getElementsByTagName($node->tagName) as $peer) {
+                    // Another current link cannot establish resting state.
+                    if ('true' === $peer->getAttribute('data-selected')) continue;
+                    if ($peer->getAttribute('data-part') === $node->getAttribute('data-part') && 0 !== $peer->getElementsByTagName('a')->length) $peers[] = $peer;
+                }
+            }
+            if (array() === $peers) continue;
+            self::neutralizeCurrentSubtreeShellClasses($node, $peers);
+            foreach (array('data-selected', 'data-interactive') as $attribute) {
+                $values = array_unique(array_map(static fn(\DOMElement $peer): ?string => $peer->hasAttribute($attribute) ? $peer->getAttribute($attribute) : null, $peers));
+                if (1 !== count($values)) continue;
+                $value = reset($values);
+                if (null === $value) $node->removeAttribute($attribute);
+                else $node->setAttribute($attribute, $value);
+            }
+        }
         $currentNodes = array();
         foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;
         foreach ($currentNodes as $node) {
