@@ -2125,8 +2125,13 @@ final class ArtifactCompiler
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
             $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
-            // Preserve inline author sheets as conservative evidence: partial
-            // documents and responsive variants need not contain their subjects.
+            // A complete document supplies subject evidence, not its style
+            // inventory. Otherwise an inline framework sheet keeps every one
+            // of its own unused selectors alive. Fragments remain conservative:
+            // their author rules may target subjects outside the supplied tree.
+            if ('html' === ($file['kind'] ?? '') && is_string($text) && preg_match('/<html\b/i', $text)) {
+                $text = (string) preg_replace('#<style\b[^>]*>.*?</style\s*>#is', '', $text);
+            }
             if (is_string($text) && '' !== $text) $texts[] = $text;
         }
         if (0 === $documents) return $files;
