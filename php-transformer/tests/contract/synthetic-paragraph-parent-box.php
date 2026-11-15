@@ -24,8 +24,11 @@ foreach (array('margin' => 'margin-block-end:8px', 'padding' => 'padding-bottom:
     if ($hasBox !== in_array($name, array('margin', 'padding'), true)) {
         throw new RuntimeException($name . ': only matching parent-driven box styling keeps a paragraph box.');
     }
-    if (!str_contains($css, ':not(.blocks-engine-source-box-paragraph):has(>a)){display:contents}')) {
-        throw new RuntimeException('Unstyled synthetic links must retain the transparent carrier reset.');
+    // Non-source-box carriers still need a focusable RichText box. Making
+    // them transparent with display:contents prevents editing standalone links.
+    if (!str_contains($css, ':where(p.blocks-engine-synthetic-paragraph:not(.blocks-engine-source-box-paragraph)){display:inline}')
+        || str_contains($css, ':not(.blocks-engine-source-box-paragraph):has(>a)){display:contents}')) {
+        throw new RuntimeException('Synthetic links without source box styling must retain an editable inline carrier.');
     }
     $fixtures[$name] = array('source' => $html, 'native' => '<!doctype html><style>' . $css . '</style>' . $markup);
 }

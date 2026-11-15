@@ -102,14 +102,13 @@ final class EngineSupportCss
             // lays out as that content did (in flow it shares the line; a
             // flex or grid parent blockifies it into the same item), and,
             // unlike display:contents, it can take focus, so the editor can
-            // select and edit it. A paragraph that only carries a source
-            // anchor stays transparent: the anchor is the layout participant.
+            // select and edit it. Anchor carriers need that same box on both
+            // surfaces: display:contents cannot receive RichText input.
             // A lowered block-level source wrapper keeps its block box.
             $parts[] = ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:inline}'
-                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'
-                // A parent's sibling-spacing rule (`.stack > * + *`) now matches the
-                // carrier, whose margins do nothing as display:contents. The
-                // anchor it stands for takes them instead, as in the source.
+
+                // Preserve sibling spacing on the carried anchor as well,
+                // including when its source layout blockifies it.
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '))>a{margin:inherit}'
                 . "\n" . ':root :where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.has-text-color)>a{color:inherit}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'

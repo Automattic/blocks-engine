@@ -39,8 +39,8 @@ $assert(
     $css
 );
 $assert(
-    str_contains($css, ':where(p.blocks-engine-synthetic-paragraph:not(.blocks-engine-source-box-paragraph):has(>a)){display:contents}'),
-    'the carrier paragraph itself still contributes no box',
+    str_contains($css, ':where(p.blocks-engine-synthetic-paragraph:not(.blocks-engine-source-box-paragraph)){display:inline}'),
+    'the carrier paragraph keeps an editable inline box',
     $css
 );
 $assert(
