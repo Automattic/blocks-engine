@@ -27,4 +27,13 @@ $css = json_encode($plan, JSON_UNESCAPED_SLASHES);
 $assert(str_contains($css, 'blocks-engine-native-navigation-toggle-'), 'The em-sized toggle keeps its native toggle marker.');
 $assert(!str_contains($css, 'min-height:44px') && !str_contains($css, 'min-width:44px'), 'An em-sized icon child is an intrinsic box; no 44px floor.');
 $assert(str_contains($css, 'padding'), 'The opener carries the source padding.');
+// Responsive builder icons can declare their box through scoped custom
+// properties and viewport math rather than a literal pixel dimension.
+$math = str_replace('width:30px;height:30px', 'width:var(--size);height:var(--size)', $source);
+$math = str_replace('</style>', '.navbar-toggler-icon{--size:16px}@media(max-width:991px){.navbar-toggler-icon{--size:max(0.5px, 0.0769231 * (100vw - 0px))}}</style>', $math);
+$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $math)))->toWordPressSitePlanView()['wordpress_site_plan'];
+$css = json_encode($plan, JSON_UNESCAPED_SLASHES);
+$assert(str_contains($css, 'blocks-engine-native-navigation-toggle-'), 'The responsive math icon projects through native navigation.');
+$assert(!str_contains($css, 'min-height:44px') && !str_contains($css, 'min-width:44px'), 'A responsive CSS-math icon must not inflate the header with a 44px floor.');
+$assert(str_contains($css, 'width:max(0.5px, 0.0769231 * (100vw - 0px))!important'), 'Core receives the collapsed icon box, not a token scoped to the removed child.');
 echo "ok\n";
