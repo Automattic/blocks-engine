@@ -493,10 +493,10 @@ final class WrapperCoalescer
         if ( ($this->preservesScriptStateWrapper)($element) ) {
             return null;
         }
-        $absorbed = $this->absorbedNeutralChild($element, $childBlock);
-        if (null !== $absorbed) return $absorbed;
         $textWrapper = $this->coalescedInheritedTextWrapper($element, $childBlock);
         if (null !== $textWrapper) return $textWrapper;
+        $absorbed = $this->absorbedNeutralChild($element, $childBlock);
+        if (null !== $absorbed) return $absorbed;
         $resolution = $this->coalescingResolution($element, $childBlock);
         if ( ! $resolution['disposition']->isCoalesce() ) {
             return null;
@@ -540,7 +540,17 @@ final class WrapperCoalescer
             || '' !== SourceDom::attr($element, 'role')
             || array() !== $this->interactiveAttributes($element)
             || array() !== SourceDom::safeDataAttributes($element)
-            || $this->isStructuralLayoutElement($element)) return null;
+            || $this->isStructuralLayoutElement($element)
+            || $this->isDirectChildOfStructuralLayout($element)
+            || $this->hasBlockingStructureSignals($element, $childBlock)) return null;
+        $parentDeclarations = $this->matchingAuthorDeclarations($element);
+        // Paragraphs may absorb a painted text surface, not a sizing or
+        // centering container. Groups likewise need an actual padded box.
+        if (!isset($parentDeclarations['padding'])
+            || ('core/paragraph' === $name && !isset($parentDeclarations['background']) && !isset($parentDeclarations['background-color']))) return null;
+        foreach ($parentDeclarations as $property => $value) {
+            if (str_starts_with($property, '--') || $this->isInheritedTextProperty($property)) return null;
+        }
         $child = ($this->soleElementChild)($element);
         if (!$child instanceof DOMElement
             || !in_array(strtolower($child->tagName), 'core/paragraph' === $name ? array('p') : array('div'), true)

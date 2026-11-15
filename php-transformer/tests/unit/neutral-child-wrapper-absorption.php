@@ -30,4 +30,7 @@ foreach (array(
 
 $branch = $transform('<style>.frame{padding:2rem}</style><div class="frame"><div class="neutral"><h2>Title</h2><p>Copy</p></div></div>');
 $assert('core/group' === $branch['blocks'][0]['blockName'] && 2 === count($branch['blocks'][0]['innerBlocks']), 'A neutral branching child merges into its styled native parent.');
+
+$inherited = $transform('<style>.surface{padding:2rem;background:#eee;--ink:red}.surface p{margin:0;color:var(--ink)}</style><div class="surface"><p>Inherited ink</p></div>');
+$assert('core/group' === $inherited['blocks'][0]['blockName'], 'A consumed custom-property carrier keeps its source boundary.');
 fwrite(STDOUT, "Neutral child wrapper absorption passed\n");
