@@ -421,7 +421,7 @@ final class NavigationPatternContext
         $projections = $this->session->authorSelectorProjectionState();
         $carriesState = $element->hasAttribute('aria-current') || MenuVocabulary::containsCurrentStateToken($element->getAttribute('class'));
 
-        return $this->styleResolver->resolveCssVariablesInValue(
+        return $this->styleResolver->customProperties->resolve(
             $this->styleResolver->specificityResolvedPresentationStyle($element, $projections->selectsCurrentNavigationState(...), ! $carriesState),
             $element
         );
@@ -1626,13 +1626,14 @@ final class NavigationPatternContext
      */
     public function cascadeDisplay(DOMElement $element, bool $includeUaDefault = false): string
     {
-        if ( ! $this->styleResolver instanceof StyleResolver
-            || 1 !== preg_match('/(?:^|;)\s*display\s*:\s*([^;]+)/i', $this->styleResolver->controlSurfaceResolvedStyle($element), $match)
-        ) {
+        $display = $this->styleResolver instanceof StyleResolver
+            ? CssValueInspector::declared(SourceDeclarations::parse($this->styleResolver->controlSurfaceResolvedStyle($element)), 'display')
+            : '';
+        if ( '' === $display ) {
             return $includeUaDefault ? ($this->styleResolver?->defaultTagDisplay($element) ?? '') : '';
         }
 
-        return strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', trim($match[1]))));
+        return $display;
     }
 
     public function isFloated(DOMElement $element): bool
@@ -1655,8 +1656,8 @@ final class NavigationPatternContext
         $outer = $usesDefaults
             ? static fn(string $display): string => in_array($display, array('block', 'flex', 'grid', 'flow-root'), true) ? 'block' : $display
             : static fn(string $display): string => $display;
-        $landmarkBase = $this->styleResolver->resolveCssVariablesInValue($landmarkDisplay->base(), $landmark) ?: $this->styleResolver->defaultTagDisplay($landmark);
-        $listBase = $this->styleResolver->resolveCssVariablesInValue($listDisplay->base(), $list) ?: $this->styleResolver->defaultTagDisplay($list);
+        $landmarkBase = $this->styleResolver->customProperties->resolve($landmarkDisplay->base(), $landmark) ?: $this->styleResolver->defaultTagDisplay($landmark);
+        $listBase = $this->styleResolver->customProperties->resolve($listDisplay->base(), $list) ?: $this->styleResolver->defaultTagDisplay($list);
         $landmarkConditions = $landmarkDisplay->conditional();
         $listConditions = $listDisplay->conditional();
         if ($usesDefaults) {
@@ -1674,7 +1675,7 @@ final class NavigationPatternContext
 
     public function isOutOfFlow(DOMElement $element): bool
     {
-        return 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute|sticky)\b/i', $this->resolvedStyle($element));
+        return in_array(CssValueInspector::declared(SourceDeclarations::parse($this->resolvedStyle($element)), 'position'), array( 'fixed', 'absolute', 'sticky' ), true);
     }
 
     /**
@@ -2013,7 +2014,7 @@ final class NavigationPatternContext
         $scale = 1.0;
         for ( $node = $svg; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
             $transform = trim((string) ($this->styleResolver->authorViewport->reference($node, array( 'transform' ))['transform'] ?? ''));
-            $transform = trim(preg_replace('/\s*!\s*important\s*$/i', '', $this->styleResolver->resolveCssVariablesInValue($transform, $node)) ?? '');
+            $transform = trim(preg_replace('/\s*!\s*important\s*$/i', '', $this->styleResolver->customProperties->resolve($transform, $node)) ?? '');
             if ( '' === $transform || 'none' === strtolower($transform) ) {
                 continue;
             }
@@ -2464,7 +2465,7 @@ final class NavigationPatternContext
         $depth = 0;
         while ( $node instanceof DOMElement && $depth < 12 ) {
             ++$depth;
-            $resolved     = $this->styleResolver->resolveCssVariablesInValue(
+            $resolved     = $this->styleResolver->customProperties->resolve(
                 $this->styleResolver->specificityResolvedPresentationStyle($node),
                 $node
             );

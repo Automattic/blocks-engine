@@ -86,14 +86,39 @@ PHP;
     public const IMAGE_SELECTION_RENDERER = <<<'PHP'
 add_filter( 'render_block_core/image', static function ( string $content, array $block ): string {
     $selection = $block['attrs']['metadata']['blocksEngineImageSelection'] ?? null;
-    if ( ! is_array( $selection ) || ! is_string( $selection['src'] ?? null ) || ! is_string( $selection['srcset'] ?? null ) || '' === $selection['srcset'] ) return $content;
+    if ( ! is_array( $selection ) || ! is_string( $selection['src'] ?? null ) ) return $content;
+    $picture = is_array( $selection['picture'] ?? null ) && is_array( $selection['sources'] ?? null );
+    if ( ! $picture && empty( $selection['srcset'] ) ) return $content;
     $tag = new WP_HTML_Tag_Processor( $content );
     if ( ! $tag->next_tag( 'IMG' ) || $tag->get_attribute( 'src' ) !== $selection['src'] ) return $content;
-    $tag->set_attribute( 'srcset', $selection['srcset'] );
+    if ( is_string( $selection['srcset'] ?? null ) && '' !== $selection['srcset'] ) $tag->set_attribute( 'srcset', $selection['srcset'] );
+    else $tag->remove_attribute( 'srcset' );
     if ( is_string( $selection['sizes'] ?? null ) && '' !== $selection['sizes'] ) $tag->set_attribute( 'sizes', $selection['sizes'] );
     else $tag->remove_attribute( 'sizes' );
     if ( in_array( $selection['loading'] ?? null, array( 'lazy', 'eager' ), true ) ) $tag->set_attribute( 'loading', $selection['loading'] );
-    return $tag->get_updated_html();
+    if ( $picture && is_array( $selection['image'] ?? null ) ) {
+        foreach ( array( 'class', 'style', 'id' ) as $name ) {
+            if ( ! is_string( $selection['image'][$name] ?? null ) ) continue;
+            $value = $selection['image'][$name];
+            if ( 'class' === $name ) $value = trim( (string) $tag->get_attribute( $name ) . ' ' . $value );
+            $tag->set_attribute( $name, $value );
+        }
+    }
+    $content = $tag->get_updated_html();
+    if ( ! $picture ) return $content;
+    $attributes = static function ( array $values, bool $source = false ): string {
+        $html = '';
+        foreach ( $values as $name => $value ) {
+            $allowed = $source ? in_array( $name, array( 'media', 'type', 'srcset', 'sizes' ), true ) : ( in_array( $name, array( 'class', 'style', 'id', 'title', 'dir', 'lang', 'hidden', 'role' ), true ) || preg_match( '/^(?:aria|data)-[a-z0-9_-]+$/', $name ) );
+            if ( $allowed && is_string( $value ) ) $html .= ' ' . $name . '="' . esc_attr( $value ) . '"';
+        }
+        return $html;
+    };
+    $open = '<picture' . $attributes( $selection['picture'] ) . '>';
+    foreach ( $selection['sources'] as $source ) {
+        if ( is_array( $source ) ) $open .= '<source' . $attributes( $source, true ) . '>';
+    }
+    return preg_replace_callback( '/<img\\b(?:[^>"\']|"[^"]*"|\'[^\']*\')*>/i', static fn ( array $match ): string => $open . $match[0] . '</picture>', $content, 1 ) ?? $content;
 }, 10, 2 );
 PHP;
 
@@ -493,6 +518,11 @@ PHP;
         if (array() !== $breadcrumbLabels || array() !== $breadcrumbPostTrails) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels, $breadcrumbPostTrails);
         if (self::markupContains($documentsWithMenus, 'blocksEngineRuntimeAttributes')) {
             $lines[] = RuntimeAttributesRuntime::source();
+        }
+        foreach (EditorRestingStateRuntime::MARKERS as $marker) {
+            if (!self::markupContains($documentsWithMenus, $marker)) continue;
+            $lines[] = EditorRestingStateRuntime::source();
+            break;
         }
         if (self::markupContains($documents, NavigationEntityProjection::ITEMS_KEY)) {
             $lines[] = NavigationReferenceItemsRuntime::source();

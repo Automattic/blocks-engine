@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use DOMElement;
@@ -40,12 +41,16 @@ final class AuthorViewportDeclarations
      * declaration order, inline style last, conditions evaluated at
      * {@see StyleResolver::MOBILE_REFERENCE_WIDTH}.
      *
+     * `$stateClasses` resolves the element in a runtime state, matching it as
+     * if script had added those classes (an opened menu panel).
+     *
      * @param list<string> $properties
+     * @param list<string> $stateClasses
      * @return array<string, string>
      */
-    public function collapsed(DOMElement $element, array $properties): array
+    public function collapsed(DOMElement $element, array $properties, array $stateClasses = array()): array
     {
-        return $this->atViewport($element, $properties, StyleResolver::MOBILE_REFERENCE_WIDTH);
+        return $this->atViewport($element, $properties, StyleResolver::MOBILE_REFERENCE_WIDTH, stateClasses: $stateClasses);
     }
 
     /**
@@ -70,9 +75,10 @@ final class AuthorViewportDeclarations
 
     /**
      * @param list<string> $properties
+     * @param list<string> $stateClasses
      * @return array<string, string>
      */
-    public function atViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false): array
+    public function atViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false, array $stateClasses = array()): array
     {
         $authorStyles = $this->session->authorStyleAnalysis();
         $styleRules = $authorStyles->styleRules();
@@ -82,6 +88,10 @@ final class AuthorViewportDeclarations
         ['parsed' => $parsedBySelector] = $this->rules($styleRules, $viewportWidth);
         $rules = $this->rulesDeclaring($viewportWidth, $properties);
         $selectorCache = $authorStyles->selectorMatchCache();
+        if ( array() !== $stateClasses ) {
+            $selectorCache = new CssSelectorMatchCache();
+            $selectorCache->assumeClasses($element, $stateClasses);
+        }
         $matches = static function (string $selector) use ($element, $selectorCache, $parsedBySelector): bool {
             $match = $selectorCache->matches($element, $selector, $parsedBySelector[ $selector ] ?? array());
 

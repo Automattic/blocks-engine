@@ -196,6 +196,11 @@ $unspacedMediaAnalysis = (new CssRuleAnalyzer())->analyze(
 $unspacedConditions = array_map(static fn (array $rule): mixed => $rule['condition'] ?? null, $unspacedMediaAnalysis['rules']);
 $assert(array( array( 'kind' => 'media', 'query' => '(max-width:600px)' ), array( 'kind' => 'supports', 'query' => '(display:grid)' ) ) === $unspacedConditions, 'a condition written directly after its at-rule name gates its rules like a spaced one');
 
+// Custom properties split only at top-level `;`/`{`/`}`: a data: URI keeps its
+// `;`, comments are trivia, and a container style query is not a declaration.
+$customProperties = CssRuleAnalyzer::customProperties(':root{/* --x: 1 */--icon: url("data:image/svg+xml;utf8,<svg/>");--gap:4px} @container style(--mode: dark){.a{--fg:#fff}}');
+$assert(array( array( 'name' => '--icon', 'value' => 'url("data:image/svg+xml;utf8,<svg/>")' ), array( 'name' => '--gap', 'value' => '4px' ), array( 'name' => '--fg', 'value' => '#fff' ) ) === $customProperties, 'custom properties keep data: URIs whole and skip comments and container style queries');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssRuleAnalyzer unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

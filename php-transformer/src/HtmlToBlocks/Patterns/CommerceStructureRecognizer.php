@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -538,10 +540,11 @@ final class CommerceStructureRecognizer
         }
 
         $className = strtolower(trim(SourceDom::attr($element, 'class')));
-        $style = strtolower(trim(SourceDom::attr($element, 'style')));
+        $declarations = SourceDeclarations::inline($element);
 
         return (bool) preg_match('/(?:^|[\s_-])(?:cards|features|services|providers|testimonials|resources|posts|projects|stats|badges|grid|grid-[0-9]+|tiles|columns|collection|gallery)(?:$|[\s_-])/', $className)
-            || (bool) preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style);
+            || 'grid' === CssValueInspector::declared($declarations, 'display')
+            || isset($declarations['grid-template-columns']);
     }
 
     /**

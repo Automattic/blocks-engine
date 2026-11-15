@@ -661,7 +661,8 @@ final class SharedChromeStylesheets
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $selector, string $body, array $context) use ($elements, $layoutRules, &$result): void {
-                if (!preg_match('/(?:^|;)\s*min-height\s*:\s*([^;]*(?:vh|svh|dvh|lvh))\s*(?:;|$)/i', $body, $minimum)) return;
+                $minimum = CssRuleAnalyzer::declarations($body, array('min-height'))[0]['value'] ?? null;
+                if (!is_string($minimum) || 1 !== preg_match('/vh$/Di', $minimum)) return;
                 $rules = array();
                 foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $candidate) {
                     $parsed = CssSelectorMatcher::parse(trim($candidate));
@@ -690,7 +691,7 @@ final class SharedChromeStylesheets
                         if ('flex' !== ($layout['display']['value'] ?? null) || 'column' !== ($layout['flex-direction']['value'] ?? null)) continue;
                         $root = '.wp-site-blocks:has(>.wp-block-post-content ' . $hook . ')';
                         $post = $root . '>.wp-block-post-content';
-                        $rules[$hook] = $root . '{min-height:' . trim($minimum[1]) . ';display:flex;flex-direction:column}'
+                        $rules[$hook] = $root . '{min-height:' . $minimum . ';display:flex;flex-direction:column}'
                             . $post . ',' . $post . ' ' . $hook . '{min-height:0}'
                             . ':where(' . $post . ',' . $post . ' ' . $hook . ',' . $post . ' :has(' . $hook . ')){flex:1;display:flex;flex-direction:column}';
                     }

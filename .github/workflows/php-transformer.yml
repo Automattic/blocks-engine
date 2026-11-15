@@ -196,6 +196,10 @@ jobs:
           php tests/unit/captured-dialog-class-hidden-resting-panel.php
           PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/captured-dialog-resting-content-browser.mjs
 
+      - name: Verify the editor canvas paints the front end resting state
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/editor-resting-state-browser.mjs
+
       - name: Verify native button default background neutralization
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/native-button-default-background-browser.mjs

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use DOMElement;
 use DOMText;
@@ -57,7 +58,7 @@ final class QuirksModeSource
     {
         foreach ( $root->getElementsByTagName('table') as $table ) {
             $style = trim($table->getAttribute('style'));
-            if ( 1 !== preg_match('/(?:^|;)\s*text-align\s*:/i', $style) ) {
+            if ( ! self::declares($style, array( 'text-align' )) ) {
                 $table->setAttribute('style', 'text-align:start' . ('' === $style ? '' : ';' . $style));
             }
         }
@@ -94,7 +95,7 @@ final class QuirksModeSource
     {
         $style = trim($element->getAttribute('style'));
         $logical = 'top' === $side ? 'margin-block-start' : 'margin-block-end';
-        if ( 1 === preg_match('/(?:^|;)\s*margin(?:-' . $side . ')?\s*:/i', $style) || $authorDeclares($element, array( 'margin', 'margin-' . $side, 'margin-block', $logical )) ) {
+        if ( self::declares($style, array( 'margin', 'margin-' . $side )) || $authorDeclares($element, array( 'margin', 'margin-' . $side, 'margin-block', $logical )) ) {
             return;
         }
         $element->setAttribute('style', 'margin-' . $side . ':0' . ('' === $style ? '' : ';' . $style));
@@ -124,7 +125,7 @@ final class QuirksModeSource
                 continue;
             }
             $style = trim($block->getAttribute('style'));
-            if ( 1 === preg_match('/(?:^|;)\s*font(?:-size)?\s*:/i', $style) ) {
+            if ( self::declares($style, array( 'font', 'font-size' )) ) {
                 continue;
             }
             $font->removeAttribute('size');
@@ -206,7 +207,7 @@ final class QuirksModeSource
     private static function setsLineHeight(DOMElement $element, callable $authorDeclares, bool $inherited = true): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $inherited ? $node->parentNode : null ) {
-            if ( 1 === preg_match('/(?:^|;)\s*(?:line-height|font)\s*:/i', $node->getAttribute('style')) || $authorDeclares($node, array( 'line-height', 'font' )) ) {
+            if ( self::declares($node->getAttribute('style'), array( 'line-height', 'font' )) || $authorDeclares($node, array( 'line-height', 'font' )) ) {
                 return true;
             }
         }
@@ -264,7 +265,7 @@ final class QuirksModeSource
             if ( 'font' === strtolower($node->tagName) && '' !== trim($node->getAttribute('size')) ) {
                 return false;
             }
-            if ( 1 === preg_match('/(?:^|;)\s*font(?:-size)?\s*:/i', $node->getAttribute('style')) || $authorDeclares($node, array( 'font', 'font-size' )) ) {
+            if ( self::declares($node->getAttribute('style'), array( 'font', 'font-size' )) || $authorDeclares($node, array( 'font', 'font-size' )) ) {
                 return false;
             }
             if ( 'table' === strtolower($node->tagName) ) {
@@ -272,5 +273,11 @@ final class QuirksModeSource
             }
         }
         return true;
+    }
+
+    /** @param list<string> $properties */
+    private static function declares(string $style, array $properties): bool
+    {
+        return array() !== CssRuleAnalyzer::declarations($style, $properties);
     }
 }

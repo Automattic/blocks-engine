@@ -40,12 +40,12 @@
     {
       "path": "assets.0.content",
       "assert": "contains",
-      "value": ".be-inline-geometry-d0aa3444e7dca1c2{height:100% !important}.be-inline-geometry-d0aa3444e7dca1c2>a{display:block !important;width:100% !important;height:100% !important}"
+      "value": ".be-inline-geometry-cfbe9baf28e9cee6{height:100% !important}.be-inline-geometry-cfbe9baf28e9cee6>a{display:block !important;width:100% !important;height:100% !important}"
     },
     {
       "path": "serialized_blocks",
       "assert": "contains",
-      "value": "be-inline-geometry-d0aa3444e7dca1c2"
+      "value": "be-inline-geometry-cfbe9baf28e9cee6"
     },
     {
       "path": "assets.1.content",
@@ -55,17 +55,17 @@
     {
       "path": "assets.0.content",
       "assert": "contains",
-      "value": ".be-inline-geometry-0920923a5c6cf48a{height:100% !important}\n"
+      "value": ".be-inline-geometry-4ff60ff5b2ab9043{height:100% !important}\n"
     },
     {
       "path": "assets.0.content",
       "assert": "not_contains",
-      "value": ".be-inline-geometry-0920923a5c6cf48a>a"
+      "value": ".be-inline-geometry-4ff60ff5b2ab9043>a"
     },
     {
       "path": "serialized_blocks",
       "assert": "contains",
-      "value": "<figure class=\"wp-block-image is-resized fill top-crop be-inline-geometry-0920923a5c6cf48a blocks-engine-synthetic-image-figure blocks-engine-synthetic-image-figure-fill blocks-engine-image\"><img src=\"https://example.com/offsite.jpg\""
+      "value": "<figure class=\"wp-block-image is-resized fill top-crop be-inline-geometry-4ff60ff5b2ab9043 blocks-engine-synthetic-image-figure blocks-engine-synthetic-image-figure-fill blocks-engine-image\"><img src=\"https://example.com/offsite.jpg\""
     },
     {
       "path": "assets.0.content",

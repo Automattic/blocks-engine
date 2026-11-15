@@ -183,7 +183,8 @@ final class RestyleCoverage
         $style = preg_match('/\sstyle="([^"]*)"/i', $tagAttributes, $match) ? html_entity_decode($match[1], ENT_QUOTES) : '';
         $classes = preg_match('/\sclass="([^"]*)"/i', $tagAttributes, $match) ? (preg_split('/\s+/', trim($match[1])) ?: array()) : array();
         if (array() !== preg_grep('/^has-(?!text-color$|inline-color$|border-color$).+(?<!-background|-border)-color$/', $classes)) return true;
-        if (1 === preg_match('/(?:^|;)\s*color\s*:\s*([^;]+)/i', $style, $color)) return str_contains($color[1], '--wp--preset--color--');
+        $color = CssRuleAnalyzer::declarations($style, array('color'))[0] ?? null;
+        if (null !== $color) return str_contains($color['value'], '--wp--preset--color--');
         return $this->classSource($classes, 'color');
     }
 

@@ -4413,7 +4413,7 @@ final class ArtifactCompiler
         foreach ( $artifact['files'] as $file ) {
             if ( $entryPath === ($file['path'] ?? '') ) {
                 $entryHtml = (string) ($file['content'] ?? '');
-                $entryTitle = $this->titleFromHtml($entryHtml, $entryPath, $entryPath, '', $siteNameSegments, $siteNameEdge, $entryNavigationLabel, '', $titleCounts, $artifact['files']);
+                $entryTitle = $this->titleFromHtml($entryHtml, $entryPath, $entryPath, '', $siteNameSegments, $siteNameEdge, $entryNavigationLabel, '', $titleCounts, $artifact['files'], $file['metadata']['declared_content']['title'] ?? null);
                 $entryTitles = HtmlTagScanner::scan($entryHtml, 'title');
                 if ( isset($entryTitles[0]) ) {
                     $entryDocumentTitle = $entryTitles[0]['content'];
@@ -4427,7 +4427,7 @@ final class ArtifactCompiler
             }
 
             $path = (string) ($file['path'] ?? '');
-            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle, $siteNameSegments, $siteNameEdge, $entryNavigationLabel, $entryDocumentTitle, $titleCounts, $artifact['files']);
+            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle, $siteNameSegments, $siteNameEdge, $entryNavigationLabel, $entryDocumentTitle, $titleCounts, $artifact['files'], $file['metadata']['declared_content']['title'] ?? null);
             $slug = $this->slugFromPath($path, $entryPath);
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
@@ -5197,8 +5197,10 @@ final class ArtifactCompiler
      * @param array<string, int> $titleCounts Route counts for each document title.
      * @param array<int, array<string, mixed>> $files Site files for inbound labels.
      */
-    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = '', array $siteNameSegments = array(), string $siteNameEdge = '', string $navigationLabel = '', string $entryDocumentTitle = '', array $titleCounts = array(), array $files = array()): string
+    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = '', array $siteNameSegments = array(), string $siteNameEdge = '', string $navigationLabel = '', string $entryDocumentTitle = '', array $titleCounts = array(), array $files = array(), ?string $declaredTitle = null): string
     {
+        if (null !== $declaredTitle) return $declaredTitle;
+
         $normalize = static function (string $titleHtml): string {
             $titleHtml = preg_replace('/<\s*(?:br|\/?\s*(?:div|h[1-6]|p|li|ul|ol|section|article|header|footer|blockquote))\b[^>]*>/i', ' ', $titleHtml) ?? $titleHtml;
             // Inline elements shown as blocks (a `display:block` style or a
@@ -5229,7 +5231,7 @@ final class ArtifactCompiler
         $titleKey = null !== $titleDeclaration ? trim(html_entity_decode(strip_tags($titleDeclaration['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : '';
         // Content shown only on demand (a closed dialog, a hidden panel) never
         // names the page a visitor lands on.
-        $visibleHtml = self::withoutHiddenSubtrees($html);
+        $visibleHtml = self::withoutTitleHeadingChrome(self::withoutHiddenSubtrees($html));
         if ( $path !== $entryPath && ($titleCounts[$titleKey] ?? 0) > 1 ) {
             // A title served verbatim by multiple routes cannot identify one.
             // The entry page owns its title; the routes that copy it do not.
@@ -5380,6 +5382,22 @@ final class ArtifactCompiler
         }
 
         return $this->titleFromPath($path);
+    }
+
+    /** Remove heading candidates in comments/complementary regions or after the entry body. */
+    private static function withoutTitleHeadingChrome(string $html): string
+    {
+        $dom = HtmlSerialization::parseDocument($html);
+        $xpath = new \DOMXPath($dom);
+        $entryBody = 'contains(concat(" ", normalize-space(@class), " "), " entry-content ") or contains(concat(" ", normalize-space(@class), " "), " wp-block-post-content ")';
+        $chrome = 'self::aside or @id="comments" or contains(@class, "comments") or @role="complementary"';
+        $headings = $xpath->query('//*[self::h1 or self::h2 or self::h3 or self::h4 or self::h5 or self::h6][ancestor-or-self::*[' . $chrome . '] or preceding::*[' . $entryBody . ']]');
+        $nodes = array();
+        foreach ($headings ?: array() as $node) $nodes[] = $node;
+        if (array() === $nodes) return $html;
+        foreach ($nodes as $node) $node->parentNode?->removeChild($node);
+        $root = $dom->documentElement;
+        return $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $html) : $html;
     }
 
     /**

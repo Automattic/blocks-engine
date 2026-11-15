@@ -27,6 +27,28 @@ final class CssValueInspector
     }
 
     /**
+     * Whether declarations remove the box from rendering.
+     *
+     * @param array<string, string> $declarations
+     */
+    public static function hidesBox(array $declarations): bool
+    {
+        return 'none' === self::declared($declarations, 'display')
+            || in_array(self::declared($declarations, 'visibility'), array( 'hidden', 'collapse' ), true);
+    }
+
+    /**
+     * Whether declarations lay children out as a vertical flex column.
+     *
+     * @param array<string, string> $declarations
+     */
+    public static function isFlexColumn(array $declarations): bool
+    {
+        return in_array(self::declared($declarations, 'display'), array( 'flex', 'inline-flex' ), true)
+            && in_array(self::declared($declarations, 'flex-direction'), array( 'column', 'column-reverse' ), true);
+    }
+
+    /**
      * Expand a 1–4 value CSS box shorthand into physical sides.
      *
      * @return array{0: string, 1: string, 2: string, 3: string} top, right, bottom, left

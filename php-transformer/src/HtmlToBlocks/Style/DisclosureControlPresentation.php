@@ -88,7 +88,7 @@ final class DisclosureControlPresentation
             if ( array() !== $this->styles->declaredPresentation($item, $property)->conditional() ) {
                 continue;
             }
-            $box[$property] = $this->styles->resolveCssVariablesInValue($value, $item);
+            $box[$property] = $this->styles->customProperties->resolve($value, $item);
         }
 
         return $box;
@@ -278,7 +278,7 @@ final class DisclosureControlPresentation
                     $gap = (string) end($parts);
                 }
                 if ( '' !== $gap && 'normal' !== strtolower($gap) ) {
-                    $layout['column-gap'] = $this->styles->resolveCssVariablesInValue($gap, $node);
+                    $layout['column-gap'] = $this->styles->customProperties->resolve($gap, $node);
                 }
                 $alignItems = trim((string) ($declarations['align-items'] ?? ''));
                 if ( '' !== $alignItems ) {
@@ -334,7 +334,7 @@ final class DisclosureControlPresentation
         unset($inline['transform'], $inline['rotate']);
         $color = (string) ($declarations['color'] ?? $this->styles->authoredInheritedPropertyWinner($svg, 'color'));
         if ( '' !== $color ) {
-            $color = $this->styles->resolveCssVariablesInValue($color, $svg);
+            $color = $this->styles->customProperties->resolve($color, $svg);
             $paint = $this->styles->safeVisualDeclarations(array('color' => $color));
             $inline = array_merge($inline, $paint);
         }
@@ -440,7 +440,7 @@ final class DisclosureControlPresentation
             if ( ! isset($carried[$property]) || in_array(strtolower(trim($carried[$property])), array('inherit', 'unset'), true) ) {
                 $value = $this->styles->authoredInheritedPropertyWinner($control, $property);
                 if ( '' !== $value ) {
-                    $carried[$property] = $this->styles->resolveCssVariablesInValue($value, $control);
+                    $carried[$property] = $this->styles->customProperties->resolve($value, $control);
                 }
             }
         }
@@ -484,7 +484,7 @@ final class DisclosureControlPresentation
         }
         foreach ( $properties as $property ) {
             foreach ( $this->styles->declaredPresentation($control, $property)->conditional() as $condition => $value ) {
-                $declarations = $this->styles->safeVisualDeclarations(array($property => $this->styles->resolveCssVariablesInValue($value, $control)));
+                $declarations = $this->styles->safeVisualDeclarations(array($property => $this->styles->customProperties->resolve($value, $control)));
                 $rules[$condition] = array_merge($rules[$condition] ?? array(), $declarations);
             }
         }

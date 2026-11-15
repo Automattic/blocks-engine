@@ -30,6 +30,7 @@ class WP_HTML_Tag_Processor
     public function remove_attribute(string $name): void { $this->image->removeAttribute($name); }
     public function get_updated_html(): string { return $this->dom->saveHTML($this->dom->getElementsByTagName('body')->item(0)); }
 }
+function esc_attr(string $value): string { return htmlspecialchars($value, ENT_QUOTES); }
 function add_filter(string $name, callable $callback, int $priority, int $arguments): void { $GLOBALS['imageSelectionRenderer'] = $callback; }
 eval(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap::IMAGE_SELECTION_RENDERER);
 
@@ -55,7 +56,7 @@ foreach ($cases as $label => $case) {
     [$wrapped, $responsive, $hidden] = $case;
     $picture = $case[3] ?? false;
     $capture = $case[4] ?? false;
-    $carrier = $picture || $capture;
+    $carrier = $capture;
     $images = '';
     foreach ($responsive as $i => $hasSrcset) {
         $images .= $image(0 === $i ? 'a' : 'b', $hasSrcset, $hidden && 1 === $i);

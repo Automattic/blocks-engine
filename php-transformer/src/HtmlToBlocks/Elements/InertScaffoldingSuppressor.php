@@ -220,7 +220,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
                 continue;
             }
             foreach ( $values as $value ) {
-                if ( ! $this->isNeutralDeclarationValue($this->styleResolver->resolveCssVariablesInValue($value, $element)) ) {
+                if ( ! $this->isNeutralDeclarationValue($this->styleResolver->customProperties->resolve($value, $element)) ) {
                     return true;
                 }
             }

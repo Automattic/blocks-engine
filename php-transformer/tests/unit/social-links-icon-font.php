@@ -36,8 +36,8 @@ $attrs = $clusters[0]['attrs'];
 if ('#66666680' !== ($attrs['customIconColor'] ?? null)
     || '#66666680' !== ($attrs['iconColorValue'] ?? null)
     || !str_contains($attrs['className'] ?? '', 'is-style-logos-only')
-    || 'small' !== ($attrs['size'] ?? null)
-    || !str_contains($wrapped['serialized_blocks'], 'font-size:18px')
+    || 'has-small-icon-size' !== ($attrs['size'] ?? null)
+    || !str_contains(implode("\n", array_column($wrapped['assets'], 'content')), 'font-size:18px')
     || !empty($attrs['showLabels'])) {
     throw new RuntimeException('Glyph-only social links must retain translucent paint, transparent background, exact size and no visible labels: ' . json_encode($attrs));
 }

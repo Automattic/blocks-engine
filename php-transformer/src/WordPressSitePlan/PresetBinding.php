@@ -204,6 +204,9 @@ final class PresetBinding
     private int $bound = 0;
     /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
     private array $fontDefaults = array();
+
+    /** @var array<string,string> Concrete body colours owned by the emitted theme. */
+    private array $bodyColorDefaults = array();
     private bool $themeDefaultsReady = false;
     /** Whether an author rule selects `mark` elements, which a span made a mark would join. */
     private bool $markRules = false;
@@ -211,6 +214,8 @@ final class PresetBinding
     private array $fontRules = array();
     /** @var array<string,string|false> Root custom properties; false when a value is scoped or conditional. */
     private array $variables = array();
+    /** @var array<string,array<string,string>> Unconditional root values by selector and stylesheet scope. */
+    private array $rootVariables = array();
     /** @var array<string,array<string,true>> Values custom properties take outside the root. */
     private array $scopedVariables = array();
     /** @var array<string,string> Custom properties every definition, all outside the root, sets to one value. */
@@ -226,9 +231,9 @@ final class PresetBinding
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $conditional = !in_array(strtolower(trim((string) ($asset['media'] ?? ''))), array('', 'all'), true);
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional): void {
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $asset): void {
                 $this->indexRule($prelude, $body);
-                $this->indexVariables($prelude, $body, $ancestors);
+                $this->indexVariables($prelude, $body, $conditional ? array_merge($ancestors, array('@media ' . $asset['media'])) : $ancestors, $asset['scopes'] ?? array(array('kind' => 'global')));
                 $this->indexRestingColors($prelude, $body, $conditional || array() !== $ancestors);
                 $font = self::declared(self::declarations($body), 'font-family');
                 $shorthand = self::declared(self::declarations($body), 'font');
@@ -254,6 +259,10 @@ final class PresetBinding
                 }
             });
         }
+        foreach ($this->rootVariables as $name => $definitions) {
+            $values = array_values(array_unique($definitions));
+            if (false !== ($this->variables[$name] ?? null)) $this->variables[$name] = 1 === count($values) ? $values[0] : false;
+        }
         foreach ($this->scopedVariables as $name => $values) {
             if (!array_key_exists($name, $this->variables) && 1 === count($values)) $this->uniformVariables[$name] = (string) array_key_first($values);
             if (is_string($this->variables[$name] ?? null) && array($this->variables[$name] => true) !== $values) $this->variables[$name] = false;
@@ -263,8 +272,8 @@ final class PresetBinding
     }
 
     /**
-     * Only the theme that will be written may own inherited font defaults.
-     * Before that projection is available, binding conservatively keeps fonts.
+     * Only the theme that will be written may own body paint and inherited
+     * font defaults. Before projection, binding conservatively keeps them.
      *
      * @param array<string,mixed> $theme
      */
@@ -274,6 +283,14 @@ final class PresetBinding
         $this->fontDefaults = array();
         $families = array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
         $styles = $theme['styles'] ?? array();
+        $this->bodyColorDefaults = array();
+        $palette = array_column($theme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+        foreach (array('color' => 'text', 'background-color' => 'background') as $property => $key) {
+            $value = $styles['color'][$key] ?? null;
+            if (!is_string($value)) continue;
+            $value = $palette[str_replace('var:preset|color|', '', $value)] ?? $value;
+            if (null !== CssColor::hex($value)) $this->bodyColorDefaults[$property] = $value;
+        }
         foreach (array('body', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) {
             $value = 'body' === $tag ? ($styles['typography']['fontFamily'] ?? null)
                 : ($styles['elements'][$tag]['typography']['fontFamily'] ?? $styles['elements']['heading']['typography']['fontFamily'] ?? null);
@@ -997,6 +1014,7 @@ final class PresetBinding
     public function bindStylesheet(string $css): string
     {
         $transformer = new CssStylesheetTransformer();
+        // Yield unconditional body paint to matching emitted defaults.
         // Split selector arms so a shared utility still owns its font on
         // non-heading targets, including class arms that AuthorStylesheetProjector
         // scoped away from engine roles. Keep that exclusion; :where preserves
@@ -1006,16 +1024,32 @@ final class PresetBinding
                 if (!preg_match('/^@layer(?:\s|$)/', $ancestor)) return $prelude;
             }
             $value = self::declared(self::declarations($body), 'font-family');
-            if (null === $value || str_contains($body, '{')) return $prelude;
-            $value = $this->resolve($value);
+            if (str_contains($body, '{')) return $prelude;
+            if (null === $value && (array() === $this->bodyColorDefaults || !preg_match('/(?:^|,)\s*(?:body|(?::root\s+)?body\.editor-styles-wrapper)\s*(?:,|$)/', $prelude))) return $prelude;
+            $value = null === $value ? '' : $this->resolve($value);
             $rules = array();
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                 $selector = trim($selector);
                 $tag = strtolower($selector);
                 if (1 === preg_match('/^(?::root\s+)?body\.editor-styles-wrapper$/', $tag)) $tag = 'body';
                 $kept = $body;
+                // A matching body paint belongs to Global Styles just like its
+                // font. Preset binding alone would keep the author declaration
+                // winning when the user edits styles.color rather than a preset.
+                // Never lift route/state/conditional selectors or a shorthand reset.
+                if ('body' === $tag) {
+                    $declarations = self::declarations($kept);
+                    $hasReset = null !== self::declared($declarations, 'all');
+                    $retained = array_values(array_filter($declarations, function (array $pair) use ($declarations, $hasReset): bool {
+                        [$property, $literal] = $pair;
+                        $expected = $this->bodyColorDefaults[$property] ?? null;
+                        if ($hasReset || null === $expected || ('background-color' === $property && null !== self::declared($declarations, 'background'))) return true;
+                        return CssColor::hex($this->resolve($literal)) !== CssColor::hex($expected);
+                    }));
+                    if (count($retained) !== count($declarations)) $kept = self::declarationText($retained);
+                }
                 if (isset($this->fontDefaults[$tag])) {
-                    $kept = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
+                    $kept = self::declarationText(array_values(array_filter(self::declarations($kept), static fn(array $pair): bool => 'font-family' !== $pair[0])));
                 } elseif (preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?::not\(:where\(\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . ')(?:\s*,\s*\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . '))*\)\))?$/', trim($selector))) {
                     $excluded = array();
                     foreach ($this->fontDefaults as $target => $font) {
@@ -1593,7 +1627,7 @@ final class PresetBinding
 
     /**
      * A value with its `var(--name)` references resolved through custom
-     * properties that are set once, unconditionally, on the document root
+     * properties whose final unconditional definitions agree on the document root
      * (`:root`, `html`, `:host`). Any other definition could give the
      * variable a different value under some block, so a value that reads
      * such a property stays as written, except that a fallback
@@ -1620,21 +1654,22 @@ final class PresetBinding
         return $value;
     }
 
-    /** @param list<string> $ancestors */
-    private function indexVariables(string $prelude, string $body, array $ancestors): void
+    /** @param list<string> $ancestors @param array<int,array<string,mixed>> $scopes */
+    private function indexVariables(string $prelude, string $body, array $ancestors, array $scopes): void
     {
         $declarations = CssRuleAnalyzer::customProperties($body);
         if (array() === $declarations) return;
         $selectors = array_map(static fn(string $selector): string => strtolower(trim($selector)), CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude));
         $root = array() === array_diff($selectors, array(':root', 'html', ':host')) && array() === array_filter($ancestors, static fn(string $ancestor): bool => 1 !== preg_match('/^@layer(?:\s|$)/', $ancestor));
         foreach ($declarations as ['name' => $name, 'value' => $value]) {
-            // Any definition with another value, wherever it applies, could
-            // give the variable that value under some block. Repeating the
-            // root value (editor mirrors such as `:root :root.editor-styles-wrapper`)
-            // changes nothing.
-            if (str_contains(strtolower($value), '!important') || (array_key_exists($name, $this->variables) && $this->variables[$name] !== $value)) $this->variables[$name] = false;
-            elseif ($root) $this->variables[$name] = $value;
-            else $this->scopedVariables[$name][$value] = true;
+            // Only the same unconditional selector and applicability has a
+            // source-order winner. Other selectors and at-rules still compete.
+            if (str_contains(strtolower($value), '!important')) $this->variables[$name] = false;
+            if ($root) {
+                $context = implode(',', $selectors) . "\n" . json_encode($scopes);
+                if (array() === $ancestors) $this->rootVariables[$name][$context] = $value;
+                else $this->rootVariables[$name][$context . "\n" . json_encode($ancestors) . "\n" . $value] = $value;
+            } else $this->scopedVariables[$name][$value] = true;
         }
     }
 
