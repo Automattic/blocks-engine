@@ -188,6 +188,21 @@ final class ArtifactPath
         return $slug;
     }
 
+    /** The title a source path names: an `index.html`/`home.html` is titled by its directory, any other file by its slug. */
+    public static function title(string $path): string
+    {
+        $normalized = str_replace('\\', '/', $path);
+        $base = basename($normalized);
+        if ( preg_match('/^index\.html?$/i', $base) || 0 === strcasecmp($base, 'home.html') ) {
+            $parent = basename(dirname($normalized));
+            if ( '' !== $parent && '.' !== $parent ) {
+                return ucwords(str_replace(array( '-', '_' ), ' ', $parent));
+            }
+        }
+
+        return ucwords(str_replace(array( '-', '_' ), ' ', self::slug($path)));
+    }
+
     /**
      * The artifact file an href points at from a source document, resolved
      * against the artifact's file paths.

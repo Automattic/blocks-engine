@@ -266,7 +266,7 @@ final class DocumentTitles
                 }
             }
             $label = $this->inboundPageLabel($files, $path);
-            return '' !== $label ? $label : self::titleFromPath($path);
+            return '' !== $label ? $label : ArtifactPath::title($path);
         }
         if ( array() !== $siteNameSegments && null !== $titleDeclaration ) {
             $segments = preg_split(self::DOCUMENT_TITLE_SEPARATOR, $normalize($titleDeclaration['content'])) ?: array();
@@ -381,7 +381,7 @@ final class DocumentTitles
             }
         }
 
-        return self::titleFromPath($path);
+        return ArtifactPath::title($path);
     }
 
     /** Remove heading candidates in comments/complementary regions or after the entry body. */
@@ -583,19 +583,5 @@ final class DocumentTitles
         }
 
         return $anchors;
-    }
-
-    public static function titleFromPath(string $path): string
-    {
-        $normalized = str_replace('\\', '/', $path);
-        $base = basename($normalized);
-        if ( preg_match('/^index\.html?$/i', $base) || 0 === strcasecmp($base, 'home.html') ) {
-            $parent = basename(dirname($normalized));
-            if ( '' !== $parent && '.' !== $parent ) {
-                return ucwords(str_replace(array( '-', '_' ), ' ', $parent));
-            }
-        }
-
-        return ucwords(str_replace(array( '-', '_' ), ' ', ArtifactPath::slug($path)));
     }
 }
