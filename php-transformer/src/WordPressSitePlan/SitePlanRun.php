@@ -71,8 +71,8 @@ final class SitePlanRun
     {
         $sourceUrl = RouteLinks::sourceUrl($data['provenance'] ?? array());
         $this->sourceOrigin = RouteLinks::origin($sourceUrl);
-        $this->listings = new ListingQueryLoops($this->sourceOrigin, $this->chromeIdentityKey(...));
         $this->unitFindings = new UnitFindings();
+        $this->listings = new ListingQueryLoops($this->sourceOrigin, $this->chromeIdentityKey(...), $this->unitFindings->record(...));
         $this->postChrome = new PostChrome($this->listings, $this->chromeIdentityKey(...), $this->unitFindings->record(...));
         $this->editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($this->editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($this->editabilityPolicy['schema'] ?? null) || 'required' !== ($this->editabilityPolicy['enforcement'] ?? null) || !in_array($this->editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
@@ -167,11 +167,11 @@ final class SitePlanRun
      * - pages (begun by the constructor): routes the pages, selects
      *   pagination captures, adds event declarations and instances page
      *   stylesheets.
-     * - entity_bindings: anchors runtime declarations on the final page
-     *   markup before shell extraction, settles the route hierarchy, and
-     *   pairs root documents with the asset pages.
-     * - theme_json: scopes stylesheets, projects theme.json and binds
+     * - theme_json: settles the route hierarchy, pairs root documents with
+     *   the asset pages, scopes stylesheets, projects theme.json and binds
      *   presets on the pages.
+     * - entity_bindings: anchors runtime declarations on the preset-bound
+     *   page markup before shell extraction.
      * - shell_extraction: extractedShells() moves shared chrome out of the
      *   pages into template parts and frames.
      * - stylesheets: projects shared chrome stylesheets, drops selectors
@@ -215,6 +215,11 @@ final class SitePlanRun
         $paginationSources = $pagination['sources'];
         $paginationDiagnostics = $pagination['diagnostics'];
         $paginationOwners = $pagination['owners'];
+        $foldedListingRoutes = array();
+        foreach ($paginationOwners as $source => $owner) {
+            $route = $routeBySource[$source] ?? '';
+            if (isset($paginationSources[$source]) && str_contains($route, '/page/')) $foldedListingRoutes[$owner][] = $route;
+        }
         $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($paginationSources[$page['source_path']])));
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($paginationSources[$document['source_path']])));
         $assets = array_values(array_filter($assets, static fn(array $asset): bool => 'page' !== ($asset['compilation']['scope'] ?? null) || !isset($paginationSources[$asset['compilation']['id'] ?? ''])));
@@ -231,12 +236,6 @@ final class SitePlanRun
             static fn (mixed $fallback): bool => is_array($fallback) && 'native_conversion' !== ($fallback['conversion_classification'] ?? '')
         ));
         $pages = $this->shellExtraction->withRestoredCandidates($pages);
-        // Bindings anchor on the final canonical page markup before any shell
-        // extraction. Asset and route projection can make source anchors equal,
-        // so assign occurrences only after that shared projection is complete.
-        $this->timer?->start('compose.site_plan.entity_bindings');
-        $bindingTemplates = $this->bindingTemplates($tokens);
-        $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $this->routeMap, $pages, $bindingTemplates, $paginationOwners);
         // A form provider rebuilds a form from its fallback's readable blocks.
         foreach ($data['fallbacks'] as &$fallback) {
             $source = is_array($fallback) ? ($fallback['source_path'] ?? $fallback['source'] ?? null) : null;
@@ -254,6 +253,11 @@ final class SitePlanRun
         $assets = $themeProjection['assets'];
         $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
         $pages = $this->presetBoundPages($pages, $documents);
+        // Anchor only after presets and scoped font defaults settle the page
+        // bytes, but before shell extraction moves any runtime-bound regions.
+        $this->timer?->start('compose.site_plan.entity_bindings');
+        $bindingTemplates = $this->bindingTemplates($tokens);
+        $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $this->routeMap, $pages, $bindingTemplates, $paginationOwners);
         $routes = RouteTable::forPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
         // canonical plan rebuilds them from full page shell candidates.
@@ -294,15 +298,15 @@ final class SitePlanRun
         $this->timer?->start('compose.site_plan.templates');
         $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $this->routeMap, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $bindingTemplates), $assets);
-         $navigation = NavigationEntityProjection::project($pages, $parts, $this->input->menus, $runtimeDeclarations, $runtimeEntityRecords);
-         $pages = $navigation['pages'];
-         $parts = $navigation['parts'];
-         $menus = $navigation['menus'];
         $pages = $this->postChrome->extractCommentForms($pages);
         $blockThemeChrome = $this->postChrome->extractBlockThemeChrome($pages, $runtimeDeclarations, $runtimeEntityRecords);
         $pages = $blockThemeChrome['pages'];
         $singleContent = array() !== $blockThemeChrome['templates'] ? reset($blockThemeChrome['templates']) : null;
-          $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
+          $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true, $foldedListingRoutes);
+         $navigation = NavigationEntityProjection::project($pages, $parts, $this->input->menus, $runtimeDeclarations, $runtimeEntityRecords);
+         $pages = $navigation['pages'];
+         $parts = $navigation['parts'];
+         $menus = $navigation['menus'];
           $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
           $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
          // Content every panel of one tabs block repeats is declared once.
@@ -326,7 +330,7 @@ final class SitePlanRun
         $templates = $articleChrome['templates'];
         $parts = $articleChrome['parts'];
         // Template-group lifting settles post bodies and can add featured images.
-        $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true);
+        $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true, $foldedListingRoutes);
         $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
         $themeProjection = ThemeTemplates::withCustomTemplates($themeProjection, $pages, $sharedTemplateTitles);
         $taxonomyProjection = TaxonomyProjection::withArchivePresentation($taxonomyProjection, $templates);

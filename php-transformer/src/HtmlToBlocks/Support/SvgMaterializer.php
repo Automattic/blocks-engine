@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
@@ -216,7 +219,7 @@ final class SvgMaterializer implements SvgElementMaterializer
                 continue;
             }
 
-            $style = $this->styleResolver->cssDeclarationString(array_merge($this->styleResolver->inlineDeclarations($target), $declarations));
+            $style = $this->styleResolver->cssDeclarationString(array_merge(SourceDeclarations::inline($target), $declarations));
             $target->setAttribute('style', $style);
             $baked = true;
         }
@@ -557,7 +560,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         if ( $this->cssOwnsMediaBox($element) ) {
             $presentation = $this->styleResolver->presentationDeclarations($element);
             $resolved = $this->richTextSvgDimensions($element, $presentation);
-            $declarations = $this->styleResolver->cssDeclarations($style);
+            $declarations = SourceDeclarations::parse($style);
             foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $dimension ) {
                 // Unchanged stylesheet values already live on the geometry
                 // carrier, where conditioned rules can still override them.
@@ -569,7 +572,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             $style = $this->styleResolver->cssDeclarationString($declarations);
         }
         foreach ( array( 'width', 'height' ) as $dimension ) {
-            if ( empty($attrs[$dimension]) || preg_match('/(?:^|;)\s*' . $dimension . '\s*:/i', $style) ) {
+            if ( empty($attrs[$dimension]) || array() !== CssRuleAnalyzer::declarations($style, array( $dimension )) ) {
                 continue;
             }
             $style = trim($style, ';') . ( '' === trim($style, ';') ? '' : ';' ) . $dimension . ':' . $attrs[$dimension];
@@ -639,7 +642,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             }
         }
 
-        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        $declarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element));
         $author = $this->styleResolver->authorStructuralDeclarations($element);
         if ( ! isset($declarations['visibility']) && isset($author['visibility']) ) {
             $declarations['visibility'] = $author['visibility'];
@@ -692,7 +695,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             $scale = (float) $match[1] / 100.0;
             $fallback = '';
             for ( $parent = $element->parentNode; $parent instanceof DOMElement && in_array(strtolower($parent->tagName), array( 'div', 'span', 'i', 'b' ), true); $parent = $parent->parentNode ) {
-                $parentDimensions = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent));
+                $parentDimensions = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($parent));
                 $parentDimension = trim((string) ($parentDimensions[$dimension] ?? ''));
                 if ( preg_match('/^\s*((?:\d+(?:\.\d+)?|\.\d+))%\s*$/', $parentDimension, $parentMatch) ) {
                     $scale *= (float) $parentMatch[1] / 100.0;
@@ -919,7 +922,7 @@ final class SvgMaterializer implements SvgElementMaterializer
     /** Expand only proven overflow, leaving ordinary SVG asset identity untouched. */
     private function visibleOverflowGeometry(DOMElement $element): ?array
     {
-        $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($element, array('overflow'));
+        $declarations = $this->styleResolver->authorViewport->reference($element, array('overflow'));
         if ('visible' !== $this->plainDeclarationValue($declarations['overflow'] ?? SourceDom::attr($element, 'overflow'))) return null;
         $size = array();
         foreach (array('width', 'height') as $axis) {
@@ -930,7 +933,7 @@ final class SvgMaterializer implements SvgElementMaterializer
                     $this->styleResolver->authorStructuralDeclarations($node),
                     $this->styleResolver->structuralPresentationDeclarations($node),
                     $this->styleResolver->presentationDeclarations($node),
-                    $this->styleResolver->referenceViewportAuthorDeclarations($node, array('width', 'height', 'display', 'position', 'float'))
+                    $this->styleResolver->authorViewport->reference($node, array('width', 'height', 'display', 'position', 'float'))
                 );
                 $value = $this->plainDeclarationValue($style[$axis] ?? SourceDom::attr($node, $axis));
                 if (preg_match('/^([\d.]+)(?:px)?$/', $value, $m)) { $size[$axis] = (float) $m[1] * $scale; break; }
@@ -1136,7 +1139,7 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     private function sourceVerticalAlign(DOMElement $element): string
     {
-        $declared = CssValueInspector::withoutImportant((string) ($this->styleResolver->referenceViewportAuthorDeclarations($element, array( 'vertical-align' ))['vertical-align'] ?? ''));
+        $declared = CssValueInspector::withoutImportant((string) ($this->styleResolver->authorViewport->reference($element, array( 'vertical-align' ))['vertical-align'] ?? ''));
         $declared = strtolower(trim($declared));
 
         return 1 === preg_match('/^(?:baseline|sub|super|text-top|text-bottom|middle|top|bottom|-?\d*\.?\d+(?:px|em|rem|%))$/', $declared) ? $declared : 'baseline';
@@ -1583,7 +1586,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             $existing = html_entity_decode($styleMatch[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         }
 
-        $style = $this->styleResolver->cssDeclarationString(array_merge($this->styleResolver->cssDeclarations($existing), $declarations));
+        $style = $this->styleResolver->cssDeclarationString(array_merge(SourceDeclarations::parse($existing), $declarations));
         $escaped = htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
         return preg_match('/\sstyle\s*=\s*(["\'])(.*?)\1/i', $tag)
@@ -1659,7 +1662,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // A style declaration already present on the tag (author-authored or
         // written by an earlier materialization step) always outranks a value
         // resolved from the lost external cascade.
-        $merged = array_merge($declarations, $this->styleResolver->cssDeclarations($existingStyle));
+        $merged = array_merge($declarations, SourceDeclarations::parse($existingStyle));
         $style = $this->styleResolver->cssDeclarationString($merged);
         if ( '' === $style ) {
             return $html;
@@ -1749,7 +1752,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
         $boxProperties = array_flip(array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ));
-        foreach ( $this->styleResolver->inlineDeclarations($element) as $property => $value ) {
+        foreach ( SourceDeclarations::inline($element) as $property => $value ) {
             $resolved = $this->styleResolver->resolveCssVariablesInValue($value, $element);
             if ( preg_match('/var\s*\(/i', $resolved) && ! isset($boxProperties[strtolower($property)]) ) {
                 return false;
@@ -1782,8 +1785,8 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
         foreach ( $matches[1] as $stack ) {
-            foreach ( explode(',', html_entity_decode($stack, ENT_QUOTES | ENT_HTML5, 'UTF-8')) as $family ) {
-                if ( isset($faces[strtolower(trim($family, " \t\n\r\"'"))]) ) {
+            foreach ( CssFontFamily::names(html_entity_decode($stack, ENT_QUOTES | ENT_HTML5, 'UTF-8')) as $family ) {
+                if ( isset($faces[strtolower($family)]) ) {
                     return true;
                 }
             }
@@ -1800,7 +1803,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( ! $descendant instanceof DOMElement ) {
                 continue;
             }
-            $declarations = $this->styleResolver->matchedCascadedDeclarations($descendant);
+            $declarations = $this->styleResolver->cascade->declarations($descendant);
             foreach ( array( 'animation', 'animation-name' ) as $property ) {
                 $value = strtolower(trim((string) ($declarations[$property] ?? '')));
                 $value = trim((string) preg_replace('/\s*!important\s*$/i', '', $value));
@@ -1962,7 +1965,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         $attrs = $match[1][0];
         $attribute = static fn (string $name): ?string => preg_match('/\s' . $name . '\s*=\s*(["\'])(.*?)\1/is', $attrs, $m) ? trim(html_entity_decode($m[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')) : null;
         $style = (string) $attribute('style');
-        $declarations = '' === $style ? array() : $this->styleResolver->cssDeclarations($style);
+        $declarations = '' === $style ? array() : SourceDeclarations::parse($style);
         $isRelative = static fn (?string $value): bool => null === $value || '' === $value || 'auto' === strtolower($value) || str_ends_with($value, '%');
         $width = isset($declarations['width']) ? trim((string) $declarations['width']) : $attribute('width');
         $height = isset($declarations['height']) ? trim((string) $declarations['height']) : $attribute('height');
@@ -2017,7 +2020,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         $rootStyle = preg_match('/<svg\b[^>]*\sstyle\s*=\s*(["\'])(.*?)\1/i', $html, $rootMatch)
             ? html_entity_decode($rootMatch[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')
             : SourceDom::attr($element, 'style');
-        $existingDeclarations = $this->styleResolver->cssDeclarations($rootStyle);
+        $existingDeclarations = SourceDeclarations::parse($rootStyle);
         foreach ( array_keys($existingDeclarations) as $name ) {
             unset($boxDeclarations[$name]);
         }

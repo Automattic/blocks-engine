@@ -22,7 +22,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/cover", "attrs": { "className": "hero-media blocks-engine-cover-consumed-background" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Retreats", "level": 1 } },
-    { "path": "blocks.1", "name": "core/image", "attrs": { "url": "/assets/retreat.jpg", "alt": "Retreat house", "caption": "Explore the retreat", "href": "/retreats", "linkDestination": "custom", "className": "featured-card card-image be-inline-geometry-c6ca569a44c28266 blocks-engine-semantic-2aedf4049c93-0 blocks-engine-inline-image-leaf blocks-engine-baseline-image-leaf blocks-engine-inline-image-link" } },
+    { "path": "blocks.1", "name": "core/image", "attrs": { "url": "/assets/retreat.jpg", "alt": "Retreat house", "caption": "Explore the retreat", "href": "/retreats", "linkDestination": "custom", "className": "featured-card card-image be-inline-geometry-0750fba367b0dc98 blocks-engine-semantic-7d59bead30d3-0 blocks-engine-inline-image-leaf blocks-engine-baseline-image-leaf blocks-engine-inline-image-link" } },
     { "path": "blocks.2", "name": "custom/responsive-media" },
     { "path": "blocks.3", "name": "core/html", "attrs": { "content": "<span class=\"dicon\" aria-hidden=\"true\"></span>" } }
   ],

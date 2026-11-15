@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -149,8 +150,9 @@ final class FormControlMetadataBuilder
                 $output['id'] = $status->getAttribute('id');
             }
             foreach ( array('top', 'bottom') as $side ) {
-                if ( preg_match('/(?:^|;)\s*margin-' . $side . '\s*:\s*(-?[0-9]+(?:\.[0-9]+)?(?:px|em|rem|vh|vw|%)|0)\s*(?:;|$)/i', $status->getAttribute('style'), $match) ) {
-                    $output['margin_' . $side] = $match[1];
+                $margin = SourceDeclarations::inline($status)['margin-' . $side] ?? '';
+                if ( preg_match('/^(?:-?[0-9]+(?:\.[0-9]+)?(?:px|em|rem|vh|vw|%)|0)$/Di', $margin) ) {
+                    $output['margin_' . $side] = $margin;
                 }
             }
             $metadata['trailing_status'] = $output;
@@ -972,7 +974,9 @@ final class FormControlMetadataBuilder
             if ( ! $node instanceof DOMElement ) {
                 continue;
             }
-            if ( $this->isValidationFeedbackCopy($node) ) {
+            // Provider help is permanent copy. Reuse the visible-text reader
+            // so CSS-hidden validation messages cannot grow the rendered form.
+            if ( $this->isValidationFeedbackCopy($node) || '' === trim($this->labelTextWithoutControls($node, true)) ) {
                 continue;
             }
             if ( $this->isControlOwnedCopy($node, $this->collapsedElementText($node), $honeypotCopy, array()) ) {
@@ -1308,7 +1312,7 @@ final class FormControlMetadataBuilder
             if ( $node->hasAttribute('hidden') ) {
                 return '';
             }
-            $declarations = $this->styleResolver?->collapsedViewportAuthorDeclarations($node, array( 'display', 'visibility' )) ?? array();
+            $declarations = $this->styleResolver?->authorViewport->collapsed($node, array( 'display', 'visibility' )) ?? array();
             $display = strtolower(trim(CssValueInspector::withoutImportant($declarations['display'] ?? '')));
             $visibility = strtolower(trim(CssValueInspector::withoutImportant($declarations['visibility'] ?? '')));
             if ( 'none' === $display || 'hidden' === $visibility ) {

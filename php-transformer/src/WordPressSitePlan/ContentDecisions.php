@@ -334,6 +334,10 @@ final class ContentDecisions
                 $document['template_surface'] = $surface;
                 $metadata['template_surface'] = $surface;
             }
+            if ('post' === $postType && !isset($metadata['excerpt'])) {
+                $description = self::structuredExcerpt($document);
+                if (null !== $description) $metadata['excerpt'] = $description;
+            }
             $metadata['post_type'] = $postType;
             $document['metadata'] = $metadata;
             $document['content_decision'] = array_filter(array('schema' => 'blocks-engine/content-decision/v1', 'state' => null !== $explicit ? 'declared' : (array() === $evidence ? 'defaulted' : 'inferred'), 'post_type' => $postType, 'provenance' => $provenance, 'evidence' => $evidence), static fn(mixed $value): bool => null !== $value);
@@ -418,6 +422,22 @@ final class ContentDecisions
     {
         $classes = DocumentRootContext::bodyClasses($document);
         return in_array('archive', $classes, true) && in_array('date', $classes, true);
+    }
+
+    /** @param array<string,mixed> $document */
+    private static function structuredExcerpt(array $document): ?string
+    {
+        $descriptions = array();
+        $collect = static function (mixed $value) use (&$collect, &$descriptions): void {
+            if (!is_array($value)) return;
+            $types = array_map(static fn(mixed $type): mixed => is_string($type) ? preg_replace('~^https?://schema\\.org/~', '', $type) : $type, (array) ($value['@type'] ?? array()));
+            if (array_intersect(array('Article', 'BlogPosting', 'NewsArticle'), $types) && is_string($value['description'] ?? null) && '' !== trim($value['description'])) $descriptions[] = trim($value['description']);
+            foreach ($value as $child) if (is_array($child)) $collect($child);
+        };
+        foreach (HtmlMarkupParser::htmlMarkupNodes((string) ($document['html'] ?? '')) as $node) {
+            if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) $collect(json_decode($node['content'], true));
+        }
+        return 1 === count($descriptions) ? $descriptions[0] : null;
     }
 
     /** @param array<string,mixed> $document @return list<string> */

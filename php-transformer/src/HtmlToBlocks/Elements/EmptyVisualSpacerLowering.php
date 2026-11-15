@@ -95,7 +95,7 @@ final class EmptyVisualSpacerLowering
             }
         }
         foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) && array_intersect_key($rule['declarations'], array_flip(array( 'content', 'display', 'width', 'min-width' ))) ) {
+            if ( $this->session->sourceStyleResolutionState()->matches($element, $rule['selector']) && array_intersect_key($rule['declarations'], array_flip(array( 'content', 'display', 'width', 'min-width' ))) ) {
                 return $attrs;
             }
         }

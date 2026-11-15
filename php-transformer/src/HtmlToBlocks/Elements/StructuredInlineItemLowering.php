@@ -21,7 +21,8 @@ final class StructuredInlineItemLowering
         private readonly Runtime $runtime,
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly StyleResolver $styleResolver,
-        private readonly InlineSvgTextGroupLowering $inlineSvgTextGroups
+        private readonly InlineSvgTextGroupLowering $inlineSvgTextGroups,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization $richTextMaterializer
     ) {
     }
 
@@ -61,7 +62,7 @@ final class StructuredInlineItemLowering
             // The paragraph inherits a span's class for its layout role, but
             // semantic inline elements (time, links, emphasis, etc.) must retain
             // their source markup inside the editable RichText content.
-            $content = 'span' === strtolower($child->tagName) ? $this->styleResolver->innerHtml($child) : SourceDom::outerHtml($child);
+            $content = $this->richTextMaterializer->content($child, array(), 'span' !== strtolower($child->tagName));
             if ( ! $this->runtime->hasVisibleText($content) ) {
                 return null;
             }

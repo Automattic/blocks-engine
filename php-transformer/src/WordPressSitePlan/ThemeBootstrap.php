@@ -423,7 +423,7 @@ PHP;
             $lines[] = "    \$current = str_contains( (string) ( \$block['attrs']['className'] ?? '' ), 'blocks-engine-current-navigation-item' );";
             $lines[] = "    \$sources = \$block['attrs']['metadata']['blocksEngineCurrentSources'] ?? null;";
             $lines[] = "    \$url = is_string( \$block['attrs']['url'] ?? null ) ? trim( (string) \$block['attrs']['url'] ) : '';";
-            $lines[] = "    if ( ! \$current && ( is_array( \$sources ) || ( '' !== \$url && '/' === \$url[0] && ( 1 === strlen( \$url ) || '/' !== \$url[1] ) ) ) ) {";
+            $lines[] = "    if ( ! \$current && ( is_array( \$sources ) || ( '' !== \$url && '/' === \$url[0] && ( 1 === strlen( \$url ) || '/' !== \$url[1] ) && ! str_contains( \$url, '#' ) ) ) ) {";
             $lines[] = "        \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
             $lines[] = "        \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
             $lines[] = "        \$served = apply_filters( 'blocks_engine_served_route', \$served, \$document );";
@@ -493,6 +493,11 @@ PHP;
         if (array() !== $breadcrumbLabels || array() !== $breadcrumbPostTrails) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels, $breadcrumbPostTrails);
         if (self::markupContains($documentsWithMenus, 'blocksEngineRuntimeAttributes')) {
             $lines[] = RuntimeAttributesRuntime::source();
+        }
+        foreach (EditorRestingStateRuntime::MARKERS as $marker) {
+            if (!self::markupContains($documentsWithMenus, $marker)) continue;
+            $lines[] = EditorRestingStateRuntime::source();
+            break;
         }
         if (self::markupContains($documents, NavigationEntityProjection::ITEMS_KEY)) {
             $lines[] = NavigationReferenceItemsRuntime::source();

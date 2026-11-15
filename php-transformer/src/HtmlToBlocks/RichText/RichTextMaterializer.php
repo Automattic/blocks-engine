@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -126,10 +127,10 @@ final class RichTextMaterializer implements RichTextMaterialization
     }
 
     /** @param array<int, string> $excludedTags */
-    public function content(DOMElement $element, array $excludedTags = array()): string
+    public function content(DOMElement $element, array $excludedTags = array(), bool $includeElement = false): string
     {
         $serialized = $this->styleResolver->richTextSerializationSource($element);
-        $content = array() === $excludedTags ? SourceDom::innerHtml($serialized) : SourceDom::innerHtmlWithoutTags($serialized, $excludedTags);
+        $content = $includeElement ? SourceDom::outerHtml($serialized) : (array() === $excludedTags ? SourceDom::innerHtml($serialized) : SourceDom::innerHtmlWithoutTags($serialized, $excludedTags));
         // `<wbr>` is a void presentation hint, not editable RichText markup.
         // Browsers can serialize malformed source as a closing `</wbr>` too;
         // remove both forms so it cannot become structural HTML in a block.
@@ -159,7 +160,7 @@ final class RichTextMaterializer implements RichTextMaterialization
             return $content;
         }
 
-        $sourceInlines = array();
+        $sourceInlines = $includeElement && self::isMaterializedInline($element) ? array($element) : array();
         foreach ( $element->getElementsByTagName('*') as $sourceInline ) {
             if ( $sourceInline instanceof DOMElement && self::isMaterializedInline($sourceInline) ) {
                 for ( $parent = $sourceInline->parentNode; $parent instanceof DOMElement && $parent !== $element; $parent = $parent->parentNode ) {
@@ -227,7 +228,7 @@ final class RichTextMaterializer implements RichTextMaterialization
                 continue;
             }
 
-            $existing = $this->styleResolver->inlineDeclarations($targetInline);
+            $existing = SourceDeclarations::inline($targetInline);
             $targetInline->setAttribute('style', $this->styleResolver->cssDeclarationString(array_merge($inline, $existing)));
         }
 
@@ -247,7 +248,7 @@ final class RichTextMaterializer implements RichTextMaterialization
             return false;
         }
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $declarations = $this->styleResolver->referenceViewportAuthorDeclarations($node, array( 'white-space', 'white-space-collapse' ));
+            $declarations = $this->styleResolver->authorViewport->reference($node, array( 'white-space', 'white-space-collapse' ));
             $collapse = '';
             foreach ( $declarations as $property => $value ) {
                 $value = CssValueInspector::comparable($value);
@@ -349,7 +350,7 @@ final class RichTextMaterializer implements RichTextMaterialization
             'width',
         ));
 
-        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        $declarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element));
         if ( 'font' === strtolower($element->tagName) ) {
             $color = trim(SourceDom::attr($element, 'color'));
             $face = trim(SourceDom::attr($element, 'face'));

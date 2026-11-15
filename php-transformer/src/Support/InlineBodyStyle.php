@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 
 /** Carries inline body spacing and inert custom properties into authored CSS. */
 final class InlineBodyStyle
@@ -21,19 +21,8 @@ final class InlineBodyStyle
         }
 
         $declarations = array();
-        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            $parts = explode(':', $declaration, 2);
-            if ( 2 !== count($parts) ) {
-                continue;
-            }
-            $property = trim($parts[0]);
-            $custom = str_starts_with($property, '--');
-            // Custom property names are case-sensitive.
-            if ( ! $custom ) {
-                $property = strtolower($property);
-            }
-            $value = trim($parts[1]);
-            if ( '' !== $value && ($custom || 1 === preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property)) ) {
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $property, 'value' => $value ] ) {
+            if ( '' !== $value && (str_starts_with($property, '--') || 1 === preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property)) ) {
                 $declarations[] = $property . ':' . $value;
             }
         }

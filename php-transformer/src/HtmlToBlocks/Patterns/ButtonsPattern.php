@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
@@ -276,7 +278,7 @@ final class ButtonsPattern
         // A whole-label box can supply a missing fill, but must not replace the
         // control's paint. Conditional background families stay on projected
         // author selectors rather than native attrs, so check the cascade too.
-        if (isset($attrs['style']['color']['background']) || preg_match('/(?:^|;)\s*background(?:-color)?\s*:/i', $resolvedPresentation)) {
+        if (isset($attrs['style']['color']['background']) || array() !== CssRuleAnalyzer::declarations($resolvedPresentation, array( 'background', 'background-color' ))) {
             unset($labelAttrs['style']['color']['background']);
         }
         $attrs = array_replace_recursive($attrs, $labelAttrs);
@@ -378,11 +380,9 @@ final class ButtonsPattern
 
     private function textAlignment(string $style): string
     {
-        if ( preg_match_all('/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/i', $style, $matches) < 1 ) {
-            return '';
-        }
+        $alignment = CssValueInspector::declared(SourceDeclarations::parse($style), 'text-align');
 
-        return strtolower((string) end($matches[1]));
+        return in_array($alignment, array( 'left', 'center', 'right' ), true) ? $alignment : '';
     }
 
     /**
@@ -448,7 +448,8 @@ final class ButtonsPattern
             $html
         ) ?? $html;
         $html = $buttons->materializeSvgImages($element, $html, $this->outOfFlowDecorationImage($element, $buttons)) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
-        $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
+        // aria-hidden controls accessibility, not paint. Keep decorative label
+        // boxes and their wrapper topology so projected author CSS can paint them.
         $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
         $html = $this->unwrapPresentationalSpan(trim($html));
         if ( '' !== trim($this->plainText($html)) || preg_match('/<img\b[^>]*>/i', $html) ) {
@@ -988,8 +989,9 @@ final class ButtonsPattern
         // shorthand and longhand set the fill; unrelated background-* properties
         // do not. Consult the last fill declaration, not an earlier reset.
         $resolvedBackground = '';
-        if ( preg_match_all('/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i', $normalized, $backgroundMatches) ) {
-            $resolvedBackground = trim((string) end($backgroundMatches[1]));
+        $backgrounds = CssRuleAnalyzer::declarations($normalized, array( 'background', 'background-color' ));
+        if ( array() !== $backgrounds ) {
+            $resolvedBackground = end($backgrounds)['value'];
             if ( '' !== $resolvedBackground
                 && ! in_array($resolvedBackground, array( 'transparent', 'none' ), true)
                 && ! preg_match('/^rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)$/i', $resolvedBackground) ) {
@@ -997,13 +999,20 @@ final class ButtonsPattern
             }
         }
 
+        // A partial border is decoration, not an outline box. Even a name
+        // signal must not introduce Core's default border on the missing sides.
+        $border = $this->styleResolver->paintedBorder($style);
+        unset($border['radius']);
+        if ( ! isset($border['style']) && array() !== $border
+            && count(array_intersect(array( 'top', 'right', 'bottom', 'left' ), array_keys($border))) < 4 ) {
+            return false;
+        }
+
         if ( $this->hasAnyToken($element, array( 'outline', 'ghost', 'hollow', 'bordered' )) ) {
             return true;
         }
 
         // Corner geometry and zero-width resets are not outline paint.
-        $border = $this->styleResolver->paintedBorder($style);
-        unset($border['radius']);
         if ( array() === $border ) {
             return false;
         }
@@ -1090,19 +1099,23 @@ final class ButtonsPattern
     private function labelWrapperPaints(DOMElement $wrapper, ButtonPatternContext $buttons): bool
     {
         $style = strtolower($buttons->resolvedStyle($wrapper));
-        preg_match_all('/(?:^|;)\s*background(?:-color|-image)?\s*:\s*([^;]+)/', $style, $backgrounds);
-        foreach ( $backgrounds[1] as $background ) {
+        foreach ( CssRuleAnalyzer::declarations($style, array( 'background', 'background-color', 'background-image' )) as [ 'value' => $background ] ) {
             if ( CssValueInspector::backgroundPaints($background) ) {
                 return true;
             }
         }
+        $sides = static fn (string $prefix, array $suffixes): array => array_merge(...array_map(
+            static fn (string $side): array => array_map(static fn (string $suffix): string => $prefix . '-' . $side . '-' . $suffix, $suffixes),
+            array( 'top', 'right', 'bottom', 'left' )
+        ));
+        $absent = '/^(?:0|none)\s*[a-z%]*\s*$/';
         foreach ( array(
-            'border(?:-(?:top|right|bottom|left)(?:-(?:width|style|color)))?' => '/^(?:0|none)\s*[a-z%]*\s*$/',
-            'box-shadow' => '/^none\s*$/',
-            'outline(?:-(?:width|style|color))?' => '/^(?:0|none)\s*[a-z%]*\s*$/',
-        ) as $property => $negations ) {
-            if ( preg_match('/(?:^|;)\s*' . $property . '\s*:\s*([^;]+)/', $style, $matches)
-                && 1 !== preg_match($negations, trim($matches[1])) ) {
+            array( array_merge(array( 'border' ), $sides('border', array( 'width', 'style', 'color' ))), $absent ),
+            array( array( 'box-shadow' ), '/^none\s*$/' ),
+            array( array( 'outline', 'outline-width', 'outline-style', 'outline-color' ), $absent ),
+        ) as [ $properties, $negation ] ) {
+            $first = CssRuleAnalyzer::declarations($style, $properties)[0] ?? null;
+            if ( null !== $first && 1 !== preg_match($negation, $first['value']) ) {
                 return true;
             }
         }
@@ -1181,7 +1194,7 @@ final class ButtonsPattern
             return false;
         }
 
-        return preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/i', $resolvedStyle) === 1;
+        return in_array(CssValueInspector::declared(SourceDeclarations::parse($resolvedStyle), 'position'), array( 'fixed', 'absolute' ), true);
     }
 
     private function hasWrapperButtonSignal(DOMElement $element, string $resolvedStyle): bool

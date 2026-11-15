@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -137,7 +139,7 @@ final class MetadataGridConverter
             return true;
         }
 
-        $style = $this->styleResolver->cssDeclarations($this->metadataPresentationStyle($element));
+        $style = SourceDeclarations::parse($this->metadataPresentationStyle($element));
         $weight = (int) preg_replace('/\D.*/', '', (string) ($style['font-weight'] ?? ''));
         if ( 600 <= $weight || in_array(strtolower(trim((string) ($style['text-transform'] ?? ''))), array( 'uppercase', 'capitalize' ), true) ) {
             return true;
@@ -155,7 +157,7 @@ final class MetadataGridConverter
     /** @param array<int, DOMElement> $children */
     private function hasStrongFlexMetadataEvidence(DOMElement $element, array $children, bool $isDefinitionList, string $style): bool
     {
-        if ( 1 !== preg_match('/(?:^|;)\s*flex-wrap\s*:\s*wrap(?:-reverse)?\b/i', $style) ) {
+        if ( ! in_array(CssValueInspector::declared(SourceDeclarations::parse($style), 'flex-wrap'), array( 'wrap', 'wrap-reverse' ), true) ) {
             return false;
         }
 

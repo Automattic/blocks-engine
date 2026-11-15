@@ -1099,14 +1099,16 @@ final class InlineGeometry
         $inlineStyle = strtolower(SourceDom::attr($element, 'style'));
         $mergedDeclarations = ($this->cssDeclarations)($mergedStyle);
         $inlineDeclarations = ($this->cssDeclarations)($inlineStyle);
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $inlineStyle) ) {
+        $display = static fn (array $declarations, string $type): bool => in_array(CssValueInspector::declared($declarations, 'display'), array( $type, 'inline-' . $type ), true);
+        $vertical = static fn (array $declarations): bool => in_array(CssValueInspector::declared($declarations, 'flex-direction'), array( 'column', 'column-reverse' ), true);
+        if ( $display($inlineDeclarations, 'flex') ) {
             $layout = array( 'type' => 'flex' );
             // flex-direction: column / column-reverse is a vertical main axis. A
             // core/group flex layout defaults to a horizontal Row, so the
             // orientation must be made explicit or the children render
             // side-by-side instead of stacked. Row / row-reverse / default flex
             // keeps the implicit horizontal orientation.
-            if ( preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $inlineStyle) ) {
+            if ( $vertical($inlineDeclarations) ) {
                 $layout['orientation'] = 'vertical';
             }
             $justifyContent = $this->layoutJustifyContent((string) ($inlineDeclarations['justify-content'] ?? $mergedDeclarations['justify-content'] ?? ''));
@@ -1120,17 +1122,15 @@ final class InlineGeometry
 
             return $this->withRowCrossAxisStretch($element, $layout, $inlineDeclarations, $mergedDeclarations);
         }
-        $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : SourceDom::attr($element, 'style'));
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style)
-            && ! preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
-        ) {
-            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $inlineStyle) && $this->hasOwnStyleHook($element) ) {
+        $styleDeclarations = '' !== trim($mergedStyle) ? $mergedDeclarations : $inlineDeclarations;
+        if ( $display($styleDeclarations, 'flex') && ! $vertical($styleDeclarations) ) {
+            if ( ! $display($inlineDeclarations, 'flex') && $this->hasOwnStyleHook($element) ) {
                 return array();
             }
 
             return $this->withRowCrossAxisStretch($element, array( 'type' => 'flex' ), $inlineDeclarations, $mergedDeclarations);
         }
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
+        if ( $display($styleDeclarations, 'grid') ) {
             $trackList = (string) ($mergedDeclarations['grid-template-columns'] ?? $inlineDeclarations['grid-template-columns'] ?? '');
             $minimumColumnWidth = $this->autoRepeatMinimumColumnWidth($trackList);
             if ( '' !== $minimumColumnWidth ) {
@@ -1140,7 +1140,7 @@ final class InlineGeometry
             if ( 0 < $columnCount && ! ($this->hasConditionalGridTemplateColumns)($element) ) {
                 return array( 'type' => 'grid', 'columnCount' => $columnCount );
             }
-            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $inlineStyle) && $this->hasOwnStyleHook($element) ) {
+            if ( ! $display($inlineDeclarations, 'grid') && $this->hasOwnStyleHook($element) ) {
                 return array();
             }
 

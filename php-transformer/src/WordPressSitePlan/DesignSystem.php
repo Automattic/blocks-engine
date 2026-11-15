@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 
@@ -519,7 +521,7 @@ final class DesignSystem
      *   (`textColor`, `fontSize`, `var:preset|…`) rather than literals. 1.0
      *   when blocks carry no such values. Zero lengths, `auto` and CSS-wide
      *   keywords (`inherit`, …) are not design values and are not counted.
-     * - `restyle_coverage`: of the text and background colours rendered on
+     * - `restyle_coverage`: of the text, background and border colours rendered on
      *   block-level content, the share that come from a preset reference,
      *   through the block's attributes, its classes' stylesheet rules, an
      *   ancestor, or the root styles; see RestyleCoverage. These follow a
@@ -527,7 +529,8 @@ final class DesignSystem
      *   per page, as a reader meets it on every route; engine templates count
      *   once. `restyle_text_elements`,
      *   `restyle_text_preset`, `restyle_backgrounds` and
-     *   `restyle_backgrounds_preset` are the counts behind it.
+     *   `restyle_backgrounds_preset`, `restyle_borders` and
+     *   `restyle_borders_preset` are the counts behind it.
      * - `refusal_reasons`: text and background colour values binding left
      *   as literals, by reason (see PresetBinding::REFUSAL_REASONS), and
      *   `refused_value_count` their total. Content that should not follow
@@ -591,7 +594,7 @@ final class DesignSystem
         $variables = array();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || 'engine-support' === ($asset['source'] ?? null)) continue;
-            if (preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $asset['content'], $matches, PREG_SET_ORDER)) foreach ($matches as $match) $variables[$match[1]] ??= trim($match[2]);
+            foreach (CssRuleAnalyzer::customProperties($asset['content']) as $declaration) $variables[$declaration['name']] ??= $declaration['value'];
         }
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
@@ -623,6 +626,8 @@ final class DesignSystem
             'restyle_text_preset' => $restyle['text_preset'],
             'restyle_backgrounds' => $restyle['backgrounds'],
             'restyle_backgrounds_preset' => $restyle['backgrounds_preset'],
+            'restyle_borders' => $restyle['borders'],
+            'restyle_borders_preset' => $restyle['borders_preset'],
             'preset_value_count' => $preset,
             'literal_value_count' => $literal,
             'refused_value_count' => array_sum($refusals),
@@ -1320,20 +1325,16 @@ final class DesignSystem
     /** The first family name of a stack, unquoted. */
     private static function primaryFamily(string $stack): string
     {
-        foreach (explode(',', $stack) as $part) {
-            $part = trim($part, " \t\n\r\0\x0B\"'");
-            if ('' !== $part) return (string) preg_replace('/\s+/', ' ', $part);
-        }
-        return '';
+        return (string) preg_replace('/\s+/', ' ', CssFontFamily::names($stack)[0] ?? '');
     }
 
     private static function familyName(string $stack): string
     {
-        foreach (explode(',', $stack) as $token) {
-            $token = trim($token, " \t\n\r\0\x0B\"'");
-            if ('' !== $token && !in_array(strtolower($token), self::GENERIC_FAMILIES, true) && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) return $token;
+        $names = CssFontFamily::names($stack);
+        foreach ($names as $token) {
+            if (!in_array(strtolower($token), self::GENERIC_FAMILIES, true) && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) return $token;
         }
-        return trim(explode(',', $stack)[0], " \t\n\r\0\x0B\"'");
+        return $names[0] ?? '';
     }
 
     /** Pixel size as rem when the document root is not the default 16px. */

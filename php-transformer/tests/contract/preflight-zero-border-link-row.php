@@ -38,7 +38,7 @@ foreach (array(
 // later shorthand resets and longhands that cancel only one side.
 $resolver = new ButtonStyleResolver();
 foreach (array(
-    array('border:0 solid;border-color:#000;border-bottom:1px solid #000', array('bottom' => array('width' => '1px', 'style' => 'solid', 'color' => '#000'))),
+    array('border:0 solid;border-color:#000;border-bottom:1px solid #000', array('bottom' => array('width' => '1px', 'style' => 'solid', 'color' => '#000'), 'top' => array('width' => '0'), 'right' => array('width' => '0'), 'left' => array('width' => '0'))),
     array('border:1px solid #000;border-width:0', array()),
     array('border:1px solid #000;border-style:hidden', array()),
     array('border-bottom:1px solid #000;border:0 solid', array()),

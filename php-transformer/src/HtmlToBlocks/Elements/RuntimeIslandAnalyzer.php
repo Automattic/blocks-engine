@@ -219,15 +219,18 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
     }
 
     /** Dialog controls own a bounded panel, not the surrounding page. */
-    public function isCapturedDialogRuntimeBinding(DOMElement $element): bool
+    public function isCapturedDialogRuntimeBinding(DOMElement $element, bool $allowUnboundCapture = false): bool
     {
         if ( SourceDom::isBoundCapturedDialogTrigger($element) || SourceDom::isBoundCapturedDialogCloser($element) ) {
             return true;
         }
 
-        foreach ( array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_CLOSE) as $binding ) {
+        foreach ( array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_CLOSE, CaptureEvidence::DIALOG_PANEL) as $binding ) {
             $key = trim(SourceDom::attr($element, $binding));
             if ( '' === $key ) continue;
+            // Transparent child conversion can retain an isolated capture
+            // binding even when its corresponding panel is absent.
+            if ( $allowUnboundCapture ) return true;
             $panel = $element->ownerDocument?->getElementById($key);
             if ( $panel instanceof DOMElement && $key === SourceDom::attr($panel, CaptureEvidence::DIALOG_PANEL) ) {
                 return true;
@@ -730,15 +733,16 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
             if ( $requireOrdinaryFlow && (
                 $candidate->hasAttribute('slot')
                 || $candidate->hasAttribute('hidden')
-                || in_array(strtolower($candidate->tagName), array( 'slot', 'shadow', 'content', 'template', 'script', 'style', 'svg', 'math', 'img', 'picture', 'video', 'audio', 'iframe', 'object', 'embed', 'canvas', 'details', 'dialog', 'form', 'input', 'select', 'textarea', 'button' ), true)
+                || in_array(strtolower($candidate->tagName), array( 'slot', 'shadow', 'content', 'template', 'script', 'style', 'math', 'img', 'picture', 'video', 'audio', 'iframe', 'object', 'embed', 'canvas', 'details', 'dialog', 'form', 'input', 'select', 'textarea' ), true)
                 || ( $candidate !== $element && \Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags::isUnknownHtmlElement($candidate) )
             ) ) {
                 return false;
             }
 
-            // Runtime metadata on any descendant would be flattened by a
-            // transparent lowering, so preserve the complete custom element.
-            if ( $this->isRuntimeDomTarget($candidate)
+            // Captured dialog bindings retain their bounded control or panel
+            // during child conversion; they do not own the surrounding host.
+            // Other runtime targets still require the complete custom element.
+            if ( ( $this->isRuntimeDomTarget($candidate) && ! $this->isCapturedDialogRuntimeBinding($candidate, true) )
                 || array() !== SourceDom::eventMetadata($candidate)
                 || (! $allowMotionStructure && $this->sourceElementClassifier->hasMotionStructureToken($candidate))
             ) {

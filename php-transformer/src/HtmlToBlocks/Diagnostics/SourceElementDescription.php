@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
@@ -74,13 +76,13 @@ final class SourceElementDescription
     public function structureSignals(DOMElement $element, array $attrs = array()): array
     {
         $className = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . (string) ($attrs['className'] ?? '')));
-        $style = strtolower(trim(SourceDom::attr($element, 'style') . ';' . (ArrayField::string($attrs, 'style'))));
+        $declarations = SourceDeclarations::parse(SourceDom::attr($element, 'style') . ';' . ArrayField::string($attrs, 'style'));
         $signals = array();
 
         if ( preg_match('/(?:^|[\s_-])(?:card|feature|service|provider|resource|post|project|stat|badge|tile|panel|item)(?:$|[\s_-])/', $className) || 'article' === strtolower($element->tagName) ) {
             $signals['card_like'] = true;
         }
-        if ( preg_match('/(?:^|[\s_-])(?:cards|features|services|providers|testimonials|resources|posts|projects|stats|badges|grid|grid-[0-9]+|tiles|columns|collection|gallery)(?:$|[\s_-])/', $className) || preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style) ) {
+        if ( preg_match('/(?:^|[\s_-])(?:cards|features|services|providers|testimonials|resources|posts|projects|stats|badges|grid|grid-[0-9]+|tiles|columns|collection|gallery)(?:$|[\s_-])/', $className) || 'grid' === CssValueInspector::declared($declarations, 'display') || isset($declarations['grid-template-columns']) ) {
             $signals['grid_like'] = true;
         }
         if ( preg_match('/(?:^|[\s_-])(?:hero|masthead|intro|banner|container|wrap|wrapper|inner|shell)(?:$|[\s_-])/', $className) ) {

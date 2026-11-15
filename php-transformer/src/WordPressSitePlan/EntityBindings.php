@@ -138,7 +138,13 @@ final class EntityBindings
                         $search = $binding['search_block_markup'];
                         if (1 === substr_count($partMarkup, $search)) $matches[] = $part['source_path'];
                     }
-                    if (1 === count($matches)) $binding['source_path'] = $matches[0];
+                    if (1 === count($matches)) {
+                        $binding['source_path'] = $matches[0];
+                        // The part is its own projected source. Its anchor must
+                        // describe the rewritten markup, not a route's asset
+                        // paths or links from before canonical projection.
+                        $binding['projected_anchor'] = self::projectedAnchor($binding);
+                    }
                 }
                 unset($binding);
                 if (isset($entity['bindings'][0])) $entity['source_path'] = $entity['bindings'][0]['source_path'];

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
@@ -21,7 +22,10 @@ final class SocialSourceStyleProjector
     private const ARTWORK_SHAPES = array('svg', 'g', 'path', 'circle', 'ellipse', 'rect', 'polygon', 'title', 'desc');
     private const ARTWORK_ATTRIBUTES = array('viewbox', 'x', 'y', 'width', 'height', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'points', 'transform', 'fill-rule', 'clip-rule');
 
-    public function __construct(private readonly StyleResolver $styles) {}
+    public function __construct(
+        private readonly StyleResolver $styles,
+        private readonly SourceStyleResolutionState $sourceStyles
+    ) {}
 
     /** @param array<string,mixed> $attrs @return array<string,mixed> */
     public function project(array $attrs, DOMElement $anchor, AuthorStyleAnalysis $author, SourceTargetProjectionState $targets, bool $fontOnly = false): array
@@ -41,14 +45,14 @@ final class SocialSourceStyleProjector
         $fontGlyph = false;
         (new CssStylesheetTransformer())->visitStyleRules($author->combinedCss(), function (string $prelude, string $body) use ($anchor, &$glyph, &$fontGlyph): void {
             if ($fontGlyph) return;
-            $content = $this->styles->verbatimCssDeclarations($body)['content'] ?? '';
+            $content = SourceDeclarations::verbatim($body)['content'] ?? '';
             if (in_array(strtolower(trim($content)), array('', 'none', 'normal', 'initial', 'unset', '""', "''"), true)) return;
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                 if (!preg_match('/::?before$/', $selector)) continue;
                 $subject = preg_replace('/::?before$/', '', $selector) ?? '';
                 foreach ($anchor->getElementsByTagName('*') as $candidate) {
                     if (!in_array(strtolower($candidate->tagName), array('i', 'span'), true)) continue;
-                    if (!$this->styles->matchesCssSelector($candidate, $subject)) continue;
+                    if (!$this->sourceStyles->matches($candidate, $subject)) continue;
                     $glyph = $candidate;
                     $fontGlyph = true;
                     return;
@@ -86,11 +90,11 @@ final class SocialSourceStyleProjector
             // setting, so a colour the source set on the glyph itself is not copied.
             $glyphOwnsColor = false;
             (new CssStylesheetTransformer())->visitStyleRules($author->combinedCss(), function (string $prelude, string $body, array $conditions) use ($glyph, $marker, $nativeGlyph, $fontGlyph, $properties, $author, $targets, $scope, $artwork, &$glyphOwnsColor): void {
-                $declarations = array_intersect_key($this->styles->verbatimCssDeclarations($body), $properties);
+                $declarations = array_intersect_key(SourceDeclarations::verbatim($body), $properties);
                 if ($artwork && isset($declarations['color'])) {
                     $matches = false;
                     foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
-                        $matches = $matches || $this->styles->matchesCssSelector($glyph, $selector);
+                        $matches = $matches || $this->sourceStyles->matches($glyph, $selector);
                     }
                     $glyphOwnsColor = $glyphOwnsColor || $matches;
                     unset($declarations['color']);
@@ -98,7 +102,7 @@ final class SocialSourceStyleProjector
                 if (array() === $declarations) return;
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     $subject = $fontGlyph ? preg_replace('/::?before$/', '', $selector) ?? $selector : $selector;
-                    if (!$this->styles->matchesCssSelector($glyph, $subject)) continue;
+                    if (!$this->sourceStyles->matches($glyph, $subject)) continue;
                     $parsed = CssSelectorMatcher::parse($subject);
                     if (!$parsed['supported']) continue;
                     $ownPseudo = $fontGlyph && $subject !== $selector;
@@ -113,7 +117,7 @@ final class SocialSourceStyleProjector
                     $targets->record(SourceDom::elementSelector($glyph), $target, $this->styles->cssDeclarationString($projected), $conditions);
                 }
             });
-            $inline = array_intersect_key($this->styles->verbatimCssDeclarations($glyph->getAttribute('style')), $properties);
+            $inline = array_intersect_key(SourceDeclarations::verbatim($glyph->getAttribute('style')), $properties);
             if ($artwork && isset($inline['color'])) {
                 $glyphOwnsColor = true;
                 unset($inline['color']);
@@ -140,7 +144,7 @@ final class SocialSourceStyleProjector
         foreach ($nodes as $node) {
             if (!in_array(strtolower($node->tagName), self::ARTWORK_SHAPES, true)) return false;
             $stroke = strtolower(trim($node->getAttribute('stroke')));
-            if (('' !== $stroke && 'none' !== $stroke) || 1 === preg_match('/(?:^|;)\s*stroke\s*:\s*(?!none)/i', $node->getAttribute('style'))) return false;
+            if (('' !== $stroke && 'none' !== $stroke) || array() !== array_filter(CssRuleAnalyzer::declarations($node->getAttribute('style'), array('stroke')), static fn (array $declaration): bool => ! str_starts_with(CssValueInspector::comparable($declaration['value']), 'none'))) return false;
             $fill = self::artworkFill($node);
             if (str_starts_with($fill, 'url(')) return false;
             if (!in_array($fill, array('', 'currentcolor', 'none', 'inherit'), true)) $paints[$fill] = true;
@@ -151,7 +155,8 @@ final class SocialSourceStyleProjector
     /** The element's own fill; a style declaration wins over the attribute. */
     private static function artworkFill(DOMElement $node): string
     {
-        if (1 === preg_match('/(?:^|;)\s*fill\s*:\s*([^;!]+)/i', $node->getAttribute('style'), $match)) return strtolower(trim($match[1]));
+        $declaration = CssRuleAnalyzer::declarations($node->getAttribute('style'), array('fill'))[0] ?? null;
+        if (null !== $declaration) return CssValueInspector::comparable($declaration['value']);
         return strtolower(trim($node->getAttribute('fill')));
     }
 
