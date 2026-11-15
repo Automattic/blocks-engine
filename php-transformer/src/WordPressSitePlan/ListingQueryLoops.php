@@ -23,6 +23,9 @@ final class ListingQueryLoops
 {
     /** @var list<string> */
     private array $queryContainers = array();
+
+    /** @var array<string,string> Authored card excerpts by post source path. */
+    private array $authoredExcerpts = array();
     /** @var array<string,list<array{href:string,text:string}>> Listing anchors by markup hash. */
     private array $anchorsByMarkup = array();
 
@@ -116,6 +119,12 @@ final class ListingQueryLoops
             }
             $consumedMenus = array();
             $replaced = $this->replaceMarkup($sourceListingMarkup, $posts, $fields, isset($postsByArchive[$page['source_path']]), null !== $sectionRoute ? $sections[$sectionRoute]['slug'] : null, $foldedListingRoutes[$page['source_path']] ?? array(), $consumedMenus);
+            // A page can list the same posts again (a "most recent" scroller
+            // beside the main list); each further list becomes its own loop.
+            for ($next = $replaced; null !== $next && null === $sectionRoute;) {
+                $next = $this->replaceMarkup($next, $posts, $fields, isset($postsByArchive[$page['source_path']]), null, $foldedListingRoutes[$page['source_path']] ?? array(), $consumedMenus);
+                if (null !== $next && $next !== $replaced) $replaced = $next; else break;
+            }
             if (null === $replaced || $replaced === $page['canonical_block_markup']) {
                 $decline('unsafe_card_template');
                 continue;
@@ -177,6 +186,7 @@ final class ListingQueryLoops
             }
         }
         unset($page);
+        $excerpts += $this->authoredExcerpts;
         foreach ($pages as &$page) if (isset($excerpts[$page['source_path']])) $page['metadata']['excerpt'] = $excerpts[$page['source_path']];
         unset($page);
         foreach ($pages as &$page) if (isset($featuredImages[$page['source_path']]) && !isset($page['metadata']['featured_image'])) $page['metadata']['featured_image'] = $featuredImages[$page['source_path']];
@@ -315,19 +325,23 @@ final class ListingQueryLoops
             }
         }
         $ranges = $documentIndex->ranges();
+        $queryRanges = array_filter($ranges, static fn(array $range): bool => str_starts_with(substr($markup, $range['offset'], 15), '<!-- wp:query '));
         // A range's anchors do not depend on the route being matched.
         $rangeAnchors = array();
         foreach (array() === $routes ? array() : $ranges as $index => $range) {
             $slice = substr($markup, $range['offset'], $range['length']);
             // A single reciprocal card must not swallow the archive heading.
             if (1 === count($routes) && preg_match('/<h1\b/i', $slice)) continue;
+            // A materialized query loop, and everything in it, is not a card
+            // of a further listing.
+            if (str_contains($slice, '<!-- wp:query ') || array_filter($queryRanges, static fn(array $query): bool => $range['offset'] >= $query['offset'] && $range['offset'] < $query['offset'] + $query['length'])) continue;
             $rangeAnchors[$index] = $this->anchors($slice);
         }
         // A range is a card for a route when every anchor that addresses any
         // listed route addresses that route. Resolve each anchor to the routes
         // it addresses once, so a listing of N posts costs one pass over its
         // ranges instead of N passes that each rescan every route.
-        $exclusive = array();
+        $candidates = array();
         foreach ($rangeAnchors as $index => $anchors) {
             $shared = null;
             foreach ($anchors as $anchor) {
@@ -335,14 +349,24 @@ final class ListingQueryLoops
                 if (array() === $addressed) continue;
                 $shared = null === $shared ? $addressed : array_intersect_key($shared, $addressed);
             }
-            foreach (null === $shared ? array() : array_keys($shared) as $route) {
-                $range = $ranges[$index];
-                if (!isset($exclusive[$route]) || $range['length'] > $exclusive[$route]['length']) {
-                    $exclusive[$route] = array('offset' => $range['offset'], 'length' => $range['length'], 'route' => $route, 'post' => $routes[$route]);
-                }
+            foreach (null === $shared ? array() : array_keys($shared) as $route) $candidates[$route][] = $ranges[$index];
+        }
+        // A card is the outermost such range. A page can render the same
+        // posts in several lists (a "most recent" scroller beside the main
+        // list, or a mobile copy); the fullest list sharing one parent is the
+        // listing, and a later pass takes the next.
+        $lists = array();
+        foreach ($candidates as $route => $list) {
+            foreach ($list as $range) {
+                foreach ($list as $outer) if ($outer['length'] > $range['length'] && $outer['offset'] <= $range['offset'] && $outer['offset'] + $outer['length'] >= $range['offset'] + $range['length']) continue 2;
+                $parent = $documentIndex->parent($range);
+                $key = null === $parent ? '' : $parent['offset'] . ':' . $parent['length'];
+                if (!isset($lists[$key][$route]) || $range['length'] > $lists[$key][$route]['length']) $lists[$key][$route] = array('offset' => $range['offset'], 'length' => $range['length'], 'route' => $route, 'post' => $routes[$route]);
             }
         }
-        $cards = array_values(array_intersect_key(array_replace($routes, $exclusive), $exclusive));
+        $size = static fn(array $list): array => array(count($list), array_sum(array_column($list, 'length')));
+        uasort($lists, static fn(array $a, array $b): int => $size($b) <=> $size($a));
+        $cards = array_values(array() === $lists ? array() : reset($lists));
         if (count($cards) < $minimumCards) {
             return null;
         }
@@ -412,6 +436,17 @@ final class ListingQueryLoops
                 $texts[self::leafIdentity(substr($cardMarkup, $leaf['offset'], $leaf['length']))] = true;
             }
             $sharedText = null === $sharedText ? $texts : array_intersect_key($sharedText, $texts);
+        }
+        $authored = $this->authoredExcerpts($markup, $cards, $sharedText ?? array());
+        if (null !== $authored) {
+            $withExcerpt = static function (array $card) use ($authored): array {
+                $card['post']['metadata']['excerpt'] = $authored[$card['post']['source_path']];
+                return $card;
+            };
+            $cards = array_map($withExcerpt, $cards);
+            $templateCards = array_map($withExcerpt, $templateCards);
+            $first = $templateCards[0];
+            $this->authoredExcerpts += $authored;
         }
         $compact = !array_filter($cards, fn(array $card): bool => !$this->isExcerptCard($markup, $card, $sharedText ?? array()));
         $transformed = $this->transformRange($documentIndex, new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($first['post']['canonical_block_markup']), $first, $first['post'], $first['route'], $compact ? ListingExcerptProjection::length($cards) : 0, $boundGroups, false, $sharedText ?? array());
@@ -544,23 +579,81 @@ final class ListingQueryLoops
     private function linkedMetadataGroups(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $card): array
     {
         $markup = $index->markup;
+        $linked = array();
+        foreach ($index->ranges() as $range) {
+            if ($range['offset'] <= $card['offset'] || $range['offset'] + $range['length'] >= $card['offset'] + $card['length']) continue;
+            $paragraph = substr($markup, $range['offset'], $range['length']);
+            $anchors = $this->anchors($paragraph);
+            if ('paragraph' === PostBlocks::sourceBlockName($paragraph) && ListingFieldProjection::isLinkedMetadata($paragraph) && array() !== $anchors && !ListingExcerptProjection::matches($paragraph, $card['post']) && !array_filter($anchors, static fn(array $anchor): bool => self::hrefMatchesRoute($anchor['href'], $card['route']))) $linked[$range['offset']] = $range;
+        }
         $groups = array();
+        $grouped = array();
         foreach ($index->ranges() as $range) {
             if ($range['offset'] <= $card['offset'] || $range['offset'] + $range['length'] >= $card['offset'] + $card['length']) continue;
             $slice = substr($markup, $range['offset'], $range['length']);
             if ('group' !== PostBlocks::sourceBlockName($slice)) continue;
             $children = $index->children($range);
-            if (array() === $children) continue;
-            $paragraphs = array();
-            foreach ($children as $child) {
-                $paragraph = substr($markup, $child['offset'], $child['length']);
-                $anchors = $this->anchors($paragraph);
-                if ('paragraph' !== PostBlocks::sourceBlockName($paragraph) || !ListingFieldProjection::isLinkedMetadata($paragraph) || array() === $anchors || ListingExcerptProjection::matches($paragraph, $card['post']) || array_filter($anchors, static fn(array $anchor): bool => self::hrefMatchesRoute($anchor['href'], $card['route']))) continue 2;
-                $paragraphs[] = $paragraph;
-            }
-            $groups[] = array('offset' => $range['offset'], 'markup' => $slice, 'paragraphs' => $paragraphs, 'ranges' => $children);
+            if (array() === $children || array_filter($children, static fn(array $child): bool => !isset($linked[$child['offset']]))) continue;
+            $groups[$range['offset']] = array('offset' => $range['offset'], 'markup' => $slice, 'paragraphs' => array_map(static fn(array $child): string => substr($markup, $child['offset'], $child['length']), $children), 'ranges' => $children);
+            foreach ($children as $child) $grouped[$child['offset']] = true;
         }
-        return $groups;
+        // A linked label row beside other card fields (a category list next
+        // to the date) binds on its own.
+        foreach (array_diff_key($linked, $grouped) as $offset => $range) {
+            $groups[$offset] = array('offset' => $offset, 'markup' => substr($markup, $offset, $range['length']), 'paragraphs' => array(substr($markup, $offset, $range['length'])), 'ranges' => array($range));
+        }
+        ksort($groups);
+        return array_values($groups);
+    }
+
+    /**
+     * A card's prose that links only to its own post is that post's excerpt as
+     * the source authored it, often a truncation of the body or a summary the
+     * body does not contain. It binds only when every card carries one: the
+     * excerpt block would generate text for a post whose excerpt is empty.
+     *
+     * @param list<array<string,mixed>> $cards
+     * @param array<string,bool> $sharedText
+     * @return array<string,string>|null Excerpt text by post source path.
+     */
+    private function authoredExcerpts(string $markup, array $cards, array $sharedText): ?array
+    {
+        // Own-link prose by card and by the wrapper it sits in; the title is
+        // own-link prose too, so the excerpt is the slot no card titles.
+        $slots = array();
+        $titled = array();
+        foreach ($cards as $cardIndex => $card) {
+            $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup']);
+            $slice = substr($markup, $card['offset'], $card['length']);
+            $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($slice);
+            foreach ($index->ranges() as $range) {
+                if (array() !== $index->children($range)) continue;
+                $leaf = substr($slice, $range['offset'], $range['length']);
+                $text = ListingExcerptProjection::text($leaf);
+                $anchors = $this->anchors($leaf);
+                if ('paragraph' !== PostBlocks::sourceBlockName($leaf)) continue;
+                // A card that shows its description already has its excerpt.
+                if (ListingExcerptProjection::matches($leaf, $card['post'])) return null;
+                // The prose is the link itself, not text under a linked wrapper.
+                if ('' === $text || 1 !== preg_match('/<p\b[^>]*>\s*<a\b[^>]*>.*<\/a>\s*<\/p>/s', $leaf) || array_filter($anchors, static fn(array $anchor): bool => !self::hrefMatchesRoute($anchor['href'], $card['route']))) continue;
+                $parent = $index->parent($range);
+                $slot = null === $parent ? '' : (string) (PostBlocks::sourceAttributes(substr($slice, $parent['offset'], $parent['length']))['className'] ?? '');
+                $kind = $this->classifyCardBlock($leaf, $card['post'], $card['route'], $postIndex, $sharedText);
+                if ('title' === $kind) $titled[$slot] = true;
+                // An excerpt may repeat a whole body paragraph verbatim.
+                if (in_array($kind, array('unbound', 'body'), true)) $slots[$slot][$cardIndex][] = $text;
+            }
+        }
+        $slots = array_filter(array_diff_key($slots, $titled), static fn(array $texts): bool => count($texts) === count($cards) && !array_filter($texts, static fn(array $found): bool => 1 !== count($found)));
+        if (1 !== count($slots)) return null;
+        $excerpts = array();
+        foreach (reset($slots) as $cardIndex => $found) {
+            $source = $cards[$cardIndex]['post']['source_path'];
+            // A post shows one excerpt wherever it is listed.
+            if ($found[0] !== ($this->authoredExcerpts[$source] ?? $found[0])) return null;
+            $excerpts[$source] = $found[0];
+        }
+        return $excerpts;
     }
 
     /** @param array<string,mixed> $card */
@@ -648,6 +741,11 @@ final class ListingQueryLoops
             // Media and other textless leaves carry no visible text to compare,
             // so they are shared only when every card renders the same markup.
             if ('chrome' === $kind && !isset($sharedText[self::leafIdentity($slice)])) return null;
+            if ('permalink' === $kind) {
+                $permalink = PostBlocks::permalink($slice);
+                if (null !== $permalink) return array('markup' => $permalink, 'title' => false, 'content' => false);
+                $kind = 'chrome';
+            }
             if ('comments' === $kind || 'chrome' === $kind) {
                 return array('markup' => $slice, 'title' => false, 'content' => false);
             }
@@ -818,13 +916,22 @@ final class ListingQueryLoops
             return 'body';
         }
         $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '', " \t\n\r\0\x0B\xC2\xA0");
+        // A wordless, mediumless link to the card's own post renders nothing;
+        // the title already carries the permalink.
+        if ('' === $text && array() !== $anchors && !array_filter($anchors, static fn(array $anchor): bool => !self::hrefMatchesRoute($anchor['href'], $route))) {
+            return 'skip';
+        }
         // A separator class marks a divider only while it renders no words;
         // Blogger also names authored text wrappers "separator".
         if ('' === $text || in_array($name, array('separator', 'spacer'), true) || (preg_match('/\bseparator\b/', (string) (PostBlocks::sourceAttributes($slice)['className'] ?? '')) && !preg_match('/[\p{L}\p{N}]/u', $text))) {
             return 'chrome';
         }
-        // Identical card text is chrome, even when the post repeats it.
-        if (isset($sharedText[self::leafIdentity($slice)])) return 'chrome';
+        // Identical card text is chrome, even when the post repeats it. When
+        // it links only to the card's own post (a "Read more" button), its
+        // link is the post's permalink, not the first card's literal URL.
+        if (isset($sharedText[self::leafIdentity($slice)])) {
+            return array() !== $anchors && !array_filter($anchors, static fn(array $anchor): bool => !self::hrefMatchesRoute($anchor['href'], $route)) ? 'permalink' : 'chrome';
+        }
         // Recognize actual article leaves before considering unbound card text.
         $postMarkup = $postIndex->markup;
         foreach ($postIndex->ranges() as $range) {
