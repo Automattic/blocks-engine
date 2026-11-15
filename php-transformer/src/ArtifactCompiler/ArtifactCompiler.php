@@ -2088,8 +2088,7 @@ final class ArtifactCompiler
     {
         $file['provenance']['projected_from_bytes'] ??= (int) ($file['bytes'] ?? strlen((string) ($file['content'] ?? '')));
         $file['path'] = $path;
-        $file = ArtifactNormalizer::withTextPayload($file, CssSelectorListCompactor::stylesheet($content));
-        $content = $file['content'];
+        $file = ArtifactNormalizer::withTextPayload($file, $content);
         $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
         $file['provenance']['hash'] = hash('sha256', $content);
         return $file;

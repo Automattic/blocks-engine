@@ -250,7 +250,6 @@ final class CssSelectorListCompactor
         if ( ! str_contains($prelude, ',') ) {
             return $prelude;
         }
-        $prelude = self::uniqueSelectorArms($prelude);
         $prelude = self::mergeNthChildRuns($prelude);
         if ( ! str_contains($prelude, ',') ) {
             return $prelude;
@@ -324,29 +323,6 @@ final class CssSelectorListCompactor
             }
         }
         return implode(',', $output);
-    }
-
-    /** Duplicate alternatives do not affect matching or specificity, including inside :is(). */
-    private static function uniqueSelectorArms(string $selector): string
-    {
-        for ($i = 0; $i < strlen($selector); ++$i) {
-            if ('[' === $selector[$i]) {
-                $close = CssSyntaxScanner::matchingClose($selector, $i);
-                if (null === $close) return $selector;
-                $i = $close;
-            } elseif ('(' === $selector[$i]) {
-                $close = CssSyntaxScanner::matchingClose($selector, $i);
-                if (null === $close) return $selector;
-                if (preg_match('/:(?:is|where|not|has)$/i', substr($selector, 0, $i))) {
-                    $inner = self::uniqueSelectorArms(substr($selector, $i + 1, $close - $i - 1));
-                    $selector = substr_replace($selector, $inner, $i + 1, $close - $i - 1);
-                    $close = $i + strlen($inner) + 1;
-                }
-                $i = $close;
-            }
-        }
-        $arms = CssStylesheetTransformer::splitSelectorList($selector);
-        return null === $arms ? $selector : implode(',', array_unique(array_map('trim', $arms)));
     }
 
     /** @var array<string, string|null> Bounded syntax-only cache; never holds document state. */
