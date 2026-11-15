@@ -551,7 +551,7 @@ final class ArtifactCompiler
             if (isset($generatedAssetIdentities[$identity])) continue;
             $generatedAssetIdentities[$identity] = true; $generatedAssets[] = $asset;
         }
-        $rootInlineAsset = $this->documentInlineStyleAsset($normalized['files']);
+        $rootInlineAsset = $this->documentInlineStyleAsset($normalized['files'], $authoredFiles);
         if (null !== $rootInlineAsset) $generatedAssets[] = $rootInlineAsset;
         $presentationalHintAsset = $this->documentPresentationalHintAsset($normalized['files']);
         if (null !== $presentationalHintAsset) $generatedAssets[] = $presentationalHintAsset;
@@ -2125,6 +2125,13 @@ final class ArtifactCompiler
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
             $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
+            if (is_string($text) && 'html' === ($file['kind'] ?? '')) {
+                // Stylesheet selectors are not evidence of markup reachability.
+                foreach (array_reverse(StyleTagScanner::scan($text)) as $style) {
+                    if (!StyleTagScanner::isCssType(HtmlTagScanner::attribute($style['attributes'], 'type'))) continue;
+                    $text = substr_replace($text, '', $style['offset'], $style['end_offset'] - $style['offset']);
+                }
+            }
             if (is_string($text) && '' !== $text) $texts[] = $text;
         }
         if (0 === $documents) return $files;
@@ -2346,7 +2353,7 @@ final class ArtifactCompiler
     }
 
     /** Front-end-only document mechanics; never part of the editor carrier. */
-    private function documentInlineStyleAsset(array $files): ?array
+    private function documentInlineStyleAsset(array $files, array $authoredFiles): ?array
     {
         $documents = array();
         foreach ($files as $file) {
@@ -2362,7 +2369,7 @@ final class ArtifactCompiler
         // ID weight without an authored ID, like InlineGeometry's carriers.
         $ids = 0;
         $transformer = new CssStylesheetTransformer();
-        foreach ($files as $file) {
+        foreach (array_merge($files, $authoredFiles) as $file) {
             if ('css' !== ($file['kind'] ?? '')) continue;
             $transformer->visitStyleRules((string) ($file['content'] ?? ''), static function (string $prelude) use (&$ids): void {
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
