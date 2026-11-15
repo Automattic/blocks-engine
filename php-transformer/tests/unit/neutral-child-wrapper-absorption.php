@@ -43,4 +43,9 @@ foreach (array('border:4px solid red', 'border-top:4px solid red', 'border-radiu
     $assert('core/paragraph' === $border['blocks'][0]['innerBlocks'][0]['blockName'], 'The text stays a native paragraph within its painted box.');
 }
 
+$nested = $transform('<style>.surface{padding:2rem;background:#eee}.painted{padding:1rem;background:red}</style><div class="surface"><div class="neutral"><div class="painted"><h2>Title</h2><p>Copy</p></div></div></div>');
+$assert('core/group' === $nested['blocks'][0]['innerBlocks'][0]['blockName'], 'A promoted styled descendant retains its independent box inside the surface.');
+$assert(!str_contains($nested['blocks'][0]['attrs']['className'], 'painted'), 'The descendant paint must not be transferred to the outer surface.');
+$assert(str_contains($nested['blocks'][0]['innerBlocks'][0]['attrs']['className'], 'painted'), 'The painted box keeps its source selector identity.');
+
 fwrite(STDOUT, "Neutral child wrapper absorption passed\n");

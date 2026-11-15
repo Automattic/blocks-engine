@@ -553,6 +553,10 @@ final class WrapperCoalescer
         }
         $child = ($this->soleElementChild)($element);
         if (!$child instanceof DOMElement
+            // Conversion may already have promoted a deeper styled descendant
+            // through this neutral source node. Its declarations, not this
+            // node's neutrality, own the converted block's box.
+            || $this->matchingSourceChild($element, $childBlock) !== $child
             || !in_array(strtolower($child->tagName), 'core/paragraph' === $name ? array('p') : array('div'), true)
             || $this->runtimeIslands->isRuntimeDomTarget($child)
             || $this->sourceElementClassifier->hasMotionStructureToken($child)
