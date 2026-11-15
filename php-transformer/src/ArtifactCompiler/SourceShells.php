@@ -147,6 +147,21 @@ final class SourceShells
                 // The source still owns provenance here: do not infer sampled
                 // paint from the SVG produced later by social-link lowering.
                 $node->removeAttribute(CaptureEvidence::GLYPH_COLOR);
+                // A selector-resolved dialog ancestor can sit at a different
+                // depth on each route. Its state is shared; the distance from
+                // the trigger is capture context, not landmark identity. Keep
+                // depth-only targets structural and preserve emission evidence.
+                if ($node->hasAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE)) {
+                    $states = json_decode($node->getAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE), true);
+                    if (is_array($states) && array_is_list($states)) {
+                        foreach ($states as &$state) {
+                            if (is_array($state) && is_string($state['selector'] ?? null) && '' !== trim($state['selector'])) unset($state['depth']);
+                        }
+                        unset($state);
+                        $encoded = json_encode($states, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                        if (false !== $encoded) $node->setAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE, $encoded);
+                    }
+                }
                 $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX)));
                 if (array() === $classes) $node->removeAttribute('class');
                 else $node->setAttribute('class', implode(' ', $classes));
