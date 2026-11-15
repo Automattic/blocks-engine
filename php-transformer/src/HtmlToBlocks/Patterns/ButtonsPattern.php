@@ -937,7 +937,12 @@ final class ButtonsPattern
         // belongs on the parent core/buttons, not each button). Emitting it here
         // produces an unsupported attribute and invalid block markup, so drop it.
         unset($attrs['layout']);
-        $isOutline     = $this->hasOutlineSignal($element, $resolvedStyle, $native);
+        // Outline is a recognition decision, so it reads the same control
+        // surface the button signal read: the cascade that renders at the
+        // reference viewport, media-conditional rules included. The static
+        // view alone can miss a fill authored behind a width query and would
+        // then force a transparent background over the author's paint.
+        $isOutline     = $this->hasOutlineSignal($element, $buttons->controlSurfaceStyle($element), $native);
         if ( $isOutline ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'is-style-outline');
         }
