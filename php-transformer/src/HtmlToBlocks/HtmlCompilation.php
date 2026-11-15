@@ -1698,11 +1698,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             new NavigationPatternContext(
                 $this->styleResolver,
+                $this->session,
                 $this->navigationStyleProjector,
                 $this->navigationToggleSuppressor,
                 $this->runtimeIslands,
                 $this->session->sourceTargetProjectionState(),
-                $this->session,
                 $this->svgMaterializer,
                 $this->projectedNavigation
             ),
@@ -1802,7 +1802,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             presentation: $this->styleResolver,
             navigationContext: new NavigationPatternContext(
                 $this->styleResolver,
-                session: $this->session,
+                $this->session,
                 publishesSubjects: false
             ),
             markupContext: new MarkupPatternContext(

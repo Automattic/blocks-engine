@@ -22,10 +22,8 @@ final class QuotePatternContext
                     $this->styleResolver->richTextSourceMarkers(...),
                     $this->styleResolver->serializedInlineStyle(...)
                 );
-                $class = trim($child->getAttribute('class'));
-                if ( '' !== $class ) {
-                    $content = '<span class="' . htmlspecialchars($class, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
-                }
+                // The native quote already saves a cite carrier. Wrapping its
+                // contents in source-container classes changes selector topology.
                 return $content;
             }
         }
