@@ -9,7 +9,6 @@ use Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
-use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
@@ -103,6 +102,12 @@ final class ArtifactCompiler
 
     private readonly RuntimeScriptEvidenceAnalyzer $runtimeScriptEvidenceAnalyzer;
 
+    /** The artifact's files indexed for the current compile. */
+    private readonly ArtifactFileIndex $fileIndex;
+
+    /** Collects the selectors runtime scripts depend on. */
+    private readonly RuntimeScriptSelectors $runtimeSelectors;
+
     /** Reads page titles and navigation labels from source documents. */
     private readonly DocumentTitles $titles;
 
@@ -135,6 +140,8 @@ final class ArtifactCompiler
         $this->cssRuleTrees = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache();
         $this->wordpressCompat = new WordPressCompatCss();
         $this->runtimeScriptEvidenceAnalyzer = new RuntimeScriptEvidenceAnalyzer();
+        $this->fileIndex = new ArtifactFileIndex();
+        $this->runtimeSelectors = new RuntimeScriptSelectors($this->runtimeScriptEvidenceAnalyzer, $this->fileIndex);
         $this->titles = new DocumentTitles();
     }
 
@@ -204,12 +211,6 @@ final class ArtifactCompiler
     /** Whether the artifact offers a purchase affordance; decided once per compile. */
     private ?bool $sourceHasPurchaseAffordance = null;
 
-    /** @var array<string, array<string, mixed>> */
-    private array $filesByPath = array();
-
-    /** @var array<int, array<string, mixed>> */
-    private array $imageFiles = array();
-
     /**
      * Raw-byte SHA-256 results retained across page indexing for this instance.
      *
@@ -221,9 +222,6 @@ final class ArtifactCompiler
     private int $glyphColorInspectionCount = 0;
 
     private ?PayloadReader $glyphPayloadReader = null;
-
-    /** @var array<int, string> */
-    private array $scriptContents = array();
 
     /** @var array<string,mixed> Optional normalized proof for the current artifact. */
     private array $layoutGeometryProof = array();
@@ -247,13 +245,13 @@ final class ArtifactCompiler
             'files'      => $files,
         ));
         $this->indexFiles($normalized['files']);
-        $runtimeDomSelectors = $this->runtimeDomSelectors($html, $sourcePath, $normalized['files']);
+        $runtimeDomSelectors = $this->runtimeSelectors->runtimeDomSelectors($html, $sourcePath, $normalized['files']);
 
         return array(
             'runtime_script_metadata'  => $this->runtimeScriptMetadataForSource($html, $sourcePath, $normalized['files']),
             'runtime_dom_selectors'    => $runtimeDomSelectors,
             'runtime_behavioral_selectors' => $runtimeDomSelectors,
-            'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $normalized['files']),
+            'runtime_canvas_selectors' => $this->runtimeSelectors->runtimeCanvasSelectors($html, $sourcePath, $normalized['files']),
         );
     }
 
@@ -1225,7 +1223,7 @@ final class ArtifactCompiler
         // Card URLs identify pages by the same entry-root-relative route as the plan.
         $compiledPages = array();
         foreach ($files as $file) {
-            if ($this->isMaterializedHtmlDocument($file) && 'page' === ($file['metadata']['post_type'] ?? 'page')) {
+            if (ArtifactFileIndex::isMaterializedHtmlDocument($file) && 'page' === ($file['metadata']['post_type'] ?? 'page')) {
                 $path = (string) $file['path'];
                 $relative = '.' !== $entryRoot && str_starts_with($path, $entryRoot . '/') ? substr($path, strlen($entryRoot) + 1) : $path;
                 $routes = array($pageRoutes[$path] ?? '', SchemaProductEvidence::pageRoute('/' . rawurldecode($relative), $path, '.' === $entryRoot ? '' : $entryRoot));
@@ -1906,8 +1904,8 @@ final class ArtifactCompiler
         $analysisCache = $this->cacheHtmlAnalysis
             ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
             : new HtmlTransformerAnalysisCache();
-        $runtimeDomSelectors = $this->runtimeDomSelectors($html, $sourcePath, $files);
-        $runtimeProjectionSelectors = $this->runtimeProjectionSelectors($html, $sourcePath, $files);
+        $runtimeDomSelectors = $this->runtimeSelectors->runtimeDomSelectors($html, $sourcePath, $files);
+        $runtimeProjectionSelectors = $this->runtimeSelectors->runtimeProjectionSelectors($html, $sourcePath, $files);
         $runtimeProjectionScriptAssets = $this->runtimeProjectionScriptAssetsForSource($html, $sourcePath, $files);
         foreach ($themePreferenceOwnership as $ownership) {
             $ownerPath = $ownership['runtime_script_path'] ?? null;
@@ -1953,7 +1951,7 @@ final class ArtifactCompiler
             'runtime_projection_selectors' => $runtimeProjectionSelectors,
             'runtime_projection_script_assets' => $runtimeProjectionScriptAssets,
             'theme_preference_ownership' => $themePreferenceOwnership,
-            'runtime_canvas_selectors'  => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
+            'runtime_canvas_selectors'  => $this->runtimeSelectors->runtimeCanvasSelectors($html, $sourcePath, $files),
             'generated_block_namespace' => $generatedBlockNamespace,
             'generated_asset_root'       => $this->generatedAssetRoot,
             'extract_global_shell'       => $extractGlobalShell,
@@ -2022,7 +2020,7 @@ final class ArtifactCompiler
     private function runtimeIslandsWithMaterializedInlineScripts(array $runtimeIslands, string $sourcePath, array $files): array
     {
         $files = ArtifactNormalizer::inlineOccurrences($files);
-        $inlineScripts = array_values(array_filter($files, fn (mixed $file): bool => is_array($file) && 'inline-script' === ($file['source'] ?? '') && $sourcePath === ($file['source_path'] ?? '') && $this->isMaterializedScriptAsset($file)));
+        $inlineScripts = array_values(array_filter($files, fn (mixed $file): bool => is_array($file) && 'inline-script' === ($file['source'] ?? '') && $sourcePath === ($file['source_path'] ?? '') && ArtifactFileIndex::isMaterializedScriptAsset($file)));
         foreach ( $runtimeIslands as &$runtimeIsland ) {
             if ( ! is_array($runtimeIsland) || 'script' === ($runtimeIsland['kind'] ?? '') ) {
                 continue;
@@ -2048,7 +2046,7 @@ final class ArtifactCompiler
         unset($runtimeIsland);
 
         foreach ( $files as $file ) {
-            if ( ! is_array($file) || 'inline-script' !== ($file['source'] ?? '') || $sourcePath !== ($file['source_path'] ?? '') || ! $this->isMaterializedScriptAsset($file) ) {
+            if ( ! is_array($file) || 'inline-script' !== ($file['source'] ?? '') || $sourcePath !== ($file['source_path'] ?? '') || ! ArtifactFileIndex::isMaterializedScriptAsset($file) ) {
                 continue;
             }
 
@@ -2160,7 +2158,7 @@ final class ArtifactCompiler
         $html = $this->withoutMaterializedStyleTags($html, $entryPath, $files);
         $html = $this->withInlinedSvgSpriteSymbols($html, $entryPath, $files);
         $html = preg_replace_callback('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1[^>]*>/i', function (array $matches) use ($entryPath, $files): string {
-            $asset = $this->findAssetByHtmlReference((string) $matches[2], $entryPath, $files);
+            $asset = $this->fileIndex->findAssetByHtmlReference((string) $matches[2], $entryPath, $files);
             if ( is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') && ! $this->isSafeImageAsset($asset) ) {
                 return '';
             }
@@ -2191,7 +2189,7 @@ final class ArtifactCompiler
         $html = preg_replace_callback('/(<use\b[^>]*?\s(?:xlink:)?href\s*=\s*)(["\'])([^"\'#]+)#([^"\']+)\2/i', function (array $match) use ($entryPath, $files, &$sprites, &$definitions): string {
             $path = html_entity_decode($match[3], ENT_QUOTES | ENT_HTML5);
             if ( ! array_key_exists($path, $sprites) ) {
-                $asset = $this->findAssetByHtmlReference($path, $entryPath, $files);
+                $asset = $this->fileIndex->findAssetByHtmlReference($path, $entryPath, $files);
                 $content = is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') ? (string) ($asset['content'] ?? '') : '';
                 $sprite = new DOMDocument();
                 $sprites[$path] = '' !== $content && SourceDom::isSafeSvgContent($content) && $sprite->loadXML($content, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING) ? new DOMXPath($sprite) : null;
@@ -2244,7 +2242,7 @@ final class ArtifactCompiler
         $scriptIndex = 0;
         $hasDeclaredScriptFiles = false;
         foreach ( $files as $file ) {
-            if ( is_array($file) && 'inline-script' !== ($file['source'] ?? '') && $this->isMaterializedScriptAsset($file) ) {
+            if ( is_array($file) && 'inline-script' !== ($file['source'] ?? '') && ArtifactFileIndex::isMaterializedScriptAsset($file) ) {
                 $hasDeclaredScriptFiles = true;
                 break;
             }
@@ -2254,8 +2252,8 @@ final class ArtifactCompiler
             ++$scriptIndex;
             $src = HtmlTagScanner::attribute((string) $matches[1], 'src');
             if ( '' !== $src ) {
-                $asset = $this->findAssetByHtmlReference($src, $entryPath, $files);
-                if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
+                $asset = $this->fileIndex->findAssetByHtmlReference($src, $entryPath, $files);
+                if ( ! is_array($asset) || ! ArtifactFileIndex::isMaterializedScriptAsset($asset) ) {
                     return $hasDeclaredScriptFiles ? (string) $matches[0] : '';
                 }
 
@@ -2335,14 +2333,6 @@ final class ArtifactCompiler
         return $result;
     }
 
-    /** @param array<string, mixed> $asset */
-    private function isMaterializedScriptAsset(array $asset): bool
-    {
-        return in_array($asset['kind'] ?? '', array('js', 'mjs'), true)
-            || 'script' === ($asset['role'] ?? '')
-            || in_array($asset['mime_type'] ?? '', array('application/javascript', 'text/javascript', 'application/ecmascript', 'text/ecmascript'), true);
-    }
-
     /**
      * @param array<int, array<string, mixed>> $files
      * @return array<string, mixed>|null
@@ -2352,7 +2342,7 @@ final class ArtifactCompiler
         $files = ArtifactNormalizer::inlineOccurrences($files);
         $selector = 'script:nth-of-type(' . $scriptIndex . ')';
         foreach ( $files as $file ) {
-            if ( 'inline-script' !== ($file['source'] ?? '') || $entryPath !== ($file['source_path'] ?? '') || $selector !== ($file['selector'] ?? '') || ! $this->isMaterializedScriptAsset($file) ) {
+            if ( 'inline-script' !== ($file['source'] ?? '') || $entryPath !== ($file['source_path'] ?? '') || $selector !== ($file['selector'] ?? '') || ! ArtifactFileIndex::isMaterializedScriptAsset($file) ) {
                 continue;
             }
 
@@ -2531,7 +2521,7 @@ final class ArtifactCompiler
         }
         unset($file);
         $assets = array();
-        $scripts = $this->allScriptContents($files);
+        $scripts = $this->fileIndex->allScriptContents($files);
         foreach ($files as $document) {
             if ('html' !== ($document['kind'] ?? '') || !is_string($document['content'] ?? null)) continue;
             // An included component is replayed inside each document that includes it.
@@ -2679,7 +2669,7 @@ final class ArtifactCompiler
     /** @param array<int, array<string, mixed>> $files */
     private function artifactRelativeStylesheetContent(string $content, string $stylesheetPath, array $files): string
     {
-        $paths = array() !== $this->filesByPath ? $this->filesByPath : array_fill_keys(array_column($files, 'path'), true);
+        $paths = $this->fileIndex->knownPaths($files);
         return CssUrlRewriter::rewrite($content, static function (string $reference) use ($stylesheetPath, $paths): string {
             if ('' === $reference || preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $reference)) return $reference;
             preg_match('/^([^?#]*)(.*)$/s', $reference, $parts);
@@ -3679,294 +3669,6 @@ final class ArtifactCompiler
         );
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, string>
-     */
-    private function runtimeDomSelectors(string $html, string $sourcePath, array $files): array
-    {
-        $hasDeclaredScriptFiles = false;
-        foreach ( $files as $file ) {
-            if ( is_array($file) && 'inline-script' !== ($file['source'] ?? '') && $this->isMaterializedScriptAsset($file) ) {
-                $hasDeclaredScriptFiles = true;
-                break;
-            }
-        }
-        $documentScripts = $this->documentScriptContents($html, $sourcePath, $files);
-        if ( ! $hasDeclaredScriptFiles && array() === $documentScripts ) {
-            return array();
-        }
-
-        $selectors = array();
-        $controlSelectors = $this->formControlSelectors($html);
-        $statusFeedbackSelectors = $this->formStatusFeedbackSelectors($html);
-        foreach ( $documentScripts as $script ) {
-            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
-                $selector = (string) $dependency['selector'];
-                if ( ! $hasDeclaredScriptFiles && ! str_contains($selector, '[data-')
-                    && ! $this->runtimeScriptEvidenceAnalyzer->hasTextOnlyMutations($script, $selector) ) {
-                    continue;
-                }
-                if ( true === $dependency['presentation_only'] ) {
-                    continue;
-                }
-                if ( isset($controlSelectors[$selector]) && true !== $dependency['control_runtime'] ) {
-                    continue;
-                }
-                $selectors[$selector] = true;
-            }
-        }
-
-        foreach ( $this->allScriptContents($files) as $script ) {
-            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
-                $selector = (string) $dependency['selector'];
-                if ( true === $dependency['presentation_only'] ) {
-                    continue;
-                }
-                if ( isset($statusFeedbackSelectors[$selector]) ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * Presentation-only scripts still need stable DOM identities when editable
-     * block serialization cannot retain their source data attributes.
-     *
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, string>
-     */
-    private function runtimeProjectionSelectors(string $html, string $sourcePath, array $files): array
-    {
-        $selectors = array();
-        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
-            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
-                $selector = (string) $dependency['selector'];
-                if ( str_contains($selector, '[data-') && true === $dependency['presentation_only'] ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * @return array<string, bool>
-     */
-    private function formStatusFeedbackSelectors(string $html): array
-    {
-        $selectors = array();
-        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
-
-        foreach ( $document->getElementsByTagName('*') as $element ) {
-            if ( ! $element instanceof DOMElement || ! $this->isFormStatusFeedbackElement($element) ) {
-                continue;
-            }
-
-            $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
-            if ( '' !== $id ) {
-                $selectors['#' . $id] = true;
-            }
-            foreach ( SourceDom::tokens($element->hasAttribute('class') ? $element->getAttribute('class') : '') as $class ) {
-                if ( '' !== $class && ! $this->isBehaviorHookClassName($class) ) {
-                    $selectors['.' . $class] = true;
-                }
-            }
-        }
-
-        return $selectors;
-    }
-
-    private function isFormStatusFeedbackElement(DOMElement $element): bool
-    {
-        if ( in_array(strtolower($element->tagName), array('button', 'input', 'select', 'textarea', 'form', 'script', 'style'), true) ) {
-            return false;
-        }
-
-        $tokens = strtolower(trim(implode(' ', array(
-            $element->hasAttribute('id') ? $element->getAttribute('id') : '',
-            $element->hasAttribute('class') ? $element->getAttribute('class') : '',
-            $element->hasAttribute('role') ? $element->getAttribute('role') : '',
-            $element->hasAttribute('aria-live') ? 'aria-live' : '',
-        ))));
-
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:form|contact|newsletter|signup|subscribe|submission|submit|message|status|feedback|alert|notice|response|success|error|warning|confirmation|thanks?)(?:[^a-z0-9]|$)/', $tokens)
-            && (bool) preg_match('/(?:^|[^a-z0-9])(?:success|error|message|status|feedback|alert|notice|response|warning|confirmation|thanks?|aria-live)(?:[^a-z0-9]|$)/', $tokens);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, string>
-     */
-    private function runtimeCanvasSelectors(string $html, string $sourcePath, array $files): array
-    {
-        $canvasSelectors = $this->canvasSelectors($html);
-        if ( array() === $canvasSelectors ) {
-            return array();
-        }
-
-        $selectors = array();
-        $scripts = $this->documentScriptContents($html, $sourcePath, $files);
-        foreach ( $scripts as $script ) {
-            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['canvas_selectors'] as $selector ) {
-                if ( isset($canvasSelectors[$selector]) ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-
-        $combinedScripts = implode("\n", $scripts);
-        if ( 1 === preg_match('/\.\s*getContext\s*\(/', $combinedScripts) ) {
-            foreach ( $this->scriptCanvasArgumentSelectors($combinedScripts) as $selector ) {
-                if ( isset($canvasSelectors[$selector]) ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function scriptCanvasArgumentSelectors(string $script): array
-    {
-        $selectors = array();
-        if ( preg_match_all('/\b[A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*\s*\([^;)]*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $id ) {
-                $selectors['#' . (string) $id] = true;
-            }
-        }
-
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . RuntimeSelectorVocabulary::scriptSelectorPattern() . ')\4\s*\))/', $script, $assignments, PREG_SET_ORDER) ) {
-            foreach ( $assignments as $assignment ) {
-                $variable = (string) $assignment[1];
-                if ( ! preg_match('/(?:\bnew\s+)?\b[A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*\s*\([^;)]*\b' . preg_quote($variable, '/') . '\b/', $script) ) {
-                    continue;
-                }
-                $selectors['' !== (string) ($assignment[3] ?? '') ? '#' . (string) $assignment[3] : (string) $assignment[5]] = true;
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * @return array<string, bool>
-     */
-    private function canvasSelectors(string $html): array
-    {
-        $selectors = array();
-        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
-
-        foreach ( $document->getElementsByTagName('canvas') as $canvas ) {
-            if ( ! $canvas instanceof DOMElement ) {
-                continue;
-            }
-            $id = trim($canvas->hasAttribute('id') ? $canvas->getAttribute('id') : '');
-            if ( '' !== $id ) {
-                $selectors['#' . $id] = true;
-            }
-            foreach ( SourceDom::tokens($canvas->hasAttribute('class') ? $canvas->getAttribute('class') : '') as $class ) {
-                if ( '' !== $class ) {
-                    $selectors['.' . $class] = true;
-                    $selectors['canvas.' . $class] = true;
-                }
-            }
-            $selectors['canvas'] = true;
-        }
-
-        return $selectors;
-    }
-
-    /**
-     * @return array<string, bool>
-     */
-    private function formControlSelectors(string $html): array
-    {
-        $selectors = array();
-        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
-
-        foreach ( $document->getElementsByTagName('*') as $element ) {
-            if ( ! $element instanceof DOMElement || ! in_array(strtolower($element->tagName), array('button', 'input', 'select', 'textarea'), true) ) {
-                continue;
-            }
-
-            $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
-            if ( '' !== $id ) {
-                $selectors['#' . $id] = true;
-            }
-            foreach ( SourceDom::tokens($element->hasAttribute('class') ? $element->getAttribute('class') : '') as $class ) {
-                if ( '' !== $class ) {
-                    $selectors['.' . $class] = true;
-                }
-            }
-        }
-
-        return $selectors;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, string>
-     */
-    private function allScriptContents(array $files): array
-    {
-        if ( array() !== $this->filesByPath ) {
-            return $this->scriptContents;
-        }
-
-        $scripts = array();
-        foreach ( $files as $file ) {
-            if ( $this->isMaterializedScriptAsset($file) && is_string($file['content'] ?? null) ) {
-                $scripts[] = (string) $file['content'];
-            }
-        }
-
-        return $scripts;
-    }
-
-    private function isBehaviorHookClassName(string $className): bool
-    {
-        return 1 === preg_match('/^js(?:$|[-_:]|[A-Z])/', $className);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, string>
-     */
-    private function documentScriptContents(string $html, string $sourcePath, array $files): array
-    {
-        $scripts = array();
-        foreach ( HtmlTagScanner::scan($html, 'script') as $script ) {
-            // Capture replay interpreters address captured evidence, not source
-            // behavior; treating their queries as dependencies would preserve
-            // every captured target as a runtime island.
-            if (CaptureReplayScripts::isReplayScript($script['tag'])) continue;
-            // Device overlays replay capture presentation, not author behavior.
-            // Exclude the marked script before selector evidence is extracted;
-            // an author script using the same selectors must still count.
-            if (array_key_exists(CaptureEvidence::DEVICE_BODY, HtmlTagScanner::attributes($script['tag']))) continue;
-            $src = HtmlTagScanner::attribute($script['tag'], 'src');
-            if ( '' === $src ) {
-                $scripts[] = $script['content'];
-                continue;
-            }
-
-            $asset = $this->findAssetByHtmlReference($src, $sourcePath, $files);
-            if ( is_array($asset) && $this->isMaterializedScriptAsset($asset) && is_string($asset['content'] ?? null) ) {
-                $scripts[] = (string) $asset['content'];
-            }
-        }
-
-        return $scripts;
-    }
-
     private function hasHtmlAttribute(string $tag, string $name): bool
     {
         return array_key_exists(strtolower($name), HtmlTagScanner::attributes($tag));
@@ -3980,18 +3682,10 @@ final class ArtifactCompiler
     {
         return ( new ReferenceAnalyzer() )->referenceReports(
             $files,
-            fn (array $file): bool => $this->isLinkableDocument($file),
+            fn (array $file): bool => ArtifactFileIndex::isLinkableDocument($file),
             fn (array $asset): bool => $this->isSafeImageAsset($asset),
             '.' === dirname($entryPath) ? '' : dirname($entryPath)
         );
-    }
-
-    /**
-     * @param array<string, mixed> $file
-     */
-    private function isLinkableDocument(array $file): bool
-    {
-        return in_array($file['kind'] ?? '', array('html', 'blocks'), true) && ! HtmlFragmentIncludes::isTemplatePartFile($file);
     }
 
     /**
@@ -4015,7 +3709,7 @@ final class ArtifactCompiler
             foreach (array_unique($styleMatches[0]) as $style) {
                 $href = preg_match('/^<link\b[^>]*\bhref="([^"]+)"/i', $style, $hrefMatch) ? (string) strtok(html_entity_decode($hrefMatch[1]), '?#') : null;
                 // Root-relative hrefs resolve from the site root, the entry's directory.
-                $css = null === $href ? $style : (string) ($this->findAssetByHtmlReference($href, str_starts_with($href, '/') ? $entryPath : (string) $path, $files)['content'] ?? '');
+                $css = null === $href ? $style : (string) ($this->fileIndex->findAssetByHtmlReference($href, str_starts_with($href, '/') ? $entryPath : (string) $path, $files)['content'] ?? '');
                 foreach (array_unique($idMatches[1]) as $id) {
                     if (str_contains($css, $id)) { $loaded[$path][$style] = true; $counts[$style] = ($counts[$style] ?? 0) + 1; break; }
                 }
@@ -4643,9 +4337,9 @@ final class ArtifactCompiler
     {
         $metadata = array();
         $capturedGlyphPaths = $this->capturedGlyphAssetPaths($html, $sourcePath, $files);
-        $candidates = array() !== $this->filesByPath ? $this->imageFiles : $files;
+        $candidates = $this->fileIndex->isIndexed() ? $this->fileIndex->imageFiles() : $files;
         foreach ( $candidates as $file ) {
-            if ( $this->isMaterializedHtmlDocument($file) ) {
+            if ( ArtifactFileIndex::isMaterializedHtmlDocument($file) ) {
                 continue;
             }
 
@@ -4697,7 +4391,7 @@ final class ArtifactCompiler
         $captured = array();
         foreach ( HtmlTagScanner::scan($html, 'img') as $image ) {
             $attributes = HtmlTagScanner::attributes($image['tag']);
-            $asset = $this->findAssetByHtmlReference($attributes['src'] ?? '', $sourcePath, $files);
+            $asset = $this->fileIndex->findAssetByHtmlReference($attributes['src'] ?? '', $sourcePath, $files);
             $path = is_array($asset) ? (string) ($asset['path'] ?? '') : '';
             if ( '' === $path ) {
                 continue;
@@ -4724,8 +4418,8 @@ final class ArtifactCompiler
                 continue;
             }
 
-            $asset = $this->findAssetByHtmlReference($src, $sourcePath, $files);
-            if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
+            $asset = $this->fileIndex->findAssetByHtmlReference($src, $sourcePath, $files);
+            if ( ! is_array($asset) || ! ArtifactFileIndex::isMaterializedScriptAsset($asset) ) {
                 continue;
             }
 
@@ -4760,8 +4454,8 @@ final class ArtifactCompiler
             $src = HtmlTagScanner::attribute($script['tag'], 'src');
             $asset = '' === $src
                 ? $this->findInlineScriptAsset($sourcePath, $scriptIndex, $files)
-                : $this->findAssetByHtmlReference($src, $sourcePath, $files);
-            if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) || ! is_string($asset['path'] ?? null) || ! is_string($asset['content'] ?? null) ) {
+                : $this->fileIndex->findAssetByHtmlReference($src, $sourcePath, $files);
+            if ( ! is_array($asset) || ! ArtifactFileIndex::isMaterializedScriptAsset($asset) || ! is_string($asset['path'] ?? null) || ! is_string($asset['content'] ?? null) ) {
                 continue;
             }
             $assets[] = array('path' => $asset['path'], 'content' => $asset['content']);
@@ -5294,7 +4988,7 @@ final class ArtifactCompiler
         $documentLinkMedia = $this->documentLinkMedia($files);
         $portableTargets = $this->portableTargetPaths($files);
         foreach ( $files as $file ) {
-            if ( $entryPath === $file['path'] || ArtifactNormalizer::CAPTURE_REPORT_ROLE === $file['role'] || $this->isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
+            if ( $entryPath === $file['path'] || ArtifactNormalizer::CAPTURE_REPORT_ROLE === $file['role'] || ArtifactFileIndex::isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
                 continue;
             }
             $asset = array(
@@ -5443,14 +5137,6 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array<string, mixed> $file
-     */
-    private function isMaterializedHtmlDocument(array $file): bool
-    {
-        return 'html' === ($file['kind'] ?? '') && ($this->isLinkableDocument($file) || HtmlFragmentIncludes::isTemplatePartFile($file));
-    }
-
-    /**
      * Theme asset targets must be portable to any WordPress host:
      *
      * - No path segment contains `..`. Hosts such as WordPress.com's `_static/??`
@@ -5579,62 +5265,14 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<string, mixed>|null
-     */
-    private function findAssetByHtmlReference(string $reference, string $entryPath, array $files): ?array
-    {
-        if ( '' === trim($reference) || preg_match('#^[a-z][a-z0-9+.-]*:#i', $reference) ) {
-            return null;
-        }
-
-        $path = str_starts_with($reference, '/')
-            ? ArtifactPath::artifactRootRelativePath($reference, $entryPath, array_fill_keys(array_column($files, 'path'), true))
-            : ArtifactPath::resolveRelativePath($reference, $entryPath);
-        if ( '' === $path ) {
-            return null;
-        }
-
-        if ( isset($this->filesByPath[$path]) ) {
-            return $this->filesByPath[$path];
-        }
-
-        foreach ( $files as $file ) {
-            if ( ($file['path'] ?? '') === $path ) {
-                return $file;
-            }
-        }
-
-        return null;
-    }
-
-    /**
      * Build immutable lookup state for one normalized artifact compilation.
      *
      * @param array<int, array<string, mixed>> $files
      */
     private function indexFiles(array $files): void
     {
-        $this->filesByPath = array();
-        $this->imageFiles = array();
-        $this->scriptContents = array();
+        $this->fileIndex->index($files);
         $this->runtimeScriptEvidenceAnalyzer->resetCache();
-
-        foreach ( $files as $file ) {
-            if ( ! is_array($file) ) {
-                continue;
-            }
-            $path = (string) ($file['path'] ?? '');
-            if ( '' !== $path ) {
-                $this->filesByPath[$path] = $file;
-            }
-            if ( str_starts_with((string) ($file['mime_type'] ?? ''), 'image/') && ! $this->isMaterializedHtmlDocument($file) ) {
-                $this->imageFiles[] = $file;
-            }
-            if ( $this->isMaterializedScriptAsset($file) && is_string($file['content'] ?? null) ) {
-                $this->scriptContents[] = (string) $file['content'];
-            }
-        }
     }
     /**
      * @param array<int, array<string, mixed>> $sourceDocumentComponents
