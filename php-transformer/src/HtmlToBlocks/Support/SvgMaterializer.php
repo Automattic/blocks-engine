@@ -2292,11 +2292,13 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         // A raster embedded as a data: URI is part of this image document: it
-        // fetches nothing and runs nothing. Any other image reference is not.
+        // fetches nothing and runs nothing. So is an `<image>` with no source
+        // at all, the empty slot an unpopulated template leaves: it paints
+        // nothing. Any other image reference is not.
         $embeddedRaster = false;
         if ( 'image' === strtolower($element->tagName) ) {
             $href = $element->hasAttribute('href') ? $element->getAttribute('href') : $element->getAttributeNS('http://www.w3.org/1999/xlink', 'href');
-            if ( 1 !== preg_match('~^data:image/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$~iD', trim($href)) ) {
+            if ( '' !== trim($href) && 1 !== preg_match('~^data:image/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$~iD', trim($href)) ) {
                 return false;
             }
             $embeddedRaster = true;

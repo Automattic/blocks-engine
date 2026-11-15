@@ -100,6 +100,26 @@ $assert(
 	json_encode($textAnchor['fallbacks'] ?? array())
 );
 
+// An unpopulated listing template leaves href-less anchors around children
+// that render nothing either. Those anchors drop like the childless one; a
+// child that shows something (an image source, a styled box) keeps the
+// anchor's content.
+$nonRendering = array(
+	'srcless img'        => array( '<a class="thumb"><img aria-hidden="true"></a>', true ),
+	'empty div'          => array( '<a class="thumb"><div></div></a>', true ),
+	'nested empty boxes' => array( '<a class="thumb"><div><span></span><img></div></a>', true ),
+	'img with src'       => array( '<a class="thumb"><img src="https://example.com/p.png" alt=""></a>', false ),
+	'styled box'         => array( '<style>.tile{height:200px;background:#ccc}</style><a class="thumb"><div class="tile"></div></a>', false ),
+);
+foreach ( $nonRendering as $label => [ $anchor, $drops ] ) {
+	$result  = $transformer->transform('<section><div>' . $anchor . '</div><p>Flyer</p></section>')->toArray();
+	$markup  = (string) ( $result['serialized_blocks'] ?? '' );
+	$anchors = array_filter($result['fallbacks'] ?? array(), static fn (array $finding): bool => 'a' === ( $finding['tag'] ?? '' ));
+	$assert(array() === $anchors, "11 ($label): no fallback finding addresses the anchor", json_encode($result['fallbacks'] ?? array()));
+	$assert(str_contains($markup, 'Flyer') && ! str_contains($markup, '<!-- wp:html'), "12 ($label): page converts natively", $markup);
+	$assert($drops === ! ( str_contains($markup, 'p.png') || str_contains($markup, 'tile') ), "13 ($label): rendering children are kept, empty ones dropped", $markup);
+}
+
 if ( $failures > 0 ) {
 	fwrite(STDERR, PHP_EOL . "empty href-less anchor tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
 	exit(1);
