@@ -25,4 +25,14 @@ $branchingMarkup = (string) ($branching['serialized_blocks'] ?? '');
 if (str_contains($branchingMarkup, '/layout-shell') || !str_contains($branchingMarkup, '"tagName":"nav"')) {
     throw new RuntimeException('Navigation landmark identity must survive branching controls: ' . $branchingMarkup);
 }
+// A converted link menu owns its semantics already. Keeping the control
+// region native must not change the established flat-menu shell contract.
+$fixture = json_decode((string) file_get_contents(dirname(__DIR__) . '/fixtures/parity/html-nav-menu-flat-list.json'), true, 512, JSON_THROW_ON_ERROR);
+$menu = (new HtmlTransformer())->transform($fixture['input']['content'])->toArray();
+$menuBlocks = $menu['blocks'];
+if ('custom/layout-shell' !== $menuBlocks[0]['blockName']
+    || 2 !== count($menuBlocks[0]['innerBlocks'])
+    || 'core/navigation' !== $menuBlocks[0]['innerBlocks'][1]['blockName']) {
+    throw new RuntimeException('Converted flat menus must retain their existing shell and sibling links.');
+}
 echo "Native navigation wrapper chain passed\n";

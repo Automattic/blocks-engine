@@ -72,7 +72,7 @@ final class WrapperCoalescer
     ) {
     }
 
-    private const LANDMARK_GROUP_TAGS = array('header', 'footer', 'nav');
+    private const LANDMARK_GROUP_TAGS = array('header', 'footer');
 
     // Charge shared ancestry against the saved List View depth, not only
     // against the length of each uninterrupted single-child run.
@@ -169,6 +169,16 @@ final class WrapperCoalescer
         return $block;
     }
 
+    /** @param array<string,mixed> $block */
+    private function containsNativeNavigation(array $block): bool
+    {
+        if (in_array($block['blockName'] ?? null, array('core/navigation', 'core/list'), true)) return true;
+        foreach (ArrayField::array($block, 'innerBlocks') as $child) {
+            if ($this->containsNativeNavigation($child)) return true;
+        }
+        return false;
+    }
+
     /**
      * Levels a block occupies in the saved tree. A freeform chain terminal is
      * not saved itself: its children take its place.
@@ -221,11 +231,15 @@ final class WrapperCoalescer
     private function foldableWrapperDescriptor(array $block): ?array
     {
         // A landmark stays its own group block: folded into a layout shell's
-        // wrapper list, a header, footer or nav (or a `role="main"` region, which
+        // wrapper list, a header or footer (or a `role="main"` region, which
         // only its block name records) loses its block identity for the editor
         // and for shell extraction. A native grid or flex
         // layout is likewise an editor control the wrapper list cannot carry.
         if (!in_array($block['blockName'] ?? null, array('core/group'), true) || in_array($block['attrs']['layout']['type'] ?? null, array('grid', 'flex'), true) || isset($block['_binding_token']) || $this->session->transformationProvenanceState()->isBindingAnchor($block['_source_provenance_id'] ?? null) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array_merge(array('ul', 'ol', 'li'), self::LANDMARK_GROUP_TAGS), true) || ShellLandmarkPolicy::namesRoleOnlyLandmark(ArrayField::array($block, 'attrs'))) return null;
+        // A converted menu already owns navigation semantics. Preserve its
+        // established shell transport; control-only nav regions instead keep
+        // their independently editable landmark Group.
+        if ('nav' === strtolower((string) ($block['attrs']['tagName'] ?? 'div')) && ! $this->containsNativeNavigation($block)) return null;
         return $this->groupWrapperDescriptor($block);
     }
 
