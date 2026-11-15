@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Announcement carousel</title></head>
+<body>
+<div class="utility-bar">
+  <div class="page-width">
+    <slideshow-component class="announcement-bar" role="region" aria-roledescription="Carousel" aria-label="Announcement bar">
+      <div class="announcement-bar-slider slider-buttons">
+        <button type="button" class="slider-button slider-button--prev" name="previous" aria-label="Previous announcement" aria-controls="Slider-announcement"><span class="svg-wrapper"><svg class="icon icon-caret" viewBox="0 0 10 6"><path fill="currentColor" d="M9.354.646a.5.5 0 0 0-.708 0L5 4.293 1.354.646a.5.5 0 0 0-.708.708l4 4a.5.5 0 0 0 .708 0l4-4a.5.5 0 0 0 0-.708"></path></svg></span></button>
+        <div class="grid grid--1-col slider slider--everywhere" id="Slider-announcement" aria-live="off" aria-atomic="true" data-autoplay="true" data-speed="5">
+          <div class="slideshow__slide slider__slide grid__item grid--1-col" id="Slide-announcement-1" role="group" aria-roledescription="Announcement" aria-label="1 of 2" aria-hidden="true" tabindex="-1">
+            <div class="announcement-bar__announcement" role="region" aria-label="Announcement"><a href="/policies/shipping" class="announcement-bar__link link" tabindex="-1"><p class="announcement-bar__message h5"><span>Free shipping on orders over 300</span></p></a></div>
+          </div>
+          <div class="slideshow__slide slider__slide grid__item grid--1-col" id="Slide-announcement-2" role="group" aria-roledescription="Announcement" aria-label="2 of 2" aria-hidden="false">
+            <div class="announcement-bar__announcement" role="region" aria-label="Announcement"><a href="/collections/coffee" class="announcement-bar__link link"><p class="announcement-bar__message h5"><span>Specialty coffee</span></p></a></div>
+          </div>
+        </div>
+        <button type="button" class="slider-button slider-button--next" name="next" aria-label="Next announcement" aria-controls="Slider-announcement"><span class="svg-wrapper"><svg class="icon icon-caret" viewBox="0 0 10 6"><path fill="currentColor" d="M9.354.646a.5.5 0 0 0-.708 0L5 4.293 1.354.646a.5.5 0 0 0-.708.708l4 4a.5.5 0 0 0 .708 0l4-4a.5.5 0 0 0 0-.708"></path></svg></span></button>
+      </div>
+    </slideshow-component>
+  </div>
+</div>
+</body></html>

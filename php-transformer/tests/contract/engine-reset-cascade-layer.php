@@ -40,8 +40,7 @@ $assert(1 === preg_match('/@layer\s+data-blocks-engine-capture-disclosure-base\s
 $mixed = $css($captureLayer . '@layer utilities{' . $base . '}');
 $assert(1 === preg_match('/@layer\s+blocks-engine-reset\s*,\s*data-blocks-engine-capture-disclosure-base\s*,\s*utilities\s*;/', $mixed), 'an authored layer next to the capture layer still moves the resets into the engine layer');
 // Core's unlayered figure margin must not return when the author uses layers
-// (#4233). A projected author margin belongs to the source image leaf, not
-// its synthetic figure: applying it to both duplicates the source spacing.
+// (#4233). Exercise both the default and a projected layered author margin.
 $chrome = getenv('CHROME_PATH') ?: trim((string) shell_exec('command -v google-chrome || command -v chromium'));
 $assert('' !== $chrome, 'a browser is required for the synthetic figure margin contract');
 $temp = tempnam(sys_get_temp_dir(), 'synthetic-margin-');
@@ -58,13 +57,12 @@ try {
         // and loaded last, so source order cannot hide a layered reset regression.
         file_put_contents($file, '<!doctype html><style>' . $outputCss . '</style>'
             . '<style>:where(figure){margin:0 0 1em}</style>' . $result['serialized_blocks']
-            . '<script>document.body.dataset.margin=getComputedStyle(document.querySelector("figure")).marginBottom;'
-            . 'document.body.dataset.imageMargin=getComputedStyle(document.querySelector("img")).marginBottom</script>');
+            . '<script>document.body.dataset.margin=getComputedStyle(document.querySelector("figure")).marginBottom;document.body.dataset.leafMargin=getComputedStyle(document.querySelector("img")).marginBottom</script>');
         $output = shell_exec(HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome) . ' --headless --no-sandbox --disable-gpu --user-data-dir='
             . escapeshellarg($profile) . ' --dump-dom --virtual-time-budget=1000 ' . escapeshellarg('file://' . $file) . ' 2>/dev/null');
         $assert(str_contains((string) $output, 'data-margin="0px"'), 'synthetic figure bottom margin stays zero against unlayered Core CSS: ' . (string) $output);
         $expected = $authored ? '5px' : '0px';
-        $assert(str_contains((string) $output, 'data-image-margin="' . $expected . '"'), 'source image bottom margin is ' . $expected . ': ' . (string) $output);
+        $assert(str_contains((string) $output, 'data-leaf-margin="' . $expected . '"'), 'authored bottom margin belongs to the image leaf: ' . (string) $output);
     }
 } finally {
     @unlink($file);

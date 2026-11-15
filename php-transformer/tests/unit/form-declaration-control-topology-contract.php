@@ -16,6 +16,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarationPromotion;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
 
 $failures = array();
@@ -36,11 +37,10 @@ $fallback = current(array_filter($result['fallbacks'] ?? array(), static fn (arr
 $assert(is_array($fallback) && 4 === count($fallback['controls'] ?? array()), 'fixture-form-has-four-controls');
 $fallback = is_array($fallback) ? $fallback : array();
 
-$declare = static function (array $fallback) use ($compiler): array {
+$declare = static function (array $fallback): array {
     $diagnostics = array();
     $records = array();
-    $method = new ReflectionMethod(ArtifactCompiler::class, 'runtimeDeclarationsFromFallbacks');
-    $declarations = $method->invokeArgs($compiler, array(array(), array($fallback), 'index.html', array(), &$diagnostics, &$records));
+    $declarations = (new RuntimeDeclarationPromotion())->runtimeDeclarationsFromFallbacks(array(), array($fallback), 'index.html', array(), static fn (): bool => false, $diagnostics, $records);
     $forms = array();
     foreach ( $declarations as $declaration ) {
         if ( 'forms' === ($declaration['type'] ?? null) ) {

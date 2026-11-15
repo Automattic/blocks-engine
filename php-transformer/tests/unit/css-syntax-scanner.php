@@ -15,6 +15,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssVariableExpander;
 
 $failures = 0;
 $passes   = 0;
@@ -88,6 +89,22 @@ $assert(null === CssSyntaxScanner::matchingBrace('a{b}', 0), 'matchingBrace requ
 $assert(3 === CssSyntaxScanner::matchingBrace('a{b}', 1), 'matchingBrace returns the closing offset');
 $assert(null === CssSyntaxScanner::matchingBrace('a{b', 1), 'an unclosed block returns null');
 $assert(null === CssSyntaxScanner::matchingBrace('', 0), 'an empty stylesheet has no block');
+
+// matchingClose() is the one reading of `(`/`[` groups; the selector, route,
+// navigation and var() copies it replaced each missed strings or escapes.
+foreach ( array(
+    array( ':not(.a)', 4, 7 ),
+    array( '[title="a)"]', 0, 11 ),
+    array( ':is(.w-\(x)', 3, 10 ),
+    array( ':not([a=")"], .b)', 4, 16 ),
+    array( 'var(--a, ")")', 3, 12 ),
+    array( '(a', 0, null ),
+) as [ $value, $open, $expected ] ) {
+    $actual = CssSyntaxScanner::matchingClose($value, $open);
+    $assert($expected === $actual, "matchingClose reads {$value}", var_export($actual, true));
+}
+$fallback = CssVariableExpander::expand('var(--missing, ")")', static fn(string $name): ?string => null);
+$assert('")"' === $fallback, 'a var() fallback string holding `)` expands whole', var_export($fallback, true));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssSyntaxScanner unit tests: {$failures} failed, {$passes} passed\n");

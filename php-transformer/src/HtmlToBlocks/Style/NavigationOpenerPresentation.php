@@ -121,7 +121,7 @@ final class NavigationOpenerPresentation
                 continue;
             }
             if ('' !== trim($node->textContent ?? '')) continue;
-            $color = $this->styles->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant($values['background-color'] ?? $values['background'] ?? ''), $node, StyleResolver::MOBILE_REFERENCE_WIDTH);
+            $color = $this->styles->customProperties->resolveAtViewport(CssValueInspector::withoutImportant($values['background-color'] ?? $values['background'] ?? ''), $node, StyleResolver::MOBILE_REFERENCE_WIDTH);
             if (null === CssColor::parse($color) || CssValueInspector::isTransparentColor($color)) continue;
             if (preg_match('/scale\(\s*0\s*\)/i', $values['transform'] ?? '')) continue;
             $width = '100%' === ($values['width'] ?? '') ? $boxWidth : (float) ($values['width'] ?? 0);
@@ -149,8 +149,8 @@ final class NavigationOpenerPresentation
                 // The opener only paints in the collapsed state, so an
                 // unconditional value takes its tokens at that viewport.
                 $value = '' === $condition
-                    ? $this->styles->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant($value), $source, StyleResolver::MOBILE_REFERENCE_WIDTH)
-                    : $this->styles->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $source);
+                    ? $this->styles->customProperties->resolveAtViewport(CssValueInspector::withoutImportant($value), $source, StyleResolver::MOBILE_REFERENCE_WIDTH)
+                    : $this->styles->customProperties->resolve(CssValueInspector::withoutImportant($value), $source);
                 if ('' === $value || preg_match('/[{}<>;]|var\(|url\(/i', $value)) continue;
                 $safeValues = $this->styles->safeVisualDeclarations(array($property => $value));
                 // Resting classification deliberately omits transforms and

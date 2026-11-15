@@ -171,7 +171,7 @@ final class PatternContext
         $declarations['color'] = trim((string) preg_replace('/\s*!important\s*$/i', '', $declarations['color']));
         $mapped = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper())->map(
             array_intersect_key($declarations, array_flip(array('color', 'background', 'background-color'))),
-            fn (string $value): string => $this->styles->resolveCssVariablesInValue($value, $element)
+            fn (string $value): string => $this->styles->customProperties->resolve($value, $element)
         );
         return array_merge($mapped['attrs'] ?? array(), array('style' => $mapped['style'] ?? array()));
     }

@@ -4,10 +4,6 @@
   "representability_pending_max": 8,
   "sites": {
     "src/ArtifactCompiler/ArtifactCompiler.php": {
-      "InvalidArgumentException('Caller runtime declarations cannot provide compiler-reserved script supersession proofs.')": {
-        "class": "integrity",
-        "count": 1
-      },
       "InvalidArgumentException('File compilation ownership requires a shared or page scope.')": {
         "class": "integrity",
         "count": 1
@@ -125,6 +121,12 @@
         "count": 1
       },
       "InvalidArgumentException(sprintf('Document variant source \"%s\" requires embedded text content.',$path))": {
+        "class": "integrity",
+        "count": 1
+      }
+    },
+    "src/ArtifactCompiler/RuntimeDeclarationPromotion.php": {
+      "InvalidArgumentException('Caller runtime declarations cannot provide compiler-reserved script supersession proofs.')": {
         "class": "integrity",
         "count": 1
       }

@@ -55,16 +55,19 @@ final class SourceBlockAttributeProjector
      * engine class is re-derived from structure, never carried.
      */
     private const SELF_DESCRIBING_MARKERS = array(
+        'core/group'     => array('blocks-engine-stretched-link'),
         'core/paragraph' => array(
             self::SYNTHETIC_PARAGRAPH_CLASS,
             self::SOURCE_BOX_PARAGRAPH_CLASS,
             self::SYNTHETIC_SVG_PARAGRAPH_CLASS,
+            'blocks-engine-stretched-link-carrier',
             self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS,
             self::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS,
             self::PROPAGATED_LINK_CLASS,
             self::PROPAGATED_LINK_COLOR_CLASS,
         ),
         'core/heading'   => array(
+            'blocks-engine-stretched-link-carrier',
             self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS,
             self::PROPAGATED_LINK_CLASS,
             self::PROPAGATED_LINK_COLOR_CLASS,
@@ -395,7 +398,7 @@ final class SourceBlockAttributeProjector
         }
         $shape = $this->styleResolver->imageShapeDeclarations($image);
         foreach ( array( 'width', 'height' ) as $axis ) {
-            $value = $this->styleResolver->resolveCssVariablesInValue((string) ($shape[$axis]['value'] ?? ''), $image);
+            $value = $this->styleResolver->customProperties->resolve((string) ($shape[$axis]['value'] ?? ''), $image);
             if ( '100%' !== CssValueInspector::comparable($value) ) {
                 return false;
             }
@@ -928,7 +931,7 @@ final class SourceBlockAttributeProjector
         // otherwise ordinary link that the presentation fast path skips.
         foreach ( $this->styleResolver->cascade->declarations($element) as $property => $value ) {
             if ( 'text-decoration' === $property || 'text-decoration-line' === $property ) {
-                $declared = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue($value));
+                $declared = CssValueInspector::comparable($this->styleResolver->customProperties->resolve($value));
             }
         }
 
@@ -1012,12 +1015,12 @@ final class SourceBlockAttributeProjector
                 continue;
             }
             if ( '' !== $value && ! str_contains(strtolower($value), '!important') ) {
-                $declarations[$property] = $this->styleResolver->resolveCssVariablesInValue($value);
+                $declarations[$property] = $this->styleResolver->customProperties->resolve($value);
             }
         }
         foreach ( $this->styleResolver->specificityResolvedGapDeclarations($anchor) as $property => $value ) {
             if ( ! str_contains(strtolower($value), '!important') ) {
-                $declarations[$property] = $this->styleResolver->resolveCssVariablesInValue($value);
+                $declarations[$property] = $this->styleResolver->customProperties->resolve($value);
             }
         }
         if ( array() === $declarations ) {

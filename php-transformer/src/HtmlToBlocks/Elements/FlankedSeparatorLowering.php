@@ -53,7 +53,7 @@ final class FlankedSeparatorLowering
             }
 
             $height = SpacerPattern::heightFromStyle(SourceDom::attr($flank, 'style'));
-            if ( '' === $height || ! $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($height, $flank)) ) {
+            if ( '' === $height || ! $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->customProperties->resolve($height, $flank)) ) {
                 return null;
             }
             $margins[ $side ] = $height;

@@ -271,7 +271,7 @@ trait StagedTransport
         $stepTimings = array();
         $omittedPages = array();
         foreach ($pageArtifact['files'] as $file) {
-            if ('html' !== ($file['kind'] ?? null) || $stageCompiler->isTemplatePartFile($file)) {
+            if ('html' !== ($file['kind'] ?? null) || HtmlFragmentIncludes::isTemplatePartFile($file)) {
                 continue;
             }
             $path = (string) ($file['path'] ?? '');
@@ -916,7 +916,7 @@ trait StagedTransport
             }
         }
         $colors = array();
-        foreach ($compiler->imageFiles as $file) {
+        foreach ($compiler->fileIndex->imageFiles() as $file) {
             if (isset($capturedEverywhere[$file['path']])) continue;
             $hash = (string) ($file['raw_sha256'] ?? $file['payload_reference']['sha256'] ?? '');
             if ('' !== $hash) $colors[$hash] = $compiler->glyphColorForFile($file);
@@ -1222,7 +1222,7 @@ trait StagedTransport
     {
         $paths = array();
         foreach ($files as $file) {
-            if ('html' === ($file['kind'] ?? null) && !$this->isTemplatePartFile($file) && $pageId === $this->fileOwnership($file)['id']) $paths[] = (string) $file['path'];
+            if ('html' === ($file['kind'] ?? null) && !HtmlFragmentIncludes::isTemplatePartFile($file) && $pageId === $this->fileOwnership($file)['id']) $paths[] = (string) $file['path'];
         }
         sort($paths, SORT_STRING);
         return $paths;
@@ -1233,7 +1233,7 @@ trait StagedTransport
     {
         $paths = array();
         foreach ($files as $file) {
-            if (in_array($file['kind'] ?? null, array('html', 'markdown', 'mdx'), true) && !$this->isTemplatePartFile($file) && $pageId === $this->fileOwnership($file)['id']) $paths[] = (string) $file['path'];
+            if (in_array($file['kind'] ?? null, array('html', 'markdown', 'mdx'), true) && !HtmlFragmentIncludes::isTemplatePartFile($file) && $pageId === $this->fileOwnership($file)['id']) $paths[] = (string) $file['path'];
         }
         sort($paths, SORT_STRING);
         return $paths;

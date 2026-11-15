@@ -974,9 +974,10 @@ final class FormControlMetadataBuilder
             if ( ! $node instanceof DOMElement ) {
                 continue;
             }
-            // Provider help is permanent copy. Reuse the visible-text reader
-            // so CSS-hidden validation messages cannot grow the rendered form.
-            if ( $this->isValidationFeedbackCopy($node) || '' === trim($this->labelTextWithoutControls($node, true)) ) {
+            // Validation regions are transient copy, not permanent help.
+            // Visibility is checked below without applying label-only rules
+            // that intentionally omit description elements from captions.
+            if ( $this->isValidationFeedbackCopy($node) ) {
                 continue;
             }
             if ( $this->isControlOwnedCopy($node, $this->collapsedElementText($node), $honeypotCopy, array()) ) {
@@ -1008,7 +1009,11 @@ final class FormControlMetadataBuilder
                     continue;
                 }
             }
-            if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden')) ) {
+            // Hidden source copy is not permanent field help. Providers render
+            // descriptions independently of the original node and its CSS box.
+            if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden'))
+                || null !== $this->hiddenState($node, $wrapper)
+            ) {
                 continue;
             }
             $alreadyCounted = false;

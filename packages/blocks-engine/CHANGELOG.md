@@ -4,6 +4,11 @@ All notable changes to `@automattic/blocks-engine` will be documented in this fi
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.6] - 2026-11-14
+
+### Fixed
+- serialize icon-font social links with core-compatible attributes
+
 ## [0.3.5] - 2026-10-27
 
 ### Changed

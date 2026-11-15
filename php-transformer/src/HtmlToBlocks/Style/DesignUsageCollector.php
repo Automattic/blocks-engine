@@ -161,8 +161,8 @@ final class DesignUsageCollector
 
         $rootColorTokens = array();
         // Root-declared tokens only: resolving them needs no per-element cascade.
-        foreach ($this->resolver->rootCustomProperties() as $name => $_value) {
-            $value = $this->resolver->resolveCssVariablesInValue('var(' . $name . ')');
+        foreach ($this->resolver->customProperties->root() as $name => $_value) {
+            $value = $this->resolver->customProperties->resolve('var(' . $name . ')');
             // Channel tuples become colours only in their consuming function.
             foreach (array($value, 'hsl(' . $value . ')') as $candidate) {
                 if (!CssColor::opaque($candidate)) continue;
@@ -345,7 +345,7 @@ final class DesignUsageCollector
         // does not prevent the shorthand from setting (or resetting) leading.
         $leadingFont = $this->resolver->restingFontShorthand($element, 'line-height');
         if (null !== $leadingFont) {
-            $expanded = CssFontShorthand::expand($this->resolver->resolveDefaultSchemeCssVariablesInValue($leadingFont, $element));
+            $expanded = CssFontShorthand::expand($this->resolver->customProperties->resolveCascaded($leadingFont, $element));
             if (isset($expanded['line-height'])) $declarations['line-height'] = $expanded['line-height'];
         }
         $leading = self::clean($declarations['line-height'] ?? '');
@@ -421,7 +421,7 @@ final class DesignUsageCollector
             }
         }
         if (null !== $shorthand) {
-            $font = CssFontShorthand::expand($this->resolver->resolveDefaultSchemeCssVariablesInValue($shorthand, $element));
+            $font = CssFontShorthand::expand($this->resolver->customProperties->resolveCascaded($shorthand, $element));
             $context['family'] = isset($font['font-family']) && !str_contains($font['font-family'], 'var(') ? self::clean($font['font-family']) : null;
         } elseif (null !== $family && !in_array($family, array('inherit', 'unset'), true)) {
             $context['family'] = 'initial' === $family || str_contains($family, 'var(') ? null : self::clean($declarations['font-family']);
@@ -641,7 +641,7 @@ final class DesignUsageCollector
         $properties = 'background-color' === $property ? array('background', 'background-color') : array($property);
         foreach ($this->resolver->conditionalAuthorDeclaredPropertyValues($element, $properties) as $name => $values) {
             foreach ($values as $value) {
-                $value = $this->resolver->resolveCssVariablesInValue((string) $value, $element);
+                $value = $this->resolver->customProperties->resolve((string) $value, $element);
                 $variant = match ($property) {
                     'color' => self::colorObservation($value),
                     'background-color' => self::backgroundObservation(array($name => $value)),
@@ -818,7 +818,7 @@ final class DesignUsageCollector
         // the `conditional` flags keep it out of fixed styles.
         $declarations = array();
         foreach ($this->resolver->resolvedPresentationDeclarations($element) as $property => $value) {
-            $declarations[strtolower((string) $property)] = $this->resolver->resolveDefaultSchemeCssVariablesInValue((string) $value, $element);
+            $declarations[strtolower((string) $property)] = $this->resolver->customProperties->resolveCascaded((string) $value, $element);
         }
         $conditional = array();
         foreach (self::DESKTOP_READ_FAMILIES as $family => $properties) {
@@ -826,7 +826,7 @@ final class DesignUsageCollector
         }
         if (array() === $conditional) return $declarations;
         foreach ($this->resolver->authorViewport->reference($element, $conditional) as $property => $value) {
-            $declarations[strtolower((string) $property)] = $this->resolver->resolveCssVariablesInValue((string) $value, $element);
+            $declarations[strtolower((string) $property)] = $this->resolver->customProperties->resolve((string) $value, $element);
         }
         return $declarations;
     }

@@ -159,7 +159,7 @@ $assert(array() !== $importPlan && 'failed' !== $imports['status'], 'A styleshee
 WordPressSitePlan::assertValid($importPlan);
 $importCss = (string) (array_values(array_filter($importPlan['writes'] ?? array(), static fn(array $write): bool => str_ends_with($write['target_path'], '/style.css')))[0]['payload']['data'] ?? '');
 $baseToken = WordPressSitePlan::TOKEN_PREFIX . (array_column($importPlan['reference_tokens'], 'token', 'source_path')['base.css'] ?? '') . '}}';
-$assert(!str_contains($importCss, 'tailwindcss') && str_contains($importCss, '@import url("' . $baseToken . '")') && str_contains($importCss, 'https://fonts.example.test/x.css') && str_contains($importCss, '#222'), 'Only the missing local import is dropped; packaged and remote imports and the rules survive.');
+$assert(!str_contains($importCss, 'tailwindcss') && str_contains($importCss, '@import url("' . $baseToken . '")') && str_contains($importCss, 'https://fonts.example.test/x.css'), 'Only the missing local import is dropped; packaged and remote imports survive (body paint now belongs to Global Styles).');
 $importDiagnostics = array_values(array_filter($importPlan['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'wordpress_site_plan_missing_stylesheet_import' === ($diagnostic['code'] ?? null)));
 $assert(1 === count($importDiagnostics) && 'warning' === $importDiagnostics[0]['severity'] && 'style.css' === $importDiagnostics[0]['source_path'] && 'tailwindcss' === $importDiagnostics[0]['value'], 'The warning names the stylesheet and the missing import target.');
 $strictImportReason = null;
