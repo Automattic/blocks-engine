@@ -228,6 +228,7 @@ final class PostChrome
             $shared = $this->sharedIdentities($posts);
             $this->relatedSectionProjections = array();
             $groups = array();
+            $hasUntitled = array() !== array_filter($posts, fn(array $post): bool => $this->hasDeclaredEmptyTitle($post));
             foreach ($posts as $index => $post) {
                 $transformed = $this->transformDocument($post['canonical_block_markup'], $post, $post['route']['path'] ?? '', $shared, null, $posts);
                 // Editor labels describe the source article, not its layout.
@@ -250,6 +251,9 @@ final class PostChrome
                 // keep element names, classes and tree shape significant.
                 $identityMarkup = preg_replace('/(\s(?:' . self::URL_ATTRIBUTES . ')\s*=\s*)(?:"[^"]*"|\'[^\']*\'|[^\s>]+)/i', '$1""', $identityMarkup) ?? $identityMarkup;
                 $identityMarkup = preg_replace('/("(?:url|' . self::URL_ATTRIBUTES . ')"\s*:\s*)"(?:\\\\.|[^"\\\\])*"/i', '$1""', $identityMarkup) ?? $identityMarkup;
+                // An absent title on an explicitly untitled post is not a
+                // different layout. The titled peer supplies the title slot.
+                if ($hasUntitled) $identityMarkup = preg_replace('/<!-- wp:post-title(?:\s+\{.*?\})?\s*\/-->/', '', $identityMarkup) ?? $identityMarkup;
                 $identity = ChromeIdentity::markup($identityMarkup);
                 $groups[$identity][$index] = $post;
             }
@@ -283,6 +287,11 @@ final class PostChrome
             }
         }
         return array('pages' => $pages, 'parts' => $parts, 'templates' => array_values($bySlug));
+    }
+
+    private function hasDeclaredEmptyTitle(array $post): bool
+    {
+        return '' === ($post['metadata']['declared_content']['title'] ?? null);
     }
 
     private function factorArticleChrome(array $pages, array $parts, array $runtimeDeclarations, array $runtimeEntityRecords): array
@@ -328,6 +337,7 @@ final class PostChrome
         }
         $promoteLead = count($leadImages) === count($posts) && count(array_unique(array_column($leadImages, 'asset_token'))) > 1;
         $single = null;
+        $singleHasTitle = false;
         $singleMenus = array();
         $bodies = array();
         $postMeta = array();
@@ -338,7 +348,7 @@ final class PostChrome
             if ($promoteLead) {
                 $transformed = $this->transformDocument($post['canonical_block_markup'], $post, $route, $shared, $transformed['retained'][0]['offset'], $posts);
             }
-            if (!$transformed['title'] || (!$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || 1 !== substr_count($transformed['template'], '<!-- wp:post-content')) {
+            if ((!$transformed['title'] && !$this->hasDeclaredEmptyTitle($post)) || (!$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || 1 !== substr_count($transformed['template'], '<!-- wp:post-content')) {
                 return array('pages' => $pages, 'single' => null);
             }
             // A runtime entity binding anchors one exact block of the document
@@ -349,7 +359,8 @@ final class PostChrome
             if ($this->factoringStrandsBindings($post, $transformed['retained'], $runtimeDeclarations, $runtimeEntityRecords)) {
                 return array('pages' => $pages, 'single' => null);
             }
-            if (null === $single) {
+            if (null === $single || (!$singleHasTitle && $transformed['title'])) {
+                $singleHasTitle = $transformed['title'];
                 $single = preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match) use ($posts): string {
                     $attrs = json_decode($match[2], true);
                     if (!is_array($attrs)) return $match[0];
@@ -493,7 +504,7 @@ final class PostChrome
     private function bodySelection(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $post, string $route, array $shared, array $posts, ?int $featuredOffset = null): array
     {
         $fallback = array('range' => null, 'slots' => array(), 'fields' => array(), 'featured' => null);
-        $titleEnd = null;
+        $titleEnd = $this->hasDeclaredEmptyTitle($post) ? 0 : null;
         $varying = array();
         foreach ($index->ranges() as $range) {
             if (array() !== $index->children($range)) continue;
