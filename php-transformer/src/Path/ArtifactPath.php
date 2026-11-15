@@ -166,4 +166,36 @@ final class ArtifactPath
     {
         return str_starts_with($path, '/') || (bool) preg_match('#^[A-Za-z][A-Za-z0-9+.-]*:#', $path);
     }
+
+    /** A lowercase artifact key: each run of characters outside `a-z0-9_-` becomes one dash. */
+    public static function sanitizeKey(string $key): string
+    {
+        return preg_replace('/[^a-z0-9_-]+/', '-', strtolower(trim($key))) ?? '';
+    }
+
+    /** The post slug a source document's path names; the entry document's index is `home`. */
+    public static function slug(string $path, string $entryPath = ''): string
+    {
+        $base = preg_replace('/\.[A-Za-z0-9]+$/', '', basename($path));
+        $base = '' === $base || null === $base ? 'document' : $base;
+        // Underscores stay: WordPress keeps them in post slugs, so a source URL
+        // with one must not move onto a dashed spelling after the import.
+        $slug = self::sanitizeKey(str_replace('.', '-', $base));
+        if ( 'index' === $slug && '' !== $entryPath && $path === $entryPath ) {
+            return 'home';
+        }
+
+        return $slug;
+    }
+
+    /**
+     * The artifact file an href points at from a source document, resolved
+     * against the artifact's file paths.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    public static function linkedFilePath(string $href, string $sourcePath, array $files = array()): string
+    {
+        return self::resolveLinkedPath($href, $sourcePath, array_fill_keys(array_column($files, 'path'), true));
+    }
 }
