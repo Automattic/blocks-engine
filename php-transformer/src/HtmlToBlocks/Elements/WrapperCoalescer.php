@@ -547,7 +547,14 @@ final class WrapperCoalescer
         // Keep this box's flex/grid item identity: unlike parent promotion,
         // absorbing its neutral child does not remove the layout item.
         // Padding longhands are equivalent evidence to the shorthand.
-        if (array() === array_intersect(array_keys($parentDeclarations), array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left'))
+        // A universal padding:0 reset does not establish a padded box.
+        // Otherwise unrelated wrappers (including animation hosts) qualify.
+        $hasPadding = false;
+        foreach ($parentDeclarations as $property => $value) {
+            if (in_array($property, array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left'), true)
+                && !$this->isRenderNeutralGeometryDeclaration($property, $value)) $hasPadding = true;
+        }
+        if (!$hasPadding
             || ('core/paragraph' === $name && !isset($parentDeclarations['background']) && !isset($parentDeclarations['background-color']))) return null;
         foreach ($parentDeclarations as $property => $value) {
             if ($this->isInheritedTextProperty($property)) return null;

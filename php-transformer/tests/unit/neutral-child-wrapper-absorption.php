@@ -72,4 +72,10 @@ $assert('pass' === $responsive['source_reports']['wp_block_validity']['status'],
 $lineBox = $transform('<style>.surface{padding:2lh;background:#eee}p{margin:0;line-height:2}</style><div class="surface"><p>Line-relative sizing</p></div>');
 $assert('core/group' === $lineBox['blocks'][0]['blockName'], 'Line-height-relative parent geometry retains its text boundary.');
 
+// A universal zero-padding reset is not evidence of a padded surface.
+// In particular, two independently animated boxes must not share one host.
+$animation = $transform('<style>*{box-sizing:border-box;margin:0;padding:0}.outer{position:absolute;right:6%;top:50%;transform:translateY(-50%);animation:appear 2s both;pointer-events:none}.inner{animation:float 8s infinite}</style><div class="outer" aria-hidden="true"><div class="inner"><h2>Floating illustration</h2><p>Caption</p></div></div>');
+$assert(!str_contains($animation['blocks'][0]['attrs']['className'] ?? '', 'inner'), 'A reset-only parent must not absorb the independently animated child.');
+$assert(str_contains($animation['serialized_blocks'], 'inner'), 'The inner animation keeps its own saved host.');
+
 fwrite(STDOUT, "Neutral child wrapper absorption passed\n");
