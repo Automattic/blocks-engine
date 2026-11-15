@@ -48,4 +48,8 @@ $assert('core/group' === $nested['blocks'][0]['innerBlocks'][0]['blockName'], 'A
 $assert(!str_contains($nested['blocks'][0]['attrs']['className'], 'painted'), 'The descendant paint must not be transferred to the outer surface.');
 $assert(str_contains($nested['blocks'][0]['innerBlocks'][0]['attrs']['className'], 'painted'), 'The painted box keeps its source selector identity.');
 
+$sizing = $transform('<style>.surface{width:200px;padding:2rem;background:#eee;box-sizing:content-box}p{margin:0;box-sizing:border-box}</style><div class="surface"><p>Separate sizing owners</p></div>');
+$assert('core/group' === $sizing['blocks'][0]['blockName'], 'A child box-sizing rule must not change the padded parent sizing model.');
+$assert('core/paragraph' === $sizing['blocks'][0]['innerBlocks'][0]['blockName'], 'The sizing boundary retains a native editable paragraph.');
+
 fwrite(STDOUT, "Neutral child wrapper absorption passed\n");

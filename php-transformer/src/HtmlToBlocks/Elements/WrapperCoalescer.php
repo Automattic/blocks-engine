@@ -571,6 +571,11 @@ final class WrapperCoalescer
         // their selector carriers share a host. Keep these two box owners
         // separate rather than letting carrier specificity choose geometry.
         $childDeclarations = $this->matchingAuthorDeclarations($child);
+        // Box sizing is inert on the unpadded child, but not on the padded
+        // parent it would share after absorption. An undeclared parent uses
+        // the initial content-box model; do not let a child carrier reset it.
+        if (isset($childDeclarations['box-sizing'])
+            && CssValueInspector::comparable($childDeclarations['box-sizing']) !== CssValueInspector::comparable((string) ($parentDeclarations['box-sizing'] ?? 'content-box'))) return null;
         foreach ($parentDeclarations as $property => $value) {
             if (!preg_match('/^(margin|padding)(?:-(top|right|bottom|left))?$/', $property, $spacing)
                 || $this->isRenderNeutralGeometryDeclaration($property, $value)) continue;
