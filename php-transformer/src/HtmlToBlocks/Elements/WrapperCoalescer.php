@@ -562,6 +562,20 @@ final class WrapperCoalescer
             || array() !== SourceDom::safeDataAttributes($child)
             || !$this->hasOnlyRenderNeutralBoxAffectingDeclarations($child)
             || !$this->selectorMatchingSurvivesWrapperCoalescing($element, $child, true)) return null;
+        // Neutral on the child does not mean neutral on the merged box:
+        // a child's zero margin/padding can reset the parent's spacing once
+        // their selector carriers share a host. Keep these two box owners
+        // separate rather than letting carrier specificity choose geometry.
+        $childDeclarations = $this->matchingAuthorDeclarations($child);
+        foreach ($parentDeclarations as $property => $value) {
+            if (!preg_match('/^(margin|padding)(?:-(top|right|bottom|left))?$/', $property, $spacing)
+                || $this->isRenderNeutralGeometryDeclaration($property, $value)) continue;
+            foreach (array_keys($childDeclarations) as $childProperty) {
+                if ($childProperty === $spacing[1]
+                    || $childProperty === $property
+                    || ($property === $spacing[1] && str_starts_with($childProperty, $property . '-'))) return null;
+            }
+        }
         // Paragraphs have UA block margins even without author declarations.
         if ('core/paragraph' === $name) {
             $declarations = $this->matchingAuthorDeclarations($child);

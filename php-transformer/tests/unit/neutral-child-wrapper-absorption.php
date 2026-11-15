@@ -33,4 +33,8 @@ $assert('core/group' === $branch['blocks'][0]['blockName'] && 2 === count($branc
 
 $inherited = $transform('<style>.surface{padding:2rem;background:#eee;--ink:red}.surface p{margin:0;color:var(--ink)}</style><div class="surface"><p>Inherited ink</p></div>');
 $assert('core/group' === $inherited['blocks'][0]['blockName'], 'A consumed custom-property carrier keeps its source boundary.');
+$spacing = $transform('<style>.surface{padding:2rem;background:#eee;margin:3rem}p{margin:0}</style><div class="surface"><p>Separate spacing owners</p></div>');
+$assert('core/group' === $spacing['blocks'][0]['blockName'], 'A child margin reset must not compete with the wrapper margin on one host.');
+$assert('core/paragraph' === $spacing['blocks'][0]['innerBlocks'][0]['blockName'], 'The paragraph remains independently editable inside the spacing box.');
+
 fwrite(STDOUT, "Neutral child wrapper absorption passed\n");
