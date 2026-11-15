@@ -3164,7 +3164,8 @@ final class ShellExtraction
 
     /**
      * The generic fallback templates always carry the dominant shell; excluded
-     * routes get their own override templates. 'search' is never an applicable
+     * routes get their own override templates. 'single' is bound even when no
+     * captured route is a post. 'search' is never an applicable
      * page in its own right (WordPress synthesizes it), so it rides along
      * wherever 'index' is bound: both are the site's generic, non-singular
      * fallback templates. Null when two excluded routes need one override.
@@ -3176,7 +3177,7 @@ final class ShellExtraction
     private static function shellTemplateSlugs(array $applicable, array $selected): ?array
     {
         if (count($selected) === count($applicable)) return array(WordPressSitePlan::NATIVE_TEMPLATE_SLUGS, array());
-        $templateSlugs = WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS;
+        $templateSlugs = array_merge(WordPressSitePlan::NATIVE_QUERY_TEMPLATE_SLUGS, array('single'));
         $overrides = array();
         foreach ($applicable as $index => $page) {
             $carries = isset($selected[$index]);
