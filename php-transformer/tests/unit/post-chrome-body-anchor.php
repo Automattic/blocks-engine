@@ -13,7 +13,9 @@ $header = '<header class="site-header"><nav><ul class="nav"><li><a href="/index.
 $footer = '<footer class="site-footer"><p>Footer text</p></footer>';
 $links = '';
 foreach ($titles as $slug => $title) $links .= '<p><a href="/2024/01/' . $slug . '.html">' . $title . '</a></p>';
-foreach (array('untitled-main-landmark', 'titled-main-landmark', 'self-link-listing', 'control') as $fixture) {
+foreach (array('untitled-main-landmark', 'titled-main-landmark', 'self-link-listing', 'control', 'duplicate-titles', 'short-media-body') as $fixture) {
+    $titles = array('a' => 'Alpha notes', 'b' => 'Beta notes', 'c' => 'Gamma notes');
+    if ('duplicate-titles' === $fixture) $titles['a'] = $titles['b'] = 'My Splendid Concubine';
     $untitled = 'untitled-main-landmark' === $fixture;
     $main = str_ends_with($fixture, 'main-landmark');
     $files = array(array('path' => 'index.html', 'content' => '<!doctype html><html><head><title>Example Journal</title></head><body>' . "\n" . $header . "\n" . '<div class="main-content"><h1>Example Journal</h1>' . $links . '</div>' . "\n" . $footer . "\n" . '</body></html>' . "\n"));
@@ -25,7 +27,8 @@ foreach (array('untitled-main-landmark', 'titled-main-landmark', 'self-link-list
         $cards = '';
         foreach ($titles as $other => $otherTitle) {
             if ($other === $slug) continue;
-            $cards .= '<li><div class="card-0"><a href="/2024/01/' . $other . '.html">' . $otherTitle . '</a></div></li>';
+            $thumbnail = 'short-media-body' === $fixture ? '<img src="/thumb-' . $other . '.jpg" alt="">' : '';
+            $cards .= '<li><div class="card-0"><a href="/2024/01/' . $other . '.html">' . $thumbnail . $otherTitle . '</a></div></li>';
         }
         $popular = '';
         if ('self-link-listing' === $fixture) {
@@ -36,6 +39,8 @@ foreach (array('untitled-main-landmark', 'titled-main-landmark', 'self-link-list
         $open = $main ? '<main><div class="top-strip"><p>Top strip</p></div>' : '';
         $close = $main ? '<div class="bottom-strip"><p>Bottom strip</p></div></main>' : '';
         $documentTitle = $title ?: 'Example Journal';
+        $articleBody = '<p>' . $slug . ' opening paragraph.</p><p>' . $slug . ' middle paragraph.</p><p>' . $slug . ' closing paragraph.</p>';
+        if ('short-media-body' === $fixture && 'a' === $slug) $articleBody = '<div class="separator"><img src="/cover-a.jpg" alt=""></div><p><a href="https://example.com/buy">Buy it today</a></p>';
         $html = <<<HTML
 <!doctype html><html><head><title>{$documentTitle}</title><meta property="article:published_time" content="{$date}T00:00:00Z"><style>{$css}</style></head><body>
 {$header}
@@ -43,7 +48,7 @@ foreach (array('untitled-main-landmark', 'titled-main-landmark', 'self-link-list
 <div class="col-main"><div class="blog"><article class="post"><div class="post-content">
 {$heading}
 <p class="post-date"><time datetime="{$date}">{$date}</time></p>
-<div class="post-body"><p>{$slug} opening paragraph.</p><p>{$slug} middle paragraph.</p><p>{$slug} closing paragraph.</p></div>
+<div class="post-body">{$articleBody}</div>
 <div class="related"><h3 class="related-title">Related Posts</h3><ul class="related-list">{$cards}</ul></div>
 </div></article></div></div>
 <div class="col-side"><div class="sidebar"><h2>About</h2><p>Sidebar text.</p></div>{$popular}</div>
@@ -63,12 +68,19 @@ HTML;
     $templates = array_values(array_filter($plan['templates'], static fn(array $template): bool => str_starts_with($template['slug'], 'single')));
     if (3 !== count($posts)) $failures[] = $fixture . ': three posts';
     if (1 !== count($templates)) $failures[] = $fixture . ': one shared single-post template';
+    if ('duplicate-titles' === $fixture && !str_contains($templates[0]['canonical_block_markup'] ?? '', 'wp:post-title')) $failures[] = $fixture . ': template has a post-title slot';
     foreach ($posts as $post) {
         $slug = basename($post['source_path'], '.html');
         if (($post['route_template'] ?? 'single') !== ($templates[0]['slug'] ?? null)) $failures[] = $fixture . ': ' . $slug . ' uses shared template';
         $body = $post['canonical_block_markup'];
         $text = trim(preg_replace('/\s+/', ' ', strip_tags(preg_replace('/<!--.*?-->/s', '', $body))));
-        if ($text !== $slug . ' opening paragraph.' . $slug . ' middle paragraph.' . $slug . ' closing paragraph.') $failures[] = $fixture . ': ' . $slug . ' body only: ' . $text;
+        $short = 'short-media-body' === $fixture && 'a' === $slug;
+        $expectedText = $short ? 'Buy it today' : $slug . ' opening paragraph.' . $slug . ' middle paragraph.' . $slug . ' closing paragraph.';
+        if ($text !== $expectedText) $failures[] = $fixture . ': ' . $slug . ' body only: ' . $text;
+        if ('short-media-body' === $fixture) {
+            if (substr_count($body, '<img ') !== ($short ? 1 : 0) || str_contains($body, '/thumb-')) $failures[] = $fixture . ': ' . $slug . ' body excludes related thumbnails';
+            if ($short && (!str_contains($body, '<!-- wp:image ') || !str_contains($body, 'https://example.com/buy'))) $failures[] = $fixture . ': short body retains image and purchase link';
+        }
         echo $fixture . ' ' . $slug . ': ' . strlen($body) . " B\n";
     }
     foreach ($plan['diagnostics'] as $finding) {

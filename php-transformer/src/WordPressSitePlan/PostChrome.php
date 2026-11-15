@@ -557,7 +557,7 @@ final class PostChrome
             $identities = array();
             foreach ($indexes[$key]->ranges() as $range) {
                 $slice = substr($post['canonical_block_markup'], $range['offset'], $range['length']);
-                if ('heading' === PostBlocks::sourceBlockName($slice)) $headings[($this->chromeIdentity)($slice)][$key] = true;
+                if ('heading' === PostBlocks::sourceBlockName($slice) && !$this->headingMatchesPostTitle($slice, $post)) $headings[($this->chromeIdentity)($slice)][$key] = true;
                 if (!isset($texts[self::chromeTextKey($slice)])) continue;
                 $identity = ($this->chromeIdentity)($slice);
                 if ('' !== $identity) {
@@ -621,7 +621,10 @@ final class PostChrome
             $count = 0;
             foreach ($varying as $leaf) {
                 if ($leaf['offset'] < $candidate['offset'] || $leaf['offset'] + $leaf['length'] > $candidate['offset'] + $candidate['length']) continue;
-                if ('' !== ListingExcerptProjection::text(substr($index->markup, $leaf['offset'], $leaf['length']))) ++$count;
+                $slice = substr($index->markup, $leaf['offset'], $leaf['length']);
+                // Unlinked media is article content; linked thumbnails belong
+                // to cards/navigation and must not inflate the body count.
+                if ('' !== ListingExcerptProjection::text($slice) || (in_array(PostBlocks::sourceBlockName($slice), array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true) && !preg_match('/<a\b[^>]*\bhref\s*=|"href"\s*:/i', $slice))) ++$count;
             }
             if ($count < 2 || $count < $bestCount) continue;
             if ($count > $bestCount || null === $best || $candidate['length'] < $best['length']) {
