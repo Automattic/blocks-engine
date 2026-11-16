@@ -6,7 +6,10 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 // Reduced from #6075: incidental motion names must not hide editable light DOM.
+$reveal = (string) file_get_contents(__DIR__ . '/fixtures/custom-element-scroll-reveal.html');
 $cases = array(
+    'scroll reveal (#6212)' => array($reveal, array('core/heading', 'core/paragraph', 'core/image')),
+    'unconditional reveal' => array(str_replace('@media (prefers-reduced-motion: no-preference)', '@media all', $reveal), array('core/heading', 'core/paragraph', 'core/image')),
     'product modifier' => array(
         '<product-info><div class="product product--thumbnail_slider"><img src="https://example.com/product.jpg" alt="Example product" width="800" height="800"><h1>Example product</h1><p>A short product description.</p></div></product-info>',
         array('core/image', 'core/heading', 'core/paragraph'),
@@ -36,9 +39,21 @@ foreach ( $cases as $name => [$html, $expected] ) {
     }
 }
 
+$result = (new HtmlTransformer())->transform($reveal)->toArray();
+$markup = json_encode($result['blocks']);
+foreach ( array('Item one', 'Item two', '$10.00', '$12.00', 'Description of the item.', 'one.jpg') as $content ) {
+    if ( ! str_contains((string) $markup, $content) ) {
+        fwrite(STDERR, "FAIL: reveal content lost: {$content}\n");
+        exit(1);
+    }
+}
+
 // Real motion surfaces must not become transparent, whether CSS is inline
 // or supplied by an author stylesheet.
 foreach ( array(
+    str_replace('slideIn 0.6s ease', 'slideIn 0.6s ease infinite', $reveal),
+    str_replace('slideIn 0.6s ease', 'slideIn 0.6s ease 2', $reveal),
+    str_replace('to { transform: translateY(0);', 'to { transform: translateY(-100%);', $reveal),
     '<motion-widget><div class="slider" style="transform:translateX(-100%);overflow:hidden"><p>Runtime slide</p></div></motion-widget>',
     '<style>.slider { animation: advance 5s infinite; } @keyframes advance { to { transform:translateX(-100%); } }</style><motion-widget><div class="slider"><p>Runtime slide</p></div></motion-widget>',
 ) as $html ) {
