@@ -13,8 +13,9 @@ final class SourceAttribute
 
     public static function isSelectorAttribute(string $name): bool
     {
-        return in_array($name, self::SELECTOR_NAMES, true)
-            || 1 === preg_match('/' . self::SELECTOR_PATTERN . '/', $name);
+        return ! \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($name)
+            && (in_array($name, self::SELECTOR_NAMES, true)
+            || 1 === preg_match('/' . self::SELECTOR_PATTERN . '/', $name));
     }
 
     public static function isDeclaredEventAttribute(string $name): bool
@@ -76,7 +77,7 @@ final class SourceAttribute
         $safe = array();
         $policy = self::staticPolicy();
         foreach ($attributes as $name => $value) {
-            if (!is_string($name) || !is_string($value) || in_array($name, $ownedNames, true)
+            if (!is_string($name) || !is_string($value) || \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($name) || in_array($name, $ownedNames, true)
                 || in_array($name, $policy['excludedNames'], true) || str_starts_with($name, $policy['excludedPrefix'])) {
                 continue;
             }
