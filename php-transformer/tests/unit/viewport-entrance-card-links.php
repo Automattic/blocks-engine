@@ -13,11 +13,20 @@ $css = '';
 foreach ($result['assets'] as $asset) {
     if (str_ends_with($asset['path'], '.css')) $css .= $asset['content'];
 }
+if (in_array('--browser-fixture', $argv, true)) {
+    echo json_encode(array('source' => $fixture['input']['artifact']['files'][0]['content'], 'candidate' => $result['serialized_blocks'], 'css' => $css), JSON_THROW_ON_ERROR);
+    exit;
+}
+if (str_contains($result['serialized_blocks'], 'blocksEngineRuntimeAttributes')) {
+    throw new RuntimeException('Retained entrances must not be repeated in paragraph runtime metadata.');
+}
 $dom = new DOMDocument();
 $previous = libxml_use_internal_errors(true);
 $dom->loadHTML('<html class="motion-ready"><body>' . $result['serialized_blocks'] . '</body></html>');
 libxml_clear_errors();
 libxml_use_internal_errors($previous);
+$carriers = (new DOMXPath($dom))->query('//*[@' . CaptureEvidence::VIEWPORT_ENTRANCE . ']');
+if (3 !== $carriers->length) throw new RuntimeException('Each card must have exactly one entrance carrier.');
 $links = $dom->getElementsByTagName('a');
 if (3 !== $links->length) throw new RuntimeException('All three card destinations must survive.');
 foreach ($links as $link) {

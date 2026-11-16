@@ -378,6 +378,9 @@ final class AuthorSelectorProjector
                 $rewritten[] = $carrierChild;
             }
 
+            $anchorAncestor = $this->projectParagraphAnchorAncestorSelector($selector, $parsed, $context);
+            if (null !== $anchorAncestor) $rewritten[] = $anchorAncestor;
+
             $otherSubjects = array();
             $navigationSubjects = array();
             foreach ($matches as $element) {
@@ -1623,6 +1626,22 @@ final class AuthorSelectorProjector
             // The same subject predicate guards the item slot: unrelated
             // synthetic paragraphs must not receive this item's placement.
             $arms[] = $itemSlot ? $prefix . $carrier . ':has(>' . $subject . ')' : $projected;
+        }
+        return array() === $arms ? null : implode(',', $arms);
+    }
+
+    /** Project child edges to retained anchors even when the rule addresses a descendant. */
+    private function projectParagraphAnchorAncestorSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    {
+        $arms = array();
+        foreach ($parsed['type_spans'] ?? array() as $span) {
+            $index = (int) $span['compound'];
+            if ($index === count($parsed['compounds']) - 1
+                || 'a' !== strtolower($span['name']) || '>' !== ($parsed['combinators'][$index - 1] ?? null)) continue;
+            $start = (int) $span['start'];
+            $target = substr($selector, 0, $start) . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ')>' . substr($selector, $start);
+            $target = $this->rewriteSourceTagTypes($target, CssSelectorMatcher::parse($target), $context);
+            if ($this->matchesEmittedMarkup(CssSelectorMatcher::parse($target), $context->emittedMarkup)) $arms[] = $target;
         }
         return array() === $arms ? null : implode(',', $arms);
     }
