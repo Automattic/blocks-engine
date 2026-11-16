@@ -22,7 +22,7 @@ $compile = static function (?array $evidence) use ($html): array {
 $baseline = $compile(null);
 $result = $compile($tree);
 $assert(1.0 === (float) $result['source_reports']['box_tree']['index.html']['coverage'], 'Fixture route has complete box-tree coverage.');
-$assert($baseline['serialized_blocks'] === $result['serialized_blocks'] && $baseline['blocks'] === $result['blocks'], 'Browser observations do not change converted blocks.');
+$assert($baseline['serialized_blocks'] !== $result['serialized_blocks'], 'Accepted browser observations restyle converted blocks.');
 $assert(!array_filter($result['diagnostics'], static fn(array $row): bool => str_starts_with($row['code'], 'box_tree_')), 'Valid evidence produces no rejection diagnostics.');
 $normalized = (new ArtifactNormalizer())->normalize(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html, 'box-tree/index.json' => json_encode($tree))));
 $source = array_values(array_filter($normalized['files'], static fn(array $f): bool => 'index.html' === $f['path']))[0];
@@ -52,7 +52,7 @@ $shared = $compiler->prepareShared($artifact);
 $pages = $compiler->preparePages($artifact, $shared);
 $receipts = $compiler->compilePreparedPages($shared, array_values($pages));
 $staged = $compiler->compose($shared, array_values($receipts))->toArray();
-$assert($staged['serialized_blocks'] === $baseline['serialized_blocks'], 'Staged transport preserves conversion parity with box-tree evidence.');
+$assert($staged['serialized_blocks'] === $result['serialized_blocks'], 'Staged transport preserves captured-style conversion.');
 
 $other = $tree;
 $other['source_path'] = 'other.html';
