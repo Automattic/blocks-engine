@@ -24,14 +24,12 @@ $assert('get' === ($form['attrs']['method'] ?? ''), 'absent method retains the n
 $assert(false === ($form['attrs']['methodDeclared'] ?? true), 'absent method is not invented in saved markup');
 $assert(str_contains($markup, '<form action="/inventory" class="inventory-filter">'), 'saved form retains action and author class without a method rewrite');
 $assert(str_contains($markup, '<input type="text" name="location" value="north" placeholder="Choose a location" class="location" required>'), 'saved field remains a native named required input');
-$rendered = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeSelectRendererFixture::render($markup);
-$assert(str_contains($markup, '"blocksEngineSelect":'), 'saved select uses editable core option blocks');
-$assert(str_contains($rendered, '<select name="type"><option value="">All types</option><option value="house" selected>House</option></select>'), 'rendered select retains option values and selection');
+$assert(str_contains($markup, '<select name="type"><option value="">All types</option><option value="house" selected>House</option></select>'), 'saved select retains option values and selection');
 $assert(str_contains($markup, '<button type="button"'), 'non-submit button retains its native type');
 $assert(str_contains($markup, '<button type="submit"'), 'submit button retains its native type');
 $assert(! str_contains($markup, '<!-- wp:html'), 'native GET form does not fall back to raw HTML');
 $assert(array() === ($result['fallbacks'] ?? array()), 'native GET form has no provider or form fallback');
-$assert(2 === count($generated) && !in_array('authored-select', array_column($generated, 'name'), true), 'form and input companions are packaged without a select companion');
+$assert(3 === count($generated), 'form and reusable input/select companions are packaged');
 
 $iconSubmit = (new HtmlTransformer())->transform('<form action="/search"><input type="search" name="q" aria-label="Search"><button type="submit" aria-label="Search"><div class="icon"><svg viewBox="0 0 1 1"><path d="M0 0h1v1z"></path></svg></div></button><input type="submit" value="Go"></form>')->toArray();
 $iconMarkup = (string) ($iconSubmit['serialized_blocks'] ?? '');

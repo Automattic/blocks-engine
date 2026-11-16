@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredLabelBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries;
@@ -149,7 +150,24 @@ final class AuthoredFormControlBlockConverter
             'disabled' => $select->hasAttribute('disabled'),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
         $attrs = array_replace($attrs, $state ?? array());
-        return $this->nativeSelect($attrs, $select);
+        // Capture-backed controls have an explicit state contract for the core
+        // option-list renderer. Ordinary authored controls must keep their saved
+        // native markup (including form submission and source CSS topology).
+        if (null !== $state) {
+            return $this->nativeSelect($attrs, $select);
+        }
+        $generator = new AuthoredSelectBlockGenerator();
+        $registry = $this->session->requireGeneratedBlockRegistry();
+        $registry->register(AuthoredSelectBlockGenerator::class, $generator->definition($registry->namespace()));
+        $markup = $generator->markup($attrs);
+        return array(
+            'blockName' => $registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME),
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array($markup),
+            '_source_anchor_selector' => SourceDom::elementSelector($select),
+        );
     }
 
     public function listbox(DOMElement $trigger, ?DOMElement $panel = null): ?array

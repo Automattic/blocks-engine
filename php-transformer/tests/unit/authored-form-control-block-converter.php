@@ -82,11 +82,11 @@ $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts
 $styledSelect = $elementFrom('<select data-styled id="plan" name="plan"><option value="basic">Basic</option><option value="pro" selected>Pro</option></select>', 'select');
 $selectBlock = $converter->select($styledSelect);
 $authoredSelect = $selectBlock;
-$assert('plan' === ($selectBlock['attrs']['metadata']['blocksEngineSelect']['id'] ?? ''), 'styled-select-owns-source-id-without-wrapper');
-$assert('core/list' === $authoredSelect['blockName'], 'styled-select-uses-core-list');
-$assert(true === $authoredSelect['innerBlocks'][1]['attrs']['metadata']['blocksEngineSelectOption']['selected'], 'styled-select-retains-default-selection');
-$assert('Pro' === $authoredSelect['innerBlocks'][1]['attrs']['content'], 'styled-select-has-editable-label');
-$assert(!$registry->has(AuthoredSelectBlockGenerator::class), 'styled-select-registers-no-generated-definition');
+$assert('plan' === ($selectBlock['attrs']['id'] ?? ''), 'styled-select-owns-source-id-without-wrapper');
+$assert($registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME) === ($authoredSelect['blockName'] ?? ''), 'styled-select-uses-authored-select-block');
+$assert('Pro (selected)' === ($authoredSelect['attrs']['selectedSummary'] ?? ''), 'styled-select-retains-selected-summary');
+$assert(str_contains((string) ($authoredSelect['innerHTML'] ?? ''), '<option value="pro" selected>Pro</option>'), 'styled-select-emits-native-option-markup');
+$assert($registry->has(AuthoredSelectBlockGenerator::class), 'styled-select-registers-generated-definition');
 $assert(array( 'plan' ) === array_slice($session->transformationEvidenceState()->formControlEchoTexts(), $echoStart), 'styled-select-registers-only-label-echo');
 
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
@@ -94,9 +94,14 @@ $requiredSelect = $elementFrom('<label class="block">Assistance required<select 
 $requiredLabel = $requiredSelect->parentNode instanceof DOMElement ? $requiredSelect->parentNode : null;
 $requiredBlock = $converter->select($requiredSelect, false, $requiredLabel);
 $authoredRequired = $requiredBlock;
-$assert(true === ($authoredRequired['attrs']['metadata']['blocksEngineSelect']['required'] ?? false), 'required-select-retains-required-attribute');
-$assert('Assistance required' === ($authoredRequired['attrs']['metadata']['blocksEngineSelect']['label'] ?? ''), 'required-select-retains-wrapping-label');
-$assert('Food &amp; housing' === $authoredRequired['innerBlocks'][1]['attrs']['content'], 'required-select-escapes-editable-option-label');
+$assert(true === ($authoredRequired['attrs']['required'] ?? false), 'required-select-retains-required-attribute');
+$assert('Assistance required' === ($authoredRequired['attrs']['label'] ?? ''), 'required-select-retains-wrapping-label');
+$assert(
+    str_contains((string) ($authoredRequired['innerHTML'] ?? ''), '<select class="mt-1.5 w-full" required>')
+        && str_contains((string) ($authoredRequired['innerHTML'] ?? ''), '<option value="" selected disabled>Select a program</option>')
+        && str_contains((string) ($authoredRequired['innerHTML'] ?? ''), '<option value="food">Food &amp; housing</option>'),
+    'required-select-emits-required-placeholder-and-escaped-option-markup'
+);
 
 $echoStart = count($session->transformationEvidenceState()->formControlEchoTexts());
 $emptySelect = $elementFrom('<select></select>', 'select');

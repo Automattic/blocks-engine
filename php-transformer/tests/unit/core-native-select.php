@@ -31,8 +31,9 @@ $assert(str_contains($html, '<optgroup label="Plans"><option value="" selected><
 $assert(str_contains($html, 'data-blocks-engine-control-state='), 'Current state is replayable without overwriting defaults');
 $block['innerBlocks'][1]['innerHTML'] = '<li>Edited &amp; editable</li>';
 $assert(str_contains($render('', $block), '>Edited &amp; editable</option>'), 'Core editor label changes reach native output');
-// Non-capture form options omit valueDeclared; their declared values still submit.
+// Ordinary forms retain saved native markup, not just equivalent theme output.
 $form = (new HtmlTransformer())->transform('<form action="/filter"><select name="type"><option value="">All</option><option value="house" selected>House</option></select></form>')->toArray();
-$formHtml = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeSelectRendererFixture::render($form['serialized_blocks']);
+$formHtml = $form['serialized_blocks'];
+$assert(!str_contains($formHtml, '"blocksEngineSelect":'), 'Ordinary native controls retain their existing save contract');
 $assert(str_contains($formHtml, '<option value="">All</option><option value="house" selected>House</option>'), 'Ordinary form option values survive native rendering without capture metadata');
 echo "Core native select regression passed\n";
