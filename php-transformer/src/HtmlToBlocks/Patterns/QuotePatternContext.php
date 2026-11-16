@@ -13,6 +13,26 @@ final class QuotePatternContext
     ) {
     }
 
+    /**
+     * Resolve only text styles for the paragraph replacing a consumed blockquote.
+     * Do not resolve box presentation: that can register generated geometry even
+     * when the caller subsequently discards the box attributes.
+     *
+     * @return array<string, mixed>
+     */
+    public function figureQuotationTypography(DOMElement $blockquote): array
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($blockquote);
+        $typography = array_intersect_key($declarations, array_flip(array(
+            'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform',
+        )));
+        $mapped = $this->styleResolver->styleAttributeMapper()->map(
+            $typography,
+            fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $blockquote)
+        );
+        return $mapped['style']['typography'] ?? array();
+    }
+
     /** Preserve the typography of the caption consumed by a native quote. */
     public function figureCaptionContent(DOMElement $caption): string
     {

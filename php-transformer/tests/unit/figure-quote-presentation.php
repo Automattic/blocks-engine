@@ -32,4 +32,22 @@ $inherited = (new HtmlTransformer())->transform(
 if ('<b>Author</b><span>Title</span>' !== ($inherited['blocks'][0]['attrs']['citation'] ?? '')) {
     throw new RuntimeException('Inherited caption typography must not change citation topology');
 }
+// Consuming the quote must not change another paragraph's typography or
+// transfer the quotation's box onto its synthetic text carrier.
+$scoped = (new HtmlTransformer())->transform(
+    '<style>.review blockquote{font-size:14px;line-height:1.45;width:237px;margin:18px}'
+    . '.review figcaption{font-size:9px;font-weight:700}p{font-size:16px}</style>'
+    . '<figure class="review"><blockquote>Review text</blockquote><figcaption>Reviewer</figcaption></figure>'
+    . '<p>Unrelated text</p>'
+)->toArray();
+$reviewText = $scoped['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$sibling = $scoped['blocks'][1]['attrs'] ?? array();
+if ('14px' !== ($reviewText['style']['typography']['fontSize'] ?? '')
+    || isset($sibling['style']['typography']['fontSize'])
+    || array('typography') !== array_keys($reviewText['style'] ?? array())
+    || isset($reviewText['inlineGeometryStyle'])
+    || 'pass' !== ((new BlockValidityValidator())->validateBlocks($scoped['blocks'])['status'] ?? '')
+) {
+    throw new RuntimeException('Collapsed quote text styles must stay local: ' . $scoped['serialized_blocks']);
+}
 echo "Figure quote presentation passed\n";

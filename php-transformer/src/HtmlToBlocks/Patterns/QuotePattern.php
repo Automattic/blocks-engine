@@ -189,11 +189,10 @@ final class QuotePattern implements PatternRecognizerInterface
         if ( array() !== $quoteChildren ) {
             // Only transfer text presentation: the consumed blockquote's box
             // (especially margins) must not become the synthetic paragraph's box.
-            $presentation = $context->presentationAttributes($blockquote);
             $quoteChildren[0] = $createBlock('core/paragraph', array(
                 'content' => $value,
                 'className' => 'blocks-engine-synthetic-paragraph',
-                'style' => array('typography' => $presentation['style']['typography'] ?? array()),
+                'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
             ));
         }
         $innerBlocks = array_merge($innerBlocks, $quoteChildren);
