@@ -65,6 +65,7 @@ $pages = $compiler->preparePages($artifact, $shared);
 $receipts = $compiler->compilePreparedPages($shared, array_values($pages));
 $staged = $compiler->compose($shared, array_values($receipts))->toArray();
 $assert(!array_filter($staged['diagnostics'], static fn(array $row): bool => str_starts_with($row['code'], 'box_tree_')), 'Staged multi-route intake does not leak sidecars between page workers.');
+$assert($whole['source_reports']['box_tree'] === $staged['source_reports']['box_tree'], 'Staged and monolithic route classifications and projections agree.');
 
 $bad = $tree;
 $bad['nodes']['n5']['children'] = array('n7', 'n6');

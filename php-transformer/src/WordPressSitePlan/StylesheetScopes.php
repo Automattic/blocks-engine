@@ -327,19 +327,25 @@ final class StylesheetScopes
             }
         }
         $groups = array();
+        $lastKey = null;
         foreach ($rules as $rule) {
             ksort($rule['scopes']);
             $asset = $rule['asset'];
             $key = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? '', $rule['layer_order'], $rule['scopes']));
-            if (!isset($groups[$key])) $groups[$key] = array('asset' => $asset, 'index' => $rule['index'], 'scopes' => array_values($rule['scopes']), 'rules' => $rule['layer_order']);
-            $groups[$key]['rules'][] = $rule['text'];
+            // Only consecutive rules may share a sheet, preserving their
+            // relative order for every consumer even after adjacent sheets fold.
+            if ($key !== $lastKey) {
+                $groups[] = array('key' => $key, 'asset' => $asset, 'index' => $rule['index'], 'scopes' => array_values($rule['scopes']), 'rules' => $rule['layer_order']);
+                $lastKey = $key;
+            }
+            $groups[array_key_last($groups)]['rules'][] = $rule['text'];
         }
         // Each allocated sheet takes the slot of the first sheet it draws
         // rules from, so the inventory keeps its cascade order.
         $allocated = array();
-        foreach ($groups as $key => $group) {
+        foreach ($groups as $group) {
             $asset = CompiledAssets::withRewrittenTextContent($group['asset'], implode("\n", $group['rules']));
-            $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', $key . $asset['content']), 0, 16) . '.css';
+            $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', $group['key'] . $asset['content']), 0, 16) . '.css';
             $asset['source_path'] = $path;
             $asset['target_path'] = 'assets/' . $path;
             $asset['token'] = 'asset-' . substr(hash('sha256', $asset['target_path']), 0, 16);

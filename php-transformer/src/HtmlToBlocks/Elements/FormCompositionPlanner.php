@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConv
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** Preserves one controls-only subtree as a provider binding slot. */
@@ -43,13 +44,14 @@ final class FormCompositionPlanner
         } finally {
             $provenance->releaseFormControlSlot($path);
         }
-        $slotBlock = $this->blockForBindingToken($children, $token);
+        $block = $this->createBlock->createBlock('core/group', $this->presentation->presentationAttributes($form), $children, $form);
+        $slotBlock = $slot->isSameNode($form) ? $block : $this->blockForBindingToken($children, $token);
         if ( array() === $children || null === $slotBlock ) {
             return null;
         }
 
         return array(
-            'block' => $this->createBlock->createBlock('core/group', $this->presentation->presentationAttributes($form), $children, $form),
+            'block' => $block,
             'slot'  => $slotBlock,
         );
     }
@@ -106,6 +108,19 @@ final class FormCompositionPlanner
                 }
             }
             $slot = $candidate;
+        }
+
+        // An unassociated caption outside the controls subtree is form-owned
+        // context. Keep it in the same provider replacement boundary; otherwise
+        // both the page and the provider's readable form render that caption.
+        if ( null !== $slot ) {
+            foreach ( $form->getElementsByTagName('label') as $label ) {
+                if ( '' === SourceDom::attr($label, 'for') && ! $this->elementContains($slot, $label) ) {
+                    // Replace the whole composed form without switching to the
+                    // degraded readable layout: its source spacing still matters.
+                    return $form;
+                }
+            }
         }
 
         return $slot;

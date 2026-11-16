@@ -341,8 +341,8 @@ final class AnchorLowering implements ButtonLinkLeftovers
 
     /**
      * Editorial cards and headingless media cards can expose their destination
-     * on native RichText. Keep navigation, structured listings and media-led
-     * heading cards on their specialized lowering paths.
+     * on native RichText. Media-led heading cards need a separate visual
+     * container; direct-image listings keep their specialized lowering paths.
      */
     private function isStretchedLinkCard(DOMElement $anchor): bool
     {
@@ -368,7 +368,24 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
         }
         if ( $hasImage && $hasHeading ) {
-            return false;
+            // A separate visual region distinguishes an editorial card from
+            // direct-image listing/featured-image links. Those must retain
+            // their source anchor for site-wide post and query recognition.
+            foreach ( $anchor->getElementsByTagName('img') as $image ) {
+                $visual = $image->parentNode;
+                if ( $visual instanceof DOMElement && 'picture' === strtolower($visual->tagName) ) {
+                    $visual = $visual->parentNode;
+                }
+                if ( ! $visual instanceof DOMElement || $visual === $anchor
+                    || 'div' !== strtolower($visual->tagName) ) {
+                    return false;
+                }
+                foreach ( array('h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p') as $tag ) {
+                    if ( 0 < $visual->getElementsByTagName($tag)->length ) {
+                        return false;
+                    }
+                }
+            }
         }
         // Icon labels and headings drawn as SVG retain their source wrapper.
         foreach ( $anchor->getElementsByTagName('svg') as $svg ) {

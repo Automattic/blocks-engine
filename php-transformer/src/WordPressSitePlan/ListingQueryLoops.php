@@ -718,6 +718,8 @@ final class ListingQueryLoops
             // An unbound media leaf cannot be replaced by post-content: the
             // card may own media which the article body does not render.
             if ('body' === $kind && !in_array(PostBlocks::sourceBlockName($slice), array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true) && preg_match('/<(?:img|video|picture|audio)\b/i', $slice . (string) (PostBlocks::sourceAttributes($slice)['content'] ?? ''))) $kind = 'chrome';
+            // Identical textless media across every card is decorative chrome.
+            if ('body' === $kind && '' === ListingExcerptProjection::text($slice) && isset($sharedText[self::leafIdentity($slice)])) $kind = 'chrome';
             if ($linkedContainer && 'heading' === PostBlocks::sourceBlockName($slice)) {
                 $kind = 'title';
             } elseif ($linkedContainer && 'image' === PostBlocks::sourceBlockName($slice) && null !== PostBlocks::leadImage($slice)) {
@@ -844,6 +846,8 @@ final class ListingQueryLoops
     private static function leafIdentity(string $leaf): string
     {
         $text = ListingExcerptProjection::text($leaf);
+        // Capture geometry is positional state, not textless card identity.
+        if ('' === $text) $leaf = preg_replace('/\s*be-inline-geometry-[0-9a-f]+/', '', $leaf) ?? $leaf;
         return '' !== $text ? $text : "\0" . $leaf;
     }
 
@@ -1024,6 +1028,19 @@ final class ListingQueryLoops
             $anchors[] = array('href' => $href, 'text' => $text);
         }
         return $anchors;
+    }
+
+    /** A stable set of linked routes, independent of slider state and geometry. */
+    public function cardRouteIdentity(string $markup): string
+    {
+        $routes = array();
+        foreach ($this->anchors($markup) as $anchor) {
+            if ('' === $anchor['href'] || str_starts_with($anchor['href'], '#')) continue;
+            foreach (self::routeKeys($anchor['href']) as $route) $routes[$route] = true;
+        }
+        $keys = array_keys($routes);
+        sort($keys);
+        return array() === $keys ? $markup : json_encode($keys);
     }
 
     /** @param array<int,string> $routes */

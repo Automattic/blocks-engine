@@ -10,6 +10,7 @@ foreach (array(
     '<img src="category.jpg" alt=""><div class="shade"></div><p>Category</p>',
     '<img src="product.jpg" alt=""><div><p>Brand</p><p>Product</p><p>Price</p></div>',
     '<div><img src="product.jpg" alt=""></div><div><p>Brand</p><p>Product</p><p>Price</p></div>',
+    '<div class="visual"><img src="service.jpg" alt=""></div><div class="body"><h3>Service</h3><p>Description</p><span>Learn more →</span></div>',
 ) as $content) {
     $out = (new HtmlTransformer())->transform('<main><a class="group" href="/destination/">' . $content . '</a></main>')->toArray();
     $markup = $out['serialized_blocks'];
@@ -23,5 +24,12 @@ foreach (array(
         || 1 !== $xpath->query('//a')->length) {
         throw new RuntimeException('Safe media/label cards need one native editable destination: ' . $markup);
     }
+}
+// Direct-image listing cards retain their source boundary: site planning
+// recognizes their featured image and related-post destination there.
+$out = (new HtmlTransformer())->transform('<a class="card" href="/story/"><img src="story.jpg" alt=""><h3>Story</h3><p>Summary</p></a>')->toArray();
+if (!str_contains($out['serialized_blocks'], '<a class="card" href="/story/">')
+    || str_contains($out['serialized_blocks'], 'blocks-engine-stretched-link')) {
+    throw new RuntimeException('Direct-image listing cards must retain their specialized path.');
 }
 echo "Media stretched-link card contract passed.\n";

@@ -13,6 +13,7 @@ final class BoxTree
     public const MAX_NODES = 100000;
     public const MAX_VIEWPORTS = 8;
     public const MAX_BYTES = 33554432;
+    public const MOTION_PROPERTIES = array('animation-name', 'transition-property', 'transition-duration');
     public const PROPERTIES = array(
         'display', 'position', 'box-sizing', 'overflow-x', 'overflow-y',
         'padding-top', 'padding-right', 'padding-bottom', 'padding-left',

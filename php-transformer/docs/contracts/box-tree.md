@@ -60,6 +60,41 @@ coverage, conservative rejection and byte-identical serialized blocks.
 Browser capture production belongs to Data Liberation's follow-up; this fixture
 is not a claim that a live capture pipeline has been implemented here.
 
+## Report-only classification (ADR 0005 slice 2)
+
+`source_reports.box_tree[route].classification` contains `counts` keyed by
+`load-bearing` and `neutral`, and `nodes` keyed by source ID with `disposition`
+and the deciding `criterion`. Criteria are `paints`, `multi-child-layout`,
+`containing-block`, `semantics/id/anchor`, `interaction/state`, `motion`, and
+`own-sizing`; neutral nodes have `equal-child-geometry`. Precedence follows that
+order. Neutrality requires one element child, no direct non-whitespace text, and
+matching x/y/width/height at **every** viewport (0.01 CSS pixel tolerance).
+Containing-block ownership is resolved separately at each viewport, including
+transformed ancestors of fixed descendants. These are reports, not collapse
+instructions; converted blocks and author styles are unchanged.
+
+The v1 evidence shape additionally accepts optional used-style strings
+`animation-name`, `transition-property`, and `transition-duration`. Producers
+should populate them from CSSOM, including stylesheet-only motion. A node may
+also supply `interaction_states`, up to 32 captured state names (same identifier
+syntax as viewport names), e.g. `["hover", "focus"]`. A nonempty list preserves
+the node independently of its resting appearance. These names indicate captured
+states; they do not supply state geometry or authorize restyling. Older sidecars
+remain readable; omitted motion/state fields cannot prove absence of behavior.
+
+`projection` estimates the surviving **source box** tree below body after neutral
+chains collapse: maximum `depth`, surviving non-leaf `groups`, source `leaves`,
+and `groups_per_leaf` (groups divided by leaves). Body, head and document metadata
+are excluded. It is not an emitted-block measurement: pattern expansion and
+non-rendering source leaves can differ from WordPress blocks. Missing/rejected
+evidence has empty classifications and a null projection, never an optimistic
+zero-depth estimate. Live whole-site/sdnunca measurement is deferred until the
+capture producer lands; checked-in v1-shaped fixtures gate this slice.
+
+Run `php tests/contract/box-tree-classification.php` and
+`php tests/contract/box-tree.php` from `php-transformer` for criterion coverage,
+projection budgets, output invariance and staged/multi-route report parity.
+
 ## Layout reduction proof
 
 Reduction proof remains separate because it describes a wrapper-free simulation,
