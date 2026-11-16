@@ -278,6 +278,7 @@ final class WrapperCoalescer
         // A dialog Group's identity includes its runtime shell and bindings.
         return !empty($attrs['metadata']['blocksEngineRuntimeAttributes'])
             || isset($attrs['metadata']['blocksEngineDialog'])
+            || isset($attrs['metadata']['blocksEngineChoiceGroup'])
             || !empty($block['_editability_runtime_owned'])
             || !empty($block['_editability_visual_owned'])
             || !empty($attrs['backgroundColor'])
