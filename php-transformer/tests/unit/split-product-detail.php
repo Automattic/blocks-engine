@@ -12,9 +12,11 @@ foreach ($result['fallbacks'] as $fallback) {
     $found = true;
     $product = $fallback['products'][0] ?? array();
     if (($product['image']['src'] ?? null) !== 'cover.png'
-        || ($fallback['container_selector'] ?? null) !== ($product['source_selector'] ?? null)
-        || str_contains($fallback['binding']['search_block_markup'] ?? '', 'cover.png')) {
-        fwrite(STDERR, "FAIL: purchase-column replacement must exclude sibling artwork while retaining its product image data\n");
+        || ($fallback['container_selector'] ?? null) === ($product['source_selector'] ?? null)
+        || isset($fallback['binding'])
+        || empty($product['binding']['search_block_markup'])
+        || !str_contains($result['serialized_blocks'], 'cover.png')) {
+        fwrite(STDERR, "FAIL: split detail must retain artwork, product image data and purchase binding without a collection replacement\n");
         exit(1);
     }
 }

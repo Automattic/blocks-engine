@@ -170,19 +170,16 @@ final class CommerceFallbackReporter
                 }
             }
             $listing = $this->listingControls($element, $products);
-            // A lone purchase column does not own sibling detail artwork.
-            // Keep that media outside the provider-replaceable boundary, but
-            // retain it as product data for commerce materialization.
+            $splitDetail = false;
+            // A lone purchase column beside artwork is a split detail,
+            // not a collection of cards. Keep its product and purchase binding,
+            // including the sibling image as product data, but do not offer a
+            // collection replacement whose item template omits that artwork.
             if ( array() === $listing && 1 === count($products) && empty($products[0]['image']) ) {
                 $whole = $this->recognizer->productCardData($element);
                 if ( ! empty($whole['image']) ) {
                     $products[0]['image'] = $whole['image'];
-                    foreach ( $element->getElementsByTagName('*') as $descendant ) {
-                        if ( SourceDom::elementSelector($descendant) === $products[0]['source_selector'] ) {
-                            $element = $descendant;
-                            break;
-                        }
-                    }
+                    $splitDetail = true;
                 }
             }
 
@@ -211,7 +208,7 @@ final class CommerceFallbackReporter
             }
             unset($product);
 
-            $candidates[] = array('element' => $element, 'products' => $products, 'listing' => $listing);
+            $candidates[] = array('element' => $element, 'products' => $products, 'listing' => $listing, 'split_detail' => $splitDetail);
         }
 
         // Controls in an off-canvas panel are not independent empty loops.
@@ -279,7 +276,7 @@ final class CommerceFallbackReporter
                 // loop here retires that redraw. The item template that loop
                 // repeats is built from the cards' final block markup in
                 // `itemTemplate()` once the page is serialized.
-                'binding'           => $this->blockBindings->binding(array(), 'commerce_product_grid', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element),
+                'binding'           => $candidate['split_detail'] ? array() : $this->blockBindings->binding(array(), 'commerce_product_grid', $this->runtimeIslands->runtimeDomSelectorsForElement($element), $element),
                 'listing'           => $listing,
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
