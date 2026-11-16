@@ -508,6 +508,9 @@ final class ArtifactCompiler
         foreach (array_unique(array_map(static fn (array $part): string => (string) ($part['block_markup'] ?? ''), $parts)) as $partMarkup) $sharedMarkup .= "\n" . $partMarkup;
         foreach ($pageMarkup as &$markup) $markup .= "\n" . $sharedMarkup;
         unset($markup);
+        // Keep source bytes intact through compilation: provenance, orphan
+        // assets and cross-route factoring all depend on the authored inventory.
+        // Only prune the published projections after that factoring is complete.
         $authoredFiles = $normalized['files'];
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup, $timer);
         $normalized['files'] = $this->withoutUnreachableSelectors($normalized['files']);
@@ -2135,8 +2138,24 @@ final class ArtifactCompiler
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
             $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
-            // Preserve inline author sheets as conservative evidence: partial
-            // documents and responsive variants need not contain their subjects.
+            // A complete document supplies subject evidence, not its style
+            // inventory. Otherwise an inline framework sheet keeps every one
+            // of its own unused selectors alive. Fragments remain conservative:
+            // their author rules may target subjects outside the supplied tree.
+            if ('html' === ($file['kind'] ?? '') && is_string($text) && preg_match('/<html\b/i', $text)) {
+                // Search tag boundaries rather than matching the entire body:
+                // captured sheets can exceed PCRE's backtracking limit. A null
+                // replacement would erase the document's subject evidence too.
+                $offset = 0;
+                while (preg_match('/<style\b[^>]*>/i', $text, $open, PREG_OFFSET_CAPTURE, $offset)) {
+                    $start = $open[0][1];
+                    $bodyStart = $start + strlen($open[0][0]);
+                    if (!preg_match('/<\/style\s*>/i', $text, $close, PREG_OFFSET_CAPTURE, $bodyStart)) break;
+                    $end = $close[0][1] + strlen($close[0][0]);
+                    $text = substr_replace($text, '', $start, $end - $start);
+                    $offset = $start;
+                }
+            }
             if (is_string($text) && '' !== $text) $texts[] = $text;
         }
         if (0 === $documents) return $files;

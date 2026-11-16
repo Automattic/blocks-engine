@@ -50,6 +50,18 @@ final class UnreachableSelectorPruner
         $pruned = (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body): string {
             $arms = CssStylesheetTransformer::splitSelectorList($prelude);
             if (null === $arms) return $prelude . '{' . $body . '}';
+            // Matcher support is not selector validity: generated content and
+            // browser state pseudos can still have provably absent subjects.
+            // Malformed attribute syntax, however, makes a whole list uncertain.
+            foreach ($arms as $arm) {
+                for ($i = 0, $length = strlen($arm); $i < $length; ++$i) {
+                    if ('\\' === $arm[$i]) { ++$i; continue; }
+                    if ('[' !== $arm[$i]) continue;
+                    $close = CssSyntaxScanner::matchingClose($arm, $i);
+                    if (null === $close || !CssSelectorMatcher::parse('*' . substr($arm, $i, $close - $i + 1))['supported']) return $prelude . '{' . $body . '}';
+                    $i = $close;
+                }
+            }
             $kept = array_values(array_filter($arms, fn (string $arm): bool => $this->reachable($arm)));
             if (count($kept) === count($arms)) return $prelude . '{' . $body . '}';
             // Comments ahead of the rule (licenses, source maps) stay in place.
