@@ -2562,7 +2562,9 @@ final class AuthorSelectorProjector
      * list's semantic identity, and a child hop reaches core's container.
      * Otherwise `#menu > ul` looks for a UL child of `#menu` that no longer
      * exists, and the item loses its authored box (padding, height, display).
-     * Only applies when every matched item's parent is such a root-owning list.
+     * When the carrier owns the root instead, the source list maps directly
+     * to the inner container, with a descendant hop through Core's wrappers.
+     * Mixed root ownership is left alone.
      *
      * @param array<string, mixed> $parsed
      * @param list<DOMElement> $matches
@@ -2581,14 +2583,30 @@ final class AuthorSelectorProjector
             return array();
         }
         $identities = array();
+        $ownsRoot = null;
         foreach ( $matches as $item ) {
             $list = $item->parentNode;
             if ( ! $list instanceof DOMElement ) {
                 return array();
             }
             $path = $list->getNodePath() ?? '';
-            if ( ! $context->selectorProjections->navigationListOwnsRoot($path) ) {
+            $listOwnsRoot = $context->selectorProjections->navigationListOwnsRoot($path);
+            if ( null !== $ownsRoot && $ownsRoot !== $listOwnsRoot ) {
                 return array();
+            }
+            $ownsRoot = $listOwnsRoot;
+            if ( ! $ownsRoot ) {
+                if ( $parentIndex < 1 || '>' !== ($combinators[$parentIndex - 1] ?? null)
+                    || ! $context->selectorProjections->isNavigationSourcePath($item->getNodePath() ?? '', AuthorSelectorProjectionState::NAVIGATION_ITEM) ) {
+                    return array();
+                }
+                // Submenu lists live inside an item, not in the root container.
+                for ( $ancestor = $list->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                    if ( $context->selectorProjections->isNavigationSourcePath($ancestor->getNodePath() ?? '', AuthorSelectorProjectionState::NAVIGATION_ITEM) ) {
+                        return array();
+                    }
+                }
+                continue;
             }
             if ( '' === $type ) {
                 continue;
@@ -2598,6 +2616,31 @@ final class AuthorSelectorProjector
                 return array();
             }
             $identities[$marker] = '.wp-block-navigation.' . $marker;
+        }
+        if ( false === $ownsRoot ) {
+            // The carrier, rather than this list, owns the navigation root.
+            // Core inserts responsive wrappers before the item container: relax
+            // the hop into the list, but keep its direct-child hop to the item.
+            foreach ( $parsed['type_spans'] as $typeSpan ) {
+                if ( $parentIndex !== ($typeSpan['compound'] ?? null) ) {
+                    continue;
+                }
+                $listStart = (int) $typeSpan['start'];
+                $replacements = array(
+                    $listStart => array(
+                        'end' => (int) $typeSpan['end'],
+                        'value' => ':where(.wp-block-navigation__container)' . $this->typeSpecificityShim($context),
+                    ),
+                );
+                if ( $parentIndex > 0 && '>' === ($combinators[$parentIndex - 1] ?? null) ) {
+                    $hop = $listStart;
+                    while ( $hop > 0 && ctype_space($selector[$hop - 1]) ) --$hop;
+                    if ( $hop < 1 || '>' !== $selector[$hop - 1] ) return array();
+                    $replacements[$hop - 1] = array( 'end' => $hop, 'value' => ' ' );
+                }
+                return $replacements;
+            }
+            return array();
         }
         // The parent compound ends where the `>` before the item begins.
         $parentEnd = (int) $parsed['rightmost_compound_span']['start'];
