@@ -670,6 +670,7 @@ trait StagedTransport
             $capturedDialogs['projected_choice_group_count'] = $choiceGroupsProjection['projected_count'];
         }
         $rawFiles = (new RouteStateProjector())->project($scrollStatesProjection['files'])['files'];
+        $rawFiles = $this->withoutUnreachableSelectors($rawFiles, false);
         // A later partition-envelope normalization must not lose the implicit
         // page ownership of already-expanded inline assets.
         foreach ($rawFiles as &$file) {

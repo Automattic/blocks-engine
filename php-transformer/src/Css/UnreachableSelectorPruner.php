@@ -50,14 +50,17 @@ final class UnreachableSelectorPruner
         $pruned = (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body): string {
             $arms = CssStylesheetTransformer::splitSelectorList($prelude);
             if (null === $arms) return $prelude . '{' . $body . '}';
-            // An unparseable arm makes the entire list uncertain. Keep the
-            // authored rule intact, just as stylesheet scope projection does.
+            // Matcher support is not selector validity: generated content and
+            // browser state pseudos can still have provably absent subjects.
+            // Malformed attribute syntax, however, makes a whole list uncertain.
             foreach ($arms as $arm) {
-                // Pseudo-elements do not add class/id requirements. Validate
-                // their subject rather than treating valid generated content
-                // as an uncertain selector list.
-                $subject = (string) preg_replace('/::?(?:before|after|first-line|first-letter|marker|placeholder|selection|backdrop)$/i', '', $arm);
-                if (!CssSelectorMatcher::parse($arm)['supported'] && ($subject === $arm || !CssSelectorMatcher::parse($subject)['supported'])) return $prelude . '{' . $body . '}';
+                for ($i = 0, $length = strlen($arm); $i < $length; ++$i) {
+                    if ('\\' === $arm[$i]) { ++$i; continue; }
+                    if ('[' !== $arm[$i]) continue;
+                    $close = CssSyntaxScanner::matchingClose($arm, $i);
+                    if (null === $close || !CssSelectorMatcher::parse('*' . substr($arm, $i, $close - $i + 1))['supported']) return $prelude . '{' . $body . '}';
+                    $i = $close;
+                }
             }
             $kept = array_values(array_filter($arms, fn (string $arm): bool => $this->reachable($arm)));
             if (count($kept) === count($arms)) return $prelude . '{' . $body . '}';

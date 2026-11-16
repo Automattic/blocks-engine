@@ -297,6 +297,7 @@ final class ArtifactCompiler
         $choiceGroups = (new CapturedChoiceGroupProjector())->project($selectableSets['files']);
         $scrollStates = (new ScrollStateProjector())->project($choiceGroups['files']);
         $normalized['files'] = (new RouteStateProjector())->project($scrollStates['files'])['files'];
+        $normalized['files'] = $this->withoutUnreachableSelectors($normalized['files'], false);
         return $this->finalizeArtifact($artifact, array(
             'normalized' => $normalized,
             'inline_compilation' => true,
@@ -2125,7 +2126,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
-    private function withoutUnreachableSelectors(array $files): array
+    private function withoutUnreachableSelectors(array $files, bool $projectedOnly = true): array
     {
         $texts = array();
         $documents = 0;
@@ -2159,7 +2160,10 @@ final class ArtifactCompiler
         $pruner = new UnreachableSelectorPruner($texts);
         foreach ($files as &$file) {
             // Only the projected sheets the pages load; other CSS is inventory.
-            if ('css' !== ($file['kind'] ?? '') || !isset($file['provenance']['projected_from_hash']) || !is_string($file['content'] ?? null)) continue;
+            if ('css' !== ($file['kind'] ?? '') || ($projectedOnly && !isset($file['provenance']['projected_from_hash'])) || !is_string($file['content'] ?? null)) continue;
+            // Inline rules also establish the specificity ceiling for inline
+            // carriers; keep their inventory until that projection is complete.
+            if (!$projectedOnly && 'inline-style' === ($file['source'] ?? null)) continue;
             $content = $pruner->prune($file['content']);
             if ($content !== $file['content']) $file = $this->projectedStylesheetFile($file, $file['path'], $content);
         }
