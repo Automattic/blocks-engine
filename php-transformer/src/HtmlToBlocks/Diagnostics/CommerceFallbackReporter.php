@@ -170,13 +170,19 @@ final class CommerceFallbackReporter
                 }
             }
             $listing = $this->listingControls($element, $products);
-            // A lone purchase column beside a product photo is a detail
-            // layout, not a collection. The purchase control has its own
-            // binding; a collection replacement would discard sibling media.
+            // A lone purchase column does not own sibling detail artwork.
+            // Keep that media outside the provider-replaceable boundary, but
+            // retain it as product data for commerce materialization.
             if ( array() === $listing && 1 === count($products) && empty($products[0]['image']) ) {
                 $whole = $this->recognizer->productCardData($element);
                 if ( ! empty($whole['image']) ) {
-                    continue;
+                    $products[0]['image'] = $whole['image'];
+                    foreach ( $element->getElementsByTagName('*') as $descendant ) {
+                        if ( SourceDom::elementSelector($descendant) === $products[0]['source_selector'] ) {
+                            $element = $descendant;
+                            break;
+                        }
+                    }
                 }
             }
 

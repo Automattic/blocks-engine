@@ -6,14 +6,20 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $result = (new HtmlTransformer())->transform('<section><div style="display:grid;grid-template-columns:1fr 1fr"><div><img src="cover.png" alt="Book cover"></div><div><h2>A book</h2><p>Book description</p><span>$8.99</span><button>Buy now</button></div></div></section>')->toArray();
+$found = false;
 foreach ($result['fallbacks'] as $fallback) {
-    if ('html_product_grid_fallback' === ($fallback['diagnostic_code'] ?? null)) {
-        fwrite(STDERR, "FAIL: split product detail must not replace artwork with a purchase-column collection template\n");
+    if ('html_product_grid_fallback' !== ($fallback['diagnostic_code'] ?? null)) continue;
+    $found = true;
+    $product = $fallback['products'][0] ?? array();
+    if (($product['image']['src'] ?? null) !== 'cover.png'
+        || ($fallback['container_selector'] ?? null) !== ($product['source_selector'] ?? null)
+        || str_contains($fallback['binding']['search_block_markup'] ?? '', 'cover.png')) {
+        fwrite(STDERR, "FAIL: purchase-column replacement must exclude sibling artwork while retaining its product image data\n");
         exit(1);
     }
 }
-if (!str_contains($result['serialized_blocks'], 'cover.png')) {
-    fwrite(STDERR, "FAIL: detail artwork must remain editable\n");
+if (!$found) {
+    fwrite(STDERR, "FAIL: product detail must retain commerce materialization\n");
     exit(1);
 }
 echo "Split product detail passed\n";

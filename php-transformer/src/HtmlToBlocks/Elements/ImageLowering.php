@@ -650,7 +650,7 @@ final class ImageLowering
      */
     private function authoredImageSelection(DOMElement $image, string $src, ?DOMElement $picture = null): array
     {
-        if ( $this->hasUnsafeResponsiveImageSources($picture ?? $image) ) {
+        if ( (null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset'))) || $this->hasUnsafeResponsiveImageSources($picture ?? $image) ) {
             return array();
         }
         $loading = strtolower(trim(SourceDom::attr($image, 'loading')));

@@ -79,7 +79,7 @@ add_filter( 'render_block_core/accordion-heading', static function ( string $con
 PHP;
 
     /**
-     * A lowered image keeps its authored candidates, slot sizes and
+     * A lowered srcset family keeps its authored candidates, slot sizes and
      * loading in core/image metadata. They describe the source `src`; once
      * the image is replaced, the new attachment's own candidates apply.
      */
@@ -88,6 +88,7 @@ add_filter( 'render_block_core/image', static function ( string $content, array 
     $selection = $block['attrs']['metadata']['blocksEngineImageSelection'] ?? null;
     if ( ! is_array( $selection ) || ! is_string( $selection['src'] ?? null ) ) return $content;
     $picture = is_array( $selection['picture'] ?? null ) && is_array( $selection['sources'] ?? null );
+    if ( ! $picture && empty( $selection['srcset'] ) ) return $content;
     $tag = new WP_HTML_Tag_Processor( $content );
     if ( ! $tag->next_tag( 'IMG' ) || $tag->get_attribute( 'src' ) !== $selection['src'] ) return $content;
     if ( is_string( $selection['srcset'] ?? null ) && '' !== $selection['srcset'] ) $tag->set_attribute( 'srcset', $selection['srcset'] );
