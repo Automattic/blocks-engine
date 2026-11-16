@@ -2033,8 +2033,10 @@ final class ArtifactCompiler
                 return \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeSetClass($classes, $this->routeSets);
             });
             // Recompact only at serialization, merging compatible marker arms.
-            $recompact = static function (string $css) use ($timer, $pageProjections): string {
-                $compact = static fn(): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
+            $recompact = static function (string $css) use ($timer): string {
+                // Native-block projection expands selectors even for a single
+                // page. Factor those alternatives at every serialization boundary.
+                $compact = static fn(): string => CssSelectorListCompactor::stylesheet($css, true);
                 return null === $timer ? $compact() : $timer->measure('compose.compaction', $compact);
             };
             $timer?->start('compose.author_stylesheet_projections.route_budget');
