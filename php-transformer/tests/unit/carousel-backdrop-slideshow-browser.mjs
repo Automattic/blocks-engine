@@ -55,33 +55,38 @@ const measure = async page => {
         return `${Math.round(rect.width)}x${Math.round(rect.height)}@${Math.round(rect.left)},${Math.round(rect.top)}`;
     });
     // Corners and the empty top of the hero show the backdrop photo.
-    const photo = [await slideAt(page, 720, 30), await slideAt(page, 200, 300), await slideAt(page, 1300, 860)];
+    const {width, height} = page.viewportSize();
+    const photo = [await slideAt(page, width / 2, 30), await slideAt(page, 10, height / 3), await slideAt(page, width - 10, height - 10)];
     return {heading, photo};
 };
 
 const browser = await chromium.launch({headless: true});
 try {
     const result = JSON.parse(execFileSync('php', ['-r', transform], {input: source, encoding: 'utf8'}));
-    const page = await browser.newPage({viewport: {width: 1440, height: 900}});
-    await page.route('https://example.test/**', route => route.fulfill({contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000"><rect width="1600" height="1000" fill="${colors[route.request().url().match(/(\d)\.jpg/)[1]]}"/></svg>`}));
-    await page.setContent(source);
-    const expected = await measure(page);
-    // WordPress prints core and block styles before the theme's generated CSS.
-    await page.setContent(`<style>body{margin:0}${blockLibrary}</style><style>${result.blockCss}</style><style>${result.css}</style>${result.blocks}`);
-    const actual = await measure(page);
-    console.log(JSON.stringify({expected, actual}));
-    assert.ok(result.blocks.includes('authored-carousel'), 'the backdrop slider stays a carousel');
-    assert.deepEqual(expected.photo, ['1', '1', '1']);
-    assert.equal(actual.heading, expected.heading, 'the hero content keeps its source position beside an out-of-flow backdrop');
-    assert.deepEqual(actual.photo, expected.photo, 'the first slide photo fills the hero behind its content');
-    // Step to the second slide the way the view script does, by moving the active class.
-    await page.evaluate(() => {
-        const slides = [...document.querySelector('.blocks-engine-authored-carousel__track').children];
-        slides.forEach((slide, index) => slide.classList.toggle('blocks-engine-authored-carousel__slide--active', 1 === index));
-    });
-    await page.waitForTimeout(1200);
-    assert.deepEqual((await measure(page)).photo, ['2', '2', '2'], 'the next slide photo fills the hero in its place');
-    await page.close();
+    // Wide and narrow: a photo left at its own aspect ratio only matches the
+    // hero by coincidence at one width.
+    for (const viewport of [{width: 1440, height: 900}, {width: 390, height: 844}]) {
+        const page = await browser.newPage({viewport});
+        await page.route('https://example.test/**', route => route.fulfill({contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000"><rect width="1600" height="1000" fill="${colors[route.request().url().match(/(\d)\.jpg/)[1]]}"/></svg>`}));
+        await page.setContent(source);
+        const expected = await measure(page);
+        // WordPress prints core and block styles before the theme's generated CSS, in standards mode.
+        await page.setContent(`<!doctype html><style>body{margin:0}${blockLibrary}</style><style>${result.blockCss}</style><style>${result.css}</style>${result.blocks}`);
+        const actual = await measure(page);
+        console.log(JSON.stringify({viewport, expected, actual}));
+        assert.ok(result.blocks.includes('authored-carousel'), 'the backdrop slider stays a carousel');
+        assert.deepEqual(expected.photo, ['1', '1', '1']);
+        assert.equal(actual.heading, expected.heading, 'the hero content keeps its source position beside an out-of-flow backdrop');
+        assert.deepEqual(actual.photo, expected.photo, 'the first slide photo fills the hero behind its content');
+        // Step to the second slide the way the view script does, by moving the active class.
+        await page.evaluate(() => {
+            const slides = [...document.querySelector('.blocks-engine-authored-carousel__track').children];
+            slides.forEach((slide, index) => slide.classList.toggle('blocks-engine-authored-carousel__slide--active', 1 === index));
+        });
+        await page.waitForTimeout(1200);
+        assert.deepEqual((await measure(page)).photo, ['2', '2', '2'], 'the next slide photo fills the hero in its place');
+        await page.close();
+    }
 } finally {
     await browser.close();
 }
