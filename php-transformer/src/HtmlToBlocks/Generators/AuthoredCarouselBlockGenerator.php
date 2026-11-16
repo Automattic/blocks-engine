@@ -46,7 +46,7 @@ final class AuthoredCarouselBlockGenerator
         ' .blocks-engine-authored-carousel__previous' => 'left:1rem',
         ' .blocks-engine-authored-carousel__next' => 'right:1rem',
     );
-    private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right');
+    private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right', 'position');
     private const SLIDE_INDEX_ATTRIBUTES = array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item');
     private const GEOMETRY_VALUE_PATTERN = '^[0-9a-zA-Z.%()+*/,_ -]+(?:\\s*!important)?$';
 
@@ -600,6 +600,12 @@ JS;
         // A slideshow transition is a source characteristic, not a house style,
         // so the shape is a parameter and each variant is expressed here rather
         // than baked into the stacking rules above.
+        // A fading slideshow stacks every slide in one box. Offsets a source
+        // runtime left on its slides to stack them (translated back by their own
+        // index) would move a slide out of that box once it becomes active. Those
+        // offsets can arrive as id-weighted captured state, so the reset carries
+        // id weight through a reserved engine id no slide has.
+        $style .= '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--transition-fade .blocks-engine-authored-carousel__track>:not(#blocks-engine-authored-carousel-slide){transform:none!important;translate:none!important}';
         $style .= '.blocks-engine-authored-carousel--transition-slide .blocks-engine-authored-carousel__track>*{transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease,transform var(--blocks-engine-carousel-transition,300ms) ease}'
             . '.blocks-engine-authored-carousel--transition-slide .blocks-engine-authored-carousel__track>:not(.blocks-engine-authored-carousel__slide--active){transform:translateX(100%)}'
             . '.blocks-engine-authored-carousel--transition-slide[data-direction="backward"] .blocks-engine-authored-carousel__track>:not(.blocks-engine-authored-carousel__slide--active){transform:translateX(-100%)}'
@@ -712,7 +718,10 @@ JS;
         if ( '' !== $stageAspect ) {
             $classes .= ' blocks-engine-authored-carousel--stage-aspect';
         }
-        $styleDeclarations = array('position:relative');
+        // The root is the controls' containing block: relative unless the
+        // source root is already out of flow (a backdrop behind its section).
+        $rootPosition = (string) (ArrayField::array($attributes, 'sourceRootGeometry')['position'] ?? '');
+        $styleDeclarations = array('position:' . (in_array($rootPosition, array('absolute', 'fixed', 'sticky'), true) ? $rootPosition : 'relative'));
         foreach (array('thumbnailWidth' => 'thumbnail-size', 'thumbnailGap' => 'thumbnail-gap', 'stageGap' => 'gap') as $attribute => $variable) {
             $value = (string) ($attributes[$attribute] ?? '');
             if (preg_match('/^[0-9]+(?:\.[0-9]+)?(?:px|rem|em|%)$/D', $value)) {
@@ -744,7 +753,7 @@ JS;
             }
         }
         foreach (ArrayField::array($attributes, 'sourceRootGeometry') as $property => $value) {
-            if (in_array($property, self::ROOT_GEOMETRY_PROPERTIES, true) && is_string($value) && '' !== $this->safeCssGeometryValue($value)) {
+            if ('position' !== $property && in_array($property, self::ROOT_GEOMETRY_PROPERTIES, true) && is_string($value) && '' !== $this->safeCssGeometryValue($value)) {
                 $styleDeclarations[] = $property . ':' . htmlspecialchars($this->safeCssGeometryValue($value), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
         }
@@ -836,8 +845,11 @@ JS;
         $controlsMarkup = '' !== $controlTopology
             ? $controlTopology
             : $previousButton . $nextButton;
+        // The host carries the root's classes only to scope source control
+        // selectors; it overlays the slides, so it must not repeat the root's
+        // own box paint above them.
         $controlsPositionStyle = 'slideshow' === $presentation
-            ? ' style="position:absolute;inset:0;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;margin:0;padding:0"'
+            ? ' style="position:absolute;inset:0;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;min-height:0;max-height:none;margin:0;padding:0;border:0;background:none;box-shadow:none"'
             : '';
         return array(
             'opening' => '<div class="' . $classes . '"' . $identityAttributes . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><div class="blocks-engine-authored-carousel__controls ' . implode(' ', SourceDom::boundedClassTokens((string) ($attributes['sourceControlClasses'] ?? ''))) . '"' . $controlsPositionStyle . $controlIdentityAttributes . '>' . $controlsMarkup . '</div>' . $stageWrapperOpen,
@@ -1141,7 +1153,7 @@ JS;
             'sourceControlArtwork' => '' !== ($sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '') || '' !== ($sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : ''),
             'stageWrappers' => $this->stageWrappers($element, $geometryList, $styleResolver, $items),
             'stageTrackClassName' => $styleResolver->safeTrackClassName($geometryList, $items),
-            'sourceRootGeometry' => array_intersect_key($styleResolver->sourceGeometryPresentationDeclarations($element), array_flip(self::ROOT_GEOMETRY_PROPERTIES)),
+            'sourceRootGeometry' => $this->sourceRootGeometry($element, $styleResolver),
             'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
             'autoplayInterval' => !$capturedGallery && 'slideshow' === $presentation ? $autoplayInterval : 0,
             'showStatus' => $capturedGallery || $status instanceof DOMElement,
@@ -1539,7 +1551,11 @@ JS;
             && '' !== $this->safeCssDimension($rootHeight);
         $height = 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', trim($listHeight)) ? $listHeight : $rootHeight;
         $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($height), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
-        $stageMinHeight = $this->safeCssDimension((string) ($geometryDeclarations['min-height'] ?? ''));
+        // A root that only reaches its rendered size through its minimum (a
+        // framework default height raised by an authored min-height) sizes the
+        // stage the same way.
+        $stageMinHeight = $this->safeCssDimension((string) ($geometryDeclarations['min-height'] ?? ''))
+            ?: $this->safeCssDimension((string) ($styleResolver->structuralPresentationDeclarations($element)['min-height'] ?? ''));
         $rootDeclarations = SourceDeclarations::parse(SourceDom::attr($element, 'style'));
         $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
         $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
@@ -2479,6 +2495,22 @@ JS;
     {
         $value = trim($value);
         return 1 === preg_match('~^(?:[0-9]+(?:\.[0-9]+)?(?:px|vh|vw|em|rem|%|svh|dvh)|(?:calc|min|max|clamp|var)\([0-9a-zA-Z.%+*/(), _-]+\))$~D', $value) ? $value : '';
+    }
+
+    /**
+     * Root margins, plus its position when the source root is out of flow.
+     *
+     * @return array<string, string>
+     */
+    private function sourceRootGeometry(DOMElement $element, StyleResolver $styleResolver): array
+    {
+        $geometry = array_intersect_key($styleResolver->sourceGeometryPresentationDeclarations($element), array_flip(self::ROOT_GEOMETRY_PROPERTIES));
+        $position = strtolower(trim(CssValueInspector::withoutImportant((string) ($geometry['position'] ?? ''))));
+        unset($geometry['position']);
+        if (in_array($position, array('absolute', 'fixed', 'sticky'), true)) {
+            $geometry['position'] = $position;
+        }
+        return $geometry;
     }
 
     private function safeCssGeometryValue(string $value): string
