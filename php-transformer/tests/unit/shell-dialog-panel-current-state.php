@@ -10,7 +10,10 @@ $assert = static function (bool $condition, string $message): void {
 };
 // The neutral two-route reduced fixture from #6260, including desktop links,
 // live mobile links, and the captured mobile panel on the burger trigger.
-foreach (array('active', 'is-current', 'aria-current', 'active with node ids', 'node ids only', 'control') as $case) {
+// Background + padding are the minimal button signals: without current-run
+// recognition these links become core/button, bypassing resting navigation.
+// Both declarations are needed; no current-state CSS rule is involved.
+foreach (array('active', 'is-current', 'is-selected', 'aria-current', 'active with node ids', 'node ids only', 'control') as $case) {
     $files = array();
     foreach (array('index.html', 'about/index.html') as $i => $path) {
         $dom = new DOMDocument();
@@ -23,7 +26,8 @@ foreach (array('active', 'is-current', 'aria-current', 'active with node ids', '
                 }
                 if (!in_array('active', preg_split('/\s+/', $node->getAttribute('class')) ?: array(), true)) continue;
                 if ('active' === $case || 'active with node ids' === $case) continue;
-                $node->setAttribute('class', str_replace(' active', 'is-current' === $case ? ' is-current' : '', $node->getAttribute('class')));
+                $replacement = in_array($case, array('is-current', 'is-selected'), true) ? ' ' . $case : '';
+                $node->setAttribute('class', str_replace(' active', $replacement, $node->getAttribute('class')));
                 if ('aria-current' === $case) $node->setAttribute('aria-current', 'page');
             }
         };
