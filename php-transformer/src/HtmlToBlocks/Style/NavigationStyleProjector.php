@@ -115,6 +115,26 @@ final class NavigationStyleProjector
             // negative delay lands on an animation that never advances, and the
             // element stays on whatever keyframe its fill mode paints.
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important}';
+            // A looping animation has no settled end state. Retaining its last
+            // keyframe can translate a marquee's editable children off canvas.
+            // Let loops expire too, but restore their underlying authored layout
+            // instead of filling with the final frame. Keep finite reveals filled.
+            ( new CssStylesheetTransformer() )->visitStyleRules(
+                $this->session->authorStyleAnalysis()->combinedCss() . "\n" . $anchorProjectionCss,
+                static function (string $selector, string $body, array $ancestors) use (&$rules): void {
+                    if ( ! preg_match('/(?:^|;)\s*(?:-webkit-)?animation(?:-iteration-count)?\s*:[^;{}]*\binfinite\b/i', $body) ) {
+                        return;
+                    }
+                    // Also guard the rule in CSS: saved/editor styles may be
+                    // present during a front-end preview, where the live loop
+                    // must retain its authored fill behavior.
+                    $rule = ':root .editor-styles-wrapper :is(' . trim($selector) . '){animation-fill-mode:none!important}';
+                    foreach ( array_reverse($ancestors) as $ancestor ) {
+                        $rule = $ancestor . '{' . $rule . '}';
+                    }
+                    $rules[] = $rule;
+                }
+            );
             // Editable roots do not carry render-time capture attributes.
             // Address only replay owners through their editor identity, and
             // leave their authored resting geometry intact.
