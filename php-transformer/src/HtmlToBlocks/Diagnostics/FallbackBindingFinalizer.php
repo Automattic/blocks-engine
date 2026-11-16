@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
@@ -233,7 +235,15 @@ final class FallbackBindingFinalizer
         // block's metadata is not an HTML anchor identity.
         $document = HtmlSerialization::parseDocument($search);
         foreach ( $document->getElementsByTagName('*') as $element ) {
-            if ( $element->getAttribute('id') === $id ) return true;
+            $actualId = $element->getAttribute('id');
+            if ( $actualId === $id ) return true;
+            // Shared source IDs are renamed on non-default document copies.
+            $prefix = $id . CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX;
+            if ( str_starts_with($actualId, $prefix) ) {
+                $variant = substr($actualId, strlen($prefix));
+                $suffix = DocumentVariantIds::suffixForClass('site-document-variant-' . $variant);
+                if ( null !== $suffix && '' !== $suffix && $actualId === $id . $suffix ) return true;
+            }
         }
         return false;
     }
