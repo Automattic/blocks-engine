@@ -29,7 +29,7 @@ final class PostChrome
      * being factored. A projection reads every post in the group, so it is
      * built once per group rather than once per post.
      *
-     * @var array<string,array{template:string,fields:array<string,array<string,mixed>>}|null>
+     * @var array<string,array{template:string,fields:array<string,array<string,mixed>>,featured_images:array<string,array<string,mixed>>}|null>
      */
     private array $relatedSectionProjections = array();
 
@@ -38,6 +38,9 @@ final class PostChrome
 
     /** @var array<string,array<string,mixed>> Fields committed by successful projections. */
     private array $projectedFields = array();
+
+    /** @var array<string,array<string,mixed>> Related-card images from successfully factored groups. */
+    private array $projectedFeaturedImages = array();
 
     /** @var array<string,array<string,mixed>> Findings from the latest document pass only. */
     private array $orderRetained = array();
@@ -223,6 +226,7 @@ final class PostChrome
     {
         $this->allPosts = array_values(array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null) && empty($page['synthetic'])));
         $this->projectedFields = array();
+        $this->projectedFeaturedImages = array();
         $this->orderRetained = array();
         if (null === $templates) {
             $result = $this->factorArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
@@ -323,6 +327,7 @@ final class PostChrome
         }
         foreach ($pages as $index => $page) {
             $source = $page['source_path'] ?? '';
+            if (!isset($page['metadata']['featured_image']) && isset($this->projectedFeaturedImages[$source])) $pages[$index]['metadata']['featured_image'] = $this->projectedFeaturedImages[$source];
             if (isset($this->projectedFields[$source])) $pages[$index]['metadata']['post_meta'] = ($page['metadata']['post_meta'] ?? array()) + $this->projectedFields[$source];
         }
         foreach ($this->orderRetained as $finding) ($this->recordFinding)($finding);
@@ -469,6 +474,9 @@ final class PostChrome
         // Commit fields only once the whole group can be factored. Related
         // cards can own fields on posts outside this layout group.
         foreach ($postMeta as $source => $values) $this->projectedFields[$source] = ($this->projectedFields[$source] ?? array()) + $values;
+        foreach ($this->relatedSectionProjections as $projection) {
+            foreach ($projection['featured_images'] ?? array() as $source => $image) $this->projectedFeaturedImages[$source] = $image;
+        }
         foreach ($bodies as $index => $body) {
             $pages[$index]['canonical_block_markup'] = $body;
             $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($body);
@@ -774,7 +782,7 @@ final class PostChrome
      *
      * @param array<int,array<string,mixed>> $posts
      * @param array<string,true> $shared
-     * @return array{template:string,fields:array<string,array<string,mixed>>}|null
+     * @return array{template:string,fields:array<string,array<string,mixed>>,featured_images:array<string,array<string,mixed>>}|null
      */
     private function relatedSectionProjection(string $heading, callable $sectionItems, array $posts, array $shared): ?array
     {
@@ -823,7 +831,16 @@ final class PostChrome
             }
         }
         $template = $this->listings->cardTemplate($cardIndex, $cards, $cardFields, $bound);
-        return null === $template ? null : array('template' => $template, 'fields' => $cardFields);
+        if (null === $template) return null;
+        $featuredImages = array();
+        if (str_contains($template, '<!-- wp:post-featured-image')) {
+            foreach ($cards as $card) {
+                $markup = substr($cardMarkup, $card['offset'], $card['length']);
+                $image = $this->listings->cardFeaturedImage($markup, $card['post'], $card['route']);
+                if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
+            }
+        }
+        return array('template' => $template, 'fields' => $cardFields, 'featured_images' => $featuredImages);
     }
 
     /**

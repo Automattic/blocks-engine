@@ -557,13 +557,7 @@ PHP;
         $lines[] = "    }";
         $lines[] = "    \$block['innerContent'] = \$content; return \$block;";
         $lines[] = "}, 10, 1 );";
-        $hasListingQuery = false;
-        foreach ($pages as $page) {
-            if (str_contains((string) ($page['canonical_block_markup'] ?? ''), WordPressSitePlan::LISTING_QUERY_CLASS)) {
-                $hasListingQuery = true;
-                break;
-            }
-        }
+        $hasListingQuery = self::markupContains(array_merge($pages, $templates, $parts), WordPressSitePlan::LISTING_QUERY_CLASS);
         $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS;
         foreach ($pages as $page) if (str_contains((string) ($page['canonical_block_markup'] ?? ''), WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX)) {
             $editorCss .= SyncedPatternProjection::EDITOR_CONTAINER_CSS;
