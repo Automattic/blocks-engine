@@ -1292,10 +1292,10 @@ final class SourceElementClassifier
 
     /**
      * Exactly two interactive controls beside a list of more than two
-     * slides are a previous/next pair. A pager has one control per slide, so
-     * with two slides the pair is ambiguous, and a thumbnail or numbered
-     * control names the slide it selects; a collection with such a selector
-     * keeps the gallery path. The signal is structural: it does not depend
+     * slides, not counting numbered or indexed slide selectors, are a
+     * previous/next pair. A pager has one control per slide, so with two
+     * slides the pair is ambiguous. A thumbnail control shows the slide it
+     * selects; a collection with thumbnails keeps the gallery path. The signal is structural: it does not depend
      * on the controls' wording.
      */
     private function hasSteppingControlPair(DOMElement $root, DOMElement $list, int $slideCount): bool
@@ -1327,13 +1327,15 @@ final class SourceElementClassifier
                     return false;
                 }
             }
+            // A numbered or indexed control selects one slide: it is a pager
+            // beside the pair, not one of the pair's controls.
             foreach ( $candidate->attributes as $attribute ) {
                 if ( 1 === preg_match('/^data-(?:[a-z]+-)*(?:slide|index|item)(?:-[a-z]+)*$/', strtolower($attribute->name)) && ctype_digit(trim($attribute->value)) ) {
-                    return false;
+                    continue 2;
                 }
             }
             if ( 1 === preg_match('/[0-9]/', SourceDom::attr($candidate, 'aria-label') . ' ' . ($candidate->textContent ?? '')) ) {
-                return false;
+                continue;
             }
             $controls[] = $candidate;
         }
