@@ -29,4 +29,14 @@ if (1 !== $xpath->query('//nav[contains(@class,"opener")]/div[contains(@class,"s
 if ('pass' !== ($result['source_reports']['wp_block_validity']['status'] ?? '')) {
     throw new RuntimeException('Native landmark chain must serialize valid core blocks.');
 }
+// An unrelated logo/artwork landmark must keep its established shell and
+// stylesheet contract. Its image is not a captured dialog-control boundary.
+$unrelated = (new HtmlTransformer())->transform(
+    '<nav class="brand"><div id="logo-slot"><div id="logo-art">'
+    . '<svg viewBox="0 0 20 20"><path d="M0 0h20v2H0z"/></svg>'
+    . '</div></div></nav>'
+)->toArray();
+if (!str_contains((string) $unrelated['serialized_blocks'], '/layout-shell')) {
+    throw new RuntimeException('Unrelated navigation artwork must retain its existing transport.');
+}
 echo "Native navigation icon control chain passed\n";
