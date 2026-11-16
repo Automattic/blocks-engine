@@ -13,6 +13,21 @@ final class QuotePatternContext
     ) {
     }
 
+    /** Preserve the typography of the caption consumed by a native quote. */
+    public function figureCaptionContent(DOMElement $caption): string
+    {
+        $content = $this->styleResolver->innerHtml($caption);
+        $declarations = array();
+        foreach (array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color') as $property) {
+            $value = $this->styleResolver->authoredInheritedPropertyWinner($caption, $property);
+            if ('' !== $value) {
+                $declarations[$property] = $value;
+            }
+        }
+        $style = $this->styleResolver->cssDeclarationString($declarations);
+        return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
+    }
+
     public function citationFromElement(DOMElement $element): string
     {
         foreach ( $element->childNodes as $child ) {
