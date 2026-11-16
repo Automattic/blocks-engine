@@ -18,7 +18,7 @@ foreach (array('', ' class="field"') as $attributes) {
     if (str_contains($markup, '/layout-shell') || str_contains($markup, 'wp:html')) {
         throw new RuntimeException('Ordinary branching form containers must stay native: ' . $markup);
     }
-    $row = $readable[0]['innerBlocks'][0];
+    $row = $readable[0]; // The page keeps the form wrapper; the provider replaces the controls row.
     if ('core/group' !== $row['blockName']
         || !in_array('row', explode(' ', $row['attrs']['className'] ?? ''), true)
         || 2 !== count($row['innerBlocks'])) {

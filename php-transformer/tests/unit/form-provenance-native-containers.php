@@ -26,14 +26,18 @@ foreach (array(
         if (str_contains($markup, '/layout-shell') || str_contains($markup, 'wp:html')) {
             throw new RuntimeException('Provenance-only form containers must stay native: ' . $markup);
         }
-        $row = $readable[0]['innerBlocks'][0];
-        if ('core/group' !== $row['blockName'] || count($row['innerBlocks']) !== substr_count($children, '<div')) {
-            throw new RuntimeException('Native row must retain its editable column structure.');
-        }
-        foreach ($row['innerBlocks'] as $column) {
-            if ('core/group' !== $column['blockName'] || !str_contains($column['attrs']['className'] ?? '', 'column')) {
-                throw new RuntimeException('Native columns must retain source identity.');
+        // The provider replaces the controls slot (the row, or its only
+        // column); every source column stays a native editable group.
+        $columns = array();
+        $collect = static function (array $blocks) use (&$collect, &$columns): void {
+            foreach ($blocks as $block) {
+                if (str_contains($block['attrs']['className'] ?? '', 'column')) $columns[] = $block['blockName'];
+                $collect($block['innerBlocks'] ?? array());
             }
+        };
+        $collect($readable);
+        if (array_fill(0, substr_count($children, '<div'), 'core/group') !== $columns) {
+            throw new RuntimeException('Native columns must retain source identity and editable structure.');
         }
     }
 }
