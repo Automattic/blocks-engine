@@ -31,7 +31,7 @@ $assert(isset(BoxTree::forElement($source['box_tree'], $element)['mobile']['used
 $cases = array(
     'box_tree_schema_invalid' => static function (array &$t): void { $t['schema'] = 'old'; },
     'box_tree_identity_stale' => static function (array &$t): void { $t['source_hash'] = str_repeat('0', 64); },
-    'box_tree_bounds_invalid' => static function (array &$t): void { unset($t['viewports']['mobile']); },
+    'box_tree_bounds_invalid' => static function (array &$t): void { $t['viewports'] = array(); },
     'box_tree_geometry_invalid' => static function (array &$t): void { $t['nodes']['n6']['viewports']['mobile']['border_box']['width'] = -1; },
     'box_tree_styles_invalid' => static function (array &$t): void { unset($t['nodes']['n6']['viewports']['desktop']['used_styles']['display']); },
     'box_tree_viewport_invalid' => static function (array &$t): void { unset($t['nodes']['n6']['viewports']['mobile']); },

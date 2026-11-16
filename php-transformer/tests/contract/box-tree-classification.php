@@ -18,17 +18,21 @@ foreach ($cases as $case) {
         for ($i = 1; $i <= 11; ++$i) $open .= '<div data-blocks-engine-node-id="chain' . $i . '">';
         $html = str_replace('<img data-blocks-engine-node-id="image" src="image.png">', $open . '<img data-blocks-engine-node-id="image" src="image.png">' . str_repeat('</div>', 11), $html);
     }
+    if (isset($case['reference'])) $html = str_replace('src="image.png"', 'src="image.png" ' . $case['reference'], $html);
     $tree = $base;
+    if (!empty($case['desktop_only'])) unset($tree['viewports']['mobile']);
     $tree['source_hash'] = hash('sha256', $html);
     $tree['nodes'] = array();
     foreach (HtmlSerialization::parseDocument($html)->getElementsByTagName('*') as $element) {
         $id = $element->getAttribute('data-blocks-engine-node-id');
         $node = $base['nodes']['n1'];
+        if (!empty($case['desktop_only'])) unset($node['viewports']['mobile']);
         $node['children'] = array();
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) $node['children'][] = $child->getAttribute('data-blocks-engine-node-id');
         }
         foreach ($node['viewports'] as $viewport => &$observation) {
+            if ('image' === $id) $observation['border_box'] = array_replace($observation['border_box'], $case['child_box'] ?? array());
             $observation['used_styles']['mix-blend-mode'] = 'normal';
             $observation['used_styles'] = array_replace($observation['used_styles'], 'wrapper' === $id ? ($case['styles'] ?? array()) : ('image' === $id ? ($case['child_styles'] ?? array()) : array()));
             if ('wrapper' === $id && 'mobile' === $viewport && isset($case['mobile_width'])) $observation['border_box']['width'] = $case['mobile_width'];
@@ -41,6 +45,7 @@ foreach ($cases as $case) {
     $compiler = new ArtifactCompiler();
     $result = $compiler->compile($artifact)->toArray();
     $report = $result['source_reports']['box_tree']['index.html']['classification'];
+    if ('equal-child-geometry' === $case['criterion']) $assert($report['counts']['neutral'] > 0, 'Capture-shaped fixture retains neutral boxes');
     $assert($case['criterion'] === $report['nodes']['wrapper']['criterion'], $case['name'] . ' has the named criterion');
     if (!empty($case['chain'])) $assert(1 === $report['projection']['depth'] && 0 === $report['projection']['groups'], 'Twelve neutral image wrappers project to one leaf');
     $assert(array_sum($report['counts']) === count($tree['nodes']), 'Every source node is counted');
