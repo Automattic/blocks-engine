@@ -4,8 +4,8 @@
  * native, editable block that still carries that hook:
  * - <nav data-nav> becomes core/navigation; its data-* / aria state ride in
  *   block metadata and the generated theme renders them on the <nav>.
- * - <select data-filter> / <select id="sort"> becomes the authored select
- *   block with its data-* hooks; the id lives on the control only, never
+ * - <select data-filter> / <select id="sort"> becomes a core option list
+ *   rendered as a native select with its data-* hooks; the id lives on the control only, never
  *   duplicated on the wrapper, so getElementById returns the select.
  */
 
@@ -38,7 +38,8 @@ $assert(str_contains($css, '.wp-block-navigation.' . ElementConversionPrelude::S
 $filters = '<div class="filters"><label class="field">Genre <select data-filter-genre><option value="">All</option><option value="fiction">Fiction</option></select></label><select id="sort" class="sort"><option value="new">Newest</option><option value="price">Price</option></select></div>';
 $controls = $transform($filters, array('[data-filter-genre]', '#sort'));
 $assert(!str_contains($controls, '<!-- wp:html'), 'Script-addressed selects are not raw HTML islands.');
-$assert(2 === substr_count($controls, '<!-- wp:custom/authored-select '), 'Each script-addressed select is an authored select block.');
+$assert(2 === substr_count($controls, '"blocksEngineSelect":') && !str_contains($controls, '<!-- wp:custom/authored-select'), 'Each script-addressed select is an editable core option list.');
+$controls = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeSelectRendererFixture::render($controls);
 $assert(1 === preg_match('/<select[^>]*\sdata-filter-genre(?:[\s=>])/', $controls), 'A labelled select keeps the data attribute the script finds it by.');
 $assert(1 === substr_count($controls, 'id="sort"') && 1 === preg_match('/<select[^>]*\sid="sort"/', $controls), 'The id the script finds a select by lives only on the select.');
 

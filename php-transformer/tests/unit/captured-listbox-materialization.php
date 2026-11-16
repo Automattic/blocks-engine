@@ -40,9 +40,9 @@ $result = (new ArtifactCompiler())->compile(array(
 
 $markup = (string) ($result['serialized_blocks'] ?? '');
 $assert(in_array($result['status'] ?? null, array('success', 'success_with_warnings'), true), 'captured listbox artifact compiles successfully');
-$assert(str_contains($markup, 'custom/authored-select'), 'projected listbox uses the editable native select companion');
+$assert(str_contains($markup, 'blocksEngineSelect'), 'projected listbox uses an editable core option list');
 $assert(!str_contains($markup, 'wp:details'), 'projected listbox is not materialized as a disclosure');
-$assert(3 === substr_count($markup, '<option'), 'placeholder and captured options are retained');
-$assert(str_contains($markup, '<option value="" selected disabled>Select country</option>'), 'unselected trigger retains its placeholder state');
+$assert(3 === substr_count($markup, 'blocksEngineSelectOption'), 'placeholder and captured options are retained');
+$assert(str_contains($markup, '"placeholder":true') && str_contains($markup, '>Select country</li>'), 'unselected trigger retains its placeholder state');
 
 fwrite(STDOUT, "Captured listbox materialization passed\n");
