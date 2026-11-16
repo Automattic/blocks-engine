@@ -1444,10 +1444,8 @@ final class AuthorSelectorProjector
         // Only the attribute predicates become static identity. Class tokens
         // survive lowering and can change at runtime, so keep their conditions
         // inside :where() while the shims retain the authored specificity.
-        $attributeTarget = '';
-        foreach ( $rightmost['classes'] ?? array() as $class ) {
-            $attributeTarget .= '.' . CssIdent::escape((string) $class);
-        }
+        $attributeTarget = CssSelectorCompoundInspector::markerClassConditions($rightmost);
+        if (null === $attributeTarget) return null;
         $attributeTarget .= in_array(true, $controlOwned, true) ? ':not(.wp-block-buttons):not(.wp-block-button)' : '';
         foreach ( $matches as $index => $element ) {
             $path = $element->getNodePath() ?? '';
