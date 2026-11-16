@@ -34,8 +34,11 @@ final class UnreachableSelectorPruner
     private array $livePrefixes = array();
     private string $evidenceText;
 
-    /** @param list<string> $texts Every non-stylesheet file of the site, including its metadata. */
-    public function __construct(array $texts)
+    /**
+     * @param list<string> $texts Every non-stylesheet file of the site, including its metadata.
+     * @param bool $pruneTypes Whether evidence still describes source (not converted) element types.
+     */
+    public function __construct(array $texts, private bool $pruneTypes = false)
     {
         $this->evidenceText = implode("\n", $texts);
         $prefixes = array();
@@ -95,6 +98,21 @@ final class UnreachableSelectorPruner
         if (str_contains($selector, '\\')) return true;
         foreach (self::requiredTokens($selector, $preserveIds) as $token) {
             if (!$this->sourceNamed($token)) return false;
+        }
+        // Only the source-side pass opts into type pruning. After conversion,
+        // native block wrappers may legitimately introduce new element types.
+        // Fragments do not prove absence outside their supplied subtree.
+        if ($this->pruneTypes && !str_contains($selector, 'BEESC') && preg_match('/<html\b/i', $this->evidenceText)) {
+            $host = CssSelectorMatcher::pseudoElementHost($selector);
+            $parsed = CssSelectorMatcher::parse($host['selector'] ?? $selector);
+            if ($parsed['supported']) {
+                foreach ($parsed['compounds'] as $compound) {
+                    $type = $compound['type'];
+                    // Substring evidence deliberately retains script-created
+                    // tags and metadata references, not just literal HTML tags.
+                    if (null !== $type && false === stripos($this->evidenceText, $type)) return false;
+                }
+            }
         }
         // Positive selector-list pseudos require at least one reachable arm.
         // Compaction wraps otherwise required classes in :is(); ignoring that
