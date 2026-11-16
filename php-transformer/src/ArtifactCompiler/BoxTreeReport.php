@@ -80,21 +80,39 @@ final class BoxTreeReport
             foreach ($viewports as $name => $_) {
                 $observation = $observations[$name] ?? null;
                 if (!is_array($observation)) return 'box_tree_viewport_invalid';
-                $box = $observation['border_box'] ?? null;
-                if (!is_array($box) || count($box) !== 4) return 'box_tree_geometry_invalid';
-                foreach (array('x', 'y', 'width', 'height') as $axis) {
-                    $value = $box[$axis] ?? null;
-                    if ((!is_int($value) && !is_float($value)) || !is_finite((float) $value) || abs($value) > 100000000 || (in_array($axis, array('width', 'height'), true) && $value < 0)) return 'box_tree_geometry_invalid';
-                }
-                $styles = $observation['used_styles'] ?? null;
-                if (!is_array($styles) || array_diff(array_keys($styles), array_merge(BoxTree::PROPERTIES, BoxTree::MOTION_PROPERTIES))) return 'box_tree_styles_invalid';
-                foreach (BoxTree::PROPERTIES as $property) {
-                    if (!is_string($styles[$property] ?? null) || '' === $styles[$property] || strlen($styles[$property]) > 4096) return 'box_tree_styles_invalid';
-                }
-                foreach (BoxTree::MOTION_PROPERTIES as $property) {
-                    if (array_key_exists($property, $styles) && (!is_string($styles[$property]) || '' === $styles[$property] || strlen($styles[$property]) > 4096)) return 'box_tree_styles_invalid';
+                $code = self::validateObservation($observation);
+                if (null !== $code) return $code;
+                if (array_key_exists('pseudo', $observation)) {
+                    $pseudo = $observation['pseudo'];
+                    if (!is_array($pseudo) || array_diff(array_keys($pseudo), array('before', 'after'))) return 'box_tree_pseudo_invalid';
+                    foreach ($pseudo as $value) {
+                        if (!is_array($value) || array_diff(array_keys($value), array('content', 'border_box', 'used_styles'))
+                            || !is_string($value['content'] ?? null) || '' === $value['content'] || strlen($value['content']) > 4096
+                            || in_array(strtolower(trim($value['content'])), array('none', 'normal'), true)) return 'box_tree_pseudo_invalid';
+                        $code = self::validateObservation($value);
+                        if (null !== $code) return $code;
+                    }
                 }
             }
+        }
+        return null;
+    }
+
+    private static function validateObservation(array $observation): ?string
+    {
+        $box = $observation['border_box'] ?? null;
+        if (!is_array($box) || count($box) !== 4) return 'box_tree_geometry_invalid';
+        foreach (array('x', 'y', 'width', 'height') as $axis) {
+            $value = $box[$axis] ?? null;
+            if ((!is_int($value) && !is_float($value)) || !is_finite((float) $value) || abs($value) > 100000000 || (in_array($axis, array('width', 'height'), true) && $value < 0)) return 'box_tree_geometry_invalid';
+        }
+        $styles = $observation['used_styles'] ?? null;
+        if (!is_array($styles) || array_diff(array_keys($styles), array_merge(BoxTree::PROPERTIES, BoxTree::MOTION_PROPERTIES))) return 'box_tree_styles_invalid';
+        foreach (BoxTree::PROPERTIES as $property) {
+            if (!is_string($styles[$property] ?? null) || '' === $styles[$property] || strlen($styles[$property]) > 4096) return 'box_tree_styles_invalid';
+        }
+        foreach (BoxTree::MOTION_PROPERTIES as $property) {
+            if (array_key_exists($property, $styles) && (!is_string($styles[$property]) || '' === $styles[$property] || strlen($styles[$property]) > 4096)) return 'box_tree_styles_invalid';
         }
         return null;
     }
