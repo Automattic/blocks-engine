@@ -27,8 +27,7 @@ $result = (new HtmlTransformer())->transform(
     . '<form><input name="email"><button type="submit" class="action">Send</button></form>'
 )->toArray();
 $markup = $result['serialized_blocks'];
-if (str_contains($markup, '/authored-button') || !str_contains($markup, 'blocksEngineControlTagName')
-    || !str_contains($markup, '"type":"submit","class":"action"') || !str_contains($markup, '<p>Send</p>')) {
+if (!str_contains($markup, '/authored-button') || !str_contains($markup, '<button type="submit" class="action">Send</button>')) {
     throw new RuntimeException('Form actions must retain form-owned submission semantics: ' . $markup);
 }
 echo "Plain native button core: 4 cases passed\n";

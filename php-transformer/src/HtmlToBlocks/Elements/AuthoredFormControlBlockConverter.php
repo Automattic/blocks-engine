@@ -467,13 +467,27 @@ final class AuthoredFormControlBlockConverter
     private function hasPlainCoreButtonLabel(DOMElement $button): bool
     {
         if ('button' !== strtolower($button->tagName) || '' === trim($button->textContent) || SourceDom::childElementCount($button) > 0) return false;
-        return true;
+        // Bound controls and provider form actions keep their existing owning
+        // pipeline. Captured native forms, however, already retain their fields
+        // and need an editable, source-shaped action, like captured choices.
+        foreach ($button->attributes as $attribute) {
+            if (!in_array(strtolower($attribute->nodeName), array('type', 'class', 'style', CaptureEvidence::CHOICE_INDEX), true)) return false;
+        }
+        for ($ancestor = $button->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if ('form' === strtolower($ancestor->tagName)) {
+                foreach ($ancestor->getElementsByTagName('*') as $field) {
+                    if ($field->hasAttribute(CaptureEvidence::NATIVE_CONTROL_STATE)) return true;
+                }
+                return false;
+            }
+        }
+        return $button->hasAttribute(CaptureEvidence::CHOICE_INDEX);
     }
 
     private function plainCoreButton(DOMElement $button): array
     {
         // Keep source selectors on the native control, not on synthetic button
-        // wrappers. The paragraph is an editor-only RichText carrier.
+        // wrappers. The inner button is an editor-only RichText carrier.
         $this->session->authorSelectorProjectionState()->recordAuthoredControlCandidate($button);
         $this->session->authorSelectorProjectionState()->markRetainedSourcePath($button->getNodePath() ?? '');
         $attributes = array();
@@ -481,13 +495,14 @@ final class AuthoredFormControlBlockConverter
             $attributes[strtolower($attribute->nodeName)] = $attribute->nodeValue ?? '';
         }
         if (!isset($attributes['type'])) $attributes['type'] = 'submit';
-        $label = $this->createBlock->createBlock('core/paragraph', array(
-            'content' => $this->runtime->escapeHtml($button->textContent),
-            'metadata' => array('blocksEngineControlLabel' => true),
+        $label = $this->createBlock->createBlock('core/button', array(
+            'tagName' => 'button',
+            'type' => $attributes['type'],
+            'text' => $this->runtime->escapeHtml($button->textContent),
         ), array());
         return $this->createBlock->createBlock('core/group', array(
             'tagName' => 'div',
-            'metadata' => array('blocksEngineControlBox' => $attributes, 'blocksEngineControlTagName' => 'button'),
+            'metadata' => array('blocksEngineControlBox' => $attributes, 'blocksEngineControlTagName' => 'button', 'blocksEngineControlLabel' => true),
         ), array($label), $button);
     }
 

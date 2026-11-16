@@ -38,6 +38,10 @@ add_filter( 'render_block', static function ( string $content, array $block ): s
                 if ( is_string( $name ) && is_string( $value ) && preg_match( '/^(?:class|style|id|type|name|title|tabindex|disabled|hidden|role|data-(?!wp-)[a-z0-9_.:-]+|aria-[a-z-]+)$/D', $name ) ) $processor->set_attribute( $name, $value );
             }
             $content = $processor->get_updated_html();
+            if ( ! empty( $block['attrs']['metadata']['blocksEngineControlLabel'] ) ) {
+                // The nested Core button is an editor-only RichText surface.
+                $content = preg_replace( '/(<div\b[^>]*>)\s*<div\b[^>]*>\s*<button\b[^>]*>([\s\S]*)<\/button>\s*<\/div>\s*(<\/div>\s*)$/', '$1$2$3', $content, 1 );
+            }
             if ( 'button' === ( $block['attrs']['metadata']['blocksEngineControlTagName'] ?? null ) ) {
                 // Core's editor keeps a selectable group; the published control
                 // must remain a native button, without an extra containing box.
