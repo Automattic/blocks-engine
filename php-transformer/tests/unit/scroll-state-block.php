@@ -33,24 +33,21 @@ $block = $result['blocks'][0] ?? array();
 $markup = (string) ($result['serialized_blocks'] ?? '');
 $blockName = (string) ($block['blockName'] ?? '');
 
-$assert(str_ends_with($blockName, '/scroll-state'), 'a marked element lowers to the scroll-state companion block, not the generic container');
+$assert('core/group' === $blockName, 'a captured scroll wrapper is editable with core Group tools');
 $assert('header_stickynav67826' === ($block['attrs']['anchor'] ?? null), 'the source id is preserved as the block anchor');
 $assert('hdr' === ($block['attrs']['className'] ?? null), 'the source class list is preserved');
-$assert('header' === ($block['attrs']['tagName'] ?? null), 'a non-div source tag is remembered so save() restores the original element');
-$decodedConfig = json_decode((string) ($block['attrs']['config'] ?? ''), true);
+$assert('header' === ($block['attrs']['metadata']['blocksEngineScrollState']['tagName'] ?? null), 'a non-div source tag is remembered so save() restores the original element');
+$decodedConfig = json_decode((string) ($block['attrs']['metadata']['blocksEngineScrollState']['config'] ?? ''), true);
 $assert(is_array($decodedConfig) && array('sticky-animate', 'x-c-bg') === ($decodedConfig['addClasses'] ?? null) && 80 === ($decodedConfig['thresholdPx'] ?? null), 'the captured threshold and classes round-trip through the block attribute');
 
-$assert(str_contains($markup, '<header id="header_stickynav67826" class="hdr" data-blocks-engine-scroll-state="true"'), 'saved markup restores the original tag, id, and class with the runtime marker');
-$assert(str_contains($markup, 'data-blocks-engine-scroll-state-config='), 'saved markup carries the captured evidence for the view script to read');
+$assert(str_contains($markup, '<header id="header_stickynav67826" class="wp-block-group hdr">'), 'saved markup is the canonical core Group shape');
+$assert(str_contains($markup, 'blocksEngineScrollState'), 'captured evidence persists in core metadata');
 $assert(str_contains($markup, '<img'), 'the logo child block survives inside the wrapper');
 $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? null), 'scroll-state serialization is editor-valid');
 $assert($blockName === ((new Runtime())->parseBlocks((new Runtime())->serializeBlocks(array($block)))[0]['blockName'] ?? null), 'the scroll-state block persists through parse and serialize');
 
-$definition = $result['source_reports']['generated_blocks'][0] ?? array();
-$view = (string) ($definition['view_js'] ?? '');
-$editor = (string) ($definition['assets']['index.js'] ?? '');
-$assert($blockName === ($definition['block_json']['name'] ?? null) && 'file:./view.js' === ($definition['block_json']['viewScript'] ?? null), 'the generated companion registers a plain view script asset (no Interactivity API dependency required)');
-$assert(str_contains($editor, "registerBlockType( '" . $blockName . "'"), 'the editor script registers the canonical block name');
+$assert(array() === ($result['source_reports']['generated_blocks'] ?? array()), 'scroll behavior requires no generated block registration');
+$view = \Automattic\BlocksEngine\PhpTransformer\WordPress\ScrollStateScript::viewScript();
 $assert(str_contains($view, "data-blocks-engine-scroll-state=\"true\"") && str_contains($view, 'window.scrollY > threshold') && str_contains($view, 'requestAnimationFrame') && str_contains($view, 'classList.toggle') && str_contains($view, 'style.setProperty') && str_contains($view, "':scope'"), 'the runtime is generic: it reads scrollY against a captured threshold and replays captured class/style diffs, including :scope self-targets');
 
 // A plain container without the marker is unaffected.
@@ -69,7 +66,7 @@ $headerResult = (new HtmlTransformer())->transform($header, array())->toArray();
 $headerCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($headerResult['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? ''))));
 $assert(1 === preg_match('/\.(blocks-engine-semantic-[a-f0-9]+-\d+):has\(\.wp-block-navigation__responsive-container\.is-menu-open\)\{backdrop-filter:none/', $headerCss, $release), 'the open overlay releases the header backdrop-filter');
 $headerBlock = $headerResult['blocks'][0] ?? array();
-$assert(str_ends_with((string) ($headerBlock['blockName'] ?? ''), '/scroll-state'), 'the header stays a scroll-state block');
+$assert('core/group' === ($headerBlock['blockName'] ?? ''), 'the header remains an editable core Group');
 $assert(in_array($release[1], explode(' ', (string) ($headerBlock['attrs']['className'] ?? '')), true) && str_contains((string) ($headerResult['serialized_blocks'] ?? ''), $release[1]), 'the scroll-state header carries the marker its release rule targets');
 $assert('pass' === ($headerResult['source_reports']['wp_block_validity']['status'] ?? null), 'the projected scroll-state header stays editor-valid');
 
