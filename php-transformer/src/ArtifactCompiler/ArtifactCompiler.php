@@ -2535,7 +2535,8 @@ final class ArtifactCompiler
                 // same compilation group and its canonical support assets.
             }
             unset($areaRows, $row);
-            $documents[(string) $file['path']] = array('content' => (string) $file['content'], 'rows' => $rows);
+            // Shared stylesheet comparison must not see route-specific capture IDs.
+            $documents[(string) $file['path']] = array('content' => $dom->documentElement instanceof DOMElement ? SourceDom::outerHtml($dom->documentElement) : (string) $file['content'], 'rows' => $rows);
         }
         if (count($documents) < 2) return array('artifacts' => array(), 'assets' => array(), 'author_stylesheet_projections' => array(), 'runtime_script_projections' => array());
 

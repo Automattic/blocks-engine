@@ -321,7 +321,7 @@ final class SourceBlockAttributeProjector
             if ($anchor instanceof DOMElement) {
                 $identity = array();
                 if ($anchor->hasAttribute('class')) $identity['data-blocks-engine-social-source-class'] = $anchor->getAttribute('class');
-                foreach ($anchor->attributes as $attribute) {
+                foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($anchor) as $attribute) {
                     if (in_array($attribute->name, array('id', 'class', 'style', 'role', 'title', 'tabindex', 'target', 'rel'), true) || str_starts_with($attribute->name, 'data-') || str_starts_with($attribute->name, 'aria-')) $identity[$attribute->name] = $attribute->value;
                 }
                 $classes = $this->sourceProjectionClassName($anchor, $context, (string) ($identity['class'] ?? ''));

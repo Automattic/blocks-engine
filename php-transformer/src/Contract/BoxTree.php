@@ -27,6 +27,18 @@ final class BoxTree
         'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height',
     );
 
+    /** Capture identity is only meaningful to box-tree lookup, never authored markup. */
+    public static function isEvidenceAttribute(string $name): bool
+    {
+        return self::NODE_ATTRIBUTE === strtolower($name);
+    }
+
+    /** @return list<\DOMAttr> Authored attributes, without capture-only identity. */
+    public static function authoredAttributes(DOMElement $element): array
+    {
+        return array_values(array_filter(iterator_to_array($element->attributes), static fn (\DOMAttr $attribute): bool => ! self::isEvidenceAttribute($attribute->name)));
+    }
+
     public static function validId(mixed $id): bool
     {
         return is_string($id) && 1 === preg_match('/^[A-Za-z0-9._:-]{1,80}$/D', $id);

@@ -278,7 +278,9 @@ final class SourceDom
         if (null !== $inlineStyleFor) self::projectInlineStyles($element, $clone, $inlineStyleFor);
         // Capture node identity binds evidence to the source document, not the output.
         foreach ( self::subtreeElements($clone) as $node ) {
-            $node->removeAttribute(BoxTree::NODE_ATTRIBUTE);
+            foreach ( iterator_to_array($node->attributes) as $attribute ) {
+                if ( BoxTree::isEvidenceAttribute($attribute->nodeName) ) $node->removeAttributeNode($attribute);
+            }
         }
         return $clone;
     }
@@ -804,7 +806,7 @@ final class SourceDom
     {
         $attributes = array();
         foreach ( $element->attributes ?? array() as $attribute ) {
-            if ( HtmlAttributeName::isIntegerKey($attribute->nodeName) ) {
+            if ( HtmlAttributeName::isIntegerKey($attribute->nodeName) || BoxTree::isEvidenceAttribute($attribute->nodeName) ) {
                 continue;
             }
             $attributes[$attribute->nodeName] = $attribute->nodeValue ?? '';
@@ -2102,7 +2104,7 @@ final class SourceDom
             }
             while ( in_array(strtolower($child->tagName), array( 'span', 'div' ), true) ) {
                 foreach ( $child->attributes as $attribute ) {
-                    if ( ! in_array(strtolower($attribute->nodeName), array( 'class', 'id', 'style' ), true) ) {
+                    if ( ! BoxTree::isEvidenceAttribute($attribute->nodeName) && ! in_array(strtolower($attribute->nodeName), array( 'class', 'id', 'style' ), true) ) {
                         return false;
                     }
                 }
@@ -2318,10 +2320,6 @@ final class SourceDom
     {
         $data = array();
         foreach ( self::htmlAttributes($element) as $name => $value ) {
-            // Capture node identity binds evidence; it is not authored data.
-            if ( BoxTree::NODE_ATTRIBUTE === $name ) {
-                continue;
-            }
             if ( preg_match('/^data-[a-z0-9_-]+$/i', $name) && strlen($value) <= 300 && ! preg_match('/javascript\s*:/i', $value) ) {
                 $data[$name] = $value;
             }
