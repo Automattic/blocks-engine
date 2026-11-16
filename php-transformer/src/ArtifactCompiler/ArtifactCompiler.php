@@ -297,7 +297,6 @@ final class ArtifactCompiler
         $choiceGroups = (new CapturedChoiceGroupProjector())->project($selectableSets['files']);
         $scrollStates = (new ScrollStateProjector())->project($choiceGroups['files']);
         $normalized['files'] = (new RouteStateProjector())->project($scrollStates['files'])['files'];
-        $normalized['files'] = $this->withoutUnreachableSelectors($normalized['files'], false);
         return $this->finalizeArtifact($artifact, array(
             'normalized' => $normalized,
             'inline_compilation' => true,
@@ -509,6 +508,9 @@ final class ArtifactCompiler
         foreach (array_unique(array_map(static fn (array $part): string => (string) ($part['block_markup'] ?? ''), $parts)) as $partMarkup) $sharedMarkup .= "\n" . $partMarkup;
         foreach ($pageMarkup as &$markup) $markup .= "\n" . $sharedMarkup;
         unset($markup);
+        // Keep source bytes intact through compilation: provenance, orphan
+        // assets and cross-route factoring all depend on the authored inventory.
+        // Only prune the published projections after that factoring is complete.
         $authoredFiles = $normalized['files'];
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup, $timer);
         $normalized['files'] = $this->withoutUnreachableSelectors($normalized['files']);
@@ -2126,7 +2128,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
-    private function withoutUnreachableSelectors(array $files, bool $projectedOnly = true): array
+    private function withoutUnreachableSelectors(array $files): array
     {
         $texts = array();
         $documents = 0;
@@ -2160,10 +2162,7 @@ final class ArtifactCompiler
         $pruner = new UnreachableSelectorPruner($texts);
         foreach ($files as &$file) {
             // Only the projected sheets the pages load; other CSS is inventory.
-            if ('css' !== ($file['kind'] ?? '') || ($projectedOnly && !isset($file['provenance']['projected_from_hash'])) || !is_string($file['content'] ?? null)) continue;
-            // Inline rules also establish the specificity ceiling for inline
-            // carriers; keep their inventory until that projection is complete.
-            if (!$projectedOnly && 'inline-style' === ($file['source'] ?? null)) continue;
+            if ('css' !== ($file['kind'] ?? '') || !isset($file['provenance']['projected_from_hash']) || !is_string($file['content'] ?? null)) continue;
             $content = $pruner->prune($file['content']);
             if ($content !== $file['content']) $file = $this->projectedStylesheetFile($file, $file['path'], $content);
         }

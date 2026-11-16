@@ -6,13 +6,15 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 // Framework selectors unsupported by the matcher still have required source
 // classes. Neither generated native identities nor state pseudos make those
-// absent classes live. Malformed lists remain untouched.
+// absent classes live. Malformed lists remain untouched. Pruning belongs to
+// published projections, not source inventory: orphan assets keep their bytes.
 $artifact = array(
     'entrypoint' => 'index.html',
     'files' => array(
         'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="site.css"></head><body><main><p class="present">Home</p><button>Action</button></main></body></html>',
         'other.html' => '<main class="other-route">Other</main>',
         'site.css' => '.absent:focus-within{color:salmon}.present:focus-within{color:teal}.other-route{color:purple}.unused,.broken[foo=bar baz]{color:orchid}',
+        'orphan.css' => '.inventory-only:focus-within{color:gold}',
     ),
 );
 $compiler = new ArtifactCompiler();
@@ -23,6 +25,10 @@ foreach (array(
     $compiler->compile($artifact)->toArray(),
     $compiler->compose($shared, array_values($receipts))->toArray(),
 ) as $result) {
+    $orphans = array_values(array_filter($result['assets'], static fn (array $asset): bool => 'orphan.css' === ($asset['path'] ?? null)));
+    if ('.inventory-only:focus-within{color:gold}' !== ($orphans[0]['content'] ?? null)) {
+        throw new RuntimeException('Selector pruning must preserve unreferenced source inventory');
+    }
     $css = implode("\n", array_map(
         static fn (array $asset): string => (string) ($asset['content'] ?? ''),
         array_filter($result['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null))
@@ -31,4 +37,4 @@ foreach (array(
         if (str_contains($css, $needle) !== $expected) throw new RuntimeException('Source selector pruning: ' . $needle);
     }
 }
-echo "Source selector pruning before projection passed\n";
+echo "Projected selector pruning preserves source inventory\n";
