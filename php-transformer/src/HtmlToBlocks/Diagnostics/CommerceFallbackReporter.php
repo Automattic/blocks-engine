@@ -170,6 +170,15 @@ final class CommerceFallbackReporter
                 }
             }
             $listing = $this->listingControls($element, $products);
+            // A lone purchase column beside a product photo is a detail
+            // layout, not a collection. The purchase control has its own
+            // binding; a collection replacement would discard sibling media.
+            if ( array() === $listing && 1 === count($products) && empty($products[0]['image']) ) {
+                $whole = $this->recognizer->productCardData($element);
+                if ( ! empty($whole['image']) ) {
+                    continue;
+                }
+            }
 
             // A card only reaches here via schema.org evidence, a cart control,
             // or the weaker image-corroborated catalog path (see
