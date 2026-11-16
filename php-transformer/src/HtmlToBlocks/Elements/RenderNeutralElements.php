@@ -130,7 +130,8 @@ final class RenderNeutralElements
      * text, no media, graphics, or iframes, no form or interactive controls,
      * no runtime or event metadata, no accessible role or name, no
      * URL-bearing attributes, and authored presentation limited to `display`
-     * (stylesheet rules addressing the tag and inline styles alike). Author
+     * and box-neutral positioning in stylesheet rules addressing the tag
+     * (inline styles remain display-only). Author
      * CSS reaching the subtree through a descendant's class, id, or
      * hyphenated tag name must not paint or occupy space either: a child
      * styled by `.rule-line{height:1px;background:#ccc}` is a visible
@@ -208,6 +209,16 @@ final class RenderNeutralElements
         return true;
     }
 
+    /** Positioning alone cannot paint an otherwise empty, unrendered host. */
+    private function isEmptyBoxNeutralProperty(string $property): bool
+    {
+        return in_array(strtolower(trim($property)), array(
+            'display', 'position', 'top', 'right', 'bottom', 'left', 'z-index',
+            'inset', 'inset-block', 'inset-block-start', 'inset-block-end',
+            'inset-inline', 'inset-inline-start', 'inset-inline-end',
+        ), true);
+    }
+
     /** Token-boundary selector match, as the host-tag pattern already uses. */
     private function cssTokenPattern(string $token): string
     {
@@ -216,8 +227,8 @@ final class RenderNeutralElements
 
     /**
      * Whether author CSS leaves this custom-element subtree render-empty.
-     * Rules addressing the host tag may declare only `display` — the box they
-     * generate paints nothing over empty content. Rules reaching the subtree
+     * Rules addressing the host tag may declare `display` and box-neutral
+     * positioning — neither paints empty content. Rules reaching the subtree
      * through a class, id, or hyphenated tag name must not declare paint or
      * size either: descendant CSS such as `.rule-line{height:1px;background:
      * #ccc}` gives an otherwise-empty host visible presence. Token matching
@@ -236,9 +247,9 @@ final class RenderNeutralElements
 
         foreach ( CssValueSplitter::ruleBlocks($css) as $rule ) {
             if ( 1 === preg_match($tagPattern, $rule['selector']) ) {
-                // The host tag's own presentation stays display-only.
+                // Offsets and stacking alone give an empty host no visible content.
                 foreach ( array_keys(SourceDeclarations::parse($rule['declarations'])) as $property ) {
-                    if ( 'display' !== strtolower(trim((string) $property)) ) {
+                    if ( ! $this->isEmptyBoxNeutralProperty((string) $property) ) {
                         return false;
                     }
                 }
