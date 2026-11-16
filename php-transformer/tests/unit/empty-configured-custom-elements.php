@@ -24,9 +24,31 @@ $byTag = array_column($diagnostics, null, 'tag');
 $assert('info' === ($byTag['product-recommendations']['severity'] ?? '') && '/recommendations/products?limit=4' === ($byTag['product-recommendations']['attributes']['data-url'] ?? ''), 'diagnostic retains tag and data configuration');
 $assert('https://example.com' === ($byTag['store-config']['attributes']['store-domain'] ?? ''), 'diagnostic retains custom configuration attributes');
 
+// Universal resets do not give empty configured hosts a rendered box (#6261).
+foreach ( array(
+    '*, *::before, *::after { box-sizing: inherit; }',
+    '*{margin:0}',
+    ':where(*){padding:0}',
+    'main *{box-sizing:border-box;margin:0 0 0 0;padding:0px !important}',
+) as $css ) {
+    $reset = $transform(str_replace('</head>', '<style>' . $css . '</style></head>', $fixture));
+    $assert(array() === $reset['fallbacks'], 'universal reset does not produce fallbacks: ' . $css);
+    $assert(2 === count(array_filter($reset['diagnostics'] ?? array(), static fn (array $row): bool => 'html_custom_element_render_neutral' === ($row['code'] ?? ''))), 'both reset hosts record neutral diagnostics: ' . $css);
+    $assert(! str_contains($reset['serialized_blocks'], 'product-recommendations') && ! str_contains($reset['serialized_blocks'], 'store-config'), 'reset hosts produce no blocks: ' . $css);
+}
+
 // Host paint, geometry, generated content, and child content retain the old path.
 foreach ( array(
     '.related-products{height:20px}',
+    '.related-products{margin:0}',
+    'product-recommendations{box-sizing:inherit}',
+    ':where(.related-products){padding:0}',
+    '*{padding:1px}',
+    '*{margin:1px}',
+    '*{background:red}',
+    '*{height:20px}',
+    '*{margin:0}.related-products{height:20px}',
+    '.related-products{height:20px}*{margin:0}',
     '.related-products{background:red}',
     '.related-products{border:1px solid}',
     'product-recommendations::before{content:"Related"}',

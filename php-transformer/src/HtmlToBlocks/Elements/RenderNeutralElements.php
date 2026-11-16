@@ -7,6 +7,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -45,7 +48,7 @@ final class RenderNeutralElements
      * Whether a wrapper instance carries no identity, behavior, or presentation
      * of its own, and can therefore be replaced by its children.
      */
-    public function isRenderNeutralWrapper(DOMElement $element, bool $stylesPrepared = true): bool
+    public function isRenderNeutralWrapper(DOMElement $element, bool $stylesPrepared = true, bool $ignoreEmptyHostResets = false): bool
     {
         // Custom-element convention removal precedes selector preparation.
         // Keep its original conservative contract; effect-based checks belong
@@ -72,9 +75,30 @@ final class RenderNeutralElements
         // (including conditional rules) as well as the inline declarations.
         $declarations = SourceDeclarations::inline($element);
         foreach ($this->session->authorStyleRuleCandidates($element) as $candidate) {
-            if (! ($candidate['parsed']['supported'] ?? false)) return false;
+            if (! ($candidate['parsed']['supported'] ?? false)) {
+                // Pseudo-element resets are indexed conservatively as
+                // unsupported host candidates. They still cannot create a box
+                // without content or other non-neutral declarations.
+                $hostSelector = preg_replace('/::?(?:before|after)\s*$/i', '', $candidate['selector']);
+                $parsedHost = CssSelectorMatcher::parse($hostSelector);
+                if ( $ignoreEmptyHostResets && $hostSelector !== $candidate['selector']
+                    && ($parsedHost['supported'] ?? false)
+                    && array(array('universal', '')) === CssSubjectIndex::buckets($parsedHost)
+                    && array() === array_filter($candidate['declarations'], fn (string $value, string $property): bool => ! $this->isEmptyHostReset($property, $value), ARRAY_FILTER_USE_BOTH)
+                ) {
+                    continue;
+                }
+                return false;
+            }
             if ($this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']) {
-                $declarations = array_merge($declarations, $candidate['declarations']);
+                $matched = $candidate['declarations'];
+                // A global reset is not host-owned presentation. Only ignore
+                // declarations that cannot give this empty host a footprint;
+                // targeted rules and universal paint/geometry remain evidence.
+                if ( $ignoreEmptyHostResets && array(array('universal', '')) === CssSubjectIndex::buckets($candidate['parsed']) ) {
+                    $matched = array_filter($matched, fn (string $value, string $property): bool => ! $this->isEmptyHostReset($property, $value), ARRAY_FILTER_USE_BOTH);
+                }
+                $declarations = array_merge($declarations, $matched);
             }
         }
         $inheritedText = array('white-space', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent');
@@ -101,7 +125,7 @@ final class RenderNeutralElements
             || $this->sourceElementClassifier->hasTokenBoundary($element->tagName, 'checkout')
             || $this->sourceElementClassifier->hasTokenBoundary($element->tagName, 'cart')
             || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, false, true)
-            || ! $this->isRenderNeutralWrapper($element)
+            || ! $this->isRenderNeutralWrapper($element, true, true)
         ) {
             return false;
         }
@@ -120,6 +144,18 @@ final class RenderNeutralElements
         }
         $id = SourceDom::namedFragmentTargetId($element);
         return '' === $id || ! SourceDom::documentReferencesFragmentId($element, $id);
+    }
+
+    /** Global box-model resets do not paint or size an otherwise empty host. */
+    private function isEmptyHostReset(string $property, string $value): bool
+    {
+        if ( 'box-sizing' === $property ) {
+            return true;
+        }
+        if ( 1 !== preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$/', $property) ) {
+            return false;
+        }
+        return 1 === preg_match('/^[+-]?0(?:\.0+)?(?:[a-z]+|%)?(?:\s+[+-]?0(?:\.0+)?(?:[a-z]+|%)?){0,3}$/', CssValueInspector::comparable($value));
     }
 
     /** A neutral autonomous host whose ordinary light DOM needs no component lowering. */
