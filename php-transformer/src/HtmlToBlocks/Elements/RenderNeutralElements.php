@@ -7,6 +7,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -89,7 +90,8 @@ final class RenderNeutralElements
     /**
      * Configuration alone may describe a runtime placeholder, but semantic
      * attributes can describe missing visible output or a control. Only the
-     * former is safe to omit before recording an unproven-runtime finding.
+     * former is safe to omit (or retain as a paint-free spacing group) before
+     * recording an unproven-runtime finding.
      * The caller must already have established that the runtime is unproven.
      */
     public function isEmptyRenderNeutralConfiguredHost(DOMElement $element): bool
@@ -101,7 +103,7 @@ final class RenderNeutralElements
             || $this->sourceElementClassifier->hasTokenBoundary($element->tagName, 'checkout')
             || $this->sourceElementClassifier->hasTokenBoundary($element->tagName, 'cart')
             || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, false, true)
-            || ! $this->isRenderNeutralWrapper($element)
+            || ( ! $this->isRenderNeutralWrapper($element) && ! $this->configuredHostStylesArePaintFree($element) )
         ) {
             return false;
         }
@@ -120,6 +122,61 @@ final class RenderNeutralElements
         }
         $id = SourceDom::namedFragmentTargetId($element);
         return '' === $id || ! SourceDom::documentReferencesFragmentId($element, $id);
+    }
+
+    /**
+     * Only the empty configured-host path may retain geometry without paint.
+     * Inspect every matching rule, including conditional rules, rather than a
+     * single viewport's computed style. Unknown effects stay on the fallback path.
+     */
+    private function configuredHostStylesArePaintFree(DOMElement $element): bool
+    {
+        if ( null === $element->parentNode
+            || '' !== trim(SourceDom::attr($element, 'role'))
+            || array() !== $this->sourceElementDescription->interactiveAttributes($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || $this->sourceElementClassifier->hasMotionStructureToken($element)
+        ) {
+            return false;
+        }
+        $declarations = SourceDeclarations::inline($element);
+        foreach ( $this->session->authorStyleRuleCandidates($element) as $candidate ) {
+            $selector = $candidate['selector'];
+            $parsed = $candidate['parsed'];
+            if ( ! ($parsed['supported'] ?? false) ) {
+                $pseudo = CssSelectorMatcher::pseudoElementHost($selector);
+                if ( null === $pseudo ) {
+                    return false;
+                }
+                if ( $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $pseudo['selector'], $pseudo['parsed'])['matches'] ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $selector, $parsed)['matches'] ) {
+                // Do not let a later declaration hide possible conditional paint.
+                if ( ! $this->configuredHostDeclarationsArePaintFree($candidate['declarations']) ) {
+                    return false;
+                }
+            }
+        }
+        return $this->configuredHostDeclarationsArePaintFree($declarations);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function configuredHostDeclarationsArePaintFree(array $declarations): bool
+    {
+        foreach ( $declarations as $property => $value ) {
+            if ( in_array($property, array(
+                'white-space', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight',
+                'font-variant', 'line-height', 'letter-spacing', 'word-spacing', 'text-align',
+                'text-transform', 'text-indent', 'display',
+            ), true) || 1 === preg_match('/^(?:(?:padding|margin)(?:-(?:top|right|bottom|left|block(?:-start|-end)?|inline(?:-start|-end)?))?|(?:(?:min|max)-)?(?:width|height|inline-size|block-size)|(?:row-|column-)?gap)$/', $property) ) {
+                continue;
+            }
+            return false;
+        }
+        return true;
     }
 
     /** A neutral autonomous host whose ordinary light DOM needs no component lowering. */

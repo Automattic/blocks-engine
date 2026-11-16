@@ -45,18 +45,26 @@ final class CustomElementRuntimeConverter implements ElementConverter
         }
         if ( 'unproven' === $decision['disposition'] ) {
             if ( $this->renderNeutral->isEmptyRenderNeutralConfiguredHost($element) ) {
+                $omit = $this->renderNeutral->isRenderNeutralWrapper($element);
                 $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
-                    'code'                      => 'html_custom_element_render_neutral',
+                    'code'                      => $omit ? 'html_custom_element_render_neutral' : 'html_custom_element_runtime_placeholder',
                     'severity'                  => 'info',
                     'conversion_classification' => 'native_conversion',
-                    'message'                   => 'An empty custom element without a proven runtime or authored box was omitted.',
+                    'message'                   => $omit
+                        ? 'An empty custom element without a proven runtime or authored box was omitted.'
+                        : 'An empty runtime placeholder with paint-free geometry was lowered to a native spacing group.',
                     'source_format'             => 'html',
                     'tag'                       => $tagName,
                     'selector'                  => SourceDom::elementSelector($element),
                     'attributes'                => SourceDom::htmlAttributes($element),
                 ));
 
-                return ConversionOutcome::handled(null);
+                return ConversionOutcome::handled($omit ? null : $this->createBlock->createBlock(
+                    'core/group',
+                    $this->styleResolver->presentationAttributes($element),
+                    array(),
+                    $element
+                ));
             }
             // A host the source cascade hides at every viewport renders
             // nothing there, so omitting it loses no content or behavior.
