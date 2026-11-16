@@ -77,12 +77,21 @@ final class NavigationStyleProjector
         return '' === $css ? array() : array( new CascadeRule(CascadeLayer::DIRECT_NAVIGATION_REPAIR, $css) );
     }
 
-    public function materializeEditorStaticStateStylesheet(string $projectedAuthorCss = ''): void
+    public function materializeEditorStaticStateStylesheet(string $projectedAuthorCss = '', string $serializedBlocks = ''): void
     {
         $rules = array_merge(
             $this->session->generatedSupportStylesheetState()->navigationEditorTypographyRules(),
             $this->session->generatedSupportStylesheetState()->navigationEditorItemStyleRules()
         );
+        // Source runtimes can hide an icon carrier until hover or animation.
+        // They do not run in Gutenberg: expose the native image and its direct
+        // group carrier there, so the image has a selectable box. Keep this in
+        // the editor-only asset, not in the site's shared support stylesheet.
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
+            $image = 'figure.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '.wp-block-image';
+            $rules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
+                . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){display:block!important;visibility:visible!important}';
+        }
         $anchorProjectionCss = $this->editorAnchorProjectionCss($projectedAuthorCss);
         if ( '' !== $anchorProjectionCss ) {
             $rules[] = $anchorProjectionCss;
