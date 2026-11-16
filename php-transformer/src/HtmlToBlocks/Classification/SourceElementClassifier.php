@@ -1225,6 +1225,12 @@ final class SourceElementClassifier
         if ( ! $list instanceof DOMElement || count($items) < 2 || ! $this->slideshowHasStageSelector($root, $list, $items) ) {
             return array();
         }
+        // Core Gallery cannot step through a track. A collection that ships
+        // its own stepping pair is a carousel; flattening it into a gallery
+        // would drop both controls and the slide geometry they step through.
+        if ( $this->hasSteppingControlPair($root, $list, count($items)) ) {
+            return array();
+        }
 
         $stageByKey = array();
         $stageImages = array();
@@ -1282,6 +1288,57 @@ final class SourceElementClassifier
         }
 
         return 2 <= count($images) ? $images : array();
+    }
+
+    /**
+     * Exactly two interactive controls beside a list of more than two
+     * slides are a previous/next pair. A pager has one control per slide, so
+     * with two slides the pair is ambiguous, and a thumbnail or numbered
+     * control names the slide it selects; a collection with such a selector
+     * keeps the gallery path. The signal is structural: it does not depend
+     * on the controls' wording.
+     */
+    private function hasSteppingControlPair(DOMElement $root, DOMElement $list, int $slideCount): bool
+    {
+        if ( $slideCount <= 2 ) {
+            return false;
+        }
+        $slideImages = array();
+        foreach ( $list->getElementsByTagName('img') as $image ) {
+            if ( $image instanceof DOMElement && '' !== ($key = $this->imageIdentityKey($image)) ) {
+                $slideImages[$key] = true;
+            }
+        }
+        $controls = array();
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || ! $this->isCarouselControl($candidate, $root)
+                || SourceDom::elementContains($list, $candidate)
+            ) {
+                continue;
+            }
+            foreach ( $controls as $control ) {
+                if ( SourceDom::elementContains($control, $candidate) ) {
+                    continue 2;
+                }
+            }
+            foreach ( $candidate->getElementsByTagName('img') as $image ) {
+                if ( $image instanceof DOMElement && isset($slideImages[$this->imageIdentityKey($image)]) ) {
+                    return false;
+                }
+            }
+            foreach ( $candidate->attributes as $attribute ) {
+                if ( 1 === preg_match('/^data-(?:[a-z]+-)*(?:slide|index|item)(?:-[a-z]+)*$/', strtolower($attribute->name)) && ctype_digit(trim($attribute->value)) ) {
+                    return false;
+                }
+            }
+            if ( 1 === preg_match('/[0-9]/', SourceDom::attr($candidate, 'aria-label') . ' ' . ($candidate->textContent ?? '')) ) {
+                return false;
+            }
+            $controls[] = $candidate;
+        }
+
+        return 2 === count($controls);
     }
 
     /**
