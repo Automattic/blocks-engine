@@ -723,21 +723,15 @@ final class RouteStateProjector
         }
         // Each rule naming an aliased class gains a copy for its alias right
         // after it, so both names keep their place in the cascade. A selector
-        // naming several aliased classes gains a copy for each set of them:
-        // aligned chrome wears every alias at once, while unaligned elements
-        // keep the source names.
+        // naming several aliased classes also gains one copy naming all of
+        // them, because aligned chrome wears every alias at once.
         $withCopies = static fn(string $css, array $aliases): string => $transformer->transform($css, static function (string $prelude, string $body) use ($aliases, $classPattern, $named): string|array {
             $copies = array();
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                 preg_match_all($classPattern, $selector, $classes);
                 $aliased = array_values(array_filter(array_unique($classes[1]), static fn(string $class): bool => isset($aliases[$class])));
-                $sets = array();
-                if (count($aliased) <= 4) {
-                    for ($mask = 1; $mask < 1 << count($aliased); ++$mask) $sets[] = array_values(array_filter($aliased, static fn(int $bit): bool => 0 !== ($mask & 1 << $bit), ARRAY_FILTER_USE_KEY));
-                    usort($sets, static fn(array $a, array $b): int => count($a) <=> count($b));
-                } else {
-                    $sets = array_merge(array_map(static fn(string $class): array => array($class), $aliased), array($aliased));
-                }
+                $sets = array_map(static fn(string $class): array => array($class), $aliased);
+                if (count($aliased) > 1) $sets[] = $aliased;
                 foreach ($sets as $set) {
                     $copy = trim($selector);
                     foreach ($set as $class) $copy = (string) preg_replace($named($class), '.' . $aliases[$class], $copy);
