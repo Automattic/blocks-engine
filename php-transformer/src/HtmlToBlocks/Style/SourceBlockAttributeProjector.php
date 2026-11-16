@@ -148,6 +148,21 @@ final class SourceBlockAttributeProjector
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS);
             }
         }
+        // A transparent image figure still participates in the source parent's
+        // line. Unlike RichText leaves it cannot own text alignment, so keep
+        // the parent's inline declaration on the group that already exists.
+        if ( 'core/group' === $name ) {
+            foreach ( $innerBlocks as $child ) {
+                if ( 'core/image' === ($child['blockName'] ?? '')
+                    && in_array(self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS, SourceDom::tokens((string) ($child['attrs']['className'] ?? '')), true) ) {
+                    $attrs['className'] = SourceDom::mergeClassNames(
+                        (string) ($attrs['className'] ?? ''),
+                        $this->styleResolver->inlineGeometryClassName($sourceElement, array(), array( 'text-align' ))
+                    );
+                    break;
+                }
+            }
+        }
         if ( 'core/video' === $name && 'video' === $sourceTagName ) {
             // HTML dimensions are presentational hints, not core/video attrs.
             // Zero-specificity rules preserve their fallback role: authored
