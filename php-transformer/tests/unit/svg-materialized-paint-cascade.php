@@ -214,6 +214,9 @@ $unresolvedPaint = (new HtmlTransformer())->transform('<svg color="var(--missing
 $assert(array() === $inlineSvgAssets($unresolvedPaint), 'Unresolved color remains inline rather than being baked as a guessed image color.');
 $unknownAttribute = (new HtmlTransformer())->transform('<svg custom-behavior="live" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg>')->toArray();
 $assert(array() === $inlineSvgAssets($unknownAttribute), 'Unknown behavior-bearing attributes retain the existing inline floor.');
+foreach (array('<svg viewBox="0 0 10 10"><g style-width="15"><path d="M0 0h10v10H0z"></path></g></svg>' => 1, '<svg custom-width="15" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg>' => 0) as $source => $assets) {
+    $assert($assets === count($inlineSvgAssets((new HtmlTransformer())->transform($source)->toArray())), 'A misspelled numeric attribute is inert inside the artwork but not on the root: ' . $source);
+}
 $unsafeWeight = (new HtmlTransformer())->transform('<svg viewBox="0 0 10 10"><g weight="javascript:alert(1)"><path d="M0 0h10v10H0z"></path></g></svg>')->toArray();
 $assert(array() === $inlineSvgAssets($unsafeWeight), 'Metadata admission does not bypass unsafe-value checks.');
 $animatedPaint = (new HtmlTransformer())->transform('<style>.icon path{animation:pulse 1s infinite}@keyframes pulse{to{opacity:0}}</style><svg class="icon" color="#123456" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg>')->toArray();

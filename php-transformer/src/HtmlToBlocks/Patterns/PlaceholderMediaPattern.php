@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -49,14 +50,15 @@ final class PlaceholderMediaPattern implements PatternRecognizerInterface
         }
 
         return '' !== $this->placeholderAspectRatio($element)
-            || preg_match('/(?:^|;)\s*aspect-ratio\s*:/i', SourceDom::attr($element, 'style'))
+            || isset(SourceDeclarations::inline($element)['aspect-ratio'])
             || preg_match('/(?:^|\s)(?:media|image|video|thumb|thumbnail|poster|avatar)(?:\s|$)/', $className);
     }
 
     private function placeholderAspectRatio(DOMElement $element): string
     {
-        if ( preg_match('/(?:^|;)\s*aspect-ratio\s*:\s*([0-9.]+\s*\/\s*[0-9.]+|[0-9.]+)\s*(?:;|$)/i', SourceDom::attr($element, 'style'), $styleMatch) ) {
-            return preg_replace('/\s+/', '', $styleMatch[1]) ?? '';
+        $aspectRatio = SourceDeclarations::inline($element)['aspect-ratio'] ?? '';
+        if ( preg_match('/^(?:[0-9.]+\s*\/\s*[0-9.]+|[0-9.]+)$/D', $aspectRatio) ) {
+            return preg_replace('/\s+/', '', $aspectRatio) ?? '';
         }
 
         $className = strtolower(SourceDom::attr($element, 'class'));

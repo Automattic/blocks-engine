@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EmptyElementFootprint;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -34,7 +34,6 @@ final class RenderNeutralElements
 
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly StyleResolver $styleResolver,
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly SourceElementDescription $sourceElementDescription,
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
@@ -71,7 +70,7 @@ final class RenderNeutralElements
         }
         // Attribute spelling is not presentation. Check matched author rules
         // (including conditional rules) as well as the inline declarations.
-        $declarations = $this->styleResolver->inlineDeclarations($element);
+        $declarations = SourceDeclarations::inline($element);
         foreach ($this->session->authorStyleRuleCandidates($element) as $candidate) {
             if (! ($candidate['parsed']['supported'] ?? false)) return false;
             if ($this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']) {
@@ -87,6 +86,42 @@ final class RenderNeutralElements
         return true;
     }
 
+    /**
+     * Configuration alone may describe a runtime placeholder, but semantic
+     * attributes can describe missing visible output or a control. Only the
+     * former is safe to omit before recording an unproven-runtime finding.
+     * The caller must already have established that the runtime is unproven.
+     */
+    public function isEmptyRenderNeutralConfiguredHost(DOMElement $element): bool
+    {
+        if ( 0 !== SourceDom::childElementCount($element)
+            || '' !== trim($element->textContent ?? '')
+            || $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element)
+            || $this->sourceElementClassifier->hasCommerceToken($element, array( 'checkout', 'cart' ))
+            || $this->sourceElementClassifier->hasTokenBoundary($element->tagName, 'checkout')
+            || $this->sourceElementClassifier->hasTokenBoundary($element->tagName, 'cart')
+            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, false, true)
+            || ! $this->isRenderNeutralWrapper($element)
+        ) {
+            return false;
+        }
+
+        // These attributes describe output, state or form participation, not
+        // opaque configuration. Even a textless host can be a visible widget.
+        foreach ( array( 'title', 'alt', 'label', 'placeholder', 'name', 'type', 'value', 'status', 'checked', 'selected', 'disabled', 'required', 'readonly', 'form', 'for', 'href', 'src', 'srcset', 'width', 'height' ) as $attribute ) {
+            if ( $element->hasAttribute($attribute) ) {
+                return false;
+            }
+        }
+        foreach ( $element->attributes as $attribute ) {
+            if ( str_starts_with(strtolower($attribute->name), 'aria-') ) {
+                return false;
+            }
+        }
+        $id = SourceDom::namedFragmentTargetId($element);
+        return '' === $id || ! SourceDom::documentReferencesFragmentId($element, $id);
+    }
+
     /** A neutral autonomous host whose ordinary light DOM needs no component lowering. */
     public function isRenderNeutralCustomFlowWrapper(DOMElement $element): bool
     {
@@ -95,7 +130,6 @@ final class RenderNeutralElements
             || '' !== trim(SourceDom::attr($element, 'class'))
             || '' !== trim(SourceDom::attr($element, 'id'))
             || $element->hasAttribute('hidden')
-            || '' === trim($element->textContent ?? '')
             || ! $this->isRenderNeutralWrapper($element)
             || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, false, true)
         ) {
@@ -103,7 +137,7 @@ final class RenderNeutralElements
         }
 
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( 'none' === ($this->styleResolver->inlineDeclarations($descendant)['display'] ?? '') ) {
+            if ( 'none' === (SourceDeclarations::inline($descendant)['display'] ?? '') ) {
                 return false;
             }
         }
@@ -113,7 +147,9 @@ final class RenderNeutralElements
             if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
                 continue;
             }
-            if ( ! $child instanceof DOMElement || ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($child) ) {
+            // Native buttons (including icon-only buttons) are ordinary light
+            // DOM content too; their own converter retains control semantics.
+            if ( ! $child instanceof DOMElement || ( 'button' !== strtolower($child->tagName) && ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($child) ) ) {
                 return false;
             }
             $children[] = $child;
@@ -121,7 +157,8 @@ final class RenderNeutralElements
 
         // Repeated siblings may be a cohesive component; retain that existing
         // disposition rather than reclassifying collections as wrappers.
-        return 1 === count($children);
+        return 1 === count($children)
+            && ( '' !== trim($element->textContent ?? '') || 'button' === strtolower($children[0]->tagName) );
     }
 
     /**
@@ -129,7 +166,8 @@ final class RenderNeutralElements
      * text, no media, graphics, or iframes, no form or interactive controls,
      * no runtime or event metadata, no accessible role or name, no
      * URL-bearing attributes, and authored presentation limited to `display`
-     * (stylesheet rules addressing the tag and inline styles alike). Author
+     * and box-neutral positioning in stylesheet rules addressing the tag
+     * (inline styles remain display-only). Author
      * CSS reaching the subtree through a descendant's class, id, or
      * hyphenated tag name must not paint or occupy space either: a child
      * styled by `.rule-line{height:1px;background:#ccc}` is a visible
@@ -198,13 +236,23 @@ final class RenderNeutralElements
         if ( '' === $style ) {
             return true;
         }
-        foreach ( array_keys($this->styleResolver->cssDeclarations($style)) as $property ) {
+        foreach ( array_keys(SourceDeclarations::parse($style)) as $property ) {
             if ( 'display' !== strtolower(trim((string) $property)) ) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    /** Positioning alone cannot paint an otherwise empty, unrendered host. */
+    private function isEmptyBoxNeutralProperty(string $property): bool
+    {
+        return in_array(strtolower(trim($property)), array(
+            'display', 'position', 'top', 'right', 'bottom', 'left', 'z-index',
+            'inset', 'inset-block', 'inset-block-start', 'inset-block-end',
+            'inset-inline', 'inset-inline-start', 'inset-inline-end',
+        ), true);
     }
 
     /** Token-boundary selector match, as the host-tag pattern already uses. */
@@ -215,8 +263,8 @@ final class RenderNeutralElements
 
     /**
      * Whether author CSS leaves this custom-element subtree render-empty.
-     * Rules addressing the host tag may declare only `display` — the box they
-     * generate paints nothing over empty content. Rules reaching the subtree
+     * Rules addressing the host tag may declare `display` and box-neutral
+     * positioning — neither paints empty content. Rules reaching the subtree
      * through a class, id, or hyphenated tag name must not declare paint or
      * size either: descendant CSS such as `.rule-line{height:1px;background:
      * #ccc}` gives an otherwise-empty host visible presence. Token matching
@@ -235,9 +283,9 @@ final class RenderNeutralElements
 
         foreach ( CssValueSplitter::ruleBlocks($css) as $rule ) {
             if ( 1 === preg_match($tagPattern, $rule['selector']) ) {
-                // The host tag's own presentation stays display-only.
-                foreach ( array_keys($this->styleResolver->cssDeclarations($rule['declarations'])) as $property ) {
-                    if ( 'display' !== strtolower(trim((string) $property)) ) {
+                // Offsets and stacking alone give an empty host no visible content.
+                foreach ( array_keys(SourceDeclarations::parse($rule['declarations'])) as $property ) {
+                    if ( ! $this->isEmptyBoxNeutralProperty((string) $property) ) {
                         return false;
                     }
                 }

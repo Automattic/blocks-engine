@@ -16,6 +16,18 @@ final class FormWorkflowPanelDetector
     public function controls(DOMElement $form, array $controls): array
     {
         $workflow = array();
+        foreach ( $this->panels($form, $controls) as $panel ) {
+            foreach ( $panel['controls'] as $control ) $workflow[(string) $control->getNodePath()] = $control;
+        }
+        return array_values($workflow);
+    }
+
+    /** @param list<DOMElement> $controls
+     * @return list<array{element: DOMElement, controls: list<DOMElement>, hidden: bool}>
+     */
+    public function panels(DOMElement $form, array $controls): array
+    {
+        $workflow = array();
         foreach ( array($form, ...iterator_to_array($form->getElementsByTagName('*'), false)) as $parent ) {
             $groups = array();
             foreach ( $parent->childNodes as $panel ) {
@@ -44,12 +56,16 @@ final class FormWorkflowPanelDetector
                 // Like sibling containers form the partition; an unrelated
                 // hidden div beside section panels is not another step.
                 $key = strtolower($panel->tagName) . ($named ? ':step' : ':plain');
-                $groups[$key][] = array('controls' => $members, 'hidden' => $hidden);
+                $groups[$key][] = array('element' => $panel, 'controls' => $members, 'hidden' => $hidden);
             }
             foreach ( $groups as $panels ) {
                 if ( count($panels) < 2 || 1 !== count(array_filter($panels, static fn (array $panel): bool => ! $panel['hidden'])) ) continue;
+                // Conditional field wrappers are not a workflow when ordinary
+                // fields remain outside the proposed sibling partition.
+                $members = array_merge(...array_column($panels, 'controls'));
+                if ( array_filter($controls, static fn (DOMElement $control): bool => ! in_array($control, $members, true) && false !== (NativeControlState::payload($control)['rendered'] ?? null) && ! in_array(FormControlClassifier::controlType($control), array('button', 'submit', 'reset', 'image'), true)) ) continue;
                 foreach ( $panels as $panel ) {
-                    foreach ( $panel['controls'] as $control ) $workflow[(string) $control->getNodePath()] = $control;
+                    $workflow[(string) $panel['element']->getNodePath()] = $panel;
                 }
             }
         }

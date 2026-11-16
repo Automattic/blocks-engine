@@ -63,7 +63,7 @@ trait StagedTransport
         );
         $plan['shared_reduction'] = array(
             'files_source' => 'artifact',
-            'component_facts' => $this->collectComponentFacts($sharedArtifact['files']),
+            'component_facts' => ComponentDetection::collectFacts($sharedArtifact['files']),
             'glyph_colors' => $this->sharedGlyphColors($normalized['files'], $partition['pages']),
             'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $artifact),
         );
@@ -266,16 +266,17 @@ trait StagedTransport
 
         $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
         $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
+        $stageCompiler->siteSelectorEvidence = $sharedPlan['analysis']['site_selector_evidence'] ?? null;
 
         $compiledDocuments = array();
         $stepTimings = array();
         $omittedPages = array();
         foreach ($pageArtifact['files'] as $file) {
-            if ('html' !== ($file['kind'] ?? null) || $stageCompiler->isTemplatePartFile($file)) {
+            if ('html' !== ($file['kind'] ?? null) || HtmlFragmentIncludes::isTemplatePartFile($file)) {
                 continue;
             }
             $path = (string) ($file['path'] ?? '');
-            if ($pagePlan['page_id'] !== $stageCompiler->fileOwnership($file)['id']) {
+            if ($pagePlan['page_id'] !== FileOwnership::of($file)['id']) {
                 continue;
             }
             // The owned document supplies ordered instances; shared files
@@ -306,10 +307,10 @@ trait StagedTransport
         if (array() !== $omittedPages) {
             // The receipt owns nothing of a dropped page, so composition sees the
             // same site whole compilation produces without it.
-            $pageArtifact['files'] = $stageCompiler->withoutOmittedPageFiles($pageArtifact['files'], array_keys($omittedPages));
-            $files = $stageCompiler->withoutOmittedPageFiles($files, array_keys($omittedPages));
+            $pageArtifact['files'] = FileOwnership::withoutOmittedPages($pageArtifact['files'], array_keys($omittedPages));
+            $files = FileOwnership::withoutOmittedPages($files, array_keys($omittedPages));
         }
-        $pageDocuments = $stageCompiler->compileSourceDocuments($pageArtifact);
+        $pageDocuments = SourceDocuments::compile($pageArtifact);
         $entryBlocks = null;
         foreach ($pageArtifact['files'] as $file) {
             if (($file['path'] ?? null) === $entryPath && 'html' === ($file['kind'] ?? null)) {
@@ -388,8 +389,8 @@ trait StagedTransport
             'source_documents' => $pageDocuments,
             'owned_transformable_paths' => $this->ownedTransformablePaths($pageArtifact['files'], (string) $pagePlan['page_id']),
             'entry_blocks' => $entryBlocks,
-            'component_facts' => $this->collectComponentFacts($pageArtifact['files'], $pageDocuments['components']),
-            'block_types' => $this->detectBlockTypes($files, $pageDocuments['diagnostics']),
+            'component_facts' => ComponentDetection::collectFacts($pageArtifact['files'], $pageDocuments['components']),
+            'block_types' => BlockTypes::detect($files, $pageDocuments['diagnostics']),
         );
     }
 
@@ -592,7 +593,7 @@ trait StagedTransport
         $sourcePaths = is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array();
         $files = self::sortedBySourcePaths($files, $sourcePaths);
         $documents['documents'] = self::sortedBySourcePaths($documents['documents'], $sourcePaths, 'source_path');
-        $documents['diagnostics'] = $this->dedupeDiagnostics(array_merge(...array_map(
+        $documents['diagnostics'] = ArtifactDiagnostics::dedupe(array_merge(...array_map(
             static fn(array $document): array => ArrayField::array($document, 'diagnostics'),
             $documents['documents']
         )));
@@ -615,7 +616,7 @@ trait StagedTransport
             'source_css_bytes' => $sharedPlan['analysis']['source_css_bytes'],
             'entrypoints' => $sharedArtifact['entrypoints'],
             'bytes' => $sharedPlan['analysis']['canonical_bytes'] ?? $bytes,
-            'diagnostics' => $this->dedupeDiagnostics($diagnostics),
+            'diagnostics' => ArtifactDiagnostics::dedupe($diagnostics),
             'rejected_count' => $rejected,
             'source_hash' => $sharedPlan['analysis']['canonical_source_hash'] ?? ArtifactNormalizer::sourceHash($files, $sharedArtifact['runtime_declarations']),
         ));
@@ -625,7 +626,7 @@ trait StagedTransport
             'artifact' => $artifact,
             'normalized' => $normalized,
             'source_documents' => $documents,
-            'components' => $this->finalizeComponentFacts($this->mergeComponentFacts($componentFacts), (string) ($sharedPlan['analysis']['entry_path'] ?? '')),
+            'components' => ComponentDetection::finalizeFacts(ComponentDetection::mergeFacts($componentFacts), (string) ($sharedPlan['analysis']['entry_path'] ?? '')),
             'block_types' => DeterministicRowDeduplicator::dedupe($blockTypes),
             'entry_blocks' => $entryBlocks,
             'omitted_pages' => $omittedPages,
@@ -694,6 +695,19 @@ trait StagedTransport
                 ? $ownership['scope']
                 : (HtmlFragmentIncludes::isComponentPath($path) ? 'shared' : (in_array($extension, array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared'));
             $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
+            // Route-local evidence must travel only with its source page, not
+            // become a stale shared sidecar in every other page worker.
+            if (preg_match('~(?:^|/)box-tree/.+\.json$~D', $path)) {
+                $boxTree = json_decode((string) ($file['content'] ?? ''), true, 32);
+                if (is_array($boxTree) && is_string($boxTree['source_path'] ?? null)) {
+                    foreach ($rawFiles as $sourceFile) {
+                        if ($boxTree['source_path'] !== ($sourceFile['path'] ?? null)) continue;
+                        $fileScope = 'page';
+                        $filePageId = $sourceFile['metadata']['compilation']['id'] ?? $sourceFile['path'];
+                        break;
+                    }
+                }
+            }
             if ('page' === $fileScope) $pages[$filePageId][] = $file;
             else $shared[] = $file;
         }
@@ -870,7 +884,7 @@ trait StagedTransport
             $plan['analysis'] = $this->sharedPlanAnalysis($normalized, $partition, $entryPath, $hydratedArtifact);
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],
-                'component_facts' => $this->collectComponentFacts($planArtifact['files']),
+                'component_facts' => ComponentDetection::collectFacts($planArtifact['files']),
                 'glyph_colors' => $this->sharedGlyphColors($planArtifact['files'], $partition['pages'], $payloadReader),
                 'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $hydratedArtifact, $payloadReader),
             );
@@ -916,7 +930,7 @@ trait StagedTransport
             }
         }
         $colors = array();
-        foreach ($compiler->imageFiles as $file) {
+        foreach ($compiler->fileIndex->imageFiles() as $file) {
             if (isset($capturedEverywhere[$file['path']])) continue;
             $hash = (string) ($file['raw_sha256'] ?? $file['payload_reference']['sha256'] ?? '');
             if ('' !== $hash) $colors[$hash] = $compiler->glyphColorForFile($file);
@@ -1154,6 +1168,7 @@ trait StagedTransport
     private function sharedPlanAnalysis(array $normalized, array $partition, string $entryPath, array $artifact): array
     {
         return array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
+            'site_selector_evidence' => $this->selectorEvidence((new ArtifactNormalizer())->normalize($artifact)['files']),
             'entry_path' => $entryPath,
             'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
             'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
@@ -1222,7 +1237,7 @@ trait StagedTransport
     {
         $paths = array();
         foreach ($files as $file) {
-            if ('html' === ($file['kind'] ?? null) && !$this->isTemplatePartFile($file) && $pageId === $this->fileOwnership($file)['id']) $paths[] = (string) $file['path'];
+            if ('html' === ($file['kind'] ?? null) && !HtmlFragmentIncludes::isTemplatePartFile($file) && $pageId === FileOwnership::of($file)['id']) $paths[] = (string) $file['path'];
         }
         sort($paths, SORT_STRING);
         return $paths;
@@ -1233,7 +1248,7 @@ trait StagedTransport
     {
         $paths = array();
         foreach ($files as $file) {
-            if (in_array($file['kind'] ?? null, array('html', 'markdown', 'mdx'), true) && !$this->isTemplatePartFile($file) && $pageId === $this->fileOwnership($file)['id']) $paths[] = (string) $file['path'];
+            if (in_array($file['kind'] ?? null, array('html', 'markdown', 'mdx'), true) && !HtmlFragmentIncludes::isTemplatePartFile($file) && $pageId === FileOwnership::of($file)['id']) $paths[] = (string) $file['path'];
         }
         sort($paths, SORT_STRING);
         return $paths;

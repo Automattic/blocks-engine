@@ -32,12 +32,34 @@ final class DeadProjectedSelectorReporter
     public const CODE = 'dead_projected_author_selector';
 
     /**
+     * Authored class and id tokens present in each markup haystack, built once
+     * per haystack for one evaluation instead of a regex scan per token.
+     *
+     * @var array<string, array<string, true>>
+     */
+    private array $haystackTokens = array();
+
+    /**
      * @param list<array{authored: string, projected: string, stylesheet?: string, scope?: string}> $bindings
      * @param array<string, string> $haystacksByScope Serialized markup keyed by the
      *        document scope a projection was emitted for.
      * @param array<string, string> $sourceHaystacksByScope Original document markup.
      */
     public function evaluate(array $bindings, array $haystacksByScope, array $sourceHaystacksByScope): DeadProjectedSelectorEvaluation
+    {
+        try {
+            return $this->evaluateBindings($bindings, $haystacksByScope, $sourceHaystacksByScope);
+        } finally {
+            $this->haystackTokens = array();
+        }
+    }
+
+    /**
+     * @param list<array{authored: string, projected: string, stylesheet?: string, scope?: string}> $bindings
+     * @param array<string, string> $haystacksByScope
+     * @param array<string, string> $sourceHaystacksByScope
+     */
+    private function evaluateBindings(array $bindings, array $haystacksByScope, array $sourceHaystacksByScope): DeadProjectedSelectorEvaluation
     {
         $groups = array();
         foreach ( $bindings as $binding ) {
@@ -240,8 +262,18 @@ final class DeadProjectedSelectorReporter
         return array_values(array_unique($matches[1]));
     }
 
+    /**
+     * Whether $token appears bounded by characters outside [A-Za-z0-9_-] or by
+     * the haystack's ends. Tokens come from `[A-Za-z_][\w-]*`, so they are
+     * exactly the maximal runs of those characters in the haystack.
+     */
     private function tokenInHaystack(string $haystack, string $token): bool
     {
-        return 1 === preg_match('/(?:^|[^A-Za-z0-9_-])' . preg_quote($token, '/') . '(?:[^A-Za-z0-9_-]|$)/', $haystack);
+        $tokens = $this->haystackTokens[$haystack] ??= array_fill_keys(
+            preg_split('/[^A-Za-z0-9_-]+/', $haystack, -1, PREG_SPLIT_NO_EMPTY) ?: array(),
+            true
+        );
+
+        return isset($tokens[$token]);
     }
 }

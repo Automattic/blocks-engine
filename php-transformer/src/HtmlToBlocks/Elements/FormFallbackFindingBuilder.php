@@ -34,7 +34,8 @@ final class FormFallbackFindingBuilder
      */
     public function build(DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null, ?array $layoutGraph = null): array
     {
-        $controls = $this->metadataBuilder->controls($element, array(), null, $controlElements);
+        $controlElements = FormWorkflowControlInventory::elements($element, $this->metadataBuilder, $this->session);
+        $controls = $this->metadataBuilder->controls($element, array(), $controlElements);
         $layoutGraph ??= (new FormLayoutGraphBuilder())->build($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         $presentationBuilder = new FormPresentationGraphBuilder(
             fn (DOMElement $control, string $value): string => $this->context->resolvePresentationValue($control, $value),
@@ -113,23 +114,6 @@ final class FormFallbackFindingBuilder
         $steps = true === ($layoutGraph['truncated'] ?? true) ? null : (new FormStepTrackDetector())->detect($element, $layoutGraph, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         if ( null !== $steps ) {
             $finding['steps'] = $steps;
-        }
-        // Provider fields and their indexed graphs span the workflow.
-        // Hidden sibling panels need not have any particular step attribute.
-        // Only expand within the recognized partitions, not unrelated decoys.
-        if ( 'form' === strtolower($element->tagName) ) {
-            $intentControls = FormRuntimeRequirementAnalyzer::intentControls($element);
-            if ( null === $steps ) {
-                $panelControls = (new FormWorkflowPanelDetector())->controls($element, $intentControls);
-                $visibleSelectors = array_column($controls, 'selector');
-                $intentControls = array_values(array_filter($intentControls, static fn (DOMElement $control): bool => in_array($control, $panelControls, true) || in_array(SourceDom::elementSelector($control), $visibleSelectors, true)));
-            }
-            $selectors = array_column($controls, 'selector');
-            $missing = array_filter($intentControls, static fn (DOMElement $control): bool => ! in_array(SourceDom::elementSelector($control), $selectors, true));
-            if ( array() !== $missing ) {
-                $finding['controls'] = $this->metadataBuilder->controls($element, array(), $intentControls, $controlElements);
-                $finding['control_count'] = count($finding['controls']);
-            }
         }
         // Metadata can omit elements. Build every indexed graph from the exact
         // surviving inventory, not from a fresh classifier enumeration.
@@ -243,6 +227,24 @@ final class FormFallbackFindingBuilder
      */
     private function encloseInBox(array $block, array $shell): array
     {
+        // A field box framed by one class-only element (a `<label class>` or
+        // `<div class>` around a control) is a native group: same element,
+        // same class identity, one editable core block instead of a shell.
+        $wrappers = $shell['attrs']['wrappers'] ?? null;
+        if ( ! isset($shell['form_control_box']) && str_ends_with((string) ($shell['blockName'] ?? ''), '/layout-shell')
+            && is_array($wrappers) && 1 === count($wrappers) && 'div' === ($wrappers[0]['tagName'] ?? null)
+            && array( 'class' ) === array_keys((array) ($wrappers[0]['attributes'] ?? array()))
+            && '' !== trim((string) $wrappers[0]['attributes']['class']) ) {
+            $class = trim((string) $wrappers[0]['attributes']['class']);
+            $open = '<div class="wp-block-group ' . htmlspecialchars($class, ENT_QUOTES) . '">';
+            return array_replace(array_diff_key($shell, array( 'attrs' => true )), array(
+                'blockName' => 'core/group',
+                'attrs' => array( 'className' => $class ),
+                'innerBlocks' => array( $block ),
+                'innerHTML' => $open . '</div>',
+                'innerContent' => array( $open, null, '</div>' ),
+            ));
+        }
         $shell['innerBlocks'] = array($block);
         $shell['innerContent'] = array($shell['innerContent'][0] ?? '', null, $shell['innerContent'][1] ?? '');
         return $shell;

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
@@ -91,7 +92,7 @@ final class ButtonPatternContext
     /** @return array<string, string> */
     public function resolvedDeclarations(DOMElement $element): array
     {
-        return $this->styleResolver?->cssDeclarations($this->resolvedStyle($element)) ?? array();
+        return SourceDeclarations::parse($this->resolvedStyle($element));
     }
 
     public function controlSurfaceStyle(DOMElement $element): string
@@ -100,7 +101,7 @@ final class ButtonPatternContext
             return '';
         }
 
-        return $this->styleResolver->resolveCssVariablesInValue(
+        return $this->styleResolver->customProperties->resolve(
             $this->styleResolver->controlSurfaceResolvedStyle($element),
             $element
         );
@@ -113,12 +114,20 @@ final class ButtonPatternContext
             return '';
         }
 
-        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        $declarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element));
         // Read before conditional/class-owned declarations are filtered: an
         // authored line-height must stay owned by its projected selector.
         $uaLineHeight = $this->styleResolver->buttonUserAgentLineHeight($element, $declarations);
         if ( null !== $uaLineHeight ) {
             $declarations['line-height'] = $uaLineHeight;
+        }
+        // Anchors have no UA padding. Promoting one to core/button must not
+        // introduce theme button padding when the source owns no padding at all.
+        if ('a' === strtolower($element->tagName)
+            && array() === array_intersect_key($declarations, array_flip(array(
+                'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+            )))) {
+            $declarations['padding'] = '0px';
         }
         // Source buttons without authored corners are square. Core/button instead
         // supplies a pill radius, so materialize the source default as native style.
@@ -142,7 +151,53 @@ final class ButtonPatternContext
     /** Inner markup as button RichText {@see StyleResolver::richTextSerializationSource()}. */
     public function richTextInnerHtml(DOMElement $element): string
     {
-        return SourceDom::innerHtml($this->styleResolver?->richTextSerializationSource($element) ?? $element);
+        $source = $this->styleResolver?->richTextSerializationSource($element) ?? $element;
+        $copy = $source->cloneNode(true);
+        if ( $copy instanceof DOMElement ) {
+            $this->pruneUnpaintedHiddenLabels($element, $copy);
+            return SourceDom::innerHtml($copy);
+        }
+        return SourceDom::innerHtml($source);
+    }
+
+    /** Prune only unpainted hidden leaves; wrappers around retained paint stay. */
+    private function pruneUnpaintedHiddenLabels(DOMElement $source, DOMElement $copy): void
+    {
+        $elements = static fn (DOMElement $node): array => array_values(array_filter(iterator_to_array($node->childNodes), static fn ($child): bool => $child instanceof DOMElement));
+        $sources = $elements($source);
+        $copies = $elements($copy);
+        foreach ( $sources as $index => $child ) {
+            $target = $copies[$index] ?? null;
+            if ( !$target instanceof DOMElement ) {
+                continue;
+            }
+            $this->pruneUnpaintedHiddenLabels($child, $target);
+            if ( 'true' === $child->getAttribute('aria-hidden')
+                && 0 === SourceDom::childElementCount($target)
+                && '' === trim($target->textContent ?? '')
+                && !$this->hasLabelPaint($child) ) {
+                $target->parentNode?->removeChild($target);
+            }
+        }
+    }
+
+    private function hasLabelPaint(DOMElement $element): bool
+    {
+        if ( $this->isRuntimeDomTarget($element) ) {
+            return true;
+        }
+        foreach ( $this->resolvedDeclarations($element) as $property => $value ) {
+            if ( preg_match('/^(?:width|height|min-width|min-height|max-width|max-height|background(?:-.+)?|border(?:-.+)?|box-shadow)$/', $property)
+                && !in_array(strtolower(trim($value)), array('', 'none', 'auto', 'transparent', '0', '0px'), true) ) {
+                return true;
+            }
+        }
+        foreach ( $this->session?->sourceStyleResolutionState()->pseudoElementRules() ?? array() as $rule ) {
+            if ( $this->session?->sourceStyleResolutionState()->matches($element, $rule['selector']) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function richText(DOMElement $element): string
@@ -286,7 +341,7 @@ final class ButtonPatternContext
         $this->retainSourceDescendants($sourceAnchor);
         // Linked artwork must stay inline: a RichText span changes selector
         // topology and an external image cannot inherit hover/focus paint.
-        $contentMode = $sourceArtwork || 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : 'rich-text';
+        $contentMode = $sourceArtwork || 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : ($wrapper instanceof DOMElement ? 'rich-text' : 'inline-rich-text');
         if ( 'raw-source' === $contentMode ) {
             $wrapper = null;
         }
@@ -351,13 +406,13 @@ final class ButtonPatternContext
         }
 
         $display = '';
-        foreach ( $this->styleResolver->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( isset($rule['declarations']['display']) && $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
+        foreach ( $this->session?->sourceStyleResolutionState()->matchingRules($element, 'static') ?? array() as $rule ) {
+            if ( isset($rule['declarations']['display']) ) {
                 $display = (string) $rule['declarations']['display'];
             }
         }
 
-        $inline = $this->styleResolver->inlineDeclarations($element);
+        $inline = SourceDeclarations::inline($element);
 
         return CssValueInspector::comparable((string) ($inline['display'] ?? $display));
     }

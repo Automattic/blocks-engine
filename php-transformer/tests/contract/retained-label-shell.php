@@ -133,8 +133,8 @@ $sharedCollisionPlan = $compile($sharedCollision);
 WordPressSitePlan::assertValid($sharedCollisionPlan);
 $assert(1 === count($headers($sharedCollisionPlan)), 'Routes sharing a terminal slug also share one identical header part.');
 foreach ($sharedCollisionPlan['pages'] as $page) if (in_array($page['source_path'], array('north/about.html', 'south/about.html'), true)) {
-    $template = current(array_filter($sharedCollisionPlan['templates'], static fn(array $template): bool => $page['route_template'] === $template['slug']));
-    $assert(str_contains($template['canonical_block_markup'], '"slug":"header"'), 'Each colliding route custom template uses the shared header.');
+    $template = current(array_filter($sharedCollisionPlan['templates'], static fn(array $template): bool => ($page['route_template'] ?? 'page') === $template['slug']));
+    $assert(str_contains($template['canonical_block_markup'], '"slug":"header"'), 'Each colliding route template, custom or generic, uses the shared header.');
 }
 $assert(1 === count(array_filter($headers($collisionPlan), static fn(array $part): bool => 'header' === $part['slug'])), 'Slug collisions must not veto shared header extraction; substantive variants remain separate.');
 $themeWrite = current(array_filter($collisionPlan['writes'], static fn(array $write): bool => 'theme.json' === $write['target_path']));

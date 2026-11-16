@@ -89,6 +89,25 @@ final class ThemeTemplates
     }
 
     /**
+     * Registers each page's route template as a theme.json custom template,
+     * once per template, titled by its shared override when it has one.
+     *
+     * @param array<string,mixed> $themeProjection
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<string,string> $sharedTemplateTitles
+     * @return array<string,mixed>
+     */
+    public static function withCustomTemplates(array $themeProjection, array $pages, array $sharedTemplateTitles): array
+    {
+        $registeredTemplates = array();
+        foreach ($pages as $page) if (isset($page['route_template']) && !isset($registeredTemplates[$page['route_template']])) {
+            $registeredTemplates[$page['route_template']] = true;
+            $themeProjection['theme']['customTemplates'][] = array('name' => $page['route_template'], 'title' => $sharedTemplateTitles[$page['route_template']] ?? $page['title'], 'postTypes' => array($page['post_type']));
+        }
+        return $themeProjection;
+    }
+
+    /**
      * Share generated route overrides only after their final markup is known.
      * Keep placement keys aligned with TemplateSlugs::forPage() for binding validation.
      *
@@ -100,14 +119,22 @@ final class ThemeTemplates
     public static function shareOverrides(array &$pages, array &$parts, array &$templates): array
     {
         $bySlug = array_column($templates, null, 'slug');
-        $groups = array();
+        $groups = array(); $renames = array(); $redundant = array();
         foreach ($pages as $index => $page) {
             $key = TemplateSlugs::forPage($page);
             $template = $bySlug[$key] ?? null;
             if ('single' === $key || !empty($page['entrypoint']) || !is_array($template) || isset($template['source_path'])) continue;
+            $generic = TemplateSlugs::genericForPage($page, array_keys($bySlug));
+            if ($key !== $generic && isset($bySlug[$generic]) && $template['canonical_block_markup'] === $bySlug[$generic]['canonical_block_markup']) {
+                $renames[$key] = $generic;
+                $redundant[$key] = true;
+                unset($pages[$index]['route_template'], $pages[$index]['metadata']['post_meta']['_wp_page_template']);
+                continue;
+            }
+            if ($key === $generic) continue;
             $groups[$page['post_type'] . "\0" . $template['canonical_block_markup']][] = $index;
         }
-        $renames = array(); $titles = array(); $shared = array(); $layouts = array();
+        $titles = array(); $shared = array(); $layouts = array();
         foreach ($groups as $indexes) {
             if (count($indexes) < 2) continue;
             $page = $pages[$indexes[0]];
@@ -124,6 +151,7 @@ final class ThemeTemplates
             $ordinal = $layouts[$page['post_type']] = ($layouts[$page['post_type']] ?? 0) + 1;
             $titles[$slug] = ucfirst(str_replace('_', ' ', $page['post_type'])) . ' (shared layout' . (1 < $ordinal ? ' ' . $ordinal : '') . ')';
         }
+        $templates = array_values(array_filter($templates, static fn(array $template): bool => !isset($redundant[$template['slug']])));
         foreach ($templates as &$template) {
             $slug = $renames[$template['slug']] ?? null;
             if (null === $slug || isset($shared[$slug])) continue;
@@ -163,13 +191,12 @@ final class ThemeTemplates
      * @param array<int,array<string,mixed>> $parts
      * @param array<int,array<string,mixed>> $surfaces
      * @param array<int,array<string,mixed>> $tokens
-     * @param array<int,array<string,mixed>> $routes
      * @param array<int,array<string,mixed>> $taxonomyEntities
      * @param array<string,array<string,mixed>> $frames
      * @param array<string,string> $documentChrome Shared document chrome by template slug.
      * @return array<int,array<string,mixed>>
      */
-    public static function build(RouteLinks $links, array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array(), ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array(), array $postTemplates = array()): array
+    public static function build(RouteLinks $links, array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array(), array $postTemplates = array()): array
      {
          $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
          usort($bound, static function (array $left, array $right): int {
@@ -251,7 +278,7 @@ final class ThemeTemplates
          foreach ($surfaces as $surface) {
             $declaration = $surface['template_surface']; $slug = $declaration['slug']; $target = 'templates/' . $slug . '.html';
             if (array_filter($templates, static fn(array $template): bool => $template['slug'] === $slug)) throw new InvalidArgumentException('A declared template surface collides with a generated template.');
-            $content = is_null($references) ? (string) $surface['block_markup'] : $links->markup($references->content((string) $surface['block_markup'], (string) $surface['source_path']), (string) $surface['source_path'], $routes);
+            $content = is_null($references) ? (string) $surface['block_markup'] : $links->markup($references->content((string) $surface['block_markup'], (string) $surface['source_path']), (string) $surface['source_path']);
              $templates[] = array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'source_path' => $surface['source_path'], 'template_surface' => $declaration, 'provenance' => $surface['provenance'] ?? array(), 'reconciliation_identity' => WordPressSitePlan::identity('template', $surface['source_path'], $target), 'content_hash' => WordPressSitePlan::contentHash($content));
          }
          foreach ($taxonomyEntities as $entity) {
@@ -325,7 +352,9 @@ final class ThemeTemplates
             $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
             // An inline shell is bound where it sits, so a template that
             // keeps every captured document copy binds it once per copy.
-            $allowed = 'inline_shared_shell' === ($part['placement']['kind'] ?? null) ? self::documentCopyCount($template['canonical_block_markup']) : 1;
+            // Shared footer content is also referenced once per footer its
+            // source document authors, as extraction recorded.
+            $allowed = 'inline_shared_shell' === ($part['placement']['kind'] ?? null) ? max(self::documentCopyCount($template['canonical_block_markup']), (int) ($part['placement']['references_per_source'][$template['source_path'] ?? ''] ?? 0)) : 1;
             $contentOwnsChrome = self::contentCarriesChrome($template['canonical_block_markup'], $part['area']);
             foreach ($plan['pages'] as $page) if (TemplateSlugs::forPage($page) === $template['slug'] && self::contentCarriesChrome($page['canonical_block_markup'], $part['area'])) $contentOwnsChrome = true;
             if (0 === $references && $contentOwnsChrome) continue;

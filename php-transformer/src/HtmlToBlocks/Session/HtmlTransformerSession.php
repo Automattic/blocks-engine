@@ -303,8 +303,22 @@ final class HtmlTransformerSession
      *
      * @param array<string, mixed> $options
      */
+    private array $boxTree = array();
+
+    /** Browser observations for the source element, keyed by captured viewport. */
+    public function boxTreeViewports(): array
+    {
+        return $this->boxTree['viewports'] ?? array();
+    }
+
+    public function boxTreeEvidence(\DOMElement $element): array
+    {
+        return \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::forElement($this->boxTree, $element);
+    }
+
     public function installTransformOptions(array $options): void
     {
+        $this->boxTree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
         $this->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
         $this->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));
         $this->installAssetMaterializationState(new AssetMaterializationState(

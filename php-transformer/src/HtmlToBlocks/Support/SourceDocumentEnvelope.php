@@ -38,7 +38,7 @@ final class SourceDocumentEnvelope
         ) ?? $html;
     }
 
-    public function documentBodyHtml(string $html): string
+    public function documentBodyHtml(string $html, bool $preserveEvidence = false): string
     {
         if ( ! preg_match('/<(?:!doctype|html|head|body)\b/i', $html) ) {
             return $html;
@@ -51,6 +51,11 @@ final class SourceDocumentEnvelope
             return $html;
         }
 
+        if ($preserveEvidence) {
+            $markup = '';
+            foreach ($body->childNodes as $child) $markup .= $document->saveHTML($child);
+            return $markup;
+        }
         return $this->styleResolver->innerHtml($body);
     }
 

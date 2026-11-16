@@ -920,7 +920,7 @@ $assert('github' === ($socialLinksBlock['innerBlocks'][0]['attrs']['service'] ??
 $assert('GitHub' === ($socialLinksBlock['innerBlocks'][0]['attrs']['label'] ?? null) && 'Instagram' === ($socialLinksBlock['innerBlocks'][1]['attrs']['label'] ?? null), 'icon-only social links retain accessible profile labels');
 $socialLinksMarkup = (string) ($socialLinksResult['serialized_blocks'] ?? '');
 $assert(str_contains((string) ($socialLinksBlock['className'] ?? $socialLinksBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'image-backed social clusters use core logos-only presentation instead of adding provider backgrounds');
-$assert('normal' === ($socialLinksBlock['attrs']['size'] ?? null) && str_contains($socialLinksMarkup, 'normal has-normal-icon-size'), 'explicit source icon dimensions select the nearest core Social Links size preset');
+$assert('has-normal-icon-size' === ($socialLinksBlock['attrs']['size'] ?? null) && str_contains($socialLinksMarkup, 'has-normal-icon-size'), 'explicit source icon dimensions select the nearest core Social Links size preset');
 $assert('social-item' === ($socialLinksBlock['innerBlocks'][0]['attrs']['className'] ?? null), 'social-link children retain their structural item class where core renders it');
 $assert(str_contains((string) ($socialLinksBlock['attrs']['className'] ?? ''), 'blocks-engine-source-social-item-spacing'), 'structural social items mark the wrapper so source item spacing remains authoritative');
 $socialLinksCss = implode("\n", array_column($socialLinksResult['assets'] ?? array(), 'content'));
@@ -930,7 +930,7 @@ $assert(! str_contains($socialLinksMarkup, 'style="gap:') && ! str_contains($soc
 $assert('pass' === ($socialLinksResult['source_reports']['wp_block_validity']['status'] ?? ''), 'dynamic social-link children and their static parent remain WordPress-valid');
 
 $visibleSocialLabels = ( new HtmlTransformer() )->transform('<div class="social-links"><a href="https://github.com/Automattic/blocks-engine">Blocks Engine</a><a href="https://github.com/Automattic/static-site-importer">Static Site Importer</a></div>')->toArray();
-$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links blocks-engine-social-source-cluster has-visible-labels social-links blocks-engine-social-source-non-list"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
+$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links has-visible-labels social-links blocks-engine-social-source-non-list blocks-engine-social-source-cluster"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
 
 $spanSocialSource = '<span class="wsite-social wsite-social-default"><a class="wsite-social-item wsite-social-facebook" href="https://www.facebook.com/tasteandtravelitaly" aria-label="Facebook"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-twitter" href="//#" aria-label="Twitter"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-instagram" href="https://instagram.com/tasteandtravel_italy" aria-label="Instagram"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-mail" href="mailto:hello@example.com" aria-label="Mail"><span class="wsite-social-item-inner"></span></a></span>';
 $spanSocialResult = ( new HtmlTransformer() )->transform($spanSocialSource)->toArray();
@@ -939,7 +939,7 @@ $spanSocialServices = array_map(static fn(array $link): string => (string) ($lin
 $assert('core/social-links' === ($spanSocialBlock['blockName'] ?? null), 'inline social clusters convert to core/social-links instead of empty mark hooks');
 $assert(array( 'facebook', 'twitter', 'instagram', 'mail' ) === $spanSocialServices, 'explicit labeled social placeholders infer their service while mailto maps to mail', json_encode($spanSocialServices));
 $assert(str_contains((string) ($spanSocialBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'empty generated-content inners count as icon-only social presentation');
-$assert('small' === ($spanSocialBlock['attrs']['size'] ?? null), 'icon-font social clusters default to compact core size when source icons are not measured bitmaps');
+$assert('has-small-icon-size' === ($spanSocialBlock['attrs']['size'] ?? null), 'icon-font social clusters default to compact core size when source icons are not measured bitmaps');
 $assert(! str_contains((string) ($spanSocialResult['serialized_blocks'] ?? ''), '<mark'), 'icon-font inner spans are not lowered to mark');
 
 $placeholderSocialSource = '<style>.footer-social{display:flex;gap:14px}.footer-social a{display:inline-flex;width:32px;height:32px}</style><div class="footer-social"><a href="#" aria-label="LinkedIn"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="X / Twitter"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="YouTube"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="GitHub"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a></div>';
@@ -1420,7 +1420,7 @@ $nestedFormDeclaration = current(array_filter($nestedControlSlot['source_reports
 $nestedFormBinding = $nestedFormDeclaration['payload']['entities'][0]['bindings'][0]['search_block_markup'] ?? '';
 $assert(is_string($nestedFormBinding) && str_contains($nestedFormBinding, '<!-- wp:') && !str_contains($nestedFormBinding, '<!-- wp:html'), 'nested form binding slot uses the normal native converter instead of preserved HTML');
 $assert(0 === substr_count((string) ($nestedControlSlot['serialized_blocks'] ?? ''), '<!-- wp:html'), 'nested form controls and bounded iframe avoid core/html fallbacks');
-$generatedMarkupBeforeForm = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><a href="https://example.com/work"><picture><source media="(min-width: 800px)" srcset="https://example.com/wide.jpg"><img src="https://example.com/small.jpg" alt="Work"></picture></a><form method="post" action="#"><div class="controls"><input name="email" type="email"><button type="submit">Send</button></div></form></main>')))->toArray();
+$generatedMarkupBeforeForm = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><a href="https://example.com/work"><picture><source type="image/webp" media="(min-width: 800px)" srcset="https://example.com/wide.webp"><img src="https://example.com/small.jpg" alt="Work"></picture></a><form method="post" action="#"><div class="controls"><input name="email" type="email"><button type="submit">Send</button></div></form></main>')))->toArray();
 $generatedMarkupFormDeclaration = current(array_filter($generatedMarkupBeforeForm['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $generatedMarkupFormBinding = $generatedMarkupFormDeclaration['payload']['entities'][0]['bindings'][0] ?? array();
 $generatedMarkupSerializedBlocks = (string) ($generatedMarkupBeforeForm['serialized_blocks'] ?? '');
@@ -1439,16 +1439,16 @@ $requiredFormControls = $requiredFormDeclarations[0]['payload']['entities'][0]['
 $assert(true === ($requiredFormControls[0]['required'] ?? null) && true === ($requiredFormControls[1]['required'] ?? null), 'generic form declarations normalize native and ARIA required semantics through artifact compilation');
 $boundedTopologyHtml = static function (int $extraControls): string {
     $controls = '';
-    for ( $index = 0; $index < 127; ++$index ) $controls .= '<div><input name="field-' . $index . '"></div>';
+    for ( $index = 0; $index < 255; ++$index ) $controls .= '<div><input name="field-' . $index . '"></div>';
     $controls .= '<input name="standalone"><button type="submit">Send</button>';
     for ( $index = 0; $index < $extraControls; ++$index ) $controls .= '<input name="extra-' . $index . '">';
     return '<main><form method="post" action="#">' . $controls . '</form></main>';
 };
 $exactTopology = ( new HtmlTransformer() )->transform($boundedTopologyHtml(0))->toArray()['fallbacks'][0]['control_topology'] ?? array();
 $overflowTopology = ( new HtmlTransformer() )->transform($boundedTopologyHtml(1))->toArray()['fallbacks'][0]['control_topology'] ?? array();
-$assert(256 === count($exactTopology['nodes'] ?? array()) && false === ($exactTopology['truncated'] ?? null), 'form control topology retains exactly the configured node limit without reporting truncation');
-$assert(256 === count($overflowTopology['nodes'] ?? array()) && true === ($overflowTopology['truncated'] ?? null), 'form control topology truncates deterministically when one source-ordered control exceeds the node limit');
-$assert(128 === ($overflowTopology['nodes'][255]['control'] ?? null), 'node-limit truncation preserves the last in-bounds flat control reference');
+$assert(512 === count($exactTopology['nodes'] ?? array()) && false === ($exactTopology['truncated'] ?? null), 'form control topology retains exactly the configured node limit without reporting truncation');
+$assert(512 === count($overflowTopology['nodes'] ?? array()) && true === ($overflowTopology['truncated'] ?? null), 'form control topology truncates deterministically when one source-ordered control exceeds the node limit');
+$assert(256 === ($overflowTopology['nodes'][511]['control'] ?? null), 'node-limit truncation preserves the last in-bounds flat control reference');
 $exactTopologyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $boundedTopologyHtml(0))))->toArray();
 $overflowTopologyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $boundedTopologyHtml(1))))->toArray();
 $runtimeDeclarationKeys = static fn(array $result): array => array_map(static fn(array $declaration): string => ($declaration['kind'] ?? '') . ':' . ($declaration['type'] ?? $declaration['capability'] ?? ''), $result['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array());
@@ -1946,8 +1946,8 @@ $cssOwnedSvgFill = ( new HtmlTransformer() )->transform(
     '<style>.grid-scene,.flex-scene{width:640px;height:1496px}.grid-scene{display:grid}.flex-scene{display:flex}.grid-scene svg,.flex-scene svg{width:100%;height:100%}</style><main><div class="grid-scene"><svg class="grid-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="#111"/></svg></div><div class="flex-scene"><svg class="flex-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="#111"/></svg></div></main>'
 )->toArray();
 $cssOwnedSvgFillCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssOwnedSvgFill['assets'] ?? array()));
-$assert(str_contains($cssOwnedSvgFillCss, ':is(.grid-scene,.flex-scene) :where(figure)') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > img,') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > a > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG selectors project their media box onto native images in sized grid and flex parents');
-$assert(str_contains($cssOwnedSvgFillCss, '.wp-block-image > img,') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > a > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG projection does not add object-fit over the source preserveAspectRatio behavior');
+$assert(str_contains($cssOwnedSvgFillCss, ':is(.grid-scene,.flex-scene) :where(figure)') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > img,') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > a > img{display:block;width:100%;height:100%;object-fit:inherit'), 'CSS-owned slice SVG selectors project their media box onto native images in sized grid and flex parents');
+$assert(str_contains($cssOwnedSvgFillCss, '.wp-block-image > img,') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > a > img{display:block;width:100%;height:100%;object-fit:inherit'), 'CSS-owned slice SVG projection does not add object-fit over the source preserveAspectRatio behavior');
 
 $viewportBoundSvg = ( new HtmlTransformer() )->transform(
     '<style>.desktop-target-2{position:absolute;width:30px;height:35px}.desktop-target-2 svg{width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%);margin:auto;position:absolute;inset:0}</style><main><div class="desktop-target-2"><svg preserveAspectRatio="none" viewBox="29.524 20 140.952 159.999" width="200" height="200" role="presentation"><path d="M30 20h140v160z"/></svg></div></main>'
@@ -2533,7 +2533,7 @@ $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select id="product-sort" name="products" placeholder="Sort products" class="catalog-sort">'), 'compact select preserves native id, name, placeholder, and CSS selector identity');
 $assert(1 === substr_count((string) ($standaloneControls['serialized_blocks'] ?? ''), '>Sort products</label>') && str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<label for="product-sort"'), 'styled select emits its source associated label exactly once without a duplicate wrapping label');
 $assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<!-- wp:html') || str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'only the runtime-targeted select uses core/html');
-$assert(1 === preg_match('/<select[^>]*\\sclass="js-sort-select"/', (string) ($standaloneControls['serialized_blocks'] ?? '')), 'runtime-targeted select preserves native markup in serialized blocks');
+$assert(1 === preg_match('/<select[^>]*\\sclass="js-sort-select"/', (string) ($standaloneControls['serialized_blocks'] ?? '')), 'runtime-targeted select renders native markup from core options');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'id="donation"'), 'readable input output preserves source id as a block anchor');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'js-sort-select'), 'runtime-targeted select keeps behavior-hook class on native markup');
 $assert(1 === count($standaloneControls['source_reports']['runtime_islands'] ?? array()), 'runtime islands report only the explicitly runtime-targeted standalone control');
@@ -2701,7 +2701,7 @@ $labelWrappedRuntimeControls = ( new HtmlTransformer() )->transform(
     array('runtime_dom_selectors' => array('#scheme-select', '#crt-toggle'))
 )->toArray();
 $labelWrappedRuntimeMarkup = (string) ($labelWrappedRuntimeControls['serialized_blocks'] ?? '');
-$assert(str_contains($labelWrappedRuntimeMarkup, '<select id="scheme-select"'), 'label-wrapped runtime select preserves exact native DOM target');
+$assert(str_contains(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeSelectRendererFixture::render($labelWrappedRuntimeMarkup), '<select id="scheme-select"'), 'label-wrapped runtime select preserves exact native DOM target');
 $assert(str_contains($labelWrappedRuntimeMarkup, '<input type="checkbox" id="crt-toggle"'), 'label-wrapped runtime checkbox preserves exact native DOM target');
 
 $artifactControlSelectors = ( new ArtifactCompiler() )->compile(
@@ -3172,7 +3172,7 @@ $repeatingTexture = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/texture.png);background-repeat:repeat"><h2>Pricing</h2><p>Plans</p></div>'
 )->toArray();
 $repeatingTextureSerialized = (string) ($repeatingTexture['serialized_blocks'] ?? '');
-$expectedRepeatingTextureSerialized = '<!-- wp:group {"className":"be-inline-geometry-f4d07b1703db9de9"} --><div class="wp-block-group be-inline-geometry-f4d07b1703db9de9"><!-- wp:heading {"level":2} --><h2 class="wp-block-heading">Pricing</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Plans</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
+$expectedRepeatingTextureSerialized = '<!-- wp:group {"className":"be-inline-geometry-7b4994b3af996108"} --><div class="wp-block-group be-inline-geometry-7b4994b3af996108"><!-- wp:heading {"level":2} --><h2 class="wp-block-heading">Pricing</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Plans</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
 $assert($expectedRepeatingTextureSerialized === $repeatingTextureSerialized, 'repeating texture preserves byte-identical trunk core/group serialization', $repeatingTextureSerialized);
 $assert('core/group' === ($repeatingTexture['blocks'][0]['blockName'] ?? null) && ! str_contains($repeatingTextureSerialized, '<!-- wp:cover'), 'repeating texture is rejected from core/cover');
 
@@ -3191,7 +3191,7 @@ $emptyCoverCandidate = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
 )->toArray();
 $emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
-$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc be-inline-geometry-5462031491657489","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc be-inline-geometry-5462031491657489" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover be-inline-geometry-ace9edb3a4ef460a blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover be-inline-geometry-ace9edb3a4ef460a blocks-engine-synthetic-image-figure blocks-engine-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-f5180790b39881be be-inline-geometry-5462031491657489","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-f5180790b39881be be-inline-geometry-5462031491657489" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover be-inline-geometry-ace9edb3a4ef460a blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover be-inline-geometry-ace9edb3a4ef460a blocks-engine-synthetic-image-figure blocks-engine-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
 $assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-background-image-cover be-inline-geometry-ace9edb3a4ef460a blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
@@ -5469,7 +5469,7 @@ $capitalizedSlugs = array();
 foreach ( $capitalizedSlugPlan['routes'] ?? array() as $capitalizedRoute ) {
     $capitalizedSlugs[(string) ($capitalizedRoute['source_path'] ?? '')] = (string) ($capitalizedRoute['target_slug'] ?? '');
 }
-$assert('about' === ($capitalizedSlugs['About.html'] ?? null) && 'faq' === ($capitalizedSlugs['FAQ.html'] ?? null) && 'contact-us' === ($capitalizedSlugs['Contact_Us.html'] ?? null), 'materialization plan route slugs lowercase capitalized source paths instead of replacing their uppercase characters');
+$assert('about' === ($capitalizedSlugs['About.html'] ?? null) && 'faq' === ($capitalizedSlugs['FAQ.html'] ?? null) && 'contact_us' === ($capitalizedSlugs['Contact_Us.html'] ?? null), 'materialization plan route slugs lowercase capitalized source paths and keep underscores, matching the compiled page slug');
 
 $fontMaterializationPlan = ( new FontMaterializationPlanBuilder() )->googleFonts(array(
     array('family' => 'Open Sans', 'weights' => array(400, 700)),
@@ -5927,12 +5927,12 @@ $assert(array( 'authored-select', 'authored-input' ) === array_column($authoredC
 $authoredSelectCompanion = $authoredControlBlocks[0] ?? array();
 $authoredInputCompanion = $authoredControlBlocks[1] ?? array();
 $assert('custom/authored-select' === ($authoredSelectCompanion['block_json']['name'] ?? null), 'authored-select companion metadata uses its canonical block name');
-$assert('custom/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
 $assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text' ) ) === ($authoredSelectCompanion['script_dependencies'] ?? null), 'authored-select companion dependency metadata survives payload compilation');
-$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-data', 'wp-element', 'wp-rich-text' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredSelectCompanion['assets']['index.js'] ?? ''), $authoredSelectRegistrations);
-preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredInputCompanion['assets']['index.js'] ?? ''), $authoredInputRegistrations);
 $assert(array( 'custom/authored-select' ) === ($authoredSelectRegistrations[1] ?? array()), 'authored-select companion editor script registers only its canonical block name');
+$assert('custom/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-data', 'wp-element', 'wp-rich-text' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
+preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredInputCompanion['assets']['index.js'] ?? ''), $authoredInputRegistrations);
 $assert(array( 'custom/authored-input' ) === ($authoredInputRegistrations[1] ?? array()), 'authored-input companion editor script registers only its canonical block name');
 
 $scriptCompanion = $compiler->compile(
@@ -6503,10 +6503,10 @@ $choiceGroupInput = array(
 );
 $choiceGroupArtifact = $compiler->compile($choiceGroupInput)->toArray();
 $choiceMarkup = (string) ($choiceGroupArtifact['serialized_blocks'] ?? '');
-$choiceConfig = (string) (($choiceGroupArtifact['source_reports']['companion_plugin_payload']['blocks'][0]['view_js'] ?? ''));
+$choiceConfig = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\CapturedChoiceGroupRuntime::bootstrap();
 $choiceForms = array_values(array_filter($choiceGroupArtifact['source_reports']['artifact']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? '') && 'forms' === ($declaration['type'] ?? '')));
 $assert(1 === ($choiceGroupArtifact['source_reports']['captured_interactions']['projected_choice_group_count'] ?? null), 'captured choice groups report one projected group');
-$assert(str_contains($choiceMarkup, 'captured-choice-group-site/captured-choice-group'), 'captured choice groups serialize as an owned companion block');
+$assert(! str_contains($choiceMarkup, 'captured-choice-group-site/captured-choice-group') && str_contains($choiceMarkup, 'blocksEngineChoiceGroup'), 'captured choice groups serialize as core Groups with captured behavior');
 $assert(str_contains($choiceMarkup, 'One') && str_contains($choiceMarkup, 'Two'), 'choice group inner content remains in the editable block tree');
 $assert(str_contains($choiceConfig, 'observed_choice_key') && str_contains($choiceConfig, 'source_value'), 'choice behavior carries observed identity without treating it as a source scalar');
 $assert(str_contains($choiceConfig, 'bindings') && str_contains($choiceConfig, 'selectedIndex'), 'choice behavior carries bounded state bindings without replaying captured HTML');

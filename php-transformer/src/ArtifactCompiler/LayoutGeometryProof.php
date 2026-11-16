@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 /** Validates optional, producer-neutral evidence for a topology reduction. */
 final class LayoutGeometryProof
 {
-    public const SCHEMA = 'blocks-engine/php-transformer/layout-geometry-proof/v1';
+    public const SCHEMA = 'blocks-engine/layout-geometry-proof/v1';
     private const MAX_NODES = 256;
     private const MAX_VIEWPORTS = 8;
     private const MAX_DECLARATIONS = 32;

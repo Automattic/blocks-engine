@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterializer;
@@ -318,7 +319,7 @@ final class StructuredCardListLowering
 
         $style = trim(SourceDom::attr($element, 'style'));
         if ( '' !== $style ) {
-            $mapped = $this->styleResolver->styleAttributeMapper()->map($this->styleResolver->cssDeclarations($style))['style'];
+            $mapped = $this->styleResolver->styleAttributeMapper()->map(SourceDeclarations::parse($style))['style'];
             if ( array() !== $mapped ) {
                 $attrs['style'] = $mapped;
             }

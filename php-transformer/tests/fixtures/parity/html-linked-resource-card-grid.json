@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-linked-resource-card-grid",
-  "description": "Whole-card resource links retain their source anchor around editable content instead of propagating duplicate links into descendants.",
+  "description": "Whole-card resource links use native stretched-link groups with one editable heading destination.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-linked-resource-card-grid.json",
@@ -13,14 +13,14 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<section class=\"resource-grid\"><a class=\"resource-card\" href=\"/resources/block-patterns\"><div class=\"resource-card__media\"><img src=\"/assets/patterns.jpg\" alt=\"Pattern examples\"></div><div class=\"resource-card__content\"><p class=\"resource-card__eyebrow\">Guide</p><h3>Block Pattern Basics</h3><p>Learn how reusable layouts are assembled.</p></div></a><a class=\"resource-card\" href=\"/resources/site-launch\" target=\"_blank\" rel=\"noopener\"><div class=\"resource-card__content\"><p class=\"resource-card__eyebrow\">Checklist</p><h3>Launch Review</h3><p>Confirm content, navigation, and assets.</p></div></a></section>"
+    "content": "<section class=\"resource-grid\"><a href=\"/resources/block-patterns\"><div class=\"resource-card__media\"><img src=\"/assets/patterns.jpg\" alt=\"Pattern examples\"></div><div class=\"resource-card__content\"><p class=\"resource-card__eyebrow\">Guide</p><h3>Block Pattern Basics</h3><p>Learn how reusable layouts are assembled.</p></div></a><a href=\"/resources/site-launch\" target=\"_blank\" rel=\"noopener\"><div class=\"resource-card__content\"><p class=\"resource-card__eyebrow\">Checklist</p><h3>Launch Review</h3><p>Confirm content, navigation, and assets.</p></div></a></section>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "resource-grid" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "className": "resource-card__media blocks-engine-synthetic-image-figure" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "resource-card__content" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.1", "name": "core/heading" }
   ],
   "expected_fallbacks": [],
@@ -28,12 +28,12 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "custom/layout-shell" },
-    { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/group" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Block Pattern Basics" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Launch Review" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"resource-card\" href=\"/resources/block-patterns\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"resource-card\" href=\"/resources/site-launch\" rel=\"noopener\" target=\"_blank\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/resources/block-patterns\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/resources/site-launch\" target=\"_blank\" rel=\"noopener\">" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<a href=\"/resources/block-patterns\"><img" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<p><a class=\"resource-card\"" },
     { "path": "fallbacks", "assert": "count", "count": 0 },

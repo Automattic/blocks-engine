@@ -86,14 +86,39 @@ PHP;
     public const IMAGE_SELECTION_RENDERER = <<<'PHP'
 add_filter( 'render_block_core/image', static function ( string $content, array $block ): string {
     $selection = $block['attrs']['metadata']['blocksEngineImageSelection'] ?? null;
-    if ( ! is_array( $selection ) || ! is_string( $selection['src'] ?? null ) || ! is_string( $selection['srcset'] ?? null ) || '' === $selection['srcset'] ) return $content;
+    if ( ! is_array( $selection ) || ! is_string( $selection['src'] ?? null ) ) return $content;
+    $picture = is_array( $selection['picture'] ?? null ) && is_array( $selection['sources'] ?? null );
+    if ( ! $picture && empty( $selection['srcset'] ) ) return $content;
     $tag = new WP_HTML_Tag_Processor( $content );
     if ( ! $tag->next_tag( 'IMG' ) || $tag->get_attribute( 'src' ) !== $selection['src'] ) return $content;
-    $tag->set_attribute( 'srcset', $selection['srcset'] );
+    if ( is_string( $selection['srcset'] ?? null ) && '' !== $selection['srcset'] ) $tag->set_attribute( 'srcset', $selection['srcset'] );
+    else $tag->remove_attribute( 'srcset' );
     if ( is_string( $selection['sizes'] ?? null ) && '' !== $selection['sizes'] ) $tag->set_attribute( 'sizes', $selection['sizes'] );
     else $tag->remove_attribute( 'sizes' );
     if ( in_array( $selection['loading'] ?? null, array( 'lazy', 'eager' ), true ) ) $tag->set_attribute( 'loading', $selection['loading'] );
-    return $tag->get_updated_html();
+    if ( $picture && is_array( $selection['image'] ?? null ) ) {
+        foreach ( array( 'class', 'style', 'id' ) as $name ) {
+            if ( ! is_string( $selection['image'][$name] ?? null ) ) continue;
+            $value = $selection['image'][$name];
+            if ( 'class' === $name ) $value = trim( (string) $tag->get_attribute( $name ) . ' ' . $value );
+            $tag->set_attribute( $name, $value );
+        }
+    }
+    $content = $tag->get_updated_html();
+    if ( ! $picture ) return $content;
+    $attributes = static function ( array $values, bool $source = false ): string {
+        $html = '';
+        foreach ( $values as $name => $value ) {
+            $allowed = $source ? in_array( $name, array( 'media', 'type', 'srcset', 'sizes' ), true ) : ( in_array( $name, array( 'class', 'style', 'id', 'title', 'dir', 'lang', 'hidden', 'role' ), true ) || preg_match( '/^(?:aria|data)-[a-z0-9_-]+$/', $name ) );
+            if ( $allowed && is_string( $value ) ) $html .= ' ' . $name . '="' . esc_attr( $value ) . '"';
+        }
+        return $html;
+    };
+    $open = '<picture' . $attributes( $selection['picture'] ) . '>';
+    foreach ( $selection['sources'] as $source ) {
+        if ( is_array( $source ) ) $open .= '<source' . $attributes( $source, true ) . '>';
+    }
+    return preg_replace_callback( '/<img\\b(?:[^>"\']|"[^"]*"|\'[^\']*\')*>/i', static fn ( array $match ): string => $open . $match[0] . '</picture>', $content, 1 ) ?? $content;
 }, 10, 2 );
 PHP;
 
@@ -198,9 +223,11 @@ PHP;
         $stylesheetEnqueues = self::stylesheetEnqueues($assets, $pages, $rootDocuments);
         // Each source document's ordered stylesheet instances form one route
         // block; a repeated resource gets one handle per instance, same URI.
-        if (array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
+        $evidencePages = array_filter(array_merge($pages, $rootDocuments), static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles']));
+        if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
         $routeRows = array();
-        $routePosition = null;
+        foreach ($evidencePages as $page) $routeRows[$page['source_path']] = array('condition' => self::bootstrapScopeCondition(PageStylesheets::documentScope($page), true), 'styles' => array(), 'handles' => array());
+        $routePosition = array() !== $routeRows ? count($lines) : null;
         foreach ($stylesheetEnqueues as $enqueue) {
             $asset = $enqueue['asset'];
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
@@ -423,7 +450,7 @@ PHP;
             $lines[] = "    \$current = str_contains( (string) ( \$block['attrs']['className'] ?? '' ), 'blocks-engine-current-navigation-item' );";
             $lines[] = "    \$sources = \$block['attrs']['metadata']['blocksEngineCurrentSources'] ?? null;";
             $lines[] = "    \$url = is_string( \$block['attrs']['url'] ?? null ) ? trim( (string) \$block['attrs']['url'] ) : '';";
-            $lines[] = "    if ( ! \$current && ( is_array( \$sources ) || ( '' !== \$url && '/' === \$url[0] && ( 1 === strlen( \$url ) || '/' !== \$url[1] ) ) ) ) {";
+            $lines[] = "    if ( ! \$current && ( is_array( \$sources ) || ( '' !== \$url && '/' === \$url[0] && ( 1 === strlen( \$url ) || '/' !== \$url[1] ) && ! str_contains( \$url, '#' ) ) ) ) {";
             $lines[] = "        \$document = " . self::DOCUMENT_ID_EXPRESSION . ";";
             $lines[] = "        \$served = is_front_page() ? '/' : ( 0 !== \$document && 'page' === get_post_type( \$document ) ? '/' . trim( (string) get_page_uri( \$document ), '/' ) : null );";
             $lines[] = "        \$served = apply_filters( 'blocks_engine_served_route', \$served, \$document );";
@@ -477,6 +504,9 @@ PHP;
             $entranceScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ViewportEntranceRuntime::script('__BLOCKS_ENGINE_VIEWPORT_QUERIES__');
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { \$queries = array(); if ( method_exists( 'WP_Theme_JSON', 'get_viewport_media_queries' ) ) { foreach ( WP_Theme_JSON::get_viewport_media_queries( wp_get_global_settings( array( 'viewport' ) ), array( 'include_desktop' => true ) ) as \$state => \$query ) { \$queries[ ltrim( \$state, '@' ) ] = preg_replace( '/^@media\\s+/', '', \$query ); } } wp_register_script( 'blocks-engine-viewport-entrances', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-viewport-entrances' ); wp_add_inline_script( 'blocks-engine-viewport-entrances', str_replace( '__BLOCKS_ENGINE_VIEWPORT_QUERIES__', (string) wp_json_encode( (object) \$queries ), " . var_export($entranceScript, true) . " ) ); } );";
         }
+        if (self::markupContains($documents, 'blocksEngineChoiceGroup')) {
+            $lines[] = CapturedChoiceGroupRuntime::bootstrap();
+        }
         if (self::markupContains($documents, 'blocksEngineDialog')) {
             $lines[] = CapturedDialogRuntime::bootstrap();
         }
@@ -488,11 +518,22 @@ PHP;
             $headerOffsetScript = NavigationHeaderOffsetRuntime::script();
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-navigation-header-offset', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-navigation-header-offset' ); wp_add_inline_script( 'blocks-engine-navigation-header-offset', " . var_export($headerOffsetScript, true) . " ); } );";
         }
+        if (self::markupContains($documentsWithMenus, 'blocksEngineSelect')) {
+            $lines[] = NativeSelectRuntime::source();
+            $selectStateScript = \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredControlStateScript::viewScript();
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-select-state', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-select-state' ); wp_add_inline_script( 'blocks-engine-select-state', " . var_export($selectStateScript, true) . " ); } );";
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-select-wrapper', false ); wp_enqueue_style( 'blocks-engine-select-wrapper' ); wp_add_inline_style( 'blocks-engine-select-wrapper', '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}' ); } );";
+        }
         $breadcrumbLabels = BreadcrumbLabelRuntime::labels($documents, $pages);
         $breadcrumbPostTrails = BreadcrumbLabelRuntime::postTrails($pages);
         if (array() !== $breadcrumbLabels || array() !== $breadcrumbPostTrails) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels, $breadcrumbPostTrails);
-        if (self::markupContains($documentsWithMenus, 'blocksEngineRuntimeAttributes')) {
+        if (self::markupContains($documentsWithMenus, 'blocksEngineRuntimeAttributes') || self::markupContains($documentsWithMenus, 'blocksEngineControlBox')) {
             $lines[] = RuntimeAttributesRuntime::source();
+        }
+        foreach (EditorRestingStateRuntime::MARKERS as $marker) {
+            if (!self::markupContains($documentsWithMenus, $marker)) continue;
+            $lines[] = EditorRestingStateRuntime::source();
+            break;
         }
         if (self::markupContains($documents, NavigationEntityProjection::ITEMS_KEY)) {
             $lines[] = NavigationReferenceItemsRuntime::source();
@@ -612,6 +653,8 @@ PHP;
         $partTargets = array();
         foreach ($assets as $asset) foreach ($asset['stylesheet_parts'] ?? array() as $path) $partTargets[$path] = true;
         foreach ($assets as $index => $asset) {
+            // Empty CSS still owns ordered occurrences and route selection;
+            // dropping it can incorrectly activate the global fallback.
             if ('css' !== ($asset['kind'] ?? null) || isset($partTargets[$asset['target_path']])) continue;
             $occurrences = $asset['stylesheet_instances'] ?? array();
             $parent = $asset['stylesheet_parent'] ?? null;

@@ -55,16 +55,19 @@ final class SourceBlockAttributeProjector
      * engine class is re-derived from structure, never carried.
      */
     private const SELF_DESCRIBING_MARKERS = array(
+        'core/group'     => array('blocks-engine-stretched-link'),
         'core/paragraph' => array(
             self::SYNTHETIC_PARAGRAPH_CLASS,
             self::SOURCE_BOX_PARAGRAPH_CLASS,
             self::SYNTHETIC_SVG_PARAGRAPH_CLASS,
+            'blocks-engine-stretched-link-carrier',
             self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS,
             self::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS,
             self::PROPAGATED_LINK_CLASS,
             self::PROPAGATED_LINK_COLOR_CLASS,
         ),
         'core/heading'   => array(
+            'blocks-engine-stretched-link-carrier',
             self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS,
             self::PROPAGATED_LINK_CLASS,
             self::PROPAGATED_LINK_COLOR_CLASS,
@@ -181,7 +184,11 @@ final class SourceBlockAttributeProjector
         }
         if ( 'core/paragraph' === $name && $facts->isInlineSourceElement ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
-            if ( $this->styleResolver->sourceChildHasParentBoxStyling($sourceElement) ) {
+            // Entrance links retain their own painted box and live classes.
+            // A second paragraph box would add border/spacing and resize the
+            // grid item even though the authored rules now reach the leaf.
+            if ( ! ('a' === $sourceTagName && $sourceElement->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE))
+                && $this->styleResolver->sourceChildHasParentBoxStyling($sourceElement) ) {
                 // The projected parent > child rule now addresses this carrier.
                 // display:contents would discard its margin/paint/geometry.
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SOURCE_BOX_PARAGRAPH_CLASS);
@@ -193,6 +200,19 @@ final class SourceBlockAttributeProjector
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS);
             }
             if ( 'a' === $sourceTagName ) {
+                $presentation = $this->styleResolver->structuralPresentationDeclarations($sourceElement);
+                $display = CssValueInspector::comparable((string) ($presentation['display'] ?? ''));
+                $float = CssValueInspector::comparable((string) ($presentation['float'] ?? ''));
+                if ( in_array($display, array('', 'inline'), true)
+                    && in_array($float, array('', 'none'), true)
+                    && ! $this->isDirectChildOfAuthorOwnedLayout($sourceElement)
+                    && $this->anchorPrecedesBlock($sourceElement) ) {
+                    // A boxless RichText root cannot receive focus. In inline
+                    // flow before a block, its fallback hitbox can overlap the
+                    // following Group. An inline carrier preserves the source
+                    // line without changing flex/grid or floating link layout.
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-inline-anchor-carrier');
+                }
                 $attrs = $this->withSyntheticHeaderAnchorCarrier($attrs, $sourceElement, $context->generatedStyles);
             }
         }
@@ -207,6 +227,13 @@ final class SourceBlockAttributeProjector
                     $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
                 }
             }
+        }
+        if ('core/group' === $name && $facts->isInlineSourceElement
+            && 'inherit' === ($innerBlocks[0]['attrs']['style']['typography']['fontSize'] ?? null)
+            && str_contains((string) ($innerBlocks[0]['attrs']['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS)) {
+            // The group owns the source wrapper's selector and typography;
+            // it is no longer an inline RichText/layout carrier.
+            $context->selectorProjections->adoptAsSemanticBlock($sourceElement->getNodePath() ?? '');
         }
         $baseClassName = (string) ($attrs['className'] ?? '');
         // A RichText marker is already the selector projection of this source
@@ -311,7 +338,7 @@ final class SourceBlockAttributeProjector
             if ($anchor instanceof DOMElement) {
                 $identity = array();
                 if ($anchor->hasAttribute('class')) $identity['data-blocks-engine-social-source-class'] = $anchor->getAttribute('class');
-                foreach ($anchor->attributes as $attribute) {
+                foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($anchor) as $attribute) {
                     if (in_array($attribute->name, array('id', 'class', 'style', 'role', 'title', 'tabindex', 'target', 'rel'), true) || str_starts_with($attribute->name, 'data-') || str_starts_with($attribute->name, 'aria-')) $identity[$attribute->name] = $attribute->value;
                 }
                 $classes = $this->sourceProjectionClassName($anchor, $context, (string) ($identity['class'] ?? ''));
@@ -329,6 +356,21 @@ final class SourceBlockAttributeProjector
                 $attrs['metadata']['blocksEngineSocialAnchor'] = $identity;
             }
         }
+        foreach (array('padding', 'margin') as $box) {
+            $sides = $attrs['style']['spacing'][$box] ?? array();
+            $zeroSides = is_array($sides) ? array_values(array_intersect(array('top', 'right', 'bottom', 'left'), array_keys(array_filter($sides, static fn($value): bool => is_string($value) && CssValueInspector::isZeroLength($value))))) : array();
+            if (array() === $zeroSides || !$this->styleResolver->hasGlobalZeroBox($sourceElement, $box)) continue;
+            // Only the sides the instance zeroes join the shared rule; a partial box
+            // gets a side-specific marker so unlisted sides keep their own cascade.
+            $all = 4 === count($zeroSides);
+            $marker = 'blocks-engine-zero-' . str_replace('/', '-', $name) . '-' . $box . ($all ? '' : '-' . implode('', array_map(static fn(string $side): string => $side[0], $zeroSides)));
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $marker);
+            $context->generatedStyles->registerGlobalZeroBox($marker, $all ? $box . ':0' : implode(';', array_map(static fn(string $side): string => $box . '-' . $side . ':0', $zeroSides)));
+            foreach ($zeroSides as $side) unset($attrs['style']['spacing'][$box][$side]);
+            if (array() === ($attrs['style']['spacing'][$box] ?? null)) unset($attrs['style']['spacing'][$box]);
+        }
+        if (array() === ($attrs['style']['spacing'] ?? null)) unset($attrs['style']['spacing']);
+        if (array() === ($attrs['style'] ?? null)) unset($attrs['style']);
         return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
     }
 
@@ -373,7 +415,7 @@ final class SourceBlockAttributeProjector
         }
         $shape = $this->styleResolver->imageShapeDeclarations($image);
         foreach ( array( 'width', 'height' ) as $axis ) {
-            $value = $this->styleResolver->resolveCssVariablesInValue((string) ($shape[$axis]['value'] ?? ''), $image);
+            $value = $this->styleResolver->customProperties->resolve((string) ($shape[$axis]['value'] ?? ''), $image);
             if ( '100%' !== CssValueInspector::comparable($value) ) {
                 return false;
             }
@@ -402,8 +444,7 @@ final class SourceBlockAttributeProjector
             return false;
         }
 
-        $style = strtolower(SourceDom::attr($element, 'style'));
-        return 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important)?\s*(?:;|$)/', $style);
+        return CssValueInspector::hidesBox(SourceDeclarations::inline($element));
     }
 
     /**
@@ -463,7 +504,7 @@ final class SourceBlockAttributeProjector
     /** Modifiers are shared by native lowering and safe core/html reduction. */
     public function layoutNeutralButtonSourceBoxClasses(DOMElement $element): string
     {
-        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($element));
+        $declarations = SourceDeclarations::parse($this->styleResolver->mergedPresentationStyle($element));
         $classes = array();
         $display = CssValueInspector::declared($declarations, 'display');
         if ( in_array($display, array( 'inline-block', 'block', 'flex', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) {
@@ -482,6 +523,18 @@ final class SourceBlockAttributeProjector
             // pinned to both horizontal edges, has a source-owned width that
             // must survive the shrink-to-fit reset.
             $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-width';
+        }
+        // A size the author states only under a condition (a phone-width
+        // `.card .btn{width:100%}`) is projected under that condition. The
+        // control rests shrink-to-fit, but through a default that projected
+        // rule can outrank (see EngineSupportCss).
+        $conditional = $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array( 'width', 'height' ));
+        foreach ( array( 'width', 'height' ) as $property ) {
+            $modifier = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-author-' . $property;
+            $stated = array_filter($conditional[$property] ?? array(), static fn (string $value): bool => ! in_array(CssValueInspector::comparable($value), array( '', 'auto' ), true));
+            if ( array() !== $stated && ! in_array($modifier, $classes, true) ) {
+                $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-conditional-' . $property;
+            }
         }
         return implode(' ', $classes);
     }
@@ -511,7 +564,7 @@ final class SourceBlockAttributeProjector
         }
         $justifySelf = CssValueInspector::declared($declarations, 'justify-self');
         if ( in_array($justifySelf, array( '', 'auto', 'normal' ), true) ) {
-            $parentDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($parent));
+            $parentDeclarations = SourceDeclarations::parse($this->styleResolver->mergedPresentationStyle($parent));
             $justifySelf = CssValueInspector::declared($parentDeclarations, 'justify-items');
         }
         return in_array($justifySelf, array( '', 'normal', 'stretch', 'legacy' ), true);
@@ -565,7 +618,7 @@ final class SourceBlockAttributeProjector
         $labelProjectionPaths = self::hasStandaloneButtonLabel($logicalControl) ? $labelPaths : array();
         if ( 'core/button' === $name && $sourceElement !== $logicalControl && in_array($presentationPath, $labelProjectionPaths, true) ) {
             $logicalStyle = $this->styleResolver->styleAttributeMapper()->map(
-                $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($logicalControl))
+                SourceDeclarations::parse($this->styleResolver->mergedPresentationStyle($logicalControl))
             )['style'] ?? array();
             if ( '' !== trim((string) ($logicalStyle['color']['background'] ?? '')) ) {
                 $attrs['style']['color']['background'] = $logicalStyle['color']['background'];
@@ -592,7 +645,7 @@ final class SourceBlockAttributeProjector
                     // lives on Core's display:contents wrapper, so size the painted
                     // link instead and opt out of the layout-neutral axis resets.
                     if ( $sourceElement !== $logicalControl && $participation instanceof LayoutParticipation && $participation->neutralizeButtonWrapper() ) {
-                        $surface = $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($sourceElement));
+                        $surface = SourceDeclarations::parse($this->styleResolver->mergedPresentationStyle($sourceElement));
                         // Offsets on a display:contents carrier have no effect.
                         // Use the absorbed wrapper, not its 100%-sized inner paint
                         // surface, as the positioning authority (even when unsized).
@@ -616,15 +669,15 @@ final class SourceBlockAttributeProjector
                             // The sized wrapper can contain the actual painted flex
                             // surface. Its content-box sizing and default zero padding
                             // must not turn into Core's border-box/padded button box.
-                            $paint = array_replace($this->styleResolver->matchedCascadedDeclarations($sourceElement), $surface);
+                            $paint = array_replace($this->styleResolver->cascade->declarations($sourceElement), $surface);
                             $candidate = $sourceElement;
                             while ( 1 === $candidate->childElementCount ) {
                                 $child = $candidate->firstElementChild;
                                 if ( ! $child instanceof DOMElement || trim($child->textContent) !== trim($sourceElement->textContent) ) break;
-                                $childStyle = array_replace($this->styleResolver->matchedCascadedDeclarations($child), $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($child)));
+                                $childStyle = array_replace($this->styleResolver->cascade->declarations($child), SourceDeclarations::parse($this->styleResolver->mergedPresentationStyle($child)));
                                 if ( in_array(CssValueInspector::declared($childStyle, 'display'), array( 'flex', 'inline-flex' ), true) ) {
                                     $paint = array_replace($childStyle, $this->styleResolver->authoredControlPresentation($child, array( 'box-sizing', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ))[''] ?? array());
-                                    $paint = $this->styleResolver->cssDeclarations($this->styleResolver->cssDeclarationString($paint));
+                                    $paint = SourceDeclarations::parse($this->styleResolver->cssDeclarationString($paint));
                                     break;
                                 }
                                 $candidate = $child;
@@ -824,7 +877,7 @@ final class SourceBlockAttributeProjector
             return false;
         }
         foreach ( $children as $child ) {
-            $display = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($child->getAttribute('style'))['display'] ?? ''));
+            $display = CssValueInspector::comparable((string) (SourceDeclarations::parse($child->getAttribute('style'))['display'] ?? ''));
             if ( ! in_array($display, array( 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) {
                 return false;
             }
@@ -837,11 +890,25 @@ final class SourceBlockAttributeProjector
         return 'none' === $this->resolvedTextDecorationLine($anchor, true);
     }
 
-    /** @return array<string,string> */
-    public function syntheticInlineParagraphAttributes(DOMElement $container): array
+    /** @return array<string,mixed> */
+    public function syntheticInlineParagraphAttributes(DOMElement $container, bool $inheritsWrapperTypography = false): array
     {
-        // This carrier adds no source box, regardless of its links.
+        // This carrier adds neither a source box nor a typography boundary.
+        // In particular, a theme's paragraph rules must not interrupt the
+        // typography of an inline source wrapper lowered to a group. Keep
+        // inheritance live so responsive wrapper declarations still apply.
         $attrs = array('className' => self::SYNTHETIC_PARAGRAPH_CLASS);
+        if ($inheritsWrapperTypography) {
+            $attrs['style'] = array(
+                'typography' => array(
+                    'fontSize' => 'inherit',
+                    'fontWeight' => 'inherit',
+                    'lineHeight' => 'inherit',
+                    'fontFamily' => 'inherit',
+                ),
+                'color' => array('text' => 'inherit'),
+            );
+        }
         $anchors = $container->getElementsByTagName('a');
         if (0 === $anchors->length) return $attrs;
         foreach ($anchors as $anchor) if (!$anchor instanceof DOMElement || !$this->sourceAnchorHasNoTextDecoration($anchor)) return $attrs;
@@ -879,9 +946,9 @@ final class SourceBlockAttributeProjector
         $declared = null;
         // Decoration determines the generated anchor carrier, even for an
         // otherwise ordinary link that the presentation fast path skips.
-        foreach ( $this->styleResolver->matchedCascadedDeclarations($element) as $property => $value ) {
+        foreach ( $this->styleResolver->cascade->declarations($element) as $property => $value ) {
             if ( 'text-decoration' === $property || 'text-decoration-line' === $property ) {
-                $declared = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue($value));
+                $declared = CssValueInspector::comparable($this->styleResolver->customProperties->resolve($value));
             }
         }
 
@@ -930,6 +997,31 @@ final class SourceBlockAttributeProjector
         return '' === $ownDisplay && $this->isDirectChildOfAuthorOwnedLayout($anchor);
     }
 
+    private function anchorPrecedesBlock(DOMElement $anchor): bool
+    {
+        // Navigation lowering owns the layout of brand links beside a list.
+        // The list becomes a Navigation block, not an ordinary following Group.
+        $parent = $anchor->parentNode;
+        if ( $parent instanceof DOMElement
+            && ( 'nav' === strtolower($parent->tagName) || 'navigation' === strtolower(SourceDom::attr($parent, 'role')) ) ) {
+            return false;
+        }
+        $next = $anchor->nextSibling;
+        while ( $next instanceof \DOMText && '' === trim($next->textContent) ) {
+            $next = $next->nextSibling;
+        }
+        // A following flow container or heading can overlap the boxless root.
+        // Paragraphs, lists and shell landmarks have separate lowering owners;
+        // changing their preceding links also changes shared-shell identity.
+        if ( ! $next instanceof DOMElement
+            || ! in_array(strtolower($next->tagName), array('div', 'section', 'article', 'aside', 'main', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true)
+            || in_array(strtolower(SourceDom::attr($next, 'role')), array('banner', 'navigation', 'contentinfo'), true) ) {
+            return false;
+        }
+        $display = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($next)['display'] ?? ''));
+        return in_array($display, array('', 'block', 'flex', 'grid', 'flow-root', 'table'), true);
+    }
+
     private function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool
     {
         $parent = $element->parentNode;
@@ -948,7 +1040,7 @@ final class SourceBlockAttributeProjector
         if ( null === SourceDom::ancestorElement($anchor, 'header') ) {
             return $attrs;
         }
-        $direct = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($anchor));
+        $direct = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($anchor));
         $declarations = array();
         if ( 'inherit' === strtolower(trim((string) ($direct['color'] ?? ''))) ) {
             $inheritedColor = $this->styleResolver->authoredInheritedPropertyWinner($anchor, 'color');
@@ -965,12 +1057,12 @@ final class SourceBlockAttributeProjector
                 continue;
             }
             if ( '' !== $value && ! str_contains(strtolower($value), '!important') ) {
-                $declarations[$property] = $this->styleResolver->resolveCssVariablesInValue($value);
+                $declarations[$property] = $this->styleResolver->customProperties->resolve($value);
             }
         }
         foreach ( $this->styleResolver->specificityResolvedGapDeclarations($anchor) as $property => $value ) {
             if ( ! str_contains(strtolower($value), '!important') ) {
-                $declarations[$property] = $this->styleResolver->resolveCssVariablesInValue($value);
+                $declarations[$property] = $this->styleResolver->customProperties->resolve($value);
             }
         }
         if ( array() === $declarations ) {

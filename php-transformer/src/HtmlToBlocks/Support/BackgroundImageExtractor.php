@@ -3,19 +3,14 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 
 final class BackgroundImageExtractor
 {
     public function urlFromStyle(string $style): string
     {
-        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            if ( ! str_contains($declaration, ':') ) {
-                continue;
-            }
-
-            [$name, $value] = array_map('trim', explode(':', $declaration, 2));
-            if ( ! in_array(strtolower($name), array( 'background', 'background-image' ), true) ) {
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $name, 'value' => $value ] ) {
+            if ( ! in_array($name, array( 'background', 'background-image' ), true) ) {
                 continue;
             }
 

@@ -14,7 +14,7 @@ $css = implode("\n", array_column($result['assets'], 'content'));
 if (in_array('--json', $argv, true)) {
     echo json_encode(array('css' => $css));
 } else {
-    if (!str_contains($css, '.wp-block-navigation__responsive-container:not(.is-menu-open) .wp-block-navigation__responsive-container-content{flex-direction:inherit}')) {
+    if (!str_contains($css, '.wp-block-navigation__responsive-container:not(.is-menu-open) :where(.wp-block-navigation__responsive-close,.wp-block-navigation__responsive-dialog,.wp-block-navigation__responsive-container-content){flex-direction:inherit}')) {
         throw new RuntimeException('Closed overlay transport must carry the source responsive direction');
     }
     echo "Responsive navigation direction contract passed\n";

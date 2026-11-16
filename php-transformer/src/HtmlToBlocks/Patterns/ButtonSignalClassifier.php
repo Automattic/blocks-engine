@@ -3,11 +3,21 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use DOMElement;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 
 final class ButtonSignalClassifier
 {
+    private const PADDING_PROPERTIES = array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block', 'padding-inline' );
+
+    private const RADIUS_PROPERTIES = array(
+        'border-radius',
+        'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius',
+        'border-start-start-radius', 'border-start-end-radius', 'border-end-start-radius', 'border-end-end-radius',
+    );
+
     public function hasTransformSignal(DOMElement $element, string $resolvedStyle = ''): bool
     {
         if ( 'button' === strtolower($element->hasAttribute('role') ? $element->getAttribute('role') : '') ) {
@@ -50,10 +60,9 @@ final class ButtonSignalClassifier
             return false;
         }
 
-        preg_match_all('/(?:^|;)\s*padding(?:-[a-z]+)?\s*:\s*([^;]+)/', $style, $paddingDeclarations);
         $hasBoxPadding = false;
-        foreach ( $paddingDeclarations[1] ?? array() as $paddingDeclaration ) {
-            $padding = trim((string) preg_replace('/\s*!important\s*$/', '', $paddingDeclaration));
+        foreach ( CssRuleAnalyzer::declarations($style, self::PADDING_PROPERTIES) as [ 'value' => $paddingDeclaration ] ) {
+            $padding = CssValueInspector::withoutImportant($paddingDeclaration);
             if ( '' === $padding || preg_match('/^(?:inherit|initial|revert(?:-layer)?|unset)$/', $padding) ) {
                 continue;
             }
@@ -81,7 +90,7 @@ final class ButtonSignalClassifier
             return false;
         }
 
-        if ( preg_match('/(?:^|;)\s*border[a-z-]*radius\s*:\s*[^;]+/', $style) ) {
+        if ( array() !== CssRuleAnalyzer::declarations($style, self::RADIUS_PROPERTIES) ) {
             return true;
         }
 
@@ -94,8 +103,7 @@ final class ButtonSignalClassifier
             return true;
         }
 
-        preg_match_all('/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/', $style, $backgrounds);
-        foreach ( $backgrounds[1] as $background ) {
+        foreach ( CssRuleAnalyzer::declarations($style, array( 'background', 'background-color' )) as [ 'value' => $background ] ) {
             if ( CssValueInspector::backgroundPaints($background) ) {
                 return true;
             }
@@ -105,17 +113,20 @@ final class ButtonSignalClassifier
 
     private function hasPositiveDimension(string $style, string $property): bool
     {
-        if ( ! preg_match('/(?:^|;)\s*' . $property . '\s*:\s*([^;]+)/', $style, $match) ) {
+        $declaration = CssRuleAnalyzer::declarations($style, array( $property ))[0] ?? null;
+        if ( null === $declaration ) {
             return false;
         }
 
-        $value = trim((string) preg_replace('/\s*!important\s*$/', '', $match[1]));
+        $value = CssValueInspector::withoutImportant($declaration['value']);
         return ! preg_match('/^(?:auto|none|inherit|initial|revert(?:-layer)?|unset|[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?)$/', $value);
     }
 
     private function fillsPositionedContainer(string $style): bool
     {
-        return preg_match('/(?:^|;)\s*position\s*:\s*absolute\s*(?:;|$)/', $style) === 1
-            && preg_match('/(?:^|;)\s*min-width\s*:\s*100(?:\.0+)?%\s*(?:;|$)/', $style) === 1;
+        $declarations = SourceDeclarations::parse($style);
+
+        return 'absolute' === ($declarations['position'] ?? '')
+            && 1 === preg_match('/^100(?:\.0+)?%$/D', $declarations['min-width'] ?? '');
     }
 }

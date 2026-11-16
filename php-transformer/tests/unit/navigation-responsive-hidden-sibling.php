@@ -68,6 +68,7 @@ foreach ( $rows as $name => list($sibling, $css, $tag, $displays) ) {
     $assert(1 === substr_count($markup, '<!-- wp:navigation '), $name . ': the link list lowers to one core/navigation', $markup);
     $assert(str_contains($markup, '"url":"/about/"'), $name . ': the navigation keeps its links', $markup);
 
+    $markup = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeSelectRendererFixture::render($markup);
     $document = new DOMDocument();
     @$document->loadHTML('<?xml encoding="utf-8"?><body>' . $markup . '</body>');
     $emitted = null;

@@ -21,7 +21,7 @@ foreach ($cases as [$css, $alignment, $size]) {
     $block = $result['blocks'][0] ?? array();
     $assert('core/social-links' === ($block['blockName'] ?? ''), 'Social row remains a native social-links block');
     $assert($alignment === ($block['attrs']['layout']['justifyContent'] ?? ''), 'Resolved row alignment uses native layout justification: ' . json_encode($block['attrs'] ?? null));
-    $assert($size === ($block['attrs']['size'] ?? ''), 'Resolved item/glyph geometry selects the nearest icon preset: ' . json_encode($block['attrs'] ?? null));
+    $assert('has-' . $size . '-icon-size' === ($block['attrs']['size'] ?? ''), 'Resolved item/glyph geometry selects the nearest icon preset: ' . json_encode($block['attrs'] ?? null));
     $assert(str_contains($result['serialized_blocks'] ?? '', 'has-' . $size . '-icon-size'), 'Saved list carries the selected size');
     $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? ''), 'Social row remains WordPress-valid');
 }

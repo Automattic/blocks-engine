@@ -49,9 +49,11 @@ foreach (array(false, true) as $retainEmbeds) {
     $templates = ThemeTemplates::rendered($plan);
     $episodes = array_column(array_values(array_filter($plan['pages'], static fn(array $page): bool => str_contains($page['source_path'], '/'))), null, 'source_path');
     $assert($episodes['podcast/a.html']['slug'] === $episodes['podcasts-fr/a.html']['slug'], 'Episode routes share a terminal slug.');
-    $assert(TemplateSlugs::forPage($episodes['podcast/a.html']) === TemplateSlugs::forPage($episodes['podcast/b.html']), 'Identical episode frames share a template within EN.');
-    $assert(TemplateSlugs::forPage($episodes['podcasts-fr/a.html']) === TemplateSlugs::forPage($episodes['podcasts-fr/b.html']), 'Identical episode frames share a template within FR.');
-    $assert(TemplateSlugs::forPage($episodes['podcast/a.html']) !== TemplateSlugs::forPage($episodes['podcasts-fr/a.html']), 'Shared templates are partitioned by header cluster.');
+    // A route without a registered override resolves through the hierarchy.
+    $resolved = static fn(array $page): string => isset($templates[TemplateSlugs::forPage($page)]) ? TemplateSlugs::forPage($page) : ($page['entrypoint'] ? 'front-page' : ('post' === $page['post_type'] ? 'single' : 'page'));
+    $assert($resolved($episodes['podcast/a.html']) === $resolved($episodes['podcast/b.html']), 'Identical episode frames share a template within EN.');
+    $assert($resolved($episodes['podcasts-fr/a.html']) === $resolved($episodes['podcasts-fr/b.html']), 'Identical episode frames share a template within FR.');
+    $assert($resolved($episodes['podcast/a.html']) !== $resolved($episodes['podcasts-fr/a.html']), 'Shared templates are partitioned by header cluster.');
     foreach ($plan['pages'] as $page) {
         $markup = $page['canonical_block_markup'];
         $assert(!str_contains($markup, 'wp:template-part') && str_contains($markup, 'Body ' . $page['title']), 'Content stays route-owned; parts belong to templates: ' . $page['source_path']);

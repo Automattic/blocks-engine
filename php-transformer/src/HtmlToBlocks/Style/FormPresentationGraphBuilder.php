@@ -595,8 +595,9 @@ final class FormPresentationGraphBuilder
         $hasCaptionLayer = false;
         $controlContainers = array();
         $exclusiveAncestors = (new FormControlTopologyBuilder())->exclusiveWrapperAncestors($form, $this->controlElements);
+        $formControls = $this->controls($form);
 
-        foreach ( $this->controls($form) as $index => $control ) {
+        foreach ( $formControls as $index => $control ) {
             if ( $index >= self::MAX_CONTROLS ) {
                 $this->truncated = true;
                 $this->diagnostics[] = 'control_limit';
@@ -613,6 +614,15 @@ final class FormPresentationGraphBuilder
                     continue;
                 }
                 $matched = $this->matched($element, $analysis['rules']);
+                if ('control' === $role && $element->parentNode instanceof DOMElement
+                    && count(array_filter($formControls, static fn (DOMElement $sibling): bool => $sibling->parentNode?->isSameNode($element->parentNode) ?? false)) > 1) {
+                    $parent = $this->matched($element->parentNode, $analysis['rules']);
+                    if (in_array($parent['base']['display']['value'] ?? '', array('flex', 'inline-flex'), true)) {
+                        foreach (array('flex' => '0 1 auto', 'width' => 'auto') as $property => $value) {
+                            $matched['base'][$property] ??= array('value' => $value, 'path' => 'user-agent', 'hash' => hash('sha256', 'native-flex-item'), 'selector' => SourceDom::elementSelector($element), 'order' => PHP_INT_MIN, 'declaration_order' => 0, 'specificity' => -1, 'important' => false);
+                        }
+                    }
+                }
                 $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules'], true);
                 $provenance = $this->provenance($matched['base'], null);
                 $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);

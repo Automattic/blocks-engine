@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
@@ -219,15 +220,18 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
     }
 
     /** Dialog controls own a bounded panel, not the surrounding page. */
-    public function isCapturedDialogRuntimeBinding(DOMElement $element): bool
+    public function isCapturedDialogRuntimeBinding(DOMElement $element, bool $allowUnboundCapture = false): bool
     {
         if ( SourceDom::isBoundCapturedDialogTrigger($element) || SourceDom::isBoundCapturedDialogCloser($element) ) {
             return true;
         }
 
-        foreach ( array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_CLOSE) as $binding ) {
+        foreach ( array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_CLOSE, CaptureEvidence::DIALOG_PANEL) as $binding ) {
             $key = trim(SourceDom::attr($element, $binding));
             if ( '' === $key ) continue;
+            // Transparent child conversion can retain an isolated capture
+            // binding even when its corresponding panel is absent.
+            if ( $allowUnboundCapture ) return true;
             $panel = $element->ownerDocument?->getElementById($key);
             if ( $panel instanceof DOMElement && $key === SourceDom::attr($panel, CaptureEvidence::DIALOG_PANEL) ) {
                 return true;
@@ -730,17 +734,18 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
             if ( $requireOrdinaryFlow && (
                 $candidate->hasAttribute('slot')
                 || $candidate->hasAttribute('hidden')
-                || in_array(strtolower($candidate->tagName), array( 'slot', 'shadow', 'content', 'template', 'script', 'style', 'svg', 'math', 'img', 'picture', 'video', 'audio', 'iframe', 'object', 'embed', 'canvas', 'details', 'dialog', 'form', 'input', 'select', 'textarea', 'button' ), true)
+                || in_array(strtolower($candidate->tagName), array( 'slot', 'shadow', 'content', 'template', 'script', 'style', 'math', 'img', 'picture', 'video', 'audio', 'iframe', 'object', 'embed', 'canvas', 'details', 'dialog', 'form', 'input', 'select', 'textarea' ), true)
                 || ( $candidate !== $element && \Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags::isUnknownHtmlElement($candidate) )
             ) ) {
                 return false;
             }
 
-            // Runtime metadata on any descendant would be flattened by a
-            // transparent lowering, so preserve the complete custom element.
-            if ( $this->isRuntimeDomTarget($candidate)
+            // Captured dialog bindings retain their bounded control or panel
+            // during child conversion; they do not own the surrounding host.
+            // Other runtime targets still require the complete custom element.
+            if ( ( $this->isRuntimeDomTarget($candidate) && ! $this->isCapturedDialogRuntimeBinding($candidate, true) )
                 || array() !== SourceDom::eventMetadata($candidate)
-                || (! $allowMotionStructure && $this->sourceElementClassifier->hasMotionStructureToken($candidate))
+                || (! $allowMotionStructure && $this->hasMotionPresentation($candidate))
             ) {
                 return false;
             }
@@ -753,6 +758,43 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
         }
 
         return true;
+    }
+
+    /** Class/id motion words alone do not establish a runtime-owned surface. */
+    private function hasMotionPresentation(DOMElement $element): bool
+    {
+        if ( ! $this->sourceElementClassifier->hasMotionStructureToken($element) ) {
+            return false;
+        }
+
+        $declarations = SourceDeclarations::inline($element);
+        foreach ( $this->session->authorStyleRuleCandidates($element) as $candidate ) {
+            if ( ($candidate['parsed']['supported'] ?? false)
+                && $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
+            ) {
+                $declarations = array_merge($declarations, $candidate['declarations']);
+            }
+        }
+        if ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EntranceAnimation::matches($declarations, $this->session->authorStyleAnalysis()->combinedCss()) ) {
+            $declarations = array_filter($declarations, static fn (string $property): bool => ! str_starts_with($property, 'animation') && 'transform' !== $property, ARRAY_FILTER_USE_KEY);
+        }
+        foreach ( $declarations as $property => $value ) {
+            if ( 1 === preg_match('/^(?:animation(?:-|$)|transform$|translate$|rotate$|scale$|perspective$)/', $property)
+                && ! in_array(strtolower(trim($value)), array('', 'none', 'initial', 'inherit', 'unset'), true)
+            ) {
+                return true;
+            }
+        }
+        // Positioned slide stacks are also motion topology, even before a
+        // runtime has written its first transform onto the track.
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $this->sourceElementClassifier->isCarouselSlideChild($descendant)
+                && in_array(SourceDeclarations::inline($descendant)['position'] ?? '', array('absolute', 'fixed'), true)
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function hasWorkspaceSurface(DOMElement $element): bool

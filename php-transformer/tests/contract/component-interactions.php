@@ -23,12 +23,14 @@ $result = $compile($report);
 $html = $markup($result);
 $assert(!isset($report['pages'][0]['states']), 'Real emitter fixture has one component inventory.');
 $assert(array('dialog', 'listbox', 'tabs', 'disclosure', 'carousel', 'unsupported') === array_column($report['pages'][0]['components'], 'kind'), 'Real capture covers all six surfaces.');
-foreach (array('custom/authored-select', 'tabs', 'tab-list', 'tab-panels', 'tab-panel', 'details', 'custom/authored-carousel') as $block) {
+foreach (array('tabs', 'tab-list', 'tab-panels', 'tab-panel', 'details', 'custom/authored-carousel') as $block) {
     $assert(str_contains($html, '<!-- wp:' . $block . ' ') || str_contains($html, '<!-- wp:' . $block . ' -->'), $block . ' keeps its pre-migration native block family.');
 }
 $assert(!str_contains($html, '<!-- wp:custom/captured-dialog') && str_contains($html, '<!-- wp:group ') && str_contains($html, '"blocksEngineDialog":'), 'Dialog content uses an editable core Group rather than a companion block.');
 $assert(str_contains($html, '"data-blocks-engine-triggers":"open-dialog"') && str_contains($html, '"data-blocks-engine-resting":"hidden"'), 'Dialog retains its native trigger binding and closed resting state.');
-$assert(str_contains($html, '<option value="Small" selected>Small</option>') && str_contains($html, '<option value="Large">Large</option>'), 'Listbox retains native selection behavior.');
+$assert(str_contains($html, '"blocksEngineSelect":') && !str_contains($html, '<!-- wp:custom/authored-select'), 'Listbox choices use editable core blocks without a select companion.');
+$rendered = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeSelectRendererFixture::render($html);
+$assert(str_contains($rendered, '<option value="Small" selected>Small</option>') && str_contains($rendered, '<option value="Large">Large</option>'), 'Listbox retains native selection behavior.');
 $assert(2 === substr_count($html, '<!-- wp:tab-panel ') && str_contains($html, 'Lazy observed content'), 'Lazy tab is editable native panel content.');
 $assert(str_contains($html, '"showContent":true') && str_contains($html, '<details id="disclosure" class="wp-block-details" open>'), 'Authored open disclosure stays open.');
 $assert(str_contains($html, '"slideCount":2') && str_contains($html, '"initialSlide":0') && str_contains($html, 'actions.next'), 'Carousel retains its initial frame and native directional runtime.');

@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
@@ -569,7 +571,7 @@ JS;
     private function sourceOwnsIframeGeometry(DOMElement $iframe, StyleResolver $styleResolver, array $properties = array( 'width', 'height', 'aspect-ratio', 'position' )): bool
     {
         return array() !== $styleResolver->authorDeclaredPropertyValues($iframe, $properties)
-            || 1 === preg_match('/(?:^|;)\s*(?:' . implode('|', $properties) . ')\s*:/i', SourceDom::attr($iframe, 'style'));
+            || array() !== CssRuleAnalyzer::declarations(SourceDom::attr($iframe, 'style'), $properties);
     }
 
 
@@ -577,7 +579,7 @@ JS;
     private function inheritsPreservedWhitespace(DOMElement $surface, StyleResolver $styleResolver): bool
     {
         for ( $node = $surface->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $value = strtolower(trim((string) ($styleResolver->referenceViewportAuthorDeclarations($node, array( 'white-space' ))['white-space'] ?? '')));
+            $value = strtolower(trim((string) ($styleResolver->authorViewport->reference($node, array( 'white-space' ))['white-space'] ?? '')));
             if ( '' !== $value && 'inherit' !== $value ) {
                 return 1 === preg_match('/\b(?:pre|pre-wrap|pre-line|break-spaces|preserve)\b/', $value);
             }
@@ -598,7 +600,7 @@ JS;
         if ( array() !== $styleResolver->authorDeclaredPropertyValues($iframe, array( 'width', 'height', 'aspect-ratio', 'position' )) ) {
             return null;
         }
-        $declarations = array_change_key_case($styleResolver->cssDeclarations(SourceDom::attr($iframe, 'style')));
+        $declarations = array_change_key_case(SourceDeclarations::parse(SourceDom::attr($iframe, 'style')));
         $value = static fn (string $property): string => strtolower(trim((string) ($declarations[ $property ] ?? '')));
         if ( '100%' !== $value('width') || ! in_array($value('height'), array( '', 'auto' ), true) || ! in_array($value('position'), array( '', 'static' ), true) ) {
             return null;
@@ -666,7 +668,7 @@ JS;
             return $attribute;
         }
 
-        if ( $this->sourceElementClassifier->isRelativeIframeDimension($attribute) && $this->iframeHasBoundedAncestor($iframe, $styleResolver) ) {
+        if ( $this->sourceElementClassifier->isRelativeIframeDimension($attribute) && $this->relativeIframeDimensionIsBounded($iframe, $dimension, $styleResolver) ) {
             return $attribute;
         }
 
@@ -675,9 +677,23 @@ JS;
             return $declaration;
         }
 
-        return $this->sourceElementClassifier->isRelativeIframeDimension($declaration) && $this->iframeHasBoundedAncestor($iframe, $styleResolver)
+        return $this->sourceElementClassifier->isRelativeIframeDimension($declaration) && $this->relativeIframeDimensionIsBounded($iframe, $dimension, $styleResolver)
             ? $declaration
             : null;
+    }
+
+    private function relativeIframeDimensionIsBounded(DOMElement $iframe, string $dimension, StyleResolver $styleResolver): bool
+    {
+        // Container-relative width needs only an explicit height; relative height still needs a bounded ancestor.
+        if ( 'width' === $dimension ) {
+            $height = trim(SourceDom::attr($iframe, 'height'));
+            $declaredHeight = trim((string) ($styleResolver->presentationDeclarations($iframe)['height'] ?? ''));
+            if ( $this->sourceElementClassifier->isPositiveIframeDimension($height) || $this->sourceElementClassifier->isPositiveIframeDimension($declaredHeight) ) {
+                return true;
+            }
+        }
+
+        return $this->iframeHasBoundedAncestor($iframe, $styleResolver);
     }
 
     private function iframeHasBoundedAncestor(DOMElement $iframe, StyleResolver $styleResolver): bool

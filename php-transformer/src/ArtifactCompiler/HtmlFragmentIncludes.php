@@ -216,4 +216,17 @@ final class HtmlFragmentIncludes
             $resolve = null;
         }
     }
+
+    /**
+     * Whether a file is a template part: an HTML file declared with that role
+     * or stored under a `parts/` or `template-parts/` directory.
+     *
+     * @param array<string, mixed> $file
+     */
+    public static function isTemplatePartFile(array $file): bool
+    {
+        $path = (string) ($file['path'] ?? '');
+        $role = (string) ($file['role'] ?? '');
+        return 'html' === ($file['kind'] ?? '') && ('template-part' === $role || preg_match('#(^|/)(parts|template-parts)/[^/]+\.html?$#i', $path));
+    }
 }

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceElementVisibility;
 use DOMElement;
@@ -147,7 +149,7 @@ final class PatternContext
 
         return $element->hasAttribute('hidden')
             || SourceDom::isAriaHidden($element)
-            || 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)(?:\s*!important)?\s*(?:;|$)/i', $element->getAttribute('style'));
+            || CssValueInspector::hidesBox(SourceDeclarations::inline($element));
     }
 
     /** The source box is clipped to nothing, as a screen-reader-only label is. */
@@ -169,7 +171,7 @@ final class PatternContext
         $declarations['color'] = trim((string) preg_replace('/\s*!important\s*$/i', '', $declarations['color']));
         $mapped = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper())->map(
             array_intersect_key($declarations, array_flip(array('color', 'background', 'background-color'))),
-            fn (string $value): string => $this->styles->resolveCssVariablesInValue($value, $element)
+            fn (string $value): string => $this->styles->customProperties->resolve($value, $element)
         );
         return array_merge($mapped['attrs'] ?? array(), array('style' => $mapped['style'] ?? array()));
     }

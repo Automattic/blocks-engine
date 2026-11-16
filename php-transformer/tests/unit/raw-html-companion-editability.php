@@ -9,7 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGe
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 
-$source = '<figure><a href="/photo"><picture><source media="(min-width:800px)" srcset="wide.jpg 1200w"><img src="photo.jpg" alt="Photo"></picture></a><figcaption>Photo</figcaption></figure>';
+$source = '<figure><a href="/photo"><picture><source type="image/webp" media="(min-width:800px)" srcset="wide.webp 1200w"><img src="photo.jpg" alt="Photo"></picture></a><figcaption>Photo</figcaption></figure>';
 $result = (new HtmlTransformer())->transform($source)->toArray();
 $definitions = $result['source_reports']['generated_blocks'];
 $media = array_values(array_filter($definitions, static fn(array $definition): bool => 'custom/responsive-media' === $definition['block_json']['name']));

@@ -29,7 +29,7 @@
         },
         {
             "path": "blocks.0.innerBlocks.0",
-            "name": "custom/layout-shell"
+            "name": "core/group"
         },
         {
             "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0",

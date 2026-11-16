@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssPropertyName;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -58,7 +60,7 @@ final class ButtonStyleResolver
      * names, so the shared mapper's physical-side reading never sees them.
      * Expansion assumes the desktop reference viewport's horizontal-tb,
      * left-to-right writing mode — the same fixed assumption
-     * StyleResolver::physicalBoxDeclarations() makes.
+     * SourceDeclarations::parse() makes.
      */
     private const LOGICAL_PADDING_AXES = array(
         'padding-block' => array( 'padding-top', 'padding-bottom' ),
@@ -113,6 +115,16 @@ final class ButtonStyleResolver
 
         $border = $this->mapper->paintedBorder($declarations);
         if ( array() !== $border ) {
+            // A side-specific source border leaves the other sides unpainted.
+            // Explicit widths also protect those sides from theme button chrome.
+            $sides = array( 'top', 'right', 'bottom', 'left' );
+            if ( array() !== array_intersect($sides, array_keys($border)) ) {
+                foreach ( $sides as $side ) {
+                    if ( ! isset($border[$side]) ) {
+                        $border[$side] = array( 'width' => '0' );
+                    }
+                }
+            }
             $style['border'] = $border;
         }
 
@@ -178,7 +190,7 @@ final class ButtonStyleResolver
     public static function sharesAnchorContainer(\DOMElement $element, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver $resolver): bool
     {
         return $element->parentNode instanceof \DOMElement
-            && self::stacksBlockAnchors($element->parentNode, static fn (\DOMElement $node): array => $resolver->cssDeclarations($resolver->controlSurfaceResolvedStyle($node)));
+            && self::stacksBlockAnchors($element->parentNode, static fn (\DOMElement $node): array => SourceDeclarations::parse($resolver->controlSurfaceResolvedStyle($node)));
     }
 
     /**
@@ -269,12 +281,7 @@ final class ButtonStyleResolver
     private function declarations(string $style): array
     {
         $declarations = array();
-        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            if ( ! str_contains($declaration, ':') ) {
-                continue;
-            }
-            [ $name, $value ] = array_map('trim', explode(':', $declaration, 2));
-            $name = strtolower($name);
+        foreach ( CssRuleAnalyzer::declarationList($style) as [ 'name' => $name, 'value' => $value ] ) {
             if ( '' === $name || '' === $value || CssPropertyName::startsLikeNumber($name) ) {
                 continue;
             }

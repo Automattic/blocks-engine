@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 
@@ -281,9 +283,10 @@ final class DesignSystem
         $layout = self::layout($widthRows);
 
         $system = new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors);
-        // Only observed tints of exact palette colours become additional presets.
-        // Keeping color-mix in the palette (rather than inline style) lets core
-        // serialize ordinary preset classes and the editor display a named value.
+        // Observed translucent paint gets a preset even when its opaque RGB
+        // is not painted anywhere. Prefer a derived tint when an exact base
+        // exists; otherwise retain the source value, including its alpha.
+        // Core can then serialize preset classes and show an editable value.
         $tints = array();
         foreach ($usageBySource as $usage) {
             $values = array_column($usage['text'] ?? array(), 'color');
@@ -297,7 +300,18 @@ final class DesignSystem
             }
             foreach ($values as $value) {
                 $tint = $system->translucentColor($value);
-                if (null === $tint) continue;
+                if (null === $tint) {
+                    $parsed = CssColor::parse($value);
+                    $hex = CssColor::hex($value);
+                    if (null !== $parsed && $parsed[3] > 0 && $parsed[3] < 1 && null !== $hex) {
+                        // Gutenberg kebab-cases preset slugs, splitting digit/letter
+                        // boundaries. Encode the RGBA bytes with letters only so
+                        // its save() class agrees with the compiler's class.
+                        $slug = 'alpha-' . strtr(ltrim($hex, '#'), '0123456789abcdef', 'abcdefghijklmnop');
+                        $tints[$slug] = array('slug' => $slug, 'name' => 'Alpha ' . ltrim($hex, '#'), 'color' => $value, 'role' => $slug, 'weight' => 0);
+                    }
+                    continue;
+                }
                 $slug = $tint['slug'] . '-alpha-' . $tint['percent'];
                 $tints[$slug] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', $tint['slug'])) . ' ' . $tint['percent'] . '%', 'color' => 'color-mix(in srgb, var(--wp--preset--color--' . $tint['slug'] . ') ' . $tint['percent'] . '%, transparent)', 'role' => $slug, 'weight' => 0);
             }
@@ -315,14 +329,20 @@ final class DesignSystem
      * one colour binding rule: block attributes, stylesheet bindings and
      * element styles all bind through this method, and only to a token
      * that paints the same 8-bit colour, so binding never changes what
-     * renders. Observed translucent colours bind to derived tint presets;
-     * see translucentColor().
+     * renders. Observed translucent colours bind to derived tint presets
+     * when possible, otherwise to exact standalone alpha presets.
      */
     public function colorSlug(string $value): ?string
     {
         if (!CssColor::opaque($value)) {
             $tint = $this->translucentColor($value);
-            if (null === $tint) return null;
+            if (null === $tint) {
+                $hex = CssColor::hex($value);
+                foreach ($this->colors as $color) {
+                    if (null !== $hex && $hex === CssColor::hex($color['color'])) return $color['slug'];
+                }
+                return null;
+            }
             $slug = $tint['slug'] . '-alpha-' . $tint['percent'];
             return in_array($slug, array_column($this->colors, 'slug'), true) ? $slug : null;
         }
@@ -519,7 +539,7 @@ final class DesignSystem
      *   (`textColor`, `fontSize`, `var:preset|…`) rather than literals. 1.0
      *   when blocks carry no such values. Zero lengths, `auto` and CSS-wide
      *   keywords (`inherit`, …) are not design values and are not counted.
-     * - `restyle_coverage`: of the text and background colours rendered on
+     * - `restyle_coverage`: of the text, background and border colours rendered on
      *   block-level content, the share that come from a preset reference,
      *   through the block's attributes, its classes' stylesheet rules, an
      *   ancestor, or the root styles; see RestyleCoverage. These follow a
@@ -527,7 +547,8 @@ final class DesignSystem
      *   per page, as a reader meets it on every route; engine templates count
      *   once. `restyle_text_elements`,
      *   `restyle_text_preset`, `restyle_backgrounds` and
-     *   `restyle_backgrounds_preset` are the counts behind it.
+     *   `restyle_backgrounds_preset`, `restyle_borders` and
+     *   `restyle_borders_preset` are the counts behind it.
      * - `refusal_reasons`: text and background colour values binding left
      *   as literals, by reason (see PresetBinding::REFUSAL_REASONS), and
      *   `refused_value_count` their total. Content that should not follow
@@ -591,7 +612,7 @@ final class DesignSystem
         $variables = array();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || 'engine-support' === ($asset['source'] ?? null)) continue;
-            if (preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $asset['content'], $matches, PREG_SET_ORDER)) foreach ($matches as $match) $variables[$match[1]] ??= trim($match[2]);
+            foreach (CssRuleAnalyzer::customProperties($asset['content']) as $declaration) $variables[$declaration['name']] ??= $declaration['value'];
         }
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
@@ -623,6 +644,8 @@ final class DesignSystem
             'restyle_text_preset' => $restyle['text_preset'],
             'restyle_backgrounds' => $restyle['backgrounds'],
             'restyle_backgrounds_preset' => $restyle['backgrounds_preset'],
+            'restyle_borders' => $restyle['borders'],
+            'restyle_borders_preset' => $restyle['borders_preset'],
             'preset_value_count' => $preset,
             'literal_value_count' => $literal,
             'refused_value_count' => array_sum($refusals),
@@ -1090,9 +1113,10 @@ final class DesignSystem
      * and their `:hover` colours; heading colour, family and weight; and,
      * per heading level, colour, family, size and weight where that level
      * differs from the heading values. Element styles reach every element of
-     * the kind, so only a unanimous value cannot restyle text that renders
-     * something else today. Colours, families and sizes must be tokens (a
-     * colour within the JND of the token's own value). A `:hover` colour
+     * the kind. Heading families use a strict rendered majority only when
+     * every minority heading has its own authored family declaration. Other elements and
+     * per-level typography require unanimity. Colours, families and sizes
+     * must be tokens (a colour within the JND of the token's own value). A `:hover` colour
      * counts only when every element of the kind has one hover rule giving
      * the same token. A property a media-conditional rule can change for any
      * element of the kind (a breakpoint size, a dark-mode colour) is left to
@@ -1106,7 +1130,14 @@ final class DesignSystem
      */
     private static function unanimousElements(array $usageBySource, self $system): array
     {
-        $values = $headingTypography = array();
+        $values = $headingTypography = $inheritedHeadingFamilies = array();
+        foreach ($usageBySource as $usage) foreach ($usage['heading_typography'] ?? array() as $row) {
+            if (true === ($row['font_family_authored'] ?? false)) continue;
+            $stack = (string) ($row['font_family'] ?? '');
+            $slug = $system->fontFamilySlug($stack);
+            foreach ($system->fontFamilies as $family) if ($family['slug'] === $slug) $stack = $family['fontFamily'];
+            $inheritedHeadingFamilies[self::familyKey($stack) . "\n" . $stack] = true;
+        }
         $conditional = array();
         foreach ($usageBySource as $usage) foreach ($usage['root']['conditional'] ?? array() as $family) $conditional[(string) $family] = true;
         // A media-conditional variant of the property makes the element render
@@ -1115,7 +1146,8 @@ final class DesignSystem
         $families = array('color' => 'color', 'hover_color' => 'color', 'font_family' => 'font-family', 'font_size' => 'font-size', 'font_weight' => 'font-weight', 'background' => 'background', 'hover_background' => 'background');
         $observe = static function (string $element, string $field, mixed $value, array $row) use (&$values, $families): void {
             $varies = in_array($families[$field], (array) ($row['conditional'] ?? array()), true);
-            $values[$element][$field][$varies || null === $value ? '' : (string) $value] = true;
+            $key = $varies || null === $value ? '' : (string) $value;
+            $values[$element][$field][$key] = ($values[$element][$field][$key] ?? 0) + max(1, (int) ($row['count'] ?? 1));
         };
         foreach ($usageBySource as $usage) {
             foreach ($usage['text'] ?? array() as $row) {
@@ -1162,7 +1194,19 @@ final class DesignSystem
         $elements = array();
         foreach ($values as $element => $fields) {
             foreach ($fields as $field => $observed) {
-                if (1 !== count($observed) || !empty($varied[$field])) continue;
+                if (!empty($varied[$field])) continue;
+                if ('heading' === $element && 'font_family' === $field) {
+                    // Count rendered instances, not text length: a long title
+                    // must not outweigh several headings in the site shell.
+                    // Missing source families cannot preserve a minority
+                    // look against a concrete theme default.
+                    if (isset($observed["\n"]) || isset($observed[''])) continue;
+                    arsort($observed, SORT_NUMERIC);
+                    if (reset($observed) * 2 <= array_sum($observed)) continue;
+                    // An inherited minority has no source-owned binding to
+                    // protect it from the theme's heading family default.
+                    if (array_diff_key($inheritedHeadingFamilies, array((string) array_key_first($observed) => true))) continue;
+                } elseif (1 !== count($observed)) continue;
                 $value = $token($field, (string) array_key_first($observed));
                 if (null === $value) continue;
                 // A heading level states only what differs from `heading`.
@@ -1320,20 +1364,16 @@ final class DesignSystem
     /** The first family name of a stack, unquoted. */
     private static function primaryFamily(string $stack): string
     {
-        foreach (explode(',', $stack) as $part) {
-            $part = trim($part, " \t\n\r\0\x0B\"'");
-            if ('' !== $part) return (string) preg_replace('/\s+/', ' ', $part);
-        }
-        return '';
+        return (string) preg_replace('/\s+/', ' ', CssFontFamily::names($stack)[0] ?? '');
     }
 
     private static function familyName(string $stack): string
     {
-        foreach (explode(',', $stack) as $token) {
-            $token = trim($token, " \t\n\r\0\x0B\"'");
-            if ('' !== $token && !in_array(strtolower($token), self::GENERIC_FAMILIES, true) && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) return $token;
+        $names = CssFontFamily::names($stack);
+        foreach ($names as $token) {
+            if (!in_array(strtolower($token), self::GENERIC_FAMILIES, true) && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) return $token;
         }
-        return trim(explode(',', $stack)[0], " \t\n\r\0\x0B\"'");
+        return $names[0] ?? '';
     }
 
     /** Pixel size as rem when the document root is not the default 16px. */

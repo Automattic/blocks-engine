@@ -3,6 +3,10 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -26,6 +30,9 @@ use DOMElement;
 final class FlowContainerElementConverter implements ElementConverter
 {
     private readonly NavigationPattern $navigationPattern;
+
+    /** @var \WeakMap<\DOMDocument, array<string, true>> */
+    private \WeakMap $controllerIds;
 
     public function __construct(
         private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier $sourceElementClassifier,
@@ -53,6 +60,7 @@ final class FlowContainerElementConverter implements ElementConverter
     )
     {
         $this->navigationPattern = new NavigationPattern($this->createBlock);
+        $this->controllerIds = new \WeakMap();
     }
 
     public function handles(string $tagName): bool
@@ -106,7 +114,56 @@ final class FlowContainerElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function lower(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
-        if ( SourceDom::documentVariantRoot($element) === $element ) {
+        $outcome = $this->lowerContainer($element, $tagName, $fallbacks);
+        if ( ! $element->hasAttribute('hidden')
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || $this->hasDeclaredController($element)
+        ) {
+            return $outcome;
+        }
+        // Author display wins over the UA hidden rule. With no author display,
+        // the native attribute supplies display:none (except hidden=until-found).
+        $display = CssValueInspector::declared($this->presentationResolver->structuralPresentationDeclarations($element), 'display');
+        if ( '' === $display && 'until-found' !== strtolower(SourceDom::attr($element, 'hidden')) ) {
+            $display = 'none';
+        }
+        if ( 'none' !== $display ) {
+            return $outcome;
+        }
+        $block = $outcome->block;
+        if ( null !== $block ) {
+            // Materialized roots and layout shells already own the native state.
+            if ( array_key_exists('hidden', $block['attrs']['metadata']['blocksEngineRuntimeAttributes'] ?? array()) ) {
+                return $outcome;
+            }
+            foreach ( $block['attrs']['wrappers'] ?? array() as $wrapper ) {
+                if ( array_key_exists('hidden', $wrapper['attributes'] ?? array()) ) {
+                    return $outcome;
+                }
+            }
+        }
+        $attrs = $this->presentationResolver->presentationAttributes($element);
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS);
+        if ( 'div' === $tagName || ShellLandmarkPolicy::isSemanticGroupTag($tagName) ) {
+            $attrs['tagName'] = $tagName;
+            return ConversionOutcome::handled($this->createBlock->createBlock('core/group', $attrs, null === $block ? array() : array($block), $element));
+        }
+        // Other tags keep their existing lowering rather than becoming divs.
+        if ( null !== $block ) {
+            $attrs = $block['attrs'] ?? array();
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS);
+            return ConversionOutcome::handled($this->createBlock->createBlock($block['blockName'], $attrs, $block['innerBlocks'] ?? array(), $element));
+        }
+        return $outcome;
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    private function lowerContainer(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
+    {
+        if ( 'label' === $tagName && $element->hasAttribute('hidden') ) {
+            return ConversionOutcome::handled($this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks));
+        }
+        if ( SourceDom::isDocumentVariantRoot($element) ) {
             return ConversionOutcome::handled($this->authorLayout->authorLayoutBlockFromElement($element, $fallbacks));
         }
         if (in_array($tagName, array('header', 'footer'), true)
@@ -614,6 +671,39 @@ final class FlowContainerElementConverter implements ElementConverter
         return $this->createBlock->createBlock('core/group', $this->presentationResolver->presentationAttributes($element), $children, $element);
     }
 
+    /** Declared panels keep their existing disclosure/navigation lowering. */
+    private function hasDeclaredController(DOMElement $element): bool
+    {
+        // Dialogs and captured components already own their state contract.
+        if ( in_array(strtolower(SourceDom::attr($element, 'role')), array('dialog', 'alertdialog'), true) ) {
+            return true;
+        }
+        foreach ( $element->attributes as $attribute ) {
+            if ( str_starts_with($attribute->nodeName, CaptureEvidence::ATTRIBUTE_PREFIX) ) {
+                return true;
+            }
+        }
+        $id = trim(SourceDom::attr($element, 'id'));
+        if ( '' === $id || null === $element->ownerDocument ) {
+            return false;
+        }
+        $document = $element->ownerDocument;
+        if ( ! isset($this->controllerIds[$document]) ) {
+            $ids = array();
+            foreach ( $document->getElementsByTagName('*') as $control ) {
+                $popover = trim(SourceDom::attr($control, 'popovertarget'));
+                if ( '' !== $popover ) {
+                    $ids[$popover] = true;
+                }
+                foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls')), -1, PREG_SPLIT_NO_EMPTY) ?: array() as $target ) {
+                    $ids[$target] = true;
+                }
+            }
+            $this->controllerIds[$document] = $ids;
+        }
+        return isset($this->controllerIds[$document][$id]);
+    }
+
     private function hasInlineFormWrapper(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('form') as $form ) {
@@ -629,27 +719,24 @@ final class FlowContainerElementConverter implements ElementConverter
 
     private function isClippedHorizontalTrack(DOMElement $element): bool
     {
-        $inline = strtolower(SourceDom::attr($element, 'style'));
-        if ( 1 !== preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $inline) ) {
+        if ( ! in_array(CssValueInspector::declared(SourceDeclarations::inline($element), 'display'), array( 'flex', 'inline-flex' ), true) ) {
             return false;
         }
-        $style = $this->structuralDeclarationString($element);
-        if ( 1 === preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
-            || 1 === preg_match('/(?:^|;)\s*flex-wrap\s*:\s*wrap(?:-reverse)?\b/', $style)
+        $structural = $this->presentationResolver->structuralPresentationDeclarations($element);
+        if ( in_array(CssValueInspector::declared($structural, 'flex-direction'), array( 'column', 'column-reverse' ), true)
+            || in_array(CssValueInspector::declared($structural, 'flex-wrap'), array( 'wrap', 'wrap-reverse' ), true)
         ) {
             return false;
         }
 
+        // A strip item keeps its width: it refuses to shrink or fixes a pixel width.
+        $isStripItem = static fn (array $declarations): bool => '0' === CssValueInspector::declared($declarations, 'flex-shrink')
+            || 1 === preg_match('/^[1-9]\d*(?:\.\d+)?px$/D', CssValueInspector::declared($declarations, 'width'));
         $stripChildren = 0;
         foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            $childStyle = strtolower(SourceDom::attr($child, 'style'));
-            if ( 1 !== preg_match('/(?:^|;)\s*(?:flex-shrink\s*:\s*0\b|width\s*:\s*[1-9]\d*(?:\.\d+)?px\b)/', $childStyle) ) {
-                $childStyle = $this->structuralDeclarationString($child);
-            }
-            if ( 1 === preg_match('/(?:^|;)\s*(?:flex-shrink\s*:\s*0\b|width\s*:\s*[1-9]\d*(?:\.\d+)?px\b)/', $childStyle) ) {
+            if ( $child instanceof DOMElement
+                && ( $isStripItem(SourceDeclarations::inline($child)) || $isStripItem($this->presentationResolver->structuralPresentationDeclarations($child)) )
+            ) {
                 ++$stripChildren;
             }
         }
@@ -658,35 +745,17 @@ final class FlowContainerElementConverter implements ElementConverter
         }
 
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( 1 === preg_match('/(?:^|;)\s*overflow(?:-x)?\s*:\s*(?:hidden|clip)\b/', $this->clipDeclarationString($node)) ) {
-                return true;
+            $declarations = array_merge(
+                $this->presentationResolver->authorStructuralDeclarations($node),
+                $this->presentationResolver->structuralPresentationDeclarations($node)
+            );
+            foreach ( array( 'overflow', 'overflow-x' ) as $property ) {
+                if ( in_array(CssValueInspector::declared($declarations, $property), array( 'hidden', 'clip' ), true) ) {
+                    return true;
+                }
             }
         }
 
         return false;
-    }
-
-    private function structuralDeclarationString(DOMElement $element): string
-    {
-        return $this->declarationString($this->presentationResolver->structuralPresentationDeclarations($element));
-    }
-
-    private function clipDeclarationString(DOMElement $element): string
-    {
-        return $this->declarationString(array_merge(
-            $this->presentationResolver->authorStructuralDeclarations($element),
-            $this->presentationResolver->structuralPresentationDeclarations($element)
-        ));
-    }
-
-    /** @param array<string, string> $declarations */
-    private function declarationString(array $declarations): string
-    {
-        $parts = array();
-        foreach ( $declarations as $property => $value ) {
-            $parts[] = strtolower((string) $property) . ':' . strtolower(trim((string) $value));
-        }
-
-        return implode(';', $parts);
     }
 }

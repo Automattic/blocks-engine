@@ -58,22 +58,27 @@ foreach (array('Post footer B', '', 'variant') as $case) {
         }
     }
 }
-// Match the integration capture: pages share both areas, while the sole
-// captured post has no shell. No WordPress runtime is needed to prove that
-// front-page still exposes the portable header reference.
-$files = array();
-foreach (array('index', 'about', 'nested/about') as $name) {
-    $files[$name . '.html'] = '<header><p>Integration Header</p></header><main><h1>' . $name . '</h1></main><footer><p>Integration Footer</p></footer>';
-}
-$files['notes/essay.html'] = '<meta property="article:published_time" content="2024-03-02T10:30:00Z"><main><article>Essay</article></main>';
-$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
-$templates = ThemeTemplates::rendered($plan);
-$parts = array_column($plan['template_parts'], 'canonical_block_markup', 'slug');
-foreach (array('front-page', 'page') as $slug) {
-    foreach (array('header', 'footer') as $area) {
-        $assert(isset($parts[$area]) && str_contains($templates[$slug], '<!-- wp:template-part {"slug":"' . $area . '"'), $slug . ' exposes the shared ' . $area . ' template-part reference');
+// Pages share both areas, while a captured post or page has no shell.
+// The generic single fallback must also work when no posts were captured.
+foreach (array('post', 'page') as $excludedType) {
+    $files = array();
+    foreach (array('index', 'about', 'nested/about') as $name) {
+        $files[$name . '.html'] = '<header><p>Integration Header</p></header><main><h1>' . $name . '</h1></main><footer><p>Integration Footer</p></footer>';
     }
-    $assert(!str_contains($templates[$slug], 'Integration Header'), $slug . ' does not inline the resolved header');
+    $excludedPath = 'post' === $excludedType ? 'notes/essay.html' : 'signin.html';
+    $files[$excludedPath] = 'post' === $excludedType ? '<meta property="article:published_time" content="2024-03-02T10:30:00Z"><main><article>Essay</article></main>' : '<main><h1>Sign in</h1><p>Standalone sign-in page</p></main>';
+    $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+    $templates = ThemeTemplates::rendered($plan);
+    $parts = array_column($plan['template_parts'], 'canonical_block_markup', 'slug');
+    foreach (array('front-page', 'page', 'index', 'search', 'archive', '404', 'single') as $slug) {
+        if ('post' === $excludedType && 'single' === $slug) continue;
+        foreach (array('header', 'footer') as $area) {
+            $assert(isset($parts[$area]) && str_contains($templates[$slug], '<!-- wp:template-part {"slug":"' . $area . '"'), $slug . ' exposes the shared ' . $area . ' template-part reference');
+        }
+        $assert(!str_contains($templates[$slug], 'Integration Header'), $slug . ' does not inline the resolved header');
+    }
+    $excludedTemplate = 'post' === $excludedType ? 'single' : 'page-signin';
+    $assert(isset($templates[$excludedTemplate]) && !str_contains($templates[$excludedTemplate], 'wp:template-part'), 'A shell-less ' . $excludedType . ' keeps its shell-less template');
 }
-$assert(!str_contains($templates['single'], 'wp:template-part'), 'A shell-less post does not inherit the dominant shell');
+
 echo "type-generic-shell: passed\n";

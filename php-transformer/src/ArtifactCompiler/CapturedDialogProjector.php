@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -47,6 +49,7 @@ final class CapturedDialogProjector
         $components = $this->projectComponentCarousels($files);
         $popovers = $this->adoptSourcePopovers($components['files']);
         $result = $this->projectCapturedStates($popovers['files']);
+        $this->dropOrphanDialogBindings($result['files']);
         $this->restoreNavigationPanels($result['files']);
         $this->restoreRemainingPanels($result['files']);
         $result['diagnostics'] = array_merge($result['diagnostics'], $components['diagnostics'] ?? array());
@@ -1098,6 +1101,40 @@ final class CapturedDialogProjector
         unset($file);
     }
 
+    /** Unusable capture wiring must not turn an ordinary control into a runtime island. */
+    private function dropOrphanDialogBindings(array &$files): void
+    {
+        foreach ($files as &$file) {
+            $html = $file['content'] ?? null;
+            if (!is_string($html) || !preg_match('/\.html?$/i', (string) ($file['path'] ?? '')) || !str_contains($html, CaptureEvidence::DIALOG_TRIGGER)) continue;
+            $document = HtmlSerialization::parseDocument($html);
+            if ($this->hasUnrecognizedRuntime($document)) continue;
+            $known = false;
+            foreach ($document->getElementsByTagName('script') as $script) {
+                if ($script->hasAttribute(CaptureEvidence::DISCLOSURE_RUNTIME) && self::isRecognizedRuntimeScript($script, CaptureEvidence::DISCLOSURE_RUNTIME)) $known = true;
+            }
+            if (!$known) continue;
+            $xpath = new DOMXPath($document);
+            $changed = false;
+            foreach ($xpath->query('//*[@' . CaptureEvidence::DIALOG_TRIGGER . ']') ?: array() as $trigger) {
+                if (!$trigger instanceof DOMElement || SourceDom::isBoundCapturedDialogTrigger($trigger) || NavigationPattern::ownsCapturedSubmenuTrigger($trigger) || SourceDom::hasAncestorTag($trigger, array('nav'))) continue;
+                $key = trim($trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER));
+                $panels = $xpath->query('//*[@' . CaptureEvidence::DIALOG_PANEL . '=' . $this->xpathLiteral($key) . ']');
+                // In-place scoped wiring can still be owned by the retained
+                // runtime. Only discard missing or explicitly refused bindings.
+                if (!$trigger->hasAttribute(CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED) && $panels && 0 < $panels->length) continue;
+                if ('' !== $key && $key === trim($trigger->getAttribute('aria-controls'))) {
+                    $trigger->removeAttribute('aria-controls');
+                    $trigger->removeAttribute('aria-expanded');
+                }
+                foreach (array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED) as $attribute) $trigger->removeAttribute($attribute);
+                $changed = true;
+            }
+            if ($changed) $file = ArtifactNormalizer::withTextPayload($file, HtmlSerialization::documentHtml($document));
+        }
+        unset($file);
+    }
+
     /** Close only unowned capture dropdowns still carrying their opened envelope. */
     private function restoreRemainingPanels(array &$files): void
     {
@@ -1652,7 +1689,7 @@ final class CapturedDialogProjector
             'has_close_control' => $hasCloseControl,
             'self_positioned' => $sourceRoot instanceof DOMElement && (
                 1 === preg_match('/(?:^|\s)(?:absolute|fixed|sticky)(?:\s|$)/', $sourceRoot->getAttribute('class'))
-                || 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed|sticky)/i', $sourceRoot->getAttribute('style'))
+                || in_array(CssValueInspector::declared(SourceDeclarations::inline($sourceRoot), 'position'), array( 'absolute', 'fixed', 'sticky' ), true)
             ),
         );
     }

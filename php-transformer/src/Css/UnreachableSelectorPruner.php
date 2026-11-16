@@ -14,9 +14,11 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
  * padded, editor and native-block alternatives. An arm that requires (outside
  * any functional pseudo-class) a class or id named by no source document,
  * script or other non-stylesheet file matched nothing on the source site, so
- * it is dropped with all its alternatives.
+ * it is dropped with all its alternatives. Positive :is(), :where() and
+ * :has() lists must have at least one reachable alternative too.
  *
- * Tokens the converter or WordPress mint are not source evidence and never
+ * Tokens the converter (including route-aligned classes) or WordPress mint
+ * are not source evidence and never
  * decide an arm: `wp-`, `is-`, `has-`, editor and engine names. Neither do
  * state tokens that route-state projection strips from the served item.
  * A string ending in `-` or `_` keeps every token it may build live. An arm with an escaped or non-ASCII identifier is
@@ -24,16 +26,18 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
  */
 final class UnreachableSelectorPruner
 {
-    private const MINTED = '/^(?:wp-|is-|has-|blocks-engine-|be-|editor-|block-editor-|components-)/';
+    private const MINTED = '/^(?:wp-|is-|has-|blocks-engine-|be-|route-class-|editor-|block-editor-|components-)/';
 
     /** @var array<string, true> */
     private array $live = array();
     /** @var list<string> */
     private array $livePrefixes = array();
+    private string $evidenceText;
 
     /** @param list<string> $texts Every non-stylesheet file of the site, including its metadata. */
     public function __construct(array $texts)
     {
+        $this->evidenceText = implode("\n", $texts);
         $prefixes = array();
         foreach ($texts as $text) {
             if (preg_match_all('/[\w-]+/', $text, $matches)) $this->live += array_fill_keys($matches[0], true);
@@ -42,12 +46,25 @@ final class UnreachableSelectorPruner
         $this->livePrefixes = array_keys($prefixes);
     }
 
-    public function prune(string $css): string
+    /** @param bool $preserveIds Keep arms whose only absent tokens are IDs. */
+    public function prune(string $css, bool $preserveIds = false): string
     {
-        $pruned = (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body): string {
+        $pruned = (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body) use ($preserveIds): string {
             $arms = CssStylesheetTransformer::splitSelectorList($prelude);
             if (null === $arms) return $prelude . '{' . $body . '}';
-            $kept = array_values(array_filter($arms, fn (string $arm): bool => $this->reachable($arm)));
+            // Matcher support is not selector validity: generated content and
+            // browser state pseudos can still have provably absent subjects.
+            // Malformed attribute syntax, however, makes a whole list uncertain.
+            foreach ($arms as $arm) {
+                for ($i = 0, $length = strlen($arm); $i < $length; ++$i) {
+                    if ('\\' === $arm[$i]) { ++$i; continue; }
+                    if ('[' !== $arm[$i]) continue;
+                    $close = CssSyntaxScanner::matchingClose($arm, $i);
+                    if (null === $close || !CssSelectorMatcher::parse('*' . substr($arm, $i, $close - $i + 1))['supported']) return $prelude . '{' . $body . '}';
+                    $i = $close;
+                }
+            }
+            $kept = array_values(array_filter($arms, fn (string $arm): bool => $this->reachable($arm, $preserveIds)));
             if (count($kept) === count($arms)) return $prelude . '{' . $body . '}';
             // Comments ahead of the rule (licenses, source maps) stay in place.
             $comments = preg_match('#^(?:\s*/\*.*?\*/)+\s*#s', $prelude, $leading) ? $leading[0] : '';
@@ -63,18 +80,53 @@ final class UnreachableSelectorPruner
         return $pruned;
     }
 
-    public function reachable(string $selector): bool
+    public function reachable(string $selector, bool $preserveIds = false): bool
     {
         $selector = (string) preg_replace('#/\*.*?\*/#s', ' ', $selector);
-        if (str_contains($selector, '\\') || 1 === preg_match('/[^\x20-\x7E\t\n\r]/', $selector)) return true;
-        foreach (self::requiredTokens($selector) as $token) {
+        if (1 === preg_match('/[^\x20-\x7E\t\n\r]/', $selector)) return true;
+        // Escaped punctuation belongs to the identifier, not selector syntax.
+        // Mask it before walking brackets and functional pseudo-classes so
+        // utility names such as md:grid and w-[50%] can be checked too.
+        $selector = (string) preg_replace_callback('/\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n\f])/u', static function (array $match): string {
+            $escape = substr($match[0], 1);
+            $value = preg_match('/^[0-9a-fA-F]/', $escape) ? mb_chr(hexdec(trim($escape)), 'UTF-8') : $escape;
+            return 'BEESC' . bin2hex($value) . 'X';
+        }, $selector);
+        if (str_contains($selector, '\\')) return true;
+        foreach (self::requiredTokens($selector, $preserveIds) as $token) {
             if (!$this->sourceNamed($token)) return false;
+        }
+        // Positive selector-list pseudos require at least one reachable arm.
+        // Compaction wraps otherwise required classes in :is(); ignoring that
+        // wrapper kept entire families of absent framework components alive.
+        // Never infer a requirement from :not() or an attribute value.
+        for ($i = 0, $length = strlen($selector); $i < $length; ++$i) {
+            if ('[' === $selector[$i]) {
+                $close = CssSyntaxScanner::matchingClose($selector, $i);
+                if (null === $close) return true;
+                $i = $close;
+            } elseif ('(' === $selector[$i]) {
+                $close = CssSyntaxScanner::matchingClose($selector, $i);
+                if (null === $close) return true;
+                if (preg_match('/:(?:is|where|has)$/i', substr($selector, 0, $i))) {
+                    $arms = CssStylesheetTransformer::splitSelectorList(substr($selector, $i + 1, $close - $i - 1));
+                    if (null !== $arms && array() !== $arms && !array_filter($arms, fn (string $arm): bool => $this->reachable($arm, $preserveIds))) return false;
+                }
+                $i = $close;
+            }
         }
         return true;
     }
 
     private function sourceNamed(string $token): bool
     {
+        if (str_contains($token, 'BEESC')) {
+            $decoded = (string) preg_replace_callback('/BEESC([0-9a-f]+)X/', static fn (array $match): string => (string) hex2bin($match[1]), $token);
+            // Substring evidence is deliberately conservative: scripts may
+            // construct these names without literal class attributes.
+            if (str_contains($this->evidenceText, $decoded)) return true;
+            $token = $decoded;
+        }
         if (isset($this->live[$token]) || 1 === preg_match(self::MINTED, $token) || 1 === preg_match('/^' . SourceClassIdentity::REVEAL_STATE . '$/i', $token)
             || SourceClassIdentity::containsCurrentStateToken($token)) return true;
         foreach ($this->livePrefixes as $prefix) {
@@ -90,7 +142,7 @@ final class UnreachableSelectorPruner
      *
      * @return list<string>
      */
-    private static function requiredTokens(string $selector): array
+    private static function requiredTokens(string $selector, bool $preserveIds): array
     {
         $outside = '';
         $depth = 0;
@@ -111,7 +163,7 @@ final class UnreachableSelectorPruner
             }
             $outside .= ' ';
         }
-        preg_match_all('/[.#]([\w-]+)/', $outside, $matches);
+        preg_match_all($preserveIds ? '/\.([\w-]+)/' : '/[.#]([\w-]+)/', $outside, $matches);
         return $matches[1];
     }
 }

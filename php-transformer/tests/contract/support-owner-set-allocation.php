@@ -65,6 +65,25 @@ foreach ($owners as $owner) {
 }
 preg_match("/add_action\( 'wp_enqueue_scripts', static function \(\): void \{(.*?)\n\}, 1 \);/s", $bootstrap, $callback);
 $assert(1 === substr_count($callback[1] ?? '', ThemeBootstrap::DOCUMENT_ID_EXPRESSION), 'Styles resolve the current document exactly once.');
+// Home-only geometry precedes a shared button reset, then a home-only modifier.
+$cascadeFiles = array('site.css' => 'body{font-family:Georgia,serif}.intro p{margin:0 0 30px}.btn-pill{display:inline-flex;align-items:center;gap:8px;padding:16px 28px;border:1px solid #0e59f2;border-radius:50px;color:#051634;text-decoration:none}.btn-plain{display:inline;padding:6px 12px;border:1px solid #0e59f2;color:#0e59f2;text-decoration:none}.thumb{width:106px}.roomy img{width:100%;height:auto}');
+for ($i = 0; $i < 4; ++$i) {
+    $path = $i ? 'page-' . $i . '.html' : 'index.html';
+    $cascadeFiles[$path] = '<!doctype html><html><head><title>Page ' . $i . '</title><link rel="stylesheet" href="site.css"></head><body><main>'
+        . ($i ? '' : '<div class="thumb"><img src="a.png" width="106" height="68" alt="A"></div>')
+        . '<div class="intro"><h2>Heading ' . $i . '</h2><p>Copy.</p><a class="' . ($i ? 'btn-plain' : 'btn-pill') . '" href="/x/">More</a></div></main></body></html>';
+}
+$cascadePlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $cascadeFiles))->toArray()['source_reports']['wordpress_site_plan'];
+$cascadeAssets = array_column($cascadePlan['assets'], null, 'target_path');
+$cascadeCss = '';
+foreach (ThemeBootstrap::documentStylesheets($cascadePlan, 'index.html') as $stylesheet) {
+    $asset = $cascadeAssets[$stylesheet['target_path']];
+    if ('engine-support' === ($asset['source'] ?? '')) $cascadeCss .= $asset['content'];
+}
+$reset = strpos($cascadeCss, ':where(.blocks-engine-layout-child-button)>.wp-block-button__link{display:inline!important');
+$modifier = strpos($cascadeCss, '-display-inline-flex)>.wp-block-button__link{display:inline-flex!important}');
+$assert(false !== $reset && false !== $modifier && $modifier > $reset, 'The delivered inline-flex modifier follows the generic inline reset.');
+echo "Support cascade order: PASS\n";
 $realisticFiles = require __DIR__ . '/support-owner-set-realistic-fixture.php';
 $realistic = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $realisticFiles))->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($realistic);

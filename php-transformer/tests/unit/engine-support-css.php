@@ -59,7 +59,7 @@ $assert(1 === count($synthetic), 'synthetic paragraph emits one before-author ru
 $coreDefaults = implode("\n", $css->coreDefaultResetCss(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS));
 $assert(str_contains($coreDefaults, ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}'), 'synthetic paragraph margin reset cancels a core default');
 $assert(str_contains($synthetic[0], ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:inline}'), 'synthetic paragraph has a focusable inline box unless it is a lowered source box');
-$assert(str_contains($synthetic[0], ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'), 'synthetic paragraph that only carries a source anchor stays layout-transparent');
+$assert(str_contains($synthetic[0], ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'), 'layout-owning anchors retain transparent carriers');
 
 $layoutShell = $css->beforeAuthorCss('<!-- wp:blocks-engine/layout-shell -->', 'blocks-engine/layout-shell');
 $assert(array() === $layoutShell, 'layout shells require no editor layer repair');
@@ -91,13 +91,13 @@ $assert(
 
 $neutralButton = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS, 'blocks-engine/layout-shell');
 $assert(1 === count($neutralButton), 'layout-neutral inner button wrapper emits one before-author rule');
+$inner = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
 $assert(
-    ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){display:contents!important}'
-        . LayoutParticipation::transferredFlexContainerPaddingRule('.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.flex,.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.inline-flex')
-        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}'
-        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.flex,.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.inline-flex)>.wp-block-button__link{' . LayoutParticipation::transferredFlexContainerDeclarations() . '}'
-    === $neutralButton[0],
-    'neutralizing the inner wrapper transfers shrink-to-fit onto the first box that still generates, and restores a source flex container onto the link'
+    str_starts_with($neutralButton[0], ':where(.' . $inner . '){display:contents!important}')
+        && str_contains($neutralButton[0], ':where(.' . $inner . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}')
+        && str_contains($neutralButton[0], ':where(.' . $inner . ':not(.' . $inner . '-author-width):not(.' . $inner . '-conditional-width))>.wp-block-button__link{width:fit-content!important}')
+        && str_contains($neutralButton[0], ':where(.' . $inner . ':not(.' . $inner . '-author-height):not(.' . $inner . '-conditional-height))>.wp-block-button__link{height:auto!important}'),
+    'neutralizing the inner wrapper transfers shrink-to-fit onto the first box that still generates, and every page spares author-sized buttons'
 );
 
 $listNavRules = $css->listNavigationHostRepairCss('blocks-engine-list-navigation blocks-engine-native-responsive-navigation', '');

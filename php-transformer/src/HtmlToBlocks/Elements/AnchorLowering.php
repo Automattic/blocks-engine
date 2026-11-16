@@ -16,6 +16,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use DOMElement;
 
 /**
@@ -339,7 +340,86 @@ final class AnchorLowering implements ButtonLinkLeftovers
     }
 
     /**
-     * Preserve a flow-content link as an existing layout shell around editable
+     * Editorial cards and headingless media cards can expose their destination
+     * on native RichText. Media-led heading cards need a separate visual
+     * container; direct-image listings keep their specialized lowering paths.
+     */
+    private function isStretchedLinkCard(DOMElement $anchor): bool
+    {
+        if ( '' === LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'))
+            || ! $this->sourceElementClassifier->isFlowContentAnchor($anchor)
+            || str_contains(strtolower(SourceDom::attr($anchor, 'style')), 'text-decoration') ) {
+            return false;
+        }
+        for ( $parent = $anchor; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( in_array(strtolower($parent->tagName), array('header', 'nav', 'footer'), true)
+                || $parent->hasAttribute('itemscope') || $parent->hasAttribute('itemtype') ) {
+                return false;
+            }
+        }
+        $hasHeading = false;
+        foreach ( array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag ) {
+            $hasHeading = $hasHeading || 0 < $anchor->getElementsByTagName($tag)->length;
+        }
+        $hasImage = 0 < $anchor->getElementsByTagName('img')->length;
+        foreach ( array('video', 'audio', 'time') as $tag ) {
+            if ( 0 < $anchor->getElementsByTagName($tag)->length ) {
+                return false;
+            }
+        }
+        if ( $hasImage && $hasHeading ) {
+            // A separate visual region distinguishes an editorial card from
+            // direct-image listing/featured-image links. Those must retain
+            // their source anchor for site-wide post and query recognition.
+            foreach ( $anchor->getElementsByTagName('img') as $image ) {
+                $visual = $image->parentNode;
+                if ( $visual instanceof DOMElement && 'picture' === strtolower($visual->tagName) ) {
+                    $visual = $visual->parentNode;
+                }
+                if ( ! $visual instanceof DOMElement || $visual === $anchor
+                    || 'div' !== strtolower($visual->tagName) ) {
+                    return false;
+                }
+                foreach ( array('h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p') as $tag ) {
+                    if ( 0 < $visual->getElementsByTagName($tag)->length ) {
+                        return false;
+                    }
+                }
+            }
+        }
+        // Icon labels and headings drawn as SVG retain their source wrapper.
+        foreach ( $anchor->getElementsByTagName('svg') as $svg ) {
+            for ( $parent = $svg->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+                if ( $parent === $anchor || 1 === preg_match('/^h[1-6]$/', strtolower($parent->tagName)) ) {
+                    return false;
+                }
+                if ( $parent->parentNode === $anchor ) {
+                    break;
+                }
+            }
+        }
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true) ) {
+                return false;
+            }
+        }
+        $hasSummary = false;
+        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant->hasAttribute('role') && in_array(strtolower($descendant->getAttribute('role')), array('button', 'link', 'checkbox', 'textbox', 'combobox'), true) ) {
+                return false;
+            }
+            if ( 'p' === strtolower($descendant->tagName)
+                && ! str_contains(SourceDom::attr($descendant, 'class'), 'blocks-engine-synthetic-paragraph') ) {
+                $hasSummary = true;
+            }
+        }
+        return $hasSummary && ($hasHeading || $hasImage
+            || (null !== SourceDom::firstChildElement($anchor, 'div')
+                && null !== SourceDom::firstChildElement($anchor, 'p')));
+    }
+
+    /**
+     * Preserve a flow-content link as a stretched native card, or a layout shell around editable
      * inner blocks. Bare divs keep their line-box boundaries rather than being
      * coalesced across media. Phrasing-only buttons are handled upstream.
      * Media-only wrappers retain native image-link/lightbox handling; if no
@@ -350,7 +430,19 @@ final class AnchorLowering implements ButtonLinkLeftovers
      */
     public function convertLinkWrapperGroup(DOMElement $anchor, array &$fallbacks): ?array
     {
-        $children = $this->tree->children($anchor, $fallbacks, true, $this->sourceElementClassifier->isFlowContentAnchor($anchor));
+        $interactive = false;
+        foreach ( array('a', 'button', 'input', 'select', 'textarea') as $tag ) {
+            if ( 0 < $anchor->getElementsByTagName($tag)->length ) {
+                $interactive = true;
+                break;
+            }
+        }
+        $eligible = ! $interactive && $this->isStretchedLinkCard($anchor);
+        $preserveContainers = ! $eligible;
+        $children = $this->tree->children($anchor, $fallbacks, true, $preserveContainers && $this->sourceElementClassifier->isFlowContentAnchor($anchor));
+        if ( array() === $children && $this->sourceElementClassifier->isFlowContentAnchor($anchor) ) {
+            $children = $this->tree->children($anchor, $fallbacks, true, true);
+        }
         if ( array() === $children ) {
             return null;
         }
@@ -363,10 +455,18 @@ final class AnchorLowering implements ButtonLinkLeftovers
         if ( $this->imageLowering->imageLinkOpensNativeLightbox($anchor) && $this->imageLowering->enableNativeLightboxOnImages($children) ) {
             return $this->blocks->createBlock('core/group', $this->styleResolver->presentationAttributes($anchor), $children, $anchor);
         }
-        // Keep a flow-content anchor as one clickable container. The existing
-        // layout shell saves exact wrapper attributes around editable blocks;
-        // unlike link propagation it also retains ancestor selectors and hitbox.
+        // Native cards use one RichText destination and a stretched hitbox.
+        // Retain the exact wrapper when another control needs its own hitbox,
+        // or when there is no editable text that can own the destination.
+        $stretched = false;
         if ( $this->sourceElementClassifier->isFlowContentAnchor($anchor) ) {
+            $stretched = $eligible && array() !== $linkAttrs
+                && $this->linkWrapperPropagator->propagateStretchedLink($children, $linkAttrs);
+        }
+        if ( $this->sourceElementClassifier->isFlowContentAnchor($anchor) && ! $stretched ) {
+            if ( ! $preserveContainers ) {
+                $children = $this->tree->children($anchor, $fallbacks, true, true);
+            }
             $href = LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'));
             if ( '' === $href ) {
                 $anchor->removeAttribute('href');
@@ -375,13 +475,20 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
             return $this->layoutShells->blockForElements(array($anchor), $children, $anchor);
         }
-        if ( array() !== $linkAttrs && ! $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs) ) {
+        if ( ! $stretched && array() !== $linkAttrs && ! $this->linkWrapperPropagator->propagateLinkWrapper($children, $linkAttrs) ) {
             $this->recordDroppedLinkWrapper($anchor);
         }
         // The link now lives on the children, so the group is the anchor's box.
         // An author rule that selects the anchor (a card link laid out as a
         // flex column) must follow it onto the group via a semantic marker.
         $attrs = $this->styleResolver->presentationAttributes($anchor);
+        if ( $stretched ) {
+            $id = SourceDom::safeAnchor(SourceDom::attr($anchor, 'id'));
+            if ( '' !== $id ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), EngineMarker::editorAnchorClass($id));
+            }
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS);
+        }
         $path = $anchor->getNodePath() ?? '';
         $projections = $this->session->authorSelectorProjectionState();
         if ( '' !== $path && $projections->isControlPath($path) ) {
