@@ -56,6 +56,14 @@ final class ButtonElementConverter implements ElementConverter
             }
         }
 
+        // A photo control is a native container around editable core images,
+        // not an opaque authored-button contentParts tree. Keep the button's
+        // containing block so percentage-sized thumbnails retain their geometry.
+        if ( $this->hasContentScaleImage($element) && '' === trim($element->textContent) ) {
+            $container = $this->context->convertButtonWrapperGroup($element, $fallbacks);
+            if ( null !== $container ) return ConversionOutcome::handled($container);
+        }
+
         if ( $this->hasAccessibleIconOnlyContent($element) ) {
             return ConversionOutcome::handled($this->context->runtimeButton($element));
         }

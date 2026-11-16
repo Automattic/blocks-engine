@@ -111,8 +111,8 @@ $assert(array( 'Select option' ) === array_slice($session->transformationEvidenc
 $plainButton = $elementFrom('<button type="submit">Send</button>', 'button');
 $assert(null === $converter->button($plainButton), 'unstyled-button-declines-authored-block');
 $forcedButton = $converter->button($plainButton, true);
-$assert($registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME) === ($forcedButton['blockName'] ?? ''), 'force-native-button-uses-authored-button-block');
-$assert('<button type="submit">Send</button>' === ($forcedButton['innerHTML'] ?? ''), 'force-native-button-emits-native-markup');
+$assert('core/button' === ($forcedButton['blockName'] ?? ''), 'force-native-plain-button-uses-core-button');
+$assert('button' === ($forcedButton['attrs']['tagName'] ?? '') && 'submit' === ($forcedButton['attrs']['type'] ?? '') && 'Send' === ($forcedButton['attrs']['text'] ?? ''), 'force-native-button-retains-native-action-and-label');
 
 $styledButton = $elementFrom('<button data-styled type="submit" class="send" style="letter-spacing:0.1em">Join &amp; Go</button>', 'button');
 $buttonBlock = $converter->button($styledButton);

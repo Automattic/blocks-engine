@@ -28,7 +28,14 @@ add_filter( 'render_block', static function ( string $content, array $block ): s
             foreach ( $box as $name => $value ) {
                 if ( is_string( $name ) && is_string( $value ) && preg_match( '/^(?:class|style|id|type|name|title|tabindex|disabled|hidden|role|data-(?!wp-)[a-z0-9_.:-]+|aria-[a-z-]+)$/D', $name ) ) $processor->set_attribute( $name, $value );
             }
-            return $processor->get_updated_html();
+            $content = $processor->get_updated_html();
+            if ( 'button' === ( $block['attrs']['metadata']['blocksEngineControlTagName'] ?? null ) ) {
+                // Core's editor keeps a selectable group; the published control
+                // must remain a native button, without an extra containing box.
+                $content = preg_replace( '/^<div\b/', '<button', $content, 1 );
+                $content = preg_replace( '/<\/div>\s*$/', '</button>', $content, 1 );
+            }
+            return $content;
         }
     }
     $attributes = $block['attrs']['metadata']['blocksEngineRuntimeAttributes'] ?? null;
