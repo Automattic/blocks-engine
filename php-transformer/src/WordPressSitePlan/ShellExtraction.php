@@ -2052,18 +2052,22 @@ final class ShellExtraction
         }
         // A shared landmark can have route-local presentation. Keep those
         // variants editable without substituting the dominant route's paint.
-        // A matching source anchor proves shell ownership; unrelated article
-        // headers and unlabelled route content must not be promoted.
+        // A matching source anchor or authored landmark wrapper proves shell
+        // ownership; unrelated article headers must not be promoted.
         foreach ($parts as $part) {
             if ('header' !== ($part['area'] ?? null)) continue;
             $partIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($part['canonical_block_markup']);
             $anchors = array();
+            $wrappers = array();
             foreach ($partIndex->tokens() as $token) {
                 if ($token['closing']) continue;
                 $attrs = json_decode($token['attributes'], true);
-                if ('header' === ($attrs['tagName'] ?? null) && !empty($attrs['anchor'])) $anchors[$attrs['anchor']] = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
+                if ('header' !== ($attrs['tagName'] ?? null)) continue;
+                $wrapper = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
+                if (!empty($attrs['anchor'])) $anchors[$attrs['anchor']] = $wrapper;
+                elseif (!empty($attrs['className'])) $wrappers[] = $wrapper;
             }
-            if (array() === $anchors) continue;
+            if (array() === $anchors && array() === $wrappers) continue;
             foreach ($pages as $index => $page) {
                 // Do not promote a second occurrence on a route that already
                 // contributed its shell, or one retained for unsafe placement.
@@ -2075,18 +2079,29 @@ final class ShellExtraction
                 $row = $rows[0];
                 $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($row['markup']))->tokens();
                 $attrs = json_decode($tokens[0]['attributes'] ?? '', true);
-                if (!isset($anchors[$attrs['anchor'] ?? ''])) continue;
-                // Descendant paint and navigation selection remain route-owned.
-                // Layout differences, however, can describe a distinct shell
-                // even when its landmark wrapper has identical attributes.
-                if (array($attrs['style'] ?? array(), $attrs['className'] ?? '') === $anchors[$attrs['anchor']]
-                    && self::descendantShellLayout($row['markup']) === self::descendantShellLayout($part['canonical_block_markup'])) continue;
+                $wrapper = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
+                $sharedWrapper = $anchors[$attrs['anchor'] ?? ''] ?? null;
+                // An unanchored landmark can still prove route-shell ownership
+                // through the same authored wrapper and copy. Keep its layout
+                // in a route-local part rather than freezing the donor's paint.
+                if (null === $sharedWrapper && empty($attrs['anchor']) && in_array($wrapper, $wrappers, true)) $sharedWrapper = $wrapper;
+                if (null === $sharedWrapper) continue;
+                // Navigation-only exclusions remain route-owned unless layout
+                // differs. A bound control, however, must move with its shell
+                // into an editable part, even when block layout is identical.
                 if (self::textRuns($row['markup']) !== self::textRuns($part['canonical_block_markup'])) continue;
                 $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
-                if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
+                if ($bindings['blocked']) continue;
+                if ((!empty($attrs['anchor']) || (array() === $bindings['refs'] && str_contains($row['markup'], '<!-- wp:navigation '))) && $wrapper === $sharedWrapper
+                    && self::descendantShellLayout($row['markup']) === self::descendantShellLayout($part['canonical_block_markup'])) continue;
+                $hoist = array() === $bindings['refs'] ? null : $this->sharedShellBindingHoist($runtimeDeclarations, $pages, array($index), array($index => $bindings['refs']), $row + array('template_part_markup' => $row['markup']), 'header');
+                if (array() !== $bindings['refs'] && null === $hoist) continue;
                 $edges = array($index => array($row + array('identity' => $row['identity_markup'], 'nested' => true)));
                 $slug = 'header-' . substr(hash('sha256', $page['source_path']), 0, 12);
-                $variants = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), 'header', array_fill_keys(array_column($parts, 'slug'), true), $runtimeDeclarations, $slug);
+                $partSourcePath = 'wordpress-site-plan/shared/' . $slug . '#header';
+                $variantDeclarations = null === $hoist ? $runtimeDeclarations : self::applySharedShellBindingHoist($runtimeDeclarations, $hoist, $partSourcePath);
+                $variants = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), 'header', array_fill_keys(array_column($parts, 'slug'), true), $variantDeclarations, $slug);
+                if (array() !== $variants['parts']) $runtimeDeclarations = $variantDeclarations;
                 $pages = $variants['pages'];
                 array_push($parts, ...$variants['parts']);
                 array_push($diagnostics, ...$variants['diagnostics']);
@@ -2106,6 +2121,12 @@ final class ShellExtraction
             $attrs = json_decode($token['attributes'], true);
             if (!self::isGroupBlock($token['token']) || 'header' === ($attrs['tagName'] ?? '')) continue;
             $style = array_intersect_key($attrs['style'] ?? array(), array_flip(array('spacing', 'dimensions', 'layout', 'position', 'shadow')));
+            // CSS-owned layout is represented by a scoped class rather than
+            // block style attributes. Preserve that layout identity too.
+            $classes = preg_split('/\s+/', trim($attrs['className'] ?? ''));
+            if (in_array('blocks-engine-css-owned-layout', $classes, true)) {
+                $style['css_layout_classes'] = array_values(array_filter($classes, static fn(string $class): bool => str_starts_with($class, 'route-class-')));
+            }
             if (array() !== $style) $layout[] = $style;
         }
         return $layout;
