@@ -1019,12 +1019,11 @@ final class SharedChromeStylesheets
      */
     public static function project(array $assets, array $parts, array $pages = array(), ?AssetReferenceCanonicalizer $references = null, array &$collisions = array(), ?array $liveElementMarkers = null): array
     {
-        $routeIdentities = array();
+        $routeClasses = array();
         foreach ($pages as $page) {
-            $source = (string) $page['source_path'];
-            $routeIdentities[$source] = WordPressSitePlan::identity('page', $source, $source);
+            $class = DocumentRootContext::stampedRouteClass($page);
+            if (null !== $class) $routeClasses[(string) $page['source_path']] = $class;
         }
-        $routeClasses = DocumentRootContext::routeClasses(array_values($routeIdentities));
         [
             'classes' => $classes,
             'control_routes' => $controlRoutes,
@@ -1036,7 +1035,7 @@ final class SharedChromeStylesheets
             'hook_routes' => $hookRoutes,
             'detached_hooks' => $detachedHooks,
             'has_shared_navigation' => $hasSharedNavigation,
-        ] = self::chromeEvidence($parts, $routeIdentities, $routeClasses);
+        ] = self::chromeEvidence($parts, $routeClasses);
         $routeHooks = self::routeKeptHooks($assets, $pages, $authored, $hookRoutes, $chromeElements);
         $classes = array_diff_key($classes, $routeHooks['marker']);
         unset($routeHooks['marker']);
@@ -1110,7 +1109,7 @@ final class SharedChromeStylesheets
             }
             $route = self::routeRules($asset['content'], $targetsChrome, $classMatcher);
             $contract = self::sharedChromeContract($asset);
-            $sharedAsset = self::sharedChromeAsset($asset, $shared, $contract, $routeIdentities, $routeClasses);
+            $sharedAsset = self::sharedChromeAsset($asset, $shared, $contract, $routeClasses);
             $shared = (string) $sharedAsset['content'];
             $asset = CompiledAssets::withRewrittenTextContent($asset, $route);
             $keep($asset);
@@ -1150,11 +1149,10 @@ final class SharedChromeStylesheets
      * context they were hoisted out of.
      *
      * @param array<int,array<string,mixed>> $parts
-     * @param array<string,string> $routeIdentities
-     * @param array<string,string> $routeClasses
+     * @param array<string,string> $routeClasses Stamped route class by page source path.
      * @return array<string,mixed>
      */
-    private static function chromeEvidence(array $parts, array $routeIdentities, array $routeClasses): array
+    private static function chromeEvidence(array $parts, array $routeClasses): array
     {
         $classes = array();
         $controlRoutes = array();
@@ -1178,7 +1176,7 @@ final class SharedChromeStylesheets
             preg_match_all('/\bblocks-engine-control-[a-f0-9]{12}-[0-9]+\b/', $markup, $controls);
             foreach ($controls[0] as $control) {
                 foreach ($sources as $source) {
-                    if (isset($routeIdentities[$source])) $controlRoutes[$control][$routeClasses[$routeIdentities[$source]]] = true;
+                    if (isset($routeClasses[$source])) $controlRoutes[$control][$routeClasses[$source]] = true;
                 }
             }
             $hasSharedNavigation = $hasSharedNavigation || 1 === preg_match('/<!--\s*wp:navigation(?:\s|\/|-->)/', $markup);
@@ -1402,11 +1400,10 @@ final class SharedChromeStylesheets
      * their capture covered.
      *
      * @param array<string,mixed> $asset
-     * @param array<string,string> $routeIdentities
-     * @param array<string,string> $routeClasses
+     * @param array<string,string> $routeClasses Stamped route class by page source path.
      * @return array<string,mixed>
      */
-    private static function sharedChromeAsset(array $asset, string $shared, string $contract, array $routeIdentities, array $routeClasses): array
+    private static function sharedChromeAsset(array $asset, string $shared, string $contract, array $routeClasses): array
     {
         $sharedAsset = $asset;
         // Address the target by what is enqueued, not only the text: the same
@@ -1425,7 +1422,7 @@ final class SharedChromeStylesheets
         foreach ($asset['scopes'] ?? array() as $scope) {
             if ('global' === ($scope['kind'] ?? null)) $global = true;
             $source = $scope['source_path'] ?? '';
-            if (isset($routeIdentities[$source])) $scopeClasses[$routeClasses[$routeIdentities[$source]]] = true;
+            if (isset($routeClasses[$source])) $scopeClasses[$routeClasses[$source]] = true;
         }
         if ('editor-static-state' === ($asset['source'] ?? null) && !$global && $scopeClasses) {
             $gate = ':where(:root:is(.' . implode(',.', array_keys($scopeClasses)) . '))';
