@@ -35,7 +35,7 @@ final class UnreachableSelectorPruner
     private string $evidenceText;
 
     /** @param list<string> $texts Every non-stylesheet file of the site, including its metadata. */
-    public function __construct(array $texts, private bool $preserveIds = false)
+    public function __construct(array $texts)
     {
         $this->evidenceText = implode("\n", $texts);
         $prefixes = array();
@@ -46,9 +46,10 @@ final class UnreachableSelectorPruner
         $this->livePrefixes = array_keys($prefixes);
     }
 
-    public function prune(string $css): string
+    /** @param bool $preserveIds Keep arms whose only absent tokens are IDs. */
+    public function prune(string $css, bool $preserveIds = false): string
     {
-        $pruned = (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body): string {
+        $pruned = (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body) use ($preserveIds): string {
             $arms = CssStylesheetTransformer::splitSelectorList($prelude);
             if (null === $arms) return $prelude . '{' . $body . '}';
             // Matcher support is not selector validity: generated content and
@@ -63,7 +64,7 @@ final class UnreachableSelectorPruner
                     $i = $close;
                 }
             }
-            $kept = array_values(array_filter($arms, fn (string $arm): bool => $this->reachable($arm)));
+            $kept = array_values(array_filter($arms, fn (string $arm): bool => $this->reachable($arm, $preserveIds)));
             if (count($kept) === count($arms)) return $prelude . '{' . $body . '}';
             // Comments ahead of the rule (licenses, source maps) stay in place.
             $comments = preg_match('#^(?:\s*/\*.*?\*/)+\s*#s', $prelude, $leading) ? $leading[0] : '';
@@ -79,7 +80,7 @@ final class UnreachableSelectorPruner
         return $pruned;
     }
 
-    public function reachable(string $selector): bool
+    public function reachable(string $selector, bool $preserveIds = false): bool
     {
         $selector = (string) preg_replace('#/\*.*?\*/#s', ' ', $selector);
         if (1 === preg_match('/[^\x20-\x7E\t\n\r]/', $selector)) return true;
@@ -92,7 +93,7 @@ final class UnreachableSelectorPruner
             return 'BEESC' . bin2hex($value) . 'X';
         }, $selector);
         if (str_contains($selector, '\\')) return true;
-        foreach (self::requiredTokens($selector, $this->preserveIds) as $token) {
+        foreach (self::requiredTokens($selector, $preserveIds) as $token) {
             if (!$this->sourceNamed($token)) return false;
         }
         // Positive selector-list pseudos require at least one reachable arm.
@@ -109,7 +110,7 @@ final class UnreachableSelectorPruner
                 if (null === $close) return true;
                 if (preg_match('/:(?:is|where|has)$/i', substr($selector, 0, $i))) {
                     $arms = CssStylesheetTransformer::splitSelectorList(substr($selector, $i + 1, $close - $i - 1));
-                    if (null !== $arms && array() !== $arms && !array_filter($arms, fn (string $arm): bool => $this->reachable($arm))) return false;
+                    if (null !== $arms && array() !== $arms && !array_filter($arms, fn (string $arm): bool => $this->reachable($arm, $preserveIds))) return false;
                 }
                 $i = $close;
             }

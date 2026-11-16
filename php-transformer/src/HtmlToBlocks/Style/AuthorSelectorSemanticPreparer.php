@@ -61,7 +61,7 @@ final class AuthorSelectorSemanticPreparer
             array_column($session->runtimeBehaviorState()->runtimeProjectionScriptAssets(), 'content'),
             'is_string'
         ));
-        $authorStyles->siteSelectorEvidence = is_array($options['site_selector_evidence'] ?? null) ? $options['site_selector_evidence'] : null;
+        $authorStyles->siteSelectorPruner = ($options['site_selector_pruner'] ?? null) instanceof \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner ? $options['site_selector_pruner'] : null;
         $session->installAuthorStyleAnalysis($authorStyles);
         $sourceStyles = $session->sourceStyleResolutionState();
         $projections = $session->authorSelectorProjectionState();

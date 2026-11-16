@@ -362,6 +362,11 @@ final class CommerceStructureRecognizer
             if ( ! $includeNavigation && $this->isInCardNavigation($descendant, $card) ) {
                 continue;
             }
+            // A link into a category or tag archive names a taxonomy term, such
+            // as a post filed under "Buy"; it never performs a purchase.
+            if ( 'a' === $tagName && self::isTermArchiveLink($descendant) ) {
+                continue;
+            }
 
             // Whole-card prose and identity attributes are not action labels.
             if ( $includeNavigation && 'a' === $tagName && $this->navigatesAway(SourceDom::attr($descendant, 'href')) ) {
@@ -409,6 +414,16 @@ final class CommerceStructureRecognizer
         }
 
         return null;
+    }
+
+    private static function isTermArchiveLink(DOMElement $link): bool
+    {
+        if ( array() !== array_intersect(array( 'tag', 'category' ), preg_split('/\s+/', strtolower(SourceDom::attr($link, 'rel'))) ?: array()) ) {
+            return true;
+        }
+        $segments = array_values(array_filter(explode('/', strtolower(rawurldecode((string) parse_url(SourceDom::attr($link, 'href'), PHP_URL_PATH)))), 'strlen'));
+
+        return count($segments) >= 2 && in_array($segments[count($segments) - 2], array( 'category', 'categories', 'tag', 'tags' ), true);
     }
 
     /** A document link needs an action label or an explicit cart/checkout target. */

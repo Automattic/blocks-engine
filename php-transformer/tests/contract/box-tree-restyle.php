@@ -29,10 +29,12 @@ foreach (array(false, true, 'v1') as $mode) {
     if ('v1' === $mode) $assert(in_array('box_tree_schema_invalid', array_column($compiled['diagnostics'], 'code'), true), 'v1 evidence is rejected and retains the author-CSS path.');
     $plan = $result->toWordPressSitePlanView()['wordpress_site_plan'];
     $css = implode("\n", array_column(array_filter($compiled['assets'], static fn(array $a): bool => 'css' === ($a['kind'] ?? null)), 'content'));
-    $assert($captured === str_contains($css, 'opacity:0.75!important'), 'Per-node observed paint is emitted only with accepted evidence.');
+    $assert($captured === str_contains($css, 'opacity:0.75'), 'Per-node observed paint is emitted only with accepted evidence.');
     $assert($captured === str_contains($css, '@media (max-width:390px)'), 'Observed mobile viewport produces a delta rule.');
     if ($captured) {
-        $assert(str_contains($css, 'opacity:1!important'), 'Mobile delta retains reset to the initial value.');
+        $assert(str_contains($css, 'opacity:1'), 'Mobile delta retains reset to the initial value.');
+        $assert(!str_contains($css, '!important'), 'Engine box-tree rules remain overridable by editor styles.');
+        $assert(1 === preg_match('/\.([a-zA-Z_][a-zA-Z0-9_-]*)\.\1\{/', $css), 'Engine selectors repeat their carrier to outrank core block and layout rules.');
         $assert(!str_contains($compiled['serialized_blocks'], 'data-blocks-engine-node-id'), 'Capture identity does not leak into blocks.');
         $assert(!empty($plan['pages'][0]['document_metadata']['engine_owned_styles']), 'Evidence ownership reaches canonical page metadata.');
         $assets = array_column($plan['assets'], null, 'target_path');
