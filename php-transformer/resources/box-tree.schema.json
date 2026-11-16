@@ -21,6 +21,14 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     },
+    "includes": {
+      "description": "Exact artifact-relative paths and SHA-256 hashes of raw bytes for every transitively included HTML part. Required when includes are present.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
     "viewports": {
       "type": "object",
       "minProperties": 1,
