@@ -11,6 +11,7 @@ foreach (array(
     '<img src="product.jpg" alt=""><div><p>Brand</p><p>Product</p><p>Price</p></div>',
     '<div><img src="product.jpg" alt=""></div><div><p>Brand</p><p>Product</p><p>Price</p></div>',
     '<div class="visual"><img src="service.jpg" alt=""></div><div class="body"><h3>Service</h3><p>Description</p><span>Learn more →</span></div>',
+    '<div class="card__bg"><img src="category.jpg" alt=""></div><div class="overlay"><p>Category</p><h3>Service</h3><p>Description</p></div>',
 ) as $content) {
     $out = (new HtmlTransformer())->transform('<main><a class="group" href="/destination/">' . $content . '</a></main>')->toArray();
     $markup = $out['serialized_blocks'];
