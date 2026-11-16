@@ -92,6 +92,13 @@ final class BlockFactory
         $name = (string) ($block['blockName'] ?? '');
         $innerBlocks = ArrayField::array($block, 'innerBlocks');
         $rebuilt = $this->create($name, $attrs, $innerBlocks);
+        // Generated/custom blocks own their save implementation. The core
+        // factory cannot regenerate it from attributes; retain its literal
+        // fragments and child slots rather than replacing them with ''.
+        if ( ! str_starts_with($name, 'core/') ) {
+            $rebuilt['innerHTML'] = $block['innerHTML'] ?? '';
+            $rebuilt['innerContent'] = $block['innerContent'] ?? array();
+        }
         foreach ( $block as $key => $value ) {
             if ( is_string($key) && str_starts_with($key, '_') ) {
                 $rebuilt[$key] = $value;
@@ -1215,7 +1222,7 @@ final class BlockFactory
     private function styleSupport(mixed $style): array
     {
         if ( is_array($style) ) {
-            return $this->styleMapper()->serialize($style);
+            return $this->styleMapper()->serialize($style, true);
         }
 
         return array(

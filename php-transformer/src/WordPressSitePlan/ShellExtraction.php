@@ -2031,18 +2031,14 @@ final class ShellExtraction
                 [$templateSlugs, $excludedTemplateSlugs] = $assignment;
             }
             $singlePage = 1 === count($applicable) && 1 === count($cluster['indexes']);
-            if (null !== $bindingHoist && $singlePage) {
-                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because it contains a runtime entity binding anchor.", 'area' => $area, 'source_path' => $pages[$cluster['indexes'][0]]['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding', $candidates));
-                continue;
-            }
             foreach ($withoutShells as $index => $withoutShell) {
                 $pages[$index]['canonical_block_markup'] = $withoutShell;
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
             }
-            if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, 'wordpress-site-plan/shared/' . $partSlug . '#' . $area);
+            $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $partSlug;
+            if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, $sourcePath . '#' . $area);
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
             $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);
-            $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $partSlug;
             $placement = $inlineShell ? 'inline_shared_shell' : ($singlePage ? 'entry_shell' : 'shared_shell');
             if ($inlineShell) { $templateSlugs = array(); $excludedTemplateSlugs = array(); }
             elseif ($singlePage) $templateSlugs = WordPressSitePlan::NATIVE_TEMPLATE_SLUGS;
@@ -2056,18 +2052,22 @@ final class ShellExtraction
         }
         // A shared landmark can have route-local presentation. Keep those
         // variants editable without substituting the dominant route's paint.
-        // A matching source anchor proves shell ownership; unrelated article
-        // headers and unlabelled route content must not be promoted.
+        // A matching source anchor or authored landmark wrapper proves shell
+        // ownership; unrelated article headers must not be promoted.
         foreach ($parts as $part) {
             if ('header' !== ($part['area'] ?? null)) continue;
             $partIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($part['canonical_block_markup']);
             $anchors = array();
+            $wrappers = array();
             foreach ($partIndex->tokens() as $token) {
                 if ($token['closing']) continue;
                 $attrs = json_decode($token['attributes'], true);
-                if ('header' === ($attrs['tagName'] ?? null) && !empty($attrs['anchor'])) $anchors[$attrs['anchor']] = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
+                if ('header' !== ($attrs['tagName'] ?? null)) continue;
+                $wrapper = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
+                if (!empty($attrs['anchor'])) $anchors[$attrs['anchor']] = $wrapper;
+                elseif (!empty($attrs['className'])) $wrappers[] = $wrapper;
             }
-            if (array() === $anchors) continue;
+            if (array() === $anchors && array() === $wrappers) continue;
             foreach ($pages as $index => $page) {
                 // Do not promote a second occurrence on a route that already
                 // contributed its shell, or one retained for unsafe placement.
@@ -2079,16 +2079,29 @@ final class ShellExtraction
                 $row = $rows[0];
                 $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($row['markup']))->tokens();
                 $attrs = json_decode($tokens[0]['attributes'] ?? '', true);
-                // Descendant-only differences may be navigation current state or
-                // deliberately retained route content. A shared anchor alone is
-                // not evidence of a distinct landmark presentation.
-                if (!isset($anchors[$attrs['anchor'] ?? '']) || array($attrs['style'] ?? array(), $attrs['className'] ?? '') === $anchors[$attrs['anchor']]) continue;
+                $wrapper = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
+                $sharedWrapper = $anchors[$attrs['anchor'] ?? ''] ?? null;
+                // An unanchored landmark can still prove route-shell ownership
+                // through the same authored wrapper and copy. Keep its layout
+                // in a route-local part rather than freezing the donor's paint.
+                if (null === $sharedWrapper && empty($attrs['anchor']) && in_array($wrapper, $wrappers, true)) $sharedWrapper = $wrapper;
+                if (null === $sharedWrapper) continue;
+                // Navigation-only exclusions remain route-owned unless layout
+                // differs. A bound control, however, must move with its shell
+                // into an editable part, even when block layout is identical.
                 if (self::textRuns($row['markup']) !== self::textRuns($part['canonical_block_markup'])) continue;
                 $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
-                if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
+                if ($bindings['blocked']) continue;
+                if ((!empty($attrs['anchor']) || (array() === $bindings['refs'] && str_contains($row['markup'], '<!-- wp:navigation '))) && $wrapper === $sharedWrapper
+                    && self::descendantShellLayout($row['markup']) === self::descendantShellLayout($part['canonical_block_markup'])) continue;
+                $hoist = array() === $bindings['refs'] ? null : $this->sharedShellBindingHoist($runtimeDeclarations, $pages, array($index), array($index => $bindings['refs']), $row + array('template_part_markup' => $row['markup']), 'header');
+                if (array() !== $bindings['refs'] && null === $hoist) continue;
                 $edges = array($index => array($row + array('identity' => $row['identity_markup'], 'nested' => true)));
                 $slug = 'header-' . substr(hash('sha256', $page['source_path']), 0, 12);
-                $variants = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), 'header', array_fill_keys(array_column($parts, 'slug'), true), $runtimeDeclarations, $slug);
+                $partSourcePath = 'wordpress-site-plan/shared/' . $slug . '#header';
+                $variantDeclarations = null === $hoist ? $runtimeDeclarations : self::applySharedShellBindingHoist($runtimeDeclarations, $hoist, $partSourcePath);
+                $variants = $this->edgeVariantParts($pages, $edges, array(array('indexes' => array($index), 'length' => 1)), 'header', array_fill_keys(array_column($parts, 'slug'), true), $variantDeclarations, $slug);
+                if (array() !== $variants['parts']) $runtimeDeclarations = $variantDeclarations;
                 $pages = $variants['pages'];
                 array_push($parts, ...$variants['parts']);
                 array_push($diagnostics, ...$variants['diagnostics']);
@@ -2096,6 +2109,27 @@ final class ShellExtraction
         }
         foreach ($pages as &$page) unset($page['shell_candidates'], $page['_source_shared_variant_identities']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /** Layout evidence below the landmark, excluding menu-item state and paint. */
+    private static function descendantShellLayout(string $markup): array
+    {
+        $layout = array();
+        $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup))->tokens();
+        foreach ($tokens as $token) {
+            if ($token['closing']) continue;
+            $attrs = json_decode($token['attributes'], true);
+            if (!self::isGroupBlock($token['token']) || 'header' === ($attrs['tagName'] ?? '')) continue;
+            $style = array_intersect_key($attrs['style'] ?? array(), array_flip(array('spacing', 'dimensions', 'layout', 'position', 'shadow')));
+            // CSS-owned layout is represented by a scoped class rather than
+            // block style attributes. Preserve that layout identity too.
+            $classes = preg_split('/\s+/', trim($attrs['className'] ?? ''));
+            if (in_array('blocks-engine-css-owned-layout', $classes, true)) {
+                $style['css_layout_classes'] = array_values(array_filter($classes, static fn(string $class): bool => str_starts_with($class, 'route-class-')));
+            }
+            if (array() !== $style) $layout[] = $style;
+        }
+        return $layout;
     }
 
     /**
@@ -3683,7 +3717,12 @@ final class ShellExtraction
         );
         if ($analysis['truncated']) return $pages;
         $entry = null;
-        foreach ($pages as $page) if (!empty($page['entrypoint'])) $entry = $page['route']['path'] ?? '/';
+        $entryTitle = '';
+        foreach ($pages as $page) {
+            if (empty($page['entrypoint'])) continue;
+            $entry = $page['route']['path'] ?? '/';
+            $entryTitle = trim(preg_replace('/\s+/u', ' ', (string) ($page['document_metadata']['title'] ?? '')) ?? '');
+        }
         if (null === $entry) return $pages;
         $subjectIndex = \Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex::build($analysis['rules']);
         $visibility = (new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer())->analyze(
@@ -3781,7 +3820,7 @@ final class ShellExtraction
                     // colour or underline after moving presentation to the title.
                     $attrs['style']['elements']['link']['color']['text'] = 'inherit';
                     $attrs['style']['elements']['link']['typography']['textDecoration'] = $presentation['text-decoration-line'] ?? 'none';
-                    $evidence[$signature][$index][] = array('candidate' => $candidateIndex, 'offset' => $node['offset'], 'length' => $node['end'] - $node['offset'], 'leaf_offset' => $leaf['offset'], 'leaf_length' => $leaf['end'] - $leaf['offset'], 'attributes' => $attrs, 'entrypoint_heading' => !empty($page['entrypoint']) && 'heading' === $leaf['name']);
+                    $evidence[$signature][$index][] = array('candidate' => $candidateIndex, 'offset' => $node['offset'], 'length' => $node['end'] - $node['offset'], 'leaf_offset' => $leaf['offset'], 'leaf_length' => $leaf['end'] - $leaf['offset'], 'attributes' => $attrs, 'entrypoint_heading' => !empty($page['entrypoint']) && 'heading' === $leaf['name'], 'matches_site_title' => '' !== $entryTitle && $text === $entryTitle);
                 }
             }
         }
@@ -3803,6 +3842,13 @@ final class ShellExtraction
                 $identity = substr_replace($markup, '<!-- shared-wordmark:' . $signature . ' -->', $match['offset'], $match['length']);
                 $candidate['identity_markup'] = ChromeIdentity::markup($identity);
                 $candidate['wordmark_route_state'] = true;
+                // Shared branding establishes shell identity even when its label
+                // is not the configured site title. Keep that authored leaf:
+                // core/site-title would replace it with the entry document title.
+                if (!$match['matches_site_title']) {
+                    unset($candidate);
+                    continue;
+                }
                 $part = substr_replace($markup, $replacement, $match['leaf_offset'], $match['leaf_length']);
                 $candidate['template_part_markup'] = self::landmarkPartMarkup(RestingNavigation::markup($part), 'header');
                 unset($candidate);

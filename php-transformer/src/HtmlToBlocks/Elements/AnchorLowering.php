@@ -340,10 +340,9 @@ final class AnchorLowering implements ButtonLinkLeftovers
     }
 
     /**
-     * Only editorial cards with a separate summary (or a visual and text-only
-     * label) opt into stretching. Keep media-led cards on the existing path:
-     * downstream listing and featured-image recognition needs their anchor.
-     * Header/navigation labels and icon rows are not editorial cards either.
+     * Editorial cards and headingless media cards can expose their destination
+     * on native RichText. Media-led heading cards need a separate visual
+     * container; direct-image listings keep their specialized lowering paths.
      */
     private function isStretchedLinkCard(DOMElement $anchor): bool
     {
@@ -358,14 +357,37 @@ final class AnchorLowering implements ButtonLinkLeftovers
                 return false;
             }
         }
-        foreach ( array('img', 'picture', 'video', 'audio', 'time') as $tag ) {
+        $hasHeading = false;
+        foreach ( array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag ) {
+            $hasHeading = $hasHeading || 0 < $anchor->getElementsByTagName($tag)->length;
+        }
+        $hasImage = 0 < $anchor->getElementsByTagName('img')->length;
+        foreach ( array('video', 'audio', 'time') as $tag ) {
             if ( 0 < $anchor->getElementsByTagName($tag)->length ) {
                 return false;
             }
         }
-        // An icon row leads with its SVG, and a heading may be drawn as one;
-        // a decorative icon inside the card's text (a "Read more" arrow) is
-        // neither, so it does not disqualify the card.
+        if ( $hasImage && $hasHeading ) {
+            // A separate visual region distinguishes an editorial card from
+            // direct-image listing/featured-image links. Those must retain
+            // their source anchor for site-wide post and query recognition.
+            foreach ( $anchor->getElementsByTagName('img') as $image ) {
+                $visual = $image->parentNode;
+                if ( $visual instanceof DOMElement && 'picture' === strtolower($visual->tagName) ) {
+                    $visual = $visual->parentNode;
+                }
+                if ( ! $visual instanceof DOMElement || $visual === $anchor
+                    || 'div' !== strtolower($visual->tagName) ) {
+                    return false;
+                }
+                foreach ( array('h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p') as $tag ) {
+                    if ( 0 < $visual->getElementsByTagName($tag)->length ) {
+                        return false;
+                    }
+                }
+            }
+        }
+        // Icon labels and headings drawn as SVG retain their source wrapper.
         foreach ( $anchor->getElementsByTagName('svg') as $svg ) {
             for ( $parent = $svg->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
                 if ( $parent === $anchor || 1 === preg_match('/^h[1-6]$/', strtolower($parent->tagName)) ) {
@@ -377,7 +399,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
         }
         foreach ( $anchor->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p'), true) ) {
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true) ) {
                 return false;
             }
         }
@@ -391,18 +413,9 @@ final class AnchorLowering implements ButtonLinkLeftovers
                 $hasSummary = true;
             }
         }
-        if ( ! $hasSummary ) {
-            return false;
-        }
-        // A lone wrapped label is not a card. Text-only cards need a heading;
-        // heading-less cards need a separate direct visual container.
-        foreach ( array('h2', 'h3', 'h4', 'h5', 'h6') as $tag ) {
-            if ( 0 < $anchor->getElementsByTagName($tag)->length ) {
-                return true;
-            }
-        }
-        return null !== SourceDom::firstChildElement($anchor, 'div')
-            && null !== SourceDom::firstChildElement($anchor, 'p');
+        return $hasSummary && ($hasHeading || $hasImage
+            || (null !== SourceDom::firstChildElement($anchor, 'div')
+                && null !== SourceDom::firstChildElement($anchor, 'p')));
     }
 
     /**

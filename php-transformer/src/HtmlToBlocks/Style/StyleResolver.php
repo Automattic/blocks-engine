@@ -6181,6 +6181,17 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->presentationClassName(implode(' ', $classes));
     }
 
+    /** Source identities for descendants serialized directly into RichText. */
+    public function richTextSourceMarkers(DOMElement $element): array
+    {
+        $projections = $this->session->authorSelectorProjectionState();
+        return array_merge(
+            array($projections->tagMarker(strtolower($element->tagName))),
+            $projections->sourceProjectionMarkersForPath($element->getNodePath() ?? ''),
+            $this->sourceAttributeSelectorMarkers($element)
+        );
+    }
+
     public function innerHtml(DOMElement $element): string
     {
         return SourceDom::innerHtml($element, $this->serializedInlineStyle(...));

@@ -1,0 +1,489 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "blocks-engine/box-tree/v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "source_path",
+    "source_hash",
+    "viewports",
+    "nodes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "blocks-engine/box-tree/v1"
+    },
+    "source_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "viewports": {
+      "type": "object",
+      "required": [
+        "desktop",
+        "mobile"
+      ],
+      "maxProperties": 8,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._:-]{1,80}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "width",
+          "height"
+        ],
+        "properties": {
+          "width": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32768
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32768
+          }
+        }
+      }
+    },
+    "nodes": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 100000,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._:-]{1,80}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "children",
+          "viewports"
+        ],
+        "properties": {
+          "interaction_states": {
+            "type": "array",
+            "maxItems": 32,
+            "items": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,80}$" }
+          },
+          "children": {
+            "type": "array",
+            "maxItems": 100000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,80}$"
+            }
+          },
+          "viewports": {
+            "type": "object",
+            "minProperties": 2,
+            "maxProperties": 8,
+            "required": [
+              "desktop",
+              "mobile"
+            ],
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,80}$"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "border_box",
+                "used_styles"
+              ],
+              "properties": {
+                "border_box": {
+                  "type": "object",
+                  "required": [
+                    "x",
+                    "y",
+                    "width",
+                    "height"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": -100000000,
+                      "maximum": 100000000
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": -100000000,
+                      "maximum": 100000000
+                    },
+                    "width": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100000000
+                    },
+                    "height": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100000000
+                    }
+                  }
+                },
+                "used_styles": {
+                  "type": "object",
+                  "required": [
+                    "display",
+                    "position",
+                    "box-sizing",
+                    "overflow-x",
+                    "overflow-y",
+                    "padding-top",
+                    "padding-right",
+                    "padding-bottom",
+                    "padding-left",
+                    "margin-top",
+                    "margin-right",
+                    "margin-bottom",
+                    "margin-left",
+                    "row-gap",
+                    "column-gap",
+                    "flex-direction",
+                    "flex-wrap",
+                    "justify-content",
+                    "align-items",
+                    "align-content",
+                    "flex-grow",
+                    "flex-shrink",
+                    "flex-basis",
+                    "align-self",
+                    "order",
+                    "grid-template-columns",
+                    "grid-template-rows",
+                    "grid-auto-columns",
+                    "grid-auto-rows",
+                    "grid-auto-flow",
+                    "grid-column-start",
+                    "grid-column-end",
+                    "grid-row-start",
+                    "grid-row-end",
+                    "justify-items",
+                    "justify-self",
+                    "background",
+                    "border-top",
+                    "border-right",
+                    "border-bottom",
+                    "border-left",
+                    "border-radius",
+                    "outline",
+                    "box-shadow",
+                    "mask",
+                    "filter",
+                    "opacity",
+                    "mix-blend-mode",
+                    "transform",
+                    "z-index",
+                    "width",
+                    "height",
+                    "min-width",
+                    "max-width",
+                    "min-height",
+                    "max-height"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "animation-name": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                    "transition-property": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                    "transition-duration": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                    "display": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "position": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "box-sizing": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "overflow-x": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "overflow-y": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "padding-top": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "padding-right": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "padding-bottom": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "padding-left": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "margin-top": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "margin-right": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "margin-bottom": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "margin-left": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "row-gap": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "column-gap": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "flex-direction": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "flex-wrap": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "justify-content": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "align-items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "align-content": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "flex-grow": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "flex-shrink": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "flex-basis": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "align-self": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "order": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "grid-template-columns": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "grid-template-rows": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "grid-auto-columns": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "grid-auto-rows": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "grid-auto-flow": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "grid-column-start": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "grid-column-end": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "grid-row-start": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "grid-row-end": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "justify-items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "justify-self": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "background": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "border-top": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "border-right": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "border-bottom": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "border-left": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "border-radius": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "outline": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "box-shadow": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "mask": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "filter": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "opacity": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "mix-blend-mode": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "transform": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "z-index": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "width": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "height": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "min-width": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "max-width": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "min-height": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "max-height": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -50,6 +50,11 @@ final class UnreachableSelectorPruner
         $pruned = (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body): string {
             $arms = CssStylesheetTransformer::splitSelectorList($prelude);
             if (null === $arms) return $prelude . '{' . $body . '}';
+            // An unparseable arm makes the entire list uncertain. Keep the
+            // authored rule intact, just as stylesheet scope projection does.
+            foreach ($arms as $arm) {
+                if (!CssSelectorMatcher::parse($arm)['supported']) return $prelude . '{' . $body . '}';
+            }
             $kept = array_values(array_filter($arms, fn (string $arm): bool => $this->reachable($arm)));
             if (count($kept) === count($arms)) return $prelude . '{' . $body . '}';
             // Comments ahead of the rule (licenses, source maps) stay in place.

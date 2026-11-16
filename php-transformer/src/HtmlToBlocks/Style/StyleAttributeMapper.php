@@ -141,9 +141,11 @@ final class StyleAttributeMapper
      * validate in the editor.
      *
      * @param array<string, mixed> $style
+     * @param bool $forSave Omit layout-owned declarations from saved markup.
+     *                     The default also serves generated stylesheet callers.
      * @return array{classes: string, style: string}
      */
-    public function serialize(array $style): array
+    public function serialize(array $style, bool $forSave = false): array
     {
         $classes      = array();
         $declarations = array();
@@ -217,8 +219,9 @@ final class StyleAttributeMapper
                 }
             }
         }
+        // blockGap is rendered by layout support as scoped CSS, never by save().
         $blockGap = trim((string) ($spacing['blockGap'] ?? ''));
-        if ( '' !== $blockGap ) {
+        if ( ! $forSave && '' !== $blockGap ) {
             $declarations[] = 'gap:' . $blockGap;
         }
 

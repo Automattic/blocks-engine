@@ -1,0 +1,15 @@
+[
+  {"name":"neutral", "criterion":"equal-child-geometry"},
+  {"name":"twelve-wrapper-image-chain", "chain":true, "criterion":"equal-child-geometry"},
+  {"name":"background", "styles":{"background":"rgb(255, 0, 0)"}, "criterion":"paints"},
+  {"name":"border", "styles":{"border-top":"1px solid rgb(0, 0, 0)"}, "criterion":"paints"},
+  {"name":"layout", "styles":{"display":"flex","column-gap":"10px"}, "second_child":true, "criterion":"multi-child-layout"},
+  {"name":"containing", "styles":{"position":"relative"}, "child_styles":{"position":"absolute"}, "criterion":"containing-block"},
+  {"name":"mobile-size", "mobile_width":101, "criterion":"own-sizing"},
+  {"name":"anchor", "attributes":"id=\"target\"", "criterion":"semantics/id/anchor"},
+  {"name":"interaction", "states":["hover","focus"], "criterion":"interaction/state"},
+  {"name":"handler", "attributes":"onclick=\"return false\"", "criterion":"interaction/state"},
+  {"name":"stylesheet-animation", "styles":{"animation-name":"pulse"}, "criterion":"motion"},
+  {"name":"stylesheet-transition", "styles":{"transition-property":"color","transition-duration":"0.2s"}, "criterion":"motion"},
+  {"name":"transparent-defaults", "styles":{"background":"rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box","border-top":"0px none rgb(0, 0, 0)"}, "criterion":"equal-child-geometry"}
+]
