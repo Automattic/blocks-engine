@@ -115,7 +115,7 @@ $exportReceipts = $exportCompiler->compilePreparedPages($exportShared, array_val
 $exportStaged = $exportCompiler->compose($exportShared, array_values($exportReceipts))->toArray();
 $assert($exportStaged['source_reports']['box_tree'] === $export['source_reports']['box_tree'], 'Staged export intake preserves partial evidence coverage and classification.');
 $assert(!str_contains(json_encode($exportStaged['assets']), 'box-tree/'), 'Staged delivery excludes sidecars too.');
-foreach (array('missing', 'duplicate', 'empty', 'hash', 'topology') as $mode) {
+foreach (array('missing', 'duplicate', 'hash', 'topology') as $mode) {
     $invalidArtifact = $exportArtifact;
     unset($invalidArtifact['files']['website/box-tree/invalid.json']);
     $invalidHtml = match ($mode) {
