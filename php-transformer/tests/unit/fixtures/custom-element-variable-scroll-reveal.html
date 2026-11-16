@@ -3,7 +3,7 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .scroll-trigger.animate--slide-in { opacity: 0.01; transform: translateY(2rem); }
-  .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { opacity: 1; transform: translateY(0); animation: var(--animation-slide-in); }
+  .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { opacity: 1; transform: translateY(0); animation: var(--animation-slide-in); animation-delay: calc(var(--animation-order) * 75ms); }
   .scroll-trigger:not(.scroll-trigger--offscreen).animate--fade-in { animation: var(--animation-fade-in); }
 }
 @keyframes slideIn { from { transform: translateY(2rem); opacity: 0.01; } to { transform: translateY(0); opacity: 1; } }
