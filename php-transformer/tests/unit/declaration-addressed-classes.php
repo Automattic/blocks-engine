@@ -101,4 +101,14 @@ $map = $identity->replacements(array(array('content' => $sheet)));
 $assert($map[$first] === $map[$second] && $map[$first] !== $map[$third], 'Carriers coalesce exactly when every rule reaching them agrees.');
 $label = '{"label":"Gallery \u003cspan class=\u0022' . $second . '\u0022\u003e"}';
 $assert(str_contains((string) $identity->rewrite($label, $map), '\u0022' . $map[$first] . '\u0022'), 'A carrier inside JSON-escaped label HTML follows its address.');
+// Attribute identity must not freeze a captured runtime class condition.
+$result = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' =>
+    '<html><head><style>.card{width:200px;height:120px}[data-fx^=zoom][data-fx^=zoom]{opacity:0}[data-fx^=zoom][data-fx^=zoom].on{opacity:1}</style></head><body>'
+    . '<main><div class="card on" data-fx="zoom-out" data-blocks-engine-capture-viewport-entrance="'
+    . htmlspecialchars(json_encode(array('attributes' => array('class' => array('before' => 'card', 'after' => 'card on')), 'rootMargin' => '0px', 'threshold' => array(0), 'repeat' => true), JSON_THROW_ON_ERROR), ENT_QUOTES)
+    . '"><h1>Reveal</h1></div></main></body></html>',
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$css = implode("\n", array_column(array_filter($result['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(1 === preg_match('/:where\(\.blocks-engine-attribute-[a-f0-9]{12}-0\.on\)[^{]*\{opacity:1\}/', $css)
+    && 0 === preg_match('/:where\(\.blocks-engine-attribute-[a-f0-9]{12}-0\)[^{]*\{opacity:1\}/', $css), 'Attribute markers retain runtime class conditions rather than publishing an unconditional after pose.');
 echo "declaration-addressed-classes unit passed\n";

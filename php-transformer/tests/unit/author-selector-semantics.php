@@ -292,8 +292,8 @@ preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $scopedAttributeMarkup
 $scopedMarkers = array_values(array_unique($scopedAttributeMarkers[0] ?? array()));
 $assert(
     2 === count($scopedMarkers)
-        && str_contains($scopedAttributeCss, ':where(.' . $scopedMarkers[0] . ')')
-        && str_contains($scopedAttributeCss, ':where(.' . $scopedMarkers[1] . ')')
+        && str_contains($scopedAttributeCss, ':where(.' . $scopedMarkers[0] . '.item)')
+        && str_contains($scopedAttributeCss, ':where(.' . $scopedMarkers[1] . '.item)')
         && str_contains($scopedAttributeCss, '--tone:red')
         && str_contains($scopedAttributeCss, '--tone:blue')
         && 'pass' === ($scopedAttributePredicates['source_reports']['wp_block_validity']['status'] ?? ''),
