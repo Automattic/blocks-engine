@@ -38,7 +38,8 @@ final class BoxTreeStyleProjector
         $rules = $this->nonDefaults(array_diff_key($base, $consumed));
         $signature = json_encode(array($base, $observations, $viewports, $parents), JSON_THROW_ON_ERROR);
         $class = $state->allocateCarrier('box-tree:' . $signature);
-        $selector = '.' . $class;
+        // Outrank core block/layout selectors without defeating editor inline styles.
+        $selector = '.' . $class . '.' . $class;
         $css = $this->rule($selector, $rules) . $this->pseudoRules($selector, $observations[$keys[0]]);
         foreach (array_slice($keys, 1) as $key) {
             $delta = array_diff_assoc($styles[$key], $base);
@@ -88,7 +89,7 @@ final class BoxTreeStyleProjector
         foreach ($styles as $name => $value) {
             // Evidence is external input, not trusted stylesheet syntax.
             if (preg_match('/[{};<>]/', $value) || str_contains($value, '/*')) continue;
-            $declarations[] = $name . ':' . $value . '!important';
+            $declarations[] = $name . ':' . $value;
         }
         return $selector . '{' . implode(';', $declarations) . '}';
     }
