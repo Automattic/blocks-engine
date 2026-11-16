@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
-/** Removes declarations with no reader anywhere in the published site. */
+/** Prunes unused literal root tokens, preserving component and editor APIs. */
 final class UnusedCustomPropertyPruner
 {
     /** @var array<string, true> */
@@ -44,7 +44,17 @@ final class UnusedCustomPropertyPruner
         if ($this->uncertain) return $css;
         return (new CssStylesheetTransformer())->transformStyleRules($css, function (string $selector, string $body): string {
             $declarations = CssRuleAnalyzer::declarationList($body);
-            $kept = array_filter($declarations, fn (array $declaration): bool => !str_starts_with($declaration['name'], '--') || isset($this->used[$declaration['name']]));
+            // Component properties are an authored styling API even without a
+            // captured reader. Only root token inventories are eligible. Keep
+            // WordPress presets (including isolated source presets) for editor
+            // consumers, and compound values whose binding must stay intact.
+            $rootInventory = in_array(trim($selector), array(':root', ':where(:root) .editor-styles-wrapper'), true);
+            $kept = array_filter($declarations, fn (array $declaration): bool => !$rootInventory
+                || !str_starts_with($declaration['name'], '--')
+                || str_starts_with($declaration['name'], '--wp--')
+                || str_starts_with($declaration['name'], '--be--source--preset--')
+                || !preg_match('/^[#a-zA-Z0-9.+%-]+$/D', trim($declaration['value']))
+                || isset($this->used[$declaration['name']]));
             if (count($kept) === count($declarations)) return $selector . '{' . $body . '}';
             if (array() === $kept) return '';
             return $selector . '{' . implode(';', array_map(static fn (array $declaration): string => $declaration['name'] . ':' . $declaration['value'], $kept)) . '}';
