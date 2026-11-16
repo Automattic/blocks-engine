@@ -184,7 +184,11 @@ final class SourceBlockAttributeProjector
         }
         if ( 'core/paragraph' === $name && $facts->isInlineSourceElement ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
-            if ( $this->styleResolver->sourceChildHasParentBoxStyling($sourceElement) ) {
+            // Entrance links retain their own painted box and live classes.
+            // A second paragraph box would add border/spacing and resize the
+            // grid item even though the authored rules now reach the leaf.
+            if ( ! ('a' === $sourceTagName && $sourceElement->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE))
+                && $this->styleResolver->sourceChildHasParentBoxStyling($sourceElement) ) {
                 // The projected parent > child rule now addresses this carrier.
                 // display:contents would discard its margin/paint/geometry.
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SOURCE_BOX_PARAGRAPH_CLASS);

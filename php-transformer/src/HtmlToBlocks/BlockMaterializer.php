@@ -54,6 +54,13 @@ final class BlockMaterializer
                     $runtimeAttributes[$evidenceAttribute] = $sourceFacts->sourceElement->getAttribute($evidenceAttribute);
                 }
             }
+            // A synthetic paragraph is only a validity carrier. Its retained
+            // anchor already owns the entrance evidence and live class tokens.
+            if ('core/paragraph' === $name
+                && str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-synthetic-paragraph')
+                && preg_match('/^\s*<a\b[^>]*\s' . preg_quote(CaptureEvidence::VIEWPORT_ENTRANCE, '/') . '=/i', (string) ($attrs['content'] ?? ''))) {
+                unset($runtimeAttributes[CaptureEvidence::VIEWPORT_ENTRANCE]);
+            }
             // Preserve native hidden state without changing the block identity.
             // A block cannot save `hidden`, so the generic render filter
             // restores it on the materialized root, where page scripts can
