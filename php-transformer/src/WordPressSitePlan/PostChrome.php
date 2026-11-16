@@ -419,7 +419,7 @@ final class PostChrome
         // Prefer the depth-bounded encoding regardless of source post order.
         // Equivalent native wrapper chains compare equal, but must not replace
         // a folded template required by a deeper member's content.
-        uasort($documents, static fn(array $a, array $b): int => substr_count($b['template'], '<!-- wp:custom/layout-shell') <=> substr_count($a['template'], '<!-- wp:custom/layout-shell'));
+        uasort($documents, static fn(array $a, array $b): int => preg_match_all('~<!-- wp:[a-z0-9-]+/layout-shell ~', $b['template']) <=> preg_match_all('~<!-- wp:[a-z0-9-]+/layout-shell ~', $a['template']));
         $promoteLead = count($leadImages) === count($posts) && count(array_unique(array_column($leadImages, 'asset_token'))) > 1;
         $single = null;
         $singleHasTitle = false;
@@ -673,7 +673,7 @@ final class PostChrome
                     if (1 !== count($content)) {
                         // Some native containers expose their cards directly,
                         // with the list wrapper carried in their saved HTML.
-                        if (isset($slice) && str_starts_with(ltrim($slice), '<!-- wp:custom/authored-carousel ')) $items = $following;
+                        if (isset($slice) && 1 === preg_match('~^<!-- wp:[a-z0-9-]+/authored-carousel ~', ltrim($slice))) $items = $following;
                         break;
                     }
                     $following = $content;
