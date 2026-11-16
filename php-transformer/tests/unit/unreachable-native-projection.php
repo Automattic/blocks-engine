@@ -34,4 +34,17 @@ $projected = json_encode($projection['source_reports']['author_stylesheet_projec
 if (str_contains($projected, 'salmon') || !str_contains($projected, 'teal')) {
     throw new RuntimeException('Unreachable rules must be pruned at the projection boundary, not after native expansion');
 }
+// Route alignment mints classes after whole-site source evidence is captured.
+// Those names are not absent source subjects and must survive projection.
+$aligned = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())->transform(
+    '<!doctype html><html><body><h3 class="route-class-123456789abc">Logo</h3></body></html>',
+    array(
+        'author_stylesheet_assets' => array(array('path' => 'aligned.css', 'content' => '.route-class-123456789abc{font-family:Georgia,serif}')),
+        'site_selector_evidence' => array('<h3 class="c1-1">Logo</h3>'),
+    )
+)->toArray();
+$alignedProjection = json_encode($aligned['source_reports']['author_stylesheet_projections'] ?? $aligned['author_stylesheet_projections'] ?? array());
+if (!str_contains($alignedProjection, 'Georgia')) {
+    throw new RuntimeException('Route-aligned declarations must survive source-evidence pruning');
+}
 echo "Unreachable native projection preserves whole-site subject evidence\n";

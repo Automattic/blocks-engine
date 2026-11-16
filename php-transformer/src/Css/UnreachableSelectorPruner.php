@@ -17,7 +17,8 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
  * it is dropped with all its alternatives. Positive :is(), :where() and
  * :has() lists must have at least one reachable alternative too.
  *
- * Tokens the converter or WordPress mint are not source evidence and never
+ * Tokens the converter (including route-aligned classes) or WordPress mint
+ * are not source evidence and never
  * decide an arm: `wp-`, `is-`, `has-`, editor and engine names. Neither do
  * state tokens that route-state projection strips from the served item.
  * A string ending in `-` or `_` keeps every token it may build live. An arm with an escaped or non-ASCII identifier is
@@ -25,7 +26,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
  */
 final class UnreachableSelectorPruner
 {
-    private const MINTED = '/^(?:wp-|is-|has-|blocks-engine-|be-|editor-|block-editor-|components-)/';
+    private const MINTED = '/^(?:wp-|is-|has-|blocks-engine-|be-|route-class-|editor-|block-editor-|components-)/';
 
     /** @var array<string, true> */
     private array $live = array();
@@ -34,7 +35,7 @@ final class UnreachableSelectorPruner
     private string $evidenceText;
 
     /** @param list<string> $texts Every non-stylesheet file of the site, including its metadata. */
-    public function __construct(array $texts)
+    public function __construct(array $texts, private bool $preserveIds = false)
     {
         $this->evidenceText = implode("\n", $texts);
         $prefixes = array();
@@ -91,7 +92,7 @@ final class UnreachableSelectorPruner
             return 'BEESC' . bin2hex($value) . 'X';
         }, $selector);
         if (str_contains($selector, '\\')) return true;
-        foreach (self::requiredTokens($selector) as $token) {
+        foreach (self::requiredTokens($selector, $this->preserveIds) as $token) {
             if (!$this->sourceNamed($token)) return false;
         }
         // Positive selector-list pseudos require at least one reachable arm.
@@ -140,7 +141,7 @@ final class UnreachableSelectorPruner
      *
      * @return list<string>
      */
-    private static function requiredTokens(string $selector): array
+    private static function requiredTokens(string $selector, bool $preserveIds): array
     {
         $outside = '';
         $depth = 0;
@@ -161,7 +162,7 @@ final class UnreachableSelectorPruner
             }
             $outside .= ' ';
         }
-        preg_match_all('/[.#]([\w-]+)/', $outside, $matches);
+        preg_match_all($preserveIds ? '/\.([\w-]+)/' : '/[.#]([\w-]+)/', $outside, $matches);
         return $matches[1];
     }
 }
