@@ -176,10 +176,11 @@ final class CommerceFallbackReporter
             // Decline collection ownership rather than suppressing only its
             // binding: that would still send the purchase panel through the
             // generic card-control replacement path and lose its presentation.
-            if ( 1 === count($products) && array() === $listing ) {
+            if ( 1 === count($products) && array() === $listing && 2 === SourceDom::childElementCount($element) ) {
                 foreach ( $element->childNodes as $child ) {
                     if ( $child instanceof DOMElement
                         && null === $this->recognizer->productCardData($child)
+                        && '' === SourceDom::renderedTextContent($child)
                         && (strtolower($child->tagName) === 'img' || 0 < $child->getElementsByTagName('img')->length)
                     ) {
                         continue 2;
