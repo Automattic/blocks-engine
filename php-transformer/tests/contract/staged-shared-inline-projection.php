@@ -29,8 +29,6 @@ foreach (array(3, 6) as $count) {
     $result = $compiler->compose($shared, array_values($receipts))->toArray();
     $plan = $result['source_reports']['wordpress_site_plan'];
     $css = array_values(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')));
-    $imageEditorStyles = array_values(array_filter($css, static fn(array $asset): bool => str_contains($asset['content'] ?? '', 'figure.blocks-engine-synthetic-image-figure.wp-block-image{visibility:visible!important}')));
-    if (1 !== count($imageEditorStyles) || 'editor' !== ($imageEditorStyles[0]['stylesheet_target'] ?? null)) throw new RuntimeException('Image selection repair must be shared once and remain editor-only.');
     $bootstrap = array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'];
     $presentation = $registry($bootstrap, 'blocks_engine_presentation_styles');
     $replay = $registry($bootstrap, 'blocks_engine_presentation_replay');
@@ -76,11 +74,10 @@ foreach (array(3, 6) as $count) {
     if (count($paths) !== count(array_unique($paths))) throw new RuntimeException('Duplicate stylesheet output paths.');
 }
 // Fixed overhead plus two frontend enqueue lines/files and three replay
-// occurrences per route, plus one shared editor-only image repair file with
-// one occurrence per route. The shared parent has N occurrences, but each of
+// occurrences per route. The shared parent has N occurrences, but each of
 // the N-1 deltas has only its owner's occurrence, never N occurrences.
 foreach (array(3, 6) as $count) {
-    $expected = array('enqueues' => 4, 'files' => 3 + 2 * $count, 'replay' => 1 + 4 * $count, 'scopes' => 1 + $count);
+    $expected = array('enqueues' => 4, 'files' => 2 + 2 * $count, 'replay' => 1 + 3 * $count, 'scopes' => 1 + $count);
     if ($expected !== array_diff_key($bootstrapCounts[$count], array('bytes' => true))) throw new RuntimeException('Bootstrap stylesheet delivery must scale linearly from three to six routes.');
 }
 if ($bootstrapCounts[6]['bytes'] > 2 * $bootstrapCounts[3]['bytes']) throw new RuntimeException('Bootstrap bytes must grow at most linearly with routes.');

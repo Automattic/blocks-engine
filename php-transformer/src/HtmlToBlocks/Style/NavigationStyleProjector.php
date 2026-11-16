@@ -87,7 +87,12 @@ final class NavigationStyleProjector
         // They do not run in Gutenberg: expose the native image and its direct
         // group carrier there, so the image has a selectable box. Keep this in
         // the editor-only asset, not in the site's shared support stylesheet.
-        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
+        // Ordinary image documents need no static-state override. In particular,
+        // do not allocate an additional compiled-site asset just because an image
+        // exists: this repair is for hidden author states, not image layout.
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS)
+            && preg_match('/(?:^|[;{])\s*(?:visibility\s*:\s*hidden|display\s*:\s*none)\s*(?:!important\s*)?(?:[;}])/i', $this->session->authorStyleAnalysis()->combinedCss())
+        ) {
             $image = 'figure.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '.wp-block-image';
             $rules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
                 . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){display:block!important;visibility:visible!important}';

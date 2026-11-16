@@ -9,6 +9,8 @@ const code = 'require $argv[1]."/vendor/autoload.php"; echo json_encode((new Aut
 const result = JSON.parse(execFileSync('php', ['-r', code, root], { input: html, encoding: 'utf8' }));
 const imageFree = JSON.parse(execFileSync('php', ['-r', code, root], { input: '<main><p>Ordinary text</p></main>', encoding: 'utf8' }));
 assert.equal(imageFree.assets.some(asset => asset.source === 'editor-static-state'), false, 'image-free output must not allocate an image repair stylesheet');
+const visibleImage = JSON.parse(execFileSync('php', ['-r', code, root], { input: '<main><img src="photo.svg" alt="Visible image"></main>', encoding: 'utf8' }));
+assert.equal(visibleImage.assets.some(asset => asset.source === 'editor-static-state'), false, 'ordinary image output must preserve the compiled-site asset contract');
 const imageRepair = result.assets.filter(asset => asset.kind === 'css' && asset.content.includes('figure.blocks-engine-synthetic-image-figure.wp-block-image{visibility:visible!important}'));
 assert.equal(imageRepair.length, 1, 'image repair is emitted only when a native synthetic image survives compilation');
 assert.equal(imageRepair[0].stylesheet_target, 'editor', 'image repair is not enqueued on the front end');
