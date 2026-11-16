@@ -3533,7 +3533,7 @@ final class ArtifactCompiler
         $documentLinkMedia = LinkedStylesheets::documentLinkMedia($files);
         $portableTargets = $this->portableTargetPaths($files);
         foreach ( $files as $file ) {
-            if ( $entryPath === $file['path'] || ArtifactNormalizer::CAPTURE_REPORT_ROLE === $file['role'] || ArtifactFileIndex::isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
+            if ( \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isSidecarPath($file['path']) || $entryPath === $file['path'] || ArtifactNormalizer::CAPTURE_REPORT_ROLE === $file['role'] || ArtifactFileIndex::isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
                 continue;
             }
             $asset = array(

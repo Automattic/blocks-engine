@@ -666,6 +666,9 @@ final class WrapperCoalescer
      */
     private function coalescingResolution(DOMElement $element, array $childBlock): array
     {
+        if ($this->session->boxTreeViewports() && !$this->session->boxTreeEvidence($element)) {
+            return array('disposition' => WrapperDisposition::preserve('unobserved_box'), 'proof' => null, 'attrs' => array(), 'source_child' => null);
+        }
         $proof = $this->layoutGeometryProofFor($element);
         $fullWidthTransparentShell = $this->hasOnlyFullWidthTransparentInlineGeometry($element);
         $redundantNestedLayout = $this->isRedundantNestedLayoutWrapper($element, $childBlock);

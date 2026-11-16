@@ -18,7 +18,7 @@ final class BoxTreeReport
         }
         $trees = $diagnostics = $seen = array();
         foreach ($files as $file) {
-            if (!preg_match('~(?:^|/)box-tree/.+\.json$~D', $file['path'])) continue;
+            if (!BoxTree::isSidecarPath($file['path'])) continue;
             $content = $file['content'] ?? '';
             $tree = strlen($content) <= BoxTree::MAX_BYTES ? json_decode($content, true, 32) : null;
             $code = self::validate($tree, $sources);
@@ -31,7 +31,7 @@ final class BoxTreeReport
                 $seen[$path] = true;
             }
             if (null !== $code) {
-                $diagnostics[] = ArtifactDiagnostics::make($code, 'warning', 'Box-tree evidence was rejected; conversion continues without it.', array('path' => $file['path']));
+                $diagnostics[] = ArtifactDiagnostics::make($code, 'warning', 'Box-tree evidence was rejected; conversion continues without it.', array_filter(array('path' => $file['path'], 'source_path' => is_array($tree) && is_string($tree['source_path'] ?? null) ? $tree['source_path'] : null)));
                 continue;
             }
             $trees[$tree['source_path']] = $tree;
@@ -57,17 +57,21 @@ final class BoxTreeReport
         $dom = HtmlSerialization::parseDocument($sources[$path]);
         $elements = array();
         foreach ($dom->getElementsByTagName('*') as $element) {
+            if (!$element->hasAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
             $id = $element->getAttribute(BoxTree::NODE_ATTRIBUTE);
             if (!BoxTree::validId($id) || isset($elements[$id])) return 'box_tree_identity_stale';
             $elements[$id] = $element;
         }
         if (count($nodes) !== count($elements)) return 'box_tree_identity_stale';
+        $childrenByParent = array();
+        foreach ($elements as $id => $element) {
+            $parent = $element->parentNode;
+            while ($parent instanceof DOMElement && !$parent->hasAttribute(BoxTree::NODE_ATTRIBUTE)) $parent = $parent->parentNode;
+            if ($parent instanceof DOMElement) $childrenByParent[$parent->getAttribute(BoxTree::NODE_ATTRIBUTE)][] = $id;
+        }
         foreach ($nodes as $id => $node) {
             if (!isset($elements[$id]) || !is_array($node)) return 'box_tree_identity_stale';
-            $children = array();
-            foreach ($elements[$id]->childNodes as $child) {
-                if ($child instanceof DOMElement) $children[] = $child->getAttribute(BoxTree::NODE_ATTRIBUTE);
-            }
+            $children = $childrenByParent[$id] ?? array();
             if ($children !== ($node['children'] ?? null)) return 'box_tree_identity_stale';
             if (array_key_exists('interaction_states', $node)) {
                 if (!is_array($node['interaction_states']) || !array_is_list($node['interaction_states']) || count($node['interaction_states']) > 32) return 'box_tree_states_invalid';
