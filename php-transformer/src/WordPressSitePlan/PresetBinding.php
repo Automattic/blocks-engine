@@ -1322,7 +1322,7 @@ final class PresetBinding
         };
         if (null === $kind) return $declaration;
         $slug = match ($kind) {
-            'color' => $this->comparable('color', $this->resolve($value)) ? $this->system->colorSlug($this->resolve($value)) : null,
+            'color' => $this->comparable('color', $this->resolve($value)) ? $this->system->stylesheetColorSlug($this->resolve($value)) : null,
             'font-size' => $this->exactFontSizeSlug($value),
             default => $this->exactFontFamilySlug($value),
         };
@@ -1362,7 +1362,7 @@ final class PresetBinding
                 // but retain the authored token as the rendering fallback.
                 $resolved = $this->resolve($token);
                 if (null !== CssColor::parse($resolved)) {
-                    $slug = $this->system->colorSlug($resolved);
+                    $slug = $this->system->stylesheetColorSlug($resolved);
                     $replacement = null !== $slug ? 'var(--wp--preset--color--' . $slug . ',' . self::sourcePresets($token) . ')' : $this->translucentMix($token, true);
                     if (null !== $replacement) ++$this->bound;
                 } elseif (1 === preg_match('/^((?:repeating-)?(?:linear|radial|conic)-gradient)\((.*)\)$/is', $token, $match) && CssValueSplitter::hasBalancedParens($token)) {
@@ -1392,7 +1392,7 @@ final class PresetBinding
         // Transparent gradient stops still carry the palette colour's RGB.
         // Keep whole-value transparent declarations on their existing path.
         if ($includeTransparent && 0.0 === $color[3]) {
-            $slug = $this->system->colorSlug($opaque);
+            $slug = $this->system->stylesheetColorSlug($opaque);
             if (null !== $slug) $translucent = array('slug' => $slug, 'percent' => 0);
         }
         if (null === $translucent) return null;

@@ -104,6 +104,9 @@ final class DesignSystem
 {
     public const SCHEMA = 'blocks-engine/design-system/v1';
     public const USAGE_SCHEMA = 'blocks-engine/design-usage/v1';
+    // Additional exact colours are editable block values, not new evidence
+    // for site-wide defaults or a reason to rewrite every utility rule.
+    public const PRIMARY_COLORS = 12;
     public const MAX_FONT_SIZES = 8;
     public const MAX_SPACING = 10;
     public const COLOR_TOLERANCE = CssColor::JUST_NOTICEABLE_DIFFERENCE;
@@ -281,7 +284,7 @@ final class DesignSystem
         $spacing = self::spacing($spacingRows);
         $layout = self::layout($widthRows);
 
-        $system = new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors);
+        $system = new self(array_slice($colors, 0, self::PRIMARY_COLORS), $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors);
         // Observed translucent paint gets a preset even when its opaque RGB
         // is not painted anywhere. Prefer a derived tint when an exact base
         // exists; otherwise retain the source value, including its alpha.
@@ -321,6 +324,18 @@ final class DesignSystem
             if (isset($buttonLook[$field]) && null === $system->{$method}($buttonLook[$field])) unset($buttonLook[$field]);
         }
         return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, array_replace(self::unanimousElements($usageBySource, $system), array() === $buttonLook ? array() : array('button' => $buttonLook)), $system->rootPx, $system->documentCount, $literalColors);
+    }
+
+    /** Preserve the primary palette's stylesheet scope when adding block-only tokens. */
+    public function stylesheetColorSlug(string $value): ?string
+    {
+        $slug = $this->colorSlug($value);
+        foreach ($this->colors as $index => $color) {
+            if ($color['slug'] === $slug) {
+                return $index < self::PRIMARY_COLORS || 0 === $color['weight'] ? $slug : null;
+            }
+        }
+        return null;
     }
 
     /**
