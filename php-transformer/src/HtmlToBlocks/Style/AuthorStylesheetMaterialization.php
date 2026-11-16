@@ -310,16 +310,14 @@ final class AuthorStylesheetMaterialization
         $this->session->authorSelectorProjectionState()->reconcileRetainedControls($this->emittedStyleMarkup);
         $bindings = new ProjectedSelectorBindings();
         $media = trim($media);
-        if (null !== $this->session->authorStyleAnalysis()->siteSelectorEvidence) {
+        $sitePruner = $this->session->authorStyleAnalysis()->siteSelectorPruner;
+        if (null !== $sitePruner) {
             // Prune only the projection input. Analysis and source provenance
             // retain the authored inventory and its specificity ceiling.
             // Keep ID ancestry here: route reconciliation needs the same
             // inventory on every route to coalesce page-local arms. The final
             // asset pruner can drop absent IDs after that reconciliation.
-            $stylesheet = (new \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner(
-                $this->session->authorStyleAnalysis()->siteSelectorEvidence,
-                true
-            ))->prune($stylesheet);
+            $stylesheet = $sitePruner->prune($stylesheet, true);
         }
         $projected = $this->projector->project(
             $stylesheet,
