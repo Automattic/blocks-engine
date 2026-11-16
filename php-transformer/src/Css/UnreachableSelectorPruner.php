@@ -31,10 +31,12 @@ final class UnreachableSelectorPruner
     private array $live = array();
     /** @var list<string> */
     private array $livePrefixes = array();
+    private string $evidenceText;
 
     /** @param list<string> $texts Every non-stylesheet file of the site, including its metadata. */
     public function __construct(array $texts)
     {
+        $this->evidenceText = implode("\n", $texts);
         $prefixes = array();
         foreach ($texts as $text) {
             if (preg_match_all('/[\w-]+/', $text, $matches)) $this->live += array_fill_keys($matches[0], true);
@@ -67,7 +69,16 @@ final class UnreachableSelectorPruner
     public function reachable(string $selector): bool
     {
         $selector = (string) preg_replace('#/\*.*?\*/#s', ' ', $selector);
-        if (str_contains($selector, '\\') || 1 === preg_match('/[^\x20-\x7E\t\n\r]/', $selector)) return true;
+        if (1 === preg_match('/[^\x20-\x7E\t\n\r]/', $selector)) return true;
+        // Escaped punctuation belongs to the identifier, not selector syntax.
+        // Mask it before walking brackets and functional pseudo-classes so
+        // utility names such as md:grid and w-[50%] can be checked too.
+        $selector = (string) preg_replace_callback('/\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n\f])/u', static function (array $match): string {
+            $escape = substr($match[0], 1);
+            $value = preg_match('/^[0-9a-fA-F]/', $escape) ? mb_chr(hexdec(trim($escape)), 'UTF-8') : $escape;
+            return 'BEESC' . bin2hex($value) . 'X';
+        }, $selector);
+        if (str_contains($selector, '\\')) return true;
         foreach (self::requiredTokens($selector) as $token) {
             if (!$this->sourceNamed($token)) return false;
         }
@@ -95,6 +106,13 @@ final class UnreachableSelectorPruner
 
     private function sourceNamed(string $token): bool
     {
+        if (str_contains($token, 'BEESC')) {
+            $decoded = (string) preg_replace_callback('/BEESC([0-9a-f]+)X/', static fn (array $match): string => (string) hex2bin($match[1]), $token);
+            // Substring evidence is deliberately conservative: scripts may
+            // construct these names without literal class attributes.
+            if (str_contains($this->evidenceText, $decoded)) return true;
+            $token = $decoded;
+        }
         if (isset($this->live[$token]) || 1 === preg_match(self::MINTED, $token) || 1 === preg_match('/^' . SourceClassIdentity::REVEAL_STATE . '$/i', $token)
             || SourceClassIdentity::containsCurrentStateToken($token)) return true;
         foreach ($this->livePrefixes as $prefix) {
