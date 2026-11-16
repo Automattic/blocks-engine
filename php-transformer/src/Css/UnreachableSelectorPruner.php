@@ -53,7 +53,11 @@ final class UnreachableSelectorPruner
             // An unparseable arm makes the entire list uncertain. Keep the
             // authored rule intact, just as stylesheet scope projection does.
             foreach ($arms as $arm) {
-                if (!CssSelectorMatcher::parse($arm)['supported']) return $prelude . '{' . $body . '}';
+                // Pseudo-elements do not add class/id requirements. Validate
+                // their subject rather than treating valid generated content
+                // as an uncertain selector list.
+                $subject = (string) preg_replace('/::?(?:before|after|first-line|first-letter|marker|placeholder|selection|backdrop)$/i', '', $arm);
+                if (!CssSelectorMatcher::parse($arm)['supported'] && ($subject === $arm || !CssSelectorMatcher::parse($subject)['supported'])) return $prelude . '{' . $body . '}';
             }
             $kept = array_values(array_filter($arms, fn (string $arm): bool => $this->reachable($arm)));
             if (count($kept) === count($arms)) return $prelude . '{' . $body . '}';
