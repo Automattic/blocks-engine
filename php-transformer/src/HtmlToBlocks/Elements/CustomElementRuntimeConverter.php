@@ -44,10 +44,7 @@ final class CustomElementRuntimeConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
         if ( 'unproven' === $decision['disposition'] ) {
-            if ( 0 === SourceDom::childElementCount($element)
-                && '' === trim($element->textContent ?? '')
-                && $this->renderNeutral->isRenderNeutralWrapper($element)
-            ) {
+            if ( $this->renderNeutral->isEmptyRenderNeutralConfiguredHost($element) ) {
                 $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
                     'code'                      => 'html_custom_element_render_neutral',
                     'severity'                  => 'info',

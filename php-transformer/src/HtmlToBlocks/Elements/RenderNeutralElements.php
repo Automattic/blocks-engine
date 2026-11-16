@@ -86,6 +86,42 @@ final class RenderNeutralElements
         return true;
     }
 
+    /**
+     * Configuration alone may describe a runtime placeholder, but semantic
+     * attributes can describe missing visible output or a control. Only the
+     * former is safe to omit before recording an unproven-runtime finding.
+     * The caller must already have established that the runtime is unproven.
+     */
+    public function isEmptyRenderNeutralConfiguredHost(DOMElement $element): bool
+    {
+        if ( 0 !== SourceDom::childElementCount($element)
+            || '' !== trim($element->textContent ?? '')
+            || $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element)
+            || $this->sourceElementClassifier->hasCommerceToken($element, array( 'checkout', 'cart' ))
+            || $this->sourceElementClassifier->hasTokenBoundary($element->tagName, 'checkout')
+            || $this->sourceElementClassifier->hasTokenBoundary($element->tagName, 'cart')
+            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, false, true)
+            || ! $this->isRenderNeutralWrapper($element)
+        ) {
+            return false;
+        }
+
+        // These attributes describe output, state or form participation, not
+        // opaque configuration. Even a textless host can be a visible widget.
+        foreach ( array( 'title', 'alt', 'label', 'placeholder', 'name', 'type', 'value', 'status', 'checked', 'selected', 'disabled', 'required', 'readonly', 'form', 'for', 'href', 'src', 'srcset', 'width', 'height' ) as $attribute ) {
+            if ( $element->hasAttribute($attribute) ) {
+                return false;
+            }
+        }
+        foreach ( $element->attributes as $attribute ) {
+            if ( str_starts_with(strtolower($attribute->name), 'aria-') ) {
+                return false;
+            }
+        }
+        $id = SourceDom::namedFragmentTargetId($element);
+        return '' === $id || ! SourceDom::documentReferencesFragmentId($element, $id);
+    }
+
     /** A neutral autonomous host whose ordinary light DOM needs no component lowering. */
     public function isRenderNeutralCustomFlowWrapper(DOMElement $element): bool
     {

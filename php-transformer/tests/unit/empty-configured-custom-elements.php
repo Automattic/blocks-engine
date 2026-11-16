@@ -38,6 +38,29 @@ foreach ( array(
 $nonempty = $transform(str_replace('  </product-recommendations>', '<span></span></product-recommendations>', $fixture));
 $assert(in_array('product-recommendations', array_column($nonempty['fallbacks'], 'tag'), true), 'a host with an element child retains fallback');
 
+// Empty does not mean nonfunctional: retain semantic output, controls,
+// runtime-media losses and referenced targets even without authored paint.
+foreach ( array(
+    '<x-status-widget status="offline"></x-status-widget>',
+    '<x-field label="Email" placeholder="Email" required></x-field>',
+    '<x-field data-config="email" aria-label="Email"></x-field>',
+    '<x-player data-config="video"></x-player>',
+    '<x-checkout data-config="value"></x-checkout>',
+    '<x-cart data-config="value"></x-cart>',
+    '<a href="#target">Jump</a><x-target id="target" data-config="value"></x-target>',
+    '<x-config data-config="value">Text</x-config>',
+    '<x-config data-config="value" style="width:10px"></x-config>',
+    '<x-config data-config="value" role="status"></x-config>',
+    '<x-config data-config="value" tabindex="0"></x-config>',
+    '<x-config data-config="value" data-wp-bind--hidden="state.hidden"></x-config>',
+) as $host ) {
+    $retained = $transform('<!doctype html><html><body><main><h1>Product</h1>' . $host . '</main></body></html>');
+    $assert(! in_array('html_custom_element_render_neutral', array_column($retained['diagnostics'] ?? array(), 'code'), true), 'functional or visible host is not dropped as neutral: ' . $host);
+    $assert(array() !== $retained['fallbacks'] || str_contains($retained['serialized_blocks'], 'Text'), 'functional or visible output keeps its existing disposition: ' . $host);
+}
+$proven = $transform(str_replace('</body>', '<script>customElements.define("store-config", class extends HTMLElement {});</script></body>', $fixture));
+$assert(str_contains($proven['serialized_blocks'], 'store-config'), 'a proven runtime host is preserved rather than dropped');
+
 if ( array() !== $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);
