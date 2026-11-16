@@ -2557,7 +2557,8 @@ final class AuthorSelectorProjector
      * `ul.wp-block-navigation__container` that holds the items. An item rule
      * whose parent compound is that list (`#menu > ul > li`) therefore has to
      * step through both: the list compound addresses the root through the
-     * list's semantic identity, and a child hop reaches core's container.
+     * list's semantic identity, and a descendant hop through Core's responsive
+     * wrappers reaches the container.
      * Otherwise `#menu > ul` looks for a UL child of `#menu` that no longer
      * exists, and the item loses its authored box (padding, height, display).
      * When the carrier owns the root instead, the source list maps directly
@@ -2649,7 +2650,7 @@ final class AuthorSelectorProjector
         --$parentEnd;
         while ( $parentEnd > 0 && ctype_space($selector[$parentEnd - 1]) ) --$parentEnd;
         $replacements = array(
-            $parentEnd => array( 'end' => $parentEnd, 'value' => ' > :where(.wp-block-navigation__container)' ),
+            $parentEnd => array( 'end' => $parentEnd, 'value' => ' :where(.wp-block-navigation__container)' ),
         );
         if ( '' !== $type ) {
             foreach ( $parsed['type_spans'] as $typeSpan ) {
