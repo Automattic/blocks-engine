@@ -9,10 +9,20 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 /** Recognizes finite opacity/translation reveals, not slide positioning or loops. */
 final class EntranceAnimation
 {
-    /** @param array<string, string> $declarations */
-    public static function matches(array $declarations, string $css): bool
+    /**
+     * @param array<string, string> $declarations
+     * @param array<string, string> $customProperties
+     */
+    public static function matches(array $declarations, string $css, array $customProperties = array()): bool
     {
         if ( ! isset($declarations['animation']) && ! isset($declarations['animation-name']) ) return false;
+        foreach ( $declarations as $property => $value ) {
+            if ( 'animation' !== $property && ! str_starts_with($property, 'animation-') ) continue;
+            $resolved = CssVariableExpander::expand($value, static fn (string $name): ?string => $customProperties[$name] ?? null);
+            // Unknown tokens must not make a motion surface look decorative.
+            if ( null === $resolved || str_contains($resolved, 'var(') ) return false;
+            $declarations[$property] = $resolved;
+        }
         $names = array();
         foreach ( CssValueSplitter::splitTopLevel($declarations['animation'] ?? '', array(',')) as $layer ) {
             foreach ( CssValueSplitter::splitTopLevelWhitespace($layer) as $token ) {
