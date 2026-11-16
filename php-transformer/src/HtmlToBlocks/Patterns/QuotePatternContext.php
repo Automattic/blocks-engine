@@ -16,10 +16,11 @@ final class QuotePatternContext
     /** Preserve the typography of the caption consumed by a native quote. */
     public function figureCaptionContent(DOMElement $caption): string
     {
-        $content = $this->styleResolver->innerHtml($caption);
+        $content = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom::innerHtml($caption);
         $declarations = array();
+        $authored = $this->styleResolver->structuralPresentationDeclarations($caption);
         foreach (array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color') as $property) {
-            $value = $this->styleResolver->authoredInheritedPropertyWinner($caption, $property);
+            $value = isset($authored[$property]) ? $this->styleResolver->authoredInheritedPropertyWinner($caption, $property) : '';
             if ('' !== $value) {
                 $declarations[$property] = $value;
             }
