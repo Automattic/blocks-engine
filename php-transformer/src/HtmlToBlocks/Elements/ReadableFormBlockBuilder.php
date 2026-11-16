@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -381,10 +382,9 @@ final class ReadableFormBlockBuilder
                 // child count. A row or a field's error/help content does not
                 // require a generated block. Provider control boxes and wrappers
                 // with attributes outside this native contract still need shells.
-                $classOnlyGroup = 1 === count($elements)
+                $nativeContainerGroup = 1 === count($elements)
                     && 'div' === strtolower($element->tagName)
-                    && (0 === $element->attributes->length
-                        || (1 === $element->attributes->length && $element->hasAttribute('class')))
+                    && $this->hasNativeContainerAttributes($element)
                     && null === $controlBox;
                 // Unowned div chains can also contain a control with help/error
                 // text. Those siblings do not make a composite control. Keep
@@ -399,9 +399,7 @@ final class ReadableFormBlockBuilder
                     && (1 === count($inner) || $controlWithFeedback);
                 foreach ($elements as $source) {
                     $nativeChain = $nativeChain && 'div' === strtolower($source->tagName)
-                        && $source->hasAttribute('class')
-                        && ($source->attributes->length === 1
-                            || ($source->attributes->length === 2 && $source->hasAttribute('style') && '' === trim($source->getAttribute('style'))));
+                        && $this->hasNativeContainerAttributes($source);
                 }
                 if ($nativeChain) {
                     $nested = $inner;
@@ -410,7 +408,7 @@ final class ReadableFormBlockBuilder
                     }
                     $shell = $nested[0];
                 } else {
-                    $shell = $classOnlyGroup
+                    $shell = $nativeContainerGroup
                         ? $this->createBlock->createBlock('core/group', $this->nativeContainerAttributes($element), $inner, $element)
                         : ($this->layoutShellBlockForElements)($elements, $inner, $element);
                 }
@@ -430,6 +428,19 @@ final class ReadableFormBlockBuilder
         }
 
         return $blocks;
+    }
+
+    /** Geometry provenance does not change a container's native transport. */
+    private function hasNativeContainerAttributes(DOMElement $element): bool
+    {
+        foreach ($element->attributes as $attribute) {
+            if (in_array($attribute->name, array('class', BoxTree::NODE_ATTRIBUTE), true)
+                || ('style' === $attribute->name && '' === trim($attribute->value))) {
+                continue;
+            }
+            return false;
+        }
+        return true;
     }
 
     /**
