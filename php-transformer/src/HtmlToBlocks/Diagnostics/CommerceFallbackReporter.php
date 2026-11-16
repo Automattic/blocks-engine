@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidenc
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
@@ -908,6 +909,7 @@ final class CommerceFallbackReporter
      */
     public function appendCommerceControlsFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml = ''): void
     {
+        $this->appendPurchaseFormFallbacks($body, $fallbacks, $sourceHtml);
         $this->appendFormlessPurchaseFallbacks($body, $fallbacks, $sourceHtml);
         $emitted = 0;
         foreach ( $body->getElementsByTagName('*') as $element ) {
@@ -943,6 +945,41 @@ final class CommerceFallbackReporter
                 'control_count'     => count($controlGroups),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
+        }
+    }
+
+    /**
+     * Purchase forms need an anchor even when quantity/options live outside the
+     * form or runtime preservation bypasses the ordinary form finding.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function appendPurchaseFormFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml): void
+    {
+        if ( ! SchemaProductEvidence::hasSingleProduct($sourceHtml) ) return;
+        $reported = array();
+        foreach ( $fallbacks as $fallback ) {
+            if ( 'commerce_add_to_cart' === ($fallback['form_intent'] ?? '') && ! empty($fallback['binding']) ) {
+                $reported[$fallback['selector'] ?? ''] = true;
+            }
+        }
+        foreach ( $body->getElementsByTagName('form') as $form ) {
+            $selector = SourceDom::elementSelector($form);
+            if ( isset($reported[$selector]) || SourceDom::hasNonAuthoredAncestor($form)
+                || 'commerce_add_to_cart' !== FormRuntimeRequirementAnalyzer::formIntent($form) ) continue;
+            $fallbacks[] = FallbackDiagnostic::build(array(
+                'type' => 'html',
+                'reason' => 'commerce_controls_require_runtime',
+                'diagnostic_code' => 'html_commerce_controls_fallback',
+                'kind' => 'html_commerce_controls_fallback',
+                'message' => 'An add-to-cart form requires commerce runtime binding.',
+                'source_format' => 'html',
+                'tag' => 'form',
+                'selector' => $selector,
+                'form_intent' => 'commerce_add_to_cart',
+                'binding' => $this->blockBindings->binding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($form), $form),
+                'controls' => $this->metadataBuilder->controls($form),
+            ), $this->provenance->fallback());
         }
     }
 
