@@ -1,0 +1,52 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "viewport-entrance-card-links",
+  "description": "Entrance-carrying card links retain their replay identity instead of becoming controls.",
+  "source_reference": {
+    "repo": "Automattic/blocks-engine",
+    "path": "issues/6203"
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Regression for entrance ownership."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<html class=\"motion-ready\"><style>.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.grid a{display:block;padding:20px;border:1px solid #ccc;border-radius:12px;color:#123;text-decoration:none}.motion-ready .reveal{opacity:0;transform:translateY(15px);transition:opacity .45s ease,transform .45s ease}.motion-ready .reveal.is-visible{opacity:1;transform:translateY(0)}</style><div class=\"grid\"><a class=\"reveal is-visible\" href=\"/uk/\" data-blocks-engine-capture-viewport-entrance='{\"attributes\":{\"class\":{\"before\":\"reveal\",\"after\":\"reveal is-visible\"}},\"rootMargin\":\"0px\",\"threshold\":[0],\"repeat\":false}'><span>UK</span><b>Travel from UK</b></a><a class=\"reveal is-visible\" href=\"/usa/\" data-blocks-engine-capture-viewport-entrance='{\"attributes\":{\"class\":{\"before\":\"reveal\",\"after\":\"reveal is-visible\"}},\"rootMargin\":\"0px\",\"threshold\":[0],\"repeat\":false}'><span>USA</span><b>Travel from USA</b></a><a class=\"reveal is-visible\" href=\"/europe/\" data-blocks-engine-capture-viewport-entrance='{\"attributes\":{\"class\":{\"before\":\"reveal\",\"after\":\"reveal is-visible\"}},\"rootMargin\":\"0px\",\"threshold\":[0],\"repeat\":false}'><span>Europe</span><b>Travel from Europe</b></a></div></html>"
+        }
+      ]
+    }
+  },
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success_with_warnings"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "<!-- wp:button "
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<a class=\"reveal is-visible"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": ".motion-ready .reveal{opacity:0;transform:translateY(15px);transition:opacity .45s ease,transform .45s ease}"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": ".motion-ready .reveal.is-visible{opacity:1;transform:translateY(0)}"
+    }
+  ]
+}
