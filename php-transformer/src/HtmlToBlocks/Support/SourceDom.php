@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
@@ -275,6 +276,10 @@ final class SourceDom
         }
         self::canonicalizeLinkUrls($clone);
         if (null !== $inlineStyleFor) self::projectInlineStyles($element, $clone, $inlineStyleFor);
+        // Capture node identity binds evidence to the source document, not the output.
+        foreach ( self::subtreeElements($clone) as $node ) {
+            $node->removeAttribute(BoxTree::NODE_ATTRIBUTE);
+        }
         return $clone;
     }
 
@@ -2313,6 +2318,10 @@ final class SourceDom
     {
         $data = array();
         foreach ( self::htmlAttributes($element) as $name => $value ) {
+            // Capture node identity binds evidence; it is not authored data.
+            if ( BoxTree::NODE_ATTRIBUTE === $name ) {
+                continue;
+            }
             if ( preg_match('/^data-[a-z0-9_-]+$/i', $name) && strlen($value) <= 300 && ! preg_match('/javascript\s*:/i', $value) ) {
                 $data[$name] = $value;
             }
