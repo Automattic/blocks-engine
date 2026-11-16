@@ -118,9 +118,9 @@ final class NavigationStyleProjector
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important}';
             // A looping animation has no settled end state. Retaining its last
             // keyframe can translate a marquee's editable children off canvas.
-            // Restore the underlying layout only for loops carrying image
-            // blocks: those children need selectable resting boxes. Preserve the
-            // settled appearance of unrelated loops and finite reveals.
+            // Remove motion only for loops carrying image blocks: those children
+            // need selectable resting boxes. Do not disable keyframe fill: loops
+            // can also own text color or opacity, which must remain settled.
             ( new CssStylesheetTransformer() )->visitStyleRules(
                 $this->session->authorStyleAnalysis()->combinedCss() . "\n" . $anchorProjectionCss,
                 static function (string $selector, string $body, array $ancestors) use (&$rules): void {
@@ -141,7 +141,7 @@ final class NavigationStyleProjector
                     // Also guard the rule in CSS: saved/editor styles may be
                     // present during a front-end preview, where the live loop
                     // must retain its authored fill behavior.
-                    $rule = ':root .editor-styles-wrapper :is(' . trim($selector) . '):has(figure.wp-block-image){animation-fill-mode:none!important}';
+                    $rule = ':root .editor-styles-wrapper :is(' . trim($selector) . '):has(figure.wp-block-image){transform:none!important}';
                     foreach ( array_reverse($ancestors) as $ancestor ) {
                         $rule = $ancestor . '{' . $rule . '}';
                     }
