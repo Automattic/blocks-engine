@@ -46,7 +46,7 @@ final class BoxTreeReport
         if (!is_string($path) || !isset($sources[$path]) || hash('sha256', $sources[$path]) !== ($tree['source_hash'] ?? null)) return 'box_tree_identity_stale';
         $viewports = $tree['viewports'] ?? null;
         $nodes = $tree['nodes'] ?? null;
-        if (!is_array($viewports) || !isset($viewports['desktop'], $viewports['mobile']) || count($viewports) > BoxTree::MAX_VIEWPORTS || !is_array($nodes) || !$nodes || count($nodes) > BoxTree::MAX_NODES) return 'box_tree_bounds_invalid';
+        if (!is_array($viewports) || !$viewports || count($viewports) > BoxTree::MAX_VIEWPORTS || !is_array($nodes) || !$nodes || count($nodes) > BoxTree::MAX_NODES) return 'box_tree_bounds_invalid';
         foreach ($viewports as $name => $viewport) {
             if (!BoxTree::validId($name) || !is_array($viewport)) return 'box_tree_viewport_invalid';
             foreach (array('width', 'height') as $dimension) {

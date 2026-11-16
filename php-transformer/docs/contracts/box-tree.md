@@ -12,7 +12,7 @@ Write one `box-tree/<route>.json` artifact file for each captured route. Set
 SHA-256 of its final UTF-8 bytes (including node attributes). Declare large
 sidecars in the artifact `reports` list to use capture-report byte budgets.
 The reader also applies a hard 32 MiB decoded sidecar limit, 100,000 nodes,
-2–8 viewports, viewport dimensions of 1–32,768 CSS pixels, geometry bounded
+1–8 viewports, viewport dimensions of 1–32,768 CSS pixels, geometry bounded
 by 100,000,000 CSS pixels, and 4,096 bytes per used style string.
 
 Every element, including `html`, `head` and non-rendering elements, must carry
@@ -23,7 +23,7 @@ all observations. Do not regenerate IDs after resizing; a genuinely different
 DOM needs its own document/hash. Include zero-sized boxes for non-rendering
 elements. No IDs are synthesized by the transformer.
 
-The sidecar has `viewports` keyed by name (required: `desktop`, `mobile`), each
+The sidecar has `viewports` keyed by the names served by that document, each
 with integer `width` and `height`, and `nodes` keyed by node ID. Each node has:
 
 - `children`: immediate element child IDs in DOM order (no text/comment IDs);
@@ -35,6 +35,11 @@ Use computed/used values, not authored declarations; explicit strings such as
 `none`, `normal`, `auto` and `0px` are significant. Physical longhands cover
 padding, margin, border and overflow; the schema lists flex/grid container and
 item properties, paint/compositing properties, and sizing min/max values.
+Background and mask evidence uses `background-color`, `background-image`,
+`mask-image`, and `mask-mode`, not the `background` or `mask` shorthands; there
+are no shorthand aliases. A desktop document served separately from
+`html-mobile/…` needs only its desktop observation. Every declared viewport
+still requires an observation on every node. Producers must update in lockstep.
 
 ## Transformer behavior
 
@@ -64,7 +69,7 @@ is not a claim that a live capture pipeline has been implemented here.
 
 `source_reports.box_tree[route].classification` contains `counts` keyed by
 `load-bearing` and `neutral`, and `nodes` keyed by source ID with `disposition`
-and the deciding `criterion`. Criteria are `paints`, `multi-child-layout`,
+and the deciding `criterion`. Criteria are `paints`, `clips`, `multi-child-layout`,
 `containing-block`, `semantics/id/anchor`, `interaction/state`, `motion`, and
 `own-sizing`; neutral nodes have `equal-child-geometry`. Precedence follows that
 order. Neutrality requires one element child, no direct non-whitespace text, and
@@ -72,6 +77,12 @@ matching x/y/width/height at **every** viewport (0.01 CSS pixel tolerance).
 Containing-block ownership is resolved separately at each viewport, including
 transformed ancestors of fixed descendants. These are reports, not collapse
 instructions; converted blocks and author styles are unchanged.
+Transparent background colors (including zero-alpha rgba and color() values)
+and image-free masks do not paint. Identity transforms do not paint, but still
+establish containing blocks. Overflow is `clips` only when a descendant extends
+past the observed box on a clipped axis. IDs alone do not preserve wrappers:
+fragment hrefs, ARIA ID references, and label `for` references do. Captured
+interaction targets are preserved through their node's `interaction_states`.
 
 The v1 evidence shape additionally accepts optional used-style strings
 `animation-name`, `transition-property`, and `transition-duration`. Producers
@@ -82,10 +93,11 @@ the node independently of its resting appearance. These names indicate captured
 states; they do not supply state geometry or authorize restyling. Older sidecars
 remain readable; omitted motion/state fields cannot prove absence of behavior.
 
-`projection` estimates the surviving **source box** tree below body after neutral
-chains collapse: maximum `depth`, surviving non-leaf `groups`, source `leaves`,
-and `groups_per_leaf` (groups divided by leaves). Body, head and document metadata
-are excluded. It is not an emitted-block measurement: pattern expansion and
+`projection` estimates block-producing boxes below body after neutral chains
+collapse (`basis: estimated-block-producing-boxes`): maximum `depth`, surviving
+non-leaf `groups`, estimated block `leaves`, and `groups_per_leaf`. Inline content,
+non-rendering metadata and navigation internals are excluded; a nav counts once.
+Body and head are excluded. Actual converted block depth belongs to slice 3. It is not an emitted-block measurement: pattern expansion and
 non-rendering source leaves can differ from WordPress blocks. Missing/rejected
 evidence has empty classifications and a null projection, never an optimistic
 zero-depth estimate. Live whole-site/sdnunca measurement is deferred until the
