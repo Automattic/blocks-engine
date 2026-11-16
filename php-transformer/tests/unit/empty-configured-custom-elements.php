@@ -24,6 +24,27 @@ $byTag = array_column($diagnostics, null, 'tag');
 $assert('info' === ($byTag['product-recommendations']['severity'] ?? '') && '/recommendations/products?limit=4' === ($byTag['product-recommendations']['attributes']['data-url'] ?? ''), 'diagnostic retains tag and data configuration');
 $assert('https://example.com' === ($byTag['store-config']['attributes']['store-domain'] ?? ''), 'diagnostic retains custom configuration attributes');
 
+// Pseudo-element rules that cannot reach the host, or generate no box on an
+// empty host, do not keep it (#6261).
+foreach ( array(
+    'input::-webkit-search-decoration{-webkit-appearance:none}',
+    'input::placeholder{color:red}',
+    'button::-moz-focus-inner{border:0}',
+    '.x::after{content:""}',
+    '*::selection{background:red}',
+) as $css ) {
+    $pseudo = $transform(str_replace('</head>', '<style>' . $css . '</style></head>', $fixture));
+    $assert(array() === $pseudo['fallbacks'], 'unrelated pseudo-element rule does not produce fallbacks: ' . $css);
+}
+// Host-matching generated content still gives the host a box.
+foreach ( array(
+    '.related-products::after{content:"";display:block;height:10px}',
+    'product-recommendations::before{content:"Related"}',
+) as $css ) {
+    $generated = $transform(str_replace('</head>', '<style>' . $css . '</style></head>', $fixture));
+    $assert(in_array('product-recommendations', array_column($generated['fallbacks'], 'tag'), true), 'host generated content retains fallback: ' . $css);
+}
+
 // Universal resets do not give empty configured hosts a rendered box (#6261).
 foreach ( array(
     '*, *::before, *::after { box-sizing: inherit; }',

@@ -88,6 +88,9 @@ final class RenderNeutralElements
                 ) {
                     continue;
                 }
+                if ( $ignoreEmptyHostResets && $this->pseudoElementRuleCannotPaintEmptyHost($element, $candidate['selector']) ) {
+                    continue;
+                }
                 return false;
             }
             if ($this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']) {
@@ -144,6 +147,39 @@ final class RenderNeutralElements
         }
         $id = SourceDom::namedFragmentTargetId($element);
         return '' === $id || ! SourceDom::documentReferencesFragmentId($element, $id);
+    }
+
+    /**
+     * Pseudo-element rules are indexed as unsupported candidates for every
+     * host. Their subject compound still decides whether they can reach this
+     * host: a rule whose host part does not match cannot style it, and
+     * pseudo-elements other than ::before/::after generate no box on an empty
+     * custom element. Host-matching ::before/::after rules stay evidence.
+     */
+    private function pseudoElementRuleCannotPaintEmptyHost(DOMElement $element, string $selector): bool
+    {
+        if ( 1 !== preg_match('/(::?-?[a-z][a-z0-9-]*(?:\([^()]*\))?)\s*$/i', trim($selector), $suffix) ) {
+            return false;
+        }
+        $pseudo = strtolower(ltrim($suffix[1], ':'));
+        $isElementPseudo = str_starts_with($suffix[1], '::')
+            || in_array($pseudo, array('before', 'after', 'first-line', 'first-letter'), true);
+        if ( ! $isElementPseudo ) {
+            return false;
+        }
+        $host = trim(substr(trim($selector), 0, -strlen($suffix[1])));
+        if ( '' === $host || 1 === preg_match('/[\s>+~(]$/', $host) ) {
+            $host .= '*';
+        }
+        $parsed = CssSelectorMatcher::parse($host);
+        if ( ! ($parsed['supported'] ?? false) ) {
+            return false;
+        }
+        $matches = $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $host, $parsed)['matches'];
+        if ( ! $matches ) {
+            return true;
+        }
+        return ! in_array(preg_replace('/\(.*$/', '', $pseudo), array('before', 'after'), true);
     }
 
     /** Global box-model resets do not paint or size an otherwise empty host. */
