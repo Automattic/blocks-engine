@@ -467,30 +467,28 @@ final class AuthoredFormControlBlockConverter
     private function hasPlainCoreButtonLabel(DOMElement $button): bool
     {
         if ('button' !== strtolower($button->tagName) || '' === trim($button->textContent) || SourceDom::childElementCount($button) > 0) return false;
-        // Form actions carry binding, inactive-submission and theme-paint
-        // semantics owned by the form pipeline. Do not bypass that lowering.
-        for ($ancestor = $button->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
-            if ('form' === strtolower($ancestor->tagName)) return false;
-        }
-        // A synthetic wrapper changes the containing block for relative sizes,
-        // including those introduced by a responsive cascade or custom property.
-        $declarations = ($this->authoredPresentationDeclarations)($button);
-        if (str_contains(json_encode($declarations) ?: '', '%') || str_contains(SourceDom::attr($button, 'style'), '%')) return false;
-        // These native attributes have no core/button save equivalent.
-        foreach ($button->attributes as $attribute) {
-            if (!in_array(strtolower($attribute->nodeName), array('type', 'class', 'style'), true)) return false;
-        }
         return true;
     }
 
     private function plainCoreButton(DOMElement $button): array
     {
-        $type = FormControlClassifier::controlType($button);
-        return $this->createBlock->createBlock('core/button', array(
-            'tagName' => 'button',
-            'type' => in_array($type, array('button', 'reset', 'submit'), true) ? $type : 'submit',
-            'text' => $this->runtime->escapeHtml($button->textContent),
-        ), array(), $button);
+        // Keep source selectors on the native control, not on synthetic button
+        // wrappers. The paragraph is an editor-only RichText carrier.
+        $this->session->authorSelectorProjectionState()->recordAuthoredControlCandidate($button);
+        $this->session->authorSelectorProjectionState()->markRetainedSourcePath($button->getNodePath() ?? '');
+        $attributes = array();
+        foreach ($button->attributes as $attribute) {
+            $attributes[strtolower($attribute->nodeName)] = $attribute->nodeValue ?? '';
+        }
+        if (!isset($attributes['type'])) $attributes['type'] = 'submit';
+        $label = $this->createBlock->createBlock('core/paragraph', array(
+            'content' => $this->runtime->escapeHtml($button->textContent),
+            'metadata' => array('blocksEngineControlLabel' => true),
+        ), array());
+        return $this->createBlock->createBlock('core/group', array(
+            'tagName' => 'div',
+            'metadata' => array('blocksEngineControlBox' => $attributes, 'blocksEngineControlTagName' => 'button'),
+        ), array($label), $button);
     }
 
     private function isCssDrawnControl(DOMElement $element): bool

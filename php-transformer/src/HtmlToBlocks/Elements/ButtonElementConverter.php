@@ -49,19 +49,19 @@ final class ButtonElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->context->convertButton($element));
         }
 
+        // A photo control is a native container around editable core images,
+        // not an opaque authored-button contentParts tree. Keep the button's
+        // containing block so percentage-sized thumbnails retain their geometry.
+        if ( ( $this->hasFluidContentImage($element) || $this->hasContentScaleImage($element) ) && '' === trim($element->textContent) ) {
+            $container = $this->context->convertButtonWrapperGroup($element, $fallbacks);
+            if ( null !== $container ) return ConversionOutcome::handled($container);
+        }
+
         if ( $this->context->isRuntimeDomTarget($element) && ( array() !== AuthoredButtonBlockGenerator::sourceSafeAttributes($element) || ! $this->sourceElementClassifier->isRichTextButtonLabel($element) ) ) {
             $runtimeButton = $this->context->runtimeButton($element);
             if ( null !== $runtimeButton ) {
                 return ConversionOutcome::handled($runtimeButton);
             }
-        }
-
-        // A photo control is a native container around editable core images,
-        // not an opaque authored-button contentParts tree. Keep the button's
-        // containing block so percentage-sized thumbnails retain their geometry.
-        if ( $this->hasContentScaleImage($element) && '' === trim($element->textContent) ) {
-            $container = $this->context->convertButtonWrapperGroup($element, $fallbacks);
-            if ( null !== $container ) return ConversionOutcome::handled($container);
         }
 
         if ( $this->hasAccessibleIconOnlyContent($element) ) {
@@ -131,6 +131,20 @@ final class ButtonElementConverter implements ElementConverter
             }
         }
 
+        return false;
+    }
+
+    private function hasFluidContentImage(DOMElement $element): bool
+    {
+        foreach ($element->getElementsByTagName('img') as $image) {
+            $size = $this->context->imageMinimumPixelSize($image);
+            if (null === $size || (null === $size['width'] && null === $size['height'])) {
+                foreach (array('width', 'height') as $axis) {
+                    $intrinsic = SourceDom::attr($image, $axis);
+                    if (is_numeric($intrinsic) && (float) $intrinsic > self::ICON_SCALE_MAX_PX) return true;
+                }
+            }
+        }
         return false;
     }
 

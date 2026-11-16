@@ -17,12 +17,21 @@ final class RuntimeAttributesRuntime
     {
         return str_replace(array('__DEVICE_INLINE__', '__DEVICE_CLASS__', '__VIEWPORT_ENTRANCE__', '__RESPONSIVE_FRAGMENT__'), array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::DEVICE_CLASS, CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::RESPONSIVE_FRAGMENT), <<<'PHP'
 add_filter( 'render_block', static function ( string $content, array $block ): string {
+    // RichText stays editable without introducing a published label box.
+    if ( 'core/paragraph' === ( $block['blockName'] ?? '' ) && ! empty( $block['attrs']['metadata']['blocksEngineControlLabel'] ) ) {
+        return preg_replace( '/^<p\b[^>]*>(.*)<\/p>\s*$/s', '$1', trim( $content ) );
+    }
     // Core containers own CSS-drawn control boxes in the editor. On the
     // front end keep their authored box attributes, not group layout chrome.
     $box = $block['attrs']['metadata']['blocksEngineControlBox'] ?? null;
     if ( 'core/group' === ( $block['blockName'] ?? '' ) && is_array( $box ) ) {
         $processor = new WP_HTML_Tag_Processor( $content );
         if ( $processor->next_tag() ) {
+            // Keep projection identities: route CSS can address these markers
+            // even though the published box sheds Core's group chrome.
+            $classes = preg_split( '/\s+/', (string) $processor->get_attribute( 'class' ) );
+            $markers = array_filter( $classes, static fn ( string $class ): bool => str_starts_with( $class, 'blocks-engine-' ) );
+            $box['class'] = trim( ( $box['class'] ?? '' ) . ' ' . implode( ' ', $markers ) );
             $processor->remove_attribute( 'class' );
             $processor->remove_attribute( 'style' );
             foreach ( $box as $name => $value ) {

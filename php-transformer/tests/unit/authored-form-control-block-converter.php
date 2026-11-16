@@ -111,15 +111,16 @@ $assert(array( 'Select option' ) === array_slice($session->transformationEvidenc
 $plainButton = $elementFrom('<button type="submit">Send</button>', 'button');
 $assert(null === $converter->button($plainButton), 'unstyled-button-declines-authored-block');
 $forcedButton = $converter->button($plainButton, true);
-$assert('core/button' === ($forcedButton['blockName'] ?? ''), 'force-native-plain-button-uses-core-button');
-$assert('button' === ($forcedButton['attrs']['tagName'] ?? '') && 'submit' === ($forcedButton['attrs']['type'] ?? '') && 'Send' === ($forcedButton['attrs']['text'] ?? ''), 'force-native-button-retains-native-action-and-label');
+$assert('core/group' === ($forcedButton['blockName'] ?? ''), 'force-native-plain-button-uses-core-container');
+$assert('button' === ($forcedButton['attrs']['metadata']['blocksEngineControlTagName'] ?? '') && 'submit' === ($forcedButton['attrs']['metadata']['blocksEngineControlBox']['type'] ?? '') && 'Send' === ($forcedButton['innerBlocks'][0]['attrs']['content'] ?? ''), 'force-native-button-retains-native-action-and-label');
 
 $styledButton = $elementFrom('<button data-styled type="submit" class="send" style="letter-spacing:0.1em">Join &amp; Go</button>', 'button');
 $buttonBlock = $converter->button($styledButton);
-$assert($registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME) === ($buttonBlock['blockName'] ?? ''), 'styled-button-uses-authored-button-block');
-$assert('submit' === ($buttonBlock['attrs']['type'] ?? '') && 'send' === ($buttonBlock['attrs']['className'] ?? '') && 'letter-spacing:0.1em' === ($buttonBlock['attrs']['style'] ?? ''), 'styled-button-retains-type-class-and-inline-style');
-$assert('<button type="submit" class="send" style="letter-spacing:0.1em">Join &amp; Go</button>' === ($buttonBlock['innerHTML'] ?? ''), 'styled-button-emits-native-markup');
-$assert($registry->has(AuthoredButtonBlockGenerator::class), 'styled-button-registers-generated-definition');
+$assert('core/group' === ($buttonBlock['blockName'] ?? ''), 'styled-button-uses-core-container');
+$box = $buttonBlock['attrs']['metadata']['blocksEngineControlBox'] ?? array();
+$assert('submit' === ($box['type'] ?? '') && 'send' === ($box['class'] ?? '') && 'letter-spacing:0.1em' === ($box['style'] ?? ''), 'styled-button-retains-type-class-and-inline-style');
+$assert('Join &amp; Go' === ($buttonBlock['innerBlocks'][0]['attrs']['content'] ?? ''), 'styled-button-has-editable-label');
+$assert(!$registry->has(AuthoredButtonBlockGenerator::class), 'styled-label-needs-no-generated-definition');
 
 $iconButton = $elementFrom('<button data-styled type="button" aria-label="Decrement"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 11H5v2h14v-2Z"></path></svg></button>', 'button');
 $iconBlock = $converter->button($iconButton);
