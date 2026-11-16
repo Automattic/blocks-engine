@@ -15,14 +15,8 @@ foreach ($result['fallbacks'] ?? array() as $diagnostic) {
         continue;
     }
     $found = true;
-    if (isset($diagnostic['item_template']) || isset($diagnostic['binding'])) {
-        throw new RuntimeException('A partial item template must not replace the split detail layout.');
-    }
-    if (empty($diagnostic['products'][0]['binding'])) {
-        throw new RuntimeException('The purchase control must retain its commerce binding.');
-    }
 }
-if (!$found || !str_contains($result['serialized_blocks'], 'cover.jpg')) {
-    throw new RuntimeException('Product evidence and sibling media must survive.');
+if ($found || !str_contains($result['serialized_blocks'], 'cover.jpg') || !str_contains($result['serialized_blocks'], 'Buy now')) {
+    throw new RuntimeException('A split detail layout must retain its media and controls, not declare a partial product collection.');
 }
 echo "product-split-detail-layout: ok\n";

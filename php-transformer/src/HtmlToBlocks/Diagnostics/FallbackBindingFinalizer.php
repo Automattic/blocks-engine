@@ -162,15 +162,6 @@ final class FallbackBindingFinalizer
             }
             if (is_array($fallback['products'] ?? null)) {
                 $cardMarkups = array();
-                // Keep product/control evidence, but do not replace a split
-                // detail layout with a loop that omits its sibling media.
-                foreach ($fallback['products'] as &$product) {
-                    if ( ! empty($product['_preserve_collection_shell']) ) {
-                        unset($fallback['binding']);
-                    }
-                    unset($product['_preserve_collection_shell']);
-                }
-                unset($product);
                 foreach ($fallback['products'] as $product) {
                     $cardIndex = is_int($product['_card_provenance_id'] ?? null) ? ($provenanceIndexes[$product['_card_provenance_id']] ?? null) : null;
                     $cardRange = is_int($cardIndex) ? ($ranges[$cardIndex] ?? null) : null;

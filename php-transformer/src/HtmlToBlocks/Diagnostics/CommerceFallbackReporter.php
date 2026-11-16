@@ -173,16 +173,16 @@ final class CommerceFallbackReporter
 
             // A split product-detail layout is not a collection: its media and
             // purchase panel are sibling grid items, not independent cards.
-            // Replacing the grid with a loop containing only the purchase
-            // panel discards the unclaimed media (and its responsive track).
+            // Decline collection ownership rather than suppressing only its
+            // binding: that would still send the purchase panel through the
+            // generic card-control replacement path and lose its presentation.
             if ( 1 === count($products) && array() === $listing ) {
                 foreach ( $element->childNodes as $child ) {
                     if ( $child instanceof DOMElement
                         && null === $this->recognizer->productCardData($child)
                         && (strtolower($child->tagName) === 'img' || 0 < $child->getElementsByTagName('img')->length)
                     ) {
-                        $products[0]['_preserve_collection_shell'] = true;
-                        break;
+                        continue 2;
                     }
                 }
             }
