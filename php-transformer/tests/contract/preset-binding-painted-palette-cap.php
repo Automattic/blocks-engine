@@ -17,6 +17,12 @@ for ($i = 0; $i < 20; ++$i) {
 $html .= '<p class="stateful" style="color:#bb1234">Stateful paint</p></main></body></html>';
 $rules = '';
 foreach ($colors as $index => $color) $rules .= '.shade-' . $index . '{color:' . $color . '}';
+// The long-tail shade also appears as translucent paint in an unrelated
+// utility. Its opaque block token must not expand stylesheet binding scope.
+$last = end($colors);
+$rgb = sscanf($last, '#%02x%02x%02x');
+$gradient = 'linear-gradient(rgba(' . implode(',', $rgb) . ',.5),transparent)';
+$rules .= '.shade-19{background-image:' . $gradient . '}';
 $html = str_replace('</style>', $rules . '</style>', $html);
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray()['source_reports']['wordpress_site_plan'];
 foreach ($plan['writes'] as $write) {
@@ -40,5 +46,8 @@ if (!str_contains($css, ':hover') || !str_contains($css, '#1234bb')) throw new R
 // consumers or promote that value into site-wide element defaults.
 if (!preg_match('/\.shade-19[^{}]*\{color:' . preg_quote(end($colors), '/') . '\}/', $css)) {
     throw new RuntimeException('Additional exact block presets leave the long-tail stylesheet rules intact.');
+}
+if (!str_contains($css, 'background-image:' . $gradient)) {
+    throw new RuntimeException('Translucent long-tail utility paint must not bind through the opaque block-only token.');
 }
 echo "Painted palette cap regression passed.\n";

@@ -1256,6 +1256,14 @@ final class PresetBinding
                 if (array() !== array_diff($classes, explode(' ', $key))) continue;
                 $matched = true;
                 $observed = $this->presetSlug('color', null, $properties[$property] ?? null);
+                // This fallback is still a stylesheet binding, not a block
+                // attribute. Scoped variables must obey the same palette
+                // boundary as directly resolved declarations.
+                if (null !== $observed) {
+                    foreach ($this->system->colors as $color) {
+                        if ($color['slug'] === $observed && null === $this->system->stylesheetColorSlug($color['color'])) return null;
+                    }
+                }
                 if (null === $observed || (null !== $slug && $slug !== $observed)) return null;
                 $slug = $observed;
             }
@@ -1388,7 +1396,7 @@ final class PresetBinding
         $color = CssColor::parse($resolved);
         if (null === $color) return null;
         $opaque = sprintf('#%02x%02x%02x', (int) round($color[0]), (int) round($color[1]), (int) round($color[2]));
-        $translucent = $this->comparable('color', $resolved) ? $this->system->translucentColor($resolved) : null;
+        $translucent = $this->comparable('color', $resolved) && null !== $this->system->stylesheetColorSlug($opaque) ? $this->system->translucentColor($resolved) : null;
         // Transparent gradient stops still carry the palette colour's RGB.
         // Keep whole-value transparent declarations on their existing path.
         if ($includeTransparent && 0.0 === $color[3]) {
