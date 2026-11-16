@@ -422,6 +422,10 @@ final class CommerceStructureRecognizer
             return true;
         }
         $segments = array_values(array_filter(explode('/', strtolower(rawurldecode((string) parse_url(SourceDom::attr($link, 'href'), PHP_URL_PATH)))), 'strlen'));
+        // A captured mirror addresses the same archive as its directory index file.
+        if ( array() !== $segments && preg_match('/^index\.html?$/', end($segments)) ) {
+            array_pop($segments);
+        }
 
         return count($segments) >= 2 && in_array($segments[count($segments) - 2], array( 'category', 'categories', 'tag', 'tags' ), true);
     }
