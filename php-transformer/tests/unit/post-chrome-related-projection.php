@@ -106,7 +106,8 @@ foreach (array_keys($states) as $i => $slug) {
 }
 $files[] = array('path' => 'index.html', 'content' => '<!doctype html><html><head><title>Example Journal</title></head><body><div class="uk-container"><h1>Example Journal</h1>' . $links . '</div></body></html>');
 foreach (array('t225', 't510', 'mq') as $image) $files[] = array('path' => 'media/' . $image . '.png', 'content' => hex2bin('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63000100000500010d0a2db40000000049454e44ae426082'));
-$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+// Importers own the generated-block namespace, as SSI does with ssi-<site>.
+$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files, 'block_namespace' => 'ssi-example-journal'))->toArray()['source_reports']['wordpress_site_plan'];
 $posts = array_values(array_filter($plan['pages'], static fn(array $page): bool => 'post' === ($page['post_type'] ?? null)));
 $findings = array_filter($plan['diagnostics'], static fn(array $entry): bool => str_contains($entry['code'] ?? '', 'post_chrome_order_retained'));
 if (5 !== count($posts)) $failures[] = $case . ': five posts';
