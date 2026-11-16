@@ -121,6 +121,14 @@ final class ButtonPatternContext
         if ( null !== $uaLineHeight ) {
             $declarations['line-height'] = $uaLineHeight;
         }
+        // Anchors have no UA padding. Promoting one to core/button must not
+        // introduce theme button padding when the source owns no padding at all.
+        if ('a' === strtolower($element->tagName)
+            && array() === array_intersect_key($declarations, array_flip(array(
+                'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+            )))) {
+            $declarations['padding'] = '0px';
+        }
         // Source buttons without authored corners are square. Core/button instead
         // supplies a pill radius, so materialize the source default as native style.
         // Check before class-owned declarations are removed: those radii still

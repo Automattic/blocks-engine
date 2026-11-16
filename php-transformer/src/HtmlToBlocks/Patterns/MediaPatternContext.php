@@ -43,6 +43,8 @@ final class MediaPatternContext
         );
     }
     public function mediaTextStyle(DOMElement $element): string { return $this->styleResolver->mediaTextPresentationStyle($element); }
+    // Pattern gates must read the cascade even on otherwise low-value wrappers.
+    public function mediaTextFullStyle(DOMElement $element): string { return $this->styleResolver->specificityResolvedPresentationStyle($element); }
     /** Whether a media/container-conditional rule varies the element's min-height. */
     public function hasConditionalMinHeight(DOMElement $element): bool { return array() === $this->styleResolver->classOwnedResponsiveDeclarations($element, array( 'min-height' => '0' )); }
     /** @return array<string, string> */

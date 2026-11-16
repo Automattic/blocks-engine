@@ -2457,8 +2457,8 @@ final class AuthorStylesheetProjector
             } elseif (! $ownsBox && ! in_array($position, array('absolute', 'fixed'), true) && isset($declarations[$property])) {
                 // A responsive rule can change only one axis. The figure owns
                 // that declaration; its leaf must follow the new value too.
-                // Fill a percentage-sized figure without applying its ratio
-                // twice; direct leaf selectors retain their authored sizing.
+                // Fill only axes moved to a percentage-sized figure, without
+                // applying the ratio twice; direct leaf selectors keep their sizing.
                 $percentage = $fillPercentageBox && 1 === preg_match('/^\d*\.?\d+%$/', CssValueInspector::declared($declarations, $property));
                 $bridge[] = $property . ':' . ($percentage ? '100%' : 'inherit')
                     . (str_contains($declarations[$property], '!important') ? '!important' : '');
