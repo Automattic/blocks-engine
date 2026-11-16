@@ -1269,29 +1269,29 @@ JS;
      */
     private function navigationDirections(DOMElement $element): array
     {
-    $hasPrevious = false;
-    $hasNext = false;
-    foreach ( $element->getElementsByTagName('*') as $candidate ) {
-        if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselControl($candidate, $element) ) {
-            continue;
+        $hasPrevious = false;
+        $hasNext = false;
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselControl($candidate, $element) ) {
+                continue;
+            }
+            $metadataIdentity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
+                SourceDom::attr($candidate, 'aria-label'),
+                SourceDom::attr($candidate, 'title'),
+                SourceDom::attr($candidate, 'class'),
+                SourceDom::attr($candidate, 'data-hook'),
+                SourceDom::attr($candidate, 'data-testid'),
+            ))));
+            $text = strtolower(trim($candidate->textContent ?? ''));
+            if ( 1 !== preg_match('/(?:^|[^a-z0-9])(?:slide|item|carousel|gallery|prev|previous|next|nav[^a-z0-9]*arrow|arrow[^a-z0-9]*nav)(?:[^a-z0-9]|$)/', $metadataIdentity)
+                && 1 !== preg_match('/^(?:prev|previous|next)$/', $text)
+            ) {
+                continue;
+            }
+            $identity = $metadataIdentity . ' ' . $text;
+            $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
+            $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
-        $metadataIdentity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
-            SourceDom::attr($candidate, 'aria-label'),
-            SourceDom::attr($candidate, 'title'),
-            SourceDom::attr($candidate, 'class'),
-            SourceDom::attr($candidate, 'data-hook'),
-            SourceDom::attr($candidate, 'data-testid'),
-        ))));
-        $text = strtolower(trim($candidate->textContent ?? ''));
-        if ( 1 !== preg_match('/(?:^|[^a-z0-9])(?:slide|item|carousel|gallery|prev|previous|next|nav[^a-z0-9]*arrow|arrow[^a-z0-9]*nav)(?:[^a-z0-9]|$)/', $metadataIdentity)
-            && 1 !== preg_match('/^(?:prev|previous|next)$/', $text)
-        ) {
-            continue;
-        }
-        $identity = $metadataIdentity . ' ' . $text;
-        $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
-        $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
-    }
         return array($hasPrevious, $hasNext);
     }
 
@@ -1305,80 +1305,80 @@ JS;
      */
     private function ownedCarouselList(DOMElement $element): ?array
     {
-    [$list, $items] = $this->richestCarouselList($element);
-    if ( $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
-        [$outerList, $outerItems] = $this->outermostCarouselList($element);
-        if ( $outerList instanceof DOMElement ) {
-            $list = $outerList;
-            $items = $outerItems;
+        [$list, $items] = $this->richestCarouselList($element);
+        if ( $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
+            [$outerList, $outerItems] = $this->outermostCarouselList($element);
+            if ( $outerList instanceof DOMElement ) {
+                $list = $outerList;
+                $items = $outerItems;
+            }
         }
-    }
-    $localList = $list;
-    // Let the smallest complete carousel own its list and controls. An
-    // enclosing gallery section still converts its heading and other copy.
-    if ( $list instanceof DOMElement ) {
-        $rootControls = $this->allNavigationControls($element);
-        for ( $owner = $list->parentNode; $owner instanceof DOMElement && $owner !== $element; $owner = $owner->parentNode ) {
-            if ( $this->sourceElementClassifier->hasCarouselIdentity($owner) ) {
-                [$ownerList] = $this->outermostCarouselList($owner);
-                // An ancestor cannot promote a slide's nested media list
-                // into slides, even if controls exist elsewhere below it.
-                if ( $ownerList instanceof DOMElement && $ownerList !== $list && $this->containsNode($ownerList, $list) ) {
+        $localList = $list;
+        // Let the smallest complete carousel own its list and controls. An
+        // enclosing gallery section still converts its heading and other copy.
+        if ( $list instanceof DOMElement ) {
+            $rootControls = $this->allNavigationControls($element);
+            for ( $owner = $list->parentNode; $owner instanceof DOMElement && $owner !== $element; $owner = $owner->parentNode ) {
+                if ( $this->sourceElementClassifier->hasCarouselIdentity($owner) ) {
+                    [$ownerList] = $this->outermostCarouselList($owner);
+                    // An ancestor cannot promote a slide's nested media list
+                    // into slides, even if controls exist elsewhere below it.
+                    if ( $ownerList instanceof DOMElement && $ownerList !== $list && $this->containsNode($ownerList, $list) ) {
+                        return null;
+                    }
+                }
+                // A declared carousel may wrap its track and controls in a
+                // neutral inner container. Keep that accessible root when it
+                // owns no other authored content; otherwise defer as before.
+                $declaredRoot = 'carousel' === strtolower(trim(SourceDom::attr($element, 'aria-roledescription')))
+                    && ! $this->hasAuthoredContentOutside($element, $owner, $list, $items);
+                if ( ! $declaredRoot && ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) ) {
+                    return null;
+                }
+                // A lone previous or next control is still a complete carousel
+                // when one inner owner holds it, the list and the carousel
+                // identity. Converting the outer root would replace that
+                // owner's authored siblings with slides, so let it own itself.
+                if ( array() !== $rootControls
+                    && $this->ownsCarouselIdentity($owner, $list)
+                    && array() === array_filter($rootControls, fn(DOMElement $control): bool => ! $this->containsNode($owner, $control))
+                    && $this->hasAuthoredContentOutside($element, $owner, $list, $items)
+                ) {
                     return null;
                 }
             }
-            // A declared carousel may wrap its track and controls in a
-            // neutral inner container. Keep that accessible root when it
-            // owns no other authored content; otherwise defer as before.
-            $declaredRoot = 'carousel' === strtolower(trim(SourceDom::attr($element, 'aria-roledescription')))
-                && ! $this->hasAuthoredContentOutside($element, $owner, $list, $items);
-            if ( ! $declaredRoot && ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) ) {
-                return null;
-            }
-            // A lone previous or next control is still a complete carousel
-            // when one inner owner holds it, the list and the carousel
-            // identity. Converting the outer root would replace that
-            // owner's authored siblings with slides, so let it own itself.
-            if ( array() !== $rootControls
-                && $this->ownsCarouselIdentity($owner, $list)
-                && array() === array_filter($rootControls, fn(DOMElement $control): bool => ! $this->containsNode($owner, $control))
+            // Converting a root replaces everything in it with slides. When the
+            // list and its controls sit inside a smaller owner and the root holds
+            // other authored content, the root is a page region, not a carousel.
+            // Text-less image links (thumbnail pagers) are not authored content,
+            // so they never hold the owner open to the root.
+            $owner = $this->commonAncestor(array_merge(
+                array($list),
+                $rootControls,
+                array_filter(array($this->playbackToggleElement($element)))
+            ));
+            if ( $owner instanceof DOMElement && $owner !== $element && $this->containsNode($element, $owner)
                 && $this->hasAuthoredContentOutside($element, $owner, $list, $items)
             ) {
                 return null;
             }
         }
-        // Converting a root replaces everything in it with slides. When the
-        // list and its controls sit inside a smaller owner and the root holds
-        // other authored content, the root is a page region, not a carousel.
-        // Text-less image links (thumbnail pagers) are not authored content,
-        // so they never hold the owner open to the root.
-        $owner = $this->commonAncestor(array_merge(
-            array($list),
-            $rootControls,
-            array_filter(array($this->playbackToggleElement($element)))
-        ));
-        if ( $owner instanceof DOMElement && $owner !== $element && $this->containsNode($element, $owner)
-            && $this->hasAuthoredContentOutside($element, $owner, $list, $items)
-        ) {
-            return null;
-        }
-    }
-    if ( count($items) < 2 ) {
-        $index = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::forDocument($element->ownerDocument);
-        $counterparts = null !== $index
-            ? $index->elementsWithId(trim(SourceDom::attr($element, 'id')))
-            : ($element->ownerDocument?->getElementsByTagName('*') ?? array());
-        foreach ( $counterparts as $counterpart ) {
-            if ( ! $counterpart instanceof DOMElement || $counterpart === $element || ! $this->sharesCarouselIdentity($element, $counterpart) ) {
-                continue;
-            }
-            [$candidateList, $candidateItems] = $this->richestCarouselList($counterpart);
-            if ( count($candidateItems) > count($items) ) {
-                $list = $candidateList;
-                $items = $candidateItems;
+        if ( count($items) < 2 ) {
+            $index = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DocumentReferenceIndex::forDocument($element->ownerDocument);
+            $counterparts = null !== $index
+                ? $index->elementsWithId(trim(SourceDom::attr($element, 'id')))
+                : ($element->ownerDocument?->getElementsByTagName('*') ?? array());
+            foreach ( $counterparts as $counterpart ) {
+                if ( ! $counterpart instanceof DOMElement || $counterpart === $element || ! $this->sharesCarouselIdentity($element, $counterpart) ) {
+                    continue;
+                }
+                [$candidateList, $candidateItems] = $this->richestCarouselList($counterpart);
+                if ( count($candidateItems) > count($items) ) {
+                    $list = $candidateList;
+                    $items = $candidateItems;
+                }
             }
         }
-    }
         return array($list, $items, $localList);
     }
 
@@ -1392,56 +1392,56 @@ JS;
      */
     private function slidePresentation(DOMElement $element, DOMElement $list, array $items, array $pagerItems, bool $capturedGallery, StyleResolver $styleResolver): array
     {
-    $listIdentity = strtolower(implode(' ', array($list->tagName, SourceDom::attr($list, 'class'), SourceDom::attr($list, 'role'), SourceDom::attr($list, 'data-hook'))));
-    $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
-    $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slider)(?:[^a-z0-9]|$)/', $listIdentity);
-    $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
-    if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousMediaSlideList($list) ) {
-        $visible = 0;
-        $hidden = 0;
-        $active = 0;
-        foreach ( $items as $item ) {
-            $active += str_contains(' ' . strtolower(SourceDom::attr($item, 'class')) . ' ', ' active ') ? 1 : 0;
-            $display = CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations($item)['display'] ?? ''));
-            if ( 'none' === $display ) {
-                ++$hidden;
-            } elseif ( '' !== $display ) {
-                ++$visible;
+        $listIdentity = strtolower(implode(' ', array($list->tagName, SourceDom::attr($list, 'class'), SourceDom::attr($list, 'role'), SourceDom::attr($list, 'data-hook'))));
+        $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
+        $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slider)(?:[^a-z0-9]|$)/', $listIdentity);
+        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
+        if ( ! $isTrackList && $this->sourceElementClassifier->isHomogeneousMediaSlideList($list) ) {
+            $visible = 0;
+            $hidden = 0;
+            $active = 0;
+            foreach ( $items as $item ) {
+                $active += str_contains(' ' . strtolower(SourceDom::attr($item, 'class')) . ' ', ' active ') ? 1 : 0;
+                $display = CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations($item)['display'] ?? ''));
+                if ( 'none' === $display ) {
+                    ++$hidden;
+                } elseif ( '' !== $display ) {
+                    ++$visible;
+                }
+            }
+            // A capture during a slide transition can expose both the outgoing
+            // active frame and its incoming neighbour while the rest stay hidden.
+            if ( (1 === $visible && count($items) - 1 === $hidden)
+                || (1 === $active && $hidden > 0 && $hidden >= count($items) - 2 && $visible <= 2)
+            ) {
+                $presentation = 'slideshow';
             }
         }
-        // A capture during a slide transition can expose both the outgoing
-        // active frame and its incoming neighbour while the rest stay hidden.
-        if ( (1 === $visible && count($items) - 1 === $hidden)
-            || (1 === $active && $hidden > 0 && $hidden >= count($items) - 2 && $visible <= 2)
+        // Stacked frames: one item exposed, the rest hidden from assistive
+        // technology, layered by z-index — one slide is on stage at a time.
+        $exposed = array_filter($items, static fn (DOMElement $item): bool => 'true' !== strtolower(SourceDom::attr($item, 'aria-hidden')));
+        if ( 1 < count($items) && 1 === count($exposed)
+            && '' !== CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations(reset($exposed))['z-index'] ?? ''))
         ) {
             $presentation = 'slideshow';
         }
-    }
-    // Stacked frames: one item exposed, the rest hidden from assistive
-    // technology, layered by z-index — one slide is on stage at a time.
-    $exposed = array_filter($items, static fn (DOMElement $item): bool => 'true' !== strtolower(SourceDom::attr($item, 'aria-hidden')));
-    if ( 1 < count($items) && 1 === count($exposed)
-        && '' !== CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations(reset($exposed))['z-index'] ?? ''))
-    ) {
-        $presentation = 'slideshow';
-    }
-    // Selecting a slide from a thumbnail means one slide is on stage.
-    if ( 1 < count($pagerItems) ) {
-        $presentation = 'slideshow';
-    }
-    $initialSlide = 0;
-    foreach ( $items as $index => $item ) {
-        if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
+        // Selecting a slide from a thumbnail means one slide is on stage.
+        if ( 1 < count($pagerItems) ) {
             $presentation = 'slideshow';
         }
-        if ( ('slideshow' === $presentation && 'false' === strtolower(trim(SourceDom::attr($item, 'aria-hidden')))) || str_contains(' ' . strtolower(SourceDom::attr($item, 'class')) . ' ', ' active ') ) {
-            $initialSlide = $index;
+        $initialSlide = 0;
+        foreach ( $items as $index => $item ) {
+            if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
+                $presentation = 'slideshow';
+            }
+            if ( ('slideshow' === $presentation && 'false' === strtolower(trim(SourceDom::attr($item, 'aria-hidden')))) || str_contains(' ' . strtolower(SourceDom::attr($item, 'class')) . ' ', ' active ') ) {
+                $initialSlide = $index;
+            }
         }
-    }
-    if ($capturedGallery) {
-        $presentation = 'slideshow';
-        $initialSlide = min(count($items) - 1, max(0, (int) $list->getAttribute(CaptureEvidence::GALLERY_INITIAL)));
-    }
+        if ($capturedGallery) {
+            $presentation = 'slideshow';
+            $initialSlide = min(count($items) - 1, max(0, (int) $list->getAttribute(CaptureEvidence::GALLERY_INITIAL)));
+        }
         return array($presentation, $initialSlide);
     }
 
@@ -1470,30 +1470,30 @@ JS;
      */
     private function slideTimings(array $items): array
     {
-    $durationMilliseconds = static function (string $value): int {
-        if ( 1 !== preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)$/', strtolower(trim($value)), $matches) ) {
-            return 0;
-        }
-        $milliseconds = (float) $matches[1] * ('s' === $matches[2] ? 1000 : 1);
-        return (int) round($milliseconds);
-    };
-    $transitionDuration = 0;
-    $autoplayInterval = 0;
-    foreach ( $items as $item ) {
-        $transitionDuration = max($transitionDuration, $durationMilliseconds((string) (SourceDeclarations::parse(SourceDom::attr($item, 'style'))['animation-duration'] ?? '')));
-        foreach ( $item->getElementsByTagName('*') as $descendant ) {
-            if ( ! $descendant instanceof DOMElement ) {
-                continue;
+        $durationMilliseconds = static function (string $value): int {
+            if ( 1 !== preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)$/', strtolower(trim($value)), $matches) ) {
+                return 0;
             }
-            $autoplayInterval = max($autoplayInterval, $durationMilliseconds((string) (SourceDeclarations::parse(SourceDom::attr($descendant, 'style'))['animation-duration'] ?? '')));
-        }
-    }
-    if ( $autoplayInterval <= $transitionDuration ) {
+            $milliseconds = (float) $matches[1] * ('s' === $matches[2] ? 1000 : 1);
+            return (int) round($milliseconds);
+        };
+        $transitionDuration = 0;
         $autoplayInterval = 0;
-    }
-    if ( 0 === $transitionDuration ) {
-        $transitionDuration = 300;
-    }
+        foreach ( $items as $item ) {
+            $transitionDuration = max($transitionDuration, $durationMilliseconds((string) (SourceDeclarations::parse(SourceDom::attr($item, 'style'))['animation-duration'] ?? '')));
+            foreach ( $item->getElementsByTagName('*') as $descendant ) {
+                if ( ! $descendant instanceof DOMElement ) {
+                    continue;
+                }
+                $autoplayInterval = max($autoplayInterval, $durationMilliseconds((string) (SourceDeclarations::parse(SourceDom::attr($descendant, 'style'))['animation-duration'] ?? '')));
+            }
+        }
+        if ( $autoplayInterval <= $transitionDuration ) {
+            $autoplayInterval = 0;
+        }
+        if ( 0 === $transitionDuration ) {
+            $transitionDuration = 300;
+        }
         return array($transitionDuration, $autoplayInterval);
     }
 
@@ -1506,18 +1506,18 @@ JS;
      */
     private function stageGeometry(DOMElement $element, array $geometryDeclarations, StyleResolver $styleResolver): array
     {
-    $listHeight = (string) ($geometryDeclarations['height'] ?? '');
-    $rootHeight = (string) ($styleResolver->structuralPresentationDeclarations($element)['height'] ?? '');
-    $positionedStage = 'absolute' === trim((string) ($geometryDeclarations['position'] ?? ''))
-        && 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?%$/D', trim($listHeight))
-        && '' !== $this->safeCssDimension($rootHeight);
-    $height = 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', trim($listHeight)) ? $listHeight : $rootHeight;
-    $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($height), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
-    $stageMinHeight = $this->safeCssDimension((string) ($geometryDeclarations['min-height'] ?? ''));
-    $rootDeclarations = SourceDeclarations::parse(SourceDom::attr($element, 'style'));
-    $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
-    $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
-        && 1 === preg_match('/^-\s*(?:[0-9]+|[0-9]*\.[0-9]+)(?:px|rem|em|%)$/', strtolower(trim((string) ($rootDeclarations['left'] ?? ''))));
+        $listHeight = (string) ($geometryDeclarations['height'] ?? '');
+        $rootHeight = (string) ($styleResolver->structuralPresentationDeclarations($element)['height'] ?? '');
+        $positionedStage = 'absolute' === trim((string) ($geometryDeclarations['position'] ?? ''))
+            && 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?%$/D', trim($listHeight))
+            && '' !== $this->safeCssDimension($rootHeight);
+        $height = 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', trim($listHeight)) ? $listHeight : $rootHeight;
+        $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($height), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
+        $stageMinHeight = $this->safeCssDimension((string) ($geometryDeclarations['min-height'] ?? ''));
+        $rootDeclarations = SourceDeclarations::parse(SourceDom::attr($element, 'style'));
+        $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
+        $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
+            && 1 === preg_match('/^-\s*(?:[0-9]+|[0-9]*\.[0-9]+)(?:px|rem|em|%)$/', strtolower(trim((string) ($rootDeclarations['left'] ?? ''))));
         return array($positionedStage, $viewportHeight, $stageMinHeight, $fullBleed);
     }
 
@@ -1530,18 +1530,16 @@ JS;
      */
     private function thumbnails(array $pagerItems, int $slideCount): array
     {
-    $thumbnails = array();
-    foreach ( array_slice($pagerItems, 0, $slideCount) as $pagerItem ) {
-        $thumbnailImage = $pagerItem->getElementsByTagName('img')->item(0);
-        $url = $thumbnailImage instanceof DOMElement ? trim(SourceDom::attr($thumbnailImage, 'src')) : '';
-        if ( '' === $url ) {
-            continue;
-        }
-        $thumbnails[] = array('url' => $url, 'alt' => trim(SourceDom::attr($thumbnailImage, 'alt')));
-    }
-    if ( count($thumbnails) < 2 || count($thumbnails) !== $slideCount ) {
         $thumbnails = array();
-    }
+        foreach ( array_slice($pagerItems, 0, $slideCount) as $pagerItem ) {
+            $thumbnailImage = $pagerItem->getElementsByTagName('img')->item(0);
+            $url = $thumbnailImage instanceof DOMElement ? trim(SourceDom::attr($thumbnailImage, 'src')) : '';
+            if ( '' === $url ) {
+                continue;
+            }
+            $thumbnails[] = array('url' => $url, 'alt' => trim(SourceDom::attr($thumbnailImage, 'alt')));
+        }
+        return count($thumbnails) < 2 || count($thumbnails) !== $slideCount ? array() : $thumbnails;
     }
 
     /**
