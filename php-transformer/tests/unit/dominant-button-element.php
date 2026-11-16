@@ -45,7 +45,9 @@ foreach ($matches[1] as $json) {
     foreach (array('fontFamily', 'fontWeight', 'textTransform', 'letterSpacing') as $key) $assert(!isset($style['typography'][$key]), 'matching ' . $key . ' is not per-block');
     if (isset($style['typography']['fontSize'])) {
         ++$small;
-        $assert('.84rem' === $style['typography']['fontSize'], 'small CTA keeps only its actual size');
+        $size = $style['typography']['fontSize'];
+        $resolvedSize = $sizes[str_replace('var:preset|font-size|', '', $size)] ?? $size;
+        $assert('.84rem' === $resolvedSize || '13.44px' === $resolvedSize, 'small CTA keeps only its actual size');
         $assert(isset($style['spacing']['padding']), 'small CTA retains its different padding');
     } else {
         $assert(!isset($style['spacing']['padding']), 'matching padding is not per-block');
@@ -82,7 +84,10 @@ foreach ($variantMatches[1] as $json) {
     $attrs = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
     if ('50%' === ($attrs['style']['border']['radius'] ?? null)) {
         ++$close;
-        $assert('1.2rem' === ($attrs['style']['typography']['fontSize'] ?? null), 'close keeps its own size');
+        $size = $attrs['style']['typography']['fontSize'] ?? '';
+        $variationSizes = array_column($variationTheme['settings']['typography']['fontSizes'], 'size', 'slug');
+        $resolvedSize = $variationSizes[str_replace('var:preset|font-size|', '', $size)] ?? $size;
+        $assert('1.2rem' === $resolvedSize || '19.2px' === $resolvedSize, 'close keeps its own size');
     } else {
         ++$styled;
         $assert(isset($attrs['style']['spacing']['padding']), 'unowned padding remains local');
