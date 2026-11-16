@@ -61,6 +61,7 @@ final class AuthorSelectorSemanticPreparer
             array_column($session->runtimeBehaviorState()->runtimeProjectionScriptAssets(), 'content'),
             'is_string'
         ));
+        $authorStyles->siteSelectorEvidence = is_array($options['site_selector_evidence'] ?? null) ? $options['site_selector_evidence'] : null;
         $session->installAuthorStyleAnalysis($authorStyles);
         $sourceStyles = $session->sourceStyleResolutionState();
         $projections = $session->authorSelectorProjectionState();

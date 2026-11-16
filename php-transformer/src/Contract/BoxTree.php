@@ -22,10 +22,22 @@ final class BoxTree
         'flex-grow', 'flex-shrink', 'flex-basis', 'align-self', 'order',
         'grid-template-columns', 'grid-template-rows', 'grid-auto-columns', 'grid-auto-rows', 'grid-auto-flow',
         'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end', 'justify-items', 'justify-self',
-        'background', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-radius',
-        'outline', 'box-shadow', 'mask', 'filter', 'opacity', 'mix-blend-mode', 'transform', 'z-index',
+        'background-color', 'background-image', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-radius',
+        'outline', 'box-shadow', 'mask-image', 'mask-mode', 'filter', 'opacity', 'mix-blend-mode', 'transform', 'z-index',
         'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height',
     );
+
+    /** Capture identity is only meaningful to box-tree lookup, never authored markup. */
+    public static function isEvidenceAttribute(string $name): bool
+    {
+        return self::NODE_ATTRIBUTE === strtolower($name);
+    }
+
+    /** @return list<\DOMAttr> Authored attributes, without capture-only identity. */
+    public static function authoredAttributes(DOMElement $element): array
+    {
+        return array_values(array_filter(iterator_to_array($element->attributes), static fn (\DOMAttr $attribute): bool => ! self::isEvidenceAttribute($attribute->name)));
+    }
 
     public static function validId(mixed $id): bool
     {

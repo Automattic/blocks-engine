@@ -1249,6 +1249,7 @@ final class ArtifactCompiler
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'native_document_context'   => true,
+            'site_selector_evidence'    => preg_match('/<html\b/i', $html) ? ($this->siteSelectorEvidence ?? $this->selectorEvidence($files)) : null,
             'source_has_purchase_affordance' => $this->sourceHasPurchaseAffordance($files),
             'declarative_state_html'    => $html,
             'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
@@ -2033,8 +2034,10 @@ final class ArtifactCompiler
                 return \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeSetClass($classes, $this->routeSets);
             });
             // Recompact only at serialization, merging compatible marker arms.
-            $recompact = static function (string $css) use ($timer, $pageProjections): string {
-                $compact = static fn(): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
+            $recompact = static function (string $css) use ($timer): string {
+                // Native-block projection expands selectors even for a single
+                // page. Factor those alternatives at every serialization boundary.
+                $compact = static fn(): string => CssSelectorListCompactor::stylesheet($css, true);
                 return null === $timer ? $compact() : $timer->measure('compose.compaction', $compact);
             };
             $timer?->start('compose.author_stylesheet_projections.route_budget');
@@ -2120,21 +2123,15 @@ final class ArtifactCompiler
         return $candidate;
     }
 
-    /**
-     * Drop stylesheet arms that require a class or id no other site file names
-     * (see {@see UnreachableSelectorPruner}). Each stylesheet is pruned against
-     * the whole site, so route copies of one sheet stay identical.
-     *
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, array<string, mixed>>
-     */
-    private function withoutUnreachableSelectors(array $files): array
+    /** @var list<string>|null Whole-site evidence supplied to a partition worker. */
+    private ?array $siteSelectorEvidence = null;
+
+    /** @param array<int, array<string, mixed>> $files @return list<string> */
+    private function selectorEvidence(array $files): array
     {
         $texts = array();
-        $documents = 0;
         foreach ($files as $file) {
             if ('css' === ($file['kind'] ?? '')) continue;
-            if ('html' === ($file['kind'] ?? '')) ++$documents;
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
             $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
@@ -2158,8 +2155,14 @@ final class ArtifactCompiler
             }
             if (is_string($text) && '' !== $text) $texts[] = $text;
         }
-        if (0 === $documents) return $files;
-        $pruner = new UnreachableSelectorPruner($texts);
+        return $texts;
+    }
+
+    /** Drop unreachable arms from published projections, using whole-site evidence. */
+    private function withoutUnreachableSelectors(array $files): array
+    {
+        if (!array_filter($files, static fn(array $file): bool => 'html' === ($file['kind'] ?? ''))) return $files;
+        $pruner = new UnreachableSelectorPruner($this->selectorEvidence($files));
         foreach ($files as &$file) {
             // Only the projected sheets the pages load; other CSS is inventory.
             if ('css' !== ($file['kind'] ?? '') || !isset($file['provenance']['projected_from_hash']) || !is_string($file['content'] ?? null)) continue;
@@ -2554,7 +2557,8 @@ final class ArtifactCompiler
                 // same compilation group and its canonical support assets.
             }
             unset($areaRows, $row);
-            $documents[(string) $file['path']] = array('content' => (string) $file['content'], 'rows' => $rows);
+            // Shared stylesheet comparison must not see route-specific capture IDs.
+            $documents[(string) $file['path']] = array('content' => $dom->documentElement instanceof DOMElement ? SourceDom::outerHtml($dom->documentElement) : (string) $file['content'], 'rows' => $rows);
         }
         if (count($documents) < 2) return array('artifacts' => array(), 'assets' => array(), 'author_stylesheet_projections' => array(), 'runtime_script_projections' => array());
 

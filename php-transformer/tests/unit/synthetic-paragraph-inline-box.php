@@ -8,7 +8,7 @@ declare(strict_types=1);
  * own geometry (a flex parent blockifies it into the same item) and the
  * editor can focus it: an element with no box cannot take focus, so its
  * RichText never selects its block. A paragraph that only carries a source
- * anchor stays transparent, and a text-only source div is one lowered
+ * anchor keeps its source layout, and a text-only source div is one lowered
  * paragraph that keeps its own padded block box.
  */
 
@@ -47,8 +47,7 @@ $tracklistCss = $css($tracklist);
 $assert(str_contains($tracklistMarkup, '<p class="track-title ' . $synthetic . '">Kindling</p>'), 'a text-only flex-item span is retagged as a synthetic paragraph carrying its class', $tracklistMarkup);
 $assert(str_contains($tracklistCss, $inlineRule), 'a synthetic paragraph gets an inline box that a flex parent blockifies like the source span');
 $assert(! str_contains($tracklistCss, ':where(p.' . $synthetic . ':not(.' . $sourceBox . ')){display:contents}'), 'a synthetic paragraph is not boxless, so min-width/flex and editor focus apply to it');
-$assert(str_contains($tracklistCss, $anchorRule), 'a paragraph that only carries a source anchor stays transparent');
-$assert(strpos($tracklistCss, $anchorRule) > strpos($tracklistCss, $inlineRule), 'the anchor-carrier rule follows the inline rule at equal specificity');
+$assert(str_contains($tracklistCss, $anchorRule), 'layout-owning anchor carriers remain transparent');
 
 $badge = ( new HtmlTransformer() )->transform(
     '<style>.card{position:relative}.featured-badge{position:absolute;top:-11px;padding:4px 14px;background:#e8a020}</style>'

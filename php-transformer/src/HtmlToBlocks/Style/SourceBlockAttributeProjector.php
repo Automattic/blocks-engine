@@ -196,6 +196,19 @@ final class SourceBlockAttributeProjector
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS);
             }
             if ( 'a' === $sourceTagName ) {
+                $presentation = $this->styleResolver->structuralPresentationDeclarations($sourceElement);
+                $display = CssValueInspector::comparable((string) ($presentation['display'] ?? ''));
+                $float = CssValueInspector::comparable((string) ($presentation['float'] ?? ''));
+                if ( in_array($display, array('', 'inline'), true)
+                    && in_array($float, array('', 'none'), true)
+                    && ! $this->isDirectChildOfAuthorOwnedLayout($sourceElement)
+                    && $this->anchorPrecedesBlock($sourceElement) ) {
+                    // A boxless RichText root cannot receive focus. In inline
+                    // flow before a block, its fallback hitbox can overlap the
+                    // following Group. An inline carrier preserves the source
+                    // line without changing flex/grid or floating link layout.
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-inline-anchor-carrier');
+                }
                 $attrs = $this->withSyntheticHeaderAnchorCarrier($attrs, $sourceElement, $context->generatedStyles);
             }
         }
@@ -321,7 +334,7 @@ final class SourceBlockAttributeProjector
             if ($anchor instanceof DOMElement) {
                 $identity = array();
                 if ($anchor->hasAttribute('class')) $identity['data-blocks-engine-social-source-class'] = $anchor->getAttribute('class');
-                foreach ($anchor->attributes as $attribute) {
+                foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($anchor) as $attribute) {
                     if (in_array($attribute->name, array('id', 'class', 'style', 'role', 'title', 'tabindex', 'target', 'rel'), true) || str_starts_with($attribute->name, 'data-') || str_starts_with($attribute->name, 'aria-')) $identity[$attribute->name] = $attribute->value;
                 }
                 $classes = $this->sourceProjectionClassName($anchor, $context, (string) ($identity['class'] ?? ''));
@@ -978,6 +991,31 @@ final class SourceBlockAttributeProjector
         $ownDisplay = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($anchor)['display'] ?? ''));
 
         return '' === $ownDisplay && $this->isDirectChildOfAuthorOwnedLayout($anchor);
+    }
+
+    private function anchorPrecedesBlock(DOMElement $anchor): bool
+    {
+        // Navigation lowering owns the layout of brand links beside a list.
+        // The list becomes a Navigation block, not an ordinary following Group.
+        $parent = $anchor->parentNode;
+        if ( $parent instanceof DOMElement
+            && ( 'nav' === strtolower($parent->tagName) || 'navigation' === strtolower(SourceDom::attr($parent, 'role')) ) ) {
+            return false;
+        }
+        $next = $anchor->nextSibling;
+        while ( $next instanceof \DOMText && '' === trim($next->textContent) ) {
+            $next = $next->nextSibling;
+        }
+        // A following flow container or heading can overlap the boxless root.
+        // Paragraphs, lists and shell landmarks have separate lowering owners;
+        // changing their preceding links also changes shared-shell identity.
+        if ( ! $next instanceof DOMElement
+            || ! in_array(strtolower($next->tagName), array('div', 'section', 'article', 'aside', 'main', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true)
+            || in_array(strtolower(SourceDom::attr($next, 'role')), array('banner', 'navigation', 'contentinfo'), true) ) {
+            return false;
+        }
+        $display = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($next)['display'] ?? ''));
+        return in_array($display, array('', 'block', 'flex', 'grid', 'flow-root', 'table'), true);
     }
 
     private function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool

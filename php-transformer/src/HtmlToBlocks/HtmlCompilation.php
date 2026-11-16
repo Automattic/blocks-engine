@@ -1924,7 +1924,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
         $this->session->authorSelectorProjectionState()->markRetainedSourcePath($button->getNodePath() ?? '');
-        return $this->authoredFormControlBlockConverter->button($button, true);
+        return $this->authoredFormControlBlockConverter->button($button, true, true);
     }
 
     /** Keep containing-block-relative sizes on the original, editable control. */
@@ -2246,6 +2246,19 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $children = $this->convertChildren($button, $fallbacks, true, true);
         if ( array() === $children ) {
             return null;
+        }
+
+        if ( '' === trim($button->textContent) && $button->getElementsByTagName('img')->length > 0 ) {
+            $attributes = array();
+            foreach ($button->attributes as $attribute) {
+                $attributes[strtolower($attribute->nodeName)] = $attribute->nodeValue ?? '';
+            }
+            if (!isset($attributes['type'])) $attributes['type'] = 'submit';
+            return $this->createBlock('core/group', array(
+                'tagName' => 'button',
+                'className' => SourceDom::attr($button, 'class'),
+                'metadata' => array('blocksEngineControlBox' => $attributes, 'blocksEngineControlTagName' => 'button'),
+            ), $children, $button);
         }
 
         return $this->layoutShells->blockForElements(array($button), $children, $button);

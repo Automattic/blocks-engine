@@ -23,10 +23,7 @@
     },
     "viewports": {
       "type": "object",
-      "required": [
-        "desktop",
-        "mobile"
-      ],
+      "minProperties": 1,
       "maxProperties": 8,
       "propertyNames": {
         "type": "string",
@@ -83,12 +80,8 @@
           },
           "viewports": {
             "type": "object",
-            "minProperties": 2,
+            "minProperties": 1,
             "maxProperties": 8,
-            "required": [
-              "desktop",
-              "mobile"
-            ],
             "propertyNames": {
               "type": "string",
               "pattern": "^[A-Za-z0-9._:-]{1,80}$"
@@ -171,7 +164,8 @@
                     "grid-row-end",
                     "justify-items",
                     "justify-self",
-                    "background",
+                    "background-color",
+                    "background-image",
                     "border-top",
                     "border-right",
                     "border-bottom",
@@ -179,7 +173,8 @@
                     "border-radius",
                     "outline",
                     "box-shadow",
-                    "mask",
+                    "mask-image",
+                    "mask-mode",
                     "filter",
                     "opacity",
                     "mix-blend-mode",
@@ -377,7 +372,8 @@
                       "minLength": 1,
                       "maxLength": 4096
                     },
-                    "background": {
+                    "background-image": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                    "background-color": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 4096
@@ -417,7 +413,8 @@
                       "minLength": 1,
                       "maxLength": 4096
                     },
-                    "mask": {
+                    "mask-mode": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                    "mask-image": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 4096

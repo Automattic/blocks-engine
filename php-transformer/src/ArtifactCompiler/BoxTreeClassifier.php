@@ -21,6 +21,14 @@ final class BoxTreeClassifier
             $elements[$id] = $element;
             $parents[$id] = $element->parentNode instanceof DOMElement ? $element->parentNode->getAttribute(BoxTree::NODE_ATTRIBUTE) : null;
         }
+        $references = array();
+        foreach ($elements as $element) {
+            $href = $element->getAttribute('href');
+            if (str_starts_with($href, '#')) $references[rawurldecode(substr($href, 1))] = true;
+            foreach (array('aria-controls', 'aria-labelledby', 'aria-describedby', 'aria-owns', 'for') as $attribute) {
+                foreach (preg_split('/\s+/', trim($element->getAttribute($attribute)), -1, PREG_SPLIT_NO_EMPTY) as $target) $references[$target] = true;
+            }
+        }
         $containing = array();
         foreach ($tree['viewports'] ?? array() as $viewport => $_) {
             $absolute = $fixed = array();
@@ -40,40 +48,46 @@ final class BoxTreeClassifier
         $counts = array('load-bearing' => 0, 'neutral' => 0);
         foreach ($elements as $id => $element) {
             $node = $tree['nodes'][$id];
-            $criterion = self::criterion($element, $node, $tree, isset($containing[$id]));
+            $criterion = self::criterion($element, $node, $tree, isset($containing[$id]), isset($references[$element->getAttribute('id')]));
             $disposition = 'equal-child-geometry' === $criterion ? 'neutral' : 'load-bearing';
             $nodes[$id] = array('disposition' => $disposition, 'criterion' => $criterion);
             ++$counts[$disposition];
         }
-        // Source-box projection, not a forecast of pattern expansion in emitted blocks.
-        $depths = $inBody = array();
+        // Estimate block-producing boxes; inline content and navigation internals
+        // do not each become blocks. Actual emitted depth is measured in slice 3.
+        $depths = $inBody = $inNavigation = array();
         $depth = $groups = $leaves = 0;
         foreach ($elements as $id => $element) {
             $inBody[$id] = 'body' === strtolower($element->tagName) || ($inBody[$parents[$id]] ?? false);
             if (!$inBody[$id] || 'body' === strtolower($element->tagName)) continue;
-            $kept = 'load-bearing' === $nodes[$id]['disposition'];
+            $tag = strtolower($element->tagName);
+            $insideNavigation = $inNavigation[$parents[$id]] ?? false;
+            $inNavigation[$id] = 'nav' === $tag || $insideNavigation;
+            $produces = !$insideNavigation && !in_array($tag, array('span', 'a', 'strong', 'em', 'b', 'i', 'br', 'script', 'style', 'link', 'meta'), true);
+            $kept = $produces && 'load-bearing' === $nodes[$id]['disposition'];
             $depths[$id] = ($depths[$parents[$id]] ?? 0) + ($kept ? 1 : 0);
             $depth = max($depth, $depths[$id]);
-            if (!$tree['nodes'][$id]['children']) ++$leaves;
+            if ($produces && (!$tree['nodes'][$id]['children'] || 'nav' === $tag || in_array($tag, array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true))) ++$leaves;
             elseif ($kept) ++$groups;
         }
         return array('counts' => $counts, 'nodes' => $nodes, 'projection' => $tree ? array(
-            'basis' => 'body-source-boxes', 'depth' => $depth, 'groups' => $groups,
+            'basis' => 'estimated-block-producing-boxes', 'depth' => $depth, 'groups' => $groups,
             'leaves' => $leaves, 'groups_per_leaf' => $leaves ? $groups / $leaves : 0.0,
         ) : null);
     }
 
-    private static function criterion(DOMElement $element, array $node, array $tree, bool $containing): string
+    private static function criterion(DOMElement $element, array $node, array $tree, bool $containing, bool $referenced): string
     {
         foreach ($node['viewports'] as $observation) {
             $s = $observation['used_styles'];
             if (self::paints($s)) return 'paints';
         }
+        if (self::clips($node, $tree)) return 'clips';
         foreach ($node['viewports'] as $observation) {
             if (count($node['children']) > 1 && in_array($observation['used_styles']['display'], array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) return 'multi-child-layout';
         }
         if ($containing) return 'containing-block';
-        if (!in_array(strtolower($element->tagName), array('div', 'span'), true) || $element->hasAttribute('id') || $element->hasAttribute('role') || $element->hasAttribute('name')) return 'semantics/id/anchor';
+        if (!in_array(strtolower($element->tagName), array('div', 'span'), true) || $referenced || $element->hasAttribute('role') || $element->hasAttribute('name')) return 'semantics/id/anchor';
         foreach ($element->attributes as $attribute) {
             if (str_starts_with($attribute->name, 'on') || str_starts_with($attribute->name, 'aria-') || in_array($attribute->name, array('tabindex', 'contenteditable', 'draggable', 'hidden', 'inert'), true)) return 'interaction/state';
         }
@@ -96,20 +110,61 @@ final class BoxTreeClassifier
         return 'equal-child-geometry';
     }
 
+    /** Geometry is checked independently on each clipped axis at every captured viewport. */
+    private static function clips(array $node, array $tree): bool
+    {
+        foreach ($node['viewports'] as $viewport => $observation) {
+            $styles = $observation['used_styles'];
+            $clipping = array('hidden', 'clip', 'auto', 'scroll');
+            if (!in_array($styles['overflow-x'], $clipping, true) && !in_array($styles['overflow-y'], $clipping, true)) continue;
+            $box = $observation['border_box'];
+            $pending = $node['children'];
+            while ($pending) {
+                $descendant = $tree['nodes'][array_pop($pending)];
+                $child = $descendant['viewports'][$viewport]['border_box'];
+                foreach (array('x' => 'width', 'y' => 'height') as $axis => $size) {
+                    $overflow = $observation['used_styles']['overflow-' . $axis];
+                    if (in_array($overflow, $clipping, true)
+                        && ($child[$axis] < $box[$axis] - 0.01 || $child[$axis] + $child[$size] > $box[$axis] + $box[$size] + 0.01)) return true;
+                }
+                foreach ($descendant['children'] as $id) $pending[] = $id;
+            }
+        }
+        return false;
+    }
+
+    private static function identityTransform(string $transform): bool
+    {
+        if ('none' === $transform) return true;
+        if (!preg_match('/^(matrix|matrix3d)\(([^)]+)\)$/', trim($transform), $match)) return false;
+        $values = array_map('trim', explode(',', $match[2]));
+        $identity = 'matrix' === $match[1] ? array(1, 0, 0, 1, 0, 0) : array(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+        if (count($values) !== count($identity)) return false;
+        foreach ($values as $i => $value) {
+            if (!is_numeric($value) || (float) $value !== (float) $identity[$i]) return false;
+        }
+        return true;
+    }
+
+    private static function transparent(string $color): bool
+    {
+        $color = strtolower(trim($color));
+        if ('transparent' === $color) return true;
+        if (preg_match('/\/\s*([\d.e+-]+)%?\s*\)$/', $color, $match)) return (float) $match[1] === 0.0;
+        return 1 === preg_match('/^rgba\([^,]+,[^,]+,[^,]+,\s*0(?:\.0*)?%?\s*\)$/', $color);
+    }
+
     private static function paints(array $s): bool
     {
-        foreach (array('box-shadow', 'filter', 'transform') as $property) {
+        if (!self::identityTransform($s['transform'])) return true;
+        foreach (array('box-shadow', 'filter') as $property) {
             if ('none' !== $s[$property]) return true;
         }
         if ((float) $s['opacity'] !== 1.0 || !in_array($s['mix-blend-mode'], array('normal', 'none'), true)) return true;
-        foreach (array('overflow-x', 'overflow-y') as $property) {
-            if (in_array($s[$property], array('hidden', 'clip', 'scroll', 'auto'), true)) return true;
+        if (!self::transparent($s['background-color'])) return true;
+        foreach (array('background-image', 'mask-image') as $property) {
+            if (!preg_match('/^none(?:\s*,\s*none)*$/i', trim($s[$property]))) return true;
         }
-        // CSSOM shorthands include color and defaults even when nothing paints.
-        $background = preg_replace('/rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)|transparent/', '', $s['background']);
-        $background = preg_replace('/\b(?:none|repeat|scroll|auto|padding-box|border-box)\b|0%|\//', '', $background);
-        if ('' !== trim($background)) return true;
-        if (!preg_match('/^none(?:\s|$)/', $s['mask'])) return true;
         foreach (array('border-top', 'border-right', 'border-bottom', 'border-left', 'outline') as $property) {
             if (!preg_match('/\b(?:none|hidden)\b|(?:^|\s)0(?:px)?(?:\s|$)/', $s[$property]) && !str_contains($s[$property], 'transparent') && !preg_match('/rgba\([^)]*,\s*0\s*\)/', $s[$property])) return true;
         }

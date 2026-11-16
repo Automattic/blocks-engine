@@ -516,10 +516,16 @@ PHP;
             $headerOffsetScript = NavigationHeaderOffsetRuntime::script();
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-navigation-header-offset', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-navigation-header-offset' ); wp_add_inline_script( 'blocks-engine-navigation-header-offset', " . var_export($headerOffsetScript, true) . " ); } );";
         }
+        if (self::markupContains($documentsWithMenus, 'blocksEngineSelect')) {
+            $lines[] = NativeSelectRuntime::source();
+            $selectStateScript = \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredControlStateScript::viewScript();
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-select-state', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-select-state' ); wp_add_inline_script( 'blocks-engine-select-state', " . var_export($selectStateScript, true) . " ); } );";
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-select-wrapper', false ); wp_enqueue_style( 'blocks-engine-select-wrapper' ); wp_add_inline_style( 'blocks-engine-select-wrapper', '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}' ); } );";
+        }
         $breadcrumbLabels = BreadcrumbLabelRuntime::labels($documents, $pages);
         $breadcrumbPostTrails = BreadcrumbLabelRuntime::postTrails($pages);
         if (array() !== $breadcrumbLabels || array() !== $breadcrumbPostTrails) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels, $breadcrumbPostTrails);
-        if (self::markupContains($documentsWithMenus, 'blocksEngineRuntimeAttributes')) {
+        if (self::markupContains($documentsWithMenus, 'blocksEngineRuntimeAttributes') || self::markupContains($documentsWithMenus, 'blocksEngineControlBox')) {
             $lines[] = RuntimeAttributesRuntime::source();
         }
         foreach (EditorRestingStateRuntime::MARKERS as $marker) {

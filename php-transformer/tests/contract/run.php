@@ -2533,7 +2533,7 @@ $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select id="product-sort" name="products" placeholder="Sort products" class="catalog-sort">'), 'compact select preserves native id, name, placeholder, and CSS selector identity');
 $assert(1 === substr_count((string) ($standaloneControls['serialized_blocks'] ?? ''), '>Sort products</label>') && str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<label for="product-sort"'), 'styled select emits its source associated label exactly once without a duplicate wrapping label');
 $assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<!-- wp:html') || str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'only the runtime-targeted select uses core/html');
-$assert(1 === preg_match('/<select[^>]*\\sclass="js-sort-select"/', (string) ($standaloneControls['serialized_blocks'] ?? '')), 'runtime-targeted select preserves native markup in serialized blocks');
+$assert(1 === preg_match('/<select[^>]*\\sclass="js-sort-select"/', (string) ($standaloneControls['serialized_blocks'] ?? '')), 'runtime-targeted select renders native markup from core options');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'id="donation"'), 'readable input output preserves source id as a block anchor');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'js-sort-select'), 'runtime-targeted select keeps behavior-hook class on native markup');
 $assert(1 === count($standaloneControls['source_reports']['runtime_islands'] ?? array()), 'runtime islands report only the explicitly runtime-targeted standalone control');
@@ -2701,7 +2701,7 @@ $labelWrappedRuntimeControls = ( new HtmlTransformer() )->transform(
     array('runtime_dom_selectors' => array('#scheme-select', '#crt-toggle'))
 )->toArray();
 $labelWrappedRuntimeMarkup = (string) ($labelWrappedRuntimeControls['serialized_blocks'] ?? '');
-$assert(str_contains($labelWrappedRuntimeMarkup, '<select id="scheme-select"'), 'label-wrapped runtime select preserves exact native DOM target');
+$assert(str_contains(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeSelectRendererFixture::render($labelWrappedRuntimeMarkup), '<select id="scheme-select"'), 'label-wrapped runtime select preserves exact native DOM target');
 $assert(str_contains($labelWrappedRuntimeMarkup, '<input type="checkbox" id="crt-toggle"'), 'label-wrapped runtime checkbox preserves exact native DOM target');
 
 $artifactControlSelectors = ( new ArtifactCompiler() )->compile(
@@ -5927,12 +5927,12 @@ $assert(array( 'authored-select', 'authored-input' ) === array_column($authoredC
 $authoredSelectCompanion = $authoredControlBlocks[0] ?? array();
 $authoredInputCompanion = $authoredControlBlocks[1] ?? array();
 $assert('custom/authored-select' === ($authoredSelectCompanion['block_json']['name'] ?? null), 'authored-select companion metadata uses its canonical block name');
-$assert('custom/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
 $assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-rich-text' ) ) === ($authoredSelectCompanion['script_dependencies'] ?? null), 'authored-select companion dependency metadata survives payload compilation');
-$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-data', 'wp-element', 'wp-rich-text' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredSelectCompanion['assets']['index.js'] ?? ''), $authoredSelectRegistrations);
-preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredInputCompanion['assets']['index.js'] ?? ''), $authoredInputRegistrations);
 $assert(array( 'custom/authored-select' ) === ($authoredSelectRegistrations[1] ?? array()), 'authored-select companion editor script registers only its canonical block name');
+$assert('custom/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-data', 'wp-element', 'wp-rich-text' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
+preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredInputCompanion['assets']['index.js'] ?? ''), $authoredInputRegistrations);
 $assert(array( 'custom/authored-input' ) === ($authoredInputRegistrations[1] ?? array()), 'authored-input companion editor script registers only its canonical block name');
 
 $scriptCompanion = $compiler->compile(

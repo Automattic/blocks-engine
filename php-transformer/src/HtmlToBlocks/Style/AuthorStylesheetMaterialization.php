@@ -310,6 +310,13 @@ final class AuthorStylesheetMaterialization
         $this->session->authorSelectorProjectionState()->reconcileRetainedControls($this->emittedStyleMarkup);
         $bindings = new ProjectedSelectorBindings();
         $media = trim($media);
+        if (null !== $this->session->authorStyleAnalysis()->siteSelectorEvidence) {
+            // Prune only the projection input. Analysis and source provenance
+            // retain the authored inventory and its specificity ceiling.
+            $stylesheet = (new \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner(
+                $this->session->authorStyleAnalysis()->siteSelectorEvidence
+            ))->prune($stylesheet);
+        }
         $projected = $this->projector->project(
             $stylesheet,
             new AuthorStylesheetProjectionContext(
