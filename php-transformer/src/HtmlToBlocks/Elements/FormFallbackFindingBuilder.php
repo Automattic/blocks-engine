@@ -49,8 +49,9 @@ final class FormFallbackFindingBuilder
         $boundedHtml = $this->context->boundedFallbackHtml($element);
         // A composed form binding replaces only its controls slot; the page
         // keeps the form's other content as native blocks. The provider
-        // renders `readable_blocks` in place of the slot, so they describe
-        // that slot alone, or the page renders the surrounding content twice.
+        // renders `readable_blocks` in place of the slot, so the readable form
+        // holds that slot alone, or the page renders the surrounding content
+        // twice.
         if ( null !== $readableFormBlock && null !== $bindingBlock ) {
             $readableFormBlock = $this->readableSlot($readableFormBlock, $bindingBlock, $element) ?? $readableFormBlock;
         }
@@ -379,6 +380,18 @@ final class FormFallbackFindingBuilder
 
         // A control the form captures outside the slot (a `form=` peer)
         // still belongs to the provider form, so the whole form stays.
-        return null !== $match && count($indexes($match)) === count($indexes($readable)) ? $match : null;
+        if ( null === $match || count($indexes($match)) !== count($indexes($readable)) ) {
+            return null;
+        }
+
+        // Providers read the root as the form itself; it keeps its frame and
+        // holds the slot as its only content.
+        $content = $readable['innerContent'] ?? array();
+        $open = is_string($content[0] ?? null) ? $content[0] : '';
+        $close = is_string($content[count($content) - 1] ?? null) && count($content) > 1 ? $content[count($content) - 1] : '';
+        $readable['innerBlocks'] = array($match);
+        $readable['innerContent'] = array($open, null, $close);
+
+        return $readable;
     }
 }
