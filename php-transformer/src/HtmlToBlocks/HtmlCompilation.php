@@ -1380,7 +1380,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // author rules there as they do on the front end.
         $this->navigationStyleProjector->materializeEditorStaticStateStylesheet(
             implode("\n\n", array_column($authorStylesheetProjections, 'content'))
-            . ( '' === $authorStylesheets->contentBoxCss() ? '' : "\n\n" . $authorStylesheets->contentBoxCss() )
+            . ( '' === $authorStylesheets->contentBoxCss() ? '' : "\n\n" . $authorStylesheets->contentBoxCss() ),
+            $serializedBlocks
         );
         // Publish declaration addresses only after every generated support
         // family has contributed. Provisional source bindings never escape
