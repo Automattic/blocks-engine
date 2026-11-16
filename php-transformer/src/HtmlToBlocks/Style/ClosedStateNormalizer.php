@@ -94,6 +94,9 @@ final class ClosedStateNormalizer
                 continue;
             }
             foreach ( $this->repairs((array) ($finding['declarations'] ?? array())) as $property => $value ) {
+                if ( 'transform' === $property && ! empty($finding['placed']) ) {
+                    continue;
+                }
                 $repairs[$selector][$property] = $value;
             }
         }

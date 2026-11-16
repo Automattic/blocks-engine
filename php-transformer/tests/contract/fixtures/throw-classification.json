@@ -1744,17 +1744,13 @@
       },
       "InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.')": {
         "class": "integrity",
-        "count": 2
+        "count": 1
       },
       "InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.')": {
         "class": "integrity",
         "count": 3
       },
       "InvalidArgumentException('A runtime entity binding source anchor is ambiguous after reprojection.')": {
-        "class": "integrity",
-        "count": 1
-      },
-      "InvalidArgumentException('A runtime entity binding no longer identifies an emitted canonical block.')": {
         "class": "integrity",
         "count": 1
       },

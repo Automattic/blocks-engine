@@ -14,6 +14,7 @@ $entry = static fn (string $terms): string => '<main><div class="blog-item-wrapp
     . '</article></div></main>';
 $cases = array(
     'category path' => '<a href="/blog/category/Buy" class="blog-item-category blog-item-category--Buy">Buy</a>',
+    'captured mirror path' => '<a href="/blog/category/Buy/index.html" class="blog-item-category blog-item-category--Buy">Buy</a>',
     'tag path' => '<a href="/blog/tag/buy" class="blog-item-tag blog-item-tag--buy">buy</a>',
     'rel tag' => '<a href="/topics/purchase" rel="tag">Purchase</a>',
 );

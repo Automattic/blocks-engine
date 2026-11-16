@@ -188,7 +188,10 @@ final class FormRuntimeRequirementAnalyzer
                 $subscribe = $subscribe || 1 === preg_match('/\b(?:subscribe|newsletter)\b/i', ($control->textContent ?? '') . ' ' . SourceDom::attr($control, 'value'));
             }
         }
-        if ( preg_match('~(?:^|/)cart/add(?:[/.]|$)~', $path) || ($hiddenItem && $quantity) || self::hasCommerceSubmissionSignal($form, true) ) {
+        // A submit label alone ("Add to Cart or Get a Quote") does not make a
+        // form that asks for the visitor's email a cart form: a purchase form
+        // carries the item, never the buyer's contact details.
+        if ( preg_match('~(?:^|/)cart/add(?:[/.]|$)~', $path) || ($hiddenItem && $quantity) || (! $email && self::hasCommerceSubmissionSignal($form, true)) ) {
             return 'commerce_add_to_cart';
         }
         if ( $password ) return 'login';

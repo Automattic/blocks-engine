@@ -372,12 +372,15 @@ final class NavigationPattern implements PatternRecognizerInterface
         // submenu. Keep its visibility owner instead of flattening its links
         // into the always-visible landmark. Native overlays own their own
         // responsive visibility and must still absorb their source menus.
+        // Direct menu children of a native landmark already use its item
+        // projection; only an intervening layout owner needs this fallback.
         if ( 'never' === $navigationContext->overlayMenu($element)
             && ! $this->isInsideDialog($element)
             && ! $this->isInsideCapturedDialogPanel($element) ) {
             foreach ( $element->getElementsByTagName('*') as $descendant ) {
-                if ( ! $this->hasNavigationSignal($descendant)
-                    || $descendant->hasAttribute('data-blocks-engine-capture-dialog-panel')
+                if ( ( 'nav' === strtolower($element->tagName) && $descendant->parentNode === $element )
+                    || ! $this->hasNavigationSignal($descendant)
+                    || $descendant->hasAttribute(CaptureEvidence::DIALOG_PANEL)
                     || $this->isInsideCapturedDialogPanel($descendant)
                     || $this->isWithinOwnedSubmenu($descendant, $element)
                     || 2 > $descendant->getElementsByTagName('a')->length
