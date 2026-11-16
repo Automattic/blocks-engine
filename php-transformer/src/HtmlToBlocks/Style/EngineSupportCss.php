@@ -367,9 +367,10 @@ final class EngineSupportCss
             }
             foreach ( array( 'inline-block', 'block', 'flex', 'inline-flex', 'inline-grid', 'inline-table' ) as $display ) {
                 $modifier = $neutralButton . '-display-' . $display;
-                if ( str_contains($serializedBlocks, $modifier) ) {
-                    $buttonCss .= ':where(.' . $neutralButton . '.' . $modifier . ')>.wp-block-button__link{display:' . $display . '!important}';
-                }
+                // Support sheets from multiple routes can coexist. Always emit
+                // every modifier, or a later route's generic inline reset can
+                // override an earlier route's source display restoration.
+                $buttonCss .= ':where(.' . $neutralButton . '.' . $modifier . ')>.wp-block-button__link{display:' . $display . '!important}';
             }
             $parts[] = $buttonCss;
         }

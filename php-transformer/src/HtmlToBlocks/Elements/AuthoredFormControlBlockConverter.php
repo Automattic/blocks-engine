@@ -378,17 +378,23 @@ final class AuthoredFormControlBlockConverter
     }
 
     /**
-     * Return a compact native button on the same terms as `input()`: a submit
-     * (or other form-action) control the source styles has no readable prose
-     * equivalent, because a Gutenberg button saves as an anchor and cannot
-     * submit its ancestor form.
+     * Return an editable native form action. Plain labels use core/button's
+     * native button tag; controls needing unsupported attributes or their
+     * original containing block retain the authored representation.
      *
      * @return array<string, mixed>|null
      */
-    public function button(DOMElement $button, bool $forceNative = false): ?array
+    public function button(DOMElement $button, bool $forceNative = false, bool $preserveContainingBlock = false): ?array
     {
         if ( ! $forceNative && array() === ($this->authoredPresentationDeclarations)($button) ) {
             return null;
+        }
+
+        // Core/button supports native form actions. Plain labels do not need
+        // a companion merely because their source has authored presentation.
+        // Let the normal source projection own the wrapper/control selectors.
+        if (!$preserveContainingBlock && $this->hasPlainCoreButtonLabel($button)) {
+            return $this->plainCoreButton($button);
         }
 
         $this->session->authorSelectorProjectionState()->recordAuthoredControlCandidate($button);
@@ -454,6 +460,10 @@ final class AuthoredFormControlBlockConverter
     /** @return array<string, mixed> */
     private function runtimeButtonBlock(DOMElement $button): array
     {
+        if ($this->hasPlainCoreButtonLabel($button)) {
+            return $this->plainCoreButton($button);
+        }
+
         // SVG controls have no RichText label. Model their artwork as core
         // images and containers rather than an opaque contentParts tree.
         // Inline-only icons and CSS-painted controls still use the native
@@ -472,6 +482,48 @@ final class AuthoredFormControlBlockConverter
         $markup = $generator->markup($attrs);
 
         return BlockFactory::leaf($registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME), $attrs, $markup);
+    }
+
+    private function hasPlainCoreButtonLabel(DOMElement $button): bool
+    {
+        if ('button' !== strtolower($button->tagName) || '' === trim($button->textContent) || SourceDom::childElementCount($button) > 0) return false;
+        // Bound controls and provider form actions keep their existing owning
+        // pipeline. Captured native forms, however, already retain their fields
+        // and need an editable, source-shaped action, like captured choices.
+        foreach ($button->attributes as $attribute) {
+            if (!in_array(strtolower($attribute->nodeName), array('type', 'class', 'style', CaptureEvidence::CHOICE_INDEX), true)) return false;
+        }
+        for ($ancestor = $button->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if ('form' === strtolower($ancestor->tagName)) {
+                foreach ($ancestor->getElementsByTagName('*') as $field) {
+                    if ($field->hasAttribute(CaptureEvidence::NATIVE_CONTROL_STATE)) return true;
+                }
+                return false;
+            }
+        }
+        return $button->hasAttribute(CaptureEvidence::CHOICE_INDEX);
+    }
+
+    private function plainCoreButton(DOMElement $button): array
+    {
+        // Keep source selectors on the native control, not on synthetic button
+        // wrappers. The inner button is an editor-only RichText carrier.
+        $this->session->authorSelectorProjectionState()->recordAuthoredControlCandidate($button);
+        $this->session->authorSelectorProjectionState()->markRetainedSourcePath($button->getNodePath() ?? '');
+        $attributes = array();
+        foreach ($button->attributes as $attribute) {
+            $attributes[strtolower($attribute->nodeName)] = $attribute->nodeValue ?? '';
+        }
+        if (!isset($attributes['type'])) $attributes['type'] = 'submit';
+        $label = $this->createBlock->createBlock('core/button', array(
+            'tagName' => 'button',
+            'type' => $attributes['type'],
+            'text' => $this->runtime->escapeHtml($button->textContent),
+        ), array());
+        return $this->createBlock->createBlock('core/group', array(
+            'tagName' => 'div',
+            'metadata' => array('blocksEngineControlBox' => $attributes, 'blocksEngineControlTagName' => 'button', 'blocksEngineControlLabel' => true),
+        ), array($label), $button);
     }
 
     private function isCssDrawnControl(DOMElement $element): bool

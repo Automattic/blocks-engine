@@ -525,7 +525,7 @@ PHP;
         $breadcrumbLabels = BreadcrumbLabelRuntime::labels($documents, $pages);
         $breadcrumbPostTrails = BreadcrumbLabelRuntime::postTrails($pages);
         if (array() !== $breadcrumbLabels || array() !== $breadcrumbPostTrails) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels, $breadcrumbPostTrails);
-        if (self::markupContains($documentsWithMenus, 'blocksEngineRuntimeAttributes')) {
+        if (self::markupContains($documentsWithMenus, 'blocksEngineRuntimeAttributes') || self::markupContains($documentsWithMenus, 'blocksEngineControlBox')) {
             $lines[] = RuntimeAttributesRuntime::source();
         }
         foreach (EditorRestingStateRuntime::MARKERS as $marker) {
