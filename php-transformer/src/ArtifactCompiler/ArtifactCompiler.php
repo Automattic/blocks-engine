@@ -2258,7 +2258,7 @@ final class ArtifactCompiler
         $evidence = $this->siteSelectorEvidence ?? $this->selectorEvidence($files);
         if (null === $this->siteSelectorPruner || $evidence !== $this->siteSelectorPrunerEvidence) {
             $this->siteSelectorPrunerEvidence = $evidence;
-            $this->siteSelectorPruner = new UnreachableSelectorPruner($evidence);
+            $this->siteSelectorPruner = new UnreachableSelectorPruner($evidence, true);
         }
         return $this->siteSelectorPruner;
     }
