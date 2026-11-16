@@ -1113,8 +1113,8 @@ final class DesignSystem
      * and their `:hover` colours; heading colour, family and weight; and,
      * per heading level, colour, family, size and weight where that level
      * differs from the heading values. Element styles reach every element of
-     * the kind. Heading families use a strict rendered majority;
-     * minority headings keep their source-owned styles. Other elements and
+     * the kind. Heading families use a strict rendered majority only when
+     * every minority heading has its own authored family declaration. Other elements and
      * per-level typography require unanimity. Colours, families and sizes
      * must be tokens (a colour within the JND of the token's own value). A `:hover` colour
      * counts only when every element of the kind has one hover rule giving
@@ -1130,7 +1130,14 @@ final class DesignSystem
      */
     private static function unanimousElements(array $usageBySource, self $system): array
     {
-        $values = $headingTypography = array();
+        $values = $headingTypography = $inheritedHeadingFamilies = array();
+        foreach ($usageBySource as $usage) foreach ($usage['heading_typography'] ?? array() as $row) {
+            if (true === ($row['font_family_authored'] ?? false)) continue;
+            $stack = (string) ($row['font_family'] ?? '');
+            $slug = $system->fontFamilySlug($stack);
+            foreach ($system->fontFamilies as $family) if ($family['slug'] === $slug) $stack = $family['fontFamily'];
+            $inheritedHeadingFamilies[self::familyKey($stack) . "\n" . $stack] = true;
+        }
         $conditional = array();
         foreach ($usageBySource as $usage) foreach ($usage['root']['conditional'] ?? array() as $family) $conditional[(string) $family] = true;
         // A media-conditional variant of the property makes the element render
@@ -1196,6 +1203,9 @@ final class DesignSystem
                     if (isset($observed["\n"]) || isset($observed[''])) continue;
                     arsort($observed, SORT_NUMERIC);
                     if (reset($observed) * 2 <= array_sum($observed)) continue;
+                    // An inherited minority has no source-owned binding to
+                    // protect it from the theme's heading family default.
+                    if (array_diff_key($inheritedHeadingFamilies, array((string) array_key_first($observed) => true))) continue;
                 } elseif (1 !== count($observed)) continue;
                 $value = $token($field, (string) array_key_first($observed));
                 if (null === $value) continue;

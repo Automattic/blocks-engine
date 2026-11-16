@@ -34,11 +34,42 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
 
+        // A structured attribution is a layout subtree, not citation RichText.
+        // Flattening its footer drops decorative rules, flex geometry and margins.
+        $footer = SourceDom::firstChildElement($element, 'footer');
+        $attribution = '';
+        if ($footer instanceof DOMElement) {
+            foreach ($footer->childNodes as $child) {
+                // Decorative rules alone do not make a phrasing citation structural.
+                if ($child instanceof DOMElement && !SourceDom::isAriaHidden($child)) {
+                    $attribution .= $child->ownerDocument->saveHTML($child);
+                }
+            }
+        }
+        if ($footer instanceof DOMElement && preg_match(self::STRUCTURAL_CONTENT_PATTERN, $attribution)) {
+            $fallbacks = array();
+            $children = $converter->children($element, $fallbacks, true);
+            foreach ($children as &$child) {
+                if ('footer' === ($child['attrs']['tagName'] ?? '')) {
+                    // Attribution is not a site landmark. Keep its layout but
+                    // do not let shell extraction mistake it for the site footer.
+                    $attributes = $child['attrs'];
+                    $attributes['tagName'] = 'div';
+                    $child = $this->createBlock->createBlock('core/group', $attributes, $child['innerBlocks'], $footer);
+                }
+            }
+            unset($child);
+            return new PatternRecognitionResult(
+                $this->createBlock->createBlock('core/quote', $context->presentationAttributes($element), $children, $element),
+                $fallbacks
+            );
+        }
+
         // RichText citations cannot represent a layout container. Keep such
         // footers in generic lowering so their spacing and children survive.
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement
-                && in_array(strtolower($child->tagName), array('cite', 'footer'), true)
+                && in_array(strtolower($child->tagName), array('cite'), true)
                 && $this->hasStructuredCitationContent($child) ) {
                 $fallbacks = array();
                 $innerBlocks = $converter->childrenWithoutTags($element, $fallbacks, array('cite', 'footer'));

@@ -2388,7 +2388,7 @@ final class AuthorStylesheetProjector
         if ( count($moved) === count($selectors) ) {
             return $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, true, true) . '}';
         }
-        $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, false) . '}';
+        $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, false, false, array() !== $moved) . '}';
         $movedPrelude = array() === $moved ? '' : $this->projectAuthorImageSelectorPrelude(implode(',', $moved), $context);
 
         return '' === $movedPrelude ? $rule : $rule . $movedPrelude . '{border-radius:inherit' . $fillBody . '}';
@@ -2409,6 +2409,17 @@ final class AuthorStylesheetProjector
         }
         $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
 
+        // Explicit img subjects naming only positioned images move to the
+        // figure too, so it can own their out-of-flow source box.
+        if ( 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0))) ) {
+            $matches = $this->selectors->matchingSourceElements($selector, $parsed, $context);
+            if ( array() !== $matches && array() === array_filter($matches, fn (DOMElement $element): bool =>
+                'img' !== strtolower($element->tagName)
+                || ! in_array(CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? '')), array('absolute', 'fixed'), true)) ) {
+                return false;
+            }
+        }
+
         // A universal subject matches the image itself, exactly like `img`.
         return in_array(strtolower((string) ($subject['type'] ?? '*')), array( 'img', 'svg', '*' ), true)
             && array() === ($subject['classes'] ?? array())
@@ -2417,14 +2428,17 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, string> $declarations */
-    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false, bool $inheritRadius = true, bool $fillPercentageBox = false): string
+    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false, bool $inheritRadius = true, bool $fillPercentageBox = false, bool $projectDimensions = true): string
     {
         $bridge = array( 'display:block' );
         $position = strtolower(trim((string) ($declarations['position'] ?? '')));
         $width = strtolower(trim((string) ($declarations['width'] ?? '')));
         $height = strtolower(trim((string) ($declarations['height'] ?? '')));
         $ownsBox = ! in_array($width, array( '', 'auto' ), true) && ! in_array($height, array( '', 'auto' ), true);
-        if ( $ownsBox || in_array($position, array( 'absolute', 'fixed' ), true) ) {
+        // Stay-on-image subjects already size the leaf with the authored rule.
+        // A higher-specificity bridge must not replace those axes with the
+        // synthetic figure's dimensions (or its otherwise automatic height).
+        if ( $projectDimensions && ($ownsBox || in_array($position, array( 'absolute', 'fixed' ), true)) ) {
             $bridge[] = 'width:100%';
             $bridge[] = 'height:100%';
         }
@@ -2437,7 +2451,7 @@ final class AuthorStylesheetProjector
         // The responsive max-width default belongs to zero-specificity base
         // support, not this authored position: an unrelated later rule must
         // not reset a cap declared by an earlier rule.
-        foreach (array('width', 'height') as $property) {
+        foreach ($projectDimensions ? array('width', 'height') : array() as $property) {
             if ('auto' === CssValueInspector::declared($declarations, $property)) {
                 $bridge[] = $property . ':' . $declarations[$property];
             } elseif (! $ownsBox && ! in_array($position, array('absolute', 'fixed'), true) && isset($declarations[$property])) {

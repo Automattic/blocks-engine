@@ -67,6 +67,11 @@
           "viewports"
         ],
         "properties": {
+          "interaction_states": {
+            "type": "array",
+            "maxItems": 32,
+            "items": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,80}$" }
+          },
           "children": {
             "type": "array",
             "maxItems": 100000,
@@ -189,6 +194,9 @@
                   ],
                   "additionalProperties": false,
                   "properties": {
+                    "animation-name": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                    "transition-property": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                    "transition-duration": { "type": "string", "minLength": 1, "maxLength": 4096 },
                     "display": {
                       "type": "string",
                       "minLength": 1,
