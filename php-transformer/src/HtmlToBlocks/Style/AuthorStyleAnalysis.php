@@ -129,6 +129,9 @@ final class AuthorStyleAnalysis
 
     public function combinedCss(): string { return $this->combinedCss; }
     public function sourceBody(): DOMElement { return $this->sourceBody; }
+
+    /** @var list<string>|null Whole-site subject evidence; never stylesheet inventory. */
+    public ?array $siteSelectorEvidence = null;
     /** @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}> */
     public function stylesheetAssets(): array { return $this->stylesheetAssets; }
     /** @return list<DOMElement> */
