@@ -16,14 +16,17 @@ $assert = static function (bool $ok, string $message): void {
     if (!$ok) throw new RuntimeException($message);
     echo "PASS: $message\n";
 };
-foreach (array(false, true) as $captured) {
+foreach (array(false, true, 'v1') as $mode) {
+    $captured = true === $mode;
     $files = array('index.html' => $html, 'author.css' => 'main{display:grid}h1{opacity:.25}');
     $observations = $tree;
     $observations['nodes']['n6']['viewports']['desktop']['used_styles']['opacity'] = '0.75';
     $observations['nodes']['n6']['viewports']['mobile']['used_styles']['opacity'] = '1';
-    if ($captured) $files['box-tree/index.json'] = json_encode($observations);
+    if ('v1' === $mode) $observations['schema'] = 'blocks-engine/box-tree/v1';
+    if (false !== $mode) $files['box-tree/index.json'] = json_encode($observations);
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files));
     $compiled = $result->toArray();
+    if ('v1' === $mode) $assert(in_array('box_tree_schema_invalid', array_column($compiled['diagnostics'], 'code'), true), 'v1 evidence is rejected and retains the author-CSS path.');
     $plan = $result->toWordPressSitePlanView()['wordpress_site_plan'];
     $css = implode("\n", array_column(array_filter($compiled['assets'], static fn(array $a): bool => 'css' === ($a['kind'] ?? null)), 'content'));
     $assert($captured === str_contains($css, 'opacity:0.75!important'), 'Per-node observed paint is emitted only with accepted evidence.');

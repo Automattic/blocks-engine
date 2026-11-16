@@ -80,7 +80,7 @@ final class BoxTreeClassifier
     {
         foreach ($node['viewports'] as $observation) {
             $s = $observation['used_styles'];
-            if (self::paints($s)) return 'paints';
+            if (!empty($observation['pseudo']) || self::paints($s)) return 'paints';
         }
         if (self::clips($node, $tree)) return 'clips';
         foreach ($node['viewports'] as $observation) {

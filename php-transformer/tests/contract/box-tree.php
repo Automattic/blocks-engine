@@ -19,8 +19,13 @@ $compile = static function (?array $evidence) use ($html): array {
     if (null !== $evidence) $files['box-tree/index.json'] = json_encode($evidence, JSON_THROW_ON_ERROR);
     return (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
 };
+$pseudo = $tree['nodes']['n5']['viewports']['desktop'];
+$pseudo['content'] = '""';
+$tree['nodes']['n5']['viewports']['desktop']['pseudo']['before'] = $pseudo;
 $baseline = $compile(null);
 $result = $compile($tree);
+$assert('blocks-engine/box-tree/v2' === $tree['schema'], 'Contract fixture uses v2.');
+$assert('paints' === $result['source_reports']['box_tree']['index.html']['classification']['nodes']['n5']['criterion'], 'A rendering pseudo-element paints even with empty content.');
 $assert(1.0 === (float) $result['source_reports']['box_tree']['index.html']['coverage'], 'Fixture route has complete box-tree coverage.');
 $assert($baseline['serialized_blocks'] !== $result['serialized_blocks'], 'Accepted browser observations restyle converted blocks.');
 $assert(!array_filter($result['diagnostics'], static fn(array $row): bool => str_starts_with($row['code'], 'box_tree_')), 'Valid evidence produces no rejection diagnostics.');
@@ -29,11 +34,12 @@ $source = array_values(array_filter($normalized['files'], static fn(array $f): b
 $element = HtmlSerialization::parseDocument($html)->getElementsByTagName('h1')->item(0);
 $assert(isset(BoxTree::forElement($source['box_tree'], $element)['mobile']['used_styles']['display']), 'Evidence is addressable by exact source element at each viewport.');
 $cases = array(
-    'box_tree_schema_invalid' => static function (array &$t): void { $t['schema'] = 'old'; },
+    'box_tree_schema_invalid' => static function (array &$t): void { $t['schema'] = 'blocks-engine/box-tree/v1'; },
     'box_tree_identity_stale' => static function (array &$t): void { $t['source_hash'] = str_repeat('0', 64); },
     'box_tree_bounds_invalid' => static function (array &$t): void { $t['viewports'] = array(); },
     'box_tree_geometry_invalid' => static function (array &$t): void { $t['nodes']['n6']['viewports']['mobile']['border_box']['width'] = -1; },
     'box_tree_styles_invalid' => static function (array &$t): void { unset($t['nodes']['n6']['viewports']['desktop']['used_styles']['display']); },
+    'box_tree_pseudo_invalid' => static function (array &$t): void { $t['nodes']['n5']['viewports']['desktop']['pseudo']['before']['content'] = 'none'; },
     'box_tree_viewport_invalid' => static function (array &$t): void { unset($t['nodes']['n6']['viewports']['mobile']); },
 );
 foreach ($cases as $code => $mutate) {
@@ -43,6 +49,21 @@ foreach ($cases as $code => $mutate) {
     $assert(in_array($code, array_column($rejected['diagnostics'], 'code'), true), "$code is reported.");
     $assert(0 === $rejected['source_reports']['box_tree']['index.html']['nodes_with_evidence'] && $baseline['serialized_blocks'] === $rejected['serialized_blocks'], 'Rejected evidence is discarded without affecting output.');
 }
+foreach (array(
+    static function (array &$p): void { $p['content'] = 'normal'; },
+    static function (array &$p): void { unset($p['content']); },
+    static function (array &$p): void { $p['border_box']['height'] = -1; },
+    static function (array &$p): void { unset($p['used_styles']['font-size']); },
+    static function (array &$p): void { $p['used_styles']['content'] = '"bad"'; },
+) as $mutate) {
+    $bad = $tree;
+    $mutate($bad['nodes']['n5']['viewports']['desktop']['pseudo']['before']);
+    $rejected = $compile($bad);
+    $assert(0 === $rejected['source_reports']['box_tree']['index.html']['nodes_with_evidence'], 'Malformed pseudo evidence rejects the whole sidecar.');
+}
+$bad = $tree;
+$bad['nodes']['n5']['viewports']['desktop']['pseudo']['marker'] = $pseudo;
+$assert(0 === $compile($bad)['source_reports']['box_tree']['index.html']['nodes_with_evidence'], 'Only before and after pseudo-elements are accepted.');
 $schema = json_decode(file_get_contents(__DIR__ . '/../../resources/box-tree.schema.json'), true, 32, JSON_THROW_ON_ERROR);
 $assert(BoxTree::PROPERTIES === $schema['properties']['nodes']['additionalProperties']['properties']['viewports']['additionalProperties']['properties']['used_styles']['required'], 'Published producer schema and intake use one property vocabulary.');
 

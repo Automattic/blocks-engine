@@ -1,6 +1,6 @@
-# Box-tree evidence v1
+# Box-tree evidence v2
 
-The producer-neutral schema is `blocks-engine/box-tree/v1`, published in
+The producer-neutral schema is `blocks-engine/box-tree/v2`, published in
 [`resources/box-tree.schema.json`](../../resources/box-tree.schema.json).
 `Contract\BoxTree` owns the property vocabulary, identity and bounds;
 `ArtifactCompiler\BoxTreeReport` performs structural and source-binding validation.
@@ -40,6 +40,29 @@ Background and mask evidence uses `background-color`, `background-image`,
 are no shorthand aliases. A desktop document served separately from
 `html-mobile/…` needs only its desktop observation. Every declared viewport
 still requires an observation on every node. Producers must update in lockstep.
+
+## v2 rendered styles and pseudo-elements
+
+The required vocabulary also covers typography, text color/decorations, placement
+(including physical offsets), object fitting, compositing and background geometry.
+Use the exact longhand names in the schema; all are required on every observation.
+
+An observation may include `pseudo: { before?, after? }`. Include a pseudo only
+when its computed `content` is neither `none` nor `normal` (the CSS string `""`
+is valid). Each entry has `content`, the full `used_styles` vocabulary, and its
+own `border_box` from the pseudo's computed geometry, with the same bounds as
+an element observation. Other pseudo names and malformed entries reject the
+whole sidecar (`box_tree_pseudo_invalid`, or the geometry/style diagnostic).
+Rendering pseudos classify their originating node as `paints`; typography alone
+does not affect wrapper neutrality.
+
+The style projector emits pseudo selectors and viewport resets. Inherited CSS
+properties (typography, color, visibility, cursor and list style) are emitted only
+where used values differ from the source parent's observation. Pseudos compare
+against their originating element. Non-inherited text properties, such as
+`text-decoration-*` and `vertical-align`, remain local. This limits repeated
+route CSS toward the 90 KB target; live capture size measurement still requires
+the producer pipeline.
 
 ## Transformer behavior
 
@@ -84,14 +107,15 @@ past the observed box on a clipped axis. IDs alone do not preserve wrappers:
 fragment hrefs, ARIA ID references, and label `for` references do. Captured
 interaction targets are preserved through their node's `interaction_states`.
 
-The v1 evidence shape additionally accepts optional used-style strings
+The v2 evidence shape additionally accepts optional used-style strings
 `animation-name`, `transition-property`, and `transition-duration`. Producers
 should populate them from CSSOM, including stylesheet-only motion. A node may
 also supply `interaction_states`, up to 32 captured state names (same identifier
 syntax as viewport names), e.g. `["hover", "focus"]`. A nonempty list preserves
 the node independently of its resting appearance. These names indicate captured
-states; they do not supply state geometry or authorize restyling. Older sidecars
-remain readable; omitted motion/state fields cannot prove absence of behavior.
+states; they do not supply state geometry or authorize restyling. Omitted motion/state fields cannot prove absence of behavior. v1 sidecars are
+not accepted evidence: they receive `box_tree_schema_invalid`, and the route
+retains the author-CSS conversion path. No compatibility layer is provided.
 
 `projection` estimates block-producing boxes below body after neutral chains
 collapse (`basis: estimated-block-producing-boxes`): maximum `depth`, surviving
@@ -101,7 +125,7 @@ Body and head are excluded. Actual converted block depth belongs to slice 3. It 
 non-rendering source leaves can differ from WordPress blocks. Missing/rejected
 evidence has empty classifications and a null projection, never an optimistic
 zero-depth estimate. Live whole-site/sdnunca measurement is deferred until the
-capture producer lands; checked-in v1-shaped fixtures gate this slice.
+capture producer lands; checked-in v2-shaped fixtures gate this slice.
 
 Run `php tests/contract/box-tree-classification.php` and
 `php tests/contract/box-tree.php` from `php-transformer` for criterion coverage,
