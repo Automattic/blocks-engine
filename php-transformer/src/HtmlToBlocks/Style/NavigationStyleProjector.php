@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocab
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use DOMElement;
@@ -117,18 +118,30 @@ final class NavigationStyleProjector
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important}';
             // A looping animation has no settled end state. Retaining its last
             // keyframe can translate a marquee's editable children off canvas.
-            // Let loops expire too, but restore their underlying authored layout
-            // instead of filling with the final frame. Keep finite reveals filled.
+            // Restore the underlying layout only for loops carrying image
+            // blocks: those children need selectable resting boxes. Preserve the
+            // settled appearance of unrelated loops and finite reveals.
             ( new CssStylesheetTransformer() )->visitStyleRules(
                 $this->session->authorStyleAnalysis()->combinedCss() . "\n" . $anchorProjectionCss,
                 static function (string $selector, string $body, array $ancestors) use (&$rules): void {
-                    if ( ! preg_match('/(?:^|;)\s*(?:-webkit-)?animation(?:-iteration-count)?\s*:[^;{}]*\binfinite\b/i', $body) ) {
+                    $declarations = array_intersect_key(SourceDeclarations::parse($body), array_flip(
+                        array( 'animation', 'animation-iteration-count', '-webkit-animation', '-webkit-animation-iteration-count' )
+                    ));
+                    $looping = false;
+                    foreach ( $declarations as $value ) {
+                        foreach ( CssValueSplitter::splitTopLevel(strtolower($value), array( ',' )) as $animation ) {
+                            if ( in_array('infinite', CssValueSplitter::splitTopLevelWhitespace($animation), true) ) {
+                                $looping = true;
+                            }
+                        }
+                    }
+                    if ( ! $looping ) {
                         return;
                     }
                     // Also guard the rule in CSS: saved/editor styles may be
                     // present during a front-end preview, where the live loop
                     // must retain its authored fill behavior.
-                    $rule = ':root .editor-styles-wrapper :is(' . trim($selector) . '){animation-fill-mode:none!important}';
+                    $rule = ':root .editor-styles-wrapper :is(' . trim($selector) . '):has(figure.wp-block-image){animation-fill-mode:none!important}';
                     foreach ( array_reverse($ancestors) as $ancestor ) {
                         $rule = $ancestor . '{' . $rule . '}';
                     }

@@ -8,7 +8,11 @@ const html = `<style>
 .rail{overflow:hidden;width:600px}.track{display:flex;width:max-content;animation:40s linear infinite conveyor}.item{width:300px;flex:none}.item img{width:80px;height:40px}
 @keyframes conveyor{to{transform:translateX(-50%)}}
 .reveal{animation:appear 2s both}@keyframes appear{from{opacity:0}to{opacity:1}}
-</style><main><div class="rail"><div class="track">${Array.from({length:6}, (_, i) => `<div class="item"><img src="logo.svg" alt="Logo ${i}"></div>`).join('')}</div></div><p class="reveal">Revealed text</p></main>`;
+/* Neither a string token nor a custom property is an iteration count. */
+.finite-string{animation:"infinite" 2s both}.finite-custom{--animation:infinite;animation:appear 2s both}
+.text-loop{animation:40s linear infinite conveyor}
+@keyframes infinite{from{opacity:0}to{opacity:1}}
+</style><main><div class="rail"><div class="track">${Array.from({length:6}, (_, i) => `<div class="item"><img src="logo.svg" alt="Logo ${i}"></div>`).join('')}</div></div><p class="reveal">Revealed text</p><p class="finite-string">String name</p><p class="finite-custom">Custom property</p><p class="text-loop">Unrelated text loop</p></main>`;
 const code = 'require $argv[1]."/vendor/autoload.php"; echo json_encode((new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform(stream_get_contents(STDIN))->toArray());';
 const result = JSON.parse(execFileSync('php', ['-r', code, root], {input:html, encoding:'utf8'}));
 const assets = result.assets.filter(asset => asset.kind === 'css');
@@ -29,10 +33,13 @@ try {
     await page.setContent(`<style>${shared}\n${editor}</style><div class="editor-styles-wrapper">${markup}</div>`);
     await page.waitForTimeout(100);
     assert.equal(await page.locator('.track').evaluate(node => getComputedStyle(node).transform), 'none', 'editor restores underlying track position');
+    assert.notEqual(await page.locator('.text-loop').evaluate(node => getComputedStyle(node).transform), 'none', 'unrelated text loop retains its existing settled appearance');
     for (const image of await page.locator('figure.wp-block-image').all()) {
         await image.click({timeout:2000});
     }
-    assert.equal(await page.locator('.reveal').evaluate(node => getComputedStyle(node).opacity), '1', 'finite reveal remains settled');
+    for (const selector of ['.reveal', '.finite-string', '.finite-custom']) {
+        assert.equal(await page.locator(selector).evaluate(node => getComputedStyle(node).opacity), '1', `${selector}: finite reveal remains settled`);
+    }
     console.log('looping animation editor selection passed');
 } finally {
     await browser.close();
