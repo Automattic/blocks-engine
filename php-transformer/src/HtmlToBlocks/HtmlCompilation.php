@@ -1186,7 +1186,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $sourceBodyClasses = $this->documentEnvelope->documentBodyClassNames($html);
         $this->session->installSourceDocument($this->documentEnvelope->documentRootTheme($html), NativeGetFormBlockBuilder::declaredDocumentHosts($html));
         $normalizedHtml = CaptureReplayScripts::withoutReplayScripts(
-            SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html)))
+            SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html), array() !== $this->session->boxTreeViewports()))
         );
         $document = HtmlSerialization::parseFragment('<body>' . $normalizedHtml . '</body>');
 
@@ -2075,6 +2075,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $this->session->boxTreeEvidence($sourceElement), $this->session->boxTreeViewports(), $this->session->layoutGeometryState());
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,

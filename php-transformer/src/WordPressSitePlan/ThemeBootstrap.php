@@ -223,9 +223,11 @@ PHP;
         $stylesheetEnqueues = self::stylesheetEnqueues($assets, $pages, $rootDocuments);
         // Each source document's ordered stylesheet instances form one route
         // block; a repeated resource gets one handle per instance, same URI.
-        if (array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
+        $evidencePages = array_filter(array_merge($pages, $rootDocuments), static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles']));
+        if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
         $routeRows = array();
-        $routePosition = null;
+        foreach ($evidencePages as $page) $routeRows[$page['source_path']] = array('condition' => self::bootstrapScopeCondition(PageStylesheets::documentScope($page), true), 'styles' => array(), 'handles' => array());
+        $routePosition = array() !== $routeRows ? count($lines) : null;
         foreach ($stylesheetEnqueues as $enqueue) {
             $asset = $enqueue['asset'];
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
@@ -651,6 +653,8 @@ PHP;
         $partTargets = array();
         foreach ($assets as $asset) foreach ($asset['stylesheet_parts'] ?? array() as $path) $partTargets[$path] = true;
         foreach ($assets as $index => $asset) {
+            // Empty CSS still owns ordered occurrences and route selection;
+            // dropping it can incorrectly activate the global fallback.
             if ('css' !== ($asset['kind'] ?? null) || isset($partTargets[$asset['target_path']])) continue;
             $occurrences = $asset['stylesheet_instances'] ?? array();
             $parent = $asset['stylesheet_parent'] ?? null;
