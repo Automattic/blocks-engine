@@ -233,9 +233,8 @@ final class FormFallbackFindingBuilder
         $wrappers = $shell['attrs']['wrappers'] ?? null;
         if ( ! isset($shell['form_control_box']) && str_ends_with((string) ($shell['blockName'] ?? ''), '/layout-shell')
             && is_array($wrappers) && 1 === count($wrappers) && 'div' === ($wrappers[0]['tagName'] ?? null)
-            && array( 'class' ) === array_keys((array) ($wrappers[0]['attributes'] ?? array()))
-            && '' !== trim((string) $wrappers[0]['attributes']['class']) ) {
-            $class = trim((string) $wrappers[0]['attributes']['class']);
+            && FormNativeContainerPolicy::isClassOnly((array) ($wrappers[0]['attributes'] ?? array())) ) {
+            $class = trim((string) ($wrappers[0]['attributes']['class'] ?? ''));
             $open = '<div class="wp-block-group ' . htmlspecialchars($class, ENT_QUOTES) . '">';
             return array_replace(array_diff_key($shell, array( 'attrs' => true )), array(
                 'blockName' => 'core/group',

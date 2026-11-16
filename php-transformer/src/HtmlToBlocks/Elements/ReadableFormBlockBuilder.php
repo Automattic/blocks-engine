@@ -382,9 +382,7 @@ final class ReadableFormBlockBuilder
                 // require a generated block. Provider control boxes and wrappers
                 // with attributes outside this native contract still need shells.
                 $classOnlyGroup = 1 === count($elements)
-                    && 'div' === strtolower($element->tagName)
-                    && (0 === $element->attributes->length
-                        || (1 === $element->attributes->length && $element->hasAttribute('class')))
+                    && FormNativeContainerPolicy::accepts($element)
                     && null === $controlBox;
                 // Unowned div chains can also contain a control with help/error
                 // text. Those siblings do not make a composite control. Keep
@@ -398,10 +396,7 @@ final class ReadableFormBlockBuilder
                 $nativeChain = null === $controlBox && count($elements) > 1
                     && (1 === count($inner) || $controlWithFeedback);
                 foreach ($elements as $source) {
-                    $nativeChain = $nativeChain && 'div' === strtolower($source->tagName)
-                        && $source->hasAttribute('class')
-                        && ($source->attributes->length === 1
-                            || ($source->attributes->length === 2 && $source->hasAttribute('style') && '' === trim($source->getAttribute('style'))));
+                    $nativeChain = $nativeChain && FormNativeContainerPolicy::accepts($source);
                 }
                 if ($nativeChain) {
                     $nested = $inner;
