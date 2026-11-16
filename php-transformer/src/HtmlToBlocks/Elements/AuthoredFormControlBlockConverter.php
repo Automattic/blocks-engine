@@ -129,9 +129,6 @@ final class AuthoredFormControlBlockConverter
             ), $select);
         }
 
-        $generator = new AuthoredSelectBlockGenerator();
-        $registry = $this->session->requireGeneratedBlockRegistry();
-        $registry->register(AuthoredSelectBlockGenerator::class, $generator->definition($registry->namespace()));
         $attrs = array_filter(array(
             'id' => SourceDom::attr($select, 'id'),
             'name' => SourceDom::attr($select, 'name'),
@@ -153,19 +150,24 @@ final class AuthoredFormControlBlockConverter
             'disabled' => $select->hasAttribute('disabled'),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
         $attrs = array_replace($attrs, $state ?? array());
+        // Capture-backed controls have an explicit state contract for the core
+        // option-list renderer. Ordinary authored controls must keep their saved
+        // native markup (including form submission and source CSS topology).
+        if (null !== $state) {
+            return $this->nativeSelect($attrs, $select);
+        }
+        $generator = new AuthoredSelectBlockGenerator();
+        $registry = $this->session->requireGeneratedBlockRegistry();
+        $registry->register(AuthoredSelectBlockGenerator::class, $generator->definition($registry->namespace()));
         $markup = $generator->markup($attrs);
-        $controlBlock = array(
+        return array(
             'blockName' => $registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME),
             'attrs' => $attrs,
             'innerBlocks' => array(),
             'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-            // Anchor-only identity: lets a finding bind this control's block
-            // without registering it as a provenance source.
+            'innerContent' => array($markup),
             '_source_anchor_selector' => SourceDom::elementSelector($select),
         );
-
-        return $controlBlock;
     }
 
     public function listbox(DOMElement $trigger, ?DOMElement $panel = null): ?array
@@ -214,9 +216,6 @@ final class AuthoredFormControlBlockConverter
         if (array() === $selected && '' !== $triggerLabel && !in_array($triggerLabel, array_column($options, 'label'), true)) {
             array_unshift($options, array('label' => $triggerLabel, 'value' => '', 'selected' => true, 'disabled' => true, 'placeholder' => true));
         }
-        $generator = new AuthoredSelectBlockGenerator();
-        $registry = $this->session->requireGeneratedBlockRegistry();
-        $registry->register(AuthoredSelectBlockGenerator::class, $generator->definition($registry->namespace()));
         $attrs = array_filter(array(
             'id' => SourceDom::attr($trigger, 'id'),
             'name' => SourceDom::attr($trigger, 'name'),
@@ -226,9 +225,30 @@ final class AuthoredFormControlBlockConverter
             'options' => $options,
             'placeholder' => $triggerLabel,
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
-        $markup = $generator->markup($attrs);
-        $control = BlockFactory::leaf($registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME), $attrs, $markup);
+        $control = $this->nativeSelect($attrs, $trigger);
         return $this->createBlock->createBlock('core/group', array('className' => 'blocks-engine-authored-select-wrapper'), array($control), null);
+    }
+
+    /**
+     * Core list items own editable option labels and ordering. Native semantics
+     * are metadata, consumed by the theme renderer instead of a companion block.
+     * @param array<string, mixed> $attrs
+     */
+    private function nativeSelect(array $attrs, DOMElement $source): array
+    {
+        $items = array();
+        foreach ($attrs['options'] ?? array() as $option) {
+            $label = (string) ($option['label'] ?? '');
+            unset($option['label']);
+            $items[] = $this->createBlock->createBlock('core/list-item', array(
+                'content' => $this->runtime->escapeHtml($label),
+                'metadata' => array('blocksEngineSelectOption' => $option),
+            ));
+        }
+        unset($attrs['options'], $attrs['selectedSummary']);
+        return $this->createBlock->createBlock('core/list', array(
+            'metadata' => array('blocksEngineSelect' => $attrs),
+        ), $items, $source);
     }
 
     /**
