@@ -27,7 +27,7 @@ $projection = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTran
     '<!doctype html><html><body><button class="present">Action</button></body></html>',
     array(
         'author_stylesheet_assets' => array(array('path' => 'site.css', 'content' => '.absent{color:salmon}.present{color:teal}')),
-        'site_selector_evidence' => array('<button class="present">Action</button>'),
+        'site_selector_pruner' => new \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner(array('<button class="present">Action</button>')),
     )
 )->toArray();
 $projected = json_encode($projection['source_reports']['author_stylesheet_projections'] ?? $projection['author_stylesheet_projections'] ?? array());
@@ -40,7 +40,7 @@ $aligned = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransfo
     '<!doctype html><html><body><h3 class="route-class-123456789abc">Logo</h3></body></html>',
     array(
         'author_stylesheet_assets' => array(array('path' => 'aligned.css', 'content' => '.route-class-123456789abc{font-family:Georgia,serif}')),
-        'site_selector_evidence' => array('<h3 class="c1-1">Logo</h3>'),
+        'site_selector_pruner' => new \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner(array('<h3 class="c1-1">Logo</h3>')),
     )
 )->toArray();
 $alignedProjection = json_encode($aligned['source_reports']['author_stylesheet_projections'] ?? $aligned['author_stylesheet_projections'] ?? array());

@@ -1249,7 +1249,7 @@ final class ArtifactCompiler
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'native_document_context'   => true,
-            'site_selector_evidence'    => preg_match('/<html\b/i', $html) ? ($this->siteSelectorEvidence ?? $this->selectorEvidence($files)) : null,
+            'site_selector_pruner'      => preg_match('/<html\b/i', $html) ? $this->siteSelectorPruner($files) : null,
             'source_has_purchase_affordance' => $this->sourceHasPurchaseAffordance($files),
             'declarative_state_html'    => $html,
             'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
@@ -2125,6 +2125,26 @@ final class ArtifactCompiler
 
     /** @var list<string>|null Whole-site evidence supplied to a partition worker. */
     private ?array $siteSelectorEvidence = null;
+
+    /** @var list<string>|null The evidence {@see $siteSelectorPruner} indexes. */
+    private ?array $siteSelectorPrunerEvidence = null;
+    private ?UnreachableSelectorPruner $siteSelectorPruner = null;
+
+    /**
+     * One pruner per site evidence. Building it tokenizes every site file, so
+     * documents share it rather than rebuilding it for each stylesheet.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function siteSelectorPruner(array $files): UnreachableSelectorPruner
+    {
+        $evidence = $this->siteSelectorEvidence ?? $this->selectorEvidence($files);
+        if (null === $this->siteSelectorPruner || $evidence !== $this->siteSelectorPrunerEvidence) {
+            $this->siteSelectorPrunerEvidence = $evidence;
+            $this->siteSelectorPruner = new UnreachableSelectorPruner($evidence);
+        }
+        return $this->siteSelectorPruner;
+    }
 
     /** @param array<int, array<string, mixed>> $files @return list<string> */
     private function selectorEvidence(array $files): array
