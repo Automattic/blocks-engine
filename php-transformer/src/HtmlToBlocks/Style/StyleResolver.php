@@ -4444,10 +4444,19 @@ final class StyleResolver implements ElementPresentationResolver
                 'selector'     => SourceDom::elementSelector($element),
                 'editor_selector' => $this->editorStaticStateSelector($element),
                 'declarations' => $normalized['stripped'],
+                'placed'       => $this->hasInlinePlacementTransform($element),
             ));
         }
 
         return $normalized['declarations'];
+    }
+
+    /** An element's own inline transform is authored placement, such as a carousel slide's track offset. */
+    private function hasInlinePlacementTransform(DOMElement $element): bool
+    {
+        $transform = CssValueInspector::declared(SourceDeclarations::inline($element), 'transform');
+
+        return '' !== $transform && 'none' !== $transform;
     }
 
     /** Source-wired capture panels remain reachable without dialog projection. */
