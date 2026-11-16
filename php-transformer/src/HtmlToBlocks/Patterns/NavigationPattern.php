@@ -368,20 +368,26 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        // A nested menu beside other destinations owns a separate layout and
-        // responsive visibility box. Flattening the enclosing chrome would
-        // discard that box (and reveal its links at closed breakpoints).
-        foreach ($element->getElementsByTagName('*') as $descendant) {
-            if (!$descendant instanceof DOMElement
-                || $this->isInsideDialog($element)
-                || $this->isInsideCapturedDialogPanel($element)
-                || 'never' !== $navigationContext->overlayMenu($element)
-                || ! $this->hasNavigationSignal($descendant)
-                || 2 > $descendant->getElementsByTagName('a')->length) {
-                continue;
-            }
-            if ($descendant->getElementsByTagName('a')->length < $element->getElementsByTagName('a')->length) {
-                return null;
+        // A separately hidden link run beside other destinations is not a
+        // submenu. Keep its visibility owner instead of flattening its links
+        // into the always-visible landmark. Native overlays own their own
+        // responsive visibility and must still absorb their source menus.
+        if ( 'never' === $navigationContext->overlayMenu($element)
+            && ! $this->isInsideDialog($element)
+            && ! $this->isInsideCapturedDialogPanel($element) ) {
+            foreach ( $element->getElementsByTagName('*') as $descendant ) {
+                if ( ! $this->hasNavigationSignal($descendant)
+                    || $descendant->hasAttribute('data-blocks-engine-capture-dialog-panel')
+                    || $this->isInsideCapturedDialogPanel($descendant)
+                    || $this->isWithinOwnedSubmenu($descendant, $element)
+                    || 2 > $descendant->getElementsByTagName('a')->length
+                    || $descendant->getElementsByTagName('a')->length >= $element->getElementsByTagName('a')->length ) {
+                    continue;
+                }
+                $display = $navigationContext->declaredValuesAtAnyViewport($descendant, array( 'display' ));
+                if ( in_array('none', $display['display'] ?? array(), true) ) {
+                    return null;
+                }
             }
         }
 
