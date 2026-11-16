@@ -58,15 +58,16 @@ final class SourceElementClassifier
         return false;
     }
 
-    public function isRuntimeMediaSurfaceElement(DOMElement $element): bool
+    public function isRuntimeMediaSurfaceElement(DOMElement $element, bool $includeMotionTopology = true): bool
     {
         $tagName = strtolower($element->tagName);
         if ( in_array($tagName, array( 'iframe', 'canvas', 'embed', 'object' ), true) ) {
             return true;
         }
 
+        $tokens = $includeMotionTopology ? 'audio|carousel|gallery|iframe|media|player|slideshow|video' : 'audio|iframe|media|player|video';
         return str_contains($tagName, '-')
-            && 1 === preg_match('/(?:^|-)(?:audio|carousel|gallery|iframe|media|player|slideshow|video)(?:-|$)/', $tagName);
+            && 1 === preg_match('/(?:^|-)(?:' . $tokens . ')(?:-|$)/', $tagName);
     }
 
     public function isDependentRuntimeMediaMask(DOMElement $element): bool
