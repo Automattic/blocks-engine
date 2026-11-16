@@ -626,12 +626,21 @@ final class RouteStateProjector
                 if (null !== $linked && !in_array($linked, $sheets[$path] ?? array(), true)) $sheets[$path][] = $linked;
             }
         }
+        // A file only one chrome document links is that route's own sheet. A
+        // file several routes link is shared vocabulary, read like a file
+        // no chrome document links: its classes mean the same everywhere.
+        $links = array();
+        foreach (array_keys($documents) as $index) foreach ($sheets[(string) ($files[$index]['path'] ?? '')] ?? array() as $sheet) $links[$sheet] = ($links[$sheet] ?? 0) + 1;
+        $global = '';
+        foreach ($stylesheetFiles as $sheet) {
+            if (1 === ($links[$sheet] ?? 0)) continue;
+            $global .= "\n" . $files[$sheet]['content'];
+            foreach ($sheets as &$own) $own = array_values(array_filter($own, static fn(int $held): bool => $held !== $sheet));
+            unset($own);
+        }
+        $sheets = array_filter($sheets);
         $documents = array_filter($documents, static fn($unused, int $index): bool => isset($sheets[(string) ($files[$index]['path'] ?? '')]), ARRAY_FILTER_USE_BOTH);
         if (count($documents) < 2) return $files;
-        $linkedSheets = array();
-        foreach (array_keys($documents) as $index) foreach ($sheets[(string) $files[$index]['path']] as $sheet) $linkedSheets[$sheet] = true;
-        $global = '';
-        foreach ($stylesheetFiles as $sheet) if (!isset($linkedSheets[$sheet])) $global .= "\n" . $files[$sheet]['content'];
         $transformer = new CssStylesheetTransformer();
         $classPattern = '/\.(-?[A-Za-z_][A-Za-z0-9_-]*)/';
         $named = static fn(string $class): string => '/\.' . preg_quote($class, '/') . '(?![A-Za-z0-9_-])/';
@@ -713,12 +722,27 @@ final class RouteStateProjector
             if (is_string($html)) $files[$index]['content'] = $html;
         }
         // Each rule naming an aliased class gains a copy for its alias right
-        // after it, so both names keep their place in the cascade.
+        // after it, so both names keep their place in the cascade. A selector
+        // naming several aliased classes gains a copy for each set of them:
+        // aligned chrome wears every alias at once, while unaligned elements
+        // keep the source names.
         $withCopies = static fn(string $css, array $aliases): string => $transformer->transform($css, static function (string $prelude, string $body) use ($aliases, $classPattern, $named): string|array {
             $copies = array();
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                 preg_match_all($classPattern, $selector, $classes);
-                foreach (array_unique($classes[1]) as $class) if (isset($aliases[$class])) $copies[] = preg_replace($named($class), '.' . $aliases[$class], trim($selector));
+                $aliased = array_values(array_filter(array_unique($classes[1]), static fn(string $class): bool => isset($aliases[$class])));
+                $sets = array();
+                if (count($aliased) <= 4) {
+                    for ($mask = 1; $mask < 1 << count($aliased); ++$mask) $sets[] = array_values(array_filter($aliased, static fn(int $bit): bool => 0 !== ($mask & 1 << $bit), ARRAY_FILTER_USE_KEY));
+                    usort($sets, static fn(array $a, array $b): int => count($a) <=> count($b));
+                } else {
+                    $sets = array_merge(array_map(static fn(string $class): array => array($class), $aliased), array($aliased));
+                }
+                foreach ($sets as $set) {
+                    $copy = trim($selector);
+                    foreach ($set as $class) $copy = (string) preg_replace($named($class), '.' . $aliases[$class], $copy);
+                    $copies[] = $copy;
+                }
             }
             return array() === $copies ? $prelude : array(array('prelude' => $prelude, 'body' => $body), array('prelude' => implode(',', array_unique($copies)), 'body' => $body));
         });
