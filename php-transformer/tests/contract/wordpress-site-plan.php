@@ -771,7 +771,7 @@ $assert(array() === array_filter($bookingResult['diagnostics'] ?? array(), stati
 
 // A prepared form declaration is never dropped silently: a failed contract is
 // named so a consumer can see which check declined the metadata.
-$truncatedFormFields = ''; for ($index = 0; $index < 140; ++$index) $truncatedFormFields .= '<div class="field"><input type="text" name="field-' . $index . '"></div>';
+$truncatedFormFields = ''; for ($index = 0; $index < 270; ++$index) $truncatedFormFields .= '<div class="field"><input type="text" name="field-' . $index . '"></div>';
 $truncatedFormResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form method="post" action="/apply">' . $truncatedFormFields . '<button type="submit">Send</button></form></main>')))->toArray();
 $truncatedFormFallback = current(array_filter($truncatedFormResult['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
 $truncatedFormPlan = $truncatedFormResult['source_reports']['wordpress_site_plan'] ?? array();
