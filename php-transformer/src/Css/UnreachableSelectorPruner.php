@@ -143,6 +143,15 @@ final class UnreachableSelectorPruner
             // Substring evidence is deliberately conservative: scripts may
             // construct these names without literal class attributes.
             if (str_contains($this->evidenceText, $decoded)) return true;
+            // Escaped utility identities are complete class names, not state
+            // markers. A word inside an arbitrary variant (aria-selected,
+            // for example) does not make that absent utility reachable.
+            if (!preg_match('/^[\w-]+$/', $decoded)) {
+                foreach ($this->livePrefixes as $prefix) {
+                    if (str_starts_with($decoded, $prefix)) return true;
+                }
+                return false;
+            }
             $token = $decoded;
         }
         if (isset($this->live[$token]) || 1 === preg_match(self::MINTED, $token) || 1 === preg_match('/^' . SourceClassIdentity::REVEAL_STATE . '$/i', $token)
