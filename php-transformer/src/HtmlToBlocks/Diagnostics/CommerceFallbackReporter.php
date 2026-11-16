@@ -171,19 +171,16 @@ final class CommerceFallbackReporter
             }
             $listing = $this->listingControls($element, $products);
 
-            // A split product-detail layout is not a collection: its media and
-            // purchase panel are sibling grid items, not independent cards.
-            // Decline collection ownership rather than suppressing only its
-            // binding: that would still send the purchase panel through the
-            // generic card-control replacement path and lose its presentation.
-            if ( 1 === count($products) && array() === $listing && 2 === SourceDom::childElementCount($element) ) {
+            // A split product-detail layout (a cover beside one purchase panel)
+            // keeps its media: a provider repeats the card in place of the
+            // region's children, so a grid region would discard the unclaimed
+            // cover and its track. The panel is the only region that holds
+            // exactly the product, so the loop renders inside it.
+            if ( 1 === count($products) && array() === $listing && $this->isSplitDetailLayout($element) ) {
                 foreach ( $element->childNodes as $child ) {
-                    if ( $child instanceof DOMElement
-                        && null === $this->recognizer->productCardData($child)
-                        && '' === SourceDom::renderedTextContent($child)
-                        && (strtolower($child->tagName) === 'img' || 0 < $child->getElementsByTagName('img')->length)
-                    ) {
-                        continue 2;
+                    if ( $child instanceof DOMElement && null !== $this->recognizer->productCardData($child) ) {
+                        $element = $child;
+                        break;
                     }
                 }
             }
@@ -286,6 +283,27 @@ final class CommerceFallbackReporter
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
         }
+    }
+
+    /**
+     * A two-track layout of one product card and its text-free media, such
+     * as a cover beside a purchase panel.
+     */
+    private function isSplitDetailLayout(DOMElement $element): bool
+    {
+        if ( 2 !== SourceDom::childElementCount($element) ) {
+            return false;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement
+                && null === $this->recognizer->productCardData($child)
+                && '' === SourceDom::renderedTextContent($child)
+                && ('img' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('img')->length)
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
