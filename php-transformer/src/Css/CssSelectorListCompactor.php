@@ -40,7 +40,7 @@ final class CssSelectorListCompactor
         if ( ! str_contains($css, ',') || preg_match('/@namespace\b/i', $css) ) {
             return $css;
         }
-        return (new CssStylesheetTransformer())->transform($css, static fn(string $prelude): string => self::compact($markerLists ? self::mergeMarkerLists($prelude) : $prelude));
+        return (new CssStylesheetTransformer())->transform($css, static fn(string $prelude): string => self::compact(self::mergeRichTextLists($markerLists ? self::mergeMarkerLists($prelude) : $prelude)));
     }
 
     /**
@@ -96,6 +96,45 @@ final class CssSelectorListCompactor
             }
             [$prefix, $suffix] = explode("\0", $key, 2);
             $output[] = $prefix . ':where(' . implode(',', array_keys($group['markers'])) . ')' . $suffix;
+        }
+        return implode(',', $output);
+    }
+
+    /**
+     * Factor generated RichText addresses without changing specificity or scope.
+     * These attribute selectors are valid in every target browser. Only the
+     * argument of a top-level :where() changes; route scopes, exclusions and
+     * pseudo-element suffixes remain byte-identical outside it.
+     */
+    private static function mergeRichTextLists(string $prelude): string
+    {
+        if (!str_contains($prelude, 'blocks-engine-richtext-marker')) return $prelude;
+        $arms = CssStylesheetTransformer::splitSelectorList($prelude);
+        if (null === $arms) return $prelude;
+        $groups = array();
+        foreach ($arms as $index => $arm) {
+            $key = "\1" . $index;
+            $argument = null;
+            if (preg_match('/:where\(((?:mark\[style[*$]="--blocks-engine-richtext-marker:blocks-engine-richtext-[a-f0-9]+-[0-9]+;?"\]|span\[data-blocks-engine-richtext-marker="blocks-engine-richtext-[a-f0-9]+-[0-9]+"\]))\)/', $arm, $match, PREG_OFFSET_CAPTURE)) {
+                $offset = $match[0][1];
+                $before = substr($arm, 0, $offset);
+                if (substr_count($before, '(') === substr_count($before, ')')) {
+                    $key = $before . "\0" . substr($arm, $offset + strlen($match[0][0]));
+                    $argument = $match[1][0];
+                }
+            }
+            $groups[$key] ??= array('arm' => $arm, 'arguments' => array());
+            if (null !== $argument) $groups[$key]['arguments'][$argument] = true;
+        }
+        if (count($groups) === count($arms)) return $prelude;
+        $output = array();
+        foreach ($groups as $key => $group) {
+            if (array() === $group['arguments']) {
+                $output[] = $group['arm'];
+            } else {
+                [$prefix, $suffix] = explode("\0", $key, 2);
+                $output[] = $prefix . ':where(' . implode(',', array_keys($group['arguments'])) . ')' . $suffix;
+            }
         }
         return implode(',', $output);
     }
