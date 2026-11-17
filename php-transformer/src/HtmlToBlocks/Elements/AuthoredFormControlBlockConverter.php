@@ -332,9 +332,11 @@ final class AuthoredFormControlBlockConverter
     }
 
     /**
-     * Core paragraph owns the field's visible text (its placeholder, else its
-     * default value). Native semantics are metadata, consumed by the theme
-     * renderer instead of a companion block.
+     * Core search is the core block whose editor surface is a text field: its
+     * placeholder and label are edited with core tools, and the editor canvas
+     * shows a field where the front end does, not body text. Native semantics
+     * (type, name, constraints, value, label wrapper) are metadata, consumed
+     * by the theme renderer instead of a companion block.
      *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>|null
@@ -344,23 +346,23 @@ final class AuthoredFormControlBlockConverter
         if (!in_array($attrs['type'] ?? '', self::NATIVE_TEXT_INPUT_TYPES, true) || array_key_exists('initialValue', $attrs) || array_key_exists('initialChecked', $attrs) || !empty($attrs['indeterminate'])) {
             return null;
         }
-        $textAttribute = '' !== (string) ($attrs['placeholder'] ?? '') ? 'placeholder' : ('' !== (string) ($attrs['value'] ?? '') ? 'value' : '');
-        if ('' === $textAttribute) {
-            return null;
-        }
-        $text = (string) $attrs[$textAttribute];
-        unset($attrs[$textAttribute], $attrs['checked'], $attrs['indeterminate']);
+        $placeholder = (string) ($attrs['placeholder'] ?? '');
+        $label = (string) ($attrs['labelMarkup'] ?? '');
+        $label = '' !== $label ? $label : $this->runtime->escapeHtml((string) ($attrs['label'] ?? ''));
+        unset($attrs['placeholder'], $attrs['checked'], $attrs['indeterminate'], $attrs['labelMarkup']);
         foreach (array('minLength' => 'minlength', 'maxLength' => 'maxlength', 'pattern' => 'pattern', 'autocomplete' => 'autocomplete', 'inputMode' => 'inputmode') as $key => $name) {
             if ($input->hasAttribute($name)) {
                 $attrs[$key] = $input->getAttribute($name);
             }
         }
-        $attrs['textAttribute'] = $textAttribute;
 
-        return $this->createBlock->createBlock('core/paragraph', array(
-            'content' => $this->runtime->escapeHtml($text),
+        return $this->createBlock->createBlock('core/search', array_filter(array(
+            'label' => $label,
+            'showLabel' => '' !== $label,
+            'placeholder' => $placeholder,
+            'buttonPosition' => 'no-button',
             'metadata' => array('blocksEngineInput' => $attrs),
-        ), array(), $input);
+        ), static fn (mixed $value): bool => '' !== $value), array(), $input);
     }
 
     private function inputBeforeCaption(DOMElement $input, DOMElement $label): bool

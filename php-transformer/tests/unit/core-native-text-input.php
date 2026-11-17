@@ -14,21 +14,23 @@ $result = (new HtmlTransformer())->transform($source)->toArray();
 $flatten = static function (array $blocks) use (&$flatten): array { $out = array(); foreach ($blocks as $block) { $out[] = $block; $out = array_merge($out, $flatten($block['innerBlocks'] ?? array())); } return $out; };
 $fields = array_values(array_filter($flatten($result['blocks']), static fn (array $block): bool => isset($block['attrs']['metadata']['blocksEngineInput'])));
 $assert(!str_contains($result['serialized_blocks'], 'authored-input'), 'No input companion is emitted');
-$assert(1 === count($fields) && 'core/paragraph' === $fields[0]['blockName'], 'Captured text field is an editable core paragraph');
-$assert(str_contains($fields[0]['innerHTML'], 'Make, model &amp; year'), 'The placeholder is the editable core text');
+$assert(1 === count($fields) && 'core/search' === $fields[0]['blockName'], 'Captured text field is an editable core field block');
+$assert('Make, model & year' === ($fields[0]['attrs']['placeholder'] ?? null) && 'no-button' === ($fields[0]['attrs']['buttonPosition'] ?? null), 'The placeholder is edited in the core field, with no search button');
+$assert(true === ($fields[0]['attrs']['showLabel'] ?? null) && '<span class="eyebrow">Your vehicle</span>' === ($fields[0]['attrs']['label'] ?? null), 'The label is edited as the core field label');
+// The editor canvas must not show the field as body text the front end lacks.
+$assert(!preg_match('/<!-- wp:paragraph[^>]*blocksEngineInput/', $result['serialized_blocks']), 'The field is not a paragraph');
 
 function add_filter($name, $callback, ...$args) { $GLOBALS['input_filter'] = $callback; }
 function esc_attr($text) { return htmlspecialchars((string) $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 function esc_html($text) { return esc_attr($text); }
-function wp_strip_all_tags($text) { return trim(strip_tags($text)); }
 function wp_kses_post($text) { return $text; }
 eval(NativeInputRuntime::source());
 $render = $GLOBALS['input_filter'];
 $html = $render('', $fields[0]);
 $assert('<label class="block"><span class="eyebrow">Your vehicle</span><input type="text" value="" placeholder="Make, model &amp; year" class="field" minlength="2" maxlength="300" required></label>' === $html, 'Native field, label and constraints render on the front end: ' . $html);
-$fields[0]['innerHTML'] = '<p>Edited &amp; editable</p>';
-$assert(str_contains($render('', $fields[0]), 'placeholder="Edited &amp; editable"'), 'Core editor text changes reach the native field');
-$assert('<p>x</p>' === $render('<p>x</p>', array('blockName' => 'core/paragraph', 'attrs' => array())), 'Ordinary paragraphs are untouched');
+$fields[0]['attrs']['placeholder'] = 'Edited & editable';
+$assert(str_contains($render('', $fields[0]), 'placeholder="Edited &amp; editable"'), 'Core editor placeholder changes reach the native field');
+$assert('<form>x</form>' === $render('<form>x</form>', array('blockName' => 'core/search', 'attrs' => array())), 'Ordinary search blocks are untouched');
 
 // A field whose current value differs from its default keeps the state-replaying companion.
 $dirty = (new HtmlTransformer())->transform('<main><input class="field" placeholder="Name" value="" data-blocks-engine-capture-native-control-state="' . $state('typed', '') . '"></main>')->toArray();
