@@ -518,7 +518,8 @@ final class SourceBlockAttributeProjector
         foreach (array('padding', 'margin') as $box) {
             $sides = $attrs['style']['spacing'][$box] ?? array();
             $zeroSides = is_array($sides) ? array_values(array_intersect(array('top', 'right', 'bottom', 'left'), array_keys(array_filter($sides, static fn($value): bool => is_string($value) && CssValueInspector::isZeroLength($value))))) : array();
-            if (array() === $zeroSides || !$this->styleResolver->hasGlobalZeroBox($sourceElement, $box)) continue;
+            $zeroSides = array_values(array_filter($zeroSides, fn(string $side): bool => $this->styleResolver->hasGlobalZeroBox($sourceElement, $box, $side)));
+            if (array() === $zeroSides) continue;
             // Only the sides the instance zeroes join the shared rule; a partial box
             // gets a side-specific marker so unlisted sides keep their own cascade.
             $all = 4 === count($zeroSides);

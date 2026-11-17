@@ -1,8 +1,10 @@
 <!doctype html><html><head><meta charset="utf-8"><title>Scoped reset list</title><style>
 body{margin:0;font-family:sans-serif}
+:where(.scope) a{padding:0}
+.wixui-button{display:inline-block;width:196px;background:#531db5;color:white;text-align:center;text-decoration:none}
 :where(.page) li{margin:0;padding:0}
 .bar{--m:0 17px;background:#5d1ff2;width:40px;padding:12px 8px}
 .bar .list{list-style:none;margin:0;padding:0}
 .bar .list .item{display:block;width:24px;height:24px;margin-block:var(--m);background:#fff}
 .bar .list .item:last-child{margin-block:0}
-</style></head><body><div class="page"><main><div class="bar"><ul class="list"><li class="item"><a href="#a">A</a></li><li class="item"><a href="#b">B</a></li><li class="item"><a href="#c">C</a></li><li class="item"><a href="#d">D</a></li></ul></div></main></div></body></html>
+</style></head><body><div class="page"><main><div class="bar"><ul class="list"><li class="item"><a href="#a">A</a></li><li class="item"><a href="#b">B</a></li><li class="item"><a href="#c">C</a></li><li class="item"><a href="#d">D</a></li></ul></div><div class="scope"><a class="wixui-button" role="button" href="#owner">Connect with Owner's Name</a></div></main></div></body></html>
