@@ -34,6 +34,14 @@ foreach ( $result['assets'] ?? array() as $asset ) {
     }
 }
 
+// Placement does not make the authored display bridge redundant. Keep the
+// existing projection contract even when a rule also declares position:absolute:
+// later responsive rules can return that same image to normal flow.
+if ( ! str_contains($css, ':is(.fa-stack-1x.wp-block-image:where(.blocks-engine-synthetic-image-figure-inline),.fa-stack-2x.wp-block-image:where(.blocks-engine-synthetic-image-figure-inline)) > a > img{display:inline}') ) {
+    fwrite(STDERR, "FAIL: positioned layers must retain the inline display bridge\n" . $css . "\n");
+    exit(1);
+}
+
 $inline = 'blocks-engine-synthetic-image-figure-inline';
 if ( 2 !== preg_match_all('/<figure class="([^"]*fa-stack-[12]x[^"]*)"/', $markup, $figures) ) {
     fwrite(STDERR, "FAIL: each stacked SVG layer must become an image figure\n" . $markup . "\n");
