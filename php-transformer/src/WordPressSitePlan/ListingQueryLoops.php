@@ -16,8 +16,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
  * cards' own excerpts, featured images and literal fields move to the posts as
  * metadata, so the loop renders what the source showed.
  *
- * One instance serves one site plan run; it records the source container of
- * every loop it materializes for the stylesheet that presents them.
+ * One instance serves one site plan run; it records the projected markup
+ * around every listing or related-section loop for the stylesheet that
+ * presents them.
  */
 final class ListingQueryLoops
 {
@@ -38,13 +39,20 @@ final class ListingQueryLoops
     }
 
     /**
-     * The source container of each query loop materialized so far.
+     * Projected markup around each query loop materialized so far: the
+     * query and the source container it replaced the cards in.
      *
      * @return list<string>
      */
     public function queryContainers(): array
     {
         return $this->queryContainers;
+    }
+
+    /** Register projected markup containing a query and its source container. */
+    public function registerQueryContainer(string $markup): void
+    {
+        $this->queryContainers[] = $markup;
     }
 
     /**
@@ -151,9 +159,7 @@ final class ListingQueryLoops
             $page['content_hash'] = WordPressSitePlan::contentHash($replaced);
             $listingIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($sourceListingMarkup);
             $cards = $this->cardRanges($listingIndex, $posts, isset($postsByArchive[$page['source_path']]) ? 1 : 2) ?? array();
-            $firstCard = $cards[0] ?? null;
-            $parent = is_array($firstCard) ? $listingIndex->parent($firstCard) : null;
-            if (is_array($parent)) $this->queryContainers[] = substr($sourceListingMarkup, $parent['offset'], $parent['length']);
+            $this->registerQueryContainer($replaced);
             foreach ($fields as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
             foreach ($cards as $card) {
                 $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
@@ -168,14 +174,8 @@ final class ListingQueryLoops
                     }
                 }
                 if (str_contains($replaced, '<!-- wp:post-featured-image')) {
-                    $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup']);
-                    foreach ($cardIndex->ranges() as $leaf) {
-                        $slice = substr($cardMarkup, $leaf['offset'], $leaf['length']);
-                        if ('featured-image' !== $this->classifyCardBlock($slice, $card['post'], $card['route'], $postIndex) && !('image' === PostBlocks::sourceBlockName($slice) && str_contains($cardMarkup, '"wrappers"'))) continue;
-                        $image = PostBlocks::leadImage($slice);
-                        if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
-                        break;
-                    }
+                    $image = $this->cardFeaturedImage($cardMarkup, $card['post'], $card['route']);
+                    if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
                 }
                 $description = ListingExcerptProjection::description($card['post']);
                 if (null === $description) continue;
@@ -194,6 +194,24 @@ final class ListingQueryLoops
         foreach ($pages as &$page) if (isset($postMeta[$page['source_path']])) $page['metadata']['post_meta'] = ($page['metadata']['post_meta'] ?? array()) + $postMeta[$page['source_path']];
         unset($page);
         return $pages;
+    }
+
+    /**
+     * Extract the authored image for a card projected as core/post-featured-image.
+     *
+     * @param array<string,mixed> $post
+     * @return array<string,mixed>|null
+     */
+    public function cardFeaturedImage(string $markup, array $post, string $route): ?array
+    {
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($post['canonical_block_markup']);
+        foreach ($index->ranges() as $leaf) {
+            $slice = substr($markup, $leaf['offset'], $leaf['length']);
+            if ('featured-image' !== $this->classifyCardBlock($slice, $post, $route, $postIndex) && !('image' === PostBlocks::sourceBlockName($slice) && str_contains($markup, '"wrappers"'))) continue;
+            return PostBlocks::leadImage($slice);
+        }
+        return null;
     }
 
     /**

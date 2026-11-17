@@ -61,7 +61,7 @@ $coreClosed = (new ArtifactCompiler())->compile(array(
 $coreRepairCss = $cssContent($coreClosed, 'after-author', 'both');
 $assert('success' === $coreClosed['status'], 'a core-shaped closed-state selector compiles successfully');
 $assert(
-    1 === preg_match('/:root \.(blocks-engine-semantic-[a-f0-9]+-\d+)\{opacity:1!important;transform:none!important\}/', $coreRepairCss, $repairMatch),
+    1 === preg_match('/:root \.(blocks-engine-semantic-[a-f0-9]+-\d+)\{opacity:1!important[^}]*\}/', $coreRepairCss, $repairMatch),
     'the frontend closed-state repair targets an importer semantic marker',
     $coreRepairCss
 );

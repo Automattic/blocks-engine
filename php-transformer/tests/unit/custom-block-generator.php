@@ -65,6 +65,8 @@ $linkScript = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generato
 $assert(str_contains($linkScript, "blockProps.dangerouslySetInnerHTML = { __html: props.attributes.content || '' }") && str_contains($linkScript, "raw ? createElement( 'a', blockProps )"), '2: raw-source accessible links render directly on the block-props anchor without children');
 
 // Evaluate the actual edit tree for selected/unselected and empty content.
+// Non-empty source, void roots and style priorities are also exercised with React
+// and a real DOM in tools/visual-parity/tests/raw-html-root-parity.mjs.
 $treeRunner = <<<'JS'
 const vm = require( 'node:vm' );
 let settings;

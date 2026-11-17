@@ -674,7 +674,7 @@ final class RouteStateProjector
                                 if (!$alone) { $sheetRules[$sheet][1][$class] = true; continue; }
                                 // Copies keep each route's own scope, so the slot only lets equal rules meet.
                                 $read = preg_replace_callback($classPattern, static fn(array $other): string => isset($worn[$other[1]]) ? $other[0] : ".\x02", (string) preg_replace($named($class), ".\x01", trim($selector)));
-                                $sheetRules[$sheet][0][$class][] = implode("\0", $ancestors) . "\0" . $read . "\0" . RenderEquivalentMarkup::canonicalStyle($body);
+                                $sheetRules[$sheet][0][$class][] = array(implode("\0", $ancestors), $read, RenderEquivalentMarkup::canonicalStyle($body));
                             }
                         }
                     });
@@ -685,7 +685,7 @@ final class RouteStateProjector
             foreach ($rules as $class => $meaning) {
                 // Engine-minted classes (re-ingested control bindings) are no route vocabulary.
                 if (str_starts_with($class, 'blocks-engine-') || isset($unaliasable[$class]) || preg_match($named($class), $global)) continue;
-                $meanings[$index][$class] = hash('sha256', implode("\n", $meaning));
+                $meanings[$index][$class] = self::classMeaning($meaning);
             }
         }
         $names = array(); $readings = array();
@@ -1048,6 +1048,56 @@ final class RouteStateProjector
         }
 
         return $count;
+    }
+
+    /**
+     * What a class's own rules resolve to on one route. Builders restate a
+     * component's CSS per page, repeating a rule or emitting its breakpoint
+     * override before or after the base rule. Those spellings render alike:
+     * a declaration a later unconditional (or same-condition) one replaces is
+     * dead, and one restating the value already in force there is redundant.
+     * Rules whose properties overlap through shorthands keep their written
+     * order, since replacing one would need the shorthand's expansion.
+     *
+     * @param list<array{0:string,1:string,2:string}> $readings Condition, selector reading, canonical declarations.
+     */
+    private static function classMeaning(array $readings): string
+    {
+        $ordered = hash('sha256', implode("\n", array_map(static fn(array $reading): string => implode("\0", $reading), $readings)));
+        $parsed = array(); $names = array();
+        foreach ($readings as [$condition, $read, $style]) {
+            $declarations = array();
+            foreach (preg_split('/;(?![^(]*\))/', $style) ?: array() as $declaration) {
+                if ('' === $declaration) continue;
+                $colon = strpos($declaration, ':');
+                if (false === $colon || str_contains($declaration, '"') || str_contains($declaration, "'")) return $ordered;
+                $property = substr($declaration, 0, $colon);
+                $declarations[$property] = substr($declaration, $colon + 1);
+                if (!str_starts_with($property, '--')) $names[$property] = true;
+            }
+            $parsed[] = array($condition, $read, $declarations);
+        }
+        foreach (array_keys($names) as $name) foreach (array_keys($names) as $other) {
+            if ($name !== $other && str_starts_with((string) $other, $name . '-')) return $ordered;
+        }
+        $live = array();
+        foreach ($parsed as [$condition, $read, $declarations]) {
+            foreach ($declarations as $property => $value) {
+                $key = $read . "\0" . $property;
+                $entries = $live[$key] ?? array();
+                $important = 1 === preg_match('/!\s*important$/i', $value);
+                $last = end($entries);
+                $anyImportant = (bool) array_filter($entries, static fn(array $entry): bool => $entry[2]);
+                // Where the entry in force already covers this condition with
+                // this value, restating it changes nothing.
+                if (false !== $last && ('' === $last[0] || $condition === $last[0]) && $value === $last[1] && $important === $last[2] && ($important || !$anyImportant)) continue;
+                $entries = array_values(array_filter($entries, static fn(array $entry): bool => !(('' === $condition || $condition === $entry[0]) && ($important || !$entry[2]))));
+                $entries[] = array($condition, $value, $important);
+                $live[$key] = $entries;
+            }
+        }
+        ksort($live, SORT_STRING);
+        return hash('sha256', (string) json_encode($live, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     }
 
     /** @return list<string> */

@@ -877,7 +877,10 @@ final class NavigationPatternContext
                 }
                 $boxTarget = $item;
                 foreach ($block['attrs']['metadata']['blocksEngineNavigationAnchor']['boxes'] ?? array() as $box) {
-                    $boxTarget .= '>' . $box['tag'];
+                    // Retained boxes share their tag with inert sibling spacers.
+                    // Bind correspondence to the marker carried by this box,
+                    // not every child of the same type in the item.
+                    $boxTarget .= '>' . $box['tag'] . '.' . $box['marker'];
                     $targets[$box['marker']][$boxTarget] = true;
                 }
                 $collect($block['innerBlocks'] ?? array(), $item . '>.wp-block-navigation__submenu-container');
@@ -934,6 +937,9 @@ final class NavigationPatternContext
             ksort($resting);
             $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
+            // Shared entities retain every reference's subject markers. Editor
+            // label typography must bind inside the same instance as frontend CSS.
+            $this->session->generatedSupportStylesheetState()->scopeNavigationEditorTypography($scope, array_keys($targets));
             $this->recordCurrentItemPresentation($current, $scope, $source);
             $markup = (string) json_encode($block);
             // Without a submenu no item holds another item's links.

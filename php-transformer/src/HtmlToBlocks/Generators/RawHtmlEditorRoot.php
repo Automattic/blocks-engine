@@ -25,6 +25,8 @@ final class RawHtmlEditorRoot
         return createElement( element.Fragment, null, roots.map( function( root, index ) {
             if ( root.nodeType !== 1 ) return root.textContent;
             var attributes = {};
+            // Retain captured HTML attributes for display; React may warn about raw
+            // names and intentionally ignores inline on* handlers in the editor.
             Array.from( root.attributes ).forEach( function( attribute ) {
                 if ( attribute.name !== 'style' && attribute.name !== 'class' ) attributes[ attribute.name ] = attribute.value;
             } );
@@ -33,13 +35,28 @@ final class RawHtmlEditorRoot
                 var key = name.indexOf( '--' ) === 0 ? name : name.replace( /-([a-z])/g, function( match, letter ) { return letter.toUpperCase(); } );
                 style[ key ] = root.style.getPropertyValue( name );
             } );
+            // Captured siblings intentionally stay wrapper-free; only the first root owns selection.
             var props = index === 0 ? blockProps : {};
-            return createElement( root.localName, Object.assign( {}, attributes, props, {
+            var rootProps = Object.assign( {}, attributes, props, {
                 key: index,
                 className: Array.from( new Set( ( ( root.className || '' ) + ' ' + ( props.className || '' ) ).split( /\s+/ ).filter( Boolean ) ) ).join( ' ' ),
-                style: Object.assign( {}, props.style, style ),
-                dangerouslySetInnerHTML: { __html: root.innerHTML }
-            } ) );
+                style: Object.assign( {}, props.style, style )
+            } );
+            // React forbids inner HTML on void elements, including an empty string.
+            if ( ! /^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/.test( root.localName ) ) {
+                rootProps.dangerouslySetInnerHTML = { __html: root.innerHTML };
+            }
+            var priorities = Array.from( root.style ).filter( function( name ) { return root.style.getPropertyPriority( name ); } );
+            if ( priorities.length ) {
+                // React's style object cannot express !important. Apply priorities after mounting,
+                // while forwarding Gutenberg's ref so selection and toolbar anchoring still work.
+                rootProps.ref = function( node ) {
+                    if ( node ) priorities.forEach( function( name ) { node.style.setProperty( name, root.style.getPropertyValue( name ), root.style.getPropertyPriority( name ) ); } );
+                    if ( typeof props.ref === 'function' ) return props.ref( node );
+                    if ( props.ref ) props.ref.current = node;
+                };
+            }
+            return createElement( root.localName, rootProps );
         } ) );
     }
 JS;
