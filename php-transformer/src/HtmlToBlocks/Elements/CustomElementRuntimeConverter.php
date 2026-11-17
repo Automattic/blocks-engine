@@ -45,7 +45,7 @@ final class CustomElementRuntimeConverter implements ElementConverter
         }
         if ( 'unproven' === $decision['disposition'] ) {
             if ( $this->renderNeutral->isEmptyRenderNeutralConfiguredHost($element) ) {
-                $omit = $this->renderNeutral->isRenderNeutralWrapper($element);
+                $omit = $this->renderNeutral->isRenderNeutralWrapper($element, true, true);
                 $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
                     'code'                      => $omit ? 'html_custom_element_render_neutral' : 'html_custom_element_runtime_placeholder',
                     'severity'                  => 'info',
