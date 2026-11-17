@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\Utf8Text;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
@@ -247,7 +249,13 @@ final class SourceContentConservationReporter
             return false;
         }
 
-        return '' === $style || 1 !== preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i', $style);
+        if ( '' === $style ) {
+            return true;
+        }
+        $declarations = SourceDeclarations::inline($element);
+
+        return 'none' !== CssValueInspector::declared($declarations, 'display')
+            && 'hidden' !== CssValueInspector::declared($declarations, 'visibility');
     }
 
     private function imageRetained(DOMElement $image): bool
