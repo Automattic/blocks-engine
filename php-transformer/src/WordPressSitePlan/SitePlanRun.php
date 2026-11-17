@@ -346,6 +346,9 @@ final class SitePlanRun
         $navigationMarkup = $emittedMarkup . "\n" . implode("\n", self::markups($menus));
         // Markup is final: an arm requiring a carrier no route has is dead.
         $assets = AbsentCarrierSelectors::prune($assets, $navigationMarkup . "\n" . json_encode(array($runtimeDeclarations, $runtimeEntityRecords), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        // A source arm guarded against role carriers is dead once every
+        // element naming its class is one of them.
+        $assets = ConvertedSourceClassSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
