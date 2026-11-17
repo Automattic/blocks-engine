@@ -44,7 +44,6 @@ final class UnreachableSelectorPruner
      */
     public function __construct(array $texts, private bool $pruneTypes = false, ?array $stylesheets = null)
     {
-        if (null !== $stylesheets) $this->propertyPruner = new UnusedCustomPropertyPruner($stylesheets, $texts);
         $this->evidenceText = implode("\n", $texts);
         $prefixes = array();
         foreach ($texts as $text) {
@@ -52,6 +51,11 @@ final class UnreachableSelectorPruner
             if (preg_match_all('/[A-Za-z][\w-]*[-_](?=["\'`$+])/', $text, $matches)) $prefixes += array_fill_keys($matches[0], true);
         }
         $this->livePrefixes = array_keys($prefixes);
+        // A property read only by arms that match nothing on the site is
+        // read by no element: framework utilities the site never uses would
+        // otherwise keep every reset token (and its registration) alive.
+        // Readers are judged with the most conservative arm pruning (IDs kept).
+        if (null !== $stylesheets) $this->propertyPruner = new UnusedCustomPropertyPruner(array_map(fn (string $css): string => $this->withoutUnreachableArms($css, true), $stylesheets), $texts);
     }
 
     /** @param bool $preserveIds Keep arms whose only absent tokens are IDs. */
@@ -60,6 +64,11 @@ final class UnreachableSelectorPruner
         // Reset inventories are recognizable before projection expands their
         // universal subjects into native-block and richtext alternatives.
         $css = $this->propertyPruner?->prune($css) ?? $css;
+        return $this->withoutUnreachableArms($css, $preserveIds);
+    }
+
+    private function withoutUnreachableArms(string $css, bool $preserveIds): string
+    {
         $pruned = (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body) use ($preserveIds): string {
             $arms = CssStylesheetTransformer::splitSelectorList($prelude);
             if (null === $arms) return $prelude . '{' . $body . '}';
