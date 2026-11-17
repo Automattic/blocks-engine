@@ -1200,7 +1200,8 @@ final class CommerceFallbackReporter
      * the source's client-side cart was. The layout blocks are unchanged.
      *
      * The binding anchors on the cart view's script scope: the outermost
-     * runtime DOM target around the summary, below the page landmarks. That is
+     * runtime DOM target around the summary, below and excluding containers of
+     * page landmarks. That is
      * the element the source script looks up before rendering, so a provider
      * that replaces it also retires the source's cart rendering instead of
      * leaving it to draw a second, empty cart beside the provider's. A summary
@@ -1219,6 +1220,16 @@ final class CommerceFallbackReporter
                 break;
             }
             $scope = $this->cartViewScope($summary);
+            if ( $this->containsPageLandmark($scope) ) {
+                $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
+                    'code' => 'runtime_binding_declined',
+                    'severity' => 'warning',
+                    'message' => 'Declined a cart binding whose only scope contains page landmarks.',
+                    'source' => self::class,
+                    'context' => array('reason' => 'page_wide_cart_scope', 'role' => 'commerce_cart', 'selector' => SourceDom::elementSelector($scope)),
+                ));
+                continue;
+            }
             $id = spl_object_id($scope);
             if ( isset($scopes[$id]) ) {
                 continue;
@@ -1356,7 +1367,8 @@ final class CommerceFallbackReporter
         for ( $node = $summary; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( in_array(strtolower($node->tagName), array( 'html', 'body', 'main', 'header', 'footer', 'nav' ), true)
                 || $node->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)
-                || '' !== ShellLandmarkPolicy::landmarkKind($node->tagName, SourceDom::attr($node, 'role')) ) {
+                || '' !== ShellLandmarkPolicy::landmarkKind($node->tagName, SourceDom::attr($node, 'role'))
+                || $this->containsPageLandmark($node) ) {
                 break;
             }
             // The summary's checkout control belongs to its enclosing form;
@@ -1367,6 +1379,19 @@ final class CommerceFallbackReporter
         }
 
         return $scope;
+    }
+
+    /** App wrappers containing page landmarks are not replaceable cart regions. */
+    private function containsPageLandmark(DOMElement $element): bool
+    {
+        foreach ( SourceDom::descendantElements($element) as $descendant ) {
+            if ( in_array(strtolower($descendant->tagName), array('main', 'header', 'footer', 'nav'), true)
+                || '' !== ShellLandmarkPolicy::landmarkKind($descendant->tagName, SourceDom::attr($descendant, 'role')) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
