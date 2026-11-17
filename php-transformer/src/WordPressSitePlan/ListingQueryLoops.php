@@ -168,14 +168,8 @@ final class ListingQueryLoops
                     }
                 }
                 if (str_contains($replaced, '<!-- wp:post-featured-image')) {
-                    $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup']);
-                    foreach ($cardIndex->ranges() as $leaf) {
-                        $slice = substr($cardMarkup, $leaf['offset'], $leaf['length']);
-                        if ('featured-image' !== $this->classifyCardBlock($slice, $card['post'], $card['route'], $postIndex) && !('image' === PostBlocks::sourceBlockName($slice) && str_contains($cardMarkup, '"wrappers"'))) continue;
-                        $image = PostBlocks::leadImage($slice);
-                        if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
-                        break;
-                    }
+                    $image = $this->cardFeaturedImage($cardMarkup, $card['post'], $card['route']);
+                    if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
                 }
                 $description = ListingExcerptProjection::description($card['post']);
                 if (null === $description) continue;
@@ -194,6 +188,24 @@ final class ListingQueryLoops
         foreach ($pages as &$page) if (isset($postMeta[$page['source_path']])) $page['metadata']['post_meta'] = ($page['metadata']['post_meta'] ?? array()) + $postMeta[$page['source_path']];
         unset($page);
         return $pages;
+    }
+
+    /**
+     * Extract the authored image for a card projected as core/post-featured-image.
+     *
+     * @param array<string,mixed> $post
+     * @return array<string,mixed>|null
+     */
+    public function cardFeaturedImage(string $markup, array $post, string $route): ?array
+    {
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($post['canonical_block_markup']);
+        foreach ($index->ranges() as $leaf) {
+            $slice = substr($markup, $leaf['offset'], $leaf['length']);
+            if ('featured-image' !== $this->classifyCardBlock($slice, $post, $route, $postIndex) && !('image' === PostBlocks::sourceBlockName($slice) && str_contains($markup, '"wrappers"'))) continue;
+            return PostBlocks::leadImage($slice);
+        }
+        return null;
     }
 
     /**
