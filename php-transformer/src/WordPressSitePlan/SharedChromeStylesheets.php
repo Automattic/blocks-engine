@@ -1109,7 +1109,7 @@ final class SharedChromeStylesheets
                 $keep($asset);
                 continue;
             }
-            $route = self::routeRules($asset['content'], $targetsChrome, $classMatcher);
+            $route = self::withoutSharedKeyframes(self::routeRules($asset['content'], $targetsChrome, $classMatcher), $shared);
             $contract = self::sharedChromeContract($asset);
             $sharedAsset = self::sharedChromeAsset($asset, $shared, $contract, $routeClasses);
             $shared = (string) $sharedAsset['content'];
@@ -1382,6 +1382,30 @@ final class SharedChromeStylesheets
      * @param callable(string):bool $targetsChrome
      * @param array<string,mixed> $classMatcher
      */
+    private static function withoutSharedKeyframes(string $route, string $shared): string
+    {
+        // Definition rules survive style-rule projection. The global slice
+        // already carries these exact keyframes, so do not enqueue them twice.
+        $definitions = array();
+        // Only top-level definitions are interchangeable across the slices;
+        // conditionally scoped definitions retain their original contracts.
+        $tree = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($shared);
+        if (!$tree->wellFormed) return $route;
+        foreach ($tree->rules() as $rule) {
+            $text = trim(substr($shared, $rule['start'], $rule['end'] - $rule['start'] + 1));
+            if (preg_match('/^@(?:-[a-z]+-)?keyframes\s/i', $text)) $definitions[$text] = true;
+        }
+        $tree = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($route);
+        if (!$tree->wellFormed) return $route;
+        $removals = array();
+        foreach ($tree->rules() as $rule) {
+            $text = trim(substr($route, $rule['start'], $rule['end'] - $rule['start'] + 1));
+            if (isset($definitions[$text])) $removals[] = $rule;
+        }
+        foreach (array_reverse($removals) as $rule) $route = substr_replace($route, '', $rule['start'], $rule['end'] - $rule['start'] + 1);
+        return $route;
+    }
+
     private static function routeRules(string $css, callable $targetsChrome, array $classMatcher): string
     {
         return (new CssStylesheetTransformer())->transformStyleRules(

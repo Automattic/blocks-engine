@@ -729,7 +729,6 @@ final class ShellExtraction
                 'source_path' => $sourcePath,
                 'source_hash' => $row['source_hash'],
                 'nested_shell' => true,
-                'document_edge' => 1 === count($rows) && !empty($row['document_edge']),
                 'device_document_bundle' => count($scoped) > 1 && !isset($scoped['']),
                 'offset' => $row['offset'],
                 'length' => $row['length'],
@@ -746,6 +745,7 @@ final class ShellExtraction
     private function collectNestedChrome(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $ranges, array &$headers, array &$footers, string $captureScope = '', ?array $captureShell = null): void
     {
         $markup = $index->markup;
+        if (array() === $ranges) return;
         // Empty decoration groups ahead of the header do not move it: the first
         // block that holds anything is the one that may be the header.
         $lead = 0;
@@ -753,7 +753,7 @@ final class ShellExtraction
         // A text-only announcement bar above the navigation is part of the
         // masthead: the header runs from it through the navigation block.
         $navAt = $lead;
-        while ($navAt < $lead + 2 && $navAt < count($ranges) - 1 && self::isLeadingAnnouncement(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) ++$navAt;
+        while (self::leadsMainDocument($index, $ranges[$lead]['offset']) && $navAt < $lead + 2 && $navAt < count($ranges) - 1 && self::isLeadingAnnouncement(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) ++$navAt;
         if (!self::containsNavigation(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) $navAt = $lead;
         if (2 <= count($ranges) - $navAt) {
             $head = $ranges[$navAt];
@@ -778,7 +778,7 @@ final class ShellExtraction
                 }
                 if (!$restInFlow && 1 === preg_match('/<h1\b/i', $first)) $restHasContent = false;
                 if ($restHasContent) {
-                    $headers[] = $this->nestedChromeRow($first, $start, strlen($first)) + array('capture_scope' => $captureScope, 'capture_scope_shell' => $captureShell, 'document_edge' => self::leadsMainDocument($index, $start));
+                    $headers[] = $this->nestedChromeRow($first, $start, strlen($first)) + array('capture_scope' => $captureScope, 'capture_scope_shell' => $captureShell);
                     // A projected modal dialog mounts at the end of its document;
                     // it renders in the top layer, so the footer is the last
                     // sibling before it.
@@ -3068,7 +3068,10 @@ final class ShellExtraction
         $closing = substr($markup, $end);
         $content = substr($markup, $start, $end - $start);
         if ('' === trim($content) || str_contains($content, 'wp:template-part')) return null;
-        if (preg_match('/"tagName":"main"/', $opening . $closing)) return null;
+        // A document-wide main may own the masthead as its first child.
+        // Hoist that complete frame rather than detaching chrome from its
+        // stacking/selector context. A main within the content gap stays put.
+        if (preg_match('/"tagName":"main"/', $opening . $closing) && (!isset($refs['header']) || !self::leadsMainDocument(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $nodes[$refs['header']]['offset']))) return null;
         // A frame belongs to one captured device document. When the shells sit
         // in one of several device documents, the others are page content, not
         // chrome around it.
