@@ -630,8 +630,8 @@ final class CssSelectorMatcher
                             continue;
                         }
                     }
-                    $closing = strpos($source, ')', $offset + 1);
-                    if ( false === $closing ) {
+                    $closing = CssSyntaxScanner::matchingClose($source, $offset);
+                    if ( null === $closing ) {
                         return null;
                     }
                     $selected = self::parseCompound(trim(substr($source, $offset + 1, $closing - $offset - 1)), 0, false);
@@ -646,6 +646,11 @@ final class CssSelectorMatcher
                     $compound['universal'] = $compound['universal'] || $selectedCompound['universal'];
                     foreach ( array( 'classes', 'ids', 'attributes' ) as $key ) {
                         array_push($compound[$key], ...$selectedCompound[$key]);
+                    }
+                    if ( 'is' === $lowerName ) {
+                        foreach ($selectedCompound['zero_specificity'] as $key => $count) {
+                            $compound['zero_specificity'][$key] += $count;
+                        }
                     }
                     if ( 'where' === $lowerName ) {
                         $compound['zero_specificity']['types'] += null === $selectedCompound['type'] ? 0 : 1;

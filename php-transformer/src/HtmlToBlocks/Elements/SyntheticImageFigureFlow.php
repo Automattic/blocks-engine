@@ -73,7 +73,7 @@ final class SyntheticImageFigureFlow
         for ( $depth = 0; $depth < 8 && $node instanceof DOMElement; ++$depth ) {
             $align = $this->styleResolver->resolvedDeclaration($node, 'text-align');
             if ( '' !== $align ) {
-                return in_array($align, array( 'right', 'center', 'end' ), true);
+                return in_array($align, array( 'left', 'right', 'center', 'start', 'end' ), true);
             }
             $node = $node->parentNode;
         }

@@ -20,6 +20,15 @@ final class MediaPatternContext
     }
 
     public function coverStyle(DOMElement $element): string { return $this->styleResolver->coverPresentationStyle($element); }
+    /** Pattern gates need class-owned facts too, not only declarations materialized inline. */
+    public function fullSourceStyle(DOMElement $element): string
+    {
+        $style = '';
+        foreach ($this->styleResolver->resolvedPresentationDeclarations($element) as $property => $value) {
+            $style .= $property . ':' . $value . ';';
+        }
+        return $style;
+    }
     public function resolveImageUrl(string $url): string { return $this->imageUrls->resolvedAssetUrl($url); }
     /** @param array<int, string> $excludedGeometryProperties
      * @return array<string, mixed>
@@ -34,6 +43,8 @@ final class MediaPatternContext
         );
     }
     public function mediaTextStyle(DOMElement $element): string { return $this->styleResolver->mediaTextPresentationStyle($element); }
+    // Pattern gates must read the cascade even on otherwise low-value wrappers.
+    public function mediaTextFullStyle(DOMElement $element): string { return $this->styleResolver->specificityResolvedPresentationStyle($element); }
     /** Whether a media/container-conditional rule varies the element's min-height. */
     public function hasConditionalMinHeight(DOMElement $element): bool { return array() === $this->styleResolver->classOwnedResponsiveDeclarations($element, array( 'min-height' => '0' )); }
     /** @return array<string, string> */

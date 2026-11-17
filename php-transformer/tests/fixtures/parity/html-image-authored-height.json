@@ -1,0 +1,56 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-image-authored-height",
+  "description": "Bare image subjects retain authored dimensions at base and responsive cascade positions without bridge dimension resets.",
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Neutral image dimension regression fixture."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.photo img{width:100%;height:360px;object-fit:cover}@media (min-width:900px){.photo img{height:420px}}</style>\n<section class=\"panel\"><div class=\"photo\"><img src=\"room.jpg\" width=\"1200\" height=\"788\" alt=\"Room\"></div><div class=\"copy\"><h2>Rooms</h2><p>Text</p></div></section>"
+  },
+  "expected_fallbacks": [],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": ".photo img{width:100%;height:360px;object-fit:cover}"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": "@media (min-width:900px){.photo img{height:420px}"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": "> a > img{display:block;object-fit:inherit;object-position:inherit}"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "not_contains",
+      "value": "height:100%"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "not_contains",
+      "value": "height:inherit"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "not_contains",
+      "value": "width:inherit"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "not_contains",
+      "value": "display:block;width:100%"
+    }
+  ]
+}

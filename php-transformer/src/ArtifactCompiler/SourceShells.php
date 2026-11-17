@@ -28,7 +28,7 @@ final class SourceShells
         $context = array();
         for ($cursor = $landmark->parentNode; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
             $attributes = array();
-            foreach ($cursor->attributes ?? array() as $attribute) $attributes[strtolower($attribute->name)] = $attribute->value;
+            $attributes = SourceDom::htmlAttributes($cursor);
             array_unshift($context, array('tag' => strtolower($cursor->tagName), 'attributes' => $attributes));
         }
         return $context;
@@ -129,6 +129,11 @@ final class SourceShells
     {
         $dom = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
         $xpath = new \DOMXPath($dom);
+        foreach ($dom->getElementsByTagName('*') as $node) {
+            foreach (iterator_to_array($node->attributes) as $attribute) {
+                if (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($attribute->name)) $node->removeAttributeNode($attribute);
+            }
+        }
         if ($ignoreViewportEntrance) {
             foreach ($xpath->query('//*[@' . CaptureEvidence::VIEWPORT_ENTRANCE . ']') ?: array() as $node) {
                 if (!$node instanceof \DOMElement) continue;

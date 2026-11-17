@@ -266,6 +266,7 @@ trait StagedTransport
 
         $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
         $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
+        $stageCompiler->siteSelectorEvidence = $sharedPlan['analysis']['site_selector_evidence'] ?? null;
 
         $compiledDocuments = array();
         $stepTimings = array();
@@ -1167,6 +1168,7 @@ trait StagedTransport
     private function sharedPlanAnalysis(array $normalized, array $partition, string $entryPath, array $artifact): array
     {
         return array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
+            'site_selector_evidence' => $this->selectorEvidence((new ArtifactNormalizer())->normalize($artifact)['files']),
             'entry_path' => $entryPath,
             'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
             'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),

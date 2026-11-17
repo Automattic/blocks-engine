@@ -88,5 +88,10 @@ the selectors, is the ground truth for what each element contributes.
   for depth, groups per leaf, theme CSS per route and visual parity:
   1. evidence contract;
   2. classifier report;
-  3. collapse;
-  4. restyle and retirement of shipped author CSS.
+  3. restyle from captured used values and retirement of shipped author CSS;
+  4. collapse.
+
+  Restyle must precede collapse: removing wrappers while author CSS still ships
+  breaks descendant selectors and recreates the oscillation this decision rejects.
+  Slice 3 accepts pixel values at the captured viewports; lifting fluid intent
+  and interaction selectors follows separately in slice 3b.

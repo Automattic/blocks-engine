@@ -4911,6 +4911,18 @@ final class NavigationPattern implements PatternRecognizerInterface
         return false;
     }
 
+    /**
+     * A folder-history control: the "back" link a drill-down menu shows inside
+     * each folder. It declares the action explicitly and is removed from the
+     * tab order; a builder class or the link's text never qualifies it.
+     */
+    public static function isFolderHistoryControl(DOMElement $control): bool
+    {
+        return in_array(strtolower($control->tagName), array( 'a', 'button' ), true)
+            && 'back' === strtolower(SourceDom::attr($control, 'data-action'))
+            && '-1' === SourceDom::attr($control, 'tabindex');
+    }
+
     private function isNavigationChromeElement(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
@@ -4932,10 +4944,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 $control = $children[0];
             }
         }
-        if ( in_array(strtolower($control->tagName), array( 'a', 'button' ), true)
-            && 'back' === strtolower(SourceDom::attr($control, 'data-action'))
-            && '-1' === SourceDom::attr($control, 'tabindex')
-            && SourceDom::hasAncestorTag($element, array( 'nav' )) ) {
+        if ( self::isFolderHistoryControl($control) && SourceDom::hasAncestorTag($element, array( 'nav' )) ) {
             return true;
         }
         if ( $this->isMenuToggleControl($element) ) {

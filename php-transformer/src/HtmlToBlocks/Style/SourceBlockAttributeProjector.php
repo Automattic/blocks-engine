@@ -113,6 +113,52 @@ final class SourceBlockAttributeProjector
         SourceBlockAttributeProjectionContext $context
     ): array {
         $sourceTagName = strtolower($sourceElement->tagName);
+        $attrs = $this->withHostRenderedFormIdentity($name, $attrs, $sourceElement, $context);
+        $attrs = $this->withSyntheticImageFigureClasses($name, $attrs, $sourceElement, $sourceTagName, $facts);
+        $attrs = $this->withInlineImageAlignment($name, $attrs, $innerBlocks, $sourceElement);
+        $attrs = $this->withVideoSizeHints($name, $attrs, $sourceElement, $sourceTagName, $context);
+        $attrs = $this->withInlineParagraphCarrierClasses($name, $attrs, $sourceElement, $sourceTagName, $facts, $context);
+        $attrs = $this->withSelfDescribingMarkers($name, $attrs, $sourceElement);
+        if ('core/group' === $name && $facts->isInlineSourceElement
+            && 'inherit' === ($innerBlocks[0]['attrs']['style']['typography']['fontSize'] ?? null)
+            && str_contains((string) ($innerBlocks[0]['attrs']['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS)) {
+            // The group owns the source wrapper's selector and typography;
+            // it is no longer an inline RichText/layout carrier.
+            $context->selectorProjections->adoptAsSemanticBlock($sourceElement->getNodePath() ?? '');
+        }
+        $attrs = $this->withSourceProjectionClassName($name, $attrs, $sourceElement, $sourceTagName, $facts, $context);
+        $attrs = $this->withLayoutCarrierClasses($name, $attrs, $innerBlocks, $sourceElement, $facts, $context);
+
+        $attrs = $this->projectButtonAttributes($name, $attrs, $sourceElement, $logicalSourceElement, $facts, $context);
+        $attrs = $this->generatedStyleProjector->applyDeclaredBlockSupport(
+            $name,
+            $attrs,
+            $sourceElement,
+            $context->generatedStyles,
+            $facts->preserveGeneratedStyle
+        );
+        // This is behavior identity, not an authored styling class. It must
+        // survive the styling resolver's pruning of unused source classes.
+        $collectionMarker = SourceDom::attr($sourceElement, 'data-blocks-engine-collection-item-marker');
+        if (1 === preg_match('/^blocks-engine-collection-item-[a-f0-9]{16}-[0-9]{1,3}$/', $collectionMarker)) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $collectionMarker);
+        }
+        $attrs = $this->withoutDuplicatedButtonLabelColor($name, $attrs, $sourceElement, $logicalSourceElement);
+
+        $attrs = $this->withGroupSourceSemantics($name, $attrs, $sourceElement);
+        $attrs = $this->withSocialAnchorIdentity($name, $attrs, $sourceElement, $sourceTagName, $context);
+        $attrs = $this->withGlobalZeroBoxes($name, $attrs, $sourceElement, $context);
+        return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
+    }
+
+    /**
+     * A preserved form has no block wrapper: its identity classes go into its own markup.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withHostRenderedFormIdentity(string $name, array $attrs, DOMElement $sourceElement, SourceBlockAttributeProjectionContext $context): array
+    {
         if ( 'core/html' === $name && array() !== FormDispatcher::hostRenderedClasses($sourceElement) ) {
             // Preserved forms have no block wrapper: identity must live in
             // their actual markup, not the ignored core/html className.
@@ -122,6 +168,17 @@ final class SourceBlockAttributeProjector
                 fn (DOMElement $element): array => SourceDom::tokens($this->sourceProjectionClassName($element, $context, SourceDom::attr($element, 'class')))
             );
         }
+        return $attrs;
+    }
+
+    /**
+     * Box classes for the figure core/image synthesizes around a bare source image.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withSyntheticImageFigureClasses(string $name, array $attrs, DOMElement $sourceElement, string $sourceTagName, SourceBlockAttributeProjectionFacts $facts): array
+    {
         if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
             if ($this->sourceImageIsFlexOrGridItem($sourceElement)) {
@@ -148,6 +205,43 @@ final class SourceBlockAttributeProjector
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS);
             }
         }
+        return $attrs;
+    }
+
+    /**
+     * A group keeps the text alignment its inline image figure's source line had.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withInlineImageAlignment(string $name, array $attrs, array $innerBlocks, DOMElement $sourceElement): array
+    {
+        // A transparent image figure still participates in the source parent's
+        // line. Unlike RichText leaves it cannot own text alignment, so keep
+        // the parent's inline declaration on the group that already exists.
+        if ( 'core/group' === $name ) {
+            foreach ( $innerBlocks as $child ) {
+                if ( 'core/image' === ($child['blockName'] ?? '')
+                    && in_array(self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS, SourceDom::tokens((string) ($child['attrs']['className'] ?? '')), true) ) {
+                    $attrs['className'] = SourceDom::mergeClassNames(
+                        (string) ($attrs['className'] ?? ''),
+                        $this->styleResolver->inlineGeometryClassName($sourceElement, array(), array( 'text-align' ))
+                    );
+                    break;
+                }
+            }
+        }
+        return $attrs;
+    }
+
+    /**
+     * Zero-specificity size hints for a video's HTML dimensions, and its fill class.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withVideoSizeHints(string $name, array $attrs, DOMElement $sourceElement, string $sourceTagName, SourceBlockAttributeProjectionContext $context): array
+    {
         if ( 'core/video' === $name && 'video' === $sourceTagName ) {
             // HTML dimensions are presentational hints, not core/video attrs.
             // Zero-specificity rules preserve their fallback role: authored
@@ -182,9 +276,24 @@ final class SourceBlockAttributeProjector
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS);
             }
         }
+        return $attrs;
+    }
+
+    /**
+     * Carrier classes for a paragraph made from an inline source element.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withInlineParagraphCarrierClasses(string $name, array $attrs, DOMElement $sourceElement, string $sourceTagName, SourceBlockAttributeProjectionFacts $facts, SourceBlockAttributeProjectionContext $context): array
+    {
         if ( 'core/paragraph' === $name && $facts->isInlineSourceElement ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
-            if ( $this->styleResolver->sourceChildHasParentBoxStyling($sourceElement) ) {
+            // Entrance links retain their own painted box and live classes.
+            // A second paragraph box would add border/spacing and resize the
+            // grid item even though the authored rules now reach the leaf.
+            if ( ! ('a' === $sourceTagName && $sourceElement->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE))
+                && $this->styleResolver->sourceChildHasParentBoxStyling($sourceElement) ) {
                 // The projected parent > child rule now addresses this carrier.
                 // display:contents would discard its margin/paint/geometry.
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SOURCE_BOX_PARAGRAPH_CLASS);
@@ -196,9 +305,33 @@ final class SourceBlockAttributeProjector
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS);
             }
             if ( 'a' === $sourceTagName ) {
+                $presentation = $this->styleResolver->structuralPresentationDeclarations($sourceElement);
+                $display = CssValueInspector::comparable((string) ($presentation['display'] ?? ''));
+                $float = CssValueInspector::comparable((string) ($presentation['float'] ?? ''));
+                if ( in_array($display, array('', 'inline'), true)
+                    && in_array($float, array('', 'none'), true)
+                    && ! $this->isDirectChildOfAuthorOwnedLayout($sourceElement)
+                    && $this->anchorPrecedesBlock($sourceElement) ) {
+                    // A boxless RichText root cannot receive focus. In inline
+                    // flow before a block, its fallback hitbox can overlap the
+                    // following Group. An inline carrier preserves the source
+                    // line without changing flex/grid or floating link layout.
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-inline-anchor-carrier');
+                }
                 $attrs = $this->withSyntheticHeaderAnchorCarrier($attrs, $sourceElement, $context->generatedStyles);
             }
         }
+        return $attrs;
+    }
+
+    /**
+     * Source classes that describe the block itself survive onto it.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withSelfDescribingMarkers(string $name, array $attrs, DOMElement $sourceElement): array
+    {
         foreach ( self::SELF_DESCRIBING_MARKERS[ $name ] ?? array() as $marker ) {
             if ( SourceDom::hasClass($sourceElement, $marker) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $marker);
@@ -211,13 +344,17 @@ final class SourceBlockAttributeProjector
                 }
             }
         }
-        if ('core/group' === $name && $facts->isInlineSourceElement
-            && 'inherit' === ($innerBlocks[0]['attrs']['style']['typography']['fontSize'] ?? null)
-            && str_contains((string) ($innerBlocks[0]['attrs']['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS)) {
-            // The group owns the source wrapper's selector and typography;
-            // it is no longer an inline RichText/layout carrier.
-            $context->selectorProjections->adoptAsSemanticBlock($sourceElement->getNodePath() ?? '');
-        }
+        return $attrs;
+    }
+
+    /**
+     * The source element's selector projection classes, on whichever box owns them.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withSourceProjectionClassName(string $name, array $attrs, DOMElement $sourceElement, string $sourceTagName, SourceBlockAttributeProjectionFacts $facts, SourceBlockAttributeProjectionContext $context): array
+    {
         $baseClassName = (string) ($attrs['className'] ?? '');
         // A RichText marker is already the selector projection of this source
         // element. Its paragraph is only a validity carrier, not a second box.
@@ -257,6 +394,17 @@ final class SourceBlockAttributeProjector
                 ? self::withoutContentAnchorClasses($projectionClassName, $baseClassName, (string) ($attrs['content'] ?? ''))
                 : $projectionClassName;
         }
+        return $attrs;
+    }
+
+    /**
+     * Layout and structural marker classes: CSS-owned items and flow, hidden support text, grid gaps, table markers.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withLayoutCarrierClasses(string $name, array $attrs, array $innerBlocks, DOMElement $sourceElement, SourceBlockAttributeProjectionFacts $facts, SourceBlockAttributeProjectionContext $context): array
+    {
         if ( 'core/group' === $name && $facts->isAuthorLayoutItem ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_LAYOUT_ITEM_CLASS);
         }
@@ -276,21 +424,17 @@ final class SourceBlockAttributeProjector
         if ( 'core/table' === $name && '' !== $tableMarker ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $tableMarker);
         }
+        return $attrs;
+    }
 
-        $attrs = $this->projectButtonAttributes($name, $attrs, $sourceElement, $logicalSourceElement, $facts, $context);
-        $attrs = $this->generatedStyleProjector->applyDeclaredBlockSupport(
-            $name,
-            $attrs,
-            $sourceElement,
-            $context->generatedStyles,
-            $facts->preserveGeneratedStyle
-        );
-        // This is behavior identity, not an authored styling class. It must
-        // survive the styling resolver's pruning of unused source classes.
-        $collectionMarker = SourceDom::attr($sourceElement, 'data-blocks-engine-collection-item-marker');
-        if (1 === preg_match('/^blocks-engine-collection-item-[a-f0-9]{16}-[0-9]{1,3}$/', $collectionMarker)) {
-            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $collectionMarker);
-        }
+    /**
+     * A button whose label carries its own authored colour drops the duplicated text colour.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withoutDuplicatedButtonLabelColor(string $name, array $attrs, DOMElement $sourceElement, DOMElement $logicalSourceElement): array
+    {
         if ( 'core/button' === $name
             && $this->buttonLabelHasAuthoredColor($sourceElement, $logicalSourceElement, (string) ($attrs['text'] ?? ''), $sourceElement->getNodePath() ?? '', $logicalSourceElement->getNodePath() ?? '')
         ) {
@@ -302,7 +446,17 @@ final class SourceBlockAttributeProjector
                 unset($attrs['style']);
             }
         }
+        return $attrs;
+    }
 
+    /**
+     * A group's responsive top margin carrier and its semantic source tag.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withGroupSourceSemantics(string $name, array $attrs, DOMElement $sourceElement): array
+    {
         if ( 'core/group' === $name ) {
             $responsiveMarginTop = $this->styleResolver->responsiveBlockMarginTopClassName($sourceElement);
             if ( '' !== $responsiveMarginTop ) {
@@ -316,12 +470,23 @@ final class SourceBlockAttributeProjector
                 $attrs['tagName'] = $semanticTag;
             }
         }
+        return $attrs;
+    }
+
+    /**
+     * A social link keeps its source anchor's identity attributes and classes.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withSocialAnchorIdentity(string $name, array $attrs, DOMElement $sourceElement, string $sourceTagName, SourceBlockAttributeProjectionContext $context): array
+    {
         if ('core/social-link' === $name) {
             $anchor = 'a' === $sourceTagName ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
             if ($anchor instanceof DOMElement) {
                 $identity = array();
                 if ($anchor->hasAttribute('class')) $identity['data-blocks-engine-social-source-class'] = $anchor->getAttribute('class');
-                foreach ($anchor->attributes as $attribute) {
+                foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($anchor) as $attribute) {
                     if (in_array($attribute->name, array('id', 'class', 'style', 'role', 'title', 'tabindex', 'target', 'rel'), true) || str_starts_with($attribute->name, 'data-') || str_starts_with($attribute->name, 'aria-')) $identity[$attribute->name] = $attribute->value;
                 }
                 $classes = $this->sourceProjectionClassName($anchor, $context, (string) ($identity['class'] ?? ''));
@@ -339,6 +504,17 @@ final class SourceBlockAttributeProjector
                 $attrs['metadata']['blocksEngineSocialAnchor'] = $identity;
             }
         }
+        return $attrs;
+    }
+
+    /**
+     * Zero padding or margin a global rule already sets moves to a shared marker class.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withGlobalZeroBoxes(string $name, array $attrs, DOMElement $sourceElement, SourceBlockAttributeProjectionContext $context): array
+    {
         foreach (array('padding', 'margin') as $box) {
             $sides = $attrs['style']['spacing'][$box] ?? array();
             $zeroSides = is_array($sides) ? array_values(array_intersect(array('top', 'right', 'bottom', 'left'), array_keys(array_filter($sides, static fn($value): bool => is_string($value) && CssValueInspector::isZeroLength($value))))) : array();
@@ -354,7 +530,7 @@ final class SourceBlockAttributeProjector
         }
         if (array() === ($attrs['style']['spacing'] ?? null)) unset($attrs['style']['spacing']);
         if (array() === ($attrs['style'] ?? null)) unset($attrs['style']);
-        return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
+        return $attrs;
     }
 
     /** Whitespace-only nodes are discarded by convertChildren(), not by the browser. */
@@ -978,6 +1154,31 @@ final class SourceBlockAttributeProjector
         $ownDisplay = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($anchor)['display'] ?? ''));
 
         return '' === $ownDisplay && $this->isDirectChildOfAuthorOwnedLayout($anchor);
+    }
+
+    private function anchorPrecedesBlock(DOMElement $anchor): bool
+    {
+        // Navigation lowering owns the layout of brand links beside a list.
+        // The list becomes a Navigation block, not an ordinary following Group.
+        $parent = $anchor->parentNode;
+        if ( $parent instanceof DOMElement
+            && ( 'nav' === strtolower($parent->tagName) || 'navigation' === strtolower(SourceDom::attr($parent, 'role')) ) ) {
+            return false;
+        }
+        $next = $anchor->nextSibling;
+        while ( $next instanceof \DOMText && '' === trim($next->textContent) ) {
+            $next = $next->nextSibling;
+        }
+        // A following flow container or heading can overlap the boxless root.
+        // Paragraphs, lists and shell landmarks have separate lowering owners;
+        // changing their preceding links also changes shared-shell identity.
+        if ( ! $next instanceof DOMElement
+            || ! in_array(strtolower($next->tagName), array('div', 'section', 'article', 'aside', 'main', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true)
+            || in_array(strtolower(SourceDom::attr($next, 'role')), array('banner', 'navigation', 'contentinfo'), true) ) {
+            return false;
+        }
+        $display = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($next)['display'] ?? ''));
+        return in_array($display, array('', 'block', 'flex', 'grid', 'flow-root', 'table'), true);
     }
 
     private function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool

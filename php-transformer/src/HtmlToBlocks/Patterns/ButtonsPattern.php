@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
@@ -36,7 +37,9 @@ final class ButtonsPattern
 
     public function matchAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons): ?PatternRecognitionResult
     {
-        if ( $buttons->isRuntimeDomTarget($anchor) ) {
+        // Entrance replay swaps attributes on the source link itself. Core/button
+        // splits its identity across wrappers and cannot retain that contract.
+        if ( $anchor->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) || $buttons->isRuntimeDomTarget($anchor) ) {
             return null;
         }
 
@@ -197,6 +200,7 @@ final class ButtonsPattern
         // bar's box, so leave both in place — the wrapper keeps its group and
         // the anchor becomes the button through the plain anchor pattern.
         if ( null !== $wrappedAnchor
+            && ! $wrappedAnchor->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE)
             && $this->isRichTextAnchorLabel($wrappedAnchor, $buttons)
             && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element))
             && ! $this->hasButtonSignal($wrappedAnchor, $buttons) ) {
@@ -226,6 +230,7 @@ final class ButtonsPattern
                 return null;
             }
             if ( '' === trim($anchor->textContent ?? '')
+                || $anchor->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE)
                 || ! $this->isSimpleAnchor($anchor) || $buttons->isRuntimeDomTarget($anchor)
                 || $this->isPositionedFragmentNavigation($anchor, $buttons->resolvedStyle($anchor))
                 || ! $this->hasButtonSignal($anchor, $buttons) || ! $this->isRichTextAnchorLabel($anchor, $buttons) ) {
@@ -937,7 +942,12 @@ final class ButtonsPattern
         // belongs on the parent core/buttons, not each button). Emitting it here
         // produces an unsupported attribute and invalid block markup, so drop it.
         unset($attrs['layout']);
-        $isOutline     = $this->hasOutlineSignal($element, $resolvedStyle, $native);
+        // Outline is a recognition decision, so it reads the same control
+        // surface the button signal read: the cascade that renders at the
+        // reference viewport, media-conditional rules included. The static
+        // view alone can miss a fill authored behind a width query and would
+        // then force a transparent background over the author's paint.
+        $isOutline     = $this->hasOutlineSignal($element, $buttons->controlSurfaceStyle($element), $native);
         if ( $isOutline ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'is-style-outline');
         }

@@ -138,11 +138,12 @@ final class ChromeIdentity
     private static function nativeWrapperEncoding(string $markup): string
     {
         $stack = array();
-        return preg_replace_callback('/<!--\s*(\/?)wp:custom\/layout-shell\b(.*?)-->/s', static function (array $match) use (&$stack): string {
+        // The generated-block namespace is consumer-owned.
+        return preg_replace_callback('/<!--\s*(\/?)wp:([a-z0-9-]+)\/layout-shell\b(.*?)-->/s', static function (array $match) use (&$stack): string {
             if ('' !== $match[1]) return array_pop($stack) ?? $match[0];
-            $attrs = json_decode(trim($match[2]), true);
+            $attrs = json_decode(trim($match[3]), true);
             if (!is_array($attrs['wrappers'] ?? null)) {
-                $stack[] = '<!-- /wp:custom/layout-shell -->';
+                $stack[] = '<!-- /wp:' . $match[2] . '/layout-shell -->';
                 return $match[0];
             }
             $opening = '';
@@ -173,15 +174,15 @@ final class ChromeIdentity
         $edits = array();
         foreach ($index->ranges() as $range) {
             $block = substr($markup, $range['offset'], $range['length']);
-            if (!preg_match('/^<!-- wp:custom\/layout-shell (\{.*?\}) -->/s', $block, $match)) continue;
-            $attrs = json_decode($match[1], true);
+            if (!preg_match('/^<!-- wp:([a-z0-9-]+)\/layout-shell (\{.*?\}) -->/s', $block, $match)) continue;
+            $attrs = json_decode($match[2], true);
             if (!is_array($attrs['wrappers'] ?? null)) continue;
             $children = $index->children($range);
             if (array() === $children) continue;
             $start = $range['offset'] + strlen($match[0]);
             $end = $children[array_key_last($children)]['offset'] + $children[array_key_last($children)]['length'];
             $edits[$start] = $children[0]['offset'] - $start;
-            $edits[$end] = $range['offset'] + $range['length'] - strlen('<!-- /wp:custom/layout-shell -->') - $end;
+            $edits[$end] = $range['offset'] + $range['length'] - strlen('<!-- /wp:' . $match[1] . '/layout-shell -->') - $end;
         }
         krsort($edits);
         foreach ($edits as $offset => $length) $markup = substr_replace($markup, '', $offset, $length);
@@ -220,7 +221,8 @@ final class ChromeIdentity
             if (!preg_match('/^<!--\s*wp:(\S+)\s+(\{.*\})\s*(\/?)-->$/s', $match[0], $parts)) return $match[0];
             $attrs = json_decode($parts[2], true);
             if (!is_array($attrs)) return $match[0];
-            unset($attrs['config']);
+            unset($attrs['config'], $attrs['metadata']['blocksEngineScrollState']);
+            if (isset($attrs['metadata']) && array() === $attrs['metadata']) unset($attrs['metadata']);
             if (in_array($attrs['metadata']['name'] ?? null, array('Header', 'Footer'), true) && 1 === count($attrs['metadata'])) unset($attrs['metadata']);
             if (array('typography' => array('lineHeight' => '1')) === ($attrs['style'] ?? null)) unset($attrs['style']);
             foreach (array('margin', 'padding') as $box) {

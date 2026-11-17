@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeBehaviorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
@@ -239,6 +240,10 @@ final class InteractionFallbackReporter
             return false;
         }
 
+        if ( NavigationPattern::isFolderHistoryControl($element) && $this->menuLandmarkRendersCoreNavigation($element) ) {
+            return false;
+        }
+
         if ( $this->isFoldedIntoNativeDisclosure($element) || $this->runtimeBehavior()->isNativeTabControl($element->getNodePath() ?? '') ) {
             return false;
         }
@@ -309,6 +314,33 @@ final class InteractionFallbackReporter
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( $this->navigationToggleSuppressor->isNavigationMenuCandidate($node) && $this->navigationToggleSuppressor->convertsToCoreNavigation($node) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the navigation landmark around the element rendered its menu as
+     * core/navigation. A drill-down menu can emit its navigation from an inner
+     * wrapper while each folder, with its back control, sits beside it; core's
+     * native submenus then carry the folder's back behavior.
+     */
+    private function menuLandmarkRendersCoreNavigation(DOMElement $element): bool
+    {
+        $landmark = $element->parentNode;
+        while ( $landmark instanceof DOMElement && 'nav' !== strtolower($landmark->tagName) ) {
+            $landmark = $landmark->parentNode;
+        }
+        if ( ! $landmark instanceof DOMElement ) {
+            return false;
+        }
+        $projections = $this->authorSelectorProjections();
+        foreach ( $landmark->getElementsByTagName('*') as $descendant ) {
+            $path = $descendant->getNodePath() ?? '';
+            if ( $projections->isNavigationSourcePath($path, AuthorSelectorProjectionState::NAVIGATION_ITEM)
+                || $projections->isNavigationSourcePath($path, AuthorSelectorProjectionState::NAVIGATION_ANCHOR) ) {
                 return true;
             }
         }

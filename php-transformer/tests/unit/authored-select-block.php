@@ -120,8 +120,8 @@ $listboxResult = ( new HtmlTransformer() )->transform(
     . '</div></form>'
 )->toArray();
 $listboxMarkup = (string) ( $listboxResult['serialized_blocks'] ?? '' );
-$assert(str_contains($listboxMarkup, 'authored-select'), 'captured listbox trigger uses the editable native select companion');
-$assert(str_contains($listboxMarkup, '<option value="Canada" selected>Canada</option>'), 'captured listbox materialization carries the selected value and label');
+$assert(str_contains($listboxMarkup, 'blocksEngineSelect'), 'captured listbox trigger uses an editable core option list');
+$assert(str_contains($listboxMarkup, '"value":"Canada","selected":true') && str_contains($listboxMarkup, '>Canada</li>'), 'captured listbox materialization carries the selected value and label');
 $assert(!str_contains($listboxMarkup, 'core/details'), 'captured listbox is not degraded to a disclosure block');
 
 $disabledAttrs = array(

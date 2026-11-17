@@ -775,6 +775,13 @@ final class RuntimeIslandAnalyzer implements RuntimeDomTargets
                 $declarations = array_merge($declarations, $candidate['declarations']);
             }
         }
+        if ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EntranceAnimation::matches(
+            $declarations,
+            $this->session->authorStyleAnalysis()->combinedCss(),
+            (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceCascade($this->session->sourceStyleResolutionState()))->customProperties($element)
+        ) ) {
+            $declarations = array_filter($declarations, static fn (string $property): bool => ! str_starts_with($property, 'animation') && 'transform' !== $property, ARRAY_FILTER_USE_KEY);
+        }
         foreach ( $declarations as $property => $value ) {
             if ( 1 === preg_match('/^(?:animation(?:-|$)|transform$|translate$|rotate$|scale$|perspective$)/', $property)
                 && ! in_array(strtolower(trim($value)), array('', 'none', 'initial', 'inherit', 'unset'), true)

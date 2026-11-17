@@ -129,6 +129,9 @@ final class AuthorStyleAnalysis
 
     public function combinedCss(): string { return $this->combinedCss; }
     public function sourceBody(): DOMElement { return $this->sourceBody; }
+
+    /** Whole-site subject evidence, never stylesheet inventory. */
+    public ?\Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner $siteSelectorPruner = null;
     /** @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string, cascade_content?: string}> */
     public function stylesheetAssets(): array { return $this->stylesheetAssets; }
     /** @return list<DOMElement> */
@@ -435,6 +438,7 @@ final class AuthorStyleAnalysis
         $tag = strtolower($element->tagName);
         $attributes = array();
         foreach ( $element->attributes ?? array() as $attribute ) {
+            if ( \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($attribute->nodeName) ) continue;
             $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
         }
         if ( $observable ) {
