@@ -48,12 +48,14 @@ foreach (array(
         $failures[] = 'missing ' . $needle;
     }
 }
-// The media-text grid stays inside the kept section wrapper.
+// The editable source grid stays inside the kept section wrapper. Its
+// authored gap cannot be represented by media-text (#6328).
 $close = strpos($markup, '</section><!-- /wp:group -->');
 if (false === $close
-    || !str_contains((string) substr($markup, 0, $close), '<!-- wp:media-text')
+    || !str_contains((string) substr($markup, 0, $close), 'grid blocks-engine-css-owned-layout blocks-engine-css-owned-grid')
+    || !str_contains((string) substr($markup, 0, $close), '<!-- wp:image')
     || !str_contains((string) substr($markup, 0, $close), '<!-- wp:group {"style":{"spacing":{"padding":{"right":"var(\u002d\u002dspace-inline)"')) {
-    $failures[] = 'the padded section wrapper no longer contains its media-text grid';
+    $failures[] = 'the padded section wrapper no longer contains its editable source grid';
 }
 // Both exclusion arms still withhold the inset: exactly one section is padded.
 foreach (array('padding-left:var(--space-inline)', 'padding-right:var(--space-inline)') as $needle) {
