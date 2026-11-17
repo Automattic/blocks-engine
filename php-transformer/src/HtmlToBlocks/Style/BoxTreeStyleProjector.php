@@ -25,9 +25,10 @@ final class BoxTreeStyleProjector
         usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
         $status = array();
         $declarations = array();
+        $tagName = self::emittedTag($blockName, $attrs);
         foreach ($keys as $key) {
             $parent = $parents[$key]['used_styles'] ?? null;
-            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName);
+            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
         $baseKey = $keys[0];
@@ -83,6 +84,22 @@ final class BoxTreeStyleProjector
             elseif (BoxTreeDeclarationPruner::INITIAL === $reason && $effective[$property] !== $observed[$property]) $delta[$property] = $observed[$property];
         }
         return $delta;
+    }
+
+    /** The element a block's carrier class lands on, when the block fixes it. */
+    private static function emittedTag(string $blockName, array $attrs): string
+    {
+        return match ($blockName) {
+            'core/heading' => 'h' . max(1, min(6, (int) ($attrs['level'] ?? 2))),
+            'core/post-title', 'core/query-title' => 'h' . max(1, min(6, (int) ($attrs['level'] ?? ('core/post-title' === $blockName ? 2 : 1)))),
+            'core/group' => strtolower((string) ($attrs['tagName'] ?? 'div')),
+            'core/paragraph' => 'p',
+            'core/list' => ! empty($attrs['ordered']) ? 'ol' : 'ul',
+            'core/list-item' => 'li',
+            'core/code', 'core/preformatted', 'core/verse' => 'pre',
+            'core/quote' => 'blockquote',
+            default => '',
+        };
     }
 
     private function kept(array $styles, array $status): array

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\BoxTreeDeclarationPruner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\BoxTreeStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
@@ -72,6 +73,12 @@ $rows = array(
     // Inherited properties against the observed parent.
     array('inherited values equal to the parent are omitted', array(), array(), 'core/group', array(), array('font-family', 'color:', 'pointer-events')),
     array('inherited values that differ from the parent are kept', array('pointer-events' => 'auto', 'font-family' => 'Inter'), array('pointer-events' => 'none'), 'core/group', array('pointer-events:auto'), array()),
+    array('a paragraph inherits typography equal to the parent', array(), array(), 'core/paragraph', array(), array('font-size', 'font-weight', 'color:')),
+    // An element with its own user-agent or theme.json default would not inherit the parent's value.
+    array('a heading keeps typography equal to the parent over its heading defaults', array(), array(), 'core/heading', array('font-size:16px', 'font-weight:400', 'font-family', 'line-height', 'color:'), array('pointer-events', 'white-space')),
+    array('a button keeps control typography equal to the parent', array(), array(), 'core/button', array('font-size:16px', 'font-weight:400', 'color:'), array()),
+    array('a code block keeps its monospace-reset font equal to the parent', array(), array(), 'core/code', array('font-family:Arial', 'white-space:normal'), array('font-weight')),
+    array('a list keeps its marker style equal to the parent', array(), array(), 'core/list', array('list-style-type:disc'), array('font-size')),
     array('a transparent text shadow inherits like none', array('text-shadow' => 'rgba(0, 0, 0, 0) 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px'), array(), 'core/group', array(), array('text-shadow')),
     // Longhands that do not apply to the box.
     array('flex container longhands need a flex box', array('justify-content' => 'normal'), array(), 'core/group', array(), array('flex-wrap', 'justify-content', 'row-gap')),
@@ -112,3 +119,14 @@ $third = $carrier(array('opacity' => '0.25'), array(), 'core/group', array(), $s
 $assert($first['class'] === $second['class'], 'Nodes with the same declarations share one carrier.');
 $assert($first['class'] !== $third['class'], 'Nodes with different declarations get distinct carriers.');
 $assert(1 === substr_count($state->cssForSerializedBlocks($first['class'] . ' ' . $second['class']), 'opacity:0.5'), 'A shared carrier emits its rule once.');
+
+// Inline elements with user-agent defaults keep inherited values equal to the parent.
+$pruner = new BoxTreeDeclarationPruner();
+$same = array('font-weight' => '500', 'font-size' => '16px', 'font-style' => 'normal', 'color' => 'rgb(0, 0, 0)');
+foreach (array('strong' => 'font-weight', 'b' => 'font-weight', 'small' => 'font-size', 'em' => 'font-style', 'a' => 'color', 'h1' => 'font-size') as $tag => $property) {
+    $status = $pruner->classify($same, $same, '', $tag);
+    $assert(BoxTreeDeclarationPruner::KEPT === $status[$property], "A `$tag` keeps `$property` equal to its parent.");
+}
+$status = $pruner->classify($same, $same, '', 'strong');
+$assert(BoxTreeDeclarationPruner::INHERITED === $status['font-size'], 'A `strong` still inherits properties it has no default for.');
+$assert(BoxTreeDeclarationPruner::INHERITED === $pruner->classify($same, $same, '', 'div')['font-weight'], 'A `div` inherits its weight from the parent.');

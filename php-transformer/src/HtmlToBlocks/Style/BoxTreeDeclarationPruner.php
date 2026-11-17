@@ -13,7 +13,10 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
  * properties that cannot apply to the box. Re-declaring them grows the engine
  * sheet without changing rendering, so a longhand is kept only when:
  *
- * - it is an inherited property whose value differs from the observed parent;
+ * - it is an inherited property whose value differs from the observed parent,
+ *   or the emitted element has a user-agent, WordPress or theme.json default
+ *   for it (a heading's size and weight, a link's color), so without the
+ *   carrier it would not inherit the observed value;
  * - it applies to the box (container longhands need a flex or grid box, item
  *   longhands a flex or grid parent, offsets a positioned box, and so on);
  * - its value is not the CSS initial value, or WordPress or user-agent base
@@ -144,28 +147,84 @@ final class BoxTreeDeclarationPruner
         'core/image' => array('vertical-align'),
     );
 
+    /** Inherited longhands theme.json `elements` (heading, link, button, caption) and core control styles may set. */
+    private const ELEMENT_TYPOGRAPHY = array('color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
+    private const CONTROL_TYPOGRAPHY = array('color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'word-spacing', 'text-transform', 'text-indent', 'text-shadow', 'text-align', 'cursor');
+    private const MONOSPACE = array('font-family', 'font-size');
+    private const LIST_MARKER = array('list-style-type', 'list-style-position');
+
+    /**
+     * Inherited longhands the user agent sets on an emitted element (and, for
+     * headings, links, buttons and captions, theme.json `elements`), so the
+     * element does not inherit its parent's value for them.
+     */
+    private const TAG_INHERITED_DEFAULTS = array(
+        'h1' => self::ELEMENT_TYPOGRAPHY, 'h2' => self::ELEMENT_TYPOGRAPHY, 'h3' => self::ELEMENT_TYPOGRAPHY,
+        'h4' => self::ELEMENT_TYPOGRAPHY, 'h5' => self::ELEMENT_TYPOGRAPHY, 'h6' => self::ELEMENT_TYPOGRAPHY,
+        'a' => array('color', 'cursor', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform'),
+        'button' => self::CONTROL_TYPOGRAPHY, 'input' => self::CONTROL_TYPOGRAPHY, 'select' => self::CONTROL_TYPOGRAPHY,
+        'textarea' => array('color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'word-spacing', 'text-transform', 'text-indent', 'text-shadow', 'text-align', 'cursor', 'white-space', 'overflow-wrap', 'word-break'),
+        'figcaption' => self::ELEMENT_TYPOGRAPHY, 'caption' => array('text-align'),
+        'b' => array('font-weight'), 'strong' => array('font-weight'), 'th' => array('font-weight', 'text-align'),
+        'small' => array('font-size'), 'big' => array('font-size'), 'sub' => array('font-size'), 'sup' => array('font-size'),
+        'code' => self::MONOSPACE, 'kbd' => self::MONOSPACE, 'samp' => self::MONOSPACE, 'tt' => self::MONOSPACE,
+        'pre' => array('font-family', 'font-size', 'white-space'),
+        'em' => array('font-style'), 'i' => array('font-style'), 'cite' => array('font-style'), 'var' => array('font-style'), 'dfn' => array('font-style'), 'address' => array('font-style'),
+        'mark' => array('color'), 'center' => array('text-align'), 'summary' => array('cursor'),
+        'ul' => self::LIST_MARKER, 'ol' => self::LIST_MARKER, 'menu' => self::LIST_MARKER,
+    );
+
+    /**
+     * Inherited longhands WordPress core block styles or theme.json elements
+     * set on (or through) a block's emitted wrapper, beyond its element tag.
+     */
+    private const BLOCK_INHERITED_DEFAULTS = array(
+        'core/heading' => self::ELEMENT_TYPOGRAPHY,
+        'core/post-title' => self::ELEMENT_TYPOGRAPHY,
+        'core/query-title' => self::ELEMENT_TYPOGRAPHY,
+        'core/site-title' => self::ELEMENT_TYPOGRAPHY,
+        'core/accordion-heading' => self::ELEMENT_TYPOGRAPHY,
+        'core/button' => self::CONTROL_TYPOGRAPHY,
+        'core/search' => self::CONTROL_TYPOGRAPHY,
+        'core/file' => self::CONTROL_TYPOGRAPHY,
+        'core/navigation-link' => self::ELEMENT_TYPOGRAPHY,
+        'core/navigation-submenu' => self::ELEMENT_TYPOGRAPHY,
+        'core/home-link' => self::ELEMENT_TYPOGRAPHY,
+        'core/read-more' => self::ELEMENT_TYPOGRAPHY,
+        'core/code' => array('font-family', 'font-size', 'white-space', 'overflow-wrap', 'word-break'),
+        'core/preformatted' => array('font-family', 'font-size', 'white-space', 'overflow-wrap', 'word-break'),
+        'core/verse' => array('font-family', 'font-size', 'white-space', 'overflow-wrap', 'word-break'),
+        'core/pullquote' => array('font-size', 'line-height', 'text-align'),
+        'core/list' => self::LIST_MARKER,
+        'core/table' => array('font-size', 'font-weight', 'text-align'),
+    );
+
     /**
      * @param array<string, string> $styles Observed used styles of one box.
      * @param array<string, string>|null $parent Observed used styles of the box it inherits from, if captured.
+     * @param string $tagName The element the carrier lands on, when known.
      * @return array<string, string> Property => one of the class constants.
      */
-    public function classify(array $styles, ?array $parent, string $blockName = ''): array
+    public function classify(array $styles, ?array $parent, string $blockName = '', string $tagName = ''): array
     {
         $display = strtolower($styles['display'] ?? '');
         $parentDisplay = null === $parent ? null : strtolower($parent['display'] ?? '');
         $protected = array_fill_keys(self::BLOCK_BASE_PROPERTIES[$blockName] ?? array(), true);
+        $ownDefaults = array_fill_keys(array_merge(self::TAG_INHERITED_DEFAULTS[strtolower($tagName)] ?? array(), self::BLOCK_INHERITED_DEFAULTS[$blockName] ?? array()), true);
         $result = array();
         foreach ($styles as $property => $value) {
-            $result[$property] = $this->classifyOne($property, (string) $value, $styles, $parent, $display, $parentDisplay, isset($protected[$property]));
+            $result[$property] = $this->classifyOne($property, (string) $value, $styles, $parent, $display, $parentDisplay, isset($protected[$property]), isset($ownDefaults[$property]));
         }
         return $result;
     }
 
-    private function classifyOne(string $property, string $value, array $styles, ?array $parent, string $display, ?string $parentDisplay, bool $protected): string
+    private function classifyOne(string $property, string $value, array $styles, ?array $parent, string $display, ?string $parentDisplay, bool $protected, bool $ownDefault): string
     {
         if ('display' === $property) return self::KEPT;
         if ('' === $value || 'initial' === $value || 'inherit' === $value) return self::NOT_APPLICABLE;
         if (in_array($property, BoxTree::INHERITED_PROPERTIES, true) || in_array($property, self::EXTRA_INHERITED, true)) {
+            // The element would compute its own default, not the parent's value.
+            if ($ownDefault) return self::KEPT;
             return null !== $parent && isset($parent[$property]) && self::inheritedValue($property, (string) $parent[$property]) === self::inheritedValue($property, $value) ? self::INHERITED : self::KEPT;
         }
         if ($protected) return self::KEPT;
