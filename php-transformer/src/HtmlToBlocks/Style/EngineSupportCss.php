@@ -245,6 +245,13 @@ final class EngineSupportCss
                 // editor-only override must also outrank those source carriers.
                 . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '){height:auto!important;min-height:0!important}'
                 . $inlineFigure . ' img{display:inline}'
+                // A box-less figure positions nothing, so the image is the box
+                // that its source offsets (e.g. stacked icon layers pinned by
+                // `position:absolute;inset:0`) must move. Inherit them at zero
+                // weight; a carousel slide figure keeps its box and its offsets.
+                . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS
+                . ( str_contains($serializedBlocks, 'authored-carousel') ? ':not(.blocks-engine-authored-carousel__track>*)' : '' )
+                . ')>img{position:inherit;inset:inherit;z-index:inherit}'
                 // A propagated card link adds another synthetic box. Core's
                 // inline-block anchor would make percentage images shrink to
                 // their intrinsic width instead of the retained source host.

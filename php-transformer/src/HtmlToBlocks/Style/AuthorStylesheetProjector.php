@@ -2427,9 +2427,13 @@ final class AuthorStylesheetProjector
             return '';
         }
 
-        $rule = str_replace('.wp-block-image', '.wp-block-image:where(.' . implode(',.', $figures) . ')', $imagePrelude)
-            . '{display:' . ($declarations['display'] ?? 'inline')
-            . ( isset($declarations['vertical-align']) ? ';vertical-align:' . $declarations['vertical-align'] : '' ) . '}';
+        // An out-of-flow image is blockified and sits on no line: there is no
+        // line display or alignment to restore.
+        $rule = in_array(CssValueInspector::comparable((string) ($declarations['position'] ?? '')), array( 'absolute', 'fixed' ), true)
+            ? ''
+            : str_replace('.wp-block-image', '.wp-block-image:where(.' . implode(',.', $figures) . ')', $imagePrelude)
+                . '{display:' . ($declarations['display'] ?? 'inline')
+                . ( isset($declarations['vertical-align']) ? ';vertical-align:' . $declarations['vertical-align'] : '' ) . '}';
         // The inline synthetic figure is display:contents, so class-owned
         // dimensions cannot size it. Keep the replaced box on the image,
         // after the generic 100% bridge and at the author's cascade position
