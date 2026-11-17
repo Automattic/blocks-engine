@@ -41,10 +41,11 @@ final class UnreachableSelectorPruner
      * @param list<string> $texts Every non-stylesheet file of the site, including its metadata.
      * @param bool $pruneTypes Whether evidence still describes source (not converted) element types.
      * @param list<string>|null $stylesheets Whole-site author styles, including inline sheets; null disables property pruning.
+     * @param list<string>|null $propertyEvidence Consumer evidence excluding definition inventories; null uses selector evidence.
      */
-    public function __construct(array $texts, private bool $pruneTypes = false, ?array $stylesheets = null)
+    public function __construct(array $texts, private bool $pruneTypes = false, ?array $stylesheets = null, ?array $propertyEvidence = null)
     {
-        if (null !== $stylesheets) $this->propertyPruner = new UnusedCustomPropertyPruner($stylesheets, $texts);
+        if (null !== $stylesheets) $this->propertyPruner = new UnusedCustomPropertyPruner($stylesheets, $propertyEvidence ?? $texts);
         $this->evidenceText = implode("\n", $texts);
         $prefixes = array();
         foreach ($texts as $text) {
