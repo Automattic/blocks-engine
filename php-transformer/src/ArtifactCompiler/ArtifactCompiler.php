@@ -560,15 +560,14 @@ final class ArtifactCompiler
             // Projection can give several author rules one long selector
             // list; ship that list once. Engine stylesheets are named by their
             // content and are reconciled with later page copies by it.
-            // Fold repeated declaration blocks too, without crossing cascade
-            // barriers. Build annotations and formatting are not runtime CSS;
-            // keep license banners and literal strings while dropping that weight.
+            // Build annotations and formatting are not runtime CSS, yet every
+            // published byte counts towards the theme's weight; keep /*!
+            // license banners and literal strings. Repeated declaration
+            // blocks are folded by the site plan once preset bindings, which
+            // can tell such rules apart, have been applied.
             if ('files' === ($asset['source'] ?? null)) {
-                $transformer = new CssStylesheetTransformer();
                 $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments($content, true);
-                $content = $transformer->mergeRepeatedSelectorRules($content);
-                $content = $transformer->mergeRepeatedDeclarationRules($content);
-                $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::stylesheet($content, true);
+                $content = (new CssStylesheetTransformer())->mergeRepeatedSelectorRules($content);
                 $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace($content);
             }
             if ($content !== $asset['content']) $asset = ArtifactNormalizer::withTextPayload($asset, $content);
