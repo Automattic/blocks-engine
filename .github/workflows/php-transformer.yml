@@ -253,6 +253,12 @@ jobs:
           BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/carousel-authored-slide-track-browser.mjs
 
+      - name: Verify a backdrop slideshow stays behind its hero content and fills it
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/carousel-backdrop-slideshow-browser.mjs
+
       - name: Verify a linked grid-item image adds no line box
         working-directory: php-transformer
         env:
