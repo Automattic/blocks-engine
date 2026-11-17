@@ -347,7 +347,7 @@ $negatedPreflightButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $negatedPreflightCss = implode("\n", array_column($negatedPreflightButton['assets'] ?? array(), 'content'));
 $assert(
-    ! preg_match('/wp-block-button__link\)?(?::not\(be-t-0\))?\{[^}]*padding:\s*0!important/', $negatedPreflightCss),
+    ! preg_match('/wp-block-button__link\)?(?::not\(\.be-c-0\):not\(\.be-c-0\))?(?::not\(be-t-0\))?\{[^}]*padding:\s*0!important/', $negatedPreflightCss),
     'Tailwind v4 negated universal preflight does not force padding:0!important onto the button link',
     $negatedPreflightCss
 );
