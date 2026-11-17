@@ -168,7 +168,7 @@ final class SourceShells
                         if (false !== $encoded) $node->setAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE, $encoded);
                     }
                 }
-                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX)));
+                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX) && !CaptureEvidence::isDeviceIslandClass($class)));
                 if (array() === $classes) $node->removeAttribute('class');
                 else $node->setAttribute('class', implode(' ', $classes));
             }
@@ -212,10 +212,23 @@ final class SourceShells
             if (array() !== array_filter(SourceDom::tokens($node->getAttribute('class')), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...))) $currentNodes[] = $node;
         }
         foreach ($currentNodes as $node) {
+            // A class naming the current state (`active`, `is-current`) is the
+            // route-state evidence itself. Only that state, and the disclosure
+            // the builder adds with it, rests: the item's and its ancestors'
+            // other classes (`homepage`, `folder`) are what they are on every
+            // route, even when no sibling of theirs shares them.
+            $marked = array() !== array_filter(SourceDom::tokens($node->getAttribute('class')), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...));
             for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
                 if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
                 $classes = SourceDom::tokens($cursor->getAttribute('class'));
-                if (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
+                if ($marked) {
+                    $state = array_filter($classes, static fn(string $class): bool => \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken($class) || in_array($class, \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::DISCLOSURE_CLASSES, true));
+                    if (array() !== $state) {
+                        $rest = array_values(array_diff($classes, $state));
+                        if (array() === $rest) $cursor->removeAttribute('class');
+                        else $cursor->setAttribute('class', implode(' ', $rest));
+                    }
+                } elseif (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
                     $siblingClasses = array();
                     foreach ($cursor->parentNode->childNodes as $sibling) {
                         if (!$sibling instanceof \DOMElement || $sibling === $cursor || $sibling->tagName !== $cursor->tagName) continue;
