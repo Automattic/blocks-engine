@@ -712,6 +712,7 @@ final class PostChrome
             $start = $items[0]['offset'];
             $end = $items[count($items) - 1]['offset'] + $items[count($items) - 1]['length'];
             $slots[$section['owner']['offset']] = substr($index->markup, $section['owner']['offset'], $start - $section['owner']['offset']) . PostBlocks::query(count($items), $projection['template']) . substr($index->markup, $end, $section['owner']['offset'] + $section['owner']['length'] - $end);
+            $this->listings->registerQueryContainer($slots[$section['owner']['offset']]);
             foreach ($projection['fields'] as $source => $values) $fields[$source] = ($fields[$source] ?? array()) + $values;
         }
         // A textless counterpart of a proven related section is its empty
@@ -738,6 +739,7 @@ final class PostChrome
                     $last = $items[array_key_last($items)];
                     $end = $last['offset'] + $last['length'] - $owner['offset'];
                     $slots[$candidate['offset']] = substr($slice, 0, $start) . PostBlocks::query(count($items), $projection['template']) . substr($slice, $end);
+                    $this->listings->registerQueryContainer($slots[$candidate['offset']]);
                 }
             }
         }

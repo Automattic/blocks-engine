@@ -4445,6 +4445,7 @@ final class StyleResolver implements ElementPresentationResolver
                 'editor_selector' => $this->editorStaticStateSelector($element),
                 'declarations' => $normalized['stripped'],
                 'placed'       => $this->hasInlinePlacementTransform($element),
+                'offset'       => ! in_array(CssValueInspector::declared($declarations, 'transform'), array( '', 'none' ), true),
             ));
         }
 
@@ -4680,7 +4681,12 @@ final class StyleResolver implements ElementPresentationResolver
                 }
                 // Projected stylesheets may not be in the static rule analysis.
                 // Keep positioning alongside visibility for the overlay guard.
-                $declarations = array_intersect_key(SourceDeclarations::parse($body), $this->closedStateNormalizer()->hiddenStateProperties() + array('position' => true));
+                $parsed = SourceDeclarations::parse($body);
+                $declarations = array_intersect_key($parsed, $this->closedStateNormalizer()->hiddenStateProperties() + array('position' => true));
+                // A transform declared with the hidden state is its entrance offset.
+                if (array() !== $declarations && isset($parsed['transform'])) {
+                    $declarations['transform'] = $parsed['transform'];
+                }
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     $selector = trim($selector);
                     if (array() !== $declarations && '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector)) {
@@ -4817,6 +4823,44 @@ final class StyleResolver implements ElementPresentationResolver
     {
         return $this->resolvedCascadeStyle($element, 'static', self::DESKTOP_REFERENCE_WIDTH, $excludeSelector, $inline);
     }
+    /**
+     * The longhands of `$declarations`, authored under `$selector`, that
+     * another matching author rule beats on `$element` in the resting desktop
+     * cascade: it is more specific at the same importance, or important
+     * against a normal declaration. A restatement of the weaker rule must not
+     * gain the weight to override that winner.
+     *
+     * @return array<string, true>
+     */
+    public function outrankedAuthorLonghands(DOMElement $element, string $selector, string $declarations): array
+    {
+        $wanted = array();
+        foreach ( CssRuleAnalyzer::declarationList($declarations) as [ 'name' => $name, 'value' => $value ] ) {
+            $important = CssValueInspector::isImportant($value);
+            foreach ( array_keys(SourceDeclarations::parse($name . ':' . CssValueInspector::withoutImportant($value))) as $longhand ) {
+                $wanted[strtolower((string) $longhand)] = $important;
+            }
+        }
+        $specificity = $this->cascade->specificity($selector);
+        $outranked = array();
+        foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'static') as $rule ) {
+            if ( ! empty($rule['conditions']) && ! $this->cascade->conditionsApplyAtViewport($rule['conditions'], self::DESKTOP_REFERENCE_WIDTH) ) {
+                continue;
+            }
+            $stronger = $this->cascade->specificity((string) $rule['selector']) > $specificity;
+            foreach ( $rule['declarations'] as $property => $value ) {
+                $important = CssValueInspector::isImportant((string) $value);
+                foreach ( array_keys(SourceDeclarations::parse($property . ':' . CssValueInspector::withoutImportant((string) $value))) as $longhand ) {
+                    $longhand = strtolower((string) $longhand);
+                    if ( isset($wanted[$longhand]) && ( $important ? ( ! $wanted[$longhand] || $stronger ) : ( ! $wanted[$longhand] && $stronger ) ) ) {
+                        $outranked[$longhand] = true;
+                    }
+                }
+            }
+        }
+        return $outranked;
+    }
+
     /**
      * Resolve the authored resting cascade across static AND media-conditional
      * rules that apply at the desktop reference viewport.

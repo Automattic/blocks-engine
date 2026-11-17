@@ -557,6 +557,12 @@ final class ArtifactCompiler
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? '') || !is_string($asset['content'] ?? null)) continue;
             $content = $propertyPruner->prune($asset['content']);
+            // Projection can give several author rules one long selector
+            // list; ship that list once. Engine stylesheets are named by their
+            // content and are reconciled with later page copies by it.
+            // The author's indentation and line breaks separate no tokens,
+            // yet every published byte counts towards the theme's weight.
+            if ('files' === ($asset['source'] ?? null)) $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace((new CssStylesheetTransformer())->mergeRepeatedSelectorRules($content));
             if ($content !== $asset['content']) $asset = ArtifactNormalizer::withTextPayload($asset, $content);
         }
         unset($asset, $propertyPruner);

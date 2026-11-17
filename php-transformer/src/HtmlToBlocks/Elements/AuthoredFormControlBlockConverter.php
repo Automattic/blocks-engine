@@ -26,6 +26,9 @@ use DOMElement;
 /** Converts native input, select, textarea, and button controls into editable block representations. */
 final class AuthoredFormControlBlockConverter
 {
+    /** Text-entry types whose only editable content is a single line of text. */
+    private const NATIVE_TEXT_INPUT_TYPES = array('text', 'email', 'search', 'tel', 'url', 'password', 'number');
+
     /** @var Closure(DOMElement): string */
     private readonly Closure $richTextLabelContent;
     /** @var Closure(DOMElement): string */
@@ -265,9 +268,6 @@ final class AuthoredFormControlBlockConverter
             return null;
         }
 
-        $generator = new AuthoredInputBlockGenerator();
-        $registry = $this->session->requireGeneratedBlockRegistry();
-        $registry->register(AuthoredInputBlockGenerator::class, $generator->definition($registry->namespace()));
         $isImage = 'image' === FormControlClassifier::controlType($input);
         $indicator = in_array(strtolower($input->tagName), array('progress', 'meter', 'output'), true);
         $attrs = array_filter(array(
@@ -308,6 +308,17 @@ final class AuthoredFormControlBlockConverter
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $attrs = array_replace($attrs, $state ?? array());
+        // A captured text-entry field whose default is its current state has an
+        // editable core text surface, like captured selects: the theme renders it native.
+        if (null !== $state && !$indicator) {
+            $native = $this->nativeTextInput($attrs, $input);
+            if (null !== $native) {
+                return $native;
+            }
+        }
+        $generator = new AuthoredInputBlockGenerator();
+        $registry = $this->session->requireGeneratedBlockRegistry();
+        $registry->register(AuthoredInputBlockGenerator::class, $generator->definition($registry->namespace()));
         $markup = $generator->markup($attrs);
 
         return array(
@@ -318,6 +329,40 @@ final class AuthoredFormControlBlockConverter
             'innerContent' => array( $markup ),
             '_source_anchor_selector' => SourceDom::elementSelector($input),
         );
+    }
+
+    /**
+     * Core search is the core block whose editor surface is a text field: its
+     * placeholder and label are edited with core tools, and the editor canvas
+     * shows a field where the front end does, not body text. Native semantics
+     * (type, name, constraints, value, label wrapper) are metadata, consumed
+     * by the theme renderer instead of a companion block.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>|null
+     */
+    private function nativeTextInput(array $attrs, DOMElement $input): ?array
+    {
+        if (!in_array($attrs['type'] ?? '', self::NATIVE_TEXT_INPUT_TYPES, true) || array_key_exists('initialValue', $attrs) || array_key_exists('initialChecked', $attrs) || !empty($attrs['indeterminate'])) {
+            return null;
+        }
+        $placeholder = (string) ($attrs['placeholder'] ?? '');
+        $label = (string) ($attrs['labelMarkup'] ?? '');
+        $label = '' !== $label ? $label : $this->runtime->escapeHtml((string) ($attrs['label'] ?? ''));
+        unset($attrs['placeholder'], $attrs['checked'], $attrs['indeterminate'], $attrs['labelMarkup']);
+        foreach (array('minLength' => 'minlength', 'maxLength' => 'maxlength', 'pattern' => 'pattern', 'autocomplete' => 'autocomplete', 'inputMode' => 'inputmode') as $key => $name) {
+            if ($input->hasAttribute($name)) {
+                $attrs[$key] = $input->getAttribute($name);
+            }
+        }
+
+        return $this->createBlock->createBlock('core/search', array_filter(array(
+            'label' => $label,
+            'showLabel' => '' !== $label,
+            'placeholder' => $placeholder,
+            'buttonPosition' => 'no-button',
+            'metadata' => array('blocksEngineInput' => $attrs),
+        ), static fn (mixed $value): bool => '' !== $value), array(), $input);
     }
 
     private function inputBeforeCaption(DOMElement $input, DOMElement $label): bool
