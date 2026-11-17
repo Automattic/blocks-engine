@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LayoutTableLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WordPressCommentForm;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
@@ -485,16 +486,21 @@ final class AuthorStylesheetProjector
             // shrinkage. An inline source image in an auto table must instead
             // participate in the cell's line box and intrinsic track sizing.
             // Carry authored leaf declarations at their original rule position.
-            $inlineSelectors = array_map(
-                static fn (string $selector): string => ':where(.blocks-engine-layout-table-cell) ' . str_replace('.wp-block-image', '.wp-block-image:where(.blocks-engine-synthetic-image-figure-inline)', $selector),
-                CssValueSplitter::splitTopLevel($imagePrelude, array(','))
-            );
-            $imageRule .= implode(',', $inlineSelectors) . '{display:' . ($declarations['display'] ?? 'inline')
-                . ';max-width:' . ($declarations['max-width'] ?? 'none') . ';vertical-align:' . ($declarations['vertical-align'] ?? 'baseline') . '}';
+            // Like the other synthetic-figure repairs, these arms only reach
+            // markup that carries their classes: skip them when it does not.
+            $inlineFigures = str_contains($context->emittedMarkup, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS);
+            if ( $inlineFigures && str_contains($context->emittedMarkup, LayoutTableLowering::LAYOUT_TABLE_CELL_CLASS) ) {
+                $inlineSelectors = array_map(
+                    static fn (string $selector): string => ':where(.' . LayoutTableLowering::LAYOUT_TABLE_CELL_CLASS . ') ' . str_replace('.wp-block-image', '.wp-block-image:where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . ')', $selector),
+                    CssValueSplitter::splitTopLevel($imagePrelude, array(','))
+                );
+                $imageRule .= implode(',', $inlineSelectors) . '{display:' . ($declarations['display'] ?? 'inline')
+                    . ';max-width:' . ($declarations['max-width'] ?? 'none') . ';vertical-align:' . ($declarations['vertical-align'] ?? 'baseline') . '}';
+            }
             $imageRule .= $this->lineImageFigureRule($imagePrelude, $declarations, $context);
             // Any inline-flow image aligns on its line as the source declared,
             // not at the bottom where core's Image rule would put it.
-            if ( isset($declarations['vertical-align']) ) {
+            if ( $inlineFigures && isset($declarations['vertical-align']) ) {
                 $imageRule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . ')', $imagePrelude)
                     . '{vertical-align:' . $declarations['vertical-align'] . '}';
             }
@@ -2338,7 +2344,9 @@ final class AuthorStylesheetProjector
      */
     private function flexItemImageBoxRule(string $prelude, string $imagePrelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
-        if ( '' === $imagePrelude || ! $this->selectsFlexItemImage($prelude, $context) ) {
+        if ( '' === $imagePrelude
+            || ! str_contains($context->emittedMarkup, SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS)
+            || ! $this->selectsFlexItemImage($prelude, $context) ) {
             return '';
         }
         $box = array();
