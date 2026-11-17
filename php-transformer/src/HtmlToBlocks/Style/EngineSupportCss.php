@@ -503,6 +503,13 @@ final class EngineSupportCss
             $parts[] = $menu . '>.wp-block-navigation__container,'
                 . $menu . ':not(.blocks-engine-list-navigation)>.wp-block-navigation__container>.wp-block-navigation-item{display:contents!important}';
         }
+        if ( str_contains($serializedBlocks, 'blocks-engine-anchor-items-navigation') ) {
+            // Bare anchors stretch by default in a source flex row. Core's
+            // centering on both the synthetic list and its items otherwise
+            // vertically centers short labels beside a wrapped link.
+            $parts[] = '.wp-block-navigation.blocks-engine-anchor-items-navigation{align-items:normal}'
+                . "\n" . '.wp-block-navigation:where(.blocks-engine-anchor-items-navigation) .wp-block-navigation-item{align-items:normal}';
+        }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             // Keep the display baseline at Core's weight, not above authored rules.
             // A source <li> has `align-items:normal`; Core centers its items,

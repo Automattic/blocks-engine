@@ -3997,6 +3997,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         $list = $this->navigationListSource($element);
         if ( $list instanceof DOMElement ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LIST_NAVIGATION_CLASS);
+        } else {
+            $attrs = $this->withClassName($attrs, self::ANCHOR_ITEMS_NAVIGATION_CLASS);
         }
         if ( '' !== (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
             return $this->withEmptySiblingNavigationSpacing($attrs, $list, $navigationContext);
