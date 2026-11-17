@@ -271,6 +271,13 @@ final class NavigationPatternContext
     public const CLIPPED_SUBMENU_CLASS = 'blocks-engine-clipped-submenu';
 
     /**
+     * Marks a navigation whose submenu labels are themselves the toggles: core's
+     * click mode renders each label as a button, so its decorative icon (which
+     * the source never paints) is hidden and the source's hover reveal restated.
+     */
+    public const LABEL_TOGGLE_SUBMENUS_CLASS = 'blocks-engine-label-toggle-submenus';
+
+    /**
      * Whether a block-level element inside a navigation link declares its own
      * text presentation. Such an element (a logo heading) is what paints the
      * label, so it must survive the label's inline reduction.
@@ -710,6 +717,9 @@ final class NavigationPatternContext
     /** @var array<string, true> Source submenu parents that paint no indicator of their own and carry no disclosure control. */
     private array $unindicatedSubmenuParents = array();
 
+    /** @var array<string, bool> Source submenu parent labels, true when the label is the submenu's indicator-free, hover-revealed toggle. */
+    private array $submenuParentLabels = array();
+
     /**
      * Whether the source submenu takes no space until its item's hover/focus
      * reveals it: a zero height or max-height that clips its content.
@@ -758,8 +768,9 @@ final class NavigationPatternContext
      * the submenu beside it) leaves the submenu indicator-free: its submenu
      * opens on hover/focus.
      */
-    public function recordSubmenuToggle(DOMElement $toggle, bool $hasDisclosureControl): void
+    public function recordSubmenuToggle(DOMElement $toggle, bool $hasDisclosureControl, bool $isLabelToggle = false): void
     {
+        $this->submenuParentLabels[$toggle->getNodePath() ?? ''] = false;
         $targets = array( $toggle );
         foreach ( $toggle->childNodes as $child ) {
             if ( $child instanceof DOMElement ) $targets[] = $child;
@@ -776,6 +787,30 @@ final class NavigationPatternContext
         if ( ! $hasDisclosureControl ) {
             $this->unindicatedSubmenuParents[$toggle->getNodePath() ?? ''] = true;
         }
+        $this->submenuParentLabels[$toggle->getNodePath() ?? ''] = $isLabelToggle;
+    }
+
+    /** A submenu parent core's own submenu icon stands in for (a separate source glyph, or the item itself). */
+    public function recordSubmenuParent(DOMElement $label): void
+    {
+        $this->submenuParentLabels[$label->getNodePath() ?? ''] = false;
+    }
+
+    /**
+     * Whether every submenu under this source element is opened by its own
+     * indicator-free label button and revealed on its item's hover. Core's
+     * click mode renders exactly that label: a focusable toggle button.
+     */
+    public function labelTogglesEverySubmenuWithin(DOMElement $source): bool
+    {
+        $root = $source->getNodePath() ?? '';
+        $found = false;
+        foreach ( $this->submenuParentLabels as $path => $isLabelToggle ) {
+            if ( '' === $root || ( $path !== $root && ! str_starts_with((string) $path, $root . '/') ) ) continue;
+            if ( ! $isLabelToggle ) return false;
+            $found = true;
+        }
+        return $found;
     }
 
     /** Whether the source paints nothing for this control at rest (a focus-only affordance). */

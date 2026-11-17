@@ -3412,6 +3412,13 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function withSourceSubmenuIndicator(array $attrs, DOMElement $source, NavigationPatternContext $navigationContext): array
     {
+        // Every label is its submenu's toggle button and paints no indicator:
+        // core's click mode renders that focusable label button, and the
+        // stylesheet hides core's decorative icon and restates the hover reveal.
+        if ( ! isset($attrs['openSubmenusOnClick']) && $navigationContext->labelTogglesEverySubmenuWithin($source) ) {
+            $attrs['openSubmenusOnClick'] = true;
+            return $this->withClassName($attrs, NavigationPatternContext::LABEL_TOGGLE_SUBMENUS_CLASS);
+        }
         if ( ( $navigationContext->hasSubmenuToggleIndicatorWithin($source)
                 || $navigationContext->hasUnindicatedSubmenuParentWithin($source) ) ) {
             $attrs['showSubmenuIcon'] = false;
@@ -3438,6 +3445,27 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
         return false;
+    }
+
+    /**
+     * Whether the label is the submenu's only disclosure control (a button,
+     * or a link declared one, leading nowhere) and the source also reveals
+     * the submenu on its item's hover/focus. A plain link label stays a
+     * hover target: core keeps it a link.
+     */
+    private function isHoverRevealedToggleLabel(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, ?NavigationPatternContext $navigationContext): bool
+    {
+        if ( ! $this->isSubmenuToggleControl($anchor) || $this->leadsToPage($anchor) || null === $submenuContainer
+            || true !== $navigationContext?->revealsSubmenuOnItemState($item, $submenuContainer)
+            || $this->isHoverRevealedLabel($item, $anchor, $submenuContainer, $navigationContext) ) return false;
+        foreach ( $item->getElementsByTagName('button') as $button ) {
+            if ( ! $button instanceof DOMElement || $button->isSameNode($anchor) || $navigationContext->isVisuallyHiddenControl($button) ) continue;
+            for ( $node = $button; $node instanceof DOMElement; $node = $node->parentNode ) {
+                if ( $node->isSameNode($submenuContainer) ) continue 2;
+            }
+            return false;
+        }
+        return true;
     }
 
     private function isHoverRevealedLabel(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, ?NavigationPatternContext $navigationContext): bool
@@ -3529,8 +3557,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( '' === $iconMarker && ! $item->isSameNode($anchor) ) {
                 $navigationContext?->recordSubmenuToggle(
                     $anchor,
-                    $this->hasSubmenuDisclosureControl($item, $anchor, $submenuContainer, $navigationContext)
+                    $this->hasSubmenuDisclosureControl($item, $anchor, $submenuContainer, $navigationContext),
+                    $this->isHoverRevealedToggleLabel($item, $anchor, $submenuContainer, $navigationContext)
                 );
+            } else {
+                $navigationContext?->recordSubmenuParent($anchor);
             }
         }
         $submenuAttrs = $submenuContainer instanceof DOMElement ? $this->withoutCoreNavigationClasses($presentationAttributes($submenuContainer)) : array();
