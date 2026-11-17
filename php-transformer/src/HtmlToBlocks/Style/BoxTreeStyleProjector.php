@@ -4,30 +4,40 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 
 /** Restyle an exact source-node carrier before provenance is discarded. */
 final class BoxTreeStyleProjector
 {
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array()): array
+    private const SELECTOR = "\0carrier\0";
+
+    private readonly BoxTreeDeclarationPruner $pruner;
+
+    public function __construct()
+    {
+        $this->pruner = new BoxTreeDeclarationPruner();
+    }
+
+    /** @param string $blockName The block carrying the rule, whose WordPress base styles a pruned declaration falls back to. */
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = ''): array
     {
         if (array() === $observations) return $attrs;
         $keys = array_keys($observations);
         usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
-        $styles = array();
-        foreach ($observations as $key => $observation) {
-            $styles[$key] = $observation['used_styles'];
-            foreach (BoxTree::INHERITED_PROPERTIES as $property) {
-                if (isset($parents[$key]['used_styles'][$property]) && $styles[$key][$property] === $parents[$key]['used_styles'][$property]) unset($styles[$key][$property]);
-            }
+        $status = array();
+        $declarations = array();
+        foreach ($keys as $key) {
+            $parent = $parents[$key]['used_styles'] ?? null;
+            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName);
+            $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
-        $base = $styles[$keys[0]];
+        $baseKey = $keys[0];
+        $base = $declarations[$baseKey];
         $mapper = new StyleAttributeMapper();
         $existing = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
         $existingDeclarations = SourceDeclarations::parse($mapper->serialize($existing)['style']);
         // Never resurrect authored values for observed (including inherited) properties.
-        $unobserved = array_diff_key($existingDeclarations, $observations[$keys[0]]['used_styles']);
-        $mapped = $mapper->map(array_replace($unobserved, $this->nonDefaults($base)));
+        $unobserved = array_diff_key($existingDeclarations, $observations[$baseKey]['used_styles']);
+        $mapped = $mapper->map(array_replace($unobserved, $base));
         $attrs['style'] = $mapped['style'];
         $attrs = array_replace($attrs, $mapped['attrs']);
         // Layout declarations are deliberately excluded by StyleAttributeMapper;
@@ -35,62 +45,81 @@ final class BoxTreeStyleProjector
         $consumed = SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
-        $rules = $this->nonDefaults(array_diff_key($base, $consumed));
-        $signature = json_encode(array($base, $observations, $viewports, $parents), JSON_THROW_ON_ERROR);
-        $class = $state->allocateCarrier('box-tree:' . $signature);
-        // Outrank core block/layout selectors without defeating editor inline styles.
-        $selector = '.' . $class . '.' . $class;
-        $css = $this->rule($selector, $rules) . $this->pseudoRules($selector, $observations[$keys[0]]);
+        $css = $this->rule(self::SELECTOR, array_diff_key($base, $consumed));
+        $effective = $base;
+        $pseudoEffective = array();
+        $css .= $this->pseudoRules($observations[$baseKey], $pseudoEffective);
         foreach (array_slice($keys, 1) as $key) {
-            $delta = array_diff_assoc($styles[$key], $base);
-            foreach (array_diff_key($base, $styles[$key]) as $property => $_) $delta[$property] = 'inherit';
-            $pseudo = $this->pseudoRules($selector, $observations[$key], $observations[$keys[0]]);
+            $delta = $this->delta($effective, $declarations[$key], $status[$key], $observations[$key]['used_styles']);
+            $effective = array_replace($effective, $delta);
+            $pseudo = $this->pseudoRules($observations[$key], $pseudoEffective);
             if (array() === $delta && '' === $pseudo) continue;
-            // Include resets to initial values: omission would leave the desktop value active.
-            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule($selector, $delta) . $pseudo . '}';
+            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule(self::SELECTOR, $delta) . $pseudo . '}';
         }
-        $state->registerRule($class, $css);
+        if ('' === $css) return $attrs;
+        // One carrier per distinct declaration set, not per source node.
+        $class = $state->allocateCarrier('box-tree:' . $css);
+        // Outrank core block/layout selectors without defeating editor inline styles.
+        $state->registerRule($class, str_replace(self::SELECTOR, '.' . $class . '.' . $class, $css));
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
     }
 
-    private function pseudoRules(string $selector, array $observation, array $base = array()): string
+    /**
+     * Declarations a narrower viewport adds over the rules that already apply
+     * to it. A longhand the wider rules declare but this viewport prunes is
+     * reset: inherited values to `inherit`, initial values to the observed
+     * value, since omission would leave the wider value active.
+     */
+    private function delta(array $effective, array $declarations, array $status, array $observed): array
+    {
+        $delta = array();
+        foreach ($declarations as $property => $value) {
+            if (($effective[$property] ?? null) !== $value) $delta[$property] = $value;
+        }
+        foreach (array_diff_key($effective, $declarations) as $property => $_) {
+            $reason = $status[$property] ?? BoxTreeDeclarationPruner::NOT_APPLICABLE;
+            if (BoxTreeDeclarationPruner::INHERITED === $reason && 'inherit' !== $effective[$property]) $delta[$property] = 'inherit';
+            elseif (BoxTreeDeclarationPruner::INITIAL === $reason && $effective[$property] !== $observed[$property]) $delta[$property] = $observed[$property];
+        }
+        return $delta;
+    }
+
+    private function kept(array $styles, array $status): array
+    {
+        return array_filter($styles, static fn(string $property): bool => BoxTreeDeclarationPruner::KEPT === ($status[$property] ?? null), ARRAY_FILTER_USE_KEY);
+    }
+
+    /** @param array<string, array<string, string>> $effective Pseudo declarations already active, by pseudo name. */
+    private function pseudoRules(array $observation, array &$effective): string
     {
         $css = '';
         foreach (array('before', 'after') as $name) {
             $pseudo = $observation['pseudo'][$name] ?? null;
             if (null !== $pseudo) {
-                $styles = $pseudo['used_styles'];
                 // Pseudos inherit from their originating element, not its parent.
-                foreach (BoxTree::INHERITED_PROPERTIES as $property) {
-                    if ($styles[$property] === $observation['used_styles'][$property]) {
-                        if (isset($base['pseudo'][$name])) $styles[$property] = 'inherit';
-                        else unset($styles[$property]);
-                    }
-                }
-                $css .= $this->rule($selector . '::' . $name, array_merge($styles, array('content' => $pseudo['content'])));
-            } elseif (isset($base['pseudo'][$name])) {
-                $css .= $this->rule($selector . '::' . $name, array('content' => 'none'));
+                $pseudoStatus = $this->pruner->classify($pseudo['used_styles'], $observation['used_styles']);
+                $declarations = array_merge($this->kept($pseudo['used_styles'], $pseudoStatus), array('content' => $pseudo['content']));
+                $delta = isset($effective[$name]) ? $this->delta($effective[$name], $declarations, $pseudoStatus, $pseudo['used_styles']) : $declarations;
+                $effective[$name] = array_replace($effective[$name] ?? array(), $delta);
+                $css .= $this->rule(self::SELECTOR . '::' . $name, $delta);
+            } elseif (isset($effective[$name]) && 'none' !== ($effective[$name]['content'] ?? null)) {
+                $effective[$name]['content'] = 'none';
+                $css .= $this->rule(self::SELECTOR . '::' . $name, array('content' => 'none'));
             }
         }
         return $css;
     }
 
-    private function nonDefaults(array $styles): array
-    {
-        $defaults = array('position' => 'static', 'box-sizing' => 'content-box', 'opacity' => '1', 'z-index' => 'auto', 'transform' => 'none', 'box-shadow' => 'none', 'background-image' => 'none', 'background-color' => 'rgba(0, 0, 0, 0)', 'filter' => 'none', 'mask-image' => 'none', 'mix-blend-mode' => 'normal', 'overflow-x' => 'visible', 'overflow-y' => 'visible');
-        return array_filter($styles, static fn(string $value, string $name): bool => '' !== $value && 'initial' !== $value && 'inherit' !== $value && ($defaults[$name] ?? null) !== $value, ARRAY_FILTER_USE_BOTH);
-    }
-
     private function rule(string $selector, array $styles): string
     {
-        if (array() === $styles) return '';
         $declarations = array();
         foreach ($styles as $name => $value) {
             // Evidence is external input, not trusted stylesheet syntax.
             if (preg_match('/[{};<>]/', $value) || str_contains($value, '/*')) continue;
             $declarations[] = $name . ':' . $value;
         }
+        if (array() === $declarations) return '';
         return $selector . '{' . implode(';', $declarations) . '}';
     }
 }

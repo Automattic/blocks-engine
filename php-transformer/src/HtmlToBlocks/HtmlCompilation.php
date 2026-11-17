@@ -2075,7 +2075,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $this->session->boxTreeEvidence($sourceElement), $this->session->boxTreeViewports(), $this->session->layoutGeometryState(), $sourceElement->parentNode instanceof DOMElement ? $this->session->boxTreeEvidence($sourceElement->parentNode) : array());
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $this->session->boxTreeEvidence($sourceElement), $this->session->boxTreeViewports(), $this->session->layoutGeometryState(), $sourceElement->parentNode instanceof DOMElement ? $this->session->boxTreeEvidence($sourceElement->parentNode) : array(), $name);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,
