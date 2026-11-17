@@ -2517,11 +2517,14 @@ final class AuthorStylesheetProjector
         // The inline synthetic figure is display:contents, so class-owned
         // dimensions cannot size it. Keep the replaced box on the image,
         // after the generic 100% bridge and at the author's cascade position
-        // (including responsive conditions). Placement is routed separately.
+        // (including responsive conditions). A transparent figure cannot own
+        // positioning either: replay only authored offsets on its leaf, rather
+        // than making every inline image inherit the figure's placement.
         if ( in_array(SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS, $figures, true) ) {
             $box = array_filter($declarations, static fn (string $property): bool =>
-                NativeImageLeafPresentation::isBoxProperty($property)
-                && ! NativeImageLeafPresentation::isPlacementProperty($property), ARRAY_FILTER_USE_KEY);
+                ( NativeImageLeafPresentation::isBoxProperty($property)
+                && ! NativeImageLeafPresentation::isPlacementProperty($property) )
+                || in_array($property, array( 'position', 'inset', 'inset-inline', 'inset-block', 'inset-inline-start', 'inset-inline-end', 'inset-block-start', 'inset-block-end', 'top', 'right', 'bottom', 'left', 'z-index' ), true), ARRAY_FILTER_USE_KEY);
             if ( array() !== $box ) {
                 $rule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . ')', $imagePrelude)
                     . '{' . $this->styleResolver->cssDeclarationString($box) . '}';

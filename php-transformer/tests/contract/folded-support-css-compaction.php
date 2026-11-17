@@ -20,10 +20,6 @@ WordPressSitePlan::assertValid($plan);
 $writes = array_column($plan['writes'], null, 'target_path');
 $folded = 0;
 foreach ($plan['assets'] as $asset) {
-    if ('css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null)
-        && $asset['content'] !== CssSyntaxScanner::withoutRedundantWhitespace($asset['content'])) {
-        throw new RuntimeException('Final CSS must not ship redundant whitespace: ' . $asset['target_path']);
-    }
     if ('engine-support' !== ($asset['source'] ?? '') || !str_contains($asset['content'] ?? '', 'be-inline-geometry-')) continue;
     ++$folded;
     $css = $asset['content'];

@@ -269,7 +269,7 @@ final class CssStylesheetTransformer
      * other too, so joining them never discards a rule that used to apply.
      * Malformed input is returned unchanged.
      */
-    public function mergeRepeatedDeclarationRules(string $css): string
+    public function mergeRepeatedDeclarationRules(string $css, bool $includeDocumentRules = false): string
     {
         if ( ! str_contains($css, '{') || ! $this->isWellFormedStylesheet($css) ) {
             return $css;
@@ -280,7 +280,7 @@ final class CssStylesheetTransformer
         $families = array();
         $merged = false;
         foreach ( $units as $index => $unit ) {
-            $parts = $this->repeatableDeclarationRuleParts($unit);
+            $parts = $this->repeatableDeclarationRuleParts($unit, $includeDocumentRules);
             if ( null === $parts ) {
                 continue;
             }
@@ -299,7 +299,7 @@ final class CssStylesheetTransformer
                     $blocked = self::cascadeFamiliesOverlap($own, $families[ $between ]);
                 }
                 if ( ! $blocked ) {
-                    [$anchorLead, $anchorPrelude, $anchorBody] = $this->repeatableDeclarationRuleParts($units[ $anchor ]) ?? array( '', '', '' );
+                    [$anchorLead, $anchorPrelude, $anchorBody] = $this->repeatableDeclarationRuleParts($units[ $anchor ], $includeDocumentRules) ?? array( '', '', '' );
                     $units[ $anchor ]['text'] = $anchorLead . $anchorPrelude . ',' . $prelude . '{' . $anchorBody . '}';
                     unset($units[ $index ], $families[ $anchor ]);
                     $merged = true;
@@ -319,7 +319,7 @@ final class CssStylesheetTransformer
      * @param array{context: list<string>, text: string, dedupable: bool} $unit
      * @return array{0: string, 1: string, 2: string}|null
      */
-    private function repeatableDeclarationRuleParts(array $unit): ?array
+    private function repeatableDeclarationRuleParts(array $unit, bool $includeDocumentRules = false): ?array
     {
         if ( ! $unit['dedupable'] ) {
             return null;
@@ -332,7 +332,7 @@ final class CssStylesheetTransformer
         }
         $prelude = trim(substr($rule, 0, $brace));
         $body = substr($rule, $brace + 1, -1);
-        if ( '' === $prelude || str_contains($prelude, '/*') || str_contains($body, '{') || str_contains($body, '}') || str_contains($body, '/*') || '' === trim($body) || null === self::splitSelectorList($prelude) || self::namesDocumentOrEveryElement($prelude) ) {
+        if ( '' === $prelude || str_contains($prelude, '/*') || str_contains($body, '{') || str_contains($body, '}') || str_contains($body, '/*') || '' === trim($body) || null === self::splitSelectorList($prelude) || (!$includeDocumentRules && self::namesDocumentOrEveryElement($prelude)) ) {
             return null;
         }
         return array( $lead, $prelude, $body );

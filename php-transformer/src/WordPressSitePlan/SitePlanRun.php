@@ -345,6 +345,9 @@ final class SitePlanRun
         $navigationMarkup = $emittedMarkup . "\n" . implode("\n", self::markups($menus));
         // Markup is final: an arm requiring a carrier no route has is dead.
         $assets = AbsentCarrierSelectors::prune($assets, $navigationMarkup . "\n" . json_encode(array($runtimeDeclarations, $runtimeEntityRecords), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        // A source arm guarded against role carriers is dead once every
+        // element naming its class is one of them.
+        $assets = ConvertedSourceClassSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
@@ -515,12 +518,14 @@ final class SitePlanRun
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $compacted = $compactor->compactStylesheet($asset['content']);
             if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
+            // Compatibility replays use :root only as a specificity shim,
+            // not as a document reset. Their repeated native-host arms can
+            // share a declaration body after preset binding has settled it.
+            if ('wordpress-compat' === ($asset['source'] ?? null)) {
+                $compacted = CssSelectorListCompactor::stylesheet($compactor->mergeRepeatedDeclarationRules($compacted, true));
+            }
             // A restated arm folded beside the arm it restricts adds nothing.
             $compacted = CssSelectorListCompactor::withoutSubsumedArmsInStylesheet($compacted);
-            // Support sheets can be singletons as well as folded runs. Strip
-            // serialization whitespace at the final boundary for both, after
-            // selector compaction has finished introducing separators.
-            $compacted = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace($compacted);
             if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);
@@ -658,7 +663,7 @@ final class SitePlanRun
         $parts = $folded['parts'];
         // The generic page template is shared by routes that did not author it,
         // so the rules aimed at its markers are site-wide chrome rules.
-        $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
+        $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . '<!-- wp:post-content /-->' . $shellFrames['frames']['page']['closing'])) : array();
         foreach ($documentChrome['chrome'] as $chrome) $frameParts[] = array('slug' => 'document-chrome', 'placement' => array('kind' => 'shared_shell', 'template_slugs' => array('single')), 'canonical_block_markup' => $chrome);
         return array(
             'pages' => $pages,

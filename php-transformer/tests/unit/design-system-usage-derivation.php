@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DesignSystem;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PresetBinding;
@@ -617,7 +618,7 @@ foreach ($classColors as $class => $hex) {
 }
 $assert(array() === $literalBindings, 'near-duplicate-neutrals-small-accent: each grey binds to the token of its exact value, and a grey with no token keeps its literal (' . json_encode($literalBindings) . ')');
 $accentCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($accentPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
-$assert(str_contains($accentCss, '--cyan:var(--wp--preset--color--' . $cyan . ',#22d3ee)') && 1 === preg_match('/\\.dot[^{]*\\{color:var\\(--wp--preset--color--' . $cyan . ',var\\(--cyan\\)\\)/', $accentCss), 'near-duplicate-neutrals-small-accent: the authored --cyan custom property reads the accent token, so every rule using it follows the palette');
+$assert(str_contains($accentCss, '--cyan:var(--wp--preset--color--' . $cyan . ',#22d3ee)') && 1 === preg_match('/(?:\\.dot|\\.' . EngineMarker::subjectClassClass('dot') . ')[^{]*\\{color:var\\(--wp--preset--color--' . $cyan . ',var\\(--cyan\\)\\)/', $accentCss), 'near-duplicate-neutrals-small-accent: the authored --cyan custom property reads the accent token, so every rule using it follows the palette');
 
 // A heavy near shade of `base` (white cards on a `#f7fafc` page) outranks
 // two distinct colours each painted on one tiny element: tokens past the
