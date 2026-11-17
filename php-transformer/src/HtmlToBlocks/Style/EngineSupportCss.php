@@ -631,7 +631,7 @@ final class EngineSupportCss
         // viewport visibility sheet belongs to the front end: hiding an island
         // in the editor makes its native blocks impossible to select or replace.
         $editorCss = '';
-        foreach ($editorVariants as $class => $selector) {
+        if (array() !== $editorVariants) {
             // Device copies often share absolute source coordinates. Once both
             // are exposed, they must occupy separate editor flow boxes, rather
             // than covering each other's block selection targets. Ancestor
@@ -640,10 +640,18 @@ final class EngineSupportCss
             // Use normal block flow for those editor ancestors: retained grid
             // placement and flex tracks can still overlap the expanded copies,
             // even with auto heights. The front-end layout stays source-owned.
-            $editorCss .= $selector . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;transform:none!important}'
-                . $selector . ' figure.wp-block-image{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
-                . $selector . ' img{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
-                . ':root .editor-styles-wrapper .wp-block-group:has(.' . $class . '){display:block!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;grid-template-rows:none!important;grid-auto-rows:auto!important;position:relative!important;inset:auto!important;overflow:visible!important}';
+            // A source size container (`container-type:size`) ignores its
+            // contents when sizing, so its auto height stays 0 and the
+            // expanded copies overflow beneath the following content: drop
+            // the containment in the editor so those heights take effect.
+            // Both variants share one rule per target: this sheet ships on
+            // every route, so a repeated declaration block is page weight.
+            $list = static fn (string $suffix): string => implode(',', array_map(static fn (string $selector): string => $selector . $suffix, $editorVariants));
+            $ancestors = implode(',', array_map(static fn (string $class): string => ':root .editor-styles-wrapper .wp-block-group:has(.' . $class . ')', array_keys($editorVariants)));
+            $editorCss = $list('') . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;transform:none!important;container-type:normal!important}'
+                . $list(' figure.wp-block-image') . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
+                . $list(' img') . '{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
+                . $ancestors . '{display:block!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;grid-template-rows:none!important;grid-auto-rows:auto!important;position:relative!important;inset:auto!important;overflow:visible!important;container-type:normal!important}';
         }
         $editorRules = '' !== $editorCss
             ? array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, $editorCss))

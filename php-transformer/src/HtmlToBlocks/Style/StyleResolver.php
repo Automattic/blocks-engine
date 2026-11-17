@@ -1218,9 +1218,11 @@ final class StyleResolver implements ElementPresentationResolver
             return '';
         }
 
+        // The class names its rules, not its element: every element carrying
+        // the same responsive sizes shares one class and one emitted rule set.
         $className = 'blocks-engine-responsive-typography-' . substr(hash(
             'sha256',
-            $this->geometryStructuralPath($element) . "\n" . $base . "\n" . serialize($conditional)
+            $base . "\n" . serialize($conditional)
         ), 0, 12);
         $this->session->generatedSupportStylesheetState()->registerResponsiveTypography($className, $base, $conditional);
 
@@ -1301,9 +1303,10 @@ final class StyleResolver implements ElementPresentationResolver
         }
         if ('' === $base && array() === $conditional) return '';
 
+        // Content-addressed like responsive typography: equal margins share a marker.
         $marker = 'blocks-engine-responsive-margin-top-' . substr(hash(
             'sha256',
-            $this->geometryStructuralPath($element) . "\n" . $base . "\n" . serialize($conditional)
+            $base . "\n" . serialize($conditional)
         ), 0, 12);
         $this->session->generatedSupportStylesheetState()->registerResponsiveBlockMarginTop($marker, $base, $conditional);
 
@@ -6367,10 +6370,58 @@ final class StyleResolver implements ElementPresentationResolver
         return implode(' ', array_values(array_filter($classes, static fn (string $class): bool => ! isset($unsafe[$class]))));
     }
 
+    /**
+     * Source gutters already participate in slide widths; do not add a second gap.
+     *
+     * @param list<DOMElement> $slides
+     */
+    public function carouselTrackGap(array $slides): string
+    {
+        foreach ($slides as $slide) {
+            if (!$slide instanceof DOMElement) continue;
+            $values = $this->authorDeclaredValuesAtAnyViewport($slide, array('padding-left', 'padding-right', 'padding-inline-start', 'padding-inline-end', 'margin-left', 'margin-right'));
+            foreach ($values as $propertyValues) {
+                foreach ($propertyValues as $value) {
+                    $value = CssValueInspector::comparable($value);
+                    if (!in_array($value, array('', '0', '0px', 'auto', 'normal'), true)) return '0px';
+                }
+            }
+        }
+        return '';
+    }
+
     /** Source list classes for the generated track, excluding slide runtime hooks. */
     public function safeTrackClassName(DOMElement $sourceList, array $replacedSlides): string
     {
         return $this->safeStageClassName($sourceList, $replacedSlides);
+    }
+
+    /** Authored state classes whose rules match a pagination item when selected. @return list<string> */
+    public function paginationActiveClasses(DOMElement $item): array
+    {
+        $original = SourceDom::attr($item, 'class');
+        $classes = array();
+        try {
+            (new CssStylesheetTransformer())->visitStyleRules($this->session->authorStyleAnalysis()->combinedCss(), function (string $prelude, string $body) use ($item, $original, &$classes): void {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    if (!preg_match_all('/\.([a-zA-Z_][a-zA-Z0-9_-]*(?:active|current|selected)[a-zA-Z0-9_-]*|active|current|selected)(?![a-zA-Z0-9_-])/', $selector, $matches)) {
+                        continue;
+                    }
+                    foreach ($matches[1] as $class) {
+                        $item->setAttribute('class', $original . ' ' . $class);
+                        $parsed = CssSelectorMatcher::parse($selector);
+                        foreach (array_merge(array($item), iterator_to_array($item->getElementsByTagName('*'))) as $target) {
+                            if (CssSelectorMatcher::matches($target, $parsed)['matches']) {
+                                $classes[$class] = true;
+                            }
+                        }
+                    }
+                }
+            });
+        } finally {
+            $item->setAttribute('class', $original);
+        }
+        return array_keys($classes);
     }
 
     /** @return list<string> Attribute identities needed by projected source selectors. */
