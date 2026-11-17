@@ -17,8 +17,12 @@ final class BoxTreeStyleProjector
         $this->pruner = new BoxTreeDeclarationPruner();
     }
 
-    /** @param string $blockName The block carrying the rule, whose WordPress base styles a pruned declaration falls back to. */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = ''): array
+    /**
+     * @param string $blockName The block carrying the rule, whose WordPress base styles a pruned declaration falls back to.
+     * @param array<string, list<array{0: float|null, 1: string}>> $fluid Lifted author values: property => bands, widest
+     *        first, each [max-width (null for the base rule), value] ({@see BoxTreeFluidIntent::lift()}).
+     */
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array()): array
     {
         if (array() === $observations) return $attrs;
         $keys = array_keys($observations);
@@ -30,6 +34,21 @@ final class BoxTreeStyleProjector
             $parent = $parents[$key]['used_styles'] ?? null;
             $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
+        }
+        // Author intent proven at every capture (BoxTreeFluidIntent) replaces
+        // the frozen pixels in every capture, so it needs no capture delta;
+        // where the author switches it, its bands follow the author's own
+        // breakpoints. Do not resurrect properties pruned at any viewport.
+        $bands = array();
+        foreach ($fluid as $property => $propertyBands) {
+            if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
+            foreach ($keys as $key) {
+                if (!isset($declarations[$key][$property])) continue 2;
+            }
+            foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
+            foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
+                $bands[self::width((float) $maxWidth)][$property] = $value;
+            }
         }
         $baseKey = $keys[0];
         $base = $declarations[$baseKey];
@@ -66,6 +85,11 @@ final class BoxTreeStyleProjector
             if (array() === $delta && '' === $pseudo) continue;
             $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule(self::SELECTOR, $delta) . $pseudo . '}';
         }
+        // Numeric keys become ints: compare them as widths, narrowest last.
+        uksort($bands, static fn(int|string $a, int|string $b): int => (float) $b <=> (float) $a);
+        foreach ($bands as $maxWidth => $declared) {
+            $css .= '@media (max-width:' . $maxWidth . 'px){' . $this->rule(self::SELECTOR, $declared) . '}';
+        }
         if ('' === $css) return $attrs;
         // One carrier per distinct declaration set, not per source node.
         $class = $state->allocateCarrier('box-tree:' . $css);
@@ -93,6 +117,11 @@ final class BoxTreeStyleProjector
             elseif (BoxTreeDeclarationPruner::INITIAL === $reason && $effective[$property] !== $observed[$property]) $delta[$property] = $observed[$property];
         }
         return $delta;
+    }
+
+    private static function width(float $width): string
+    {
+        return rtrim(rtrim(number_format($width, 2, '.', ''), '0'), '.');
     }
 
     /** The element a block's carrier class lands on, when the block fixes it. */
