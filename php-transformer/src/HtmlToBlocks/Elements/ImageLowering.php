@@ -726,6 +726,10 @@ final class ImageLowering
      */
     private function imageLinkAttributes(DOMElement $link): array
     {
+        // The synthetic figure is display:contents; the link still owns its
+        // source box, including spacing that core/image cannot serialize.
+        $inline = SourceDeclarations::inline($link);
+        $boxProperties = array_keys(array_filter($inline, NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY));
         $attrs = array(
             'href'            => LinkUrlSanitizer::sanitize(SourceDom::attr($link, 'href')),
             'linkDestination' => 'custom',
@@ -735,9 +739,9 @@ final class ImageLowering
                 SourceDom::attr($link, 'class'),
                 $this->styleResolver->inlineCustomPropertyCarrierClassName($link),
                 $this->styleResolver->inlineGeometryClassName($link, array_values(array_diff(
-                    array_keys(SourceDeclarations::inline($link)),
-                    array('display')
-                ))),
+                    array_keys($inline),
+                    array_merge(array('display'), $boxProperties)
+                )), $boxProperties),
                 ...$this->session->authorSelectorProjectionState()->semanticMarkersForPath($link->getNodePath() ?? '')
             ),
         );
