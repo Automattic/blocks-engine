@@ -4577,6 +4577,37 @@ final class StyleResolver implements ElementPresentationResolver
             ) {
                 return true;
             }
+
+            // An additional class/attribute gate on an anchored ancestor is also
+            // CSS reveal evidence. Subject-only toggles remain script entrances.
+            if (! is_numeric($revealedOpacity) || 0.0 >= (float) $revealedOpacity) {
+                continue;
+            }
+            $reveal = CssSelectorMatcher::parse((string) $rule['base_selector']);
+            if (! ($reveal['supported'] ?? false)) {
+                continue;
+            }
+            // Keep the subject and ancestor structure intact. Removing one
+            // additional condition must leave an anchored, matching selector.
+            $last = count($reveal['compounds']) - 1;
+            foreach ($reveal['compounds'] as $index => $compound) {
+                if ($index === $last) {
+                    continue;
+                }
+                foreach (array('classes', 'attributes') as $kind) {
+                    foreach (array_keys($compound[$kind]) as $key) {
+                        $candidate = $reveal;
+                        unset($candidate['compounds'][$index][$kind][$key]);
+                        $anchor = $candidate['compounds'][$index];
+                        if (null === $anchor['type'] && array() === $anchor['classes'] && array() === $anchor['ids'] && array() === $anchor['attributes']) {
+                            continue;
+                        }
+                        if (CssSelectorMatcher::matches($element, $candidate)['matches']) {
+                            return true;
+                        }
+                    }
+                }
+            }
         }
 
         return false;
@@ -5609,6 +5640,10 @@ final class StyleResolver implements ElementPresentationResolver
                     }
                     $analysis['pseudo'][] = $readingCustomProperties(array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions));
                 }
+            }
+            $positiveOpacity = CssValueInspector::declared($rawDeclarations, 'opacity');
+            if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && is_numeric($positiveOpacity) && 0.0 < (float) $positiveOpacity) {
+                $analysis['reveal_state'][] = array('base_selector' => $selector, 'state' => '', 'state_subject_selector' => '', 'declarations' => array('opacity' => $rawDeclarations['opacity']));
             }
             if (array() === $declarations && ! isset($rawDeclarations['opacity']) && array() === array_filter(array_keys($rawDeclarations), static fn(string $name): bool => str_starts_with($name, '--'))) {
                 continue;
