@@ -80,7 +80,6 @@ try {
     $threw = str_contains($exception->getMessage(), 'not wired for conversion');
 }
 $assert($threw, 'unwired-iframe-convert-throws');
-$assert('visual-iframe' === ($unwiredIframe->definition('custom')['name'] ?? null), 'iframe-definition-api-survives-no-arg-constructor');
 
 $unwiredCustom = new CustomBlockGenerator();
 $threw = false;

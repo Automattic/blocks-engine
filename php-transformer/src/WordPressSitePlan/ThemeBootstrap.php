@@ -225,6 +225,8 @@ PHP;
         if (self::markupContains($documents, 'blocksEngineImageSelection')) {
             $lines[] = self::IMAGE_SELECTION_RENDERER;
         }
+        $iframeEmbeds = IframeEmbedRuntime::source($documents);
+        if ('' !== $iframeEmbeds) $lines[] = $iframeEmbeds;
         if (array_filter($pages, static fn(array $page): bool => str_contains($page['canonical_block_markup'], 'blocks-engine-listing-overlay'))) {
             $lines[] = "add_filter( 'render_block_core/read-more', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-listing-overlay', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) { \$tag->set_attribute( 'aria-hidden', 'true' ); \$tag->set_attribute( 'tabindex', '-1' ); } return \$tag->get_updated_html(); }, 10, 2 );";
         }
