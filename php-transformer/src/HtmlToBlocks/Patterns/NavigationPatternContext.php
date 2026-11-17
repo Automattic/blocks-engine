@@ -956,6 +956,9 @@ final class NavigationPatternContext
             ksort($resting);
             $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
+            // Shared entities retain every reference's subject markers. Editor
+            // label typography must bind inside the same instance as frontend CSS.
+            $this->session->generatedSupportStylesheetState()->scopeNavigationEditorTypography($scope, array_keys($targets));
             $this->recordCurrentItemPresentation($current, $scope, $source);
             $markup = (string) json_encode($block);
             // Without a submenu no item holds another item's links.

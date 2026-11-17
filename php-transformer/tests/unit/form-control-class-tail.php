@@ -26,7 +26,7 @@ $assert($expected === ($controls['email']['label_class'] ?? null), 'associated l
 $assert($expected === ($controls['send']['label_classes'] ?? null), 'submit label_classes retains every authored token');
 
 // Removing the positional bound must not relax the existing token validation.
-$html = str_replace('inline-flex ', 'bad/token ' . str_repeat('x', 81) . ' inline-flex ', $html);
+$html = str_replace('inline-flex ', 'bad&lt;token ' . str_repeat('x', 81) . ' inline-flex ', $html);
 $result = ( new HtmlTransformer() )->transform($html)->toArray();
 $fallbacks = array_values(array_filter($result['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_form_fallback' === ($finding['diagnostic_code'] ?? null)));
 $controls = array_column($fallbacks[0]['controls'] ?? array(), null, 'name');

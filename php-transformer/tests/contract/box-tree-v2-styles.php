@@ -14,6 +14,7 @@ $assert = static function (bool $ok, string $message): void {
 $parent = $tree['nodes']['n1']['viewports'];
 $observations = $parent;
 $observations['desktop']['used_styles']['color'] = 'rgb(255, 0, 0)';
+$observations['desktop']['used_styles']['position'] = 'relative';
 $observations['desktop']['used_styles']['top'] = '12px';
 $pseudo = $observations['desktop'];
 $pseudo['content'] = '"hello"';

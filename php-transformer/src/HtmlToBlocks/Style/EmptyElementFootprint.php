@@ -21,7 +21,16 @@ final class EmptyElementFootprint
     private function hasPositiveLength(array $declarations, array $properties, ?DOMElement $element = null): bool
     {
         foreach ( $properties as $property ) {
-            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->customProperties->resolve($declarations[$property], $element)) ) return true;
+            if ( ! isset($declarations[$property]) ) continue;
+            $value = $this->styleResolver->customProperties->resolve($declarations[$property], $element);
+            if ( $this->sourceElementClassifier->isPositiveCssLength($value) ) return true;
+            // Percentage padding sizes even a childless box: its reference is
+            // the containing block's width, not this element's content height.
+            // Do not broaden definite-length checks (e.g. grid tracks) globally.
+            if ( str_starts_with($property, 'padding')
+                && 1 === preg_match('/^\+?(\d+(?:\.\d+)?|\.\d+)%$/', trim($value), $matches)
+                && 0 < (float) $matches[1]
+            ) return true;
         }
         return false;
     }

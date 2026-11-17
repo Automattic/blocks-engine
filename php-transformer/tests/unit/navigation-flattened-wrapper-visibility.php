@@ -19,7 +19,7 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 $result = ( new HtmlTransformer() )->transform(
-    '<style>.bar{display:flex;align-items:center;gap:20px}.links{display:flex;align-items:center;gap:24px}.links a{font-size:11px}'
+    '<style>*{box-sizing:border-box;border:0 solid;margin:0;padding:0}.bar{display:flex;align-items:center;gap:20px}.links{display:flex;align-items:center;gap:24px}.links a{font-size:11px}'
     . '.cta{display:inline-flex;padding:0 24px;background:#c00;color:#fff}@media(max-width:800px){.links{display:none}}</style>'
     . '<nav class="site-nav" aria-label="Main navigation"><div class="bar"><a class="brand" href="#top">Brand</a>'
     . '<div class="links"><a href="#about">About</a><a href="#book">Book</a><a href="#blog">Blog</a></div>'
@@ -52,5 +52,9 @@ $assert(array() === $carrierOf('Brand') && array() === $carrierOf('Get the book'
 
 $hidden = '/@media\s*\(max-width:\s*800px\)\s*\{[^@]*\.wp-block-navigation-item\.' . preg_quote($carriers[0], '/') . '[^{,]*\{display:none\}/';
 $assert(1 === preg_match($hidden, $css), 'the wrapper breakpoint display:none lands on the native items it was flattened into');
+
+// The universal reset already reaches every native item. Restating it on
+// the stronger carrier selector would override unrelated author item styles.
+$assert(0 === preg_match('/[^{}]*\\.wp-block-navigation-item\\.' . preg_quote($carriers[0], '/') . '[^{}]*\\{[^{}]*box-sizing:/', $css), 'universal resets are not promoted onto the wrapper carrier');
 
 echo "Navigation flattened wrapper visibility contract passed\n";

@@ -512,6 +512,25 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Box declarations that classOwnedResponsiveDeclarations() withholds from
+     * block supports. The author stylesheet still paints them, so a wrapper
+     * whose only presentation is responsive keeps its box (#6346).
+     *
+     * @return array<string, string>
+     */
+    public function responsiveStylesheetOwnedBoxDeclarations(DOMElement $element): array
+    {
+        $declarations = $this->presentationDeclarations($element);
+        $withheld = array_diff_key($declarations, $this->classOwnedResponsiveDeclarations($element, $declarations));
+        return array_filter(
+            $withheld,
+            static fn (string $value, string $property): bool => 1 === preg_match('/^(?:padding|border|background|margin|width|height|min-|max-|inset|box-shadow|outline)/', $property)
+                && CssValueInspector::isNonZero($value),
+            ARRAY_FILTER_USE_BOTH
+        );
+    }
+
+    /**
      * Keep declarations with conditional variants under author stylesheet
      * ownership. Promoting their base values to block supports would serialize
      * them inline and prevent media/container queries from winning the cascade.
@@ -4475,7 +4494,17 @@ final class StyleResolver implements ElementPresentationResolver
             unset($declarations['display']);
         }
 
+        // CSS state reveals survive import; only settle opacity when that
+        // interaction is absent (for example, a script-driven entrance).
+        $retainedOpacity = null;
+        if ($this->hasCssOpacityReveal($element, $declarations)) {
+            $retainedOpacity = $declarations['opacity'];
+            unset($declarations['opacity']);
+        }
         $normalized = $this->closedStateNormalizer()->strip($declarations, $this->sourceRevealProperties($element, $declarations));
+        if (null !== $retainedOpacity) {
+            $normalized['declarations']['opacity'] = $retainedOpacity;
+        }
         if ( null !== $responsiveDisplay ) {
             $normalized['declarations']['display'] = $responsiveDisplay;
         }
@@ -4562,6 +4591,28 @@ final class StyleResolver implements ElementPresentationResolver
                 return true;
             }
             if ('hidden' === CssValueInspector::declared($declarations, 'visibility') && 'visible' === CssValueInspector::declared($revealed, 'visibility')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasCssOpacityReveal(DOMElement $element, array $declarations): bool
+    {
+        $opacity = CssValueInspector::declared($declarations, 'opacity');
+        if (! is_numeric($opacity) || 0.0 !== (float) $opacity) {
+            return false;
+        }
+
+        foreach ($this->session->sourceStyleResolutionState()->revealStateRules() as $rule) {
+            $revealedOpacity = CssValueInspector::declared((array) ($rule['declarations'] ?? array()), 'opacity');
+            if (
+                is_numeric($revealedOpacity)
+                && 0.0 < (float) $revealedOpacity
+                && $this->session->sourceStyleResolutionState()->matches($element, (string) $rule['base_selector'])
+            ) {
                 return true;
             }
         }
@@ -5597,7 +5648,7 @@ final class StyleResolver implements ElementPresentationResolver
                     $analysis['pseudo'][] = $readingCustomProperties(array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions));
                 }
             }
-            if (array() === $declarations && array() === array_filter(array_keys($rawDeclarations), static fn(string $name): bool => str_starts_with($name, '--'))) {
+            if (array() === $declarations && ! isset($rawDeclarations['opacity']) && array() === array_filter(array_keys($rawDeclarations), static fn(string $name): bool => str_starts_with($name, '--'))) {
                 continue;
             }
             $navigationStateConditions = array_filter(
@@ -5608,10 +5659,10 @@ final class StyleResolver implements ElementPresentationResolver
                 $navigationStateConditions,
                 static fn (string $condition): bool => 1 !== preg_match('/^@media\b/i', trim($condition))
             );
-            if (($selectorConditions === array() || $selectorIsStaticLayerRule || $navigationStateConditionsSupported) && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
+            if (($selectorConditions === array() || $selectorIsStaticLayerRule || $navigationStateConditionsSupported) && 0 < preg_match_all('/:(hover|focus-within|focus-visible|focus|active|checked)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
                 $state = strtolower((string) $stateMatches[1][0][0]);
                 $offset = (int) $stateMatches[0][0][1];
-                $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
+                $baseSelector = trim((string) preg_replace('/:(hover|focus-within|focus-visible|focus|active|checked)\b/i', '', $selector));
                 // Disabled gates on authored button states are resting
                 // attribute constraints, not interaction states themselves.
                 $baseSelector = str_ireplace(':not(:disabled)', ':not([disabled])', $baseSelector);
@@ -6357,10 +6408,58 @@ final class StyleResolver implements ElementPresentationResolver
         return implode(' ', array_values(array_filter($classes, static fn (string $class): bool => ! isset($unsafe[$class]))));
     }
 
+    /**
+     * Source gutters already participate in slide widths; do not add a second gap.
+     *
+     * @param list<DOMElement> $slides
+     */
+    public function carouselTrackGap(array $slides): string
+    {
+        foreach ($slides as $slide) {
+            if (!$slide instanceof DOMElement) continue;
+            $values = $this->authorDeclaredValuesAtAnyViewport($slide, array('padding-left', 'padding-right', 'padding-inline-start', 'padding-inline-end', 'margin-left', 'margin-right'));
+            foreach ($values as $propertyValues) {
+                foreach ($propertyValues as $value) {
+                    $value = CssValueInspector::comparable($value);
+                    if (!in_array($value, array('', '0', '0px', 'auto', 'normal'), true)) return '0px';
+                }
+            }
+        }
+        return '';
+    }
+
     /** Source list classes for the generated track, excluding slide runtime hooks. */
     public function safeTrackClassName(DOMElement $sourceList, array $replacedSlides): string
     {
         return $this->safeStageClassName($sourceList, $replacedSlides);
+    }
+
+    /** Authored state classes whose rules match a pagination item when selected. @return list<string> */
+    public function paginationActiveClasses(DOMElement $item): array
+    {
+        $original = SourceDom::attr($item, 'class');
+        $classes = array();
+        try {
+            (new CssStylesheetTransformer())->visitStyleRules($this->session->authorStyleAnalysis()->combinedCss(), function (string $prelude, string $body) use ($item, $original, &$classes): void {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    if (!preg_match_all('/\.([a-zA-Z_][a-zA-Z0-9_-]*(?:active|current|selected)[a-zA-Z0-9_-]*|active|current|selected)(?![a-zA-Z0-9_-])/', $selector, $matches)) {
+                        continue;
+                    }
+                    foreach ($matches[1] as $class) {
+                        $item->setAttribute('class', $original . ' ' . $class);
+                        $parsed = CssSelectorMatcher::parse($selector);
+                        foreach (array_merge(array($item), iterator_to_array($item->getElementsByTagName('*'))) as $target) {
+                            if (CssSelectorMatcher::matches($target, $parsed)['matches']) {
+                                $classes[$class] = true;
+                            }
+                        }
+                    }
+                }
+            });
+        } finally {
+            $item->setAttribute('class', $original);
+        }
+        return array_keys($classes);
     }
 
     /** @return list<string> Attribute identities needed by projected source selectors. */
