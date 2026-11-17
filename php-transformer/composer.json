@@ -78,6 +78,7 @@
     "test:root-absolute-sprite-links-browser": "node tests/contract/root-absolute-sprite-links-browser.mjs",
     "test:social-links-icon-font-browser": "node tests/unit/social-links-icon-font-browser.mjs",
     "test:social-links-glyph-paint-browser": "node tests/unit/social-links-glyph-paint-browser.mjs",
+    "test:scoped-zero-reset-browser": "node tests/unit/scoped-zero-reset-browser.mjs",
     "test:image-caption-margins-browser": "node tests/unit/image-caption-margins-browser.mjs",
     "test:cover-default-padding-browser": "node tests/unit/cover-default-padding-browser.mjs",
     "test:carousel-authored-slide-track-browser": "node tests/unit/carousel-authored-slide-track-browser.mjs",

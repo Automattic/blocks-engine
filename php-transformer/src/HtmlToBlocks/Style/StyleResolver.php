@@ -1326,13 +1326,17 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /** Whether an unconditional universal/type rule supplies a shared zero box.
+     * Zero-specificity scopes do not make a reset instance-owned.
      * Class, state and responsive resets remain instance-owned.
      */
     public function hasGlobalZeroBox(DOMElement $element, string $box): bool
     {
         foreach ($this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional') as $rule) {
             $selector = trim((string) ($rule['selector'] ?? ''));
-            if (1 !== preg_match('/^(?:\*|[a-zA-Z][a-zA-Z0-9-]*)$/D', $selector)) continue;
+            $parsed = CssSelectorMatcher::parse($selector);
+            if (!($parsed['supported'] ?? false)) continue;
+            $specificity = CssSelectorMatcher::specificityCounts($parsed);
+            if (0 !== $specificity['ids'] || 0 !== $specificity['classes'] || 1 < $specificity['types']) continue;
             foreach ($rule['conditions'] ?? array() as $condition) {
                 if (1 !== preg_match('/^@layer\b/i', trim($condition))) continue 2;
             }
