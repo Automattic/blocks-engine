@@ -1329,20 +1329,55 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /** Whether an unconditional universal/type rule supplies a shared zero box.
+     * Scoped resets remain instance-owned when they win the source cascade:
+     * their inline zeros may be needed to neutralise WordPress element chrome.
      * Class, state and responsive resets remain instance-owned.
      */
-    public function hasGlobalZeroBox(DOMElement $element, string $box): bool
+    public function hasGlobalZeroBox(DOMElement $element, string $box, string $side): bool
     {
         foreach ($this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional') as $rule) {
             $selector = trim((string) ($rule['selector'] ?? ''));
-            if (1 !== preg_match('/^(?:\*|[a-zA-Z][a-zA-Z0-9-]*)$/D', $selector)) continue;
+            $parsed = CssSelectorMatcher::parse($selector);
+            if (!($parsed['supported'] ?? false)) continue;
+            $specificity = CssSelectorMatcher::specificityCounts($parsed);
+            if (0 !== $specificity['ids'] || 0 !== $specificity['classes'] || 1 < $specificity['types']) continue;
             foreach ($rule['conditions'] ?? array() as $condition) {
                 if (1 !== preg_match('/^@layer\b/i', trim($condition))) continue 2;
             }
             $value = CssValueInspector::withoutImportant((string) ($rule['declarations'][$box] ?? ''));
-            if (CssValueInspector::isZeroLength($value)) return true;
+            if (!CssValueInspector::isZeroLength($value)) continue;
+            if (!str_contains($selector, ':where(')) return true;
+
+            // Compare the source winner, not just the presence of a reset. Keep
+            // pending var() values in the shared cascade so an unresolved logical
+            // margin can still defeat a physical zero from the reset.
+            $cascade = array();
+            $sequence = 0;
+            $rules = array_merge($this->session->sourceStyleResolutionState()->matchingRulesInCascadeOrder($element, 'static'), $this->session->sourceStyleResolutionState()->matchingRules($element, 'cascaded-values'));
+            usort($rules, static fn(array $left, array $right): int => ($left['cascadeOrder'] ?? 0) <=> ($right['cascadeOrder'] ?? 0));
+            foreach ($rules as $matched) {
+                $this->applyZeroBoxCascade($cascade, $matched['sourceSpacingDeclarations'] ?? array(), $box, $side, false, $this->cascade->specificity((string) $matched['selector']), $sequence, $matched['layerRank'] ?? null);
+            }
+            $this->applyZeroBoxCascade($cascade, SourceDeclarations::inline($element), $box, $side, true, array(PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX), $sequence);
+            return isset($cascade[$box . '-' . $side]) && !CssValueInspector::isZeroLength($cascade[$box . '-' . $side]['value']);
         }
         return false;
+    }
+
+    /** Rank overlapping spacing declarations without resolving pending values. */
+    private function applyZeroBoxCascade(array &$cascade, array $declarations, string $box, string $side, bool $inline, array $specificity, int &$sequence, ?int $layer = null): void
+    {
+        $physical = $box . '-' . $side;
+        $axis = in_array($side, array('top', 'bottom'), true) ? 'block' : 'inline';
+        $edge = in_array($side, array('top', 'left'), true) ? 'start' : 'end';
+        foreach ($declarations as $property => $value) {
+            if (!in_array($property, array($box, $physical, $box . '-' . $axis, $box . '-' . $axis . '-' . $edge, 'all'), true)) continue;
+            // Expand literal shorthands per side; keep pending var() values
+            // intact when expansion cannot supply a physical longhand.
+            $expanded = SourceDeclarations::parse($property . ':' . $value);
+            $value = $expanded[$physical] ?? $value;
+            $this->applyMediaTextCascadeDeclaration($cascade, 'all' === $property ? 'all' : $physical, $value, $inline, $specificity, ++$sequence, $layer);
+        }
     }
 
     /** @return list<array{value:string,queries:list<string>,layer:string|null,layerRank:int|null,important:bool,order:int,specificity:array<int,int>}> */
@@ -5569,6 +5604,7 @@ final class StyleResolver implements ElementPresentationResolver
         $readingCustomProperties = static fn (array $rule): array => (array() === $customPropertyReferences
             ? $rule
             : $rule + array( 'customPropertyReferences' => $customPropertyReferences )) + $pendingFont
+                + array('sourceSpacingDeclarations' => array_filter($rawDeclarations, static fn(string $property): bool => 'all' === $property || 1 === preg_match('/^(margin|padding)(-|$)/', $property), ARRAY_FILTER_USE_KEY))
                 + (isset($rawDeclarations['vertical-align']) ? array('sourceVerticalAlign' => $rawDeclarations['vertical-align']) : array());
         $mediaTextDeclarations = array() === $conditions
             ? array_values(array_filter(

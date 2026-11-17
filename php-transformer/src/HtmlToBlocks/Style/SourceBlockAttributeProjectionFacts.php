@@ -12,6 +12,7 @@ final class SourceBlockAttributeProjectionFacts
         public readonly bool $hasAuthorControlProjection,
         public readonly bool $isDirectChildOfAuthorFlexLayout,
         public readonly bool $preserveGeneratedStyle,
-        public readonly bool $syntheticImageFigureFollowsInlineFlow
+        public readonly bool $syntheticImageFigureFollowsInlineFlow,
+        public readonly bool $syntheticImageFigureKeepsLineStrut = false
     ) {}
 }

@@ -606,7 +606,8 @@ JS;
         // A slide is positioned, hidden and sized as a box. An image that was
         // inline in its source slide gets a box-less synthetic figure, which
         // would leave every hidden slide stacked in the flow below the active one.
-        $style .= ':root .blocks-engine-authored-carousel__track>.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '{display:block}';
+        $style .= ':root .blocks-engine-authored-carousel__track>.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS
+            . ',:root .blocks-engine-authored-carousel__track>.' . SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS . '{display:block}';
         $style .= '.blocks-engine-authored-carousel__source-stage{width:100%;min-width:0}.blocks-engine-authored-carousel--slideshow{margin-block-start:0;margin-block-end:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{min-height:var(--blocks-engine-carousel-stage-min-height,0)}.blocks-engine-authored-carousel__track>.wp-block-group{min-height:var(--blocks-engine-carousel-stage-min-height,auto);margin-block-start:0;margin-block-end:0}';
         // Overlay controls do not occupy the outer grid's auto tracks. If
         // source CSS restores display:grid, the stage must occupy its content

@@ -16,13 +16,20 @@ $figures = $xpath->query('//figure[img]');
 if (false === $figures || 2 !== $figures->length) {
     throw new RuntimeException('Both unlinked source images must become native image figures.');
 }
-$inlineClass = 'blocks-engine-synthetic-image-figure-inline';
-if (!str_contains($figures->item(0)->getAttribute('class'), $inlineClass)
-    || !str_contains($css, ':root .' . $inlineClass . '{display:contents}')
-    || !str_contains($css, '.' . $inlineClass . ' img{display:inline}')) {
-    throw new RuntimeException('The unlinked inline image must keep its parent line box through the existing transparent figure mechanism.');
+$strutClass = 'blocks-engine-synthetic-image-figure-strut';
+$positionedClass = 'blocks-engine-synthetic-image-figure-inline';
+if (!str_contains($figures->item(0)->getAttribute('class'), $strutClass)
+    || !str_contains($css, ':root .' . $strutClass . '{display:contents}')
+    || !str_contains($css, '.' . $strutClass . ' img{display:inline}')
+    || !str_contains($css, 'figure.wp-block-image:where(.' . $strutClass . ') img{vertical-align:baseline}')) {
+    throw new RuntimeException('The unlinked inline image must keep its parent line box through a transparent strut figure on the source baseline.');
 }
-if (str_contains($figures->item(1)->getAttribute('class'), $inlineClass)
+// The strut figure is not the positioning carrier: positioning inheritance
+// belongs to authored positioned leaves in inline figures, not every image.
+if (str_contains($markup, $positionedClass) || str_contains($css, 'position:inherit;inset:inherit')) {
+    throw new RuntimeException('A strut figure must not inherit or carry figure positioning.');
+}
+if (str_contains($figures->item(1)->getAttribute('class'), $strutClass)
     || !str_contains($css, ':where(.blocks-engine-image).wp-block-image > img,:where(.blocks-engine-image).wp-block-image > a > img{display:block;')) {
     throw new RuntimeException('The block source image must retain ordinary block image support.');
 }
@@ -37,9 +44,25 @@ foreach (array('absolute', 'fixed') as $position) {
     @$document->loadHTML((string) $compiled['serialized_blocks']);
     $figures = (new DOMXPath($document))->query('//figure[img]');
     if (false === $figures || 2 !== $figures->length
-        || str_contains($figures->item(0)->getAttribute('class'), $inlineClass)
-        || !str_contains($figures->item(1)->getAttribute('class'), $inlineClass)) {
+        || str_contains($figures->item(0)->getAttribute('class'), $strutClass)
+        || !str_contains($figures->item(1)->getAttribute('class'), $strutClass)) {
         throw new RuntimeException('Conditional out-of-flow parents must keep figure boxes; relative parents must retain the inline strut.');
+    }
+}
+// Author positioning on an image never replays onto a strut leaf, and an
+// inline SVG icon keeps its figure box so image-only rules cannot reach it.
+$source = '<style>.media img{width:100%}@media (max-width:600px){.media img{position:absolute;inset:0}}</style>'
+    . '<main><div class="media"><img src="photo.webp" alt="Photo"><div><svg width="24" height="24"><path d="M0 0L10 10"/></svg></div></div></main>';
+$compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $source)))->toArray();
+$compiledCss = implode("\n", array_column(array_filter($compiled['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+if (!str_contains((string) $compiled['serialized_blocks'], $strutClass) || 1 === preg_match('/:where\(\.' . $strutClass . '\)[^{}]*\{[^}]*position:/', $compiledCss)) {
+    throw new RuntimeException('A conditionally positioned photo keeps its strut, but its authored positioning must not replay onto the strut leaf.');
+}
+$document = new DOMDocument();
+@$document->loadHTML((string) $compiled['serialized_blocks']);
+foreach ((new DOMXPath($document))->query('//figure[img[contains(@src,"materialized-svg")]]') as $icon) {
+    if (str_contains($icon->getAttribute('class'), $strutClass)) {
+        throw new RuntimeException('A materialized SVG icon must keep its figure box.');
     }
 }
 echo "Unlinked inline image strut contract passed.\n";
