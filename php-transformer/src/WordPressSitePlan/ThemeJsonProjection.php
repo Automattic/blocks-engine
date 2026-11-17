@@ -771,7 +771,12 @@ final class ThemeJsonProjection
                     if (!isset($names['font-family|' . $family['slug']]) && 1 === preg_match('/^[A-Za-z][A-Za-z0-9 _.\'-]*$/', $token)) { $families[$index]['name'] = $token; break; }
                 }
                 $familyFaces = array_values(array_filter($faces, static fn(array $face): bool => self::stackReferencesFamily($stack, (string) ($face['family'] ?? ''))));
-                if (array() !== $familyFaces) $families[$index]['fontFace'] = $familyFaces;
+                // Supplemental block-only families already load through their
+                // source stylesheets. Do not register a second global copy of
+                // those faces merely to expose the stack as an editable token.
+                $blockOnly = false;
+                foreach ($system?->fontFamilies ?? array() as $preset) if ($preset['slug'] === $family['slug'] && 0 === $preset['weight']) $blockOnly = true;
+                if (!$blockOnly && array() !== $familyFaces) $families[$index]['fontFace'] = $familyFaces;
             }
             $settings['typography']['fontFamilies'] = $families;
         }

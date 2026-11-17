@@ -826,6 +826,9 @@ final class StyleResolver implements ElementPresentationResolver
         $serialized = SourceDom::withoutBlockifiedBoundaryWhitespace($element, $blockifiesChildren);
         $clone = SourceDom::canonicalizedSerializationClone($serialized);
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries::mergeBlockifiedRuns($element, $clone, $blockifiesChildren);
+        if ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries::hasEmptySeams($clone) && $this->movesTextAcrossClip($element) ) {
+            \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries::keepEmptySeamsIn($clone);
+        }
         SourceDom::projectInlineStyles($element, $clone, $this->serializedInlineStyle(...));
         // RichText parses literal line endings as spaces. Canonicalize collapsed
         // text before saving too, so the initial frontend and editable value
@@ -1218,9 +1221,11 @@ final class StyleResolver implements ElementPresentationResolver
             return '';
         }
 
+        // The class names its rules, not its element: every element carrying
+        // the same responsive sizes shares one class and one emitted rule set.
         $className = 'blocks-engine-responsive-typography-' . substr(hash(
             'sha256',
-            $this->geometryStructuralPath($element) . "\n" . $base . "\n" . serialize($conditional)
+            $base . "\n" . serialize($conditional)
         ), 0, 12);
         $this->session->generatedSupportStylesheetState()->registerResponsiveTypography($className, $base, $conditional);
 
@@ -1301,9 +1306,10 @@ final class StyleResolver implements ElementPresentationResolver
         }
         if ('' === $base && array() === $conditional) return '';
 
+        // Content-addressed like responsive typography: equal margins share a marker.
         $marker = 'blocks-engine-responsive-margin-top-' . substr(hash(
             'sha256',
-            $this->geometryStructuralPath($element) . "\n" . $base . "\n" . serialize($conditional)
+            $base . "\n" . serialize($conditional)
         ), 0, 12);
         $this->session->generatedSupportStylesheetState()->registerResponsiveBlockMarginTop($marker, $base, $conditional);
 
@@ -1323,20 +1329,55 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /** Whether an unconditional universal/type rule supplies a shared zero box.
+     * Scoped resets remain instance-owned when they win the source cascade:
+     * their inline zeros may be needed to neutralise WordPress element chrome.
      * Class, state and responsive resets remain instance-owned.
      */
-    public function hasGlobalZeroBox(DOMElement $element, string $box): bool
+    public function hasGlobalZeroBox(DOMElement $element, string $box, string $side): bool
     {
         foreach ($this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional') as $rule) {
             $selector = trim((string) ($rule['selector'] ?? ''));
-            if (1 !== preg_match('/^(?:\*|[a-zA-Z][a-zA-Z0-9-]*)$/D', $selector)) continue;
+            $parsed = CssSelectorMatcher::parse($selector);
+            if (!($parsed['supported'] ?? false)) continue;
+            $specificity = CssSelectorMatcher::specificityCounts($parsed);
+            if (0 !== $specificity['ids'] || 0 !== $specificity['classes'] || 1 < $specificity['types']) continue;
             foreach ($rule['conditions'] ?? array() as $condition) {
                 if (1 !== preg_match('/^@layer\b/i', trim($condition))) continue 2;
             }
             $value = CssValueInspector::withoutImportant((string) ($rule['declarations'][$box] ?? ''));
-            if (CssValueInspector::isZeroLength($value)) return true;
+            if (!CssValueInspector::isZeroLength($value)) continue;
+            if (!str_contains($selector, ':where(')) return true;
+
+            // Compare the source winner, not just the presence of a reset. Keep
+            // pending var() values in the shared cascade so an unresolved logical
+            // margin can still defeat a physical zero from the reset.
+            $cascade = array();
+            $sequence = 0;
+            $rules = array_merge($this->session->sourceStyleResolutionState()->matchingRulesInCascadeOrder($element, 'static'), $this->session->sourceStyleResolutionState()->matchingRules($element, 'cascaded-values'));
+            usort($rules, static fn(array $left, array $right): int => ($left['cascadeOrder'] ?? 0) <=> ($right['cascadeOrder'] ?? 0));
+            foreach ($rules as $matched) {
+                $this->applyZeroBoxCascade($cascade, $matched['sourceSpacingDeclarations'] ?? array(), $box, $side, false, $this->cascade->specificity((string) $matched['selector']), $sequence, $matched['layerRank'] ?? null);
+            }
+            $this->applyZeroBoxCascade($cascade, SourceDeclarations::inline($element), $box, $side, true, array(PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX), $sequence);
+            return isset($cascade[$box . '-' . $side]) && !CssValueInspector::isZeroLength($cascade[$box . '-' . $side]['value']);
         }
         return false;
+    }
+
+    /** Rank overlapping spacing declarations without resolving pending values. */
+    private function applyZeroBoxCascade(array &$cascade, array $declarations, string $box, string $side, bool $inline, array $specificity, int &$sequence, ?int $layer = null): void
+    {
+        $physical = $box . '-' . $side;
+        $axis = in_array($side, array('top', 'bottom'), true) ? 'block' : 'inline';
+        $edge = in_array($side, array('top', 'left'), true) ? 'start' : 'end';
+        foreach ($declarations as $property => $value) {
+            if (!in_array($property, array($box, $physical, $box . '-' . $axis, $box . '-' . $axis . '-' . $edge, 'all'), true)) continue;
+            // Expand literal shorthands per side; keep pending var() values
+            // intact when expansion cannot supply a physical longhand.
+            $expanded = SourceDeclarations::parse($property . ':' . $value);
+            $value = $expanded[$physical] ?? $value;
+            $this->applyMediaTextCascadeDeclaration($cascade, 'all' === $property ? 'all' : $physical, $value, $inline, $specificity, ++$sequence, $layer);
+        }
     }
 
     /** @return list<array{value:string,queries:list<string>,layer:string|null,layerRank:int|null,important:bool,order:int,specificity:array<int,int>}> */
@@ -4069,6 +4110,42 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether an author animation moves this element's text across the edge
+     * of an overflow clip: an element at or above it runs an animation, and an
+     * ancestor of that moving content clips its overflow (a scrolling
+     * marquee or ticker). The clip edge then passes through the text as it
+     * moves, and the browser leaves each text run that falls wholly outside
+     * it unpainted on its own, so the source's run boundaries are part of
+     * what the visitor sees at any moment.
+     */
+    public function movesTextAcrossClip(DOMElement $element): bool
+    {
+        $moving = false;
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $declared = $this->authorDeclaredValuesAtAnyViewport($node, array( 'animation', 'animation-name', 'overflow', 'overflow-x', 'overflow-y' ));
+            if ( $moving ) {
+                foreach ( array( 'overflow', 'overflow-x', 'overflow-y' ) as $property ) {
+                    foreach ( $declared[$property] ?? array() as $value ) {
+                        if ( 1 === preg_match('/(?<![\w-])(?:hidden|clip)(?![\w-])/i', $value) ) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            foreach ( array( 'animation', 'animation-name' ) as $property ) {
+                foreach ( $declared[$property] ?? array() as $value ) {
+                    $value = strtolower(trim(preg_replace('/!\s*important\s*$/i', '', $value) ?? $value));
+                    if ( ! in_array($value, array( '', 'none', 'initial', 'inherit', 'unset', 'revert', 'revert-layer' ), true) ) {
+                        $moving = true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Every value the author stylesheet states for these properties on this
      * element in its resting state, at any viewport, in source order with the
      * inline style last.
@@ -4079,12 +4156,14 @@ final class StyleResolver implements ElementPresentationResolver
      * answers "does the source ever state X here" for recognition, not which
      * value wins, so callers must not project it.
      *
-     * @param array<int, string> $properties
+     * A null property list answers for every property the source states.
+     *
+     * @param array<int, string>|null $properties
      * @return array<string, list<string>>
      */
-    public function authorDeclaredValuesAtAnyViewport(DOMElement $element, array $properties): array
+    public function authorDeclaredValuesAtAnyViewport(DOMElement $element, ?array $properties): array
     {
-        $wanted = array_fill_keys(array_map('strtolower', $properties), true);
+        $wanted = null === $properties ? null : array_fill_keys(array_map('strtolower', $properties), true);
         $authorStyles = $this->session->authorStyleAnalysis();
         $selectorCache = $authorStyles->selectorMatchCache();
         $rules = $selectorCache->styleRuleCandidates($element, 'author-structural', $authorStyles->styleRuleCandidateIndex());
@@ -4100,7 +4179,7 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ( $declarationSets as $declarations ) {
             foreach ( $declarations as $property => $value ) {
                 $property = strtolower((string) $property);
-                if ( isset($wanted[ $property ]) ) {
+                if ( null === $wanted || isset($wanted[ $property ]) ) {
                     $declared[ $property ][] = (string) $value;
                 }
             }
@@ -4287,12 +4366,17 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Shorthand reset families projected by this resolver. Font is already
-     * expanded by cssDeclarations() using CssFontShorthand before ranking.
+     * Shorthand reset families projected by this resolver. Pending font and
+     * logical box substitutions still reset longhands before value resolution.
      * Include intermediate shorthands as well as terminal longhands so border
      * resets compete at every level without parsing or expanding CSS values.
      */
     private const BOX_SHORTHAND_LONGHANDS = array(
+        'font' => self::FONT_SHORTHAND_LONGHANDS,
+        'margin-block' => array('margin-top', 'margin-bottom'),
+        'margin-inline' => array('margin-left', 'margin-right'),
+        'padding-block' => array('padding-top', 'padding-bottom'),
+        'padding-inline' => array('padding-left', 'padding-right'),
         'background' => array('background-color', 'background-image', 'background-position', 'background-size',
             'background-repeat', 'background-attachment', 'background-origin', 'background-clip'),
         'padding' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'),
@@ -4573,6 +4657,37 @@ final class StyleResolver implements ElementPresentationResolver
                 && $this->session->sourceStyleResolutionState()->matches($element, (string) $rule['base_selector'])
             ) {
                 return true;
+            }
+
+            // An additional class/attribute gate on an anchored ancestor is also
+            // CSS reveal evidence. Subject-only toggles remain script entrances.
+            if (! is_numeric($revealedOpacity) || 0.0 >= (float) $revealedOpacity) {
+                continue;
+            }
+            $reveal = CssSelectorMatcher::parse((string) $rule['base_selector']);
+            if (! ($reveal['supported'] ?? false)) {
+                continue;
+            }
+            // Keep the subject and ancestor structure intact. Removing one
+            // additional condition must leave an anchored, matching selector.
+            $last = count($reveal['compounds']) - 1;
+            foreach ($reveal['compounds'] as $index => $compound) {
+                if ($index === $last) {
+                    continue;
+                }
+                foreach (array('classes', 'attributes') as $kind) {
+                    foreach (array_keys($compound[$kind]) as $key) {
+                        $candidate = $reveal;
+                        unset($candidate['compounds'][$index][$kind][$key]);
+                        $anchor = $candidate['compounds'][$index];
+                        if (null === $anchor['type'] && array() === $anchor['classes'] && array() === $anchor['ids'] && array() === $anchor['attributes']) {
+                            continue;
+                        }
+                        if (CssSelectorMatcher::matches($element, $candidate)['matches']) {
+                            return true;
+                        }
+                    }
+                }
             }
         }
 
@@ -5489,6 +5604,7 @@ final class StyleResolver implements ElementPresentationResolver
         $readingCustomProperties = static fn (array $rule): array => (array() === $customPropertyReferences
             ? $rule
             : $rule + array( 'customPropertyReferences' => $customPropertyReferences )) + $pendingFont
+                + array('sourceSpacingDeclarations' => array_filter($rawDeclarations, static fn(string $property): bool => 'all' === $property || 1 === preg_match('/^(margin|padding)(-|$)/', $property), ARRAY_FILTER_USE_KEY))
                 + (isset($rawDeclarations['vertical-align']) ? array('sourceVerticalAlign' => $rawDeclarations['vertical-align']) : array());
         $mediaTextDeclarations = array() === $conditions
             ? array_values(array_filter(
@@ -5606,6 +5722,10 @@ final class StyleResolver implements ElementPresentationResolver
                     }
                     $analysis['pseudo'][] = $readingCustomProperties(array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions));
                 }
+            }
+            $positiveOpacity = CssValueInspector::declared($rawDeclarations, 'opacity');
+            if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && is_numeric($positiveOpacity) && 0.0 < (float) $positiveOpacity) {
+                $analysis['reveal_state'][] = array('base_selector' => $selector, 'state' => '', 'state_subject_selector' => '', 'declarations' => array('opacity' => $rawDeclarations['opacity']));
             }
             if (array() === $declarations && ! isset($rawDeclarations['opacity']) && array() === array_filter(array_keys($rawDeclarations), static fn(string $name): bool => str_starts_with($name, '--'))) {
                 continue;
@@ -5966,6 +6086,8 @@ final class StyleResolver implements ElementPresentationResolver
             'justify-content',
             'line-height',
             'margin',
+            'margin-block',
+            'margin-inline',
             'margin-bottom',
             'margin-left',
             'margin-right',
@@ -5978,6 +6100,8 @@ final class StyleResolver implements ElementPresentationResolver
             'object-position',
             'order',
             'padding',
+            'padding-block',
+            'padding-inline',
             'padding-bottom',
             'padding-left',
             'padding-right',
@@ -6367,10 +6491,58 @@ final class StyleResolver implements ElementPresentationResolver
         return implode(' ', array_values(array_filter($classes, static fn (string $class): bool => ! isset($unsafe[$class]))));
     }
 
+    /**
+     * Source gutters already participate in slide widths; do not add a second gap.
+     *
+     * @param list<DOMElement> $slides
+     */
+    public function carouselTrackGap(array $slides): string
+    {
+        foreach ($slides as $slide) {
+            if (!$slide instanceof DOMElement) continue;
+            $values = $this->authorDeclaredValuesAtAnyViewport($slide, array('padding-left', 'padding-right', 'padding-inline-start', 'padding-inline-end', 'margin-left', 'margin-right'));
+            foreach ($values as $propertyValues) {
+                foreach ($propertyValues as $value) {
+                    $value = CssValueInspector::comparable($value);
+                    if (!in_array($value, array('', '0', '0px', 'auto', 'normal'), true)) return '0px';
+                }
+            }
+        }
+        return '';
+    }
+
     /** Source list classes for the generated track, excluding slide runtime hooks. */
     public function safeTrackClassName(DOMElement $sourceList, array $replacedSlides): string
     {
         return $this->safeStageClassName($sourceList, $replacedSlides);
+    }
+
+    /** Authored state classes whose rules match a pagination item when selected. @return list<string> */
+    public function paginationActiveClasses(DOMElement $item): array
+    {
+        $original = SourceDom::attr($item, 'class');
+        $classes = array();
+        try {
+            (new CssStylesheetTransformer())->visitStyleRules($this->session->authorStyleAnalysis()->combinedCss(), function (string $prelude, string $body) use ($item, $original, &$classes): void {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    if (!preg_match_all('/\.([a-zA-Z_][a-zA-Z0-9_-]*(?:active|current|selected)[a-zA-Z0-9_-]*|active|current|selected)(?![a-zA-Z0-9_-])/', $selector, $matches)) {
+                        continue;
+                    }
+                    foreach ($matches[1] as $class) {
+                        $item->setAttribute('class', $original . ' ' . $class);
+                        $parsed = CssSelectorMatcher::parse($selector);
+                        foreach (array_merge(array($item), iterator_to_array($item->getElementsByTagName('*'))) as $target) {
+                            if (CssSelectorMatcher::matches($target, $parsed)['matches']) {
+                                $classes[$class] = true;
+                            }
+                        }
+                    }
+                }
+            });
+        } finally {
+            $item->setAttribute('class', $original);
+        }
+        return array_keys($classes);
     }
 
     /** @return list<string> Attribute identities needed by projected source selectors. */
@@ -6501,7 +6673,7 @@ final class StyleResolver implements ElementPresentationResolver
         // The font shorthand sets line-height too: a global keyword (font:inherit)
         // or an explicit /line-height is authored; otherwise it resets to normal.
         $font = strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['font'] ?? ''))));
-        if ( '' !== $font && ( in_array($font, array( 'inherit', 'unset', 'revert', 'revert-layer' ), true) || str_contains($font, '/') ) ) {
+        if ( '' !== $font && ( in_array($font, array( 'inherit', 'unset', 'revert', 'revert-layer' ), true) || str_contains($font, '/') || str_contains($font, 'var(') ) ) {
             return null;
         }
         return 'normal';

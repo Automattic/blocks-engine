@@ -442,6 +442,77 @@ final class DesignSystem
     }
 
     /**
+     * The system with an exact preset for every literal font size and font
+     * family a block carries in `style.typography` that no preset renders.
+     *
+     * Usage reads the static author cascade, but a block can also carry the
+     * typography the browser rendered for its source node (box-tree evidence
+     * of a font the static cascade cannot resolve, such as a size computed
+     * from a viewport scaling factor). Those values are rendered text all
+     * the same, and without a token they stay literals outside the editable
+     * design system. Like heading sizes, they are additive: the established
+     * scale, its names and its roles are unchanged, and each new token is the
+     * exact value, so binding never changes a rendered font.
+     *
+     * @param list<string> $markups Every page's block markup.
+     */
+    public function withBlockTypography(array $markups): self
+    {
+        $sizes = $families = array();
+        foreach ($markups as $markup) {
+            if (!preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) continue;
+            foreach ($matches[1] as $json) {
+                $attributes = json_decode($json, true);
+                $typography = is_array($attributes) && is_array($attributes['style']['typography'] ?? null) ? $attributes['style']['typography'] : array();
+                $size = is_string($typography['fontSize'] ?? null) ? trim($typography['fontSize']) : '';
+                // Only absolute lengths: a relative size renders differently
+                // under each parent, so it has no single exact token.
+                if (1 === preg_match('/^\d*\.?\d+(?:px|rem)$/i', $size) && null === $this->fontSizeSlug($size)) {
+                    $px = CssLength::toPx($size, $this->rootPx);
+                    if (null !== $px && $px > 0) {
+                        $pixel = CssLength::format($px);
+                        if (!isset($sizes[$pixel]) || strcmp($size, $sizes[$pixel]) < 0) $sizes[$pixel] = $size;
+                    }
+                }
+                $stack = is_string($typography['fontFamily'] ?? null) ? trim($typography['fontFamily']) : '';
+                $key = self::familyKey($stack);
+                if ('' === $key || str_contains($stack, 'var(') || in_array($key, self::CSS_WIDE_KEYWORDS, true) || in_array($key, self::GENERIC_FAMILIES, true) || null !== $this->fontFamilySlug($stack)) continue;
+                $families[$key][$stack] = ($families[$key][$stack] ?? 0) + 1;
+            }
+        }
+        if (array() === $sizes && array() === $families) return $this;
+        $fontSizes = $this->fontSizes;
+        $used = array_fill_keys(array_column($fontSizes, 'slug'), true);
+        uksort($sizes, static fn(string $a, string $b): int => (float) $a <=> (float) $b);
+        foreach ($sizes as $px => $value) {
+            // Kebab-case splits letters from digits (see fontSizes()).
+            $base = self::presetSlug('size-' . rtrim((string) $px, 'px'));
+            $slug = $base;
+            for ($suffix = 2; isset($used[$slug]); $suffix++) $slug = $base . '-' . $suffix;
+            $used[$slug] = true;
+            $fontSizes[] = array('slug' => $slug, 'name' => 'Size ' . $px, 'size' => $value, 'px' => (float) $px, 'weight' => 0);
+        }
+        $fontFamilies = $this->fontFamilies;
+        $used = array_fill_keys(array_merge(array('body', 'heading'), array_column($fontFamilies, 'slug')), true);
+        ksort($families, SORT_STRING);
+        foreach ($families as $key => $choices) {
+            // The binder identifies a family by its primary name. Different
+            // fallback stacks cannot share an exact supplemental token.
+            if (count($choices) > 1) continue;
+            uksort($choices, static fn(string $a, string $b): int => ($choices[$b] <=> $choices[$a]) ?: strcmp($a, $b));
+            $stack = (string) array_key_first($choices);
+            $name = self::familyName($stack);
+            $base = self::presetSlug($name);
+            if ('' === $base) $base = 'family';
+            $slug = $base;
+            for ($suffix = 2; isset($used[$slug]); $suffix++) $slug = $base . '-' . $suffix;
+            $used[$slug] = true;
+            $fontFamilies[] = array('slug' => $slug, 'name' => $name, 'fontFamily' => $stack, 'key' => (string) $key, 'role' => 'family', 'weight' => 0);
+        }
+        return new self($this->colors, $fontSizes, $fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+    }
+
+    /**
      * The system without the link and heading text colours (`color`,
      * `hover_color` of `link`, `heading`, `h1`–`h6`) that do not read on
      * the theme's root background: below the large-text WCAG ratio

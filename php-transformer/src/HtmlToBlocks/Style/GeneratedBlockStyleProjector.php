@@ -247,6 +247,16 @@ final class GeneratedBlockStyleProjector
         // button controls in the editor and on the frontend.
         if ( $sourceControl instanceof DOMElement ) {
             $sourceDeclarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($sourceControl));
+            // Core makes native buttons inherit page typography. Revert only
+            // unauthored font longhands to the button's UA values; inline
+            // editor typography and authored font resets remain in control.
+            if ( 'button' === strtolower($sourceControl->tagName) && ! isset($sourceDeclarations['font']) ) {
+                foreach ( array( 'font-family', 'font-size' ) as $property ) {
+                    if ( ! isset($sourceDeclarations[$property]) ) {
+                        $guardedDeclarations[':not([style*="' . $property . '"]):not([style*="font:"])'][] = $property . ':revert';
+                    }
+                }
+            }
             $sourceStructuralDeclarations = $this->styleResolver->classOwnedResponsiveDeclarations(
                 $sourceControl,
                 $this->styleResolver->structuralPresentationDeclarations($sourceControl)
@@ -378,12 +388,13 @@ final class GeneratedBlockStyleProjector
                 $wrapperDeclarations[] = 'height:100%';
                 $declarations[] = 'height:100%!important';
             } elseif ( self::sourceControlPinsToItsWrapper($sourceDeclarations) ) {
-                // The source control takes its box from a sized wrapper by pinning
-                // to every edge. Core's link sits in flow instead, so it shrinks to
-                // its label unless it is told to fill that same box.
+                // Pinning fills the wrapper only with an auto width. An explicit
+                // width wins over the opposing inset and must keep sizing the link.
                 $outerWrapperDeclarations[] = 'height:100%';
                 $wrapperDeclarations[] = 'height:100%';
-                $declarations[] = 'width:100%!important';
+                if ( in_array(CssValueInspector::declared($sourceDeclarations, 'width'), array( '', 'auto' ), true) ) {
+                    $declarations[] = 'width:100%!important';
+                }
                 $declarations[] = 'height:100%!important';
             }
             foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius' ) as $property ) {

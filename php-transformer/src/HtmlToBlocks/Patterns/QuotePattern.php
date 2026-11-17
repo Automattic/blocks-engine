@@ -87,7 +87,7 @@ final class QuotePattern implements PatternRecognizerInterface
         }
 
         $citation = $quotes->citationFromElement($element);
-        $value = SourceDom::innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
+        $value = $quotes->quotationContent($element, SourceDom::innerHtmlWithoutTags($element, array( 'cite', 'footer' )));
         if ( ! $this->runtime->hasVisibleText($value) ) {
             return null;
         }
@@ -161,7 +161,7 @@ final class QuotePattern implements PatternRecognizerInterface
             }
         }
 
-        $value = SourceDom::innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' ));
+        $value = $quotes->quotationContent($blockquote, SourceDom::innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' )));
         if ( ! $this->runtime->hasVisibleText($value) ) {
             return null;
         }

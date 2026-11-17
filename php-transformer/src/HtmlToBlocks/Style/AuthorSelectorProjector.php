@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -585,6 +586,9 @@ final class AuthorSelectorProjector
                 $remainingSubjects[] = $element;
                 continue;
             }
+            if ( $inner['universal_reached'] && self::hasBareUniversalSubject($parsed) ) {
+                continue;
+            }
             $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
             if ($inner['author_precedence']) {
                 $innerArms[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
@@ -597,6 +601,22 @@ final class AuthorSelectorProjector
             $innerArms[] = $inner['selector'] . $baseline . $this->selectorSpecificityShims($parsed, $context) . $suffix . $inner['pseudo_element'];
         }
         return array($innerArms, $remainingSubjects);
+    }
+
+    /**
+     * The rule's subject is any element: a bare `*` with no simple selector
+     * of its own (`*`, `.x > *`, `*::before`).
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private static function hasBareUniversalSubject(array $parsed): bool
+    {
+        $subject = $parsed['compounds'][count($parsed['compounds'] ?? array()) - 1] ?? null;
+
+        return is_array($subject) && ($subject['universal'] ?? false) && null === $subject['type']
+            && array() === $subject['classes'] && array() === $subject['ids'] && array() === $subject['attributes']
+            && array() === $subject['not'] && array() === $subject['any'] && null === $subject['nth_child']
+            && ! $subject['first_child'] && ! $subject['last_child'] && ! $subject['root'];
     }
 
     /**
@@ -1184,7 +1204,7 @@ final class AuthorSelectorProjector
                         if ( 'svg' === strtolower((string) $typeSpan['name']) && (int) $typeSpan['start'] >= (int) $span['end'] ) {
                             $replacements[$typeSpan['start']] = array(
                                 'end' => $typeSpan['end'],
-                                'value' => ':is(svg,:where(.wp-block-button__link > img[src*="assets/materialized-svg/inline-svg-"]))',
+                                'value' => ':is(svg,:where(.wp-block-button__link > img[src*="' . AssetMaterializationState::INLINE_SVG_FILE_PREFIX . '"]))',
                             );
                         }
                     }
@@ -1523,7 +1543,7 @@ final class AuthorSelectorProjector
                 // must still reach their intended materialized image leaf.
                 $replacements[$typeSpan['start']] = array(
                     'end' => $typeSpan['end'],
-                    'value' => substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ':not(:where([src*="assets/materialized-svg/inline-svg-"]))',
+                    'value' => substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ':not(:where([src*="' . AssetMaterializationState::INLINE_SVG_FILE_PREFIX . '"]))',
                 );
             } elseif ( 'span' === strtolower((string) $typeSpan['name']) ) {
                 // Core's label span has no source identity. Even a dormant
@@ -1656,11 +1676,12 @@ final class AuthorSelectorProjector
 
     /**
      * The child step onto core's button link for an authored rule. Core's
-     * global-styles `:root :where(.wp-element-button, .wp-block-button__link)`
-     * weighs (0,1,0), and the editor prints global styles after every other
-     * style, so a tie loses there. One type weight on every projected link
-     * arm outranks it by specificity on every surface, and leaves the order
-     * among authored link rules as it was.
+     * buttons stylesheet uses `.wp-block-buttons .wp-block-button__link`
+     * (0,2,0), in addition to the global-styles button rule (0,1,0).
+     * Keep the source specificity for presentation: generic link resets must
+     * still lose to button values lifted into theme.json. The stylesheet
+     * projector adds class weight only to width declarations competing with
+     * core's buttons default, retaining the authored conditional cascade.
      */
     public function buttonLinkTarget(AuthorStylesheetProjectionContext $context): string
     {

@@ -77,6 +77,99 @@ foreach (array(
     }
 }
 
+// #6375: runtime track state is not geometry; authored gutters are not gaps.
+foreach (array(
+    'attribute capture with padding gutter' => array('[data-captured-track]', 'data-captured-track', 'padding-left:30px', '0px'),
+    'class capture with margin gutter' => array('.source-track', '', 'margin-right:30px', '0px'),
+    'unguttered track' => array('.source-track', '', '', ''),
+) as $case => [$selector, $attribute, $gutter, $expectedGap]) {
+    $fixture = '<style>' . $selector . '{display:flex;transform:translate(-503.83px,0)!important}'
+        . '@media(min-width:768px) and (max-width:1023px){' . $selector . '{transform:translate(-479.53px,0)!important}}'
+        . '.source-track>li{width:252px;' . $gutter . '}</style>'
+        . '<div class="carousel"><button aria-label="Previous slide">Previous</button>'
+        . '<ul class="source-track" ' . $attribute . ' style="transform:translate(-503.83px,0)">'
+        . '<li><div class="card"><a href="/one">First</a></div></li><li><div class="card"><a href="/two">Second</a></div></li>'
+        . '</ul><button aria-label="Next slide">Next</button><ul class="dots"><li></li><li class="active"></li></ul></div>';
+    $actual = (new HtmlTransformer())->transform($fixture)->toArray();
+    $doc = new DOMDocument();
+    @$doc->loadHTML((string) $actual['serialized_blocks']);
+    $xpath = new DOMXPath($doc);
+    $root = $xpath->query('//div[@aria-roledescription="carousel"]')->item(0);
+    $track = $xpath->query('//div[contains(concat(" ",@class," ")," blocks-engine-authored-carousel__track ")]')->item(0);
+    $assert($root instanceof DOMElement && $track instanceof DOMElement, $case . ': rendered carousel');
+    $context = json_decode($root->getAttribute('data-wp-context'), true);
+    $assert(0 === $context['index'] && 2 === $context['count'], $case . ': starts at zero with a usable initial count');
+    $assert('' === $expectedGap || str_contains($root->getAttribute('style'), '--blocks-engine-carousel-gap:' . $expectedGap), $case . ': no extra gap on source gutters');
+    $assert(!str_contains($track->getAttribute('style'), 'translate('), $case . ': inline capture transform is not replayed');
+    $css = implode("\n", array_column($actual['source_reports']['author_stylesheet_projections'] ?? array(), 'content'));
+    $widthMatches = 0;
+    (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->visitStyleRules($css, static function (string $prelude, string $body) use ($assert, $track, $case, &$widthMatches): void {
+        foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $arm) {
+            $parsed = CssSelectorMatcher::parse($arm);
+            $declarations = array_column(\Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($body, array('transform', 'width')), 'value', 'name');
+            if (isset($declarations['transform'])) $assert(!CssSelectorMatcher::matches($track, $parsed)['matches'], $case . ': no emitted capture transform targets the track at any breakpoint');
+            foreach ($track->childNodes as $card) {
+                if ($card instanceof DOMElement && isset($declarations['width']) && CssSelectorMatcher::matches($card, $parsed)['matches']) ++$widthMatches;
+            }
+        }
+    });
+    $assert(0 < $widthMatches, $case . ': source card geometry still matches rendered slides');
+
+    // Exercise the published view module on both rendered transport shapes.
+    // The query wrapper CSS is the same contract WordPress enqueues for cards.
+    foreach (array(false, true) as $queryTransport) {
+        $rendered = clone $track;
+        if ($queryTransport) {
+            $query = $doc->createElement('div');
+            $query->setAttribute('class', 'wp-block-query blocks-engine-listing-query');
+            $template = $doc->createElement('ul');
+            $template->setAttribute('class', 'wp-block-post-template');
+            foreach (iterator_to_array($rendered->childNodes) as $card) {
+                if (!$card instanceof DOMElement) continue;
+                $post = $doc->createElement('li');
+                $post->setAttribute('class', 'wp-block-post');
+                $post->appendChild($card);
+                $template->appendChild($post);
+            }
+            $query->appendChild($template);
+            $rendered->appendChild($query);
+        }
+        $transportCss = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap::LISTING_QUERY_CSS;
+        $toNode = static function (DOMElement $element) use (&$toNode, $transportCss): array {
+            $display = 'block';
+            (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->visitStyleRules($transportCss, static function (string $prelude, string $body) use ($element, &$display): void {
+                foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    if (CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector))['matches']) {
+                        foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($body, array('display')) as $declaration) $display = $declaration['value'];
+                    }
+                }
+            });
+            $children = array();
+            foreach ($element->childNodes as $child) if ($child instanceof DOMElement) $children[] = $toNode($child);
+            return array('display' => $display, 'children' => $children);
+        };
+        $runtimeView = (string) $actual['source_reports']['generated_blocks'][0]['view_js'];
+        $runtimeView = preg_replace('/^import[^;]+;/', '', $runtimeView);
+        $script = 'const context = {presentation:"track",index:0,wrap:true};'
+            . 'const track = ' . json_encode($toNode($rendered), JSON_THROW_ON_ERROR) . ';'
+            . 'const root = {dataset:{},querySelector:s=>s.endsWith("__track")?track:null,querySelectorAll:()=>[],closest:()=>root,addEventListener:()=>{}};'
+            . 'const window = {getComputedStyle:n=>({display:n.display}),addEventListener:()=>{}};'
+            . 'const getContext=()=>context,getElement=()=>({ref:root}),withScope=f=>f;'
+            . 'const store=(name,definition)=>{definition.callbacks.init();console.log(JSON.stringify(context));};'
+            . $runtimeView;
+        $process = proc_open(array('node', '--input-type=module'), array(0 => array('pipe', 'r'), 1 => array('pipe', 'w'), 2 => array('pipe', 'w')), $pipes);
+        $assert(is_resource($process), 'node is available for the emitted carousel runtime');
+        fwrite($pipes[0], $script);
+        fclose($pipes[0]);
+        $runtimeContext = json_decode(stream_get_contents($pipes[1]), true);
+        $runtimeError = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $assert(0 === proc_close($process), $case . ': runtime executes ' . $runtimeError);
+        $assert(2 === ($runtimeContext['count'] ?? null) && 0 === ($runtimeContext['index'] ?? null), $case . ': runtime counts rendered cards through ' . ($queryTransport ? 'Query Loop wrappers' : 'direct slides'));
+    }
+}
+
 // The producer's published gallery runtime, which drives this src-swap shape.
 $portableGallerySource = '<script data-blocks-engine-capture-gallery-runtime="">' . trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-gallery-runtime.js')) . '</script>'
     . '<div class="neutral-gallery" id="neutral-gallery" data-blocks-engine-capture-gallery-capture-width="1440" data-blocks-engine-capture-gallery="" data-blocks-engine-capture-gallery-source="#neutral-gallery" data-blocks-engine-capture-gallery-sequence="[&quot;/media/photo-a.jpeg&quot;,&quot;/media/photo-b.jpeg&quot;,&quot;/media/photo-c.jpeg&quot;,&quot;/media/photo-d.jpeg&quot;,&quot;/media/photo-e.jpeg&quot;]" data-blocks-engine-capture-gallery-index="0">'
@@ -230,7 +323,7 @@ $assert(
     str_contains($authoredTopologyMarkup, 'source-group') && str_contains($authoredTopologyMarkup, 'source-depth')
         && str_contains($authoredTopologyMarkup, 'data-wp-on--click="actions.previous"')
         && str_contains($authoredTopologyMarkup, 'data-wp-on--click="actions.next"')
-        && str_contains($authoredTopologyMarkup, '<svg viewbox="0 0 10 10">'),
+        && str_contains($authoredTopologyMarkup, '<svg viewBox="0 0 10 10">'),
     'the shell retains sanitized source wrapper depth and binds both native controls to carousel actions'
 );
 
@@ -565,5 +658,54 @@ $assert(
     str_contains($placementEditor, "label: 'Play control position'"),
     'the corner is handed back to the editor as an ordinary control'
 );
+
+// Issue #6376: the same authored topology, independent of framework names.
+foreach (array('uk-slider-item', 'data-uk-slider-item', 'data-carousel-index') as $indexAttribute) {
+    $fixture = '<style>.dotnav>*>*{width:10px;height:10px;border-radius:50%}.dotnav{margin-top:24px}.dotnav>.is-active>*{background:#6da170}[' . $indexAttribute . '="previous"]{color:#6da170}[data-blocks-engine-capture-glyph-color]{visibility:hidden}</style><div class="carousel">';
+    foreach (array('previous', 'next') as $direction) {
+        $fixture .= '<a class="slidenav-' . $direction . '" ' . $indexAttribute . '="' . $direction . '"><svg width="14" height="24" viewBox="0 0 14 24" data-blocks-engine-capture-glyph-color="#6da170"><polyline fill="none" stroke="#000" stroke-width="1.4" points="12.775,1 1.225,12 12.775,23 "></polyline><script>alert(1)</script></svg></a>';
+    }
+    $fixture .= '<ul>';
+    for ($i = 0; $i < 5; ++$i) {
+        $fixture .= '<li><img src="slide-' . $i . '.jpg"></li>';
+    }
+    $fixture .= '</ul><ul class="dotnav">';
+    for ($i = 0; $i < 5; ++$i) {
+        $fixture .= '<li ' . $indexAttribute . '="' . $i . '" data-blocks-engine-capture-frame="' . $i . '"><a href="#"></a></li>';
+    }
+    $fixture .= '</ul></div>';
+    $output = (new HtmlTransformer())->transform($fixture)->toArray();
+    $document = new DOMDocument();
+    @$document->loadHTML((string) $output['serialized_blocks']);
+    $xpath = new DOMXPath($document);
+    $arrows = $xpath->query('//button[@data-carousel-previous or @data-carousel-next]/svg');
+    $assert(2 === $arrows->length, $indexAttribute . ': both source arrows render');
+    foreach ($arrows as $svg) {
+        $assert('0 0 14 24' === $svg->getAttribute('viewbox') && '#6da170' === $svg->getAttribute('color'), $indexAttribute . ': glyph geometry and captured color survive');
+        $polyline = $svg->getElementsByTagName('polyline')->item(0);
+        $assert($polyline instanceof DOMElement && 'currentColor' === $polyline->getAttribute('stroke') && 'none' === $polyline->getAttribute('fill') && '1.4' === $polyline->getAttribute('stroke-width') && str_contains($polyline->getAttribute('points'), '12.775,23'), $indexAttribute . ': safe SVG children keep geometry and captured stroke paint');
+        $assert(0 === $svg->getElementsByTagName('script')->length, 'unsafe SVG children are removed');
+    }
+    $dots = $xpath->query('//ul[contains(@class,"blocks-engine-authored-carousel__dots")]/li/button[@data-wp-on--click="actions.goTo"]');
+    $assert(5 === $dots->length, $indexAttribute . ': indexed source list becomes working dot controls');
+    $css = implode("\n", array_column($output['source_reports']['author_stylesheet_projections'] ?? array(), 'content'));
+    $assert(1 === preg_match('/([^{}]+)\\{width:10px;height:10px;border-radius:50%\\}/', $css, $rule), 'source dot styling is emitted');
+    foreach ($dots as $index => $dot) {
+        $assert((string) $index === $dot->getAttribute('data-carousel-index') && CssSelectorMatcher::matches($dot, CssSelectorMatcher::parse(trim($rule[1])))['matches'], $indexAttribute . ': source child selector matches each rendered dot');
+    }
+    $assert(1 === preg_match('/([^{}]+)\\{background:#6da170\\}/', $css, $activeRule), 'source active styling is emitted');
+    foreach ($dots as $dot) {
+        $item = $dot->parentNode;
+        $assert('is-active' === $item->getAttribute('data-carousel-active-classes'), 'source active classes are bound to carousel state');
+        $item->setAttribute('class', $item->getAttribute('class') . ' is-active');
+        $assert(CssSelectorMatcher::matches($dot, CssSelectorMatcher::parse(trim($activeRule[1])))['matches'], 'emitted active rule matches selected dot');
+    }
+    preg_match_all('/([^{}]+)\\{[^{}]*visibility:hidden[^{}]*\\}/', $css, $hiddenRules);
+    foreach ($hiddenRules[1] as $selector) {
+        foreach ($arrows as $svg) {
+            $assert(!CssSelectorMatcher::matches($svg, CssSelectorMatcher::parse(trim($selector)))['matches'], 'capture glyph evidence cannot project hidden attribute rules onto arrows');
+        }
+    }
+}
 
 fwrite(STDOUT, "Authored carousel companion tests passed\n");
