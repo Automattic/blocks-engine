@@ -87,7 +87,14 @@ final class ShellLandmarkPolicy
         }
         $count = 0;
         foreach ($root->getElementsByTagName('*') as $node) {
-            if (self::landmarkKind($node->tagName, $node->getAttribute('role')) === $area) ++$count;
+            if (self::landmarkKind($node->tagName, $node->getAttribute('role')) !== $area) continue;
+            // Section-local landmarks (notably testimonial citations) do not
+            // compete with the document's chrome for edge ownership.
+            $local = false;
+            for ($ancestor = $node->parentNode; $ancestor instanceof \DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode) {
+                if (in_array(strtolower($ancestor->tagName), array('article', 'aside', 'nav', 'blockquote', 'figure'), true)) { $local = true; break; }
+            }
+            if (!$local) ++$count;
         }
         if (1 !== $count) return false;
         for ($node = $element; $node !== $root; $node = $node->parentNode) {

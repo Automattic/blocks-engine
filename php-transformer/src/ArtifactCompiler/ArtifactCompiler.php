@@ -557,6 +557,10 @@ final class ArtifactCompiler
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? '') || !is_string($asset['content'] ?? null)) continue;
             $content = $propertyPruner->prune($asset['content']);
+            // Projection can give several author rules one long selector
+            // list; ship that list once. Engine stylesheets are named by their
+            // content and are reconciled with later page copies by it.
+            if ('files' === ($asset['source'] ?? null)) $content = (new CssStylesheetTransformer())->mergeRepeatedSelectorRules($content);
             if ($content !== $asset['content']) $asset = ArtifactNormalizer::withTextPayload($asset, $content);
         }
         unset($asset, $propertyPruner);
