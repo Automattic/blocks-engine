@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -88,7 +87,7 @@ final class QuotePattern implements PatternRecognizerInterface
         }
 
         $citation = $quotes->citationFromElement($element);
-        $value = SourceDom::innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
+        $value = $quotes->quotationContent($element, SourceDom::innerHtmlWithoutTags($element, array( 'cite', 'footer' )));
         if ( ! $this->runtime->hasVisibleText($value) ) {
             return null;
         }
@@ -137,7 +136,6 @@ final class QuotePattern implements PatternRecognizerInterface
 
         $citation = $quotes->citationFromElement($blockquote);
         $caption = SourceDom::firstChildElement($figure, 'figcaption');
-        $captionCited = false;
         // The figure collapses into core/quote only when it holds just the
         // blockquote, its caption, and aria-hidden decoration. Any other
         // child (a rating row, an author card) has no place in the quote, and
@@ -156,7 +154,6 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
         if ( '' === $citation && $caption instanceof DOMElement ) {
-            $captionCited = true;
             $citation = $quotes->figureCaptionContent($caption);
             $captionClass = trim(SourceDom::attr($caption, 'class'));
             if ( '' !== $captionClass ) {
@@ -164,7 +161,7 @@ final class QuotePattern implements PatternRecognizerInterface
             }
         }
 
-        $value = SourceDom::innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' ));
+        $value = $quotes->quotationContent($blockquote, SourceDom::innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' )));
         if ( ! $this->runtime->hasVisibleText($value) ) {
             return null;
         }
@@ -191,29 +188,16 @@ final class QuotePattern implements PatternRecognizerInterface
         $quoteChildren = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes);
         if ( array() !== $quoteChildren ) {
             // Only transfer text presentation: the consumed blockquote's box
-            // (especially margins) must not become the synthetic paragraph's
-            // inline box. The quote saves the figure's box; author rules that
-            // address the source blockquote follow its text onto this
-            // paragraph through a source-addressed carrier class.
-            $carrier = $quotes->figureBlockquoteCarrier($blockquote);
+            // (especially margins) must not become the synthetic paragraph's box.
             $quoteChildren[0] = $createBlock('core/paragraph', array(
                 'content' => $value,
-                'className' => SourceDom::mergeClassNames(
-                    'blocks-engine-synthetic-paragraph',
-                    '' === $carrier ? '' : SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ' ' . $carrier
-                ),
+                'className' => 'blocks-engine-synthetic-paragraph',
                 'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
             ));
         }
         $innerBlocks = array_merge($innerBlocks, $quoteChildren);
         if ( array() === $innerBlocks ) {
             $innerBlocks = $converter->childrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' ));
-        }
-        if ( $captionCited && $caption instanceof DOMElement ) {
-            $captionCarrier = $quotes->figureCaptionCarrier($caption);
-            if ( '' !== $captionCarrier ) {
-                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $captionCarrier);
-            }
         }
         if ( array() === $innerBlocks ) {
             $innerBlocks[] = $createBlock('core/paragraph', array( 'content' => $value ));

@@ -807,6 +807,9 @@ final class StyleResolver implements ElementPresentationResolver
         $serialized = SourceDom::withoutBlockifiedBoundaryWhitespace($element, $blockifiesChildren);
         $clone = SourceDom::canonicalizedSerializationClone($serialized);
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries::mergeBlockifiedRuns($element, $clone, $blockifiesChildren);
+        if ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries::hasEmptySeams($clone) && $this->movesTextAcrossClip($element) ) {
+            \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries::keepEmptySeamsIn($clone);
+        }
         SourceDom::projectInlineStyles($element, $clone, $this->serializedInlineStyle(...));
         // RichText parses literal line endings as spaces. Canonicalize collapsed
         // text before saving too, so the initial frontend and editable value
@@ -4050,6 +4053,42 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether an author animation moves this element's text across the edge
+     * of an overflow clip: an element at or above it runs an animation, and an
+     * ancestor of that moving content clips its overflow (a scrolling
+     * marquee or ticker). The clip edge then passes through the text as it
+     * moves, and the browser leaves each text run that falls wholly outside
+     * it unpainted on its own, so the source's run boundaries are part of
+     * what the visitor sees at any moment.
+     */
+    public function movesTextAcrossClip(DOMElement $element): bool
+    {
+        $moving = false;
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $declared = $this->authorDeclaredValuesAtAnyViewport($node, array( 'animation', 'animation-name', 'overflow', 'overflow-x', 'overflow-y' ));
+            if ( $moving ) {
+                foreach ( array( 'overflow', 'overflow-x', 'overflow-y' ) as $property ) {
+                    foreach ( $declared[$property] ?? array() as $value ) {
+                        if ( 1 === preg_match('/(?<![\w-])(?:hidden|clip)(?![\w-])/i', $value) ) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            foreach ( array( 'animation', 'animation-name' ) as $property ) {
+                foreach ( $declared[$property] ?? array() as $value ) {
+                    $value = strtolower(trim(preg_replace('/!\s*important\s*$/i', '', $value) ?? $value));
+                    if ( ! in_array($value, array( '', 'none', 'initial', 'inherit', 'unset', 'revert', 'revert-layer' ), true) ) {
+                        $moving = true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Every value the author stylesheet states for these properties on this
      * element in its resting state, at any viewport, in source order with the
      * inline style last.
@@ -4825,6 +4864,44 @@ final class StyleResolver implements ElementPresentationResolver
     {
         return $this->resolvedCascadeStyle($element, 'static', self::DESKTOP_REFERENCE_WIDTH, $excludeSelector, $inline);
     }
+    /**
+     * The longhands of `$declarations`, authored under `$selector`, that
+     * another matching author rule beats on `$element` in the resting desktop
+     * cascade: it is more specific at the same importance, or important
+     * against a normal declaration. A restatement of the weaker rule must not
+     * gain the weight to override that winner.
+     *
+     * @return array<string, true>
+     */
+    public function outrankedAuthorLonghands(DOMElement $element, string $selector, string $declarations): array
+    {
+        $wanted = array();
+        foreach ( CssRuleAnalyzer::declarationList($declarations) as [ 'name' => $name, 'value' => $value ] ) {
+            $important = CssValueInspector::isImportant($value);
+            foreach ( array_keys(SourceDeclarations::parse($name . ':' . CssValueInspector::withoutImportant($value))) as $longhand ) {
+                $wanted[strtolower((string) $longhand)] = $important;
+            }
+        }
+        $specificity = $this->cascade->specificity($selector);
+        $outranked = array();
+        foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'static') as $rule ) {
+            if ( ! empty($rule['conditions']) && ! $this->cascade->conditionsApplyAtViewport($rule['conditions'], self::DESKTOP_REFERENCE_WIDTH) ) {
+                continue;
+            }
+            $stronger = $this->cascade->specificity((string) $rule['selector']) > $specificity;
+            foreach ( $rule['declarations'] as $property => $value ) {
+                $important = CssValueInspector::isImportant((string) $value);
+                foreach ( array_keys(SourceDeclarations::parse($property . ':' . CssValueInspector::withoutImportant((string) $value))) as $longhand ) {
+                    $longhand = strtolower((string) $longhand);
+                    if ( isset($wanted[$longhand]) && ( $important ? ( ! $wanted[$longhand] || $stronger ) : ( ! $wanted[$longhand] && $stronger ) ) ) {
+                        $outranked[$longhand] = true;
+                    }
+                }
+            }
+        }
+        return $outranked;
+    }
+
     /**
      * Resolve the authored resting cascade across static AND media-conditional
      * rules that apply at the desktop reference viewport.

@@ -1823,11 +1823,13 @@ final class ShellExtraction
                 [$templateSlugs, $excludedTemplateSlugs] = $assignment;
             }
             $singlePage = 1 === count($applicable) && 1 === count($cluster['indexes']);
+            // Entry shells can own bindings too. Anchor the hoist on the
+            // actual part source, which differs from shared shells on one-page sites.
+            $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $partSlug;
             foreach ($withoutShells as $index => $withoutShell) {
                 $pages[$index]['canonical_block_markup'] = $withoutShell;
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
             }
-            $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $partSlug;
             if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, $sourcePath . '#' . $area);
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
             $runtimeDeclarations = RuntimeDeclarations::normalizeForComposition($runtimeDeclarations);

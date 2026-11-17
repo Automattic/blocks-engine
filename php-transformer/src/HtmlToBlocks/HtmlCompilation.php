@@ -955,7 +955,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $inertElements,
             new Elements\OrphanListItemConverter($this->runtimeIslands, $this->sourceElementClassifier, $this->richTextMaterializer, $this, $this->layoutShells, $this),
             new Elements\ScriptOwnedCheckoutRegionConverter($commercePattern, $this),
-            new Elements\TransparentUnknownElementConverter($this->renderNeutral, $this->session, $this->generatedComponents, $flowContainerConverter),
+            new Elements\TransparentUnknownElementConverter($this->renderNeutral, $this->session, $this->generatedComponents, $flowContainerConverter, $this, $this->blockFactory),
             new Elements\CustomElementRuntimeConverter($this->session, $this->styleResolver, $this->sourceElementDescription, $this->runtimeIslands, $this->renderNeutral, $this->generatedComponents, $this),
         ));
     }
@@ -1734,7 +1734,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->session,
                 $this->runtimeIslands
             ),
-            new QuotePatternContext($this->styleResolver, $this->session),
+            new QuotePatternContext($this->styleResolver),
             new CodeWindowPatternContext($this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver)),
             new LogoPatternContext(
                 $this->styleResolver,
