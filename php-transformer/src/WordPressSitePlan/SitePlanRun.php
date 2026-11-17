@@ -651,7 +651,7 @@ final class SitePlanRun
         $parts = $folded['parts'];
         // The generic page template is shared by routes that did not author it,
         // so the rules aimed at its markers are site-wide chrome rules.
-        $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
+        $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . '<!-- wp:post-content /-->' . $shellFrames['frames']['page']['closing'])) : array();
         foreach ($documentChrome['chrome'] as $chrome) $frameParts[] = array('slug' => 'document-chrome', 'placement' => array('kind' => 'shared_shell', 'template_slugs' => array('single')), 'canonical_block_markup' => $chrome);
         return array(
             'pages' => $pages,

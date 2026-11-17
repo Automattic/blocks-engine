@@ -1044,8 +1044,30 @@ final class SharedChromeStylesheets
         $routeHooks = self::routeKeptHooks($assets, $pages, $authored, $hookRoutes, $chromeElements);
         foreach ($parts as $part) {
             if ('page-frame' !== ($part['slug'] ?? null)) continue;
-            foreach (self::authoredChromeElementHooks((string) ($part['canonical_block_markup'] ?? '')) as $element) {
-                foreach ($routeHooks as $kind => $names) $routeHooks[$kind] += $element[$kind];
+            $markup = (string) ($part['canonical_block_markup'] ?? '');
+            $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+            $slot = null;
+            foreach ($index->tokens() as $token) {
+                if (!$token['closing'] && 'post-content' === $token['name']) {
+                    $slot = array('offset' => $token['offset'], 'length' => strlen($token['token']));
+                    break;
+                }
+            }
+            // Only the slot's ancestors still wrap route content. Siblings
+            // (buttons, dialogs, and other frame chrome) need shared rules so
+            // they also work with the generic template on newly added pages.
+            $ancestors = array();
+            if (null !== $slot) {
+                while (null !== ($slot = $index->parent($slot))) $ancestors[] = $slot;
+            } else {
+                $ancestors = $index->topLevel();
+            }
+            foreach ($ancestors as $range) {
+                $children = $index->children($range);
+                $length = array() !== $children ? $children[0]['offset'] - $range['offset'] : $range['length'];
+                foreach (self::authoredChromeElementHooks(substr($markup, $range['offset'], $length)) as $element) {
+                    foreach ($routeHooks as $kind => $names) $routeHooks[$kind] += $element[$kind];
+                }
             }
         }
         $classes = array_diff_key($classes, $routeHooks['marker']);

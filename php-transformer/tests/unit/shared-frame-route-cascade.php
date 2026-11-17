@@ -16,4 +16,13 @@ $parts = array(array(
 ));
 $projected = SharedChromeStylesheets::project($assets, $parts);
 if ($projected !== $assets) throw new RuntimeException('Template frame styles must retain their route ownership and source order');
+// The frame also contains chrome beside the slot. Its generated marker must
+// stay shared, rather than being mistaken for a wrapper of route content.
+$marker = 'blocks-engine-control-0123456789ab-1';
+$assets[0]['content'] .= '.' . $marker . '{border-radius:99px}';
+$parts[0]['canonical_block_markup'] = '<!-- wp:group {"className":"document-frame"} --><div class="wp-block-group document-frame"><!-- wp:post-content /--><!-- wp:button {"className":"' . $marker . '"} --><div class="wp-block-button ' . $marker . '"><a class="wp-block-button__link">Call</a></div><!-- /wp:button --></div><!-- /wp:group -->';
+$projected = SharedChromeStylesheets::project($assets, $parts);
+$shared = array_filter($projected, static fn(array $asset): bool => str_ends_with((string) ($asset['source_path'] ?? ''), '.shared-chrome'));
+if (1 !== count($shared) || !str_contains(reset($shared)['content'], $marker)) throw new RuntimeException('Frame sibling chrome must retain site-wide marker rules');
+if (!str_contains($projected[0]['content'], '.document-frame:after') || str_contains($projected[0]['content'], $marker)) throw new RuntimeException('Only content ancestors keep route ownership');
 echo "Shared frame route cascade passed\n";
