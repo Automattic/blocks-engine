@@ -14,7 +14,7 @@ final class BoxTreeReport
     {
         $sources = array();
         foreach ($files as $file) {
-            if ('html' === ($file['kind'] ?? null)) $sources[$file['path']] = $file['content'];
+            if ('html' === ($file['kind'] ?? null)) $sources[$file['path']] = $file;
         }
         $trees = $diagnostics = $seen = array();
         foreach ($files as $file) {
@@ -43,7 +43,17 @@ final class BoxTreeReport
     {
         if (!is_array($tree) || BoxTree::SCHEMA !== ($tree['schema'] ?? null)) return 'box_tree_schema_invalid';
         $path = $tree['source_path'] ?? null;
-        if (!is_string($path) || !isset($sources[$path]) || hash('sha256', $sources[$path]) !== ($tree['source_hash'] ?? null)) return 'box_tree_identity_stale';
+        if (!is_string($path) || !isset($sources[$path])) return 'box_tree_identity_stale';
+        $source = $sources[$path];
+        $compilation = $source['metadata']['compilation'] ?? array();
+        if (!empty($compilation['unresolved_html_includes'])) return 'box_tree_identity_stale';
+        $sourceHash = $compilation['box_tree_source_hash'] ?? hash('sha256', $source['content']);
+        $includes = $tree['includes'] ?? array();
+        $expectedIncludes = $compilation['box_tree_include_hashes'] ?? array();
+        if ($sourceHash !== ($tree['source_hash'] ?? null) || !is_array($includes) || count($includes) !== count($expectedIncludes)) return 'box_tree_identity_stale';
+        foreach ($expectedIncludes as $part => $hash) {
+            if (($includes[$part] ?? null) !== $hash) return 'box_tree_identity_stale';
+        }
         $viewports = $tree['viewports'] ?? null;
         $nodes = $tree['nodes'] ?? null;
         if (!is_array($viewports) || !$viewports || count($viewports) > BoxTree::MAX_VIEWPORTS || !is_array($nodes) || !$nodes || count($nodes) > BoxTree::MAX_NODES) return 'box_tree_bounds_invalid';
@@ -54,23 +64,24 @@ final class BoxTreeReport
                 if (!is_int($value) || $value < 1 || $value > 32768) return 'box_tree_viewport_invalid';
             }
         }
-        $dom = HtmlSerialization::parseDocument($sources[$path]);
-        $elements = array();
+        $dom = HtmlSerialization::parseDocument($source['content']);
+        $elements = $counts = array();
         foreach ($dom->getElementsByTagName('*') as $element) {
             if (!$element->hasAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
             $id = $element->getAttribute(BoxTree::NODE_ATTRIBUTE);
-            if (!BoxTree::validId($id) || isset($elements[$id])) return 'box_tree_identity_stale';
+            $counts[$id] = ($counts[$id] ?? 0) + 1;
             $elements[$id] = $element;
         }
+        $elements = array_filter($elements, static fn(DOMElement $element, string|int $id): bool => 1 === $counts[$id] && array_key_exists($id, $nodes), ARRAY_FILTER_USE_BOTH);
         if (count($nodes) !== count($elements)) return 'box_tree_identity_stale';
         $childrenByParent = array();
         foreach ($elements as $id => $element) {
             $parent = $element->parentNode;
-            while ($parent instanceof DOMElement && !$parent->hasAttribute(BoxTree::NODE_ATTRIBUTE)) $parent = $parent->parentNode;
+            while ($parent instanceof DOMElement && !isset($elements[$parent->getAttribute(BoxTree::NODE_ATTRIBUTE)])) $parent = $parent->parentNode;
             if ($parent instanceof DOMElement) $childrenByParent[$parent->getAttribute(BoxTree::NODE_ATTRIBUTE)][] = $id;
         }
         foreach ($nodes as $id => $node) {
-            if (!isset($elements[$id]) || !is_array($node)) return 'box_tree_identity_stale';
+            if (!BoxTree::validId($id) || !isset($elements[$id]) || !is_array($node)) return 'box_tree_identity_stale';
             $children = $childrenByParent[$id] ?? array();
             if ($children !== ($node['children'] ?? null)) return 'box_tree_identity_stale';
             if (array_key_exists('interaction_states', $node)) {

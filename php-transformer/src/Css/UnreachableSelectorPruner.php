@@ -33,10 +33,16 @@ final class UnreachableSelectorPruner
     /** @var list<string> */
     private array $livePrefixes = array();
     private string $evidenceText;
+    private ?UnusedCustomPropertyPruner $propertyPruner = null;
 
-    /** @param list<string> $texts Every non-stylesheet file of the site, including its metadata. */
-    public function __construct(array $texts)
+    /**
+     * @param list<string> $texts Every non-stylesheet file of the site, including its metadata.
+     * @param bool $pruneTypes Whether evidence still describes source (not converted) element types.
+     * @param list<string>|null $stylesheets Whole-site author styles, including inline sheets; null disables property pruning.
+     */
+    public function __construct(array $texts, private bool $pruneTypes = false, ?array $stylesheets = null)
     {
+        if (null !== $stylesheets) $this->propertyPruner = new UnusedCustomPropertyPruner($stylesheets, $texts);
         $this->evidenceText = implode("\n", $texts);
         $prefixes = array();
         foreach ($texts as $text) {
@@ -49,6 +55,9 @@ final class UnreachableSelectorPruner
     /** @param bool $preserveIds Keep arms whose only absent tokens are IDs. */
     public function prune(string $css, bool $preserveIds = false): string
     {
+        // Reset inventories are recognizable before projection expands their
+        // universal subjects into native-block and richtext alternatives.
+        $css = $this->propertyPruner?->prune($css) ?? $css;
         $pruned = (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body) use ($preserveIds): string {
             $arms = CssStylesheetTransformer::splitSelectorList($prelude);
             if (null === $arms) return $prelude . '{' . $body . '}';
@@ -96,6 +105,21 @@ final class UnreachableSelectorPruner
         foreach (self::requiredTokens($selector, $preserveIds) as $token) {
             if (!$this->sourceNamed($token)) return false;
         }
+        // Only the source-side pass opts into type pruning. After conversion,
+        // native block wrappers may legitimately introduce new element types.
+        // Fragments do not prove absence outside their supplied subtree.
+        if ($this->pruneTypes && !str_contains($selector, 'BEESC') && preg_match('/<html\b/i', $this->evidenceText)) {
+            $host = CssSelectorMatcher::pseudoElementHost($selector);
+            $parsed = CssSelectorMatcher::parse($host['selector'] ?? $selector);
+            if ($parsed['supported']) {
+                foreach ($parsed['compounds'] as $compound) {
+                    $type = $compound['type'];
+                    // Substring evidence deliberately retains script-created
+                    // tags and metadata references, not just literal HTML tags.
+                    if (null !== $type && false === stripos($this->evidenceText, $type)) return false;
+                }
+            }
+        }
         // Positive selector-list pseudos require at least one reachable arm.
         // Compaction wraps otherwise required classes in :is(); ignoring that
         // wrapper kept entire families of absent framework components alive.
@@ -125,6 +149,15 @@ final class UnreachableSelectorPruner
             // Substring evidence is deliberately conservative: scripts may
             // construct these names without literal class attributes.
             if (str_contains($this->evidenceText, $decoded)) return true;
+            // Escaped utility identities are complete class names, not state
+            // markers. A word inside an arbitrary variant (aria-selected,
+            // for example) does not make that absent utility reachable.
+            if (!preg_match('/^[\w-]+$/', $decoded)) {
+                foreach ($this->livePrefixes as $prefix) {
+                    if (str_starts_with($decoded, $prefix)) return true;
+                }
+                return false;
+            }
             $token = $decoded;
         }
         if (isset($this->live[$token]) || 1 === preg_match(self::MINTED, $token) || 1 === preg_match('/^' . SourceClassIdentity::REVEAL_STATE . '$/i', $token)

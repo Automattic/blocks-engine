@@ -182,8 +182,8 @@ final class StylesheetScopes
     {
         $routeClasses = array();
         foreach ($canonicalSources as $source) {
-            $class = (string) ($documentsBySource[$source]['document_metadata']['root_attributes']['class'] ?? '');
-            if (preg_match('/(?:^|\s)(be-r-[0-9a-f]+)(?:\s|$)/', $class, $match)) $routeClasses[$source] = $match[1];
+            $class = DocumentRootContext::stampedRouteClass($documentsBySource[$source] ?? array());
+            if (null !== $class) $routeClasses[$source] = $class;
         }
         $index = null;
         $transformer = new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer();

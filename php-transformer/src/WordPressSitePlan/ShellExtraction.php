@@ -3792,7 +3792,8 @@ final class ShellExtraction
     /** @param array<string,mixed> $candidate @param array<string,mixed> $current */
     private static function prefersScrollStateCarrier(array $candidate, array $current): bool
     {
-        return str_contains((string) ($candidate['markup'] ?? ''), '/scroll-state') && !str_contains((string) ($current['markup'] ?? ''), '/scroll-state');
+        $hasState = static fn(array $row): bool => str_contains((string) ($row['markup'] ?? ''), '/scroll-state') || str_contains((string) ($row['markup'] ?? ''), 'blocksEngineScrollState');
+        return $hasState($candidate) && !$hasState($current);
     }
 
     /**

@@ -101,6 +101,7 @@ final class ChromeIdentity
 
     public static function markup(string $markup): string
     {
+        $markup = self::dialogPanelStateIdentity($markup);
         $markup = self::nativeWrapperEncoding($markup);
         // Emission-only landmark transport must not prevent producer/capture matching.
         $markup = str_replace(array(',"className":"blocks-engine-shell-landmark"', ' blocks-engine-shell-landmark'), '', $markup);
@@ -132,6 +133,30 @@ final class ChromeIdentity
         // between them is read as tags.
         $markup = implode('', array_map(static fn (string $piece): string => str_starts_with($piece, '<!--') ? $piece : RenderEquivalentMarkup::canonical($piece, true), preg_split('/(<!--.*?-->)/s', $markup, -1, PREG_SPLIT_DELIM_CAPTURE) ?: array($markup)));
         return ChromeStackingIdentity::normalize(ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup));
+    }
+
+    /** Compare captured dialog HTML with the same primitive as live source chrome. */
+    private static function dialogPanelStateIdentity(string $markup): string
+    {
+        if (!str_contains($markup, CaptureEvidence::DIALOG_PANEL_STATE)) return $markup;
+        $normalize = static function (string $snapshot): string {
+            $state = json_decode($snapshot, true);
+            if (!is_array($state) || !is_string($state['html'] ?? null)) return $snapshot;
+            $state['html'] = \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SourceShells::identity('<div>' . $state['html'] . '</div>');
+            return (string) json_encode($state, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        };
+        $walk = static function (array $attrs) use (&$walk, $normalize): array {
+            foreach ($attrs as $key => $value) {
+                if (is_array($value)) $attrs[$key] = $walk($value);
+                elseif (is_string($value) && (CaptureEvidence::DIALOG_PANEL_STATE === $key || ('value' === $key && CaptureEvidence::DIALOG_PANEL_STATE === ($attrs['name'] ?? null)))) $attrs[$key] = $normalize($value);
+            }
+            return $attrs;
+        };
+        $markup = preg_replace_callback('/<!--\s*wp:(\S+)\s+(\{.*?\})\s*(\/?)-->/s', static function (array $match) use ($walk): string {
+            $attrs = json_decode($match[2], true);
+            return is_array($attrs) ? '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($walk($attrs)) . ' ' . $match[3] . '-->' : $match[0];
+        }, $markup) ?? $markup;
+        return preg_replace_callback('/(' . preg_quote(CaptureEvidence::DIALOG_PANEL_STATE, '/') . '=")([^"]*)(")/', static fn(array $match): string => $match[1] . htmlspecialchars($normalize(html_entity_decode($match[2], ENT_QUOTES | ENT_HTML5)), ENT_QUOTES | ENT_HTML5, 'UTF-8') . $match[3], $markup) ?? $markup;
     }
 
     /** Expand folded wrappers for comparison only; saved templates keep their depth budget. */
@@ -221,7 +246,8 @@ final class ChromeIdentity
             if (!preg_match('/^<!--\s*wp:(\S+)\s+(\{.*\})\s*(\/?)-->$/s', $match[0], $parts)) return $match[0];
             $attrs = json_decode($parts[2], true);
             if (!is_array($attrs)) return $match[0];
-            unset($attrs['config']);
+            unset($attrs['config'], $attrs['metadata']['blocksEngineScrollState']);
+            if (isset($attrs['metadata']) && array() === $attrs['metadata']) unset($attrs['metadata']);
             if (in_array($attrs['metadata']['name'] ?? null, array('Header', 'Footer'), true) && 1 === count($attrs['metadata'])) unset($attrs['metadata']);
             if (array('typography' => array('lineHeight' => '1')) === ($attrs['style'] ?? null)) unset($attrs['style']);
             foreach (array('margin', 'padding') as $box) {

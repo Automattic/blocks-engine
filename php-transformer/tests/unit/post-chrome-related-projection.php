@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 // #6152: repeated thumbnail cards and carousel controls must not retain post chrome.
 $failures = array();
@@ -52,6 +53,16 @@ HTML;
         if (!str_contains($template, '<!-- wp:' . $block)) $failures[] = $case . ': template contains core/' . $block;
     }
     if ('related-carousel' === $case && !str_contains($template, '<!-- wp:custom/authored-carousel')) $failures[] = $case . ': preserves carousel wrapper';
+    // #6289: only template-owned related queries need both listing handoffs.
+    foreach ($plan['pages'] as $page) {
+        if (str_contains($page['canonical_block_markup'], '<!-- wp:query')) $failures[] = $case . ': no page-owned query';
+    }
+    $bootstrap = array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'] ?? '';
+    if (!str_contains($bootstrap, "wp_enqueue_style( 'blocks-engine-listing-query' )") || !str_contains($bootstrap, ThemeBootstrap::LISTING_QUERY_CSS)) $failures[] = $case . ': enqueues listing query transport CSS';
+    foreach ($posts as $post) {
+        $image = $post['metadata']['featured_image'] ?? array();
+        if (!is_string($image['asset_token'] ?? null) || '' === ($image['target_path'] ?? '') || '' !== ($image['alt'] ?? null)) $failures[] = $case . ': resolved related-card featured image for ' . $post['source_path'];
+    }
     $findings = array_filter($plan['diagnostics'], static fn(array $entry): bool => str_contains($entry['code'] ?? '', 'post_chrome_order_retained'));
     if (array() !== $findings) $failures[] = $case . ': no order-retained findings';
     foreach ($posts as $post) {
