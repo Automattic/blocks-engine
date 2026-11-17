@@ -39,4 +39,6 @@ foreach (array('heading' => array('Display Face v2', '111.375px'), 'paragraph' =
 }
 $css = implode('\n', array_column($plan['assets'], 'content'));
 $assert(str_contains($css, '@media (max-width:390px)') && str_contains($css, 'font-size:12px'), 'The captured mobile typography remains active.');
+$assert(str_contains($css, 'font-size:12px !important'), 'Captured mobile carrier sizes override the editable inline base.');
+$assert(!str_contains($css, 'font-size:111.375px !important'), 'The captured resting size does not gain priority.');
 echo "Box-tree typography presets contract passed.\n";

@@ -455,9 +455,18 @@ final class DesignSystem
      * exact value, so binding never changes a rendered font.
      *
      * @param list<string> $markups Every page's block markup.
+     * @param list<array<string,mixed>> $assets Compiled assets containing captured carrier rules.
      */
-    public function withBlockTypography(array $markups): self
+    public function withBlockTypography(array $markups, array $assets = array()): self
     {
+        // Responsive captured sizes live on generated carriers rather than
+        // inline, so include their resting values in the supplemental scale.
+        foreach ($assets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            foreach (self::capturedFontSizes($asset['content']) as $size) {
+                $markups[] = '<!-- wp:paragraph ' . json_encode(array('style' => array('typography' => array('fontSize' => $size)))) . ' -->';
+            }
+        }
         $sizes = $families = array();
         foreach ($markups as $markup) {
             if (!preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) continue;
@@ -510,6 +519,17 @@ final class DesignSystem
             $fontFamilies[] = array('slug' => $slug, 'name' => $name, 'fontFamily' => $stack, 'key' => (string) $key, 'role' => 'family', 'weight' => 0);
         }
         return new self($this->colors, $fontSizes, $fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+    }
+
+    /** @return array<string,string> Unconditional captured carrier sizes, never author/state rules. */
+    public static function capturedFontSizes(string $css): array
+    {
+        $sizes = array();
+        (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->visitStyleRules($css, static function (string $selector, string $body, array $ancestors = array()) use (&$sizes): void {
+            if (array() !== $ancestors || 1 !== preg_match('/^\\.(be-inline-geometry-[a-f0-9]+)\\.\\1$/', trim($selector), $match)) return;
+            if (1 === preg_match('/(?:^|;)\\s*font-size\\s*:\\s*(\\d*\\.?\\d+(?:px|rem))\\s*(?:;|$)/i', $body, $size)) $sizes[$match[1]] = $size[1];
+        });
+        return $sizes;
     }
 
     /**

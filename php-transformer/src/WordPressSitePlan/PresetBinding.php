@@ -222,6 +222,8 @@ final class PresetBinding
     private array $scopedVariables = array();
     /** @var array<string,string> Custom properties every definition, all outside the root, sets to one value. */
     private array $uniformVariables = array();
+    /** @var array<string,string> */
+    private array $capturedSizes = array();
 
     /**
      * @param array<int,array<string,mixed>> $assets
@@ -232,6 +234,7 @@ final class PresetBinding
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
+            $this->capturedSizes += DesignSystem::capturedFontSizes($asset['content']);
             $conditional = !in_array(strtolower(trim((string) ($asset['media'] ?? ''))), array('', 'all'), true);
             $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $asset): void {
                 $this->indexRule($prelude, $body);
@@ -749,6 +752,22 @@ final class PresetBinding
         $isLink = in_array($name, self::LINK_BLOCKS, true);
         $style = $attributes->style ?? new \stdClass();
         $deviceOverridden = $this->deviceOverriddenProperties($attributes, $declarations);
+        // Only generated capture carriers may expose a missing base size as an
+        // editable inline token. Author classes (including hover) remain CSS.
+        $capturedSizeSlug = null;
+        foreach (array_keys($tokens) as $token) {
+            $size = str_starts_with($token, 'class:') ? ($this->capturedSizes[substr($token, 6)] ?? null) : null;
+            if (null === $size || isset($style->typography->fontSize) || $isLink) continue;
+            foreach ($this->system->fontSizes as $preset) {
+                if (0 !== $preset['weight'] || $preset['size'] !== $size) continue;
+                $style->typography ??= new \stdClass();
+                $style->typography->fontSize = $size;
+                $capturedSizeSlug = $preset['slug'];
+                $declarations[] = array('font-size', $size);
+                unset($deviceOverridden['font-size']);
+                break;
+            }
+        }
 
         $variation = $isLink && null !== $this->system->buttonVariationSlug() && $this->matchesButtonVariation($style);
         $buttonLook = $isLink && (isset($this->system->elements['button']) || $variation);
@@ -756,6 +775,7 @@ final class PresetBinding
         $this->bindButtonLook($d, $variation);
         $this->bindColorPresets($d);
         $this->bindBorderColors($d);
+        if (null !== $capturedSizeSlug && $this->inlinePreset($style->typography, 'fontSize', 'font-size', $capturedSizeSlug, $d->declarations, 'font-size', (string) $style->typography->fontSize)) ++$d->bound;
         $this->bindTypography($d);
         $this->bindSpacing($d);
         if (0 === $d->bound) return null;
@@ -1125,6 +1145,18 @@ final class PresetBinding
      */
     public function bindStylesheet(string $css): string
     {
+        // Captured mobile deltas must still override the editable inline base.
+        // Keep this confined to the exact generated carriers lifted above.
+        $css = (new CssStylesheetTransformer())->transform($css, function (string $selector, string $body): string|array {
+            if (1 !== preg_match('/^\\.(be-inline-geometry-[a-f0-9]+)\\.\\1$/', trim($selector), $match) || !isset($this->capturedSizes[$match[1]])) return $selector;
+            $base = $this->capturedSizes[$match[1]];
+            foreach ($this->system->fontSizes as $preset) {
+                if (0 !== $preset['weight'] || $preset['size'] !== $base) continue;
+                $body = preg_replace_callback('/(^|;)(\\s*font-size\\s*:\\s*)([^;]+)/i', static fn(array $m): string => $m[1] . $m[2] . $m[3] . (trim($m[3]) === $base || str_contains($m[3], '!important') ? '' : ' !important'), $body) ?? $body;
+                return array(array('prelude' => $selector, 'body' => $body));
+            }
+            return $selector;
+        });
         $transformer = new CssStylesheetTransformer();
         // Yield unconditional body paint to matching emitted defaults.
         // Split selector arms so a shared utility still owns its font on

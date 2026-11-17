@@ -315,14 +315,17 @@ final class ButtonPatternContext
         return $marker;
     }
 
-    /** A text-free, childless element, painted only by author CSS, that the label no longer renders. */
+    /**
+     * A text-free, childless element (source formatting whitespace aside),
+     * painted only by author CSS, that the label no longer renders.
+     */
     private static function isDroppedEdgeDecoration(?DOMElement $element, string $labelHtml): bool
     {
         $class = trim($element?->getAttribute('class') ?? '');
 
         return $element instanceof DOMElement
             && in_array(strtolower($element->tagName), array( 'div', 'span', 'i' ), true)
-            && ! $element->hasChildNodes()
+            && SourceDom::isEmptyInlineBox($element)
             && '' !== $class
             && ! str_contains($labelHtml, $class);
     }
