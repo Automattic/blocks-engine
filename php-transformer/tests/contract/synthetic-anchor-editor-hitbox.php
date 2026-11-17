@@ -7,7 +7,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $result = (new HtmlTransformer())->transform(
     '<style>.eyebrow{font-size:12px;text-transform:uppercase}</style>'
-    . '<main><div><a class="eyebrow" href="/">Interior</a><div><h1>Steering wheel</h1><p>Details</p></div></div></main>'
+    . '<main><div><a class="eyebrow" href="/">Interior</a><div><h1>Steering wheel</h1><p>Details</p></div></div>'
+    . '<div style="display:flex;align-items:center;height:64px"><a href="/brand">Brand</a><div><p>Navigation</p></div></div></main>'
 )->toArray();
 $markup = $result['serialized_blocks'] ?? '';
 $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));

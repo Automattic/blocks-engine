@@ -108,6 +108,10 @@ final class EngineSupportCss
             $parts[] = ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:inline}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'
                 . "\n" . ':where(p.blocks-engine-inline-anchor-carrier){display:inline}'
+                // RichText needs a focusable root for selection and input. Keep
+                // layout-owning links transparent on the frontend; only the
+                // editor's live editable carrier needs its own hit-test box.
+                . "\n" . ':root .editor-styles-wrapper p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '[contenteditable="true"]:not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a){display:inline}'
                 // A parent's sibling-spacing rule (`.stack > * + *`) now matches the
                 // carrier, whose margins do nothing as display:contents. The
                 // anchor it stands for takes them instead, as in the source.
