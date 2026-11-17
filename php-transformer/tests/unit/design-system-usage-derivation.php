@@ -586,7 +586,7 @@ $shellParts = implode('', array_column($shellPlan['template_parts'] ?? array(), 
 $assert(str_contains($shellParts, '"textColor":"contrast"') && str_contains($shellParts, '"backgroundColor":"base"'), 'tailwind-shell: shared template parts bind like page content');
 $shellCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($shellPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
 $shellMuted = (string) array_search('#93a8ce', $shellPalette, true);
-$assert('' !== $shellMuted && str_contains($shellCss, 'color:var(--wp--preset--color--' . $shellMuted . ',rgb(147 168 206 / var(--tw-text-opacity, 1)))'), 'tailwind-shell: the navigation and footer link colour class reads the palette');
+$assert('' !== $shellMuted && str_contains($shellCss, 'color:var(--wp--preset--color--' . $shellMuted . ',rgb(147 168 206 / var(--tw-text-opacity,1)))'), 'tailwind-shell: the navigation and footer link colour class reads the palette');
 $shellMetrics = $shellPlan['theme']['design_system']['metrics'] ?? array();
 $capturedCss = strlen((string) ((require dirname(__DIR__) . '/fixtures/design-system/tailwind-shell.php')['files']['assets/site.css'] ?? ''));
 $assert($capturedCss === ($shellMetrics['unique_source_css_bytes'] ?? null) && round(($shellMetrics['theme_css_bytes'] ?? 0) / $capturedCss, 4) === ($shellMetrics['generated_to_source_css_ratio'] ?? null), 'tailwind-shell: the CSS ratio is all shipped theme CSS over the captured site.css counted once, not its per-page copies (' . json_encode(array_intersect_key($shellMetrics, array_flip(array('theme_css_bytes', 'unique_source_css_bytes', 'engine_css_bytes')))) . ')');

@@ -560,7 +560,9 @@ final class ArtifactCompiler
             // Projection can give several author rules one long selector
             // list; ship that list once. Engine stylesheets are named by their
             // content and are reconciled with later page copies by it.
-            if ('files' === ($asset['source'] ?? null)) $content = (new CssStylesheetTransformer())->mergeRepeatedSelectorRules($content);
+            // The author's indentation and line breaks separate no tokens,
+            // yet every published byte counts towards the theme's weight.
+            if ('files' === ($asset['source'] ?? null)) $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace((new CssStylesheetTransformer())->mergeRepeatedSelectorRules($content));
             if ($content !== $asset['content']) $asset = ArtifactNormalizer::withTextPayload($asset, $content);
         }
         unset($asset, $propertyPruner);
