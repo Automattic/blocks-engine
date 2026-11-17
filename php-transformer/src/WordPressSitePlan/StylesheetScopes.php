@@ -258,7 +258,11 @@ final class StylesheetScopes
                     return $kept;
                 }, $member['content']);
             }, $run);
-            $asset = CompiledAssets::withRewrittenTextContent($asset, implode("\n", $contents));
+            // Folding adds formatting between contributions, not CSS tokens.
+            // Compact at this final boundary, before deriving the resource's
+            // identity, without changing selectors, values or cascade order.
+            $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace(implode("\n", $contents));
+            $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
             $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', serialize(array_keys($scopes)) . $asset['content']), 0, 16) . '.css';
             $asset['source_path'] = $path;
             $asset['target_path'] = 'assets/' . $path;

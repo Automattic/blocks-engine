@@ -316,6 +316,23 @@ final class RichTextMaterializer implements RichTextMaterialization
             'border-radius',
             'border-right',
             'border-top',
+            // Utility CSS paints a border through longhands (`.border` is
+            // `border-style` + `border-width`) over a `border:0 solid` reset:
+            // the shorthand alone would carry the reset and drop the box.
+            'border-style',
+            'border-width',
+            'border-top-width',
+            'border-right-width',
+            'border-bottom-width',
+            'border-left-width',
+            'border-top-style',
+            'border-right-style',
+            'border-bottom-style',
+            'border-left-style',
+            'border-top-color',
+            'border-right-color',
+            'border-bottom-color',
+            'border-left-color',
             'box-shadow',
             'color',
             'display',

@@ -114,7 +114,8 @@ final class EngineSupportCss
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '))>a{margin:inherit}'
                 . "\n" . ':root :where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.has-text-color)>a{color:inherit}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
-                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}'
+                // An undecorated carrier's link is reset by the `:root` rule
+                // below, which outweighs this underline wherever it applies.
                 // A source anchor blockified by a flex/grid parent resolved to
                 // display:block with no authored selector of its own to carry
                 // that onto the carrier's <a> -- the UA default `inline` would
@@ -123,6 +124,13 @@ final class EngineSupportCss
                 // Leave hidden links to the UA stylesheet, including when script
                 // toggles the attribute after compilation.
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS . ')>a:not([hidden]){display:block}';
+        }
+        if (str_contains($serializedBlocks, SourceBlockAttributeProjector::RETAINED_ITEM_CARRIER_CLASS)) {
+            // The carrier and the item it keeps share the source classes, so
+            // an author `::before` label for the item matches both and paints
+            // twice. The retained item draws it; the carrier adds none.
+            $carrier = '.' . SourceBlockAttributeProjector::RETAINED_ITEM_CARRIER_CLASS;
+            $parts[] = $carrier . '::before,' . $carrier . '::after{content:none!important}';
         }
         if (str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS)) {
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
@@ -160,11 +168,15 @@ final class EngineSupportCss
             // aspect-ratio-constrained, shrink-to-fit figure instead.
             $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '){width:100%}'
                 // Give Gutenberg a selectable block-root box over the same
-                // containing block the source image fills. Do not expand its
-                // ancestors or reset the image: those boxes own the authored
-                // flex/grid layout and percentage sizing on both surfaces.
+                // containing block the source image fills. Keep the image's
+                // authored flex/grid layout and percentage sizing intact.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{position:static}'
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block;height:100%}'
+                // A full-bleed source layer can sit underneath a later content
+                // group. A figure box alone cannot be clicked through that group.
+                // Put its immediate host in editor flow so both native blocks
+                // remain selectable, without changing front-end layer geometry.
+                . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::LAYER_FILL_IMAGE_FIGURE_CLASS . '){position:static!important;inset:auto!important}'
                 // A linked image adds core's inline-block anchor between the
                 // figure and the image. Shrink-to-fit, it sizes from the image
                 // whose percentages size from it, so the fill collapses. Let
@@ -229,12 +241,22 @@ final class EngineSupportCss
                 // top of each other, making the lower image impossible to select.
                 // In editor flow each image instead has its own hit-test box.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '.wp-block-image{display:inline-block;position:static}'
+                // Editor figures keep real selection boxes. Their leaves must
+                // not escape those boxes when source icons are stacked.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '.wp-block-image img{position:static!important}'
                 // A fixed-height source stack must expand around the editor's
                 // now in-flow images, rather than covering them with later blocks.
                 // Captured geometry can emit important fixed heights; this
                 // editor-only override must also outrank those source carriers.
                 . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '){height:auto!important;min-height:0!important}'
                 . $inlineFigure . ' img{display:inline}'
+                // A box-less figure positions nothing, so the image is the box
+                // that its source offsets (e.g. stacked icon layers pinned by
+                // `position:absolute;inset:0`) must move. Inherit them at zero
+                // weight; a carousel slide figure keeps its box and its offsets.
+                . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS
+                . ( str_contains($serializedBlocks, 'authored-carousel') ? ':not(.blocks-engine-authored-carousel__track>*)' : '' )
+                . ')>img{position:inherit;inset:inherit;z-index:inherit}'
                 // A propagated card link adds another synthetic box. Core's
                 // inline-block anchor would make percentage images shrink to
                 // their intrinsic width instead of the retained source host.
@@ -631,7 +653,7 @@ final class EngineSupportCss
         // viewport visibility sheet belongs to the front end: hiding an island
         // in the editor makes its native blocks impossible to select or replace.
         $editorCss = '';
-        foreach ($editorVariants as $class => $selector) {
+        if (array() !== $editorVariants) {
             // Device copies often share absolute source coordinates. Once both
             // are exposed, they must occupy separate editor flow boxes, rather
             // than covering each other's block selection targets. Ancestor
@@ -640,10 +662,18 @@ final class EngineSupportCss
             // Use normal block flow for those editor ancestors: retained grid
             // placement and flex tracks can still overlap the expanded copies,
             // even with auto heights. The front-end layout stays source-owned.
-            $editorCss .= $selector . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;transform:none!important}'
-                . $selector . ' figure.wp-block-image{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
-                . $selector . ' img{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
-                . ':root .editor-styles-wrapper .wp-block-group:has(.' . $class . '){display:block!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;grid-template-rows:none!important;grid-auto-rows:auto!important;position:relative!important;inset:auto!important;overflow:visible!important}';
+            // A source size container (`container-type:size`) ignores its
+            // contents when sizing, so its auto height stays 0 and the
+            // expanded copies overflow beneath the following content: drop
+            // the containment in the editor so those heights take effect.
+            // Both variants share one rule per target: this sheet ships on
+            // every route, so a repeated declaration block is page weight.
+            $list = static fn (string $suffix): string => implode(',', array_map(static fn (string $selector): string => $selector . $suffix, $editorVariants));
+            $ancestors = implode(',', array_map(static fn (string $class): string => ':root .editor-styles-wrapper .wp-block-group:has(.' . $class . ')', array_keys($editorVariants)));
+            $editorCss = $list('') . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;transform:none!important;container-type:normal!important}'
+                . $list(' figure.wp-block-image') . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
+                . $list(' img') . '{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
+                . $ancestors . '{display:block!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;grid-template-rows:none!important;grid-auto-rows:auto!important;position:relative!important;inset:auto!important;overflow:visible!important;container-type:normal!important}';
         }
         $editorRules = '' !== $editorCss
             ? array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, $editorCss))

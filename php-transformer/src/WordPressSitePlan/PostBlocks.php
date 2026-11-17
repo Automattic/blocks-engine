@@ -37,8 +37,13 @@ final class PostBlocks
 
     public static function date(string $slice): string
     {
+        // A date-bearing leaf can also carry an authored label and icon. Split
+        // only the date (including its link), never discard the surrounding copy.
+        $labelled = self::labelledDate($slice);
+        if (null !== $labelled) return $labelled;
         $attrs = array();
         $blockAttrs = self::sourceAttributes($slice);
+        if (true === ($blockAttrs['isLink'] ?? false)) $attrs['isLink'] = true;
         if (is_array($blockAttrs['style'] ?? null)) $attrs['style'] = $blockAttrs['style'];
         $format = PublicationDate::visibleFormat(trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? ''));
         if (null !== $format) {
@@ -51,6 +56,68 @@ final class PostBlocks
         self::keepBlockVisibility($attrs, $blockAttrs);
         $encoded = array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs);
         return '<!-- wp:post-date' . $encoded . ' /-->';
+    }
+
+    /**
+     * Keep inline ancestors balanced on either side of the dynamic date. The
+     * outer paragraph becomes a row, so post-date is never nested in RichText.
+     */
+    private static function labelledDate(string $slice): ?string
+    {
+        if (!preg_match('/<time\b[^>]*datetime=/i', $slice)) return null;
+        $document = new \DOMDocument();
+        @$document->loadHTML('<?xml encoding="UTF-8">' . $slice, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $times = $document->getElementsByTagName('time');
+        if (1 !== $times->length) return null;
+        $time = $times->item(0);
+        if (!$time instanceof \DOMElement) return null;
+        if (ListingExcerptProjection::text($slice) === ListingExcerptProjection::text($document->saveHTML($time) ?: '')) return null;
+        $target = $time;
+        if ($time->parentNode instanceof \DOMElement && 'a' === $time->parentNode->tagName
+            && trim($time->parentNode->textContent) === trim($time->textContent)) $target = $time->parentNode;
+        $root = $target;
+        while ($root->parentNode instanceof \DOMElement) $root = $root->parentNode;
+        $seen = false;
+        $split = static function (\DOMNode $node) use (&$split, &$seen, $target, $document): array {
+            if ($node === $target) {
+                $seen = true;
+                return array('', '');
+            }
+            $ancestor = $target->parentNode;
+            while (null !== $ancestor && $ancestor !== $node) $ancestor = $ancestor->parentNode;
+            if (null === $ancestor) return $seen ? array('', $document->saveHTML($node) ?: '') : array($document->saveHTML($node) ?: '', '');
+            $parts = array('', '');
+            foreach ($node->childNodes as $child) {
+                $childParts = $split($child);
+                foreach (array(0, 1) as $side) $parts[$side] .= $childParts[$side];
+            }
+            foreach ($parts as &$part) {
+                if ('' === trim($part)) continue;
+                $clone = $node->cloneNode(false);
+                $shell = $document->saveHTML($clone) ?: '';
+                $end = strpos($shell, '>');
+                $part = (false === $end ? '' : substr($shell, 0, $end + 1)) . $part . '</' . $node->nodeName . '>';
+            }
+            return $parts;
+        };
+        // Split children, leaving the source outer box to the group.
+        $parts = array('', '');
+        foreach ($root->childNodes as $child) {
+            $childParts = $split($child);
+            foreach (array(0, 1) as $side) $parts[$side] .= $childParts[$side];
+        }
+        $attrs = self::sourceAttributes($slice);
+        $classes = self::preservedClassName($slice, array('wp-block-paragraph'));
+        if (null !== $classes) $attrs['className'] = $classes;
+        $attrs['layout'] = array('type' => 'flex', 'flexWrap' => 'wrap');
+        $paragraph = static fn(string $html): string => '' === trim($html) ? '' : '<!-- wp:paragraph --><p>' . $html . '</p><!-- /wp:paragraph -->';
+        $dateClasses = array();
+        foreach (array($target, $time) as $element) {
+            if ($element->hasAttribute('class')) $dateClasses[] = $element->getAttribute('class');
+        }
+        $dateSource = array('className' => implode(' ', array_unique($dateClasses)), 'isLink' => 'a' === $target->tagName);
+        $date = self::date('<!-- wp:paragraph ' . BlockAttributes::encode($dateSource) . ' -->' . ($document->saveHTML($target) ?: '') . '<!-- /wp:paragraph -->');
+        return '<!-- wp:group ' . BlockAttributes::encode($attrs) . ' --><div class="wp-block-group' . (null === $classes ? '' : ' ' . htmlspecialchars($classes, ENT_QUOTES, 'UTF-8')) . '">' . $paragraph($parts[0]) . $date . $paragraph($parts[1]) . '</div><!-- /wp:group -->';
     }
 
     /**

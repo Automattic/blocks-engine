@@ -1038,7 +1038,38 @@ final class SharedChromeStylesheets
             'detached_hooks' => $detachedHooks,
             'has_shared_navigation' => $hasSharedNavigation,
         ] = self::chromeEvidence($parts, $routeClasses);
+        // A template frame still surrounds route content. Its hooks are not
+        // detached chrome: keep their rules in the authored route cascade,
+        // just as before shell extraction moved the frame out of the page.
         $routeHooks = self::routeKeptHooks($assets, $pages, $authored, $hookRoutes, $chromeElements);
+        foreach ($parts as $part) {
+            if ('page-frame' !== ($part['slug'] ?? null)) continue;
+            $markup = (string) ($part['canonical_block_markup'] ?? '');
+            $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+            $slot = null;
+            foreach ($index->tokens() as $token) {
+                if (!$token['closing'] && 'post-content' === $token['name']) {
+                    $slot = array('offset' => $token['offset'], 'length' => strlen($token['token']));
+                    break;
+                }
+            }
+            // Only the slot's ancestors still wrap route content. Siblings
+            // (buttons, dialogs, and other frame chrome) need shared rules so
+            // they also work with the generic template on newly added pages.
+            $ancestors = array();
+            if (null !== $slot) {
+                while (null !== ($slot = $index->parent($slot))) $ancestors[] = $slot;
+            } else {
+                $ancestors = $index->topLevel();
+            }
+            foreach ($ancestors as $range) {
+                $children = $index->children($range);
+                $length = array() !== $children ? $children[0]['offset'] - $range['offset'] : $range['length'];
+                foreach (self::authoredChromeElementHooks(substr($markup, $range['offset'], $length)) as $element) {
+                    foreach ($routeHooks as $kind => $names) $routeHooks[$kind] += $element[$kind];
+                }
+            }
+        }
         $classes = array_diff_key($classes, $routeHooks['marker']);
         unset($routeHooks['marker']);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
@@ -1109,7 +1140,7 @@ final class SharedChromeStylesheets
                 $keep($asset);
                 continue;
             }
-            $route = self::routeRules($asset['content'], $targetsChrome, $classMatcher);
+            $route = self::withoutSharedKeyframes(self::routeRules($asset['content'], $targetsChrome, $classMatcher), $shared);
             $contract = self::sharedChromeContract($asset);
             $sharedAsset = self::sharedChromeAsset($asset, $shared, $contract, $routeClasses);
             $shared = (string) $sharedAsset['content'];
@@ -1382,6 +1413,30 @@ final class SharedChromeStylesheets
      * @param callable(string):bool $targetsChrome
      * @param array<string,mixed> $classMatcher
      */
+    private static function withoutSharedKeyframes(string $route, string $shared): string
+    {
+        // Definition rules survive style-rule projection. The global slice
+        // already carries these exact keyframes, so do not enqueue them twice.
+        $definitions = array();
+        // Only top-level definitions are interchangeable across the slices;
+        // conditionally scoped definitions retain their original contracts.
+        $tree = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($shared);
+        if (!$tree->wellFormed) return $route;
+        foreach ($tree->rules() as $rule) {
+            $text = trim(substr($shared, $rule['start'], $rule['end'] - $rule['start'] + 1));
+            if (preg_match('/^@(?:-[a-z]+-)?keyframes\s/i', $text)) $definitions[$text] = true;
+        }
+        $tree = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($route);
+        if (!$tree->wellFormed) return $route;
+        $removals = array();
+        foreach ($tree->rules() as $rule) {
+            $text = trim(substr($route, $rule['start'], $rule['end'] - $rule['start'] + 1));
+            if (isset($definitions[$text])) $removals[] = $rule;
+        }
+        foreach (array_reverse($removals) as $rule) $route = substr_replace($route, '', $rule['start'], $rule['end'] - $rule['start'] + 1);
+        return $route;
+    }
+
     private static function routeRules(string $css, callable $targetsChrome, array $classMatcher): string
     {
         return (new CssStylesheetTransformer())->transformStyleRules(

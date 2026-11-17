@@ -58,7 +58,7 @@ $assert(1 === $navigationSubjectRules, 'G2: source anchor color stays in its ori
 // The control marker's seed is an identity hash, not part of the contract.
 $normalizedAuthorCss = preg_replace('/blocks-engine-control-[a-f0-9]{12}-(\d+)/', 'blocks-engine-control-#-$1', $normalizedAuthorCss) ?? $normalizedAuthorCss;
 $assert(
-    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons){width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button){width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link):not(be-t-0){width:100%;max-width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0)>:where(.wp-block-button__link):not(be-t-0){display:inline-flex;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
+    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons){width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button){width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link):not(.be-c-0):not(.be-c-0):not(be-t-0){width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link):not(be-t-0){max-width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0)>:where(.wp-block-button__link):not(be-t-0){display:inline-flex;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
     'G2: author-css contains only its leading at-rule preamble and rewritten author stylesheet'
 );
 $mixedAccessibleButton = ( new HtmlTransformer() )->transform(
@@ -87,7 +87,7 @@ $richText = ( new HtmlTransformer() )->transform(
         . '<ul class="maintenance-loop"><li><span>Build</span></li></ul>'
 )->toArray();
 $synthetic = ( new HtmlTransformer() )->transform(
-    '<style>p{margin:0}.site-header{display:flex;align-items:center}.brand{font-size:18px;font-weight:700}</style>'
+    '<style>p{margin:0}.site-header{display:flex;align-items:center}.brand{font-size:18px;font-weight:700;text-decoration:none}</style>'
         . '<header class="site-header"><a class="brand" href="/">Verified Artifact</a></header><footer><span>Portable input.</span></footer><p>Source paragraph.</p>'
 )->toArray();
 $colouredSyntheticLink = ( new HtmlTransformer() )->transform(
@@ -174,7 +174,7 @@ $beforeFamilies = array(
     'be-inline-geometry' => '.be-inline-geometry-',
     'richtext-marker reset' => 'html mark:where([style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}',
     'synthetic-paragraph' => ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}',
-    'synthetic-anchor-undecorated' => 'blocks-engine-synthetic-anchor-undecorated',
+    'synthetic-anchor-undecorated' => ':root :where(.blocks-engine-synthetic-anchor-undecorated)>a{text-decoration:none}',
     'synthetic-image-figure' => '.blocks-engine-synthetic-image-figure{margin:0}',
     'inline-layout-carrier' => ':where(p.blocks-engine-inline-layout-carrier){display:contents;margin:0!important;padding:0!important;border:0!important}',
     'css-owned editor wrappers' => ':root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks,:root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks>.block-editor-block-list__layout{display:contents}',

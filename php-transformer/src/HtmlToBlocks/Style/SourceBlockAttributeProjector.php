@@ -16,6 +16,12 @@ final class SourceBlockAttributeProjector
     /** A synthetic paragraph that is itself a lowered block-level source box, not a transparent carrier. */
     public const SOURCE_BOX_PARAGRAPH_CLASS = 'blocks-engine-source-box-paragraph';
     public const SYNTHETIC_SVG_PARAGRAPH_CLASS = 'blocks-engine-synthetic-svg-paragraph';
+    /**
+     * A synthetic paragraph whose RichText keeps its source item (a classed
+     * link) with the same classes. The paragraph shares those classes only for
+     * sibling matching; the retained element is the item's one box.
+     */
+    public const RETAINED_ITEM_CARRIER_CLASS = 'blocks-engine-retained-item';
     public const HIDDEN_RICH_TEXT_MARKER_CLASS = 'blocks-engine-hidden-richtext-marker';
     public const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
     public const SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS = 'blocks-engine-synthetic-anchor-block-display';
@@ -32,6 +38,7 @@ final class SourceBlockAttributeProjector
     /** An image unwrapped from a paragraph whose line box it sized in the source. */
     public const PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS = 'blocks-engine-paragraph-line-box-image';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
+    public const LAYER_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-layer-fill-image';
     public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
     /** A core/embed under inherited whitespace preservation its wrapper must not apply. */
@@ -60,6 +67,7 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_PARAGRAPH_CLASS,
             self::SOURCE_BOX_PARAGRAPH_CLASS,
             self::SYNTHETIC_SVG_PARAGRAPH_CLASS,
+            self::RETAINED_ITEM_CARRIER_CLASS,
             'blocks-engine-stretched-link-carrier',
             self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS,
             self::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS,
@@ -78,6 +86,7 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
+            self::LAYER_FILL_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_IMAGE_GAP_CLASS,
             self::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS,
         ),
@@ -203,6 +212,13 @@ final class SourceBlockAttributeProjector
                 }
             } elseif ( $this->sourceImageFillsParent($sourceElement) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS);
+                $parent = $sourceElement->parentNode;
+                if ( $parent instanceof DOMElement ) {
+                    $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['position'] ?? ''));
+                    if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+                        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYER_FILL_IMAGE_FIGURE_CLASS);
+                    }
+                }
             }
         }
         return $attrs;
@@ -518,7 +534,8 @@ final class SourceBlockAttributeProjector
         foreach (array('padding', 'margin') as $box) {
             $sides = $attrs['style']['spacing'][$box] ?? array();
             $zeroSides = is_array($sides) ? array_values(array_intersect(array('top', 'right', 'bottom', 'left'), array_keys(array_filter($sides, static fn($value): bool => is_string($value) && CssValueInspector::isZeroLength($value))))) : array();
-            if (array() === $zeroSides || !$this->styleResolver->hasGlobalZeroBox($sourceElement, $box)) continue;
+            $zeroSides = array_values(array_filter($zeroSides, fn(string $side): bool => $this->styleResolver->hasGlobalZeroBox($sourceElement, $box, $side)));
+            if (array() === $zeroSides) continue;
             // Only the sides the instance zeroes join the shared rule; a partial box
             // gets a side-specific marker so unlisted sides keep their own cascade.
             $all = 4 === count($zeroSides);
