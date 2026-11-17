@@ -89,7 +89,8 @@ final class AuthorStylesheetProjector
             // and without a class or id hook can reach them.
             $projected = (new CssStylesheetTransformer())->transformStyleRules($projected, static function (string $prelude, string $body): string {
                 $arms = CssStylesheetTransformer::splitSelectorList($prelude);
-                if ( null === $arms ) return $prelude . '{' . $body . '}';
+                // Custom properties paint nothing on the background either.
+                if ( null === $arms || self::declaresOnlyCustomProperties($body) ) return $prelude . '{' . $body . '}';
                 $class = '.' . ImageLowering::BACKGROUND_IMAGE_CLASS;
                 $guard = ':where(:not(' . $class . ',' . $class . ' *))';
                 foreach ( $arms as &$arm ) {
@@ -950,6 +951,12 @@ final class AuthorStylesheetProjector
     /** @param list<DOMElement>|null $controls Limit a partition to these matched controls. */
     private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, ?array $controls = null): string
     {
+        if ( null === $controls && self::isUniversalCustomPropertyRule($prelude, $body) ) {
+            // Every emitted element already matches a bare universal subject,
+            // at the source's zero specificity. Per-subject arms add nothing
+            // a custom property needs, and outrank the author's own setters.
+            return trim($prelude) . '{' . $body . '}';
+        }
         $buttonPresentationPseudoPrelude = $this->buttonPresentationPseudoPrelude($prelude, $context);
         if ( '' !== $buttonPresentationPseudoPrelude ) {
             return $buttonPresentationPseudoPrelude . '{' . $body . '}';
@@ -1298,6 +1305,38 @@ final class AuthorStylesheetProjector
             }
         }
         return false;
+    }
+
+    /**
+     * Whether a rule only declares custom properties on bare universal
+     * subjects (`*`, `:before`, `::after`, `::backdrop`, ...), as preflight
+     * variable resets do. Such a rule matches every element of the emitted
+     * markup exactly as it matched every source element, and paints nothing.
+     */
+    private static function isUniversalCustomPropertyRule(string $prelude, string $body): bool
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors || array() === $selectors ) {
+            return false;
+        }
+        foreach ( $selectors as $selector ) {
+            if ( 1 !== preg_match('/^\*?(?:::?(?:before|after)|::backdrop)?$/i', trim($selector)) || '' === trim($selector) ) {
+                return false;
+            }
+        }
+        return self::declaresOnlyCustomProperties($body);
+    }
+
+    /** Whether a non-empty rule body declares custom properties only. */
+    private static function declaresOnlyCustomProperties(string $body): bool
+    {
+        $declarations = CssRuleAnalyzer::declarationList($body);
+        foreach ( $declarations as [ 'name' => $name ] ) {
+            if ( ! str_starts_with($name, '--') ) {
+                return false;
+            }
+        }
+        return array() !== $declarations;
     }
 
     private function preludeIsUniversalReset(string $prelude): bool
