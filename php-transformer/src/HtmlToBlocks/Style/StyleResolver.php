@@ -4434,7 +4434,17 @@ final class StyleResolver implements ElementPresentationResolver
             unset($declarations['display']);
         }
 
+        // CSS state reveals survive import; only settle opacity when that
+        // interaction is absent (for example, a script-driven entrance).
+        $retainedOpacity = null;
+        if ($this->hasCssOpacityReveal($element, $declarations)) {
+            $retainedOpacity = $declarations['opacity'];
+            unset($declarations['opacity']);
+        }
         $normalized = $this->closedStateNormalizer()->strip($declarations, $this->sourceRevealProperties($element, $declarations));
+        if (null !== $retainedOpacity) {
+            $normalized['declarations']['opacity'] = $retainedOpacity;
+        }
         if ( null !== $responsiveDisplay ) {
             $normalized['declarations']['display'] = $responsiveDisplay;
         }
@@ -4521,6 +4531,28 @@ final class StyleResolver implements ElementPresentationResolver
                 return true;
             }
             if ('hidden' === CssValueInspector::declared($declarations, 'visibility') && 'visible' === CssValueInspector::declared($revealed, 'visibility')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasCssOpacityReveal(DOMElement $element, array $declarations): bool
+    {
+        $opacity = CssValueInspector::declared($declarations, 'opacity');
+        if (! is_numeric($opacity) || 0.0 !== (float) $opacity) {
+            return false;
+        }
+
+        foreach ($this->session->sourceStyleResolutionState()->revealStateRules() as $rule) {
+            $revealedOpacity = CssValueInspector::declared((array) ($rule['declarations'] ?? array()), 'opacity');
+            if (
+                is_numeric($revealedOpacity)
+                && 0.0 < (float) $revealedOpacity
+                && $this->session->sourceStyleResolutionState()->matches($element, (string) $rule['base_selector'])
+            ) {
                 return true;
             }
         }
@@ -5556,7 +5588,7 @@ final class StyleResolver implements ElementPresentationResolver
                     $analysis['pseudo'][] = $readingCustomProperties(array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions));
                 }
             }
-            if (array() === $declarations && array() === array_filter(array_keys($rawDeclarations), static fn(string $name): bool => str_starts_with($name, '--'))) {
+            if (array() === $declarations && ! isset($rawDeclarations['opacity']) && array() === array_filter(array_keys($rawDeclarations), static fn(string $name): bool => str_starts_with($name, '--'))) {
                 continue;
             }
             $navigationStateConditions = array_filter(
@@ -5567,10 +5599,10 @@ final class StyleResolver implements ElementPresentationResolver
                 $navigationStateConditions,
                 static fn (string $condition): bool => 1 !== preg_match('/^@media\b/i', trim($condition))
             );
-            if (($selectorConditions === array() || $selectorIsStaticLayerRule || $navigationStateConditionsSupported) && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
+            if (($selectorConditions === array() || $selectorIsStaticLayerRule || $navigationStateConditionsSupported) && 0 < preg_match_all('/:(hover|focus-within|focus-visible|focus|active|checked)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
                 $state = strtolower((string) $stateMatches[1][0][0]);
                 $offset = (int) $stateMatches[0][0][1];
-                $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
+                $baseSelector = trim((string) preg_replace('/:(hover|focus-within|focus-visible|focus|active|checked)\b/i', '', $selector));
                 // Disabled gates on authored button states are resting
                 // attribute constraints, not interaction states themselves.
                 $baseSelector = str_ireplace(':not(:disabled)', ':not([disabled])', $baseSelector);
