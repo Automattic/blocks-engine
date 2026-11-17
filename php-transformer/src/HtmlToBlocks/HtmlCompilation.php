@@ -359,9 +359,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $backgroundImageExtractor = new BackgroundImageExtractor();
         $this->tableClassificationPolicy = new TableClassificationPolicy();
         $this->navigationBlockNormalizer = new NavigationBlockNormalizer($this->normalizedNavigationLabel(...));
-        $this->validation = new Diagnostics\CompilationValidation($this->runtime, $this->session, $this->analysisCache->cssFontAnalysis);
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->styleResolver = new StyleResolver($this->session, $this->createStyleResolutionContext(), $this->analysisCache);
+        $this->validation = new Diagnostics\CompilationValidation(
+            $this->runtime,
+            $this->session,
+            $this->analysisCache->cssFontAnalysis,
+            $this->styleResolver->isDisplayNoneAtEveryViewport(...)
+        );
         $this->sourceInterItemSpaces = new SourceInterItemSpaces($this->styleResolver, $this->sourceElementClassifier);
         $this->imageUrls = new ImageUrlResolver($this->session);
         $mediaLowering = new Elements\MediaLowering($this, $this->styleResolver, $this->imageUrls);

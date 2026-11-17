@@ -8,6 +8,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
  *
  * Each text run must reach its own page or a shared surface. Text that
  * reaches neither was dropped, and is reported as content loss on the plan.
+ * Source content a converter dropped before serialization is reported per
+ * document as `html_content_dropped` and counted here too.
  */
 final class ContentConservation
 {
@@ -101,7 +103,10 @@ final class ContentConservation
             if (array() === $lost) continue;
             $findings[] = array('code' => 'wordpress_site_plan_content_lost', 'severity' => 'error', 'loss_class' => 'content_loss', 'source_path' => $document['source_path'], 'lost_text_count' => count($lost), 'lost_text' => array_slice(array_keys($lost), 0, 5), 'message' => 'Compiled document text is missing from its page and from every shared surface in the plan.');
         }
-        $plan['quality']['metrics']['content_loss_count'] = count($findings);
+        // Converters that dropped source content before serialization already
+        // reported it per document; that loss counts the same as plan loss.
+        $dropped = array_filter($plan['diagnostics'] ?? array(), static fn(mixed $diagnostic): bool => is_array($diagnostic) && 'html_content_dropped' === ($diagnostic['code'] ?? null) && 'content_loss' === ($diagnostic['loss_class'] ?? null));
+        $plan['quality']['metrics']['content_loss_count'] = count($findings) + count($dropped);
         return array() === $findings ? $plan : WordPressSitePlan::withFindings($plan, $findings);
     }
 }
