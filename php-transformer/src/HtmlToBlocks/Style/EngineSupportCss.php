@@ -254,6 +254,22 @@ final class EngineSupportCss
                 // their intrinsic width instead of the retained source host.
                 . $inlineFigure . '.blocks-engine-custom-host-image.blocks-engine-linked-image-figure>a{display:contents}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS) ) {
+            // An ordinary inline source image sat on its parent's line, so the
+            // parent was image + strut tall. Keep that line box: the figure has
+            // no source box and the image stays inline on the source baseline.
+            // This figure owns no source positioning, so unlike the inline
+            // carrier its image never inherits the figure's placement.
+            $strutFigure = SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS;
+            $parts[] = ':root .' . $strutFigure . '{display:contents}'
+                // Gutenberg still needs a selectable, shrink-wrapped block root.
+                . ':root .editor-styles-wrapper figure.' . $strutFigure . '.wp-block-image{display:inline-block}'
+                . ':root .' . $strutFigure . ' img{display:inline}'
+                // Undo core's `.wp-block-image img{vertical-align:bottom}` so the
+                // image sits on the source baseline and keeps its line-box strut.
+                // At the author image bridge's weight, a source alignment still wins.
+                . 'figure.wp-block-image:where(.' . $strutFigure . ') img{vertical-align:baseline}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS) ) {
             // The figure stands in for the paragraph that wrapped this image.
             // Keep the image on the figure's line, as it sat on the paragraph's,

@@ -2057,6 +2057,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $preserveGeneratedStyle = 'core/accordion-heading' === $name
                 || ('core/button' === $name && $this->sourceElementClassifier->hasLogoBrandSignal($sourceElement))
                 || ('core/spacer' === $name && $this->emptyElementFootprint->isEmptyVisualInlineCandidate($sourceElement));
+            $imageFigureFlow = 'core/image' === $name && 'figure' !== $sourceTagName
+                ? $this->syntheticImageFigureFlow->syntheticImageFigureFlow($sourceElement)
+                : Elements\SyntheticImageFigureFlow::BOX;
             $attrs = $this->sourceBlockAttributeProjector->project(
                 $name,
                 $attrs,
@@ -2072,9 +2075,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     'core/button' === $name && '' !== $logicalControlPath && $hasAuthorControlProjection
                         && $this->authorLayoutOwnership->isDirectChildOfAuthorFlexLayout($logicalControl),
                     $preserveGeneratedStyle,
-                    'core/image' === $name
-                        && 'figure' !== $sourceTagName
-                        && $this->syntheticImageFigureFlow->syntheticImageFigureFollowsInlineFlow($sourceElement)
+                    Elements\SyntheticImageFigureFlow::INLINE === $imageFigureFlow,
+                    Elements\SyntheticImageFigureFlow::STRUT === $imageFigureFlow
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );

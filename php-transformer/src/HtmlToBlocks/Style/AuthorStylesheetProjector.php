@@ -533,8 +533,12 @@ final class AuthorStylesheetProjector
             $imageRule .= $this->lineImageFigureRule($imagePrelude, $declarations, $context);
             // Any inline-flow image aligns on its line as the source declared,
             // not at the bottom where core's Image rule would put it.
-            if ( $inlineFigures && isset($declarations['vertical-align']) ) {
-                $imageRule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . ')', $imagePrelude)
+            $lineFigures = array_filter(
+                array( SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS ),
+                static fn (string $class): bool => str_contains($context->emittedMarkup, $class)
+            );
+            if ( array() !== $lineFigures && isset($declarations['vertical-align']) ) {
+                $imageRule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . implode(',.', $lineFigures) . ')', $imagePrelude)
                     . '{vertical-align:' . $declarations['vertical-align'] . '}';
             }
             $imageRule .= $this->flexItemImageBoxRule($prelude, $imagePrelude, $declarations, $context);
@@ -2504,7 +2508,7 @@ final class AuthorStylesheetProjector
     private function lineImageFigureRule(string $imagePrelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
         $figures = array_filter(
-            array( SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS ),
+            array( SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::INLINE_IMAGE_LEAF_CLASS ),
             static fn (string $class): bool => str_contains($context->emittedMarkup, $class)
         );
         if ( array() === $figures ) {
@@ -2520,13 +2524,21 @@ final class AuthorStylesheetProjector
         // (including responsive conditions). A transparent figure cannot own
         // positioning either: replay only authored offsets on its leaf, rather
         // than making every inline image inherit the figure's placement.
-        if ( in_array(SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS, $figures, true) ) {
+        // A strut figure is equally box-less but owns no source positioning,
+        // so its leaf takes only the replaced box.
+        foreach ( array(
+            SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS => true,
+            SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS => false,
+        ) as $figure => $ownsPositioning ) {
+            if ( ! in_array($figure, $figures, true) ) {
+                continue;
+            }
             $box = array_filter($declarations, static fn (string $property): bool =>
                 ( NativeImageLeafPresentation::isBoxProperty($property)
                 && ! NativeImageLeafPresentation::isPlacementProperty($property) )
-                || in_array($property, array( 'position', 'inset', 'inset-inline', 'inset-block', 'inset-inline-start', 'inset-inline-end', 'inset-block-start', 'inset-block-end', 'top', 'right', 'bottom', 'left', 'z-index' ), true), ARRAY_FILTER_USE_KEY);
+                || ( $ownsPositioning && in_array($property, array( 'position', 'inset', 'inset-inline', 'inset-block', 'inset-inline-start', 'inset-inline-end', 'inset-block-start', 'inset-block-end', 'top', 'right', 'bottom', 'left', 'z-index' ), true) ), ARRAY_FILTER_USE_KEY);
             if ( array() !== $box ) {
-                $rule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . ')', $imagePrelude)
+                $rule .= str_replace('.wp-block-image', '.wp-block-image:where(.' . $figure . ')', $imagePrelude)
                     . '{' . $this->styleResolver->cssDeclarationString($box) . '}';
             }
         }
