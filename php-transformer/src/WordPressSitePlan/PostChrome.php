@@ -799,10 +799,30 @@ final class PostChrome
     /**
      * A related section's query for one post: scoped to the post's term when
      * the group's cards prove one, else the latest posts it listed.
+     *
+     * A post that lists no cards (a hidden loading state filled from a
+     * peer's section) is outside the membership proof. It renders the
+     * smallest proven term it belongs to, so it keeps the same query, and so
+     * the same layout, as its term peers. A post in no proven term keeps the
+     * latest posts.
      */
     private function relatedQuery(string $heading, array $post, int $count, string $template): string
     {
-        $scope = $this->relatedTermScopes[$heading][$post['source_path'] ?? ''] ?? null;
+        $scopes = $this->relatedTermScopes[$heading] ?? null;
+        $source = $post['source_path'] ?? '';
+        $scope = $scopes[$source] ?? null;
+        if (null === $scope && null !== $scopes) {
+            $size = null;
+            foreach ($scopes as $candidate) {
+                foreach ($this->taxonomyEntities as $term) {
+                    if (($term['taxonomy'] ?? null) !== $candidate['taxonomy'] || ($term['slug'] ?? null) !== $candidate['slug']) continue;
+                    $members = $term['membership_source_paths'] ?? array();
+                    if (!in_array($source, $members, true) || (null !== $size && count($members) >= $size)) continue;
+                    $scope = $candidate;
+                    $size = count($members);
+                }
+            }
+        }
         return null === $scope ? PostBlocks::query($count, $template) : PostBlocks::query($scope['per_page'], $template, relatedTerm: $scope);
     }
 
@@ -819,13 +839,9 @@ final class PostChrome
     {
         $cardMarkup = '';
         $seen = array();
-        // Each post's card keys in order, and the card markup offset of each
-        // key. Every post starts with no cards, so one that lists none under
-        // the heading (a hidden or absent section) disproves a term scope
-        // rather than dropping out of the membership proof.
+        // Each post's card keys in order, and the card markup offset of each key.
         $keysByPost = array();
         $keyOffsets = array();
-        foreach ($posts as $peer) if (is_string($peer['source_path'] ?? null)) $keysByPost[$peer['source_path']] = array();
         foreach ($posts as $peer) {
             $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
             foreach ($peerIndex->ranges() as $owner) {
