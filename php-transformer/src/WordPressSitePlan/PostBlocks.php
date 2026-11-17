@@ -130,7 +130,9 @@ final class PostBlocks
         $images = array_values(array_filter(HtmlMarkupParser::htmlMarkupNodes($slice), static fn(array $node): bool => 'tag' === ($node['kind'] ?? null) && 'img' === strtolower((string) ($node['name'] ?? ''))));
         if (1 !== count($images)) return null;
         $attributes = is_array($images[0]['attributes'] ?? null) ? $images[0]['attributes'] : array();
-        if (1 !== preg_match('/^' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '(asset-[0-9a-f]{16})\}\}$/', (string) ($attributes['src'] ?? ''), $match)) return null;
+        $visibleImage = self::sourceAttributes($slice)['metadata']['blocksEngineVisibleImage']['url'] ?? null;
+        $url = is_string($visibleImage) ? $visibleImage : (string) ($attributes['src'] ?? '');
+        if (1 !== preg_match('/^' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '(asset-[0-9a-f]{16})\}\}$/', $url, $match)) return null;
         return array('asset_token' => $match[1], 'alt' => html_entity_decode((string) ($attributes['alt'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
     }
 

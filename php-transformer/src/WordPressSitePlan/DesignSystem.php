@@ -37,9 +37,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   weight, heaviest first, whatever family it ranks in (on a tie a
  *   family's own colour first, then the heavier family). So a near shade
  *   painted on many large surfaces keeps a token ahead of a distinct colour
- *   painted on one tiny element. At most 12 colours are kept: the lightest
- *   painted colours past the bound keep their literal everywhere and are
- *   reported under `literal_colors`, never bound to a near token.
+ *   painted on one tiny element. Every painted colour keeps an exact token:
+ *   a palette-size bound would leave source paint outside the editable design
+ *   system. Unpainted stylesheet colours do not create palette entries.
  *
  *   Clustering, slot ranking and `accent-N` order use each colour's
  *   prominence: the mean of its share of the document's area (text mass
@@ -104,7 +104,9 @@ final class DesignSystem
 {
     public const SCHEMA = 'blocks-engine/design-system/v1';
     public const USAGE_SCHEMA = 'blocks-engine/design-usage/v1';
-    public const MAX_COLORS = 12;
+    // Additional exact colours are editable block values, not new evidence
+    // for site-wide defaults or a reason to rewrite every utility rule.
+    public const PRIMARY_COLORS = 12;
     public const MAX_FONT_SIZES = 8;
     public const MAX_SPACING = 10;
     public const COLOR_TOLERANCE = CssColor::JUST_NOTICEABLE_DIFFERENCE;
@@ -145,7 +147,7 @@ final class DesignSystem
      * @param array{content?:array{value:string,px:float},wide?:array{value:string,px:float}} $layout
      * @param array<string,mixed> $root Root values every document agrees on.
      * @param array<string,mixed> $elements Shared element values and proven no-op per-level heading typography.
-     * @param list<string> $literalColors Painted opaque colours the palette bound left without a token, heaviest first.
+     * @param list<string> $literalColors Painted opaque colours without a token (retained for report compatibility).
      * @param array<string,string> $buttonVariation Dominant look scoped to matching button blocks when an element would reach unowned values.
      */
     private function __construct(
@@ -282,7 +284,7 @@ final class DesignSystem
         $spacing = self::spacing($spacingRows);
         $layout = self::layout($widthRows);
 
-        $system = new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors);
+        $system = new self(array_slice($colors, 0, self::PRIMARY_COLORS), $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors);
         // Observed translucent paint gets a preset even when its opaque RGB
         // is not painted anywhere. Prefer a derived tint when an exact base
         // exists; otherwise retain the source value, including its alpha.
@@ -322,6 +324,18 @@ final class DesignSystem
             if (isset($buttonLook[$field]) && null === $system->{$method}($buttonLook[$field])) unset($buttonLook[$field]);
         }
         return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, array_replace(self::unanimousElements($usageBySource, $system), array() === $buttonLook ? array() : array('button' => $buttonLook)), $system->rootPx, $system->documentCount, $literalColors);
+    }
+
+    /** Preserve the primary palette's stylesheet scope when adding block-only tokens. */
+    public function stylesheetColorSlug(string $value): ?string
+    {
+        $slug = $this->colorSlug($value);
+        foreach ($this->colors as $index => $color) {
+            if ($color['slug'] === $slug) {
+                return $index < self::PRIMARY_COLORS || 0 === $color['weight'] ? $slug : null;
+            }
+        }
+        return null;
     }
 
     /**
@@ -557,8 +571,8 @@ final class DesignSystem
      *   here can still follow the palette through a bound stylesheet rule,
      *   which `restyle_coverage` measures.
      * - `palette_size`: colours in the palette.
-     * - `literal_color_count`: painted opaque colours past the palette
-     *   bound, which keep their literal (report `literal_colors`).
+     * - `literal_color_count`: painted opaque colours without a palette token
+     *   (report `literal_colors`); zero when every usage colour is registered.
      * - `unused_font_families`: primary families (the first name of a
      *   `font-family` stack, unquoted) the source stylesheets declare that no
      *   rendered text uses as its primary, so the theme does not offer them.
@@ -749,10 +763,10 @@ final class DesignSystem
             $palette[] = $token($role, $color, $prominence[$color]);
             $taken[$color] = $role;
         }
-        // Every other painted colour competes for the remaining slots on its
+        // Every other painted colour receives an exact token ordered by its
         // own painted weight, heaviest first, whatever family it ranks in:
-        // a heavy near shade outranks a barely used distinct colour, and the
-        // lightest painted colours are the ones left literal. Grouping only
+        // a heavy near shade precedes a barely used distinct colour without
+        // excluding that colour from the editable palette. Grouping only
         // breaks ties: a family's own colour before a near shade of another,
         // then the heavier family, then the value.
         $taken = array_flip(array_column($palette, 'color'));
@@ -761,7 +775,6 @@ final class DesignSystem
         usort($rest, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: ($isLead($b) <=> $isLead($a)) ?: ($clusters[$memberOf[$b]]['weight'] <=> $clusters[$memberOf[$a]]['weight']) ?: strcmp($a, $b));
         $accent = 0;
         foreach ($rest as $color) {
-            if (count($palette) >= self::MAX_COLORS) break;
             $palette[] = $token('accent-' . (++$accent), $color, $prominence[$color]);
         }
         return $palette;
