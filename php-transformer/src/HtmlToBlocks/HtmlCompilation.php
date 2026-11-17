@@ -1726,7 +1726,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new MediaPatternContext($this->styleResolver, $this->imageUrls, $this->imageDimensions, $this->session),
             new ColumnsPatternContext($this->styleResolver),
             new MarkupPatternContext(
-                $this->session
+                $this->session,
+                $this->svgMaterializer->withReferencedDefinitions(...)
             ),
             new ButtonPatternContext(
                 $this->styleResolver,
@@ -1823,7 +1824,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 publishesSubjects: false
             ),
             markupContext: new MarkupPatternContext(
-                $this->session
+                $this->session,
+                $this->svgMaterializer->withReferencedDefinitions(...)
             ),
             codeWindowContext: new CodeWindowPatternContext($this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver)),
             logoContext: new LogoPatternContext(
