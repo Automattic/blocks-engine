@@ -33,6 +33,21 @@ final class PostChrome
      */
     private array $relatedSectionProjections = array();
 
+    /**
+     * Related-section term scopes by shared heading, then by post source
+     * path. Decided once over a whole template's posts, before layout groups
+     * split it, so each term's scoped query gives its posts their own group.
+     *
+     * @var array<string,array<string,array{taxonomy:string,slug:string,order_by:string,per_page:int}>|null>
+     */
+    private array $relatedTermScopes = array();
+
+    /** @var array<int,array<string,mixed>> The plan's taxonomy entities. */
+    private array $taxonomyEntities = array();
+
+    /** Whether every post renders one single template, with no layout groups. */
+    private bool $uniformTemplate = false;
+
     /** @var list<array<string,mixed>> Original site posts, across layout groups. */
     private array $allPosts = array();
 
@@ -222,12 +237,15 @@ final class PostChrome
      * @param array<int,array<string,mixed>> $runtimeEntityRecords
      * @return array{pages:array<int,array<string,mixed>>,single:?string}
      */
-    public function extractArticleChrome(array $pages, array $parts, array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), ?array $templates = null): array
+    public function extractArticleChrome(array $pages, array $parts, array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), ?array $templates = null, array $taxonomyEntities = array()): array
     {
         $this->allPosts = array_values(array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null) && empty($page['synthetic'])));
         $this->projectedFields = array();
         $this->projectedFeaturedImages = array();
         $this->orderRetained = array();
+        $this->taxonomyEntities = $taxonomyEntities;
+        $this->relatedTermScopes = array();
+        $this->uniformTemplate = null === $templates;
         if (null === $templates) {
             $result = $this->factorArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
             foreach ($this->orderRetained as $finding) ($this->recordFinding)($finding);
@@ -247,6 +265,7 @@ final class PostChrome
             if (count($posts) < 2) continue;
             $shared = $this->sharedIdentities($posts);
             $this->relatedSectionProjections = array();
+            $this->relatedTermScopes = array();
             $groups = array();
             $finalFindings = $this->orderRetained;
             $hasUntitled = array() !== array_filter($posts, fn(array $post): bool => $this->hasDeclaredEmptyTitle($post));
@@ -711,7 +730,7 @@ final class PostChrome
             $items = $section['items'];
             $start = $items[0]['offset'];
             $end = $items[count($items) - 1]['offset'] + $items[count($items) - 1]['length'];
-            $slots[$section['owner']['offset']] = substr($index->markup, $section['owner']['offset'], $start - $section['owner']['offset']) . PostBlocks::query(count($items), $projection['template']) . substr($index->markup, $end, $section['owner']['offset'] + $section['owner']['length'] - $end);
+            $slots[$section['owner']['offset']] = substr($index->markup, $section['owner']['offset'], $start - $section['owner']['offset']) . $this->relatedQuery($section['heading'], $post, count($items), $projection['template']) . substr($index->markup, $end, $section['owner']['offset'] + $section['owner']['length'] - $end);
             $this->listings->registerQueryContainer($slots[$section['owner']['offset']]);
             foreach ($projection['fields'] as $source => $values) $fields[$source] = ($fields[$source] ?? array()) + $values;
         }
@@ -738,7 +757,7 @@ final class PostChrome
                     $start = $items[0]['offset'] - $owner['offset'];
                     $last = $items[array_key_last($items)];
                     $end = $last['offset'] + $last['length'] - $owner['offset'];
-                    $slots[$candidate['offset']] = substr($slice, 0, $start) . PostBlocks::query(count($items), $projection['template']) . substr($slice, $end);
+                    $slots[$candidate['offset']] = substr($slice, 0, $start) . $this->relatedQuery($section['heading'], $post, count($items), $projection['template']) . substr($slice, $end);
                     $this->listings->registerQueryContainer($slots[$candidate['offset']]);
                 }
             }
@@ -778,6 +797,16 @@ final class PostChrome
     }
 
     /**
+     * A related section's query for one post: scoped to the post's term when
+     * the group's cards prove one, else the latest posts it listed.
+     */
+    private function relatedQuery(string $heading, array $post, int $count, string $template): string
+    {
+        $scope = $this->relatedTermScopes[$heading][$post['source_path'] ?? ''] ?? null;
+        return null === $scope ? PostBlocks::query($count, $template) : PostBlocks::query($scope['per_page'], $template, relatedTerm: $scope);
+    }
+
+    /**
      * Project a related section across every post in the group: the items
      * each post lists under the shared heading become one listing whose
      * cards yield the section's query template and per-post fields.
@@ -790,6 +819,9 @@ final class PostChrome
     {
         $cardMarkup = '';
         $seen = array();
+        // Each post's card keys in order, and the card markup offset of each key.
+        $keysByPost = array();
+        $keyOffsets = array();
         foreach ($posts as $peer) {
             $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
             foreach ($peerIndex->ranges() as $owner) {
@@ -800,8 +832,10 @@ final class PostChrome
                     // Runtime slider classes and geometry vary by position;
                     // repeated linked routes are still the same card evidence.
                     $key = $this->listings->cardRouteIdentity($slice);
+                    if (is_string($peer['source_path'] ?? null)) $keysByPost[$peer['source_path']][] = $key;
                     if (isset($seen[$key])) continue;
                     $seen[$key] = true;
+                    $keyOffsets[strlen($cardMarkup)] = $key;
                     $cardMarkup .= $slice;
                 }
                 break;
@@ -834,6 +868,16 @@ final class PostChrome
         }
         $template = $this->listings->cardTemplate($cardIndex, $cards, $cardFields, $bound);
         if (null === $template) return null;
+        if (!array_key_exists($heading, $this->relatedTermScopes)) {
+            $sourceByKey = array();
+            foreach ($cards as $card) {
+                $owner = null;
+                foreach ($keyOffsets as $offset => $key) if ($offset <= $card['offset']) $owner = $key;
+                if (null !== $owner) $sourceByKey[$owner] = $card['post']['source_path'] ?? null;
+            }
+            $cardsByPost = array_map(static fn(array $keys): array => array_map(static fn(string $key): ?string => $sourceByKey[$key] ?? null, $keys), $keysByPost);
+            $this->relatedTermScopes[$heading] = ListingQueryLoops::relatedTermScopes($cardsByPost, $this->allPosts, $this->taxonomyEntities, $this->uniformTemplate);
+        }
         $featuredImages = array();
         if (str_contains($template, '<!-- wp:post-featured-image')) {
             foreach ($cards as $card) {
