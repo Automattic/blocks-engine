@@ -536,7 +536,9 @@ final class ArtifactCompiler
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets);
         // Both pruners read the same consumer evidence; build it once.
-        $consumerEvidence = array_merge($this->selectorEvidence($authoredFiles), array_values($pageMarkup));
+        // Staged transport compiles one route at a time; use the whole site's
+        // evidence so a definition consumed on another route survives.
+        $consumerEvidence = array_merge($this->siteSelectorEvidence ?? $this->selectorEvidence($authoredFiles), array_values($pageMarkup));
         $definitionPruner = new \Automattic\BlocksEngine\PhpTransformer\Css\UnusedDefinitionPruner(
             array_values(array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')))),
             $consumerEvidence
