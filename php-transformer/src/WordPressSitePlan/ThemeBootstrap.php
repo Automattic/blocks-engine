@@ -158,7 +158,8 @@ PHP;
 
     /**
      * The route stylesheet table in two parts. `selection` picks the request's
-     * route sequences and sets the route flag; it runs before any enqueue, so
+     * route sequences and sets the route flag; it runs before the first flag-guarded
+     * enqueue and the route sequences, so
      * every fallback guarded by the flag (before-author ones included) reads
      * the request's final answer. `enqueue` loads the selected sequences at
      * their cascade position.
@@ -237,14 +238,15 @@ PHP;
         // Each source document's ordered stylesheet instances form one route
         // block; a repeated resource gets one handle per instance, same URI.
         $evidencePages = array_filter(array_merge($pages, $rootDocuments), static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles']));
-        $flagPosition = null;
-        if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) {
-            $flagPosition = count($lines);
-            $lines[] = '    $blocks_engine_route_styles = false;';
-        }
+        if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
         $routeRows = array();
         foreach ($evidencePages as $page) $routeRows[$page['source_path']] = array('condition' => self::bootstrapScopeCondition(PageStylesheets::documentScope($page), true), 'styles' => array(), 'handles' => array());
-        $routePosition = array() !== $routeRows ? count($lines) : null;
+        // The route table sits where the first route instance falls in the
+        // stylesheet order, so sheets ordered ahead of the author CSS (the
+        // engine reset sheets that also declare the cascade layer order) keep
+        // their place in the document. Pinning the table at the top would let
+        // a route's author sheet name its layers first and invert that order.
+        $routePosition = $fallbackPosition = null;
         foreach ($stylesheetEnqueues as $enqueue) {
             $asset = $enqueue['asset'];
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
@@ -266,14 +268,19 @@ PHP;
                 $routeRows[$enqueue['route']]['handles'][] = $enqueue['handle'];
                 continue;
             }
+            // A fallback reads the flag the route table sets: the table goes first.
+            if (!empty($enqueue['fallback']) && null === $routePosition && array() !== $routeRows) $routePosition = count($lines);
+            if (!empty($enqueue['fallback']) && null === $fallbackPosition) $fallbackPosition = count($lines);
             $condition = empty($enqueue['fallback']) ? $enqueue['condition'] : '! $blocks_engine_route_styles';
             $lines[] = "    if ( {$condition} ) {$call}";
         }
+        if (null === $routePosition && array() !== $routeRows) $routePosition = count($lines);
         if (null !== $routePosition) {
             $table = self::routeStylesheetTable($routeRows);
             array_splice($lines, $routePosition, 0, $table['enqueue']);
-            // The selection replaces the flag's default, ahead of every enqueue.
-            array_splice($lines, (int) $flagPosition, 1, $table['selection']);
+            // The selection sets the route flag ahead of the first fallback
+            // that reads it, even one ordered before every route instance.
+            array_splice($lines, min($routePosition, $fallbackPosition ?? $routePosition), 0, $table['selection']);
         }
         $attributes = array();
         foreach ($scripts as $script) {

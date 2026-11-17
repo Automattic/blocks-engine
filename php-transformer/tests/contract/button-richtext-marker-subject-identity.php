@@ -44,7 +44,7 @@ foreach ($plan['assets'] ?? array() as $asset) {
     if ('css' !== ($asset['kind'] ?? '')) continue;
     preg_match_all('/([^{}]+)\{([^{}]*)\}/', (string) ($asset['content'] ?? ''), $rules, PREG_SET_ORDER);
     foreach ($rules as $rule) {
-        if (! str_contains($rule[1], '.cta__container') || ! str_contains($rule[2], 'display:flex') || ! str_contains($rule[2], 'justify-content:center')) continue;
+        if ((! str_contains($rule[1], '.cta__container') && ! str_contains($rule[1], '.' . EngineMarker::subjectClassClass('cta__container'))) || ! str_contains($rule[2], 'display:flex') || ! str_contains($rule[2], 'justify-content:center')) continue;
         $foundRule = true;
         foreach (CssStylesheetTransformer::splitSelectorList(trim($rule[1])) ?? array() as $branch) {
             // These branches are class compounds with :where() and :not().

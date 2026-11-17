@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries;
 use DOMElement;
 
 final class QuotePatternContext
@@ -31,6 +32,19 @@ final class QuotePatternContext
             fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $blockquote)
         );
         return $mapped['style']['typography'] ?? array();
+    }
+
+    /**
+     * The quotation's RichText. Under a clip that author motion carries it
+     * across, the text runs the source split with empty comments
+     * (`“<!---->{quote}<!---->”`) are painted one by one, so they keep
+     * their boundaries ({@see StyleResolver::movesTextAcrossClip()}).
+     */
+    public function quotationContent(DOMElement $blockquote, string $content): string
+    {
+        return str_contains($content, '<!---->') && $this->styleResolver->movesTextAcrossClip($blockquote)
+            ? CommentTextRunBoundaries::keepEmptySeams($content)
+            : $content;
     }
 
     /** Preserve the typography of the caption consumed by a native quote. */
