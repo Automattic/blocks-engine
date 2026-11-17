@@ -71,6 +71,9 @@ final class StyleResolver implements ElementPresentationResolver
 
     private ?ClosedStateNormalizer $closedStateNormalizer = null;
 
+    /** @var \WeakMap<\DOMDocument, list<DOMElement>>|null */
+    private ?\WeakMap $unrepairableElements = null;
+
     private ?InlineGeometry $inlineGeometry = null;
 
     /** @var array<string, array{property: string, value: string, important: bool}> */
@@ -4524,6 +4527,7 @@ final class StyleResolver implements ElementPresentationResolver
             || $this->session->authorSelectorProjectionState()->isRuntimeAttributePath(SourceDom::sourceElementIdentity($element))
             || $this->hasRetainedCaptureDialogTrigger($element)
             || $this->isNativeNavigationDropdownPanel($element)
+            || ($this->declaresHiddenState($declarations) && $this->hasRevealedTwin($element))
         ) {
             return $declarations;
         }
@@ -4555,7 +4559,7 @@ final class StyleResolver implements ElementPresentationResolver
             $this->session->transformationEvidenceState()->recordFrozenHiddenState(array(
                 'tag'          => strtolower($element->tagName),
                 'selector'     => SourceDom::elementSelector($element),
-                'editor_selector' => $this->editorStaticStateSelector($element),
+                'editor_selector' => $this->repairSelector($element),
                 'declarations' => $normalized['stripped'],
                 'placed'       => $this->hasInlinePlacementTransform($element),
                 'offset'       => ! in_array(CssValueInspector::declared($declarations, 'transform'), array( '', 'none' ), true),
@@ -4563,6 +4567,89 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $normalized['declarations'];
+    }
+
+    /** @param array<string, string> $declarations */
+    private function declaresHiddenState(array $declarations): bool
+    {
+        $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? '1'));
+
+        return 'none' === CssValueInspector::declared($declarations, 'display')
+            || 'hidden' === CssValueInspector::declared($declarations, 'visibility')
+            || (is_numeric($opacity) && 0.0 === (float) $opacity);
+    }
+
+    /**
+     * A sibling with the same tag and text, whose classes add tokens to this
+     * element's, is the copy the source revealed: carousel loop clones are the
+     * common case. The source left this duplicate hidden, and showing it adds
+     * no content, only a second paint of its twin.
+     */
+    private function hasRevealedTwin(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $tokens = array_unique(SourceDom::tokens(SourceDom::attr($element, 'class')));
+        $text = null;
+        foreach ( SourceDom::elementElementChildren($parent) as $sibling ) {
+            if ( $sibling->isSameNode($element) || $sibling->tagName !== $element->tagName ) {
+                continue;
+            }
+            $siblingTokens = array_unique(SourceDom::tokens(SourceDom::attr($sibling, 'class')));
+            if ( count($siblingTokens) <= count($tokens) || array() !== array_diff($tokens, $siblingTokens) ) {
+                continue;
+            }
+            $text ??= (string) preg_replace('/\s+/', ' ', trim($element->textContent ?? ''));
+            if ( '' !== $text && $text === preg_replace('/\s+/', ' ', trim($sibling->textContent ?? '')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * One repair serves every element its selector matches. A class compound
+     * that also matches an element the source keeps hidden, or one whose
+     * viewport entrance replays from its hidden pose, would reveal that element
+     * too, so such a repair targets this element alone.
+     */
+    private function repairSelector(DOMElement $element): string
+    {
+        $selector = $this->editorStaticStateSelector($element);
+        if ( ! str_starts_with($selector, '.') ) {
+            return $selector;
+        }
+        foreach ( $this->unrepairableElements($element) as $candidate ) {
+            if ( ! $candidate->isSameNode($element) && $this->session->sourceStyleResolutionState()->matches($candidate, $selector) ) {
+                return '.' . $this->session->authorSelectorProjectionState()->ensureSemanticMarker($element->getNodePath() ?? '');
+            }
+        }
+
+        return $selector;
+    }
+
+    /** @return list<DOMElement> */
+    private function unrepairableElements(DOMElement $element): array
+    {
+        $document = $element->ownerDocument;
+        if ( null === $document ) {
+            return array();
+        }
+        $this->unrepairableElements ??= new \WeakMap();
+        if ( ! isset($this->unrepairableElements[$document]) ) {
+            $elements = array();
+            foreach ( $document->getElementsByTagName('*') as $candidate ) {
+                if ( $candidate->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) || $this->hasRevealedTwin($candidate) ) {
+                    $elements[] = $candidate;
+                }
+            }
+            $this->unrepairableElements[$document] = $elements;
+        }
+
+        return $this->unrepairableElements[$document];
     }
 
     /** An element's own inline transform is authored placement, such as a carousel slide's track offset. */
@@ -5753,12 +5840,20 @@ final class StyleResolver implements ElementPresentationResolver
         }
     }
 
-    /** @return list<array{property: string, value: string}> */
+    /**
+     * Image box and crop declarations, with logical sizes (`inline-size`,
+     * `block-size` and their min/max forms) read as the physical axis they
+     * size in horizontal writing: `.frame img{block-size:100%}` fills the
+     * frame's height exactly as `height:100%` would.
+     *
+     * @return list<array{property: string, value: string}>
+     */
     public function imageShapeDeclarationEntries(string $style): array
     {
         $entries = array();
         foreach (CssRuleAnalyzer::declarationList($style) as ['name' => $property, 'value' => $value]) {
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+            $property = (string) preg_replace(array('/^((?:min-|max-)?)inline-size$/', '/^((?:min-|max-)?)block-size$/'), array('$1width', '$1height'), $property);
             if (in_array($property, array('width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
                 $entries[] = array('property' => $property, 'value' => $value);
             }

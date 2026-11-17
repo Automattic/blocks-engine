@@ -25,6 +25,11 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
     public const SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-flex-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
+    /**
+     * A transparent figure that only keeps an ordinary inline image's line-box
+     * strut. Unlike the inline carrier it owns no source positioning.
+     */
+    public const SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-strut';
     public const INLINE_IMAGE_LEAF_CLASS = 'blocks-engine-inline-image-leaf';
     public const BASELINE_IMAGE_LEAF_CLASS = 'blocks-engine-baseline-image-leaf';
     public const INLINE_IMAGE_LINK_CLASS = 'blocks-engine-inline-image-link';
@@ -78,6 +83,7 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS,
+            self::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
             self::LAYER_FILL_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_IMAGE_GAP_CLASS,
@@ -198,8 +204,11 @@ final class SourceBlockAttributeProjector
             // The source image was inline content that its parent aligned. A
             // synthesized figure is a block box that fills the line instead,
             // so the alignment has nothing left to move.
-            if ( $facts->syntheticImageFigureFollowsInlineFlow ) {
-                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS);
+            if ( $facts->syntheticImageFigureFollowsInlineFlow || $facts->syntheticImageFigureKeepsLineStrut ) {
+                $attrs['className'] = SourceDom::mergeClassNames(
+                    (string) ($attrs['className'] ?? ''),
+                    $facts->syntheticImageFigureFollowsInlineFlow ? self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS : self::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS
+                );
                 if ( $this->hasCollapsedImageGap($sourceElement) ) {
                     $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_GAP_CLASS);
                 }

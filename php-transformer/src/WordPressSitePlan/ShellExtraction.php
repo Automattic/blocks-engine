@@ -2030,7 +2030,6 @@ final class ShellExtraction
             $identityInputs[] = $this->links->withoutShellSelfReferences((string) ($rows[0]['identity_markup'] ?? $rows[0]['markup']), $pages[$index], $pages);
         }
         $clusterIdentities = array_combine($identityPages, self::canonicalizeRouteNumberedShellIds($identityInputs, $stylesheetIds));
-        @mkdir('/home/chubes/.local/share/homeboy/controller-scratch/attempts/wf-import-findings-loop-a12e5b0f26e6-cook-i1-n14-a1-attempt-2-59c06173/wf-import-findings-loop-a12e5b0f26e6-cook-i1-n14-a1-cook-attempt-2/cook-blocks-engine-gate-fix-2/attempt-1/40016173-651e-464c-b537-0ca607c131ab/dbg'); foreach ($identityPages as $k => $i) file_put_contents('/home/chubes/.local/share/homeboy/controller-scratch/attempts/wf-import-findings-loop-a12e5b0f26e6-cook-i1-n14-a1-attempt-2-59c06173/wf-import-findings-loop-a12e5b0f26e6-cook-i1-n14-a1-cook-attempt-2/cook-blocks-engine-gate-fix-2/attempt-1/40016173-651e-464c-b537-0ca607c131ab/dbg/' . $area . '-' . str_replace('/', '_', $pages[$i]['source_path']) . '.txt', $identityInputs[$k] . "\n=====RAW\n" . $candidates[$i][0]['markup'] . "\n=====HASID " . (isset($candidates[$i][0]['identity_markup']) ? 1 : 0));
         foreach ($applicable as $index => $page) {
             $rows = $candidates[$index] ?? array();
             if (1 !== count($rows)) { $excluded[$index] = count($rows) > 1 ? 'multiple' : 'missing'; continue; }
@@ -2851,7 +2850,16 @@ final class ShellExtraction
             if (null === $frame) continue;
             $ranges = array(array('offset' => 0, 'length' => strlen($frame['opening'])), array('offset' => strlen($page['canonical_block_markup']) - strlen($frame['closing']), 'length' => strlen($frame['closing'])));
             $found = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, $ranges);
+            // A route-owned footer with a runtime binding stays page content;
+            // the header frame can still move without it.
+            if (($found['blocked'] || array() !== $found['refs']) && !empty($frame['route_footer'])) {
+                $frame = $this->shellFrame((string) $page['canonical_block_markup'], $areas, false, false);
+                if (null === $frame) continue;
+                $ranges = array(array('offset' => 0, 'length' => strlen($frame['opening'])), array('offset' => strlen($page['canonical_block_markup']) - strlen($frame['closing']), 'length' => strlen($frame['closing'])));
+                $found = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, $ranges);
+            }
             if ($found['blocked'] || array() !== $found['refs']) continue;
+            unset($frame['route_footer']);
             $split[$index] = self::withSharedDialogId($frame, $parts);
         }
         // The generic page template carries the frame most inner pages share in
@@ -3024,10 +3032,16 @@ final class ShellExtraction
     }
 
     /**
+     * A route whose footer joined no shared part still authors it as a footer
+     * landmark after the content, beside the shared header. It is chrome of
+     * that route's frame, not post content: it moves verbatim into the frame
+     * closing (`route_footer`), so it neither stays a page shell copy nor
+     * changes paint.
+     *
      * @param array<string,string> $areas Inline shell part slug to its area.
-     * @return array{opening:string,closing:string,content:string}|null
+     * @return array{opening:string,closing:string,content:string,route_footer?:true}|null
      */
-    private function shellFrame(string $markup, array $areas, bool $allowInvariantChain = false): ?array
+    private function shellFrame(string $markup, array $areas, bool $allowInvariantChain = false, bool $foldRouteFooter = true): ?array
     {
         $nodes = self::blockNodes(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup));
         if (array() === $nodes) return null;
@@ -3069,6 +3083,16 @@ final class ShellExtraction
             if (null === $parent || count($refs) > 1) return null;
             $parent = $nodes[$parent]['parent'];
         }
+        $routeFooter = false;
+        if ($foldRouteFooter && isset($positions['header']) && !isset($positions['footer']) && $to > $from && $to === count($siblings) - 1) {
+            $last = $nodes[$siblings[$to]];
+            $footer = substr($markup, $last['offset'], $last['end'] - $last['offset']);
+            $rest = array_slice($siblings, $from, $to - $from);
+            if ('group' === $last['name'] && 1 === preg_match('/"tagName":"footer"/', $last['attributes']) && !self::containsMainLandmark($footer) && !str_contains($footer, 'wp:template-part') && (self::nodesHoldPageHeading($markup, $nodes, $rest) || self::nodesHoldMain($markup, $nodes, $rest))) {
+                --$to;
+                $routeFooter = true;
+            }
+        }
         $start = $nodes[$siblings[$from]]['offset'];
         $end = $nodes[$siblings[$to]]['end'];
         $opening = substr($markup, 0, $start);
@@ -3084,7 +3108,7 @@ final class ShellExtraction
         // chrome around it.
         preg_match_all('/' . '(?:' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . '|' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . ')' . '(?:":"|=")([^"]+)"/', $opening . $closing, $documents);
         if (count(array_unique($documents[1])) > 1) return null;
-        return array('opening' => $opening, 'closing' => $closing, 'content' => $content);
+        return array('opening' => $opening, 'closing' => $closing, 'content' => $content) + ($routeFooter ? array('route_footer' => true) : array());
     }
 
     /**

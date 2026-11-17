@@ -420,7 +420,8 @@ final class SourceElementClassifier
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:chips?|pills?|badges?|tags?|filters?|facets?)(?:[^a-z0-9]|$)/', $tokens);
     }
 
-    public function hasOnlyPhrasingChildren(DOMElement $element): bool
+    /** @param null|callable(DOMElement): bool $isRendered Additional presentation visibility check. */
+    public function hasOnlyPhrasingChildren(DOMElement $element, ?callable $isRendered = null): bool
     {
         $nonAnchorText = false;
 
@@ -437,12 +438,17 @@ final class SourceElementClassifier
             }
 
             $tagName = strtolower($child->tagName);
-            if ( 'a' === $tagName ) {
+            // Inline artwork can share a text run, but does not by itself
+            // establish one: an icon-only wrapper still lowers as media.
+            if ( in_array($tagName, array( 'a', 'svg' ), true) ) {
                 continue;
             }
 
             if ( 'br' === $tagName || ( $this->isInlineContentElement($tagName) && ! SourceDom::isImageOnlyNamedGraphic($child) ) ) {
-                $nonAnchorText = true;
+                // Label references and empty decoration do not establish a text
+                // run. Inspect descendants too: a visible span may wrap only
+                // hidden text (or SVG accessibility metadata).
+                $nonAnchorText = $nonAnchorText || $this->hasRenderedInlineText($child, $isRendered);
                 continue;
             }
 
@@ -450,6 +456,30 @@ final class SourceElementClassifier
         }
 
         return $nonAnchorText;
+    }
+
+    /** @param null|callable(DOMElement): bool $isRendered */
+    private function hasRenderedInlineText(DOMElement $element, ?callable $isRendered): bool
+    {
+        if ( $element->hasAttribute('hidden') || SourceDom::isAriaHidden($element)
+            || 'none' === CssValueInspector::declared(SourceDeclarations::inline($element), 'display')
+            || ( null !== $isRendered && ! $isRendered($element) )
+            || in_array(strtolower($element->tagName), array( 'svg', 'script', 'style', 'template' ), true) ) {
+            return false;
+        }
+
+        if ( 'br' === strtolower($element->tagName) ) {
+            return true;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMText && '' !== trim($child->textContent) ) {
+                return true;
+            }
+            if ( $child instanceof DOMElement && $this->hasRenderedInlineText($child, $isRendered) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function isClassedPhrasingItem(DOMElement $element): bool
@@ -1201,7 +1231,9 @@ final class SourceElementClassifier
             return null;
         }
 
-        if ( $this->hasCarouselIdentity($element) || $this->isCarouselList($element) ) {
+        if ( ( $this->hasCarouselIdentity($element) || $this->isCarouselList($element) )
+            && ! $this->isSlideshowLayoutContainer($element)
+        ) {
             return $element;
         }
 
@@ -1217,6 +1249,44 @@ final class SourceElementClassifier
         }
 
         return $this->slideshowCollectionRoot($contentChildren[0]);
+    }
+
+    /**
+     * A carousel-named element whose images all sit in one child while a
+     * sibling child carries authored content (a heading, text or a form) is a
+     * layout container around a slideshow, not the slideshow itself. Taking
+     * it as the collection root would drop that sibling content.
+     */
+    private function isSlideshowLayoutContainer(DOMElement $element): bool
+    {
+        if ( $element->hasAttribute('data-blocks-engine-slideshow') ) {
+            return false;
+        }
+        $mediaChildren = 0;
+        $contentChild = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || $this->isInertSlideshowHostChild($child) ) {
+                continue;
+            }
+            if ( 0 < $child->getElementsByTagName('img')->length ) {
+                ++$mediaChildren;
+                continue;
+            }
+            $contentChild = $contentChild || $this->hasAuthoredLayoutContent($child);
+        }
+
+        return 1 === $mediaChildren && $contentChild;
+    }
+
+    private function hasAuthoredLayoutContent(DOMElement $element): bool
+    {
+        foreach ( array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'form', 'input', 'select', 'textarea' ) as $tag ) {
+            if ( strtolower($element->tagName) === $tag || 0 < $element->getElementsByTagName($tag)->length ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

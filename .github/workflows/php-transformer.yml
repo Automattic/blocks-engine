@@ -132,6 +132,22 @@ jobs:
       - name: Run visual parity tests
         run: npm test
 
+      - name: Verify imported slideshows validate in Gutenberg
+        working-directory: php-transformer
+        env:
+          BE_EDITOR_EVIDENCE_DIR: ${{ runner.temp }}/slideshow-editor-acceptance
+          BE_EDITOR_WORDPRESS_IMAGE: wordpress:7.0.4-php8.3-apache
+          BE_EDITOR_CLI_IMAGE: wordpress:cli-php8.3
+        run: composer test:slideshow-browser
+
+      - name: Upload slideshow editor acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slideshow-editor-acceptance
+          path: ${{ runner.temp }}/slideshow-editor-acceptance
+          if-no-files-found: ignore
+
       - name: Verify layout-table source tracks and authored responsive overrides
         env:
           WORDPRESS_ROOT: ${{ runner.temp }}/wordpress
