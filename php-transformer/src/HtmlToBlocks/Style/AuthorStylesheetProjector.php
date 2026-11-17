@@ -190,7 +190,6 @@ final class AuthorStylesheetProjector
         return ':root .' . $marker . '>.wp-block-button__link{' . implode(';', array_map(static fn (string $property): string => $property . ':revert-layer', $reverted)) . '}';
     }
 
-    /** @param list<string> $ancestors */
     /**
      * Where a materialized background guard belongs in a selector arm: before
      * its subject's pseudo-element, or null when the subject compound already
@@ -230,6 +229,7 @@ final class AuthorStylesheetProjector
         return $span['end'];
     }
 
+    /** @param list<string> $ancestors */
     private static function ancestorsAreConditional(array $ancestors): bool
     {
         foreach ( $ancestors as $ancestor ) {
