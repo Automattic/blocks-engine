@@ -172,7 +172,7 @@ final class AuthoredCarouselBlockGenerator
         if ( attributes.stageMinHeight ) { style = style || {}; style[ '--blocks-engine-carousel-stage-min-height' ] = attributes.stageMinHeight; }
         var carouselClasses = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle );
         if ( 'src-swap' === presentation ) carouselClasses = 'blocks-engine-authored-carousel--src-swap';
-        var props = { className: carouselClasses + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        var props = { className: carouselClasses + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: normalizedCount( attributes.slideCount ), visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
         if ( attributes.thumbnailsHiddenBelow > 0 ) props[ 'data-carousel-thumbnails-hidden-below' ] = String( Math.round( attributes.thumbnailsHiddenBelow ) );
         if ( false === attributes.showArrows ) props[ 'data-carousel-arrows' ] = 'false';
         if ( false === attributes.keyboard ) props[ 'data-carousel-keyboard' ] = 'false';
@@ -312,9 +312,18 @@ JS;
         $view = <<<'JS'
 import { store, getContext, getElement, withScope } from '@wordpress/interactivity';
 
-const slidesOf = ( ref ) => 'src-swap' === getContext().presentation
-    ? Array.from( ref.querySelectorAll( '.blocks-engine-authored-carousel__sequence > *' ) )
-    : Array.from( ref.querySelectorAll( '.blocks-engine-authored-carousel__track > *' ) );
+// Query Loop transport wrappers do not generate boxes. Page the rendered
+// cards, not the query, post-template or display:contents post wrappers.
+const slidesOf = ( ref ) => {
+    const container = ref.querySelector( 'src-swap' === getContext().presentation
+        ? '.blocks-engine-authored-carousel__sequence'
+        : '.blocks-engine-authored-carousel__track' );
+    const boxes = ( parent ) => Array.from( parent.children ).flatMap( ( child ) => {
+        const display = window.getComputedStyle( child ).display;
+        return 'contents' === display ? boxes( child ) : 'none' === display ? [] : [ child ];
+    } );
+    return container ? boxes( container ) : [];
+};
 
 const rootOf = ( ref ) => ref.closest( '.blocks-engine-authored-carousel' ) || ref.closest( '[data-wp-interactive="blocks-engine/carousel"]' );
 
@@ -767,7 +776,7 @@ JS;
         $styleAttribute = array() === $styleDeclarations ? '' : ' style="' . implode(';', $styleDeclarations) . '"';
 
         $context = htmlspecialchars(
-            (string) json_encode(array_merge(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false, 'playing' => 0 < $autoplayInterval), empty($attributes['statusFormat']) ? array() : array('statusFormat' => $attributes['statusFormat'])), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            (string) json_encode(array_merge(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => $slideCount, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false, 'playing' => 0 < $autoplayInterval), empty($attributes['statusFormat']) ? array() : array('statusFormat' => $attributes['statusFormat'])), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
             ENT_QUOTES | ENT_SUBSTITUTE,
             'UTF-8'
         );
@@ -1160,6 +1169,7 @@ JS;
             'sourceControlArtwork' => '' !== ($sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '') || '' !== ($sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : ''),
             'stageWrappers' => $this->stageWrappers($element, $geometryList, $styleResolver, $items),
             'stageTrackClassName' => $styleResolver->safeTrackClassName($geometryList, $items),
+            'stageGap' => $styleResolver->carouselTrackGap($items),
             'sourceRootGeometry' => $this->sourceRootGeometry($element, $styleResolver),
             'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
             'autoplayInterval' => !$capturedGallery && 'slideshow' === $presentation ? $autoplayInterval : 0,

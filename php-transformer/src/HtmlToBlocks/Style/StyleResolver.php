@@ -6316,6 +6316,26 @@ final class StyleResolver implements ElementPresentationResolver
         return implode(' ', array_values(array_filter($classes, static fn (string $class): bool => ! isset($unsafe[$class]))));
     }
 
+    /**
+     * Source gutters already participate in slide widths; do not add a second gap.
+     *
+     * @param list<DOMElement> $slides
+     */
+    public function carouselTrackGap(array $slides): string
+    {
+        foreach ($slides as $slide) {
+            if (!$slide instanceof DOMElement) continue;
+            $values = $this->authorDeclaredValuesAtAnyViewport($slide, array('padding-left', 'padding-right', 'padding-inline-start', 'padding-inline-end', 'margin-left', 'margin-right'));
+            foreach ($values as $propertyValues) {
+                foreach ($propertyValues as $value) {
+                    $value = CssValueInspector::comparable($value);
+                    if (!in_array($value, array('', '0', '0px', 'auto', 'normal'), true)) return '0px';
+                }
+            }
+        }
+        return '';
+    }
+
     /** Source list classes for the generated track, excluding slide runtime hooks. */
     public function safeTrackClassName(DOMElement $sourceList, array $replacedSlides): string
     {

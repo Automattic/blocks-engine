@@ -1016,6 +1016,19 @@ final class AuthorStylesheetProjector
             }));
         };
         $projectedPrelude = $selectControls($this->rewriteSelectorPrelude($prelude, $context, false, null === $controls && $this->allowsSubjectArms($prelude, $body), true));
+        // A replacement carousel owns track motion, including attribute-projected
+        // capture rules. Partition mixed rules so static geometry still reaches
+        // the track and shared utilities still animate other source elements.
+        $motion = array_intersect_key(SourceDeclarations::parse($body), array_fill_keys(array('transform', 'translate', 'rotate', 'scale'), true));
+        if (array() !== $motion && str_contains($context->emittedMarkup, 'blocks-engine-authored-carousel__track')) {
+            $static = array_diff_key(SourceDeclarations::parse($body), $motion);
+            $motionSelectors = array_map(
+                static fn (string $selector): string => $selector . ':not(.blocks-engine-authored-carousel__track)',
+                CssStylesheetTransformer::splitSelectorList($projectedPrelude) ?? array()
+            );
+            return (array() === $static || '' === $projectedPrelude ? '' : $projectedPrelude . '{' . $this->styleResolver->cssDeclarationString($static) . '}')
+                . (array() === $motionSelectors ? '' : implode(',', $motionSelectors) . '{' . $this->styleResolver->cssDeclarationString($motion) . '}');
+        }
         // Centered source dropdown boxes are desktop presentation, not Core's
         // open-overlay stack. Keep the authored rule outside that stack rather
         // than relying on a later, higher-specificity alignment override.
