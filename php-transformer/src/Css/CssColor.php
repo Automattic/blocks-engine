@@ -150,6 +150,17 @@ final class CssColor
         $a = self::lab($left);
         $b = self::lab($right);
         if (null === $a || null === $b) return null;
+        return self::labDistance($a, $b);
+    }
+
+    /**
+     * CIE76 ΔE*ab between two lab() results.
+     *
+     * @param array{0:float,1:float,2:float} $a
+     * @param array{0:float,1:float,2:float} $b
+     */
+    public static function labDistance(array $a, array $b): float
+    {
         return sqrt(($a[0] - $b[0]) ** 2 + ($a[1] - $b[1]) ** 2 + ($a[2] - $b[2]) ** 2);
     }
 

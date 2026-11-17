@@ -47,7 +47,8 @@ final class UnreachableSelectorPruner
         $this->evidenceText = implode("\n", $texts);
         $prefixes = array();
         foreach ($texts as $text) {
-            if (preg_match_all('/[\w-]+/', $text, $matches)) $this->live += array_fill_keys($matches[0], true);
+            // Set keys in place: a property union (`+=`) copies the whole set per text.
+            if (preg_match_all('/[\w-]+/', $text, $matches)) foreach ($matches[0] as $token) $this->live[$token] = true;
             if (preg_match_all('/[A-Za-z][\w-]*[-_](?=["\'`$+])/', $text, $matches)) $prefixes += array_fill_keys($matches[0], true);
         }
         $this->livePrefixes = array_keys($prefixes);
