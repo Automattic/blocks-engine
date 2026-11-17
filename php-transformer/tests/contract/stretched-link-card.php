@@ -10,6 +10,7 @@ $cases = array(
     'editorial visual' => array('<div class="editorial-visual aspect-[16/10]"></div><div><h3>Title</h3><p>Summary</p></div>', 'h3', false),
     'plain card' => array('<h3>Title</h3><p>Summary</p>', 'h3', false),
     'read-more icon' => array('<div class="visual"></div><div><h3>Title</h3><p>Summary</p><span>Read guide <svg viewBox="0 0 24 24"><path d="M7 7h10v10"></path></svg></span></div>', 'h3', false),
+    'icon tile with trailing arrow' => array('<div class="icon-tile"></div><div><h3>Title</h3><p>Summary</p></div><span class="ml-auto">→</span>', 'h3', false),
     'text' => array('<div class="visual"></div><p>Text</p>', 'p', false),
     'button' => array('<div><h3>Title</h3><button>Choose</button></div>', '', true),
     'no carrier' => array('<pre>Code</pre>', '', true),

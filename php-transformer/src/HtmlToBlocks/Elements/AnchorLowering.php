@@ -372,8 +372,11 @@ final class AnchorLowering implements ButtonLinkLeftovers
             // direct-image listing/featured-image links. Those must retain
             // their source anchor for site-wide post and query recognition.
             foreach ( $anchor->getElementsByTagName('img') as $image ) {
+                // Inline media wrappers (picture, a positioned span) sit
+                // inside the visual region rather than forming it.
                 $visual = $image->parentNode;
-                if ( $visual instanceof DOMElement && 'picture' === strtolower($visual->tagName) ) {
+                while ( $visual instanceof DOMElement && $visual !== $anchor
+                    && in_array(strtolower($visual->tagName), array('picture', 'span'), true) ) {
                     $visual = $visual->parentNode;
                 }
                 if ( ! $visual instanceof DOMElement || $visual === $anchor
@@ -399,7 +402,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
         }
         foreach ( $anchor->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true) ) {
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'img', 'picture'), true) ) {
                 return false;
             }
         }
