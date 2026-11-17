@@ -227,7 +227,12 @@ PHP;
         if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
         $routeRows = array();
         foreach ($evidencePages as $page) $routeRows[$page['source_path']] = array('condition' => self::bootstrapScopeCondition(PageStylesheets::documentScope($page), true), 'styles' => array(), 'handles' => array());
-        $routePosition = array() !== $routeRows ? count($lines) : null;
+        // The route table sits where the first document instance enqueues:
+        // after the before-author globals, whose layer order and engine
+        // resets must precede the author stylesheets they bracket. Evidence
+        // routes without instances still flag their route before any
+        // fallback reads that flag.
+        $routePosition = $fallbackPosition = null;
         foreach ($stylesheetEnqueues as $enqueue) {
             $asset = $enqueue['asset'];
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
@@ -249,9 +254,11 @@ PHP;
                 $routeRows[$enqueue['route']]['handles'][] = $enqueue['handle'];
                 continue;
             }
+            if (!empty($enqueue['fallback']) && null === $fallbackPosition) $fallbackPosition = count($lines);
             $condition = empty($enqueue['fallback']) ? $enqueue['condition'] : '! $blocks_engine_route_styles';
             $lines[] = "    if ( {$condition} ) {$call}";
         }
+        if (null === $routePosition && array() !== $routeRows) $routePosition = $fallbackPosition ?? count($lines);
         if (null !== $routePosition) array_splice($lines, $routePosition, 0, self::routeStylesheetTable($routeRows));
         $attributes = array();
         foreach ($scripts as $script) {
