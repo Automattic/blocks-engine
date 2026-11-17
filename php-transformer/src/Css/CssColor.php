@@ -9,8 +9,10 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  *
  * The parser reads hex notation (3, 4, 6 or 8 digits), `rgb()`/`rgba()`,
  * `hsl()`/`hsla()`, `oklab()`/`oklch()` (Tailwind v4 emits these), CIE
- * `lab()`/`lch()` (Lightning CSS emits these after a hex fallback), the CSS
- * named colours, and `transparent`. Any other notation (`color-mix()`,
+ * `lab()`/`lch()` (Lightning CSS emits these after a hex fallback),
+ * `color(srgb …)`/`color(srgb-linear …)` (browsers serialize computed colours
+ * authored in those spaces this way), the CSS named colours, and
+ * `transparent`. Any other notation (`color-mix()`,
  * `currentColor`, system colours, relative colour syntax) is null: it is
  * either not a design token or cannot be resolved without a rendering engine.
  *
@@ -71,6 +73,7 @@ final class CssColor
             $alpha = 8 === strlen($hex) ? hexdec(substr($hex, 6, 2)) / 255 : 1.0;
             return array((float) hexdec(substr($hex, 0, 2)), (float) hexdec(substr($hex, 2, 2)), (float) hexdec(substr($hex, 4, 2)), round($alpha, 4));
         }
+        if (1 === preg_match('/^color\(\s*(srgb|srgb-linear)\s+([^()]*)\)$/', $value, $match)) return self::colorFunction($match[1], $match[2]);
         if (1 !== preg_match('/^(rgba?|hsla?|oklab|oklch|lab|lch)\(\s*([^()]*)\)$/', $value, $match)) return null;
         $arguments = self::arguments($match[2]);
         if (null === $arguments) return null;
@@ -215,6 +218,27 @@ final class CssColor
     private static function number(string $value, float $percentScale): float
     {
         return str_ends_with($value, '%') ? (float) rtrim($value, '%') * $percentScale / 100 : (float) preg_replace('/deg$/', '', $value);
+    }
+
+    /**
+     * `color(srgb r g b [/ a])` and its linear-light twin: channels are 0–1
+     * numbers or percentages, space separated (the function has no comma form).
+     *
+     * @return array{0:float,1:float,2:float,3:float}|null
+     */
+    private static function colorFunction(string $space, string $body): ?array
+    {
+        if (str_contains($body, ',') || (!str_contains($body, '/') && 3 !== count(preg_split('/\s+/', trim($body)) ?: array()))) return null;
+        $arguments = self::arguments($body);
+        if (null === $arguments) return null;
+        [$channels, $alpha] = $arguments;
+        $alpha = null === $alpha ? 1.0 : self::alpha($alpha);
+        if (null === $alpha) return null;
+        foreach ($channels as $channel) if (str_ends_with($channel, 'deg')) return null;
+        $unit = array_map(static fn(string $channel): float => max(0.0, min(1.0, self::number($channel, 1))), $channels);
+        $color = 'srgb-linear' === $space ? self::encodeSrgb($unit) : array_map(static fn(float $channel): float => $channel * 255, $unit);
+        $color[] = $alpha;
+        return $color;
     }
 
     /** @param list<string> $channels @return list<float> */
