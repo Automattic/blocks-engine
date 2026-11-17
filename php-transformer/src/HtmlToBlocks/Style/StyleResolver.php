@@ -512,6 +512,25 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Box declarations that classOwnedResponsiveDeclarations() withholds from
+     * block supports. The author stylesheet still paints them, so a wrapper
+     * whose only presentation is responsive keeps its box (#6346).
+     *
+     * @return array<string, string>
+     */
+    public function responsiveStylesheetOwnedBoxDeclarations(DOMElement $element): array
+    {
+        $declarations = $this->presentationDeclarations($element);
+        $withheld = array_diff_key($declarations, $this->classOwnedResponsiveDeclarations($element, $declarations));
+        return array_filter(
+            $withheld,
+            static fn (string $value, string $property): bool => 1 === preg_match('/^(?:padding|border|background|margin|width|height|min-|max-|inset|box-shadow|outline)/', $property)
+                && CssValueInspector::isNonZero($value),
+            ARRAY_FILTER_USE_BOTH
+        );
+    }
+
+    /**
      * Keep declarations with conditional variants under author stylesheet
      * ownership. Promoting their base values to block supports would serialize
      * them inline and prevent media/container queries from winning the cascade.
