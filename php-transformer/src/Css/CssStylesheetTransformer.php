@@ -132,8 +132,9 @@ final class CssStylesheetTransformer
     /**
      * The stylesheet without rules a later identical rule in the same
      * conditional groups repeats: the later copy wins wherever the earlier
-     * one would, so the cascade is unchanged. Malformed input is returned
-     * unchanged.
+     * one would, so the cascade is unchanged. Nor does it keep a style rule
+     * a later one restates in full ({@see withoutDominatedUnits()}).
+     * Malformed input is returned unchanged.
      */
     public function compactStylesheet(string $css): string
     {
@@ -142,7 +143,60 @@ final class CssStylesheetTransformer
         }
         $units = array();
         $this->collectRuleUnits($css, array(), $units);
-        return $this->serializeRuleUnits($this->withoutEarlierDuplicates(array($units)));
+        return $this->serializeRuleUnits($this->withoutDominatedUnits($this->withoutEarlierDuplicates(array($units))));
+    }
+
+    /**
+     * The units without each style rule a later rule in the same conditional
+     * groups makes inert: the later rule selects at least every arm of the
+     * earlier one and repeats each of its declarations. For any element the
+     * earlier rule matches, the later one matches with at least the same
+     * specificity, later in the cascade, setting every property the earlier
+     * one sets, so the earlier rule never decides a computed value.
+     * Projection emits such pairs when a source rule's subjects are restated
+     * for several native carriers (a reset's image arms, say). A later rule
+     * whose extra arms a browser could reject as a whole (vendor pseudos,
+     * `:has()`) does not stand in for the earlier one.
+     *
+     * @param list<array{context: list<string>, text: string, dedupable: bool}> $units
+     * @return list<array{context: list<string>, text: string, dedupable: bool}>
+     */
+    private function withoutDominatedUnits(array $units): array
+    {
+        $rules = array();
+        $byArm = array();
+        foreach ( $units as $index => $unit ) {
+            $rule = $this->dominanceRule($unit);
+            if ( null === $rule ) {
+                continue;
+            }
+            $rules[ $index ] = $rule;
+            foreach ( array_keys($rule['arms']) as $arm ) {
+                $byArm[ $rule['context'] . "\0" . $arm ][] = $index;
+            }
+        }
+        $dropped = false;
+        foreach ( $rules as $index => $rule ) {
+            $first = (string) array_key_first($rule['arms']);
+            foreach ( $byArm[ $rule['context'] . "\0" . $first ] ?? array() as $later ) {
+                if ( $later <= $index ) {
+                    continue;
+                }
+                $other = $rules[ $later ];
+                if ( array() !== array_diff_key($rule['arms'], $other['arms']) || array() !== array_diff_key($rule['declarations'], $other['declarations']) ) {
+                    continue;
+                }
+                foreach ( array_keys(array_diff_key($other['arms'], $rule['arms'])) as $extra ) {
+                    if ( preg_match('/::?-|:has\(/i', (string) $extra) ) {
+                        continue 2;
+                    }
+                }
+                unset($units[ $index ]);
+                $dropped = true;
+                break;
+            }
+        }
+        return $dropped ? array_values($units) : $units;
     }
 
     /**
@@ -278,10 +332,23 @@ final class CssStylesheetTransformer
         }
         $prelude = trim(substr($rule, 0, $brace));
         $body = substr($rule, $brace + 1, -1);
-        if ( '' === $prelude || str_contains($prelude, '/*') || str_contains($body, '{') || str_contains($body, '}') || str_contains($body, '/*') || '' === trim($body) || null === self::splitSelectorList($prelude) ) {
+        if ( '' === $prelude || str_contains($prelude, '/*') || str_contains($body, '{') || str_contains($body, '}') || str_contains($body, '/*') || '' === trim($body) || null === self::splitSelectorList($prelude) || self::namesDocumentOrEveryElement($prelude) ) {
             return null;
         }
         return array( $lead, $prelude, $body );
+    }
+
+    /**
+     * Whether a selector list names the document (`:root`, `html`, `body`)
+     * or every element (`*`). Those rules are not restatements of one author
+     * block across carriers: they are the document-context and reset
+     * surfaces that Global Styles, the editor canvas and route-scoped resets
+     * each own by their own selector, so they stay standalone.
+     */
+    private static function namesDocumentOrEveryElement(string $prelude): bool
+    {
+        $bare = preg_replace(array( '/"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'/s', '/\\\\./s', '/\\[[^\\]]*\\]/' ), '', $prelude) ?? $prelude;
+        return 1 === preg_match('/(?:^|[\\s,>+~(])(?:\\*|html|body|:root)(?![\\w-])/i', $bare);
     }
 
     /**
@@ -305,6 +372,45 @@ final class CssStylesheetTransformer
         $names = array_values(array_unique(array_diff(array_map('strtolower', $matches[1]), $common)));
         sort($names);
         return $names;
+    }
+
+    /**
+     * A plain style rule's context key, arm set and declaration set, or null
+     * for anything {@see repeatableSelectorRuleKey()} does not fold and for a
+     * rule led by a comment.
+     *
+     * @param array{context: list<string>, text: string, dedupable: bool} $unit
+     * @return array{context: string, arms: array<string, true>, declarations: array<string, true>}|null
+     */
+    private function dominanceRule(array $unit): ?array
+    {
+        if ( null === $this->repeatableSelectorRuleKey($unit) ) {
+            return null;
+        }
+        [$lead, $rule] = self::splitLeadingComments($unit['text']);
+        if ( '' !== trim($lead) || str_contains($rule, '/*') ) {
+            return null;
+        }
+        $brace = (int) strpos($rule, '{');
+        $arms = self::splitSelectorList(trim(substr($rule, 0, $brace)));
+        if ( null === $arms || array() === $arms ) {
+            return null;
+        }
+        $declarations = array();
+        foreach ( CssValueSplitter::splitTopLevel(substr(rtrim($rule), $brace + 1, -1), array( ';' )) as $declaration ) {
+            $declaration = self::normalizedCss($declaration);
+            if ( '' !== $declaration ) {
+                $declarations[ $declaration ] = true;
+            }
+        }
+        if ( array() === $declarations ) {
+            return null;
+        }
+        return array(
+            'context' => implode("\0", array_map(self::normalizedCss(...), $unit['context'])),
+            'arms' => array_fill_keys(array_map(self::normalizedCss(...), $arms), true),
+            'declarations' => $declarations,
+        );
     }
 
     /**

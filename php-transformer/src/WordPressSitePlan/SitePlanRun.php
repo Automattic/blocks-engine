@@ -342,6 +342,8 @@ final class SitePlanRun
         $menus = array_values(array_filter($menus, static fn(array $menu): bool => !isset($menu['token']) || str_contains($emittedMarkup, WordPressSitePlan::NAVIGATION_TOKEN_PREFIX . $menu['token'] . '}}')));
         $operations = PageOperations::plan($pages);
         $navigationMarkup = $emittedMarkup . "\n" . implode("\n", self::markups($menus));
+        // Markup is final: an arm requiring a carrier no route has is dead.
+        $assets = AbsentCarrierSelectors::prune($assets, $navigationMarkup . "\n" . json_encode(array($runtimeDeclarations, $runtimeEntityRecords), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
