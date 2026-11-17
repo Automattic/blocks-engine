@@ -6393,6 +6393,34 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->safeStageClassName($sourceList, $replacedSlides);
     }
 
+    /** Authored state classes whose rules match a pagination item when selected. @return list<string> */
+    public function paginationActiveClasses(DOMElement $item): array
+    {
+        $original = SourceDom::attr($item, 'class');
+        $classes = array();
+        try {
+            (new CssStylesheetTransformer())->visitStyleRules($this->session->authorStyleAnalysis()->combinedCss(), function (string $prelude, string $body) use ($item, $original, &$classes): void {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    if (!preg_match_all('/\.([a-zA-Z_][a-zA-Z0-9_-]*(?:active|current|selected)[a-zA-Z0-9_-]*|active|current|selected)(?![a-zA-Z0-9_-])/', $selector, $matches)) {
+                        continue;
+                    }
+                    foreach ($matches[1] as $class) {
+                        $item->setAttribute('class', $original . ' ' . $class);
+                        $parsed = CssSelectorMatcher::parse($selector);
+                        foreach (array_merge(array($item), iterator_to_array($item->getElementsByTagName('*'))) as $target) {
+                            if (CssSelectorMatcher::matches($target, $parsed)['matches']) {
+                                $classes[$class] = true;
+                            }
+                        }
+                    }
+                }
+            });
+        } finally {
+            $item->setAttribute('class', $original);
+        }
+        return array_keys($classes);
+    }
+
     /** @return list<string> Attribute identities needed by projected source selectors. */
     public function sourceAttributeSelectorMarkers(DOMElement $element): array
     {

@@ -107,6 +107,7 @@ final class AuthoredCarouselBlockGenerator
             'transitionDuration' => array('type' => 'number', 'default' => 300),
             'autoplayInterval' => array('type' => 'number', 'default' => 0),
             'showDots' => array('type' => 'boolean', 'default' => false),
+            'sourceDotsMarkup' => array('type' => 'string', 'default' => ''),
             'showStatus' => array('type' => 'boolean', 'default' => false),
             'statusFormat' => array('type' => 'string', 'default' => ''),
             'fullBleed' => array('type' => 'boolean', 'default' => false),
@@ -295,7 +296,7 @@ final class AuthoredCarouselBlockGenerator
             return createElement( 'div', rootProps( props.attributes ),
                 controls,
                 stage,
-                dotCount > 0 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__dots', role: 'group', 'aria-label': 'Choose slide' }, dots ) : null,
+                dotCount > 0 ? ( props.attributes.sourceDotsMarkup ? createElement( 'div', { dangerouslySetInnerHTML: { __html: props.attributes.sourceDotsMarkup } } ) : createElement( 'div', { className: 'blocks-engine-authored-carousel__dots', role: 'group', 'aria-label': 'Choose slide' }, dots ) ) : null,
                 props.attributes.showPlayControl ? createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__playback blocks-engine-authored-carousel__playback--' + normalizedPlacement( props.attributes.playControlPosition ), style: { '--blocks-engine-carousel-control-inset': Math.max( 0, Math.min( 64, Math.round( Number( props.attributes.playControlInset ) || 0 ) ) ) + 'px' }, 'data-wp-on--click': 'actions.toggleAutoplay', 'data-wp-bind--aria-pressed': 'state.playing', 'data-wp-text': 'state.playbackLabel' }, 'Play' ) : null,
                 thumbnails.length > 1 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__thumbnails', role: 'group', 'aria-label': 'Choose slide' }, thumbnails.map( function( thumbnail, index ) {
                     return createElement( 'button', { key: index, type: 'button', className: 'blocks-engine-authored-carousel__thumbnail', 'aria-label': 'Show slide ' + ( index + 1 ), 'data-carousel-index': String( index ), 'data-wp-on--click': 'actions.goTo' }, createElement( 'img', { src: thumbnail.url, alt: thumbnail.alt || '', loading: 'lazy', decoding: 'async' } ) );
@@ -390,6 +391,18 @@ const revealThumbnail = ( control, root ) => {
     }
 };
 
+const syncDots = ( root, context ) => {
+    root.querySelectorAll( '.blocks-engine-authored-carousel__dot' ).forEach( ( control ) => {
+        const index = Number( control.dataset.carouselIndex );
+        const active = index === context.index;
+        const item = control.closest( 'li' ) || control;
+        item.hidden = index > maximumIndex( context );
+        ( item.dataset.carouselActiveClasses || '' ).split( /\s+/ ).filter( Boolean ).forEach( ( name ) => item.classList.toggle( name, active ) );
+        control.classList.toggle( 'blocks-engine-authored-carousel__dot--active', active );
+        control.setAttribute( 'aria-current', active ? 'true' : 'false' );
+    } );
+};
+
 const syncSlideshow = ( root, context, reveal = false ) => {
     if ( 'slideshow' !== context.presentation ) {
         return;
@@ -454,6 +467,7 @@ const show = ( requested, reveal = true ) => {
         syncSrcSwap( root, context );
         return;
     }
+    syncDots( root, context );
     syncSlideshow( root, context, reveal );
     if ( 'slideshow' === context.presentation ) {
         return;
@@ -500,6 +514,7 @@ store( 'blocks-engine/carousel', {
             context.visible = 'slideshow' === context.presentation || 'src-swap' === context.presentation ? 1 : visibleCount( ref );
             context.index = Math.min( context.index, maximumIndex( context ) );
             syncSlideshow( ref, context );
+            syncDots( ref, context );
             const root = rootOf( ref ) ?? ref;
             if ( 'src-swap' === context.presentation ) syncSrcSwap( root, context );
             let start = null;
@@ -519,7 +534,12 @@ store( 'blocks-engine/carousel', {
                 const index = event.detail?.index;
                 if ( Number.isInteger( index ) && index >= 0 && index < context.count ) show( index );
             } );
-            const resize = withScope( () => syncSlideshow( root, context ) );
+            const resize = withScope( () => {
+                if ( 'track' === context.presentation ) context.visible = visibleCount( root );
+                context.index = Math.min( context.index, maximumIndex( context ) );
+                syncSlideshow( root, context );
+                syncDots( root, context );
+            } );
             window.addEventListener( 'resize', resize );
             root.addEventListener( 'blocks-engine-carousel-select', select );
             if ( 'slideshow' === context.presentation && context.playing ) startAutoplay( root, context );
@@ -576,6 +596,7 @@ JS;
         // auto-height wrappers so their controls do not inflate normal flow.
         $style .= '.blocks-engine-authored-carousel--positioned-stage>.blocks-engine-authored-carousel__source-stage{height:100%;flex-shrink:0}.blocks-engine-authored-carousel--positioned-stage .blocks-engine-authored-carousel__viewport{height:100%}';
         $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0}:where(.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__next){transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
+        $style .= '.blocks-engine-authored-carousel__dots--source{position:static;inset:auto;gap:0;grid-column:1/-1}:where(.blocks-engine-authored-carousel__dots--source) .blocks-engine-authored-carousel__dot{width:revert;height:revert;border:revert;border-radius:revert;background:revert;color:inherit}';
         // A captured orientation is carried by the separate translate and scale
         // properties, as core/icon does, so the source's own transform cannot
         // combine with it. Inline rotation uses the rotate property.
@@ -805,6 +826,9 @@ JS;
                 $dots .= '<button type="button" class="blocks-engine-authored-carousel__dot" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></button>';
             }
             $dots .= '</div>';
+            if ('' !== ($attributes['sourceDotsMarkup'] ?? '')) {
+                $dots = '<div>' . (string) $attributes['sourceDotsMarkup'] . '</div>';
+            }
         }
 
         $playbackPosition = in_array($attributes['playControlPosition'] ?? '', array( 'top-left', 'top-right', 'bottom-left', 'bottom-right' ), true)
@@ -1080,7 +1104,7 @@ JS;
 
         [$presentation, $initialSlide] = $this->slidePresentation($element, $list, $items, $pagerItems, $capturedGallery, $styleResolver);
 
-        $showDots = $paginationCount >= 2 || $this->hasSlideIndexControl($element);
+        $showDots = $paginationCount >= 2 || $this->hasSlideIndexControl($element) || count($this->paginationControls($element)) >= 2;
 
         [$transitionDuration, $autoplayInterval] = $this->slideTimings($items);
 
@@ -1097,7 +1121,8 @@ JS;
         $sourceControls = $this->navigationControls($element);
         $presentationTargets = array_merge(
             $this->controlPresentationTargets($element, $this->allNavigationControls($element)),
-            $this->stageGeometryTargets($element, $geometryList)
+            $this->stageGeometryTargets($element, $geometryList),
+            $this->controlPresentationTargets($element, $this->paginationControls($element))
         );
         $sourceScope = $styleResolver->sourceCustomPropertyScope($element, $presentationTargets, $items);
         if ($list->hasAttribute(CaptureEvidence::DIALOG_TRIGGER) && '' !== $list->getAttribute('id')) $sourceScope['attributes']['id'] = $list->getAttribute('id');
@@ -1175,6 +1200,7 @@ JS;
             'autoplayInterval' => !$capturedGallery && 'slideshow' === $presentation ? $autoplayInterval : 0,
             'showStatus' => $capturedGallery || $status instanceof DOMElement,
             'showDots' => $showDots && array() === $thumbnails,
+            'sourceDotsMarkup' => $showDots && array() === $thumbnails ? $this->sourceDotsMarkup($element, $styleResolver) : '',
             'fullBleed' => 'slideshow' === $presentation && $fullBleed,
             'thumbnails' => $thumbnails,
             'thumbnailPosition' => $thumbnailPosition,
@@ -2022,12 +2048,59 @@ JS;
     }
 
     /** A slide-indexed item, or a link or button that selects a numbered slide. */
+    private function slideIndex(DOMElement $element): ?int
+    {
+        foreach ($element->attributes as $attribute) {
+            if ((in_array($attribute->name, self::SLIDE_INDEX_ATTRIBUTES, true) || preg_match('/(?:^|-)slider-item$/', $attribute->name)) && ctype_digit(trim($attribute->value))) {
+                return (int) trim($attribute->value);
+            }
+        }
+        return null;
+    }
+
+    /** @return list<DOMElement> */
+    private function paginationControls(DOMElement $root): array
+    {
+        $controls = array();
+        foreach ($root->getElementsByTagName('*') as $element) {
+            if ($this->slideIndex($element) !== null) {
+                $controls[] = $element;
+            }
+        }
+        return $controls;
+    }
+
+    /** Preserve list/item/control topology so authored child selectors still match. */
+    private function sourceDotsMarkup(DOMElement $root, StyleResolver $styleResolver): string
+    {
+        $controls = $this->paginationControls($root);
+        if (count($controls) < 2 || !$controls[0]->firstElementChild instanceof DOMElement) {
+            return '';
+        }
+        $list = $controls[0]->parentNode;
+        if (!$list instanceof DOMElement || !in_array(strtolower($list->tagName), array('ul', 'ol'), true)) {
+            return '';
+        }
+        $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $markup = '<' . strtolower($list->tagName) . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceClassTokens(SourceDom::attr($list, 'class'), $list, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        foreach ($controls as $control) {
+            if ($control->parentNode !== $list) {
+                continue;
+            }
+            $index = $this->slideIndex($control);
+            $visual = $control->firstElementChild;
+            $classes = $visual instanceof DOMElement ? $this->sourceClassTokens(SourceDom::attr($visual, 'class'), $visual, $styleResolver) : array();
+            $activeClasses = $styleResolver->paginationActiveClasses($control);
+            $itemClasses = array_diff($this->sourceClassTokens(SourceDom::attr($control, 'class'), $control, $styleResolver), $activeClasses);
+            $markup .= '<li data-carousel-active-classes="' . $escape(implode(' ', $activeClasses)) . '" class="' . $escape(implode(' ', $itemClasses)) . '"><button type="button" class="blocks-engine-authored-carousel__dot ' . $escape(implode(' ', $classes)) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></button></li>';
+        }
+        return $markup . '</' . strtolower($list->tagName) . '>';
+    }
+
     private function isPaginationControl(DOMElement $element): bool
     {
-        foreach ( self::SLIDE_INDEX_ATTRIBUTES as $attribute ) {
-            if ( ctype_digit(trim(SourceDom::attr($element, $attribute))) ) {
-                return true;
-            }
+        if ($this->slideIndex($element) !== null) {
+            return true;
         }
         if ( 'li' === strtolower($element->tagName) && ctype_digit(trim(SourceDom::attr($element, 'aria-label'))) ) {
             $list = $element->parentNode;
@@ -2186,27 +2259,32 @@ JS;
         return $targets;
     }
 
-    private function serializeSafeControlNode(DOMElement $element): string
+    private function serializeSafeControlNode(DOMElement $element, bool $capturedPaint = false): string
     {
+        $capturedPaint = $capturedPaint || '' !== ($this->session?->capturedGlyphColor($element) ?? '');
         $tag = strtolower($element->tagName);
         if ('img' === $tag) {
             return $this->serializeSafeControlImage($element);
         }
-        if (!in_array($tag, array('div', 'span', 'svg', 'path'), true)) {
+        if (!in_array($tag, array('div', 'span', 'svg', 'g', 'path', 'polyline', 'polygon', 'line', 'circle', 'ellipse', 'rect'), true)) {
             return '';
         }
         $attributes = '';
         foreach ($element->attributes as $attribute) {
             $name = strtolower($attribute->name);
-            if ('class' !== $name && !in_array($name, array('viewbox', 'xmlns', 'd', 'stroke', 'stroke-width', 'stroke-linecap', 'fill', 'width', 'height'), true)) {
+            if ('class' !== $name && !in_array($name, array('viewbox', 'xmlns', 'd', 'points', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'fill', 'color', 'width', 'height'), true)) {
                 continue;
             }
-            $attributes .= ' ' . $name . '="' . htmlspecialchars($attribute->value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            $attributes .= ' ' . ('viewbox' === $name ? 'viewBox' : $name) . '="' . htmlspecialchars($capturedPaint && in_array($name, array('fill', 'stroke'), true) && !in_array(strtolower($attribute->value), array('none', 'transparent'), true) ? 'currentColor' : $attribute->value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        $color = $this->session?->capturedGlyphColor($element) ?? '';
+        if ('' !== $color) {
+            $attributes .= ' color="' . htmlspecialchars($color, ENT_QUOTES, 'UTF-8') . '"';
         }
         $contents = '';
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) {
-                $contents .= $this->serializeSafeControlNode($child);
+                $contents .= $this->serializeSafeControlNode($child, $capturedPaint);
             } elseif ($child instanceof \DOMText) {
                 $contents .= htmlspecialchars($child->nodeValue ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
