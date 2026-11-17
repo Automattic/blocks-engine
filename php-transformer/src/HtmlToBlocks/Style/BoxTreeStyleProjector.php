@@ -21,8 +21,10 @@ final class BoxTreeStyleProjector
      * @param string $blockName The block carrying the rule, whose WordPress base styles a pruned declaration falls back to.
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid Lifted author values: property => bands, widest
      *        first, each [max-width (null for the base rule), value] ({@see BoxTreeFluidIntent::lift()}).
+     * @param array<string, array<string, string>> $flow Container-relative values proven per capture: viewport key =>
+     *        property => value ({@see BoxTreeFlowSizing::lift()}).
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array()): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $flow = array()): array
     {
         if (array() === $observations) return $attrs;
         $keys = array_keys($observations);
@@ -34,6 +36,19 @@ final class BoxTreeStyleProjector
             $parent = $parents[$key]['used_styles'] ?? null;
             $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
+        }
+        // A size the container set at a capture is restated relative to the
+        // container, so widths between captures follow it instead of the
+        // nearest frozen capture. Such properties stay on the carrier: an
+        // inline block attribute would outrank every narrower capture's rule.
+        $carrierOnly = array();
+        foreach ($flow as $key => $values) {
+            if (!isset($declarations[$key])) continue;
+            foreach ($values as $property => $value) {
+                if (!isset($declarations[$key][$property])) continue;
+                $declarations[$key][$property] = $value;
+                $carrierOnly[$property] = true;
+            }
         }
         // Author intent proven at every capture (BoxTreeFluidIntent) replaces
         // the frozen pixels in every capture, so it needs no capture delta;
@@ -60,7 +75,8 @@ final class BoxTreeStyleProjector
         // Block attributes serialize inline and beat every @media carrier rule,
         // so only a value observed identically in every viewport may become one.
         // A varying property stays entirely in the carrier: base rule plus deltas.
-        $invariant = array_filter($base, static function (string $value, string $property) use ($keys, $observations): bool {
+        $invariant = array_filter($base, static function (string $value, string $property) use ($keys, $observations, $carrierOnly): bool {
+            if (isset($carrierOnly[$property])) return false;
             foreach ($keys as $key) {
                 if (($observations[$key]['used_styles'][$property] ?? null) !== $value) return false;
             }
