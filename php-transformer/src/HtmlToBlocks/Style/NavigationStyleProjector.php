@@ -1328,7 +1328,11 @@ final class NavigationStyleProjector
                 if ( $this->navigationPropertyIsItemLayout($property) ) {
                     return null;
                 }
-                $values['revert'] = true;
+                // A line width reverts to the user-agent `medium`, which an
+                // author's universal `border-style:solid` (Tailwind preflight)
+                // paints as a 3px frame the source never had: the item had no
+                // edge at all, so its width is zero.
+                $values[$this->navigationPropertyIsLineWidth($property) ? '0' : 'revert'] = true;
                 continue;
             }
 
@@ -1443,6 +1447,11 @@ final class NavigationStyleProjector
         }
 
         return $siblingAnchors > 1;
+    }
+
+    private function navigationPropertyIsLineWidth(string $property): bool
+    {
+        return 1 === preg_match('/^(?:border(?:-(?:top|right|bottom|left|block|inline|block-start|block-end|inline-start|inline-end))?|outline)-width$/', $property);
     }
 
     private function navigationPropertyIsItemLayout(string $property): bool
