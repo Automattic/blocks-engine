@@ -535,6 +535,16 @@ final class ArtifactCompiler
         $assets = $this->pruneAbsentSupportSubjects($assets, $authoredFiles, implode("\n", $pageMarkup) . "\n" . $sharedMarkup);
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets);
+        $keyframePruner = new \Automattic\BlocksEngine\PhpTransformer\Css\UnusedKeyframePruner(
+            array_values(array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')))),
+            array_merge($this->selectorEvidence($authoredFiles), array_values($pageMarkup))
+        );
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? '') || !is_string($asset['content'] ?? null)) continue;
+            $content = $keyframePruner->prune($asset['content']);
+            if ($content !== $asset['content']) $asset = ArtifactNormalizer::withTextPayload($asset, $content);
+        }
+        unset($asset);
         $propertyPruner = new \Automattic\BlocksEngine\PhpTransformer\Css\UnusedCustomPropertyPruner(
             array_values(array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')))),
             array_merge($this->selectorEvidence($authoredFiles), array_values($pageMarkup))
