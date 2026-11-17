@@ -1753,6 +1753,13 @@ final class StyleResolver implements ElementPresentationResolver
         return false;
     }
 
+    /** Logical image sizes and the physical axis each names in horizontal writing. */
+    private const LOGICAL_IMAGE_SIZE_PROPERTIES = array(
+        'inline-size' => 'width', 'block-size' => 'height',
+        'min-inline-size' => 'min-width', 'max-inline-size' => 'max-width',
+        'min-block-size' => 'min-height', 'max-block-size' => 'max-height',
+    );
+
     /** Longhands an ordinary `font` shorthand sets (and resets). */
     private const FONT_SHORTHAND_LONGHANDS = array( 'font-style', 'font-variant', 'font-weight', 'font-size', 'line-height', 'font-family' );
 
@@ -5759,6 +5766,12 @@ final class StyleResolver implements ElementPresentationResolver
         $entries = array();
         foreach (CssRuleAnalyzer::declarationList($style) as ['name' => $property, 'value' => $value]) {
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+            // Logical sizes name the same physical axes in the horizontal
+            // writing mode the transformer renders (`img{block-size:100%}`
+            // fills its box exactly like `height:100%`). Missing them leaves
+            // core/image to save its forced `height:auto`, which outranks the
+            // author's fill and resamples the cover crop at a different scale.
+            $property = self::LOGICAL_IMAGE_SIZE_PROPERTIES[$property] ?? $property;
             if (in_array($property, array('width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
                 $entries[] = array('property' => $property, 'value' => $value);
             }
