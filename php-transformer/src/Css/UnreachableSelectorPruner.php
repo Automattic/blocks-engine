@@ -33,13 +33,16 @@ final class UnreachableSelectorPruner
     /** @var list<string> */
     private array $livePrefixes = array();
     private string $evidenceText;
+    private ?UnusedCustomPropertyPruner $propertyPruner = null;
 
     /**
      * @param list<string> $texts Every non-stylesheet file of the site, including its metadata.
      * @param bool $pruneTypes Whether evidence still describes source (not converted) element types.
+     * @param list<string>|null $stylesheets Whole-site author styles, including inline sheets; null disables property pruning.
      */
-    public function __construct(array $texts, private bool $pruneTypes = false)
+    public function __construct(array $texts, private bool $pruneTypes = false, ?array $stylesheets = null)
     {
+        if (null !== $stylesheets) $this->propertyPruner = new UnusedCustomPropertyPruner($stylesheets, $texts);
         $this->evidenceText = implode("\n", $texts);
         $prefixes = array();
         foreach ($texts as $text) {
@@ -52,6 +55,9 @@ final class UnreachableSelectorPruner
     /** @param bool $preserveIds Keep arms whose only absent tokens are IDs. */
     public function prune(string $css, bool $preserveIds = false): string
     {
+        // Reset inventories are recognizable before projection expands their
+        // universal subjects into native-block and richtext alternatives.
+        $css = $this->propertyPruner?->prune($css) ?? $css;
         $pruned = (new CssStylesheetTransformer())->transformStyleRules($css, function (string $prelude, string $body) use ($preserveIds): string {
             $arms = CssStylesheetTransformer::splitSelectorList($prelude);
             if (null === $arms) return $prelude . '{' . $body . '}';
