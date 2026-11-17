@@ -74,6 +74,10 @@ final class RouteStateProjector
             }
         }
         $files = self::withoutUnstyledScriptClasses($files);
+        // A projection hook that only restates inline style is gone before
+        // alignment reads chrome vocabulary, or it would be renamed into a
+        // route class that no later step recognizes as capture evidence.
+        $files = self::withoutRestatingProjectionHooks($files);
         // Route bindings record class names, so they read the aligned ones.
         $files = self::withRouteAlignedChromeClasses($files);
         $files = self::bindNavigationRuns(self::bindRetainedLabels($files, $entryPath));
@@ -444,6 +448,54 @@ final class RouteStateProjector
         return $files;
     }
 
+    /**
+     * A capture's responsive projection hook names one route's width-scoped
+     * rules, so the same chrome element carries a differently named hook on
+     * each route that recorded one. When every rule naming the hook restates
+     * the element's own inline declarations, the hook records a reserialized
+     * style, not a presentation, and chrome drops it on every route.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private static function withoutRestatingProjectionHooks(array $files): array
+    {
+        // Only a site with several routes has chrome to share.
+        $chrome = 0; $documents = array();
+        foreach ($files as $index => $file) {
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !preg_match('/<(?:header|footer)\b|\srole\s*=\s*["\']?(?:banner|contentinfo)/i', $file['content'])) continue;
+            ++$chrome;
+            if (str_contains($file['content'], CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX)) $documents[] = $index;
+        }
+        if ($chrome < 2 || array() === $documents) return $files;
+        $stylesheets = null;
+        $hook = '/^' . preg_quote(CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX, '/') . '[a-f0-9]{12}$/';
+        foreach ($documents as $index) {
+            $document = HtmlSerialization::parseFragment($files[$index]['content']);
+            $xpath = new DOMXPath($document);
+            $changed = false;
+            foreach ($xpath->query(self::CHROME_LANDMARKS) ?: array() as $landmark) {
+                if (!$landmark instanceof DOMElement) continue;
+                foreach ($xpath->query('descendant-or-self::*[contains(@class, "' . CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX . '")]', $landmark) ?: array() as $hooked) {
+                    if (!$hooked instanceof DOMElement) continue;
+                    $classes = self::classes($hooked);
+                    $kept = array_values(array_filter($classes, static function (string $class) use ($hooked, $files, $hook, &$stylesheets): bool {
+                        if (!preg_match($hook, $class)) return true;
+                        $stylesheets ??= self::stylesheets($files);
+                        return !self::restatesInlineStyle($class, $hooked->getAttribute('style'), $stylesheets);
+                    }));
+                    if ($kept === $classes) continue;
+                    if (array() === $kept) $hooked->removeAttribute('class'); else $hooked->setAttribute('class', implode(' ', $kept));
+                    $changed = true;
+                }
+            }
+            if (!$changed) continue;
+            $html = HtmlSerialization::documentHtml($document);
+            if (is_string($html)) $files[$index]['content'] = $html;
+        }
+        return $files;
+    }
+
     private static function marksCurrent(DOMElement $element): bool
     {
         return MenuVocabulary::containsCurrentStateToken($element->getAttribute('class'))
@@ -486,18 +538,6 @@ final class RouteStateProjector
                 foreach (iterator_to_array($xpath->query('.//*[@' . CaptureEvidence::ANCHOR_TARGET . ']', $landmark) ?: array()) as $target) {
                     if (!$target instanceof DOMElement || null !== $target->firstElementChild || '' !== trim($target->textContent) || !$landmark->parentNode instanceof \DOMNode) continue;
                     $landmark->parentNode->insertBefore($target, $landmark);
-                    $changed[$index] = true;
-                }
-                foreach ($xpath->query('descendant-or-self::*[contains(@class, "' . CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX . '")]', $landmark) ?: array() as $hooked) {
-                    if (!$hooked instanceof DOMElement) continue;
-                    $classes = self::classes($hooked);
-                    $kept = array_values(array_filter($classes, static function (string $class) use ($hooked, $files, &$stylesheets): bool {
-                        if (!preg_match('/^' . preg_quote(CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX, '/') . '[a-f0-9]{12}$/', $class)) return true;
-                        $stylesheets ??= self::stylesheets($files);
-                        return !self::restatesInlineStyle($class, $hooked->getAttribute('style'), $stylesheets);
-                    }));
-                    if ($kept === $classes) continue;
-                    if (array() === $kept) $hooked->removeAttribute('class'); else $hooked->setAttribute('class', implode(' ', $kept));
                     $changed[$index] = true;
                 }
                 $nodes = array_merge(array($landmark), iterator_to_array($xpath->query('.//*[@id]', $landmark) ?: array()));

@@ -120,7 +120,7 @@ final class SourceShells
         $count = 0;
         foreach ($dom->getElementsByTagName('*') as $node) {
             foreach (array(CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::GLYPH_COLOR) as $attribute) if ($node->hasAttribute($attribute)) ++$count;
-            foreach (SourceDom::tokens($node->getAttribute('class')) as $class) if (str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) || CaptureEvidence::isDeviceIslandClass($class)) ++$count;
+            foreach (SourceDom::tokens($node->getAttribute('class')) as $class) if (str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX)) ++$count;
         }
         return $count;
     }
@@ -168,7 +168,7 @@ final class SourceShells
                         if (false !== $encoded) $node->setAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE, $encoded);
                     }
                 }
-                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX) && !CaptureEvidence::isDeviceIslandClass($class)));
+                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX)));
                 if (array() === $classes) $node->removeAttribute('class');
                 else $node->setAttribute('class', implode(' ', $classes));
             }
@@ -212,23 +212,10 @@ final class SourceShells
             if (array() !== array_filter(SourceDom::tokens($node->getAttribute('class')), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...))) $currentNodes[] = $node;
         }
         foreach ($currentNodes as $node) {
-            // A class naming the current state (`active`, `is-current`) is the
-            // route-state evidence itself. Only that state, and the disclosure
-            // the builder adds with it, rests: the item's and its ancestors'
-            // other classes (`folder`, `subnav`) are what they are on every
-            // route, even when no sibling of theirs shares them.
-            $marked = array() !== array_filter(SourceDom::tokens($node->getAttribute('class')), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...));
             for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
                 if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
                 $classes = SourceDom::tokens($cursor->getAttribute('class'));
-                if ($marked) {
-                    $state = array_filter($classes, static fn(string $class): bool => \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken($class) || in_array($class, \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::DISCLOSURE_CLASSES, true));
-                    if (array() !== $state) {
-                        $rest = array_values(array_diff($classes, $state));
-                        if (array() === $rest) $cursor->removeAttribute('class');
-                        else $cursor->setAttribute('class', implode(' ', $rest));
-                    }
-                } elseif (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
+                if (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
                     $siblingClasses = array();
                     foreach ($cursor->parentNode->childNodes as $sibling) {
                         if (!$sibling instanceof \DOMElement || $sibling === $cursor || $sibling->tagName !== $cursor->tagName) continue;
@@ -248,7 +235,6 @@ final class SourceShells
             }
         }
         foreach ($xpath->query('//*[@aria-current]') ?: array() as $node) if ($node instanceof \DOMElement) $node->removeAttribute('aria-current');
-        self::neutralizeRuntimeInstanceIds($xpath);
         foreach ($xpath->query('//*[@style]') ?: array() as $node) {
             if (!$node instanceof \DOMElement) continue;
             $style = strtolower(preg_replace('/\s+/', '', $node->getAttribute('style')) ?? '');
@@ -272,7 +258,14 @@ final class SourceShells
      */
     private static function neutralizeDialogInstanceIds(\DOMXPath $xpath): void
     {
-        $referenced = self::referencedIds($xpath);
+        $referenced = array();
+        foreach ($xpath->query('//@*') ?: array() as $attribute) {
+            $name = strtolower($attribute->nodeName);
+            if ('href' === $name && str_starts_with(trim($attribute->nodeValue ?? ''), '#')) $referenced[substr(trim($attribute->nodeValue ?? ''), 1)] = true;
+            elseif (in_array($name, array('for', 'list', 'form', 'popovertarget', CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL), true) || str_starts_with($name, 'aria-')) {
+                foreach (SourceDom::tokens((string) $attribute->nodeValue) as $token) $referenced[$token] = true;
+            }
+        }
         foreach ($xpath->query('//*[@' . CaptureEvidence::DIALOG_PANEL . ']') ?: array() as $panel) {
             if (!$panel instanceof \DOMElement) continue;
             $names = array();
@@ -295,33 +288,5 @@ final class SourceShells
                 $node->setAttribute('class', implode(' ', $classes));
             }
         }
-    }
-
-    /**
-     * YUI (Squarespace) stamps the elements it renders with an id minted per
-     * page load (`yui_3_17_2_1_1794936403308_46`), so one header captured on
-     * two routes differs only by that id. An id the landmark never names is
-     * that render's instance, not structure, as chrome identity reads it.
-     */
-    private static function neutralizeRuntimeInstanceIds(\DOMXPath $xpath): void
-    {
-        $referenced = self::referencedIds($xpath);
-        foreach ($xpath->query('//*[starts-with(@id, "yui_")]') ?: array() as $node) {
-            if ($node instanceof \DOMElement && 1 === preg_match('/^yui_\d+_[\w-]+$/', $node->getAttribute('id')) && !isset($referenced[$node->getAttribute('id')])) $node->removeAttribute('id');
-        }
-    }
-
-    /** @return array<string,true> Ids the landmark names through a fragment link or an id-reference attribute. */
-    private static function referencedIds(\DOMXPath $xpath): array
-    {
-        $referenced = array();
-        foreach ($xpath->query('//@*') ?: array() as $attribute) {
-            $name = strtolower($attribute->nodeName);
-            if ('href' === $name && str_starts_with(trim($attribute->nodeValue ?? ''), '#')) $referenced[substr(trim($attribute->nodeValue ?? ''), 1)] = true;
-            elseif (in_array($name, array('for', 'list', 'form', 'popovertarget', CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL), true) || str_starts_with($name, 'aria-')) {
-                foreach (SourceDom::tokens((string) $attribute->nodeValue) as $token) $referenced[$token] = true;
-            }
-        }
-        return $referenced;
     }
 }
