@@ -517,7 +517,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->documentEnvelope = new Support\SourceDocumentEnvelope($this->styleResolver);
         $customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $mediaLowering, $this->imageLowering, $this->layoutShells, $this);
         $listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $listStructure, $this->richTextMaterializer, $this->wrapperCoalescer, $this->authorLayoutOwnership);
-        $structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups, $this->richTextMaterializer);
+        $structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups, $this->richTextMaterializer, $this->runtimeIslands);
         $inlineTextWrappers = new Elements\InlineTextWrapperLowering(
             $this,
             $this,
