@@ -15,7 +15,8 @@ final class CodePresentation
     /** @return array<string, mixed> */
     public function attributes(DOMElement $pre, DOMElement $code): array
     {
-        $attrs = $this->presentation->presentationAttributes($pre);
+        // core/code has no text-align support; keep an inline alignment on the carrier.
+        $attrs = $this->presentation->presentationAttributes($pre, array(), array( 'text-align' ));
         $codeClassName = SourceDom::attr($code, 'class');
         if ( '' !== trim($codeClassName) ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $codeClassName);
