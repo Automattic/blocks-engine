@@ -267,9 +267,6 @@ final class CaptureEvidence
     /** Legacy inline captured interaction report, still accepted by readers. */
     public const CAPTURED_INTERACTIONS_V2_SCHEMA = 'blocks-engine-capture/captured-interactions/v2';
 
-    /** Sidecar inventory of the custom properties the source defines, with their computed values. */
-    public const CSS_VARIABLES_INVENTORY = 'css-variables.json';
-
     /** `interaction-states.json`: captured interaction report. */
     public const CAPTURED_INTERACTIONS_SCHEMA = 'blocks-engine-capture/captured-interactions/v3';
     /** Capture receipt. */

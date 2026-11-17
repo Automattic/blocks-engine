@@ -2316,7 +2316,7 @@ final class ArtifactCompiler
             // The capture's custom-property inventory lists every property the
             // source defines, read or not: it is the stylesheets' own
             // definitions, not a consumer. Counting it keeps each one alive.
-            if (is_string($file['path'] ?? null) && CaptureEvidence::CSS_VARIABLES_INVENTORY === basename($file['path'])) continue;
+            if (is_string($file['path'] ?? null) && 'css-variables.json' === basename($file['path'])) continue;
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
             $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
