@@ -3,17 +3,17 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
-/** Front-end native semantics for editable core paragraphs that hold a captured textarea's default value. */
+/** Front-end native semantics for editable core preformatted blocks that hold a captured textarea's default value. */
 final class NativeTextareaRuntime
 {
     public static function source(): string
     {
         return <<<'PHP'
-add_filter( 'render_block_core/paragraph', static function ( string $content, array $block ): string {
+add_filter( 'render_block_core/preformatted', static function ( string $content, array $block ): string {
     $attrs = $block['attrs']['metadata']['blocksEngineTextarea'] ?? null;
     if ( ! is_array( $attrs ) ) return $content;
     // Read the saved core text, so editor changes are the native default value too.
-    $inner = (string) preg_replace( '#^\s*<p\b[^>]*>|</p>\s*$#i', '', (string) ( $block['innerHTML'] ?? '' ) );
+    $inner = (string) preg_replace( '#^\s*<pre\b[^>]*>|</pre>\s*$#i', '', (string) ( $block['innerHTML'] ?? '' ) );
     $value = html_entity_decode( strip_tags( (string) preg_replace( '#<br\s*/?>#i', "\n", $inner ) ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
     $html = '<textarea';
     foreach ( array( 'id', 'name', 'form', 'placeholder', 'ariaLabel', 'className', 'style', 'rows', 'cols', 'maxLength', 'minLength' ) as $key ) {

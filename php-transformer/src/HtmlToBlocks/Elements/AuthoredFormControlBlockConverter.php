@@ -371,7 +371,7 @@ final class AuthoredFormControlBlockConverter
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $attrs = array_replace($attrs, $state ?? array());
         // Capture-backed controls have an explicit state contract for the core
-        // paragraph renderer. Ordinary authored controls keep their saved
+        // preformatted renderer. Ordinary authored controls keep their saved
         // native markup (including form submission and source CSS topology).
         if (null !== $state) {
             return $this->nativeTextarea($attrs, $textarea);
@@ -385,19 +385,22 @@ final class AuthoredFormControlBlockConverter
     }
 
     /**
-     * A core paragraph owns the editable default text. Native semantics are
-     * metadata, consumed by the theme renderer instead of a companion block.
+     * A core preformatted block owns the editable default text: like the
+     * control it keeps the value's line breaks, and the editor canvas does not
+     * show the entry field as a prose paragraph the front end never renders.
+     * Native semantics are metadata, consumed by the theme renderer instead of
+     * a companion block.
      * @param array<string, mixed> $attrs
      */
     private function nativeTextarea(array $attrs, DOMElement $source): array
     {
         // `value` stays as the captured default (it keeps the metadata an
-        // object); the renderer reads the saved paragraph text instead.
+        // object); the renderer reads the saved block text instead. Line
+        // breaks are `<br>`, so a leading one survives the `<pre>` parser.
         $value = (string) ($attrs['value'] ?? '');
         $content = str_replace(array("\r\n", "\r", "\n"), '<br>', $this->runtime->escapeHtml(str_replace(array("\r\n", "\r"), "\n", $value)));
-        return $this->createBlock->createBlock('core/paragraph', array_filter(array(
+        return $this->createBlock->createBlock('core/preformatted', array_filter(array(
             'content' => $content,
-            'placeholder' => (string) ($attrs['placeholder'] ?? ''),
             'metadata' => array('blocksEngineTextarea' => $attrs),
         ), static fn (mixed $value): bool => '' !== $value), array(), $source);
     }
