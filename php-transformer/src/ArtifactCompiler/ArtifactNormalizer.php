@@ -169,7 +169,7 @@ final class ArtifactNormalizer
             $referenceMedia = self::isReferenceBackedBinary(array('path' => $path) + $file);
             // A declared capture report is hydrated but never converted, so it
             // is bounded on the report budget rather than the parse budget.
-            $capturedReport = ! $referenceMedia && isset($declaredReports[$path]);
+            $capturedReport = ! $referenceMedia && (isset($declaredReports[$path]) || \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isSidecarPath($path));
 
             if ( $referenceMedia && $payload['bytes'] > $limits['max_media_file_bytes'] ) {
                 ++$rejected;

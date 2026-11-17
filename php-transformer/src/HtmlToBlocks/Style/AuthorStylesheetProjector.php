@@ -1969,6 +1969,7 @@ final class AuthorStylesheetProjector
         if ( null !== $parsed['pseudo_state_suffix_span']
             || ! CssSelectorCompoundInspector::containsDataAttribute($rightmost)
             || CssSelectorCompoundInspector::hasLiveAttributePredicate($rightmost)
+            || null === CssSelectorCompoundInspector::markerClassConditions($rightmost)
         ) {
             return '';
         }
@@ -2051,14 +2052,15 @@ final class AuthorStylesheetProjector
                     // through that marker, as the figure's own box rule does.
                     $marker = $this->sourceAttributeMarker($selector, $parsed, $element, $context);
                 }
-                if ( '' === $marker ) {
+                $conditions = CssSelectorCompoundInspector::markerClassConditions(CssSelectorCompoundInspector::rightmost($parsed['compounds']));
+                if ( '' === $marker || null === $conditions ) {
                     $hasUnmarkedImage = true;
                     continue;
                 }
                 // The source link's ID now belongs to the native figure. A
                 // descendant selector cannot retain that former ancestry.
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-                $projected[] = NativeImageLeafPresentation::selectors(':where(.' . $marker . ').wp-block-image', $this->selectors->selectorSpecificityShims($parsed, $context) . $suffix);
+                $projected[] = NativeImageLeafPresentation::selectors(':where(.' . $marker . $conditions . ').wp-block-image', $this->selectors->selectorSpecificityShims($parsed, $context) . $suffix);
             }
             if ( $hasUnmarkedImage ) {
                 $this->pushScopedImageArm($projected, $selector, $this->selectors->projectImageSelector($selector, $parsed, $context), $context);
@@ -2457,8 +2459,8 @@ final class AuthorStylesheetProjector
             } elseif (! $ownsBox && ! in_array($position, array('absolute', 'fixed'), true) && isset($declarations[$property])) {
                 // A responsive rule can change only one axis. The figure owns
                 // that declaration; its leaf must follow the new value too.
-                // Fill a percentage-sized figure without applying its ratio
-                // twice; direct leaf selectors retain their authored sizing.
+                // Fill only axes moved to a percentage-sized figure, without
+                // applying the ratio twice; direct leaf selectors keep their sizing.
                 $percentage = $fillPercentageBox && 1 === preg_match('/^\d*\.?\d+%$/', CssValueInspector::declared($declarations, $property));
                 $bridge[] = $property . ':' . ($percentage ? '100%' : 'inherit')
                     . (str_contains($declarations[$property], '!important') ? '!important' : '');

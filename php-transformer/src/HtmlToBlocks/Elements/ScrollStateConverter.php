@@ -4,20 +4,16 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ScrollStateBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
-use LogicException;
 
-/** Preserves a captured scroll-driven class/style toggle as a companion block. */
+/** Preserves captured scroll behavior on an editable core Group. */
 final class ScrollStateConverter implements ElementConverter
 {
     public function __construct(
-        private readonly HtmlTransformerSession $session,
         private readonly PatternTreeConverter $tree,
         private readonly StyleResolver $styleResolver,
         /** @var Closure(DOMElement, string): string Source projection classes, as on any converted block. */
@@ -41,11 +37,6 @@ final class ScrollStateConverter implements ElementConverter
      */
     public function block(DOMElement $element, array &$fallbacks): array
     {
-        $registry = $this->session->generatedBlockRegistry()
-            ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
-        $blockName = $registry->blockName(ScrollStateBlockGenerator::LOCAL_NAME);
-        $registry->register(ScrollStateBlockGenerator::class, (new ScrollStateBlockGenerator())->definition($blockName));
-
         $tagName = strtolower(trim($element->tagName));
         if (1 !== preg_match('/^[a-z][a-z0-9-]*$/', $tagName)) {
             $tagName = 'div';
@@ -74,24 +65,28 @@ final class ScrollStateConverter implements ElementConverter
         $className = ($this->sourceProjectionClassName)($element, trim(SourceDom::attr($element, 'class') . ' ' . $this->styleResolver->inlineGeometryClassName($element, $toggled)));
 
         $attrs = array_filter(array(
-            'tagName' => 'div' === $tagName ? '' : $tagName,
             'anchor' => $anchor,
             'className' => $className,
-            'config' => '{}' === $config ? '' : $config,
         ), static fn(mixed $value): bool => '' !== $value);
+        $saveTag = in_array($tagName, array('div', 'header', 'footer', 'main', 'section', 'article', 'aside', 'nav'), true) ? $tagName : 'div';
+        if ('div' !== $saveTag) $attrs['tagName'] = $saveTag;
+        $attrs['metadata']['blocksEngineScrollState'] = array(
+            'tagName' => $tagName,
+            'config' => $config,
+        );
 
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $opening = '<' . $tagName;
+        // Core owns the saved shape; the theme restores the source shell at render time.
+        $opening = '<' . $saveTag;
         if ('' !== $anchor) $opening .= ' id="' . $escape($anchor) . '"';
-        if ('' !== $className) $opening .= ' class="' . $escape($className) . '"';
-        $opening .= ' data-blocks-engine-scroll-state="true" data-blocks-engine-scroll-state-config="' . $escape($config) . '">';
-        $closing = '</' . $tagName . '>';
+        $opening .= ' class="wp-block-group' . ('' !== $className ? ' ' . $escape($className) : '') . '">';
+        $closing = '</' . $saveTag . '>';
         $innerContent = array($opening);
         foreach ($children as $_) $innerContent[] = null;
         $innerContent[] = $closing;
 
         return array(
-            'blockName' => $blockName,
+            'blockName' => 'core/group',
             'attrs' => $attrs,
             'innerBlocks' => $children,
             'innerHTML' => $opening . $closing,

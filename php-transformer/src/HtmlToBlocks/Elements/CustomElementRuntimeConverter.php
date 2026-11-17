@@ -19,6 +19,7 @@ final class CustomElementRuntimeConverter implements ElementConverter
         private readonly StyleResolver $styleResolver,
         private readonly SourceElementDescription $sourceElementDescription,
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
+        private readonly RenderNeutralElements $renderNeutral,
         private readonly GeneratedComponentLowering $generatedComponents,
         private readonly SourceBlockCreator $createBlock
     ) {
@@ -27,8 +28,8 @@ final class CustomElementRuntimeConverter implements ElementConverter
     /**
      * Preserve a textless custom element only when captured script content proves
      * it defines that tag. A configuration-bearing element without that proof
-     * stays an explicit missing-functional-content finding rather than a silent
-     * drop or a generic unsupported-element silence.
+     * stays an explicit missing-functional-content finding unless its empty,
+     * render-neutral host has no captured output to lose.
      *
      * @param array<int, array<string, mixed>> $fallbacks
      */
@@ -43,6 +44,20 @@ final class CustomElementRuntimeConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
         if ( 'unproven' === $decision['disposition'] ) {
+            if ( $this->renderNeutral->isEmptyRenderNeutralConfiguredHost($element) ) {
+                $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
+                    'code'                      => 'html_custom_element_render_neutral',
+                    'severity'                  => 'info',
+                    'conversion_classification' => 'native_conversion',
+                    'message'                   => 'An empty custom element without a proven runtime or authored box was omitted.',
+                    'source_format'             => 'html',
+                    'tag'                       => $tagName,
+                    'selector'                  => SourceDom::elementSelector($element),
+                    'attributes'                => SourceDom::htmlAttributes($element),
+                ));
+
+                return ConversionOutcome::handled(null);
+            }
             // A host the source cascade hides at every viewport renders
             // nothing there, so omitting it loses no content or behavior.
             if ( $this->styleResolver->isDisplayNoneAtEveryViewport($element) ) {

@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "resource-grid" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "className": "resource-card__media blocks-engine-synthetic-image-figure" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "resource-card__content" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
@@ -28,7 +28,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/group" },
     { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/group" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Block Pattern Basics" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Launch Review" },

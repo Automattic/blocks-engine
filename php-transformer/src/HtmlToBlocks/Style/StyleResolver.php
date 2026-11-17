@@ -64,6 +64,11 @@ final class StyleResolver implements ElementPresentationResolver
     /** @var array{0:int,1:bool}|null Rule count and whether any rule paints a url() background. */
     private ?array $backgroundPhotoRules = null;
 
+    private ?string $keyframeCustomPropertiesCss = null;
+
+    /** @var array<string, true> */
+    private array $keyframeCustomProperties = array();
+
     private ?ClosedStateNormalizer $closedStateNormalizer = null;
 
     private ?InlineGeometry $inlineGeometry = null;
@@ -3267,14 +3272,9 @@ final class StyleResolver implements ElementPresentationResolver
         // Keyframes are not ordinary selector consumers. Preserve only the
         // variables they read, not unrelated capture layout variables.
         if ($element->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE)) {
-            $readers = array();
-            (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->visitKeyframeRules(
-                $this->session->authorStyleAnalysis()->combinedCss(),
-                static function (string $name, string $body) use (&$readers): void { $readers[] = $body; }
-            );
             $required = $this->inlineCustomPropertiesRequired(
                 $declarations,
-                $required + $this->customPropertiesReferencedByValues($readers)
+                $required + $this->keyframeCustomProperties($this->session->authorStyleAnalysis()->combinedCss())
             );
         }
         $customProperties = array();
@@ -3286,6 +3286,28 @@ final class StyleResolver implements ElementPresentationResolver
         ksort($customProperties, SORT_STRING);
 
         return $customProperties;
+    }
+
+    /**
+     * Custom properties the page's keyframes read. Every entrance element on
+     * a page asks the same question of the same stylesheet, so the answer is
+     * kept for as long as the combined CSS is unchanged.
+     *
+     * @return array<string, true>
+     */
+    private function keyframeCustomProperties(string $css): array
+    {
+        if ($css !== $this->keyframeCustomPropertiesCss) {
+            $readers = array();
+            (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->visitKeyframeRules(
+                $css,
+                static function (string $name, string $body) use (&$readers): void { $readers[] = $body; }
+            );
+            $this->keyframeCustomPropertiesCss = $css;
+            $this->keyframeCustomProperties = $this->customPropertiesReferencedByValues($readers);
+        }
+
+        return $this->keyframeCustomProperties;
     }
 
     /**
@@ -4422,10 +4444,19 @@ final class StyleResolver implements ElementPresentationResolver
                 'selector'     => SourceDom::elementSelector($element),
                 'editor_selector' => $this->editorStaticStateSelector($element),
                 'declarations' => $normalized['stripped'],
+                'placed'       => $this->hasInlinePlacementTransform($element),
             ));
         }
 
         return $normalized['declarations'];
+    }
+
+    /** An element's own inline transform is authored placement, such as a carousel slide's track offset. */
+    private function hasInlinePlacementTransform(DOMElement $element): bool
+    {
+        $transform = CssValueInspector::declared(SourceDeclarations::inline($element), 'transform');
+
+        return '' !== $transform && 'none' !== $transform;
     }
 
     /** Source-wired capture panels remain reachable without dialog projection. */
@@ -6179,6 +6210,17 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $this->presentationClassName(implode(' ', $classes));
+    }
+
+    /** Source identities for descendants serialized directly into RichText. */
+    public function richTextSourceMarkers(DOMElement $element): array
+    {
+        $projections = $this->session->authorSelectorProjectionState();
+        return array_merge(
+            array($projections->tagMarker(strtolower($element->tagName))),
+            $projections->sourceProjectionMarkersForPath($element->getNodePath() ?? ''),
+            $this->sourceAttributeSelectorMarkers($element)
+        );
     }
 
     public function innerHtml(DOMElement $element): string

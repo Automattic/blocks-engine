@@ -10,7 +10,10 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity;
 $failures = array();
 $folded = '<!-- wp:custom/layout-shell {"wrappers":[{"tagName":"div","attributes":{"class":"outer"}},{"tagName":"article","attributes":{"class":"inner"}}]} --><div class="outer"><article class="inner"><!-- wp:post-content /--></article></div><!-- /wp:custom/layout-shell -->';
 $native = '<!-- wp:group {"className":"outer"} --><div class="outer"><!-- wp:group {"tagName":"article","className":"inner"} --><article class="inner"><!-- wp:post-content /--></article><!-- /wp:group --></div><!-- /wp:group -->';
-if (ChromeIdentity::markup($folded) !== ChromeIdentity::markup($native)) $failures[] = 'equivalent wrapper encodings share identity';
+// Importers own the generated-block namespace, as SSI does with ssi-<site>.
+foreach (array($folded, str_replace('custom/', 'ssi-example-journal/', $folded)) as $encoding) {
+    if (ChromeIdentity::markup($encoding) !== ChromeIdentity::markup($native)) $failures[] = 'equivalent wrapper encodings share identity';
+}
 foreach (array(str_replace('article', 'section', $native), str_replace('inner', 'different', $native), str_replace(array('outer', 'inner'), array('inner', 'outer'), $native)) as $different) {
     if (ChromeIdentity::markup($folded) === ChromeIdentity::markup($different)) $failures[] = 'wrapper tags, classes and order remain significant';
 }
@@ -50,13 +53,13 @@ foreach (array(array('a', 'b', 'c'), array('c', 'a', 'b')) as $order) {
     }
     $files['index.html'] = '<!doctype html><html><head><title>Example Journal</title></head><body><header class="site-header"><p>Shared header</p></header><div class="main-content"><h1>Example Journal</h1>' . $links . '</div><footer class="site-footer"><p>Footer text</p></footer></body></html>';
     $files['content-index.json'] = json_encode(array('schema' => 'data-liberation-agent/content-index/v1', 'posts' => $records, 'terms' => array(), 'redirects' => array()), JSON_THROW_ON_ERROR);
-    $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+    $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files, 'block_namespace' => 'ssi-example-journal'))->toArray()['source_reports']['wordpress_site_plan'];
     $posts = array_values(array_filter($plan['pages'], static fn(array $page): bool => 'post' === ($page['post_type'] ?? null)));
     if (3 !== count($posts)) $failures[] = 'three posts';
     $templates = array_values(array_filter($plan['templates'], static fn(array $template): bool => str_starts_with($template['slug'], 'single')));
     if (1 !== count($templates)) $failures[] = 'one single-post template';
     $template = $templates[0]['canonical_block_markup'] ?? '';
-    foreach (array('<!-- wp:post-content', '<!-- wp:post-title', '<!-- wp:custom/layout-shell') as $expected) {
+    foreach (array('<!-- wp:post-content', '<!-- wp:post-title', '<!-- wp:ssi-example-journal/layout-shell') as $expected) {
         if (!str_contains($template, $expected)) $failures[] = 'shared template contains ' . $expected;
     }
     foreach ($posts as $post) {

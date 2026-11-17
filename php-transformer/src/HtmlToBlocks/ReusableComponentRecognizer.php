@@ -114,6 +114,7 @@ final class ReusableComponentRecognizer
         $attributes = array();
         foreach ($node->attributes as $attribute) {
             $name = strtolower($attribute->name);
+            if ( \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($name) ) continue;
             $value = $this->normalizedAttributeValue($name, $attribute->value);
             if (null === $value) continue;
             $attributes[] = $shapeOnly ? $name : ($this->isContentSlot($name) ? $name . '=#slot' : $name . '=' . $value);

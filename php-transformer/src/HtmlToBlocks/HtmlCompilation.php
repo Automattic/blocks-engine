@@ -891,7 +891,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->session
             ),
             new ScrollStateConverter(
-                $this->session,
                 $this,
                 $this->styleResolver,
                 fn (DOMElement $element, string $className): string => $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext(), $className)
@@ -957,7 +956,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new Elements\OrphanListItemConverter($this->runtimeIslands, $this->sourceElementClassifier, $this->richTextMaterializer, $this, $this->layoutShells, $this),
             new Elements\ScriptOwnedCheckoutRegionConverter($commercePattern, $this),
             new Elements\TransparentUnknownElementConverter($this->renderNeutral, $this->session, $this->generatedComponents, $flowContainerConverter),
-            new Elements\CustomElementRuntimeConverter($this->session, $this->styleResolver, $this->sourceElementDescription, $this->runtimeIslands, $this->generatedComponents, $this),
+            new Elements\CustomElementRuntimeConverter($this->session, $this->styleResolver, $this->sourceElementDescription, $this->runtimeIslands, $this->renderNeutral, $this->generatedComponents, $this),
         ));
     }
 
@@ -1186,7 +1185,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $sourceBodyClasses = $this->documentEnvelope->documentBodyClassNames($html);
         $this->session->installSourceDocument($this->documentEnvelope->documentRootTheme($html), NativeGetFormBlockBuilder::declaredDocumentHosts($html));
         $normalizedHtml = CaptureReplayScripts::withoutReplayScripts(
-            SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html)))
+            SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html), array() !== $this->session->boxTreeViewports()))
         );
         $document = HtmlSerialization::parseFragment('<body>' . $normalizedHtml . '</body>');
 
@@ -1380,7 +1379,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // author rules there as they do on the front end.
         $this->navigationStyleProjector->materializeEditorStaticStateStylesheet(
             implode("\n\n", array_column($authorStylesheetProjections, 'content'))
-            . ( '' === $authorStylesheets->contentBoxCss() ? '' : "\n\n" . $authorStylesheets->contentBoxCss() )
+            . ( '' === $authorStylesheets->contentBoxCss() ? '' : "\n\n" . $authorStylesheets->contentBoxCss() ),
+            $serializedBlocks
         );
         // Publish declaration addresses only after every generated support
         // family has contributed. Provisional source bindings never escape
@@ -1924,7 +1924,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
         $this->session->authorSelectorProjectionState()->markRetainedSourcePath($button->getNodePath() ?? '');
-        return $this->authoredFormControlBlockConverter->button($button, true);
+        return $this->authoredFormControlBlockConverter->button($button, true, true);
     }
 
     /** Keep containing-block-relative sizes on the original, editable control. */
@@ -2075,6 +2075,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $this->session->boxTreeEvidence($sourceElement), $this->session->boxTreeViewports(), $this->session->layoutGeometryState(), $sourceElement->parentNode instanceof DOMElement ? $this->session->boxTreeEvidence($sourceElement->parentNode) : array());
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,
@@ -2246,6 +2247,19 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $children = $this->convertChildren($button, $fallbacks, true, true);
         if ( array() === $children ) {
             return null;
+        }
+
+        if ( '' === trim($button->textContent) && $button->getElementsByTagName('img')->length > 0 ) {
+            $attributes = array();
+            foreach ($button->attributes as $attribute) {
+                $attributes[strtolower($attribute->nodeName)] = $attribute->nodeValue ?? '';
+            }
+            if (!isset($attributes['type'])) $attributes['type'] = 'submit';
+            return $this->createBlock('core/group', array(
+                'tagName' => 'button',
+                'className' => SourceDom::attr($button, 'class'),
+                'metadata' => array('blocksEngineControlBox' => $attributes, 'blocksEngineControlTagName' => 'button'),
+            ), $children, $button);
         }
 
         return $this->layoutShells->blockForElements(array($button), $children, $button);

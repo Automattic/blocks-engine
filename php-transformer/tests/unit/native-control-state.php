@@ -35,7 +35,9 @@ $assert(!str_contains($result['serialized_blocks'], CaptureEvidence::NATIVE_CONT
 $assert('yes' === $attrs['dataAttributes']['data-passive'], 'passive attributes remain on the native input');
 $assert($byId['text']['attrs']['value'] === $textarea['defaultValue'] && $byId['text']['attrs']['initialValue'] === $textarea['value'], 'readonly textarea carries exact default/current LF and Unicode');
 $assert('file' === $byId['file']['attrs']['type'] && '' === $byId['file']['attrs']['initialValue'], 'file control stays file without selections');
-$assert('custom/authored-select' === $byId['select']['blockName'] && true === $byId['select']['attrs']['options'][0]['selected'] && false === $byId['select']['attrs']['options'][0]['initialSelected'], 'native select retains distinct default/current option state');
+$selectBlock = array_values(array_filter($blocks, static fn (array $block): bool => isset($block['attrs']['metadata']['blocksEngineSelect'])))[0];
+$selectOption = $selectBlock['innerBlocks'][0]['attrs']['metadata']['blocksEngineSelectOption'];
+$assert('core/list' === $selectBlock['blockName'] && true === $selectOption['selected'] && false === $selectOption['initialSelected'], 'native select retains distinct default/current option state');
 $document = new DOMDocument(); $document->loadHTML($result['serialized_blocks'], LIBXML_NOERROR | LIBXML_NOWARNING);
 $xpath = new DOMXPath($document);
 $assert(1 === $xpath->query('//input[@id="choice"]/following-sibling::*[1][self::label][@for="choice"]')->length, 'associated label stays on its independent clickable source host');

@@ -306,6 +306,7 @@ final class WrapperCoalescer
         // A dialog Group's identity includes its runtime shell and bindings.
         return !empty($attrs['metadata']['blocksEngineRuntimeAttributes'])
             || isset($attrs['metadata']['blocksEngineDialog'])
+            || isset($attrs['metadata']['blocksEngineChoiceGroup'])
             || !empty($block['_editability_runtime_owned'])
             || !empty($block['_editability_visual_owned'])
             || !empty($attrs['backgroundColor'])
@@ -495,7 +496,7 @@ final class WrapperCoalescer
         foreach ($element->childNodes as $node) {
             if (XML_TEXT_NODE === $node->nodeType && '' !== trim((string) $node->nodeValue)) return false;
         }
-        foreach ($element->attributes as $attribute) {
+        foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($element) as $attribute) {
             if (! in_array(strtolower($attribute->nodeName), array('class', 'style', 'data-node-view-wrapper', 'data-node-view-content', 'data-node-view-content-inner'), true)) return false;
         }
         foreach ($this->session->authorStyleRuleCandidates($element) as $rule) {
@@ -693,6 +694,9 @@ final class WrapperCoalescer
      */
     private function coalescingResolution(DOMElement $element, array $childBlock): array
     {
+        if ($this->session->boxTreeViewports() && !$this->session->boxTreeEvidence($element)) {
+            return array('disposition' => WrapperDisposition::preserve('unobserved_box'), 'proof' => null, 'attrs' => array(), 'source_child' => null);
+        }
         $proof = $this->layoutGeometryProofFor($element);
         $fullWidthTransparentShell = $this->hasOnlyFullWidthTransparentInlineGeometry($element);
         $redundantNestedLayout = $this->isRedundantNestedLayoutWrapper($element, $childBlock);

@@ -421,7 +421,15 @@ $styledSvgCompiled = $styledSvgResult['source_reports']['compiled_site'] ?? arra
 $styledSvgAssetPaths = array_column(array_filter($styledSvgCompiled['assets'] ?? array(), static fn(array $asset): bool => 'inline-svg' === ($asset['source'] ?? null)), 'path');
 $styledSvgShellPaths = array();
 foreach ($styledSvgCompiled['inline_shell_artifacts'] ?? array() as $artifact) if (preg_match_all('@assets/materialized-svg/[^" ]+@', $artifact['block_markup'] ?? '', $matches)) $styledSvgShellPaths = array_merge($styledSvgShellPaths, $matches[0]);
-$assert('failed' !== ($styledSvgResult['status'] ?? null) && 2 === count($styledSvgAssetPaths) && array() === array_diff($styledSvgShellPaths, $styledSvgAssetPaths), 'Shared shell compilation declares its CSS-context-specific materialized SVG asset instead of leaving an unresolved local browser reference.');
+$assert('failed' !== ($styledSvgResult['status'] ?? null) && 1 === count($styledSvgAssetPaths) && 2 === count($styledSvgShellPaths) && array() === array_diff($styledSvgShellPaths, $styledSvgAssetPaths), 'Shared shells with identical CSS-baked SVG payloads share one declared materialized asset without unresolved local browser references.');
+
+$distinctSvgDocument = static fn(string $title): string => str_replace('</style>', '.mobile-header .logo svg{width:32px;height:32px}</style>', $styledSvgDocument($title));
+$distinctSvgResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $distinctSvgDocument('Home'), 'about.html' => $distinctSvgDocument('About'))))->toArray();
+$distinctSvgCompiled = $distinctSvgResult['source_reports']['compiled_site'] ?? array();
+$distinctSvgAssetPaths = array_column(array_filter($distinctSvgCompiled['assets'] ?? array(), static fn(array $asset): bool => 'inline-svg' === ($asset['source'] ?? null)), 'path');
+$distinctSvgShellPaths = array();
+foreach ($distinctSvgCompiled['inline_shell_artifacts'] ?? array() as $artifact) if (preg_match_all('@assets/materialized-svg/[^" ]+@', $artifact['block_markup'] ?? '', $matches)) $distinctSvgShellPaths = array_merge($distinctSvgShellPaths, $matches[0]);
+$assert('failed' !== ($distinctSvgResult['status'] ?? null) && 2 === count($distinctSvgAssetPaths) && 2 === count(array_unique($distinctSvgShellPaths)) && array() === array_diff($distinctSvgShellPaths, $distinctSvgAssetPaths), 'Shared shells with distinct CSS-baked SVG payloads declare both context-specific assets without unresolved local browser references.');
 
 $responsiveDivergentResult = $responsiveResult;
 foreach ($responsiveDivergentResult['source_reports']['compiled_site']['pages'] as &$responsivePage) $responsivePage['block_markup'] = $responsiveMarkup('index.html' === $responsivePage['source_path'] ? 'Home' : 'About', 'about.html' === $responsivePage['source_path'] ? 'Different mobile header' : 'Mobile header'); unset($responsivePage);
