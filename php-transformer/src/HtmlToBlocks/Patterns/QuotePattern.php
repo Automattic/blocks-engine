@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -188,19 +187,12 @@ final class QuotePattern implements PatternRecognizerInterface
         }
         $quoteChildren = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes);
         if ( array() !== $quoteChildren ) {
-            // The paragraph stands in for the consumed blockquote: it keeps
-            // the quotation's text presentation and, when the blockquote is a
-            // block box, that box and its authored margins. As an inline run it
-            // would sit on the quote's own line-height strut and lose the gap
-            // to the caption. Sizing and other geometry stay with the figure.
-            $isBlockBox = $quotes->figureQuotationIsBlockBox($blockquote);
+            // Only transfer text presentation: the consumed blockquote's box
+            // (especially margins) must not become the synthetic paragraph's box.
             $quoteChildren[0] = $createBlock('core/paragraph', array(
                 'content' => $value,
-                'className' => 'blocks-engine-synthetic-paragraph' . ($isBlockBox ? ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS : ''),
-                'style' => array_filter(array(
-                    'typography' => $quotes->figureQuotationTypography($blockquote),
-                    'spacing' => $isBlockBox ? $quotes->figureQuotationSpacing($blockquote) : array(),
-                )),
+                'className' => 'blocks-engine-synthetic-paragraph',
+                'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
             ));
         }
         $innerBlocks = array_merge($innerBlocks, $quoteChildren);

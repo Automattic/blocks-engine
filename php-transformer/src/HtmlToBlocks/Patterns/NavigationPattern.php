@@ -545,6 +545,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             $scopedClasses,
             $listSource
         );
+        if ( null === $listSource && ! $label instanceof DOMElement && $this->linksAreDirectAnchorsOf($links, $directAnchors, $navigationSource) ) {
+            $navigationContext->recordBareAnchorRowStretch($navigationSource, $scopedClasses);
+        }
         $this->recordNavigationSources($links, $directAnchors, $listItems, $navigationSource, $navigationContext);
 
         if ( ! $label instanceof DOMElement ) {
@@ -4191,6 +4194,27 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function isListNavigationSource(DOMElement $element): bool
     {
         return $this->navigationListSource($element) instanceof DOMElement;
+    }
+
+    /**
+     * Whether each emitted link stands in for one anchor the navigation holds
+     * directly: the anchors are then the source row's own flex items.
+     *
+     * @param array<int, array<string, mixed>> $links
+     * @param list<DOMElement> $directAnchors
+     */
+    private function linksAreDirectAnchorsOf(array $links, array $directAnchors, DOMElement $navigation): bool
+    {
+        if ( array() === $directAnchors || count($links) !== count($directAnchors) ) {
+            return false;
+        }
+        foreach ( $directAnchors as $anchor ) {
+            if ( ! $anchor->parentNode instanceof DOMElement || ! $anchor->parentNode->isSameNode($navigation) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function navigationListSource(DOMElement $element): ?DOMElement
