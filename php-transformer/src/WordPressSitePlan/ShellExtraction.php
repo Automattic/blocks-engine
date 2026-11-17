@@ -207,9 +207,13 @@ final class ShellExtraction
                 if (count($identities[$candidate['area']]) < 2) continue;
                 // Runtime-bound source blocks must retain the exact compiled
                 // payload their bindings address; the hoister owns those shells.
+                // Source equality still proves which shell they are: per-route
+                // capture evidence must not split one authored shell.
+                $bound = false;
                 if (isset($candidate['offset'], $candidate['length'])) {
                     $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($candidate));
-                    if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
+                    if ($bindings['blocked']) continue;
+                    $bound = array() !== $bindings['refs'];
                 }
                 $artifact = self::sourceSharedShellArtifact($artifacts, $page, $candidate['area'], $variant);
                 if (null === $artifact) continue;
@@ -219,6 +223,7 @@ final class ShellExtraction
                 // drawer) is absent from a landmark-only artifact.
                 if (array() !== array_diff(self::textRuns($candidate['markup']), self::textRuns($markup))) continue;
                 $candidate['identity_markup'] = ChromeIdentity::markup($markup);
+                if ($bound) continue;
                 // Source equality proves ownership, not presentation: isolated
                 // compilation lacks the route's complete selector context.
                 $presentation = ($presentations[$markup]['score'] ?? 0) > 0 ? $presentations[$markup]['markup'] : $candidate['markup'];
