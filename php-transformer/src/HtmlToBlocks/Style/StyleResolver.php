@@ -1218,9 +1218,11 @@ final class StyleResolver implements ElementPresentationResolver
             return '';
         }
 
+        // The class names its rules, not its element: every element carrying
+        // the same responsive sizes shares one class and one emitted rule set.
         $className = 'blocks-engine-responsive-typography-' . substr(hash(
             'sha256',
-            $this->geometryStructuralPath($element) . "\n" . $base . "\n" . serialize($conditional)
+            $base . "\n" . serialize($conditional)
         ), 0, 12);
         $this->session->generatedSupportStylesheetState()->registerResponsiveTypography($className, $base, $conditional);
 
@@ -1301,9 +1303,10 @@ final class StyleResolver implements ElementPresentationResolver
         }
         if ('' === $base && array() === $conditional) return '';
 
+        // Content-addressed like responsive typography: equal margins share a marker.
         $marker = 'blocks-engine-responsive-margin-top-' . substr(hash(
             'sha256',
-            $this->geometryStructuralPath($element) . "\n" . $base . "\n" . serialize($conditional)
+            $base . "\n" . serialize($conditional)
         ), 0, 12);
         $this->session->generatedSupportStylesheetState()->registerResponsiveBlockMarginTop($marker, $base, $conditional);
 
