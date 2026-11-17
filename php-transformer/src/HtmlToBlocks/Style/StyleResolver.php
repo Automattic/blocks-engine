@@ -4331,12 +4331,17 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Shorthand reset families projected by this resolver. Font is already
-     * expanded by cssDeclarations() using CssFontShorthand before ranking.
+     * Shorthand reset families projected by this resolver. Pending font and
+     * logical box substitutions still reset longhands before value resolution.
      * Include intermediate shorthands as well as terminal longhands so border
      * resets compete at every level without parsing or expanding CSS values.
      */
     private const BOX_SHORTHAND_LONGHANDS = array(
+        'font' => self::FONT_SHORTHAND_LONGHANDS,
+        'margin-block' => array('margin-top', 'margin-bottom'),
+        'margin-inline' => array('margin-left', 'margin-right'),
+        'padding-block' => array('padding-top', 'padding-bottom'),
+        'padding-inline' => array('padding-left', 'padding-right'),
         'background' => array('background-color', 'background-image', 'background-position', 'background-size',
             'background-repeat', 'background-attachment', 'background-origin', 'background-clip'),
         'padding' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'),
@@ -6045,6 +6050,8 @@ final class StyleResolver implements ElementPresentationResolver
             'justify-content',
             'line-height',
             'margin',
+            'margin-block',
+            'margin-inline',
             'margin-bottom',
             'margin-left',
             'margin-right',
@@ -6057,6 +6064,8 @@ final class StyleResolver implements ElementPresentationResolver
             'object-position',
             'order',
             'padding',
+            'padding-block',
+            'padding-inline',
             'padding-bottom',
             'padding-left',
             'padding-right',
@@ -6628,7 +6637,7 @@ final class StyleResolver implements ElementPresentationResolver
         // The font shorthand sets line-height too: a global keyword (font:inherit)
         // or an explicit /line-height is authored; otherwise it resets to normal.
         $font = strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['font'] ?? ''))));
-        if ( '' !== $font && ( in_array($font, array( 'inherit', 'unset', 'revert', 'revert-layer' ), true) || str_contains($font, '/') ) ) {
+        if ( '' !== $font && ( in_array($font, array( 'inherit', 'unset', 'revert', 'revert-layer' ), true) || str_contains($font, '/') || str_contains($font, 'var(') ) ) {
             return null;
         }
         return 'normal';
