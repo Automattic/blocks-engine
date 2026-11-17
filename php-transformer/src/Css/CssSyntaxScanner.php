@@ -182,6 +182,55 @@ final class CssSyntaxScanner
         return '' !== $character && ( ctype_alnum($character) || '-' === $character || '_' === $character || ord($character) >= 0x80 );
     }
 
+    /**
+     * The stylesheet with whitespace that separates no tokens removed: each
+     * run collapses to one space, and none is kept beside `{`, `}`, `;` or
+     * `,`, after `:` or `(`, or before `)`, and a block's last `;` goes.
+     * Strings, comments, unquoted url()
+     * bodies and escapes (including an escaped delimiter such as `\,` or
+     * an escape's terminating space) are kept byte for byte, so every
+     * selector, value and descendant combinator is unchanged. `--x: ;` keeps
+     * its space. Malformed input is returned unchanged.
+     */
+    public static function withoutRedundantWhitespace(string $value): string
+    {
+        $state     = self::state();
+        $output    = '';
+        $length    = strlen($value);
+        $pending   = false;
+        // The structural delimiter last emitted, or '' after any other unit.
+        $delimiter = '{';
+        for ( $offset = 0; $offset < $length; ) {
+            $inert = $state['comment'] || $state['url'] || '' !== $state['quote'];
+            $character = $value[ $offset ];
+            if ( ! $inert && self::isCssWhitespace($character) ) {
+                $pending = true;
+                ++$offset;
+                continue;
+            }
+            if ( $pending ) {
+                $tight = in_array($delimiter, array( '{', '}', ';', ',', ':', '(' ), true)
+                    || in_array($character, array( '{', '}', ';', ',', ')' ), true);
+                if ( ! $tight || ( ':' === $delimiter && ( ';' === $character || '}' === $character ) ) ) {
+                    $output .= ' ';
+                }
+                $pending = false;
+            }
+            // A block's last declaration needs no terminating `;`.
+            if ( ! $inert && '}' === $character && ';' === $delimiter ) {
+                $output = substr($output, 0, -1);
+            }
+            $next = self::consume($value, $offset, $state);
+            if ( null === $next ) {
+                return $value;
+            }
+            $delimiter = ! $inert && $next === $offset + 1 && '' === $state['quote'] && ! $state['comment'] && false !== strpos('{};,:()', $character) ? $character : '';
+            $output .= substr($value, $offset, $next - $offset);
+            $offset = $next;
+        }
+        return self::isComplete($state) && ! $state['comment'] && '' === $state['quote'] ? $output : $value;
+    }
+
     public static function isCssWhitespace(string $character): bool
     {
         return " " === $character || "\t" === $character || "\n" === $character || "\r" === $character || "\f" === $character;

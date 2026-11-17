@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CompanionPluginPayload;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -25,6 +26,56 @@ $assert(str_contains($markup, 'First description.') && !str_contains($markup, 'e
 $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? null), 'carousel serialization is editor-valid');
 $serialized = (new Runtime())->serializeBlocks(array($block));
 $assert('custom/authored-carousel' === ((new Runtime())->parseBlocks($serialized)[0]['blockName'] ?? null), 'the carousel and its inner blocks persist through parse and serialize');
+
+// HTML class tokens are not CSS identifiers. Keep utility classes on rebuilt
+// tracks, reject unsafe receipt tokens, and match the emitted rule on real slides.
+foreach (array(
+    'responsive and fractional utilities' => array('uk-child-width-1-3@m w-1/2', true),
+    'bracket utility' => array('top-[3px]', true),
+    'attribute entity text' => array('literal&quot;', true),
+    'double quote' => array('bad"token', false),
+    'single quote' => array("bad'token", false),
+    'opening angle bracket' => array('bad<token', false),
+    'closing angle bracket' => array('bad>token', false),
+    'backslash' => array('bad\\token', false),
+    'overlong token' => array(str_repeat('x', 81), false),
+) as $case => [$tokens, $retained]) {
+    $encodedTokens = htmlspecialchars($tokens, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $tokenResult = (new HtmlTransformer())->transform(
+        '<style>.uk-child-width-1-3\\@m>*{width:33%}</style>'
+        . '<div class="carousel ' . $encodedTokens . '"><button class="' . $encodedTokens . '" aria-label="Previous slide">Previous</button>'
+        . '<ul class="uk-child-width-1-3@m w-1/2 ' . $encodedTokens . '"><li>First</li><li>Second</li></ul>'
+        . '<button class="' . $encodedTokens . '" aria-label="Next slide">Next</button></div>'
+    )->toArray();
+    $tokenDocument = new DOMDocument();
+    @$tokenDocument->loadHTML((string) $tokenResult['serialized_blocks']);
+    $tokenXPath = new DOMXPath($tokenDocument);
+    $track = $tokenXPath->query('//div[contains(concat(" ", @class, " "), " blocks-engine-authored-carousel__track ")]')->item(0);
+    $assert($track instanceof DOMElement, $case . ': carousel renders a track');
+    $trackTokens = explode(' ', $track->getAttribute('class'));
+    $assert(in_array('uk-child-width-1-3@m', $trackTokens, true) && in_array('w-1/2', $trackTokens, true), $case . ': track keeps both utility tokens');
+    foreach (explode(' ', $tokens) as $token) {
+        $assert($retained === in_array($token, $trackTokens, true), $case . ': bounded token retention');
+    }
+    $emittedCss = implode("\n", array_column($tokenResult['source_reports']['author_stylesheet_projections'] ?? array(), 'content'));
+    $assert(1 === preg_match('/([^{}]+)\\{width:33%\\}/', $emittedCss, $widthRule), $case . ': author width rule is emitted');
+    $widthSelector = CssSelectorMatcher::parse(trim($widthRule[1]));
+    $assert(2 === $track->childElementCount, $case . ': both slides are rendered');
+    foreach ($track->childNodes as $slide) {
+        if ($slide instanceof DOMElement) {
+            $assert(CssSelectorMatcher::matches($slide, $widthSelector)['matches'], $case . ': emitted width rule matches a rendered slide');
+        }
+    }
+    if ($retained) {
+        $root = $tokenXPath->query('//div[@aria-roledescription="carousel"]')->item(0);
+        foreach (explode(' ', $tokens) as $token) {
+            $assert($root instanceof DOMElement && in_array($token, explode(' ', $root->getAttribute('class')), true), $case . ': root classes are HTML escaped without changing tokens');
+            foreach ($tokenXPath->query('//button[@data-carousel-previous] | //button[@data-carousel-next] | //div[contains(concat(" ", @class, " "), " blocks-engine-authored-carousel__controls ")]') as $control) {
+                $assert($control instanceof DOMElement && in_array($token, explode(' ', $control->getAttribute('class')), true), $case . ': control classes are HTML escaped without changing tokens');
+            }
+        }
+    }
+}
 
 // The producer's published gallery runtime, which drives this src-swap shape.
 $portableGallerySource = '<script data-blocks-engine-capture-gallery-runtime="">' . trim((string) file_get_contents(dirname(__DIR__) . '/fixtures/capture-gallery-runtime.js')) . '</script>'

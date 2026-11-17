@@ -33,6 +33,8 @@ final class UnreachableSelectorPruner
     /** @var list<string> */
     private array $livePrefixes = array();
     private string $evidenceText;
+    /** @var array<string, bool> */
+    private array $typeNamed = array();
     private ?UnusedCustomPropertyPruner $propertyPruner = null;
 
     /**
@@ -116,7 +118,7 @@ final class UnreachableSelectorPruner
                     $type = $compound['type'];
                     // Substring evidence deliberately retains script-created
                     // tags and metadata references, not just literal HTML tags.
-                    if (null !== $type && false === stripos($this->evidenceText, $type)) return false;
+                    if (null !== $type && !$this->typeNamed($type)) return false;
                 }
             }
         }
@@ -159,6 +161,17 @@ final class UnreachableSelectorPruner
             }
         }
         return true;
+    }
+
+    /**
+     * Whether any evidence names an element type as a whole word: a tag
+     * (`<pre`), a script string (`createElement("pre")`) or a metadata value.
+     * A type inside a longer identifier (`pre` in `preview` or `pre-wrap`,
+     * `sub` in `subheading`) names no element.
+     */
+    private function typeNamed(string $type): bool
+    {
+        return $this->typeNamed[$type = strtolower($type)] ??= 1 === preg_match('/(?<![\w-])' . preg_quote($type, '/') . '(?![\w-])/i', $this->evidenceText);
     }
 
     private function sourceNamed(string $token): bool

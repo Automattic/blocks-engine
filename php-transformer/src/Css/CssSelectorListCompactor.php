@@ -44,11 +44,15 @@ final class CssSelectorListCompactor
     }
 
     /**
-     * Merge arms identical but for the page-local marker class inside one
-     * top-level `:where(.marker)`: `X:where(.m1)Y,X:where(.m2)Y` becomes
-     * `X:where(.m1,.m2)Y`. `:where()` weighs nothing and matches when any
-     * argument does, and every argument is a plain class, so the list is
-     * equivalent. expand() splits such lists back into arms.
+     * Merge arms identical but for the page-local marker inside one
+     * top-level `:where(marker)`: `X:where(.m1)Y,X:where(.m2)Y` becomes
+     * `X:where(.m1,.m2)Y`. A marker is a plain class, or a RichText carrier
+     * (`mark[style*=…]`, `mark[style$=…]`, `span[data-…-marker=…]`) whose
+     * lists never mix with class lists. `:where()` weighs nothing and matches
+     * when any argument does, so the list is equivalent, also when Y ends in
+     * a pseudo-element: `X:where(.m1,.m2)::before` generates exactly the
+     * boxes `X:where(.m1)::before,X:where(.m2)::before` do. expand() splits
+     * such lists back into arms.
      */
     public static function mergeMarkerLists(string $prelude): string
     {
@@ -65,16 +69,10 @@ final class CssSelectorListCompactor
             $arm = trim($arm);
             $key = "\1" . $index;
             $markers = array();
-            if ( ! preg_match('/::|:(?:before|after|first-line|first-letter)\b/i', $arm) && ! str_contains($arm, '/*') && false === strpbrk($arm, '\\"\'') && preg_match_all(self::MARKER_WHERE, $arm, $matches, PREG_OFFSET_CAPTURE) ) {
-                foreach ( $matches[0] as $index2 => [$text, $offset] ) {
-                    $before = substr($arm, 0, $offset);
-                    if ( substr_count($before, '(') !== substr_count($before, ')') ) {
-                        continue;
-                    }
-                    $key = substr($arm, 0, $offset) . "\0" . substr($arm, $offset + strlen($text));
-                    $markers = explode(',', $matches[1][ $index2 ][0]);
-                    break;
-                }
+            $list = self::markerList($arm);
+            if ( null !== $list ) {
+                [$kind, $prefix, $markers, $suffix] = $list;
+                $key = $kind . "\0" . $prefix . "\0" . $suffix;
             }
             if ( ! isset($groups[ $key ]) ) {
                 $order[] = $key;
@@ -94,10 +92,48 @@ final class CssSelectorListCompactor
                 $output[] = $group['arm'];
                 continue;
             }
-            [$prefix, $suffix] = explode("\0", $key, 2);
+            [, $prefix, $suffix] = explode("\0", $key, 3);
             $output[] = $prefix . ':where(' . implode(',', array_keys($group['markers'])) . ')' . $suffix;
         }
         return implode(',', $output);
+    }
+
+    /** One RichText carrier selector of a page-local marker. */
+    private const RICHTEXT_CARRIER = '(?:mark\[style\*="--blocks-engine-richtext-marker:blocks-engine-richtext-[a-f0-9]{12}-[0-9]+;"\]|mark\[style\$="--blocks-engine-richtext-marker:blocks-engine-richtext-[a-f0-9]{12}-[0-9]+"\]|span\[data-blocks-engine-richtext-marker="blocks-engine-richtext-[a-f0-9]{12}-[0-9]+"\])';
+
+    /**
+     * The first top-level `:where()` of an arm listing only page-local
+     * markers of one kind, as [kind, prefix, markers, suffix]. Quotes are
+     * accepted only inside RichText carriers, so parentheses outside them
+     * count as selector nesting.
+     *
+     * @return array{0:string,1:string,2:list<string>,3:string}|null
+     */
+    private static function markerList(string $arm): ?array
+    {
+        if ( str_contains($arm, '/*') || str_contains($arm, '\\') ) {
+            return null;
+        }
+        $kind = 'c';
+        $pattern = self::MARKER_WHERE;
+        if ( false !== strpbrk($arm, '"\'') ) {
+            if ( false !== strpbrk((string) preg_replace('/' . self::RICHTEXT_CARRIER . '/', '', $arm), '"\'') ) {
+                return null;
+            }
+            $kind = 'r';
+            $pattern = '/:where\(((?:' . self::RICHTEXT_CARRIER . ',)*' . self::RICHTEXT_CARRIER . ')\)/';
+        }
+        if ( ! preg_match_all($pattern, $arm, $matches, PREG_OFFSET_CAPTURE) ) {
+            return null;
+        }
+        foreach ( $matches[0] as $index => [$text, $offset] ) {
+            $before = substr($arm, 0, $offset);
+            if ( substr_count($before, '(') !== substr_count($before, ')') ) {
+                continue;
+            }
+            return array($kind, $before, explode(',', $matches[1][ $index ][0]), substr($arm, $offset + strlen($text)));
+        }
+        return null;
     }
 
     /** A `:where()` whose arguments are page-local marker classes only. */
