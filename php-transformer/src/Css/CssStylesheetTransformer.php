@@ -132,8 +132,9 @@ final class CssStylesheetTransformer
     /**
      * The stylesheet without rules a later identical rule in the same
      * conditional groups repeats: the later copy wins wherever the earlier
-     * one would, so the cascade is unchanged. Malformed input is returned
-     * unchanged.
+     * one would, so the cascade is unchanged. Nor does it keep a style rule
+     * a later one restates in full ({@see withoutDominatedUnits()}).
+     * Malformed input is returned unchanged.
      */
     public function compactStylesheet(string $css): string
     {
@@ -142,7 +143,298 @@ final class CssStylesheetTransformer
         }
         $units = array();
         $this->collectRuleUnits($css, array(), $units);
-        return $this->serializeRuleUnits($this->withoutEarlierDuplicates(array($units)));
+        return $this->serializeRuleUnits($this->withoutDominatedUnits($this->withoutEarlierDuplicates(array($units))));
+    }
+
+    /**
+     * The units without each style rule a later rule in the same conditional
+     * groups makes inert: the later rule selects at least every arm of the
+     * earlier one and repeats each of its declarations. For any element the
+     * earlier rule matches, the later one matches with at least the same
+     * specificity, later in the cascade, setting every property the earlier
+     * one sets, so the earlier rule never decides a computed value.
+     * Projection emits such pairs when a source rule's subjects are restated
+     * for several native carriers (a reset's image arms, say). A later rule
+     * whose extra arms a browser could reject as a whole (vendor pseudos,
+     * `:has()`) does not stand in for the earlier one.
+     *
+     * @param list<array{context: list<string>, text: string, dedupable: bool}> $units
+     * @return list<array{context: list<string>, text: string, dedupable: bool}>
+     */
+    private function withoutDominatedUnits(array $units): array
+    {
+        $rules = array();
+        $byArm = array();
+        foreach ( $units as $index => $unit ) {
+            $rule = $this->dominanceRule($unit);
+            if ( null === $rule ) {
+                continue;
+            }
+            $rules[ $index ] = $rule;
+            foreach ( array_keys($rule['arms']) as $arm ) {
+                $byArm[ $rule['context'] . "\0" . $arm ][] = $index;
+            }
+        }
+        $dropped = false;
+        foreach ( $rules as $index => $rule ) {
+            $first = (string) array_key_first($rule['arms']);
+            foreach ( $byArm[ $rule['context'] . "\0" . $first ] ?? array() as $later ) {
+                if ( $later <= $index ) {
+                    continue;
+                }
+                $other = $rules[ $later ];
+                if ( array() !== array_diff_key($rule['arms'], $other['arms']) || array() !== array_diff_key($rule['declarations'], $other['declarations']) ) {
+                    continue;
+                }
+                foreach ( array_keys(array_diff_key($other['arms'], $rule['arms'])) as $extra ) {
+                    if ( preg_match('/::?-|:has\(/i', (string) $extra) ) {
+                        continue 2;
+                    }
+                }
+                unset($units[ $index ]);
+                $dropped = true;
+                break;
+            }
+        }
+        return $dropped ? array_values($units) : $units;
+    }
+
+    /**
+     * The stylesheet with each later rule whose selector list repeats an
+     * earlier rule's, in the same conditional groups, folded into that
+     * earlier rule. Projection can give several source rules one long
+     * selector list (a reset's `*` and its pseudo-element twins), which then
+     * ships once per rule. The folded declarations keep their order after
+     * the earlier ones, and are only moved when no rule between the two
+     * declares a property of the same cascade family, so every element keeps
+     * its computed values. Malformed input is returned unchanged.
+     */
+    public function mergeRepeatedSelectorRules(string $css): string
+    {
+        if ( ! str_contains($css, '{') || ! $this->isWellFormedStylesheet($css) ) {
+            return $css;
+        }
+        $units = array();
+        $this->collectRuleUnits($css, array(), $units);
+        $anchors = array();
+        $families = array();
+        $merged = false;
+        foreach ( $units as $index => $unit ) {
+            // Families are read lazily: only units between two candidates matter.
+            $key = $this->repeatableSelectorRuleKey($unit);
+            if ( null === $key ) {
+                continue;
+            }
+            if ( isset($anchors[ $key ]) ) {
+                $anchor = $anchors[ $key ];
+                [$lead, $rule] = self::splitLeadingComments($unit['text']);
+                // Never drop a comment (a license, say) with the folded rule.
+                $own = str_contains($lead, '/*') ? array( '*' => true ) : null;
+                $own ??= self::cascadePropertyFamilies($rule);
+                $blocked = isset($own['*']);
+                for ( $between = $anchor + 1; $between < $index && ! $blocked; ++$between ) {
+                    if ( ! isset($units[ $between ]) ) {
+                        continue;
+                    }
+                    // Unparsed trailing text could hide anything.
+                    $families[ $between ] ??= $units[ $between ]['dedupable'] || str_contains($units[ $between ]['text'], '{') ? self::cascadePropertyFamilies(self::splitLeadingComments($units[ $between ]['text'])[1]) : array( '*' => true );
+                    $blocked = self::cascadeFamiliesOverlap($own, $families[ $between ]);
+                }
+                if ( ! $blocked ) {
+                    $target = $units[ $anchor ]['text'];
+                    $close = strrpos($target, '}');
+                    $brace = strpos($rule, '{');
+                    $units[ $anchor ]['text'] = rtrim(substr($target, 0, (int) $close), " \t\n\r\f;") . ';' . substr($rule, (int) $brace + 1);
+                    unset($units[ $index ], $families[ $anchor ]);
+                    $merged = true;
+                    continue;
+                }
+            }
+            $anchors[ $key ] = $index;
+        }
+        return $merged ? $this->serializeRuleUnits(array_values($units)) : $css;
+    }
+
+    /**
+     * The stylesheet with each later rule whose declaration block repeats an
+     * earlier rule's, in the same conditional groups, folded into that
+     * earlier rule's selector list. Projection restates one source rule for
+     * each carrier it reaches (a class, its control twin, the editor canvas),
+     * and each restatement otherwise ships the same declarations again. The
+     * folded selectors move to the earlier rule only when no rule between the
+     * two declares a property of the same cascade family, so every element
+     * keeps its computed values. Two lists join only when the pseudo-classes
+     * and pseudo-elements outside the universally supported set are the same
+     * in both: a browser that drops one list for an unknown pseudo drops the
+     * other too, so joining them never discards a rule that used to apply.
+     * Malformed input is returned unchanged.
+     */
+    public function mergeRepeatedDeclarationRules(string $css): string
+    {
+        if ( ! str_contains($css, '{') || ! $this->isWellFormedStylesheet($css) ) {
+            return $css;
+        }
+        $units = array();
+        $this->collectRuleUnits($css, array(), $units);
+        $anchors = array();
+        $families = array();
+        $merged = false;
+        foreach ( $units as $index => $unit ) {
+            $parts = $this->repeatableDeclarationRuleParts($unit);
+            if ( null === $parts ) {
+                continue;
+            }
+            [$lead, $prelude, $body] = $parts;
+            $key = implode("\0", array_map(self::normalizedCss(...), $unit['context'])) . "\0" . self::normalizedCss($body) . "\0" . implode(',', self::uncommonPseudoNames($prelude));
+            if ( isset($anchors[ $key ]) ) {
+                $anchor = $anchors[ $key ];
+                // Never drop a comment (a license, say) with the folded rule.
+                $own = str_contains($lead, '/*') ? array( '*' => true ) : self::cascadePropertyFamilies($prelude . '{' . $body . '}');
+                $blocked = isset($own['*']);
+                for ( $between = $anchor + 1; $between < $index && ! $blocked; ++$between ) {
+                    if ( ! isset($units[ $between ]) ) {
+                        continue;
+                    }
+                    $families[ $between ] ??= $units[ $between ]['dedupable'] || str_contains($units[ $between ]['text'], '{') ? self::cascadePropertyFamilies(self::splitLeadingComments($units[ $between ]['text'])[1]) : array( '*' => true );
+                    $blocked = self::cascadeFamiliesOverlap($own, $families[ $between ]);
+                }
+                if ( ! $blocked ) {
+                    [$anchorLead, $anchorPrelude, $anchorBody] = $this->repeatableDeclarationRuleParts($units[ $anchor ]) ?? array( '', '', '' );
+                    $units[ $anchor ]['text'] = $anchorLead . $anchorPrelude . ',' . $prelude . '{' . $anchorBody . '}';
+                    unset($units[ $index ], $families[ $anchor ]);
+                    $merged = true;
+                    continue;
+                }
+            }
+            $anchors[ $key ] = $index;
+        }
+        return $merged ? $this->serializeRuleUnits(array_values($units)) : $css;
+    }
+
+    /**
+     * A plain style rule's leading comments, selector list and declaration
+     * block, or null for at-rules, nested rules, comments inside the
+     * selector and empty blocks.
+     *
+     * @param array{context: list<string>, text: string, dedupable: bool} $unit
+     * @return array{0: string, 1: string, 2: string}|null
+     */
+    private function repeatableDeclarationRuleParts(array $unit): ?array
+    {
+        if ( ! $unit['dedupable'] ) {
+            return null;
+        }
+        [$lead, $rule] = self::splitLeadingComments($unit['text']);
+        $rule = rtrim($rule);
+        $brace = strpos($rule, '{');
+        if ( false === $brace || $this->isAtRule($rule) || ! str_ends_with($rule, '}') ) {
+            return null;
+        }
+        $prelude = trim(substr($rule, 0, $brace));
+        $body = substr($rule, $brace + 1, -1);
+        if ( '' === $prelude || str_contains($prelude, '/*') || str_contains($body, '{') || str_contains($body, '}') || str_contains($body, '/*') || '' === trim($body) || null === self::splitSelectorList($prelude) || self::namesDocumentOrEveryElement($prelude) ) {
+            return null;
+        }
+        return array( $lead, $prelude, $body );
+    }
+
+    /**
+     * Whether a selector list names the document (`:root`, `html`, `body`)
+     * or every element (`*`). Those rules are not restatements of one author
+     * block across carriers: they are the document-context and reset
+     * surfaces that Global Styles, the editor canvas and route-scoped resets
+     * each own by their own selector, so they stay standalone.
+     */
+    private static function namesDocumentOrEveryElement(string $prelude): bool
+    {
+        $bare = preg_replace(array( '/"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'/s', '/\\\\./s', '/\\[[^\\]]*\\]/' ), '', $prelude) ?? $prelude;
+        return 1 === preg_match('/(?:^|[\\s,>+~(])(?:\\*|html|body|:root)(?![\\w-])/i', $bare);
+    }
+
+    /**
+     * The sorted pseudo-class and pseudo-element names in a selector list
+     * that not every engine parses (vendor-prefixed and recent ones).
+     *
+     * @return list<string>
+     */
+    private static function uncommonPseudoNames(string $prelude): array
+    {
+        static $common = array(
+            'active', 'after', 'before', 'checked', 'default', 'disabled', 'empty', 'enabled', 'first-child', 'first-letter', 'first-line',
+            'first-of-type', 'focus', 'focus-visible', 'focus-within', 'hover', 'in-range', 'indeterminate', 'invalid', 'is', 'lang', 'last-child',
+            'last-of-type', 'link', 'marker', 'not', 'nth-child', 'nth-last-child', 'nth-last-of-type', 'nth-of-type', 'only-child', 'only-of-type',
+            'optional', 'out-of-range', 'placeholder', 'placeholder-shown', 'read-only', 'read-write', 'required', 'root', 'selection', 'target',
+            'valid', 'visited', 'where',
+        );
+        // Strings and attribute values can hold colons that name no pseudo.
+        $bare = preg_replace(array( '/"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'/s', '/\\\\./s' ), '', $prelude) ?? $prelude;
+        preg_match_all('/::?(-?[a-zA-Z][a-zA-Z0-9-]*)/', $bare, $matches);
+        $names = array_values(array_unique(array_diff(array_map('strtolower', $matches[1]), $common)));
+        sort($names);
+        return $names;
+    }
+
+    /**
+     * A plain style rule's context key, arm set and declaration set, or null
+     * for anything {@see repeatableSelectorRuleKey()} does not fold and for a
+     * rule led by a comment.
+     *
+     * @param array{context: list<string>, text: string, dedupable: bool} $unit
+     * @return array{context: string, arms: array<string, true>, declarations: array<string, true>}|null
+     */
+    private function dominanceRule(array $unit): ?array
+    {
+        if ( null === $this->repeatableSelectorRuleKey($unit) ) {
+            return null;
+        }
+        [$lead, $rule] = self::splitLeadingComments($unit['text']);
+        if ( '' !== trim($lead) || str_contains($rule, '/*') ) {
+            return null;
+        }
+        $brace = (int) strpos($rule, '{');
+        $arms = self::splitSelectorList(trim(substr($rule, 0, $brace)));
+        if ( null === $arms || array() === $arms ) {
+            return null;
+        }
+        $declarations = array();
+        foreach ( CssValueSplitter::splitTopLevel(substr(rtrim($rule), $brace + 1, -1), array( ';' )) as $declaration ) {
+            $declaration = self::normalizedCss($declaration);
+            if ( '' !== $declaration ) {
+                $declarations[ $declaration ] = true;
+            }
+        }
+        if ( array() === $declarations ) {
+            return null;
+        }
+        return array(
+            'context' => implode("\0", array_map(self::normalizedCss(...), $unit['context'])),
+            'arms' => array_fill_keys(array_map(self::normalizedCss(...), $arms), true),
+            'declarations' => $declarations,
+        );
+    }
+
+    /**
+     * A plain style rule's conditional groups and selector list, or null for
+     * at-rules, nested rules, comments inside the selector and empty blocks.
+     *
+     * @param array{context: list<string>, text: string, dedupable: bool} $unit
+     */
+    private function repeatableSelectorRuleKey(array $unit): ?string
+    {
+        if ( ! $unit['dedupable'] ) {
+            return null;
+        }
+        [, $rule] = self::splitLeadingComments($unit['text']);
+        $brace = strpos($rule, '{');
+        if ( false === $brace || $this->isAtRule($rule) || ! str_ends_with(rtrim($rule), '}') ) {
+            return null;
+        }
+        $prelude = trim(substr($rule, 0, $brace));
+        $body = substr(rtrim($rule), $brace + 1, -1);
+        if ( '' === $prelude || str_contains($prelude, '/*') || str_contains($body, '{') || str_contains($body, '}') || '' === trim($body) ) {
+            return null;
+        }
+        return implode("\0", array_map(self::normalizedCss(...), $unit['context'])) . "\0" . self::normalizedCss($prelude);
     }
 
     /**

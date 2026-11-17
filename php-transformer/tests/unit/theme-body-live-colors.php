@@ -59,9 +59,12 @@ $shared = 0;
             if (in_array($declaration['name'], array('color', 'background-color'), true)) throw new RuntimeException('Frontend and editor body paint must yield together');
         }
     }
-    if ('.shared' === trim($selector) && str_contains($body, 'color:') && str_contains($body, 'background-color:')) ++$shared;
-    if ('.card' === trim($selector) && str_contains($body, 'color:')) ++$cards;
-    if ('body:hover' === trim($selector) && str_contains($body, '#abcdef')) ++$states;
+    // A repeated declaration block ships once, so one rule can carry several
+    // of these selectors in its list.
+    $arms = array_map('trim', explode(',', $selector));
+    if (in_array('.shared', $arms, true) && str_contains($body, 'color:') && str_contains($body, 'background-color:')) ++$shared;
+    if (in_array('.card', $arms, true) && str_contains($body, 'color:')) ++$cards;
+    if (in_array('body:hover', $arms, true) && str_contains($body, '#abcdef')) ++$states;
 });
 if (0 === $cards || 0 === $states || 0 === $shared) throw new RuntimeException('Component, shared-selector and state colours must remain source-owned');
 fwrite(STDOUT, "Body live colors passed\n");

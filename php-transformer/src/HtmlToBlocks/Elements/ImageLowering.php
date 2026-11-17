@@ -600,6 +600,25 @@ final class ImageLowering
             }
         }
 
+        // A hidden layout placeholder does not paint the card thumbnail. Keep
+        // the wrapper's painted image on the leaf before wrappers are flattened.
+        // The normal URL resolver and site-plan tokenization own this URL too.
+        $presentation = $this->styleResolver->authorViewport->collapsed($image, array('opacity', 'visibility'))
+            + $this->styleResolver->resolvedSourceStateDeclarations($image);
+        $opacity = CssValueInspector::comparable((string) ($presentation['opacity'] ?? ''));
+        $visibility = CssValueInspector::comparable((string) ($presentation['visibility'] ?? ''));
+        if (('' !== $opacity && is_numeric($opacity) && 0.0 === (float) $opacity)
+            || 'hidden' === $visibility
+        ) {
+            $wrapper = $image->parentNode;
+            if ($wrapper instanceof DOMElement) {
+                $background = $this->backgroundImageExtractor->urlFromStyle($this->styleResolver->mergedPresentationStyle($wrapper));
+                if (null !== $background && '' !== $background) {
+                    $attrs['metadata']['blocksEngineVisibleImage'] = array('url' => $this->imageUrls->resolvedAssetUrl($background));
+                }
+            }
+        }
+
         $selection = $this->authoredImageSelection($image, (string) $attrs['url'], $picture);
         if ( array() !== $selection ) {
             $attrs['metadata'] = array_merge(ArrayField::array($attrs, 'metadata'), array( 'blocksEngineImageSelection' => $selection ));
@@ -726,6 +745,10 @@ final class ImageLowering
      */
     private function imageLinkAttributes(DOMElement $link): array
     {
+        // The synthetic figure is display:contents; the link still owns its
+        // source box, including spacing that core/image cannot serialize.
+        $inline = SourceDeclarations::inline($link);
+        $boxProperties = array_keys(array_filter($inline, NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY));
         $attrs = array(
             'href'            => LinkUrlSanitizer::sanitize(SourceDom::attr($link, 'href')),
             'linkDestination' => 'custom',
@@ -735,9 +758,9 @@ final class ImageLowering
                 SourceDom::attr($link, 'class'),
                 $this->styleResolver->inlineCustomPropertyCarrierClassName($link),
                 $this->styleResolver->inlineGeometryClassName($link, array_values(array_diff(
-                    array_keys(SourceDeclarations::inline($link)),
-                    array('display')
-                ))),
+                    array_keys($inline),
+                    array_merge(array('display'), $boxProperties)
+                )), $boxProperties),
                 ...$this->session->authorSelectorProjectionState()->semanticMarkersForPath($link->getNodePath() ?? '')
             ),
         );

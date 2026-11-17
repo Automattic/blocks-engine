@@ -527,6 +527,16 @@ PHP;
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-select-state', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-select-state' ); wp_add_inline_script( 'blocks-engine-select-state', " . var_export($selectStateScript, true) . " ); } );";
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-select-wrapper', false ); wp_enqueue_style( 'blocks-engine-select-wrapper' ); wp_add_inline_style( 'blocks-engine-select-wrapper', '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}' ); } );";
         }
+        if (self::markupContains($documentsWithMenus, 'blocksEngineTextarea')) {
+            $lines[] = NativeTextareaRuntime::source();
+            if (!self::markupContains($documentsWithMenus, 'blocksEngineSelect')) {
+                $textareaStateScript = \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredControlStateScript::viewScript();
+                $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-select-state', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-select-state' ); wp_add_inline_script( 'blocks-engine-select-state', " . var_export($textareaStateScript, true) . " ); } );";
+            }
+        }
+        if (self::markupContains($documentsWithMenus, 'blocksEngineInput')) {
+            $lines[] = NativeInputRuntime::source();
+        }
         $breadcrumbLabels = BreadcrumbLabelRuntime::labels($documents, $pages);
         $breadcrumbPostTrails = BreadcrumbLabelRuntime::postTrails($pages);
         if (array() !== $breadcrumbLabels || array() !== $breadcrumbPostTrails) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels, $breadcrumbPostTrails);
@@ -560,13 +570,7 @@ PHP;
         $lines[] = "    }";
         $lines[] = "    \$block['innerContent'] = \$content; return \$block;";
         $lines[] = "}, 10, 1 );";
-        $hasListingQuery = false;
-        foreach ($pages as $page) {
-            if (str_contains((string) ($page['canonical_block_markup'] ?? ''), WordPressSitePlan::LISTING_QUERY_CLASS)) {
-                $hasListingQuery = true;
-                break;
-            }
-        }
+        $hasListingQuery = self::markupContains(array_merge($pages, $templates, $parts), WordPressSitePlan::LISTING_QUERY_CLASS);
         $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS;
         foreach ($pages as $page) if (str_contains((string) ($page['canonical_block_markup'] ?? ''), WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX)) {
             $editorCss .= SyncedPatternProjection::EDITOR_CONTAINER_CSS;

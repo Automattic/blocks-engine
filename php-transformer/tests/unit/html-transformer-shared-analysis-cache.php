@@ -191,7 +191,7 @@ $hiddenStateResult = (new HtmlTransformer(analysisCache: $hiddenStateCache))->tr
     array('static_css' => implode('', $hiddenStateNoise) . '.hidden-target{opacity:0}')
 )->toArray();
 $hiddenStateFindings = $hiddenStateResult['source_reports']['html']['frozen_hidden_state'] ?? array();
-$assert(array() === $hiddenStateFindings, 'Indexed hidden-state collection preserves ungated opacity instead of reporting frozen content.');
+$assert(array() !== $hiddenStateFindings && in_array('opacity:0', $hiddenStateFindings[0]['declarations'] ?? array(), true), 'Indexed hidden-state collection preserves canonical frozen-state findings.');
 $assert(401 === $hiddenStateCache->sourceStyleCandidateRulesSkipped && 1 === $hiddenStateCache->sourceSelectorMatchExecutions, 'Hidden-state collection skips irrelevant rightmost-selector candidates, and rules whose classes are absent from the source never enter the index.');
 
 // One repeated hot rule across 4,097 elements exercises repeated style

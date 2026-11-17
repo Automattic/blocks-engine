@@ -4434,7 +4434,17 @@ final class StyleResolver implements ElementPresentationResolver
             unset($declarations['display']);
         }
 
+        // CSS state reveals survive import; only settle opacity when that
+        // interaction is absent (for example, a script-driven entrance).
+        $retainedOpacity = null;
+        if ($this->hasCssOpacityReveal($element, $declarations)) {
+            $retainedOpacity = $declarations['opacity'];
+            unset($declarations['opacity']);
+        }
         $normalized = $this->closedStateNormalizer()->strip($declarations, $this->sourceRevealProperties($element, $declarations));
+        if (null !== $retainedOpacity) {
+            $normalized['declarations']['opacity'] = $retainedOpacity;
+        }
         if ( null !== $responsiveDisplay ) {
             $normalized['declarations']['display'] = $responsiveDisplay;
         }
@@ -4445,6 +4455,7 @@ final class StyleResolver implements ElementPresentationResolver
                 'editor_selector' => $this->editorStaticStateSelector($element),
                 'declarations' => $normalized['stripped'],
                 'placed'       => $this->hasInlinePlacementTransform($element),
+                'offset'       => ! in_array(CssValueInspector::declared($declarations, 'transform'), array( '', 'none' ), true),
             ));
         }
 
@@ -4527,6 +4538,28 @@ final class StyleResolver implements ElementPresentationResolver
         return false;
     }
 
+    /** @param array<string, string> $declarations */
+    private function hasCssOpacityReveal(DOMElement $element, array $declarations): bool
+    {
+        $opacity = CssValueInspector::declared($declarations, 'opacity');
+        if (! is_numeric($opacity) || 0.0 !== (float) $opacity) {
+            return false;
+        }
+
+        foreach ($this->session->sourceStyleResolutionState()->revealStateRules() as $rule) {
+            $revealedOpacity = CssValueInspector::declared((array) ($rule['declarations'] ?? array()), 'opacity');
+            if (
+                is_numeric($revealedOpacity)
+                && 0.0 < (float) $revealedOpacity
+                && $this->session->sourceStyleResolutionState()->matches($element, (string) $rule['base_selector'])
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function hasConditionalVisibleDisplay(DOMElement $element): bool
     {
         foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'conditional') as $rule ) {
@@ -4544,7 +4577,6 @@ final class StyleResolver implements ElementPresentationResolver
     {
         if ($this->session->sourceStyleResolutionState()->isAriaControlledTarget($element)) {
             return array(
-                'opacity' => true,
                 'display' => true,
                 'visibility' => true,
                 'height' => true,
@@ -4681,7 +4713,12 @@ final class StyleResolver implements ElementPresentationResolver
                 }
                 // Projected stylesheets may not be in the static rule analysis.
                 // Keep positioning alongside visibility for the overlay guard.
-                $declarations = array_intersect_key(SourceDeclarations::parse($body), $this->closedStateNormalizer()->hiddenStateProperties() + array('position' => true));
+                $parsed = SourceDeclarations::parse($body);
+                $declarations = array_intersect_key($parsed, $this->closedStateNormalizer()->hiddenStateProperties() + array('position' => true));
+                // A transform declared with the hidden state is its entrance offset.
+                if (array() !== $declarations && isset($parsed['transform'])) {
+                    $declarations['transform'] = $parsed['transform'];
+                }
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     $selector = trim($selector);
                     if (array() !== $declarations && '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector)) {
@@ -4818,6 +4855,44 @@ final class StyleResolver implements ElementPresentationResolver
     {
         return $this->resolvedCascadeStyle($element, 'static', self::DESKTOP_REFERENCE_WIDTH, $excludeSelector, $inline);
     }
+    /**
+     * The longhands of `$declarations`, authored under `$selector`, that
+     * another matching author rule beats on `$element` in the resting desktop
+     * cascade: it is more specific at the same importance, or important
+     * against a normal declaration. A restatement of the weaker rule must not
+     * gain the weight to override that winner.
+     *
+     * @return array<string, true>
+     */
+    public function outrankedAuthorLonghands(DOMElement $element, string $selector, string $declarations): array
+    {
+        $wanted = array();
+        foreach ( CssRuleAnalyzer::declarationList($declarations) as [ 'name' => $name, 'value' => $value ] ) {
+            $important = CssValueInspector::isImportant($value);
+            foreach ( array_keys(SourceDeclarations::parse($name . ':' . CssValueInspector::withoutImportant($value))) as $longhand ) {
+                $wanted[strtolower((string) $longhand)] = $important;
+            }
+        }
+        $specificity = $this->cascade->specificity($selector);
+        $outranked = array();
+        foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'static') as $rule ) {
+            if ( ! empty($rule['conditions']) && ! $this->cascade->conditionsApplyAtViewport($rule['conditions'], self::DESKTOP_REFERENCE_WIDTH) ) {
+                continue;
+            }
+            $stronger = $this->cascade->specificity((string) $rule['selector']) > $specificity;
+            foreach ( $rule['declarations'] as $property => $value ) {
+                $important = CssValueInspector::isImportant((string) $value);
+                foreach ( array_keys(SourceDeclarations::parse($property . ':' . CssValueInspector::withoutImportant((string) $value))) as $longhand ) {
+                    $longhand = strtolower((string) $longhand);
+                    if ( isset($wanted[$longhand]) && ( $important ? ( ! $wanted[$longhand] || $stronger ) : ( ! $wanted[$longhand] && $stronger ) ) ) {
+                        $outranked[$longhand] = true;
+                    }
+                }
+            }
+        }
+        return $outranked;
+    }
+
     /**
      * Resolve the authored resting cascade across static AND media-conditional
      * rules that apply at the desktop reference viewport.
@@ -5513,7 +5588,7 @@ final class StyleResolver implements ElementPresentationResolver
                     $analysis['pseudo'][] = $readingCustomProperties(array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions));
                 }
             }
-            if (array() === $declarations && array() === array_filter(array_keys($rawDeclarations), static fn(string $name): bool => str_starts_with($name, '--'))) {
+            if (array() === $declarations && ! isset($rawDeclarations['opacity']) && array() === array_filter(array_keys($rawDeclarations), static fn(string $name): bool => str_starts_with($name, '--'))) {
                 continue;
             }
             $navigationStateConditions = array_filter(
@@ -5524,10 +5599,10 @@ final class StyleResolver implements ElementPresentationResolver
                 $navigationStateConditions,
                 static fn (string $condition): bool => 1 !== preg_match('/^@media\b/i', trim($condition))
             );
-            if (($selectorConditions === array() || $selectorIsStaticLayerRule || $navigationStateConditionsSupported) && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
+            if (($selectorConditions === array() || $selectorIsStaticLayerRule || $navigationStateConditionsSupported) && 0 < preg_match_all('/:(hover|focus-within|focus-visible|focus|active|checked)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
                 $state = strtolower((string) $stateMatches[1][0][0]);
                 $offset = (int) $stateMatches[0][0][1];
-                $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
+                $baseSelector = trim((string) preg_replace('/:(hover|focus-within|focus-visible|focus|active|checked)\b/i', '', $selector));
                 // Disabled gates on authored button states are resting
                 // attribute constraints, not interaction states themselves.
                 $baseSelector = str_ireplace(':not(:disabled)', ':not([disabled])', $baseSelector);

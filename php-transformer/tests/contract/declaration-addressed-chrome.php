@@ -69,7 +69,8 @@ foreach ($plan['templates'] as $template) {
 
 // Re-ingested generated markup can retain provisional control bindings. The
 // navigation editor-state repair is identical until declaration finalization;
-// route hover rules then give that binding different declaration addresses.
+// route script-state rules then give that binding different declaration addresses.
+// Use a script-only reveal: a surviving hover reveal no longer needs repair.
 foreach (array(
     'route-specific editor state' => array('index' => '.7', 'about' => '.9', 'copy' => '.7'),
 ) as $case => $routes) {
@@ -77,7 +78,7 @@ foreach (array(
     $states = array();
     foreach ($routes as $slug => $opacity) {
         $site['files'][$slug . '.html'] = '<!doctype html><html><head><link rel="stylesheet" href="' . $slug . '.css"></head><body><header><p class="blocks-engine-control-aaaaaaaaaaaa-0">Menu</p></header><main><h1>Page</h1></main></body></html>';
-        $css = '.blocks-engine-control-aaaaaaaaaaaa-0{display:none}.blocks-engine-control-aaaaaaaaaaaa-0:hover{display:block;opacity:' . $opacity . '}';
+        $css = '.blocks-engine-control-aaaaaaaaaaaa-0{opacity:0}.blocks-engine-control-aaaaaaaaaaaa-0.is-visible{opacity:' . $opacity . '}';
         $site['files'][$slug . '.css'] = $css;
     }
     $sitePlan = (new WordPressSitePlan())->fromCompilerResult((new ArtifactCompiler())->compile($site)->toArray());

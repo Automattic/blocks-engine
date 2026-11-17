@@ -52,7 +52,7 @@ $assert(1 === preg_match('/(?:^|;)opacity:0\b/', $alternate), 'a positioned alte
 $inline = $carrier('<div class="control"><div class="label"><p>Reply</p></div><div style="position:absolute;left:0;opacity:0"><p>Reply</p></div></div>', 'control');
 $assert('' === $inline || ! str_contains($inline, 'opacity:1'), 'the resting state is not forced visible over its layer', $inline);
 
-$entrance = ( new HtmlTransformer() )->transform('<section aria-expanded="false" aria-controls="entrance"><div id="entrance" class="label" style="opacity:0"><p>Revealed on entrance</p></div></section>', array( 'static_css' => $css ))->toArray();
+$entrance = ( new HtmlTransformer() )->transform('<section><div class="label" style="opacity:0"><p>Revealed on entrance</p></div></section>', array( 'static_css' => $css ))->toArray();
 $entranceCss = '';
 foreach ( $entrance['assets'] ?? array() as $asset ) {
     $entranceCss .= (string) ($asset['content'] ?? '');
