@@ -514,6 +514,10 @@ final class SitePlanRun
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $compacted = $compactor->compactStylesheet($asset['content']);
             if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
+            // Support sheets can be singletons as well as folded runs. Strip
+            // serialization whitespace at the final boundary for both, after
+            // selector compaction has finished introducing separators.
+            $compacted = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace($compacted);
             if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);
