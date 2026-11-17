@@ -5,9 +5,14 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Support\DocumentVariantIds;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DefaultCommentAttributes;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 /**
  * The post-serialization pass that settles fallback bindings: groups qualified
@@ -51,7 +56,7 @@ final class FallbackBindingFinalizer
         $walk = function (array &$siblings, ?array &$innerContent = null) use (&$walk, &$index, $runs): void {
             $positions = array();
             foreach ( $siblings as &$block ) {
-                $positions[] = $index++;
+                $positions[] = '' !== (string) ($block['blockName'] ?? '') ? $index++ : null;
                 if ( is_array($block['innerBlocks'] ?? null) ) $walk($block['innerBlocks'], $block['innerContent']);
             }
             unset($block);
@@ -89,17 +94,43 @@ final class FallbackBindingFinalizer
         $index = 0;
         $this->sourceAnchorSelectorIndexes($blocks, $anchorIndexes, $index);
         $ranges = $this->serializedBlockRanges($markup);
-        $finalize = function (array &$binding) use ($markup, $provenanceIndexes, $anchorIndexes, $ranges): void {
+        $treeBlocks = array();
+        $collect = static function (array $siblings) use (&$collect, &$treeBlocks): void {
+            foreach ( $siblings as $block ) {
+                if ( ! is_array($block) ) continue;
+                if ( '' !== (string) ($block['blockName'] ?? '') ) $treeBlocks[] = $block;
+                $collect(ArrayField::array($block, 'innerBlocks'));
+            }
+        };
+        $collect($blocks);
+        $finalize = function (array &$binding) use ($markup, $provenanceIndexes, $anchorIndexes, $ranges, $treeBlocks): void {
             $provenanceId = $binding['_binding_provenance_id'] ?? null;
             $blockIndex = is_int($provenanceId) ? ($provenanceIndexes[$provenanceId] ?? null) : null;
             $anchorSelector = $binding['_binding_anchor_selector'] ?? null;
             if ( ! is_int($blockIndex) && is_string($anchorSelector) ) $blockIndex = $anchorIndexes[$anchorSelector] ?? null;
             // Cart links address the control, not its layout-only buttons
             // wrapper, which shell extraction may merge or remove.
-            if ( 'commerce_cart_link' === ($binding['role'] ?? null) && is_int($blockIndex) && isset($ranges[$blockIndex + 1]) && str_starts_with(substr($markup, $ranges[$blockIndex]['offset']), '<!-- wp:buttons ') ) {
+            if ( 'commerce_cart_link' === ($binding['role'] ?? null) && is_int($blockIndex) && isset($ranges[$blockIndex + 1]) && 'core/buttons' === ($treeBlocks[$blockIndex]['blockName'] ?? null) ) {
                 ++$blockIndex;
             }
             $range = is_int($blockIndex) ? ($ranges[$blockIndex] ?? null) : null;
+            if ( is_int($blockIndex) ) {
+                $reason = count($treeBlocks) !== count($ranges) ? 'block_count_mismatch' : null;
+                if ( null === $reason && is_array($range) && ! $this->rangeBelongsToBlock($binding, $treeBlocks[$blockIndex], substr($markup, $range['offset'], $range['length'])) ) {
+                    $reason = 'anchor_identity_missing';
+                }
+                if ( null !== $reason ) {
+                    $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
+                        'code' => 'runtime_binding_declined',
+                        'severity' => 'warning',
+                        'message' => 'Declined an index-resolved binding whose serialized block identity could not be verified.',
+                        'source' => self::class,
+                        'context' => array('reason' => $reason, 'role' => $binding['role'] ?? '', 'block_index' => $blockIndex),
+                    ));
+                    $binding = array();
+                    return;
+                }
+            }
             if (is_array($range)) {
                 $search = substr($markup, $range['offset'], $range['length']);
                 if (is_string($search) && '' !== $search) {
@@ -173,11 +204,59 @@ final class FallbackBindingFinalizer
         unset($fallback);
     }
 
+    /** @param array<string,mixed> $binding @param array<string,mixed> $block */
+    private function rangeBelongsToBlock(array $binding, array $block, string $search): bool
+    {
+        // Verify the tree block itself, not just its ordinal. This also covers
+        // synthetic anchors (for example purchase-control runs) without IDs.
+        $expected = (new Runtime())->serializeBlocks(DefaultCommentAttributes::strip(array($block)));
+        if ( $expected !== $search ) return false;
+        $id = $block['attrs']['anchor'] ?? '';
+        $provenanceId = $binding['_binding_provenance_id'] ?? null;
+        if ( is_int($provenanceId) ) {
+            $element = $this->session->transformationProvenanceState()->sourceElement($provenanceId);
+            if ( null !== $element && '' !== $element->getAttribute('id') ) $id = $element->getAttribute('id');
+        }
+        $selector = $binding['_binding_anchor_selector'] ?? '';
+        if ( is_string($selector) && '' !== $selector ) {
+            // Cart opener declarations must retain the actual control ID.
+            // Other selector-only anchors may intentionally lower a source
+            // control to a readable region (for example a listing facet).
+            foreach ( $this->session->transformationProvenanceState()->sources() as $sourceId => $source ) {
+                if ( $selector !== ($source['selector'] ?? null) ) continue;
+                $element = $this->session->transformationProvenanceState()->sourceElement($sourceId);
+                if ( 'commerce_cart_link' === ($binding['role'] ?? null) && null !== $element && '' !== $element->getAttribute('id') ) $id = $element->getAttribute('id');
+                break;
+            }
+            if ( preg_match('/#([a-zA-Z0-9_-]+)$/', $selector, $match) ) $id = $match[1];
+        }
+        if ( ! is_string($id) || '' === $id ) return true;
+        // Inspect tags only: an ID in comment attributes or a neighbouring
+        // block's metadata is not an HTML anchor identity.
+        $document = HtmlSerialization::parseDocument($search);
+        foreach ( $document->getElementsByTagName('*') as $element ) {
+            $actualId = $element->getAttribute('id');
+            if ( $actualId === $id ) return true;
+            // Shared source IDs are renamed on non-default document copies.
+            $prefix = $id . CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX;
+            if ( str_starts_with($actualId, $prefix) ) {
+                $variant = substr($actualId, strlen($prefix));
+                $suffix = DocumentVariantIds::suffixForClass('site-document-variant-' . $variant);
+                if ( null !== $suffix && '' !== $suffix && $actualId === $id . $suffix ) return true;
+            }
+        }
+        return false;
+    }
+
     /** @param array<int,array<string,mixed>> $blocks @param array<int,int|null> $provenanceIndexes */
     private function bindingProvenanceIndexes(array $blocks, array &$provenanceIndexes, int &$index): void
     {
         foreach ( $blocks as $block ) {
             if ( ! is_array($block) ) continue;
+            if ( '' === (string) ($block['blockName'] ?? '') ) {
+                $this->bindingProvenanceIndexes(ArrayField::array($block, 'innerBlocks'), $provenanceIndexes, $index);
+                continue;
+            }
             $provenanceIds = is_array($block['_source_provenance_ids'] ?? null)
                 ? $block['_source_provenance_ids']
                 : array($block['_source_provenance_id'] ?? null);
@@ -225,6 +304,10 @@ final class FallbackBindingFinalizer
     {
         foreach ( $blocks as $block ) {
             if ( ! is_array($block) ) continue;
+            if ( '' === (string) ($block['blockName'] ?? '') ) {
+                $this->sourceAnchorSelectorIndexes(ArrayField::array($block, 'innerBlocks'), $anchorIndexes, $index);
+                continue;
+            }
             $selector = $block['_source_anchor_selector'] ?? null;
             if ( is_string($selector) && '' !== $selector && ! array_key_exists($selector, $anchorIndexes) ) $anchorIndexes[$selector] = $index;
             ++$index;

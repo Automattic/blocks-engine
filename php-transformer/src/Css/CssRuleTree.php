@@ -75,12 +75,29 @@ final class CssRuleTree
         $this->wellFormed = $valid && !$stack && CssSyntaxScanner::isComplete($state);
     }
 
+    /** @var list<int>|null Root rule starts, ascending: root rules are disjoint and appended in source order. */
+    private ?array $rootStarts = null;
+
+    /** @var list<int> Root rule boundaries, parallel to {@see $rootStarts}. */
+    private array $rootBoundaries = array();
+
     public function nextBoundary(int $offset): ?int
     {
-        foreach ($this->rules() as $rule) {
-            if ($rule['start'] >= $offset) return $rule['boundary'];
+        if (null === $this->rootStarts) {
+            $this->rootStarts = array();
+            foreach ($this->rules() as $rule) {
+                $this->rootStarts[] = $rule['start'];
+                $this->rootBoundaries[] = $rule['boundary'];
+            }
         }
-        return null;
+        $low = 0;
+        $high = count($this->rootStarts);
+        while ($low < $high) {
+            $middle = ($low + $high) >> 1;
+            if ($this->rootStarts[$middle] < $offset) $low = $middle + 1;
+            else $high = $middle;
+        }
+        return $this->rootBoundaries[$low] ?? null;
     }
 
     /** @return iterable<array{start:int, boundary:int, end:int}> Ephemeral visitor records, not retained nodes. */

@@ -250,6 +250,12 @@ final class CssSelectorListCompactor
         if ( ! str_contains($prelude, ',') ) {
             return $prelude;
         }
+        // Projection may already have wrapped per-node alternatives in :is().
+        // Normalize those lists too: identical projected markers otherwise grow
+        // with every occurrence of a repeated component on the page.
+        $prelude = self::compactNestedLists($prelude);
+        $arms = CssStylesheetTransformer::splitSelectorList($prelude);
+        if (null !== $arms) $prelude = implode(',', array_unique(array_map('trim', $arms)));
         $prelude = self::mergeNthChildRuns($prelude);
         if ( ! str_contains($prelude, ',') ) {
             return $prelude;
@@ -323,6 +329,35 @@ final class CssSelectorListCompactor
             }
         }
         return implode(',', $output);
+    }
+
+    private static function compactNestedLists(string $selector): string
+    {
+        // Do not interpret punctuation inside comments or quoted syntax.
+        // Attribute strings are skipped as a whole below.
+        if (str_contains($selector, '/*')) return $selector;
+        $out = '';
+        for ($i = 0, $length = strlen($selector); $i < $length; ++$i) {
+            $char = $selector[$i];
+            if ('\\' === $char) {
+                $out .= substr($selector, $i, 2);
+                ++$i;
+                continue;
+            }
+            if ('[' === $char || '(' === $char) {
+                $close = CssSyntaxScanner::matchingClose($selector, $i);
+                if (null === $close) return $selector;
+                $inner = substr($selector, $i + 1, $close - $i - 1);
+                if ('(' === $char && preg_match('/:(?:is|where|not|has)$/i', $out)) {
+                    $inner = self::compact($inner);
+                }
+                $out .= $char . $inner . $selector[$close];
+                $i = $close;
+                continue;
+            }
+            $out .= $char;
+        }
+        return $out;
     }
 
     /** @var array<string, string|null> Bounded syntax-only cache; never holds document state. */

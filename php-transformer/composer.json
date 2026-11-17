@@ -79,6 +79,7 @@
     "test:social-links-glyph-paint-browser": "node tests/unit/social-links-glyph-paint-browser.mjs",
     "test:image-caption-margins-browser": "node tests/unit/image-caption-margins-browser.mjs",
     "test:cover-default-padding-browser": "node tests/unit/cover-default-padding-browser.mjs",
+    "test:carousel-authored-slide-track-browser": "node tests/unit/carousel-authored-slide-track-browser.mjs",
     "test:background-image-linked-browser": "node tests/background-image-linked-browser.mjs",
     "test:collection-component-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-collection-component-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/collection-component-acceptance.mjs bash tools/run-editor-image-acceptance.sh",
     "test:slideshow-browser": "BE_EDITOR_ACCEPTANCE_BUILDER=tests/build-slideshow-acceptance.php BE_EDITOR_ACCEPTANCE_BROWSER=tests/slideshow-acceptance.mjs bash tools/run-editor-image-acceptance.sh",

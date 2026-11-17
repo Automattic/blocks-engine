@@ -420,41 +420,10 @@ final class ArtifactCompiler
         );
         $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
         $allFallbacks = $entryBlocks['fallbacks'];
-        foreach ($capturedDialogs['diagnostics'] as $projectionDiagnostic) {
-            $code = (string) ($projectionDiagnostic['code'] ?? '');
-            if (!str_contains($code, 'limit_exceeded') && 'captured_interaction_ref_unresolved' !== $code) continue;
-            $allFallbacks[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic::build(array(
-                'diagnostic_code' => $code,
-                'severity' => 'error',
-                'summary' => $projectionDiagnostic['message'],
-                'source' => $projectionDiagnostic['source'] ?? self::class,
-                'context' => $projectionDiagnostic['context'] ?? array(),
-                'conversion_classification' => 'unsupported',
-                'loss_class' => 'content_loss',
-                'diagnostic_class' => 'content_loss',
-            ));
-        }
+        foreach (self::capturedDialogLossFallbacks($capturedDialogs['diagnostics']) as $fallback) $allFallbacks[] = $fallback;
         foreach (array_merge(CaptureReceiptReport::diagnostics($normalized['files']), CaptureReceiptReport::normalizationDiagnostics($normalized['diagnostics'])) as $receiptDiagnostic) {
             if (!in_array($receiptDiagnostic, $diagnostics, true)) $diagnostics[] = $receiptDiagnostic;
-            $lostControls = array();
-            foreach (CapturedInteractionReport::read($normalized['files'])['pages'] ?? array() as $page) {
-                foreach ($page['components'] ?? array() as $component) {
-                    if (is_array($component)) $lostControls[] = array('source_url' => $page['sourceUrl'] ?? null, 'component' => $component['id'] ?? null);
-                }
-            }
-            // A rejected receipt is a loss even when the interaction sidecar is
-            // absent or unreadable; never turn unknown control loss into success.
-            if (array() === $lostControls) $lostControls[] = array();
-            foreach ($lostControls as $control) $allFallbacks[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic::build(array(
-                'diagnostic_code' => $receiptDiagnostic['code'],
-                'severity' => 'error',
-                'summary' => $receiptDiagnostic['message'],
-                'source' => $receiptDiagnostic['context']['path'],
-                'context' => array_merge($receiptDiagnostic['context'], $control),
-                'conversion_classification' => 'unsupported',
-                'loss_class' => 'content_loss',
-                'diagnostic_class' => 'content_loss',
-            ));
+            foreach (self::receiptLossFallbacks($receiptDiagnostic, $normalized['files']) as $fallback) $allFallbacks[] = $fallback;
         }
         $allGeneratedBlocks = array_merge($entryBlocks['generated_blocks'], $inlineShellCompilation['generated_blocks'] ?? array());
         $allGutenbergGaps = $entryBlocks['gutenberg_gaps'];
@@ -508,6 +477,9 @@ final class ArtifactCompiler
         foreach (array_unique(array_map(static fn (array $part): string => (string) ($part['block_markup'] ?? ''), $parts)) as $partMarkup) $sharedMarkup .= "\n" . $partMarkup;
         foreach ($pageMarkup as &$markup) $markup .= "\n" . $sharedMarkup;
         unset($markup);
+        // Keep source bytes intact through compilation: provenance, orphan
+        // assets and cross-route factoring all depend on the authored inventory.
+        // Only prune the published projections after that factoring is complete.
         $authoredFiles = $normalized['files'];
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections'], (string) ($ownedBy(array(array()), $entryPath)[0]['owner'] ?? ''), $pageMarkup, $allDiagnostics, $sharedMarkup, $timer);
         $normalized['files'] = $this->withoutUnreachableSelectors($normalized['files']);
@@ -551,7 +523,7 @@ final class ArtifactCompiler
             if (isset($generatedAssetIdentities[$identity])) continue;
             $generatedAssetIdentities[$identity] = true; $generatedAssets[] = $asset;
         }
-        $rootInlineAsset = $this->documentInlineStyleAsset($normalized['files']);
+        $rootInlineAsset = $this->documentInlineStyleAsset($normalized['files'], $authoredFiles);
         if (null !== $rootInlineAsset) $generatedAssets[] = $rootInlineAsset;
         $presentationalHintAsset = $this->documentPresentationalHintAsset($normalized['files']);
         if (null !== $presentationalHintAsset) $generatedAssets[] = $presentationalHintAsset;
@@ -559,16 +531,20 @@ final class ArtifactCompiler
         if (null !== $projectedAdminBarAsset) {
             $generatedAssets[] = $projectedAdminBarAsset;
         }
-        $beforeAuthorAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => 'before-author' === ($asset['stylesheet_placement'] ?? '')));
-        $afterAuthorAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => 'after-author' === ($asset['stylesheet_placement'] ?? '')));
-        $otherGeneratedAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => ! in_array($asset, $beforeAuthorAssets, true) && ! in_array($asset, $afterAuthorAssets, true)));
-        // Runtime loads the manifest in array order. Placement metadata keeps
-        // engine support on its intended side of the authored stylesheets.
-        $assets = array_merge($beforeAuthorAssets, $manifestAssets, $otherGeneratedAssets, $afterAuthorAssets);
-        $assets = array_merge($assets, $wordpressCompatAssets);
+        $assets = self::orderedAssets($generatedAssets, $manifestAssets, $wordpressCompatAssets);
         $assets = $this->pruneAbsentSupportSubjects($assets, $authoredFiles, implode("\n", $pageMarkup) . "\n" . $sharedMarkup);
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets);
+        $propertyPruner = new \Automattic\BlocksEngine\PhpTransformer\Css\UnusedCustomPropertyPruner(
+            array_values(array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')))),
+            array_merge($this->selectorEvidence($authoredFiles), array_values($pageMarkup))
+        );
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? '') || !is_string($asset['content'] ?? null)) continue;
+            $content = $propertyPruner->prune($asset['content']);
+            if ($content !== $asset['content']) $asset = ArtifactNormalizer::withTextPayload($asset, $content);
+        }
+        unset($asset);
         $diagnostics = ArtifactDiagnostics::dedupe(array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics, $this->omittedPageDiagnostics($omittedPages)));
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
@@ -580,54 +556,9 @@ final class ArtifactCompiler
             'core_html_fallback_evidence' => $fallbackEvidence,
             'reusable_components' => $this->reusableComponentEvidence($entryPath, $entryBlocks['reusable_components'], $compiledHtmlDocuments, $generatedAssets),
             'layout_geometry_proof' => array_merge($entryBlocks['layout_geometry_proof'] ?? array(), ...array_values(array_map(static fn(array $document): array => $document['layout_geometry_proof'] ?? array(), $compiledHtmlDocuments))),
-            'artifact' => array(
-                'schema'          => self::INPUT_SCHEMA,
-                'original_schema' => ArrayField::string($artifact, 'schema'),
-                'entry_path'      => $entryPath,
-                'entrypoints'     => $normalized['entrypoints'],
-                'file_count'      => count($normalized['files']),
-                'accepted_count'  => count($normalized['files']),
-                'rejected_count'  => $normalized['rejected_count'],
-                'bytes'           => $normalized['bytes'],
-                'files_by_kind'   => $this->countBy($normalized['files'], 'kind'),
-                'files_by_role'   => $this->countBy($normalized['files'], 'role'),
-                'files_by_mime'   => $this->countBy($normalized['files'], 'mime_type'),
-                'files_by_source' => $this->countBy($normalized['files'], 'source'),
-                'files_by_intent' => $this->countBy($normalized['files'], 'intent'),
-                'truncation_impact' => $normalized['truncation_impact'],
-                'limits'          => array(
-                    'max_files'       => $normalized['limits']['max_files'],
-                    'max_media_files' => $normalized['limits']['max_media_files'],
-                    'max_file_bytes'  => $normalized['limits']['max_file_bytes'],
-                    'max_total_bytes' => $normalized['limits']['max_total_bytes'],
-                ),
-                'source_hash'     => $normalized['source_hash'],
-                'html'            => array(
-                    'bytes'         => strlen($html),
-                    'element_count' => preg_match_all('/<\s*[a-z][a-z0-9:-]*(?:\s|>|\/)/i', $html),
-                ),
-                'internal_links'    => $referenceReports['internal_links'],
-                'asset_references'  => $referenceReports['asset_references'],
-                'image_references'  => $referenceReports['image_references'],
-                'runtime_declarations' => $normalized['runtime_declarations'],
-            ),
+            'artifact' => $this->artifactInputReport($artifact, $normalized, $entryPath, $html, $referenceReports),
         );
-        $interactionReport = array('schema' => 'blocks-engine/captured-interactions/v1');
-        if (0 < $capturedDialogs['projected_count']) {
-            $interactionReport['projected_dialog_count'] = $capturedDialogs['projected_count'];
-        }
-        if (0 < ($capturedDialogs['projected_selectable_set_count'] ?? 0)) {
-            $interactionReport['projected_selectable_set_count'] = $capturedDialogs['projected_selectable_set_count'];
-        }
-        if (0 < ($capturedDialogs['projected_choice_group_count'] ?? 0)) {
-            $interactionReport['projected_choice_group_count'] = $capturedDialogs['projected_choice_group_count'];
-        }
-        if (isset($interactionReport['projected_dialog_count']) || isset($interactionReport['projected_selectable_set_count']) || isset($interactionReport['projected_choice_group_count'])) {
-            $sourceReports['captured_interactions'] = $interactionReport;
-        }
-        if (array() !== ($capturedDialogs['native_runtime_replacements'] ?? array())) {
-            $sourceReports['native_runtime_replacements'] = $capturedDialogs['native_runtime_replacements'];
-        }
+        $sourceReports += self::capturedInteractionReports($capturedDialogs);
         $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts'], ArrayField::array($entryBlocks, 'document_root_markers'), ArrayField::array($entryBlocks, 'design_usage'));
         $compiledSite['source_css_bytes'] = $normalized['source_css_bytes'];
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;
@@ -637,36 +568,12 @@ final class ArtifactCompiler
             $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
         }
         $fileMetadata = array_column($normalized['files'], null, 'path');
-        $entryFile = $fileMetadata[$entryPath] ?? array();
-        $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'generated_carrier_css' => $this->cssAssetContent($entryBlocks['assets']), 'runtime_block_paths' => $entryBlocks['runtime_block_paths'], 'visual_block_paths' => $entryBlocks['visual_block_paths'], 'editability_report' => $entryBlocks['editability_report'], 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
-        foreach ($compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument) {
-            $sourceFile = $fileMetadata[$sourcePath] ?? array();
-            $editabilityDocuments[(string) $sourcePath] = array(
-                'blocks' => ArrayField::array($compiledHtmlDocument, 'blocks'),
-                'serialized_blocks' => ArrayField::string($compiledHtmlDocument, 'serialized_blocks'),
-                'generated_carrier_css' => $this->cssAssetContent(ArrayField::array($compiledHtmlDocument, 'assets')),
-                'runtime_block_paths' => $compiledHtmlDocument['runtime_block_paths'],
-                'visual_block_paths' => $compiledHtmlDocument['visual_block_paths'],
-                'editability_report' => $compiledHtmlDocument['editability_report'],
-                'template_surface' => $sourceFile['metadata']['template_surface'] ?? null,
-                'provenance' => $sourceFile['provenance'] ?? null,
-            );
-        }
+        $editabilityDocuments = $this->editabilityDocuments($entryPath, $entryBlocks, $compiledHtmlDocuments, $fileMetadata);
         $editabilityReport = (new EditabilityReport())->fromDocuments($editabilityDocuments);
         $editabilityPolicy = (new EditabilityPolicy())->evaluate($editabilityReport, $entryPath);
         $sourceReports['editability_report'] = $editabilityReport;
         $sourceReports['editability_policy'] = $editabilityPolicy;
-        foreach (array('failures' => array('editability_policy_failed', 'error'), 'findings' => array('editability_policy_degraded', 'warning')) as $key => list($code, $severity)) {
-            foreach ($editabilityPolicy[$key] as $failure) {
-                $diagnostics[] = ArtifactDiagnostics::make($code, $severity, (string) $failure['message'], array(
-                    'policy_schema' => EditabilityPolicy::SCHEMA,
-                    'metric' => $failure['metric'],
-                    'actual' => $failure['actual'],
-                    'maximum' => $failure['maximum'],
-                    'source_path' => $failure['source_path'] ?? '',
-                ));
-            }
-        }
+        foreach (self::editabilityPolicyDiagnostics($editabilityPolicy) as $policyDiagnostic) $diagnostics[] = $policyDiagnostic;
         $responsiveCounterpartReports = array();
         foreach (array_merge(array($entryPath => $entryBlocks), $compiledHtmlDocuments) as $reportSourcePath => $compiledDocument) {
             if (is_array($compiledDocument['responsive_counterpart_contracts'] ?? null) && array() !== $compiledDocument['responsive_counterpart_contracts']) {
@@ -686,19 +593,7 @@ final class ArtifactCompiler
         if ( array() !== $allGutenbergGaps ) {
             $sourceReports['gutenberg_gaps'] = $allGutenbergGaps;
         }
-        $editorScripts = array();
-        $editorModule = $sourceReports['responsive_counterpart_contracts']['editor_module'] ?? null;
-        if ( is_array($editorModule)
-            && is_string($editorModule['handle'] ?? null)
-            && is_string($editorModule['content'] ?? null)
-            && is_array($editorModule['script_dependencies'] ?? null)
-        ) {
-            $editorScripts[] = array(
-                'handle'       => $editorModule['handle'],
-                'content'      => $editorModule['content'],
-                'dependencies' => $editorModule['script_dependencies'],
-            );
-        }
+        $editorScripts = self::responsiveEditorScripts($sourceReports['responsive_counterpart_contracts']['editor_module'] ?? null);
         if ($this->hasUnreproducedSourceMotion($normalized['files'])) {
             $namespace = $companionPluginPayloadBuilder->blockNamespace($artifact);
             if ('' !== $namespace) {
@@ -720,20 +615,7 @@ final class ArtifactCompiler
                 $sourceReports['runtime_island_package'] = $runtimeIslandPackage;
             }
         }
-        $provenance = array(
-            array(
-                'source_format' => 'artifact',
-                'input_keys'    => $this->sourceOperationInputKeys($artifact),
-                'source_hash'   => $normalized['source_hash'],
-            ),
-        );
-        $sourceUrl = is_array($artifact['provenance'] ?? null) && is_string($artifact['provenance']['source_url'] ?? null)
-            ? trim($artifact['provenance']['source_url'])
-            : '';
-        $sourceUrlParts = '' !== $sourceUrl ? parse_url($sourceUrl) : false;
-        if ( is_array($sourceUrlParts) && in_array(strtolower((string) ($sourceUrlParts['scheme'] ?? '')), array( 'http', 'https' ), true) && '' !== (string) ($sourceUrlParts['host'] ?? '') && !isset($sourceUrlParts['user'], $sourceUrlParts['pass']) ) {
-            $provenance[0]['source_url'] = $sourceUrl;
-        }
+        $provenance = $this->sourceProvenance($artifact, $normalized['source_hash']);
         $metrics = array(
             'input_bytes'           => $normalized['bytes'],
             'block_count'           => $this->countBlocks($entryBlocks['blocks']),
@@ -771,6 +653,254 @@ final class ArtifactCompiler
             fn(): array => ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks),
             $timer
         ));
+    }
+
+    /**
+     * Captured interactions that exceeded a projection limit or lost their
+     * reference are content loss, reported as fallbacks.
+     *
+     * @param list<array<string,mixed>> $projectionDiagnostics
+     * @return list<array<string,mixed>>
+     */
+    private static function capturedDialogLossFallbacks(array $projectionDiagnostics): array
+    {
+        $fallbacks = array();
+        foreach ($projectionDiagnostics as $projectionDiagnostic) {
+            $code = (string) ($projectionDiagnostic['code'] ?? '');
+            if (!str_contains($code, 'limit_exceeded') && 'captured_interaction_ref_unresolved' !== $code) continue;
+            $fallbacks[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic::build(array(
+                'diagnostic_code' => $code,
+                'severity' => 'error',
+                'summary' => $projectionDiagnostic['message'],
+                'source' => $projectionDiagnostic['source'] ?? self::class,
+                'context' => $projectionDiagnostic['context'] ?? array(),
+                'conversion_classification' => 'unsupported',
+                'loss_class' => 'content_loss',
+                'diagnostic_class' => 'content_loss',
+            ));
+        }
+        return $fallbacks;
+    }
+
+    /**
+     * A rejected capture receipt loses every captured control on its pages:
+     * one content-loss fallback per control, or one when none are readable.
+     *
+     * @param array<string,mixed> $receiptDiagnostic
+     * @param array<int,array<string,mixed>> $files
+     * @return list<array<string,mixed>>
+     */
+    private static function receiptLossFallbacks(array $receiptDiagnostic, array $files): array
+    {
+        $fallbacks = array();
+        $lostControls = array();
+        foreach (CapturedInteractionReport::read($files)['pages'] ?? array() as $page) {
+            foreach ($page['components'] ?? array() as $component) {
+                if (is_array($component)) $lostControls[] = array('source_url' => $page['sourceUrl'] ?? null, 'component' => $component['id'] ?? null);
+            }
+        }
+        // A rejected receipt is a loss even when the interaction sidecar is
+        // absent or unreadable; never turn unknown control loss into success.
+        if (array() === $lostControls) $lostControls[] = array();
+        foreach ($lostControls as $control) $fallbacks[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic::build(array(
+            'diagnostic_code' => $receiptDiagnostic['code'],
+            'severity' => 'error',
+            'summary' => $receiptDiagnostic['message'],
+            'source' => $receiptDiagnostic['context']['path'],
+            'context' => array_merge($receiptDiagnostic['context'], $control),
+            'conversion_classification' => 'unsupported',
+            'loss_class' => 'content_loss',
+            'diagnostic_class' => 'content_loss',
+        ));
+        return $fallbacks;
+    }
+
+    /**
+     * The manifest in load order. Runtime loads it in array order, so placement
+     * metadata keeps engine support on its intended side of the authored
+     * stylesheets; WordPress compatibility assets load last.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private static function orderedAssets(array $generatedAssets, array $manifestAssets, array $wordpressCompatAssets): array
+    {
+        $beforeAuthorAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => 'before-author' === ($asset['stylesheet_placement'] ?? '')));
+        $afterAuthorAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => 'after-author' === ($asset['stylesheet_placement'] ?? '')));
+        $otherGeneratedAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => ! in_array($asset, $beforeAuthorAssets, true) && ! in_array($asset, $afterAuthorAssets, true)));
+        $assets = array_merge($beforeAuthorAssets, $manifestAssets, $otherGeneratedAssets, $afterAuthorAssets);
+        $assets = array_merge($assets, $wordpressCompatAssets);
+        return $assets;
+    }
+
+    /**
+     * What the compiler accepted: inventory counts, limits, entry HTML size,
+     * references and runtime declarations.
+     *
+     * @param array<string,mixed> $artifact
+     * @param array<string,mixed> $normalized
+     * @param array<string,mixed> $referenceReports
+     * @return array<string,mixed>
+     */
+    private function artifactInputReport(array $artifact, array $normalized, string $entryPath, string $html, array $referenceReports): array
+    {
+        return array(
+            'schema'          => self::INPUT_SCHEMA,
+            'original_schema' => ArrayField::string($artifact, 'schema'),
+            'entry_path'      => $entryPath,
+            'entrypoints'     => $normalized['entrypoints'],
+            'file_count'      => count($normalized['files']),
+            'accepted_count'  => count($normalized['files']),
+            'rejected_count'  => $normalized['rejected_count'],
+            'bytes'           => $normalized['bytes'],
+            'files_by_kind'   => $this->countBy($normalized['files'], 'kind'),
+            'files_by_role'   => $this->countBy($normalized['files'], 'role'),
+            'files_by_mime'   => $this->countBy($normalized['files'], 'mime_type'),
+            'files_by_source' => $this->countBy($normalized['files'], 'source'),
+            'files_by_intent' => $this->countBy($normalized['files'], 'intent'),
+            'truncation_impact' => $normalized['truncation_impact'],
+            'limits'          => array(
+                'max_files'       => $normalized['limits']['max_files'],
+                'max_media_files' => $normalized['limits']['max_media_files'],
+                'max_file_bytes'  => $normalized['limits']['max_file_bytes'],
+                'max_total_bytes' => $normalized['limits']['max_total_bytes'],
+            ),
+            'source_hash'     => $normalized['source_hash'],
+            'html'            => array(
+                'bytes'         => strlen($html),
+                'element_count' => preg_match_all('/<\s*[a-z][a-z0-9:-]*(?:\s|>|\/)/i', $html),
+            ),
+            'internal_links'    => $referenceReports['internal_links'],
+            'asset_references'  => $referenceReports['asset_references'],
+            'image_references'  => $referenceReports['image_references'],
+            'runtime_declarations' => $normalized['runtime_declarations'],
+        );
+    }
+
+    /**
+     * Counts of captured interactions projected natively, and the runtime
+     * they replaced; empty when nothing was projected.
+     *
+     * @param array<string,mixed> $capturedDialogs
+     * @return array<string,mixed>
+     */
+    private static function capturedInteractionReports(array $capturedDialogs): array
+    {
+        $sourceReports = array();
+        $interactionReport = array('schema' => 'blocks-engine/captured-interactions/v1');
+        if (0 < $capturedDialogs['projected_count']) {
+            $interactionReport['projected_dialog_count'] = $capturedDialogs['projected_count'];
+        }
+        if (0 < ($capturedDialogs['projected_selectable_set_count'] ?? 0)) {
+            $interactionReport['projected_selectable_set_count'] = $capturedDialogs['projected_selectable_set_count'];
+        }
+        if (0 < ($capturedDialogs['projected_choice_group_count'] ?? 0)) {
+            $interactionReport['projected_choice_group_count'] = $capturedDialogs['projected_choice_group_count'];
+        }
+        if (isset($interactionReport['projected_dialog_count']) || isset($interactionReport['projected_selectable_set_count']) || isset($interactionReport['projected_choice_group_count'])) {
+            $sourceReports['captured_interactions'] = $interactionReport;
+        }
+        if (array() !== ($capturedDialogs['native_runtime_replacements'] ?? array())) {
+            $sourceReports['native_runtime_replacements'] = $capturedDialogs['native_runtime_replacements'];
+        }
+        return $sourceReports;
+    }
+
+    /**
+     * Each compiled document's blocks, carriers and provenance, as the
+     * editability report reads them.
+     *
+     * @param array<string,mixed> $entryBlocks
+     * @param array<string,array<string,mixed>> $compiledHtmlDocuments
+     * @param array<string,array<string,mixed>> $fileMetadata
+     * @return array<string,array<string,mixed>>
+     */
+    private function editabilityDocuments(string $entryPath, array $entryBlocks, array $compiledHtmlDocuments, array $fileMetadata): array
+    {
+        $entryFile = $fileMetadata[$entryPath] ?? array();
+        $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'generated_carrier_css' => $this->cssAssetContent($entryBlocks['assets']), 'runtime_block_paths' => $entryBlocks['runtime_block_paths'], 'visual_block_paths' => $entryBlocks['visual_block_paths'], 'editability_report' => $entryBlocks['editability_report'], 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
+        foreach ($compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument) {
+            $sourceFile = $fileMetadata[$sourcePath] ?? array();
+            $editabilityDocuments[(string) $sourcePath] = array(
+                'blocks' => ArrayField::array($compiledHtmlDocument, 'blocks'),
+                'serialized_blocks' => ArrayField::string($compiledHtmlDocument, 'serialized_blocks'),
+                'generated_carrier_css' => $this->cssAssetContent(ArrayField::array($compiledHtmlDocument, 'assets')),
+                'runtime_block_paths' => $compiledHtmlDocument['runtime_block_paths'],
+                'visual_block_paths' => $compiledHtmlDocument['visual_block_paths'],
+                'editability_report' => $compiledHtmlDocument['editability_report'],
+                'template_surface' => $sourceFile['metadata']['template_surface'] ?? null,
+                'provenance' => $sourceFile['provenance'] ?? null,
+            );
+        }
+        return $editabilityDocuments;
+    }
+
+    /**
+     * @param array<string,mixed> $editabilityPolicy
+     * @return list<array<string,mixed>>
+     */
+    private static function editabilityPolicyDiagnostics(array $editabilityPolicy): array
+    {
+        $diagnostics = array();
+        foreach (array('failures' => array('editability_policy_failed', 'error'), 'findings' => array('editability_policy_degraded', 'warning')) as $key => list($code, $severity)) {
+            foreach ($editabilityPolicy[$key] as $failure) {
+                $diagnostics[] = ArtifactDiagnostics::make($code, $severity, (string) $failure['message'], array(
+                    'policy_schema' => EditabilityPolicy::SCHEMA,
+                    'metric' => $failure['metric'],
+                    'actual' => $failure['actual'],
+                    'maximum' => $failure['maximum'],
+                    'source_path' => $failure['source_path'] ?? '',
+                ));
+            }
+        }
+        return $diagnostics;
+    }
+
+    /**
+     * The responsive counterpart editor module, as a companion editor script.
+     *
+     * @return list<array{handle:string,content:string,dependencies:array<mixed>}>
+     */
+    private static function responsiveEditorScripts(mixed $editorModule): array
+    {
+        $editorScripts = array();
+        if ( is_array($editorModule)
+            && is_string($editorModule['handle'] ?? null)
+            && is_string($editorModule['content'] ?? null)
+            && is_array($editorModule['script_dependencies'] ?? null)
+        ) {
+            $editorScripts[] = array(
+                'handle'       => $editorModule['handle'],
+                'content'      => $editorModule['content'],
+                'dependencies' => $editorModule['script_dependencies'],
+            );
+        }
+        return $editorScripts;
+    }
+
+    /**
+     * The artifact's provenance, with its source URL when that is a plain
+     * http(s) URL without credentials.
+     *
+     * @param array<string,mixed> $artifact
+     * @return list<array<string,mixed>>
+     */
+    private function sourceProvenance(array $artifact, mixed $sourceHash): array
+    {
+        $provenance = array(
+            array(
+                'source_format' => 'artifact',
+                'input_keys'    => $this->sourceOperationInputKeys($artifact),
+                'source_hash'   => $sourceHash,
+            ),
+        );
+        $sourceUrl = is_array($artifact['provenance'] ?? null) && is_string($artifact['provenance']['source_url'] ?? null)
+            ? trim($artifact['provenance']['source_url'])
+            : '';
+        $sourceUrlParts = '' !== $sourceUrl ? parse_url($sourceUrl) : false;
+        if ( is_array($sourceUrlParts) && in_array(strtolower((string) ($sourceUrlParts['scheme'] ?? '')), array( 'http', 'https' ), true) && '' !== (string) ($sourceUrlParts['host'] ?? '') && !isset($sourceUrlParts['user'], $sourceUrlParts['pass']) ) {
+            $provenance[0]['source_url'] = $sourceUrl;
+        }
+        return $provenance;
     }
 
     /**
@@ -1246,6 +1376,7 @@ final class ArtifactCompiler
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'native_document_context'   => true,
+            'site_selector_pruner'      => preg_match('/<html\b/i', $html) ? $this->siteSelectorPruner($files) : null,
             'source_has_purchase_affordance' => $this->sourceHasPurchaseAffordance($files),
             'declarative_state_html'    => $html,
             'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
@@ -2030,8 +2161,10 @@ final class ArtifactCompiler
                 return \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeSetClass($classes, $this->routeSets);
             });
             // Recompact only at serialization, merging compatible marker arms.
-            $recompact = static function (string $css) use ($timer, $pageProjections): string {
-                $compact = static fn(): string => count($pageProjections) > 1 ? CssSelectorListCompactor::stylesheet($css, true) : $css;
+            $recompact = static function (string $css) use ($timer): string {
+                // Native-block projection expands selectors even for a single
+                // page. Factor those alternatives at every serialization boundary.
+                $compact = static fn(): string => CssSelectorListCompactor::stylesheet($css, true);
                 return null === $timer ? $compact() : $timer->measure('compose.compaction', $compact);
             };
             $timer?->start('compose.author_stylesheet_projections.route_budget');
@@ -2117,28 +2250,66 @@ final class ArtifactCompiler
         return $candidate;
     }
 
+    /** @var list<string>|null Whole-site evidence supplied to a partition worker. */
+    private ?array $siteSelectorEvidence = null;
+
+    /** @var list<string>|null The evidence {@see $siteSelectorPruner} indexes. */
+    private ?array $siteSelectorPrunerEvidence = null;
+    private ?UnreachableSelectorPruner $siteSelectorPruner = null;
+
     /**
-     * Drop stylesheet arms that require a class or id no other site file names
-     * (see {@see UnreachableSelectorPruner}). Each stylesheet is pruned against
-     * the whole site, so route copies of one sheet stay identical.
+     * One pruner per site evidence. Building it tokenizes every site file, so
+     * documents share it rather than rebuilding it for each stylesheet.
      *
      * @param array<int, array<string, mixed>> $files
-     * @return array<int, array<string, mixed>>
      */
-    private function withoutUnreachableSelectors(array $files): array
+    private function siteSelectorPruner(array $files): UnreachableSelectorPruner
+    {
+        $evidence = $this->siteSelectorEvidence ?? $this->selectorEvidence($files);
+        if (null === $this->siteSelectorPruner || $evidence !== $this->siteSelectorPrunerEvidence) {
+            $this->siteSelectorPrunerEvidence = $evidence;
+            $this->siteSelectorPruner = new UnreachableSelectorPruner($evidence, true);
+        }
+        return $this->siteSelectorPruner;
+    }
+
+    /** @param array<int, array<string, mixed>> $files @return list<string> */
+    private function selectorEvidence(array $files): array
     {
         $texts = array();
-        $documents = 0;
         foreach ($files as $file) {
             if ('css' === ($file['kind'] ?? '')) continue;
-            if ('html' === ($file['kind'] ?? '')) ++$documents;
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
             $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
+            // A complete document supplies subject evidence, not its style
+            // inventory. Otherwise an inline framework sheet keeps every one
+            // of its own unused selectors alive. Fragments remain conservative:
+            // their author rules may target subjects outside the supplied tree.
+            if ('html' === ($file['kind'] ?? '') && is_string($text) && preg_match('/<html\b/i', $text)) {
+                // Search tag boundaries rather than matching the entire body:
+                // captured sheets can exceed PCRE's backtracking limit. A null
+                // replacement would erase the document's subject evidence too.
+                $offset = 0;
+                while (preg_match('/<style\b[^>]*>/i', $text, $open, PREG_OFFSET_CAPTURE, $offset)) {
+                    $start = $open[0][1];
+                    $bodyStart = $start + strlen($open[0][0]);
+                    if (!preg_match('/<\/style\s*>/i', $text, $close, PREG_OFFSET_CAPTURE, $bodyStart)) break;
+                    $end = $close[0][1] + strlen($close[0][0]);
+                    $text = substr_replace($text, '', $start, $end - $start);
+                    $offset = $start;
+                }
+            }
             if (is_string($text) && '' !== $text) $texts[] = $text;
         }
-        if (0 === $documents) return $files;
-        $pruner = new UnreachableSelectorPruner($texts);
+        return $texts;
+    }
+
+    /** Drop unreachable arms from published projections, using whole-site evidence. */
+    private function withoutUnreachableSelectors(array $files): array
+    {
+        if (!array_filter($files, static fn(array $file): bool => 'html' === ($file['kind'] ?? ''))) return $files;
+        $pruner = new UnreachableSelectorPruner($this->selectorEvidence($files));
         foreach ($files as &$file) {
             // Only the projected sheets the pages load; other CSS is inventory.
             if ('css' !== ($file['kind'] ?? '') || !isset($file['provenance']['projected_from_hash']) || !is_string($file['content'] ?? null)) continue;
@@ -2356,7 +2527,7 @@ final class ArtifactCompiler
     }
 
     /** Front-end-only document mechanics; never part of the editor carrier. */
-    private function documentInlineStyleAsset(array $files): ?array
+    private function documentInlineStyleAsset(array $files, array $authoredFiles): ?array
     {
         $documents = array();
         foreach ($files as $file) {
@@ -2372,7 +2543,7 @@ final class ArtifactCompiler
         // ID weight without an authored ID, like InlineGeometry's carriers.
         $ids = 0;
         $transformer = new CssStylesheetTransformer();
-        foreach ($files as $file) {
+        foreach (array_merge($files, $authoredFiles) as $file) {
             if ('css' !== ($file['kind'] ?? '')) continue;
             $transformer->visitStyleRules((string) ($file['content'] ?? ''), static function (string $prelude) use (&$ids): void {
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
@@ -2533,7 +2704,8 @@ final class ArtifactCompiler
                 // same compilation group and its canonical support assets.
             }
             unset($areaRows, $row);
-            $documents[(string) $file['path']] = array('content' => (string) $file['content'], 'rows' => $rows);
+            // Shared stylesheet comparison must not see route-specific capture IDs.
+            $documents[(string) $file['path']] = array('content' => $dom->documentElement instanceof DOMElement ? SourceDom::outerHtml($dom->documentElement) : (string) $file['content'], 'rows' => $rows);
         }
         if (count($documents) < 2) return array('artifacts' => array(), 'assets' => array(), 'author_stylesheet_projections' => array(), 'runtime_script_projections' => array());
 
@@ -3195,6 +3367,7 @@ final class ArtifactCompiler
         $title = isset($titles[0]) ? trim(html_entity_decode(strip_tags($titles[0]['content']), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titles->titleFromHtml($html, $sourcePath);
         $routeIdentity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $sourcePath, $sourcePath);
         $metadata = array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), ...\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($html, $routeIdentity, $this->routeClasses[$routeIdentity] ?? null), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
+        if (array() !== $this->boxTreeForSource($files, $sourcePath)) $metadata['engine_owned_styles'] = true;
         $metadata = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::withRouteSets($metadata, $this->routeSets);
         if ( array() !== $projectedRootMarkers ) {
             $rootClasses = array_values(array_filter(SourceDom::tokens((string) ($metadata['root_attributes']['class'] ?? '')), static fn(string $class): bool => '' !== $class));
@@ -3487,7 +3660,7 @@ final class ArtifactCompiler
         $documentLinkMedia = LinkedStylesheets::documentLinkMedia($files);
         $portableTargets = $this->portableTargetPaths($files);
         foreach ( $files as $file ) {
-            if ( $entryPath === $file['path'] || ArtifactNormalizer::CAPTURE_REPORT_ROLE === $file['role'] || ArtifactFileIndex::isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
+            if ( \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isSidecarPath($file['path']) || $entryPath === $file['path'] || ArtifactNormalizer::CAPTURE_REPORT_ROLE === $file['role'] || ArtifactFileIndex::isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
                 continue;
             }
             $asset = array(

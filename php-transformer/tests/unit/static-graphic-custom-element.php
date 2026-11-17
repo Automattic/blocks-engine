@@ -54,7 +54,7 @@ foreach ( array(
     $result = $compile('<a href="https://example.com/">' . $content . '</a>');
     $blocks = (string) ($result['serialized_blocks'] ?? '');
     if ( $empty ) {
-        $assert(in_array(CustomElementRuntimeDependency::UNPROVEN_CODE, $codes($result), true), $name . ' stays runtime unproven');
+        $assert(! in_array(CustomElementRuntimeDependency::UNPROVEN_CODE, $codes($result), true), $name . ' is render-neutral without captured artwork');
         $assert(! str_contains($blocks, '<!-- wp:image'), $name . ' does not invent an image');
         continue;
     }
@@ -66,8 +66,8 @@ foreach ( array(
     $assert(array() !== $assets, $name . ' materializes the SVG artwork');
 }
 $configured = $compile('<icon-glyph data-target="panel"></icon-glyph>');
-$assert(in_array(CustomElementRuntimeDependency::UNPROVEN_CODE, $codes($configured), true), 'empty configuration-bearing host stays unproven');
-$assert(! str_contains((string) ($configured['serialized_blocks'] ?? ''), '<!-- wp:image'), 'unproven host is not silently lowered');
+$assert(! in_array(CustomElementRuntimeDependency::UNPROVEN_CODE, $codes($configured), true), 'empty configuration-bearing host is render-neutral');
+$assert(! str_contains((string) ($configured['serialized_blocks'] ?? ''), '<!-- wp:image'), 'empty host does not invent artwork');
 $image = $compile('<icon-glyph><img src="icon.png" alt="Icon"></icon-glyph>');
 $assert(array() === ($image['fallbacks'] ?? array()) && str_contains((string) ($image['serialized_blocks'] ?? ''), 'icon.png'), 'image-only host keeps its existing media path');
 // Direct HTML conversion retains defining-script evidence in the source DOM.

@@ -99,11 +99,13 @@ final class NavigationToggleSuppressor
                 continue;
             }
 
+            $ownedPanels = array();
             foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-controls')) as $controlledId ) {
                 $target = $elementsById[ltrim($controlledId, '#')] ?? null;
                 if ( ! $target instanceof DOMElement || $this->isInsideOwnDisclosurePanel($control, $target) ) {
                     continue;
                 }
+                $ownedPanels[] = $target;
                 $navigation = $target instanceof DOMElement ? $this->hiddenNavigationInControlledTarget($target) : null;
                 if ( ! $target instanceof DOMElement || ! $navigation instanceof DOMElement ) {
                     continue;
@@ -128,6 +130,15 @@ final class NavigationToggleSuppressor
                 continue;
             }
             $relationship = $this->implicitHiddenNavigationRelationship($control);
+            // Explicit ownership outranks proximity. A control wired to a
+            // panel present in this document opens that panel, even one that
+            // is no hidden navigation (an in-place dropdown left to its own
+            // runtime). Only a menu related to that panel may be inferred;
+            // any other nearby hidden menu belongs to another opener.
+            if ( null !== $relationship && array() !== $ownedPanels
+                && ! $this->relatesToOwnedPanel($relationship, $ownedPanels) ) {
+                $relationship = null;
+            }
             if ( null !== $relationship ) {
                 $isDialogProjection = $this->hasDialogPopupSemantics($control) || $this->isSemanticDialog($relationship['target']);
                 // A visible in-flow menu with the same destinations already owns
@@ -154,6 +165,23 @@ final class NavigationToggleSuppressor
                 $this->session->navigationProjectionState()->projectMirror($control, $swapped);
             }
         }
+    }
+
+    /**
+     * @param array{target: DOMElement, navigation: DOMElement} $relationship
+     * @param list<DOMElement> $ownedPanels
+     */
+    private function relatesToOwnedPanel(array $relationship, array $ownedPanels): bool
+    {
+        foreach ( $ownedPanels as $panel ) {
+            foreach ( array($relationship['target'], $relationship['navigation']) as $inferred ) {
+                if ( SourceDom::elementContains($panel, $inferred) || SourceDom::elementContains($inferred, $panel) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

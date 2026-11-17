@@ -20,8 +20,8 @@ $strip = static function (array $value) use (&$strip): array {
     return $value;
 };
 $hash = hash('sha256', json_encode($strip($result), JSON_THROW_ON_ERROR));
-// Branching form containers now serialize as native Groups.
-if ('9e835f52c726fe24f0ea8d06c721db4f6f8a4ce99378caea1199b48f37617f1c' !== $hash) throw new RuntimeException('Non-diagnostic output must retain form intent and the control-row presentation baseline: ' . $hash);
+// Includes native Groups and single-page selector compaction in the artifact report.
+if ('363b9bcf450483d387d34ac7381aaa91d461c6d947e71367f593d84e57642697' !== $hash) throw new RuntimeException('Non-diagnostic output must retain form intent and the control-row presentation baseline: ' . $hash);
 $invalid = $graph;
 $invalid['diagnostics'][] = 'unsupported_selector::host(.extra)';
 try {

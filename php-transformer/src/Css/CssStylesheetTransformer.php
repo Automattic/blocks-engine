@@ -126,7 +126,7 @@ final class CssStylesheetTransformer
      */
     public function visitKeyframeRules(string $stylesheet, callable $visitKeyframes): void
     {
-        $this->visitRules($stylesheet, static function (): void {}, $visitKeyframes, array());
+        $this->visitRules($stylesheet, null, $visitKeyframes, array());
     }
 
     /**
@@ -1270,12 +1270,12 @@ final class CssStylesheetTransformer
     }
 
     /** @param callable(string, string, list<string>): void $visitStyleRule @param callable(string, string): void|null $visitKeyframes @param list<string> $ancestors */
-    private function visitRules(string $css, callable $visitStyleRule, ?callable $visitKeyframes, array $ancestors): void
+    private function visitRules(string $css, ?callable $visitStyleRule, ?callable $visitKeyframes, array $ancestors): void
     {
         $this->visitTree($this->tree($css), -1, $visitStyleRule, $visitKeyframes, $ancestors);
     }
 
-    private function visitTree(CssRuleTree $tree, int $scope, callable $visitStyleRule, ?callable $visitKeyframes, array $ancestors): void
+    private function visitTree(CssRuleTree $tree, int $scope, ?callable $visitStyleRule, ?callable $visitKeyframes, array $ancestors): void
     {
         foreach ($tree->rules($scope) as $rule) {
             ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
@@ -1292,7 +1292,7 @@ final class CssStylesheetTransformer
                     $nested[] = trim($prelude);
                     $this->visitTree($tree, $boundary, $visitStyleRule, $visitKeyframes, $nested);
                 }
-            } elseif ($this->isStylePrelude($prelude)) $visitStyleRule($prelude, $body, $ancestors);
+            } elseif (null !== $visitStyleRule && $this->isStylePrelude($prelude)) $visitStyleRule($prelude, $body, $ancestors);
         }
     }
 

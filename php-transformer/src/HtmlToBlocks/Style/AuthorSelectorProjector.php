@@ -226,521 +226,7 @@ final class AuthorSelectorProjector
         }
         $rewritten = array();
         foreach ( $selectors as $selector ) {
-            if ( $context->selectorProjections->retainsRuntimeOwnedSelector($selector)
-                || $this->isNativeCoreNavigationSelector($selector, $context) ) {
-                $rewritten[] = trim($selector);
-                continue;
-            }
-            // Arms for retained control descendants reached through the
-            // control's own source identity. The selector's other
-            // projections still follow.
-            array_push($rewritten, ...$this->projectRetainedControlRootSelector($selector, $context));
-            $socialAnchor = SocialAnchorSelectorProjector::project($selector, $context);
-            if (null !== $socialAnchor) {
-                $rewritten[] = $socialAnchor;
-                continue;
-            }
-            $structuralParsed = $context->sourceStyles->parsedSelector($selector);
-            $subject = $structuralParsed['compounds'][0] ?? array();
-            if (($structuralParsed['supported'] ?? false) && 1 === count($structuralParsed['compounds'] ?? array())
-                && null === ($subject['type'] ?? null) && !($subject['universal'] ?? false)
-                && array() !== ($subject['classes'] ?? array())
-                && array() === array_merge($subject['ids'] ?? array(), $subject['attributes'] ?? array(), $subject['not'] ?? array(), $subject['any'] ?? array(), $subject['has'] ?? array())
-                && null === ($subject['nth_child'] ?? null) && !($subject['first_child'] ?? false) && !($subject['last_child'] ?? false) && !($subject['root'] ?? false)
-                && null === ($structuralParsed['pseudo_state_suffix_span'] ?? null)
-                && CssSelectorMatcher::matches($context->authorStyles->sourceBody(), $structuralParsed)['matches']) {
-                $subjects = $this->matchingSourceElements($selector, $structuralParsed, $context);
-                if (array() !== $subjects && array() === array_filter($subjects, static fn(DOMElement $element): bool => !SourceDom::isDocumentVariantRoot($element))) {
-                    // Capture-created variant roots stand in for a body; they
-                    // must not turn canvas paint into an opaque content layer.
-                    // Keep the real body's state and the authored specificity.
-                    $rewritten[] = ':where(body)' . trim($selector);
-                    continue;
-                }
-            }
-            if ( $structuralParsed['supported'] && $this->hasUniversalStructuralLeaf($structuralParsed) ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $structuralParsed, $context);
-                continue;
-            }
-            // Captured entrance attributes are written by the engine replay,
-            // not by the removed source script. Project the resting subject but
-            // keep its live pose predicate rather than freezing the after pose
-            // into an attribute-state marker.
-            // Stylesheet selector arms can include whitespace before the brace.
-            if (preg_match('/(:not\(\s*\[\s*(data-[a-z0-9_-]+)(?:\s*[~|^$*]?=\s*(?:"[^"]*"|\'[^\']*\'|[^\]\\s]+))?\s*\]\s*\))$/i', rtrim($selector), $pose)) {
-                $base = substr(rtrim($selector), 0, -strlen($pose[1]));
-                $baseParsed = CssSelectorMatcher::parse($base);
-                $subjects = $this->matchingSourceElements($base, $baseParsed, $context);
-                // A custom source host may already have been normalized. Its
-                // descendant's retained ID still identifies the replay owner.
-                if (array() === $subjects && isset($baseParsed['rightmost_compound_span']['start'])) {
-                    $leaf = substr($base, (int) $baseParsed['rightmost_compound_span']['start']);
-                    $leafParsed = CssSelectorMatcher::parse($leaf);
-                    if (str_contains($leaf, '#')) {
-                        $base = $leaf;
-                        $subjects = $this->matchingSourceElements($base, $leafParsed, $context);
-                    }
-                }
-                $driven = array_filter($subjects, static function (DOMElement $element) use ($pose): bool {
-                    $state = json_decode($element->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true);
-                    return is_array($state) && array_key_exists($pose[2], $state['attributes'] ?? array());
-                });
-                if (array() !== $driven && count($driven) === count($subjects)) {
-                    $projected = $this->rewriteSelectorPreludeOnce($base, $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
-                    foreach (CssStylesheetTransformer::splitSelectorList($projected) ?? array() as $target) {
-                        $rewritten[] = $target . $pose[1];
-                    }
-                    continue;
-                }
-            }
-            $runtimeProjection = $this->projectRuntimeAttributeSelector($selector, $context);
-            if ( null !== $runtimeProjection ) {
-                array_push($rewritten, ...$runtimeProjection);
-                continue;
-            }
-            $host = CssSelectorMatcher::pseudoElementHost($selector);
-            if (null !== $host) {
-                // Project the originating element through the same subject
-                // pipeline as a non-pseudo rule, then restore the suffix on
-                // every arm (including RichText marker arms).
-                $projectedHost = $this->rewriteSelectorPreludeOnce(
-                    preg_match('/[\s>+~]$/', $host['selector']) ? $host['selector'] . '*' : $host['selector'],
-                    $context, $controlWrapper, $subjectArms, $semanticSubjectArms
-                );
-                $targets = CssStylesheetTransformer::splitSelectorList($projectedHost) ?? array();
-                foreach ($targets as $target) {
-                    $rewritten[] = $target . $host['suffix'];
-                }
-                if (array() !== $targets) continue;
-            }
-            // A host that projects to nothing would ship a dead rule. State
-            // hosts (:hover, :checked) have no host here; the state path owns them.
-            if (null !== $host) {
-                $context->evidence->recordConversionDiagnostic(array(
-                    'code' => 'html_unprojectable_pseudo_element_selector',
-                    'severity' => 'error',
-                    'conversion_classification' => 'unacceptable',
-                    'selector' => $selector,
-                    'message' => 'Could not project the originating element of an author pseudo-element rule.',
-                ));
-            }
-            // Attribute carriers are keyed by the authored selector. Resolve the
-            // complete captured predicate before rewriting a negation to its
-            // live state class, which would change that identity.
-            $parsed = $context->sourceStyles->parsedSelector($selector);
-            if ($parsed['supported'] && str_contains($selector, ':not(')) {
-                $sourceMatches = $this->matchingSourceElements($selector, $parsed, $context);
-                if (array() !== $sourceMatches) {
-                    $attributeProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $sourceMatches, $context, $controlWrapper)
-                        ?? $this->projectSourceAttributeSelector($selector, $parsed, $sourceMatches, $context, $controlWrapper);
-                    if (null !== $attributeProjection) {
-                        array_push($rewritten, ...$attributeProjection);
-                        continue;
-                    }
-                }
-            }
-            $selector = $this->projectSourceAttributeNegationStateSelector($selector, $context);
-            $parsed = $context->sourceStyles->parsedSelector($selector);
-            if ( ! $parsed['supported'] ) {
-                $projectedControls = $this->projectUnsupportedFunctionalControlSelector($selector, $context, $controlWrapper);
-                if ( array() === $projectedControls ) {
-                    $rewritten[] = $this->rewriteSourceTagTypes($this->projectImageLinkIdentitySelector($selector, $context), $parsed, $context);
-                } else {
-                    array_push($rewritten, ...$projectedControls);
-                }
-                continue;
-            }
-            $matches = $this->matchingSourceElements($selector, $parsed, $context);
-            foreach ($matches as $element) {
-                if ($context->selectorProjections->isRetainedAuthoredControl($element->getNodePath() ?? '')
-                    && !($parsed['compounds'][count($parsed['compounds']) - 1]['universal'] ?? false)) {
-                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
-                    break;
-                }
-            }
-            if ( array() === $matches ) {
-                $dormantControls = $this->projectDormantAncestorControlSelector($selector, $parsed, $context, $controlWrapper, $subjectArms);
-                if ( array() !== $dormantControls ) {
-                    array_push($rewritten, ...$dormantControls);
-                    continue;
-                }
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, self::sourceResolvedSiblingExclusion($parsed));
-                continue;
-            }
-
-            // Some lowering paths retain the source leaf inside a paragraph
-            // without marking it as a potential standalone inline carrier.
-            // The emitted tree is authoritative: add a zero-specificity hop
-            // only when that topology actually exists, keeping the source arm
-            // for matches that were not wrapped.
-            $carrierChild = $this->projectParagraphCarrierChildSelector($selector, $parsed, $context);
-            if ( null !== $carrierChild ) {
-                $rewritten[] = $carrierChild;
-            }
-
-            $otherSubjects = array();
-            $navigationSubjects = array();
-            foreach ($matches as $element) {
-                $target = $context->selectorProjections->navigationSubject($element->getNodePath() ?? '');
-                $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
-                $structural = array_filter($parsed['compounds'], static fn(array $compound): bool => ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false) || null !== ($compound['nth_child'] ?? null) || null !== ($compound['nth_of_type'] ?? null));
-                if ('a' === strtolower($element->tagName) && array() !== $structural) {
-                    // Core still renders this anchor in its source item. Keep
-                    // existing structural predicates live rather than binding
-                    // a captured first/last item to a permanent marker.
-                    $otherSubjects[] = $element;
-                    continue;
-                }
-                if (in_array(strtolower($element->tagName), array('li', 'ul', 'ol'), true) && null !== ($subject['type'] ?? null)) {
-                    // Typed item subjects retain the existing structural
-                    // projection, including sibling predicates and whitespace
-                    // participation. The new anchor subject is independent.
-                    $otherSubjects[] = $element;
-                    continue;
-                }
-                if (in_array(strtolower($element->tagName), array('li', 'ul', 'ol'), true) && null === ($subject['type'] ?? null)
-                    && $this->typedItemRuleOutranks($element, $parsed, $context)) {
-                    // A typed rule on this item stays on the structural tier
-                    // above. When it beat this subject in the source, join it
-                    // there: the carrier baseline would lift this subject above
-                    // it and invert the authored cascade.
-                    $otherSubjects[] = $element;
-                    continue;
-                }
-                if ('' === $target) {
-                    $otherSubjects[] = $element;
-                    continue;
-                }
-                $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-                // One shared carrier baseline defeats Core defaults while the
-                // original specificity and order arbitrate author declarations.
-                $stateSelector = substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start']);
-                if ($context->selectorProjections->selectsCurrentNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
-                elseif ($context->selectorProjections->selectsRestingNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::restingNavigationSubject($target);
-                // Many source items share one recorded marker target. Emit
-                // that subject once per source rule, not once per matching item.
-                $navigationProjection = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
-                $navigationSubjects[$navigationProjection] = true;
-            }
-            array_push($rewritten, ...array_keys($navigationSubjects));
-            if (array() === $otherSubjects) continue;
-            $matches = $otherSubjects;
-
-            // Native blocks that cannot store source classes on an inner part
-            // (core/search input/button) register that part as the subject;
-            // project onto it with the same specificity/state bridge as
-            // button lowering.
-            $remainingSubjects = array();
-            foreach ( $matches as $element ) {
-                $inner = $context->selectorProjections->innerSubject($element->getNodePath() ?? '');
-                if ( null === $inner ) {
-                    $remainingSubjects[] = $element;
-                    continue;
-                }
-                $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-                if ($inner['author_precedence']) {
-                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
-                }
-                // A constant baseline beats native defaults without flattening
-                // source specificity, states, conditional groups or layer order.
-                $baseline = $inner['author_precedence']
-                    ? str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 4)
-                    : '';
-                $rewritten[] = $inner['selector'] . $baseline . $this->selectorSpecificityShims($parsed, $context) . $suffix . $inner['pseudo_element'];
-            }
-            if ( array() === $remainingSubjects ) continue;
-            $matches = $remainingSubjects;
-
-            $attributeAncestryProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $matches, $context, $controlWrapper);
-            if ( null !== $attributeAncestryProjection ) {
-                array_push($rewritten, ...$attributeAncestryProjection);
-                continue;
-            }
-            $attributeProjection = $this->projectSourceAttributeSelector($selector, $parsed, $matches, $context, $controlWrapper);
-            if ( null !== $attributeProjection ) {
-                array_push($rewritten, ...$attributeProjection);
-                continue;
-            }
-            if ( AuthorSelectorSemanticPreparer::isRootChildSelector($parsed) ) {
-                $shellTags = array_values(array_unique(array_filter(array_map(
-                    static function (DOMElement $element) use ($context): string {
-                        if ( $element->parentNode !== $context->authorStyles->sourceBody() ) {
-                            return '';
-                        }
-                        $tag = strtolower($element->tagName);
-                        $area = ShellLandmarkPolicy::landmarkKind($tag, $element->getAttribute('role'));
-                        return in_array($area, array( 'header', 'footer' ), true) ? $tag : '';
-                    },
-                    $matches
-                ))));
-                $markers = array_values(array_unique(array_filter(array_map(
-                    static fn (DOMElement $element): string => $context->selectorProjections->rootChildMarker($element->getNodePath() ?? ''),
-                    $matches
-                ))));
-                if ( array() === $markers && array() === $shellTags ) {
-                    $rewritten[] = $selector;
-                    continue;
-                }
-                foreach ( $markers as $marker ) {
-                    $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
-                }
-                foreach ( $shellTags as $tag ) {
-                    // A shell part's landmark group is the box and keeps the
-                    // authored selector's projection. The editor still nests
-                    // it in Core's template-part transport wrapper.
-                    $rewritten[] = ':root .editor-styles-wrapper :where(.wp-block-template-part) > ' . $tag . $this->selectorSpecificityShims($parsed, $context);
-                }
-                continue;
-            }
-
-            $tableDescendants = array();
-            $nonTableMatches = array();
-            $tableCellGroups = array();
-            foreach ( $matches as $element ) {
-                $projected = $this->projectTableDescendantSelector($selector, $parsed, $element, $context);
-                if ( null === $projected ) {
-                    $nonTableMatches[] = $element;
-                    continue;
-                }
-                $cellTarget = $this->structuralTableCellTarget($projected, $element, $context);
-                if ( null === $cellTarget ) {
-                    $tableDescendants[] = $projected;
-                    continue;
-                }
-                $groupKey = spl_object_id($cellTarget['table']) . "\0" . $cellTarget['tail'];
-                $tableCellGroups[$groupKey] ??= array( 'table' => $cellTarget['table'], 'marker' => $cellTarget['marker'], 'tail' => $cellTarget['tail'], 'cells' => array() );
-                $tableCellGroups[$groupKey]['cells'][spl_object_id($element)] = $element;
-            }
-            foreach ( $tableCellGroups as $group ) {
-                foreach ( $this->compactTableCellPaths($group['table'], $group['cells']) as $path ) {
-                    $tableDescendants[] = '.' . $group['marker'] . '>table>' . $path . $group['tail'];
-                }
-            }
-            foreach ( array_values(array_unique($tableDescendants)) as $projected ) {
-                $rewritten[] = $projected;
-            }
-            if ( array() === $nonTableMatches ) {
-                continue;
-            }
-            $matches = $nonTableMatches;
-
-            // core/image saves the source image's classes and id on its
-            // <figure>, never on the <img>. A subject that names the image
-            // through them has nothing left to match, so it follows them to
-            // the figure: the box the image bridge already fills.
-            $figureSubjects = array();
-            $otherMatches = array();
-            $namesOnlyPositionedImages = array() === array_filter($matches, fn (DOMElement $element): bool => ! $this->isPositionedImage($element));
-            foreach ( $matches as $element ) {
-                $figureSubject = $this->projectImageFigureSubjectSelector($selector, $parsed, $element, $context, $namesOnlyPositionedImages);
-                if ( null === $figureSubject ) {
-                    $otherMatches[] = $element;
-                } else {
-                    $figureSubjects[] = $figureSubject;
-                }
-            }
-            foreach ( array_values(array_unique($figureSubjects)) as $figureSubject ) {
-                $rewritten[] = $figureSubject;
-            }
-            if ( array() === $otherMatches ) {
-                continue;
-            }
-            $matches = $otherMatches;
-
-            // Every match is a direct anchor core re-parents into a list item of
-            // its own, so the subject's sibling position belongs to that item.
-            // Any other match, or a subject this projection cannot place, keeps
-            // the authored selector exactly.
-            if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ANCHOR, $context) ) {
-                $itemSelector = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context);
-                if ( null !== $itemSelector ) {
-                    $rewritten[] = $itemSelector;
-                    continue;
-                }
-            }
-            // Every match is a source list item core renders as a navigation
-            // item of its own. The source-type marker never reaches that
-            // rendered item, so the subject moves onto core's item class.
-            if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ITEM, $context) ) {
-                $itemSelector = $this->projectNavigationListItemSelector($selector, $parsed, $context);
-                if ( null !== $itemSelector ) {
-                    $context->bindings->recordNativeSelector($selector);
-                    $rewritten[] = $itemSelector;
-                    continue;
-                }
-            }
-            // Every match is a source list that is itself the element a
-            // core/navigation block stands in for. Its classes and id sit on
-            // the rendered `<nav>` (and on the inner list copy); the list type
-            // has to address that block rather than the copy.
-            if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_LIST_HOST, $context) ) {
-                $hostSelector = $this->projectNavigationListHostSelector($selector, $parsed, $context, $matches);
-                if ( null !== $hostSelector ) {
-                    $rewritten[] = $hostSelector;
-                    continue;
-                }
-            }
-
-            $controls = array();
-            $linkOwnedControls = array();
-            $semanticLeaves = array();
-            $richTextLeaves = array();
-            $inlineLayoutCarriers = false;
-            $addressableInlineCarriers = false;
-            $hasNonProjected = false;
-            // A type selector that matched a menu toggle dropped for Core's
-            // native overlay control (or something inside it) has lost that
-            // subject; left bare it would reach the open/close buttons Core
-            // renders in the toggle's place. Only a type subject can reach
-            // them: Core's chrome carries no authored class, id or attribute.
-            $typeSubject = null !== (CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type'] ?? null);
-            $supersededToggles = false;
-            foreach ( $matches as $element ) {
-                $path = $element->getNodePath() ?? '';
-                if ( $context->selectorProjections->isRetainedSourcePath($path) || $this->isPreservedCodeSyntaxElement($element) ) {
-                    $hasNonProjected = true;
-                } elseif ( $typeSubject && $context->selectorProjections->isSupersededControlPath($path) ) {
-                    $supersededToggles = true;
-                } elseif ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
-                    // Structured card lowering unwraps the fragment and hoists
-                    // its styling hook onto the paragraph it emits, so the class
-                    // lands on that paragraph instead of inside a carrier.
-                    // Conversely, a retained ancestor carrier keeps this element
-                    // in its source wrapper rather than emitting another carrier.
-                    if ( $this->isHoistedCardFragment($element) || $this->isInsideRetainedInlineLayoutCarrier($element, $context) ) {
-                        $hasNonProjected = true;
-                        continue;
-                    }
-                    $inlineLayoutCarriers = true;
-                    // Source analysis may add its own markers before stylesheet
-                    // projection. Only the emitted paragraph can own this ID;
-                    // unpromoted leaves make the additional selector inert.
-                    $addressableInlineCarriers = $addressableInlineCarriers || ('span' === strtolower($element->tagName) && '' !== SourceDom::attr($element, 'id'));
-                } elseif ( '' !== ($marker = $context->selectorProjections->richTextMarker($path)) ) {
-                    $richTextLeaves[] = $marker;
-                } elseif ( '' !== ($marker = $context->selectorProjections->controlMarker($path)) ) {
-                    $controls[] = $marker;
-                    if ( $controlWrapper && LayoutParticipation::BOX_LINK === LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox() ) {
-                        $linkOwnedControls[$marker] = true;
-                    }
-                } elseif ( '' !== ($marker = $context->selectorProjections->imageWrapperMarker($path)) ) {
-                    $semanticLeaves[] = $marker;
-                } elseif ( '' !== ($marker = $context->selectorProjections->semanticMarker($path)) ) {
-                    $semanticLeaves[] = $marker;
-                } else {
-                    $hasNonProjected = true;
-                }
-            }
-            $controls = array_values(array_unique($controls));
-            $semanticLeaves = array_values(array_unique($semanticLeaves));
-            $richTextLeaves = array_values(array_unique($richTextLeaves));
-            // In a mixed set the authored selector stays for the other matches,
-            // but every rendered menu anchor is the only child of its item, so
-            // the kept selector has to stop reaching them. Exclude them through
-            // the class core hard-codes on them; `:not(:where(…))` adds no
-            // specificity.
-            if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves && ! $inlineLayoutCarriers ) {
-                $insertion = '';
-                if ( $supersededToggles ) {
-                    // Nothing else matched: the rule's subject is gone, so bind
-                    // it to a marker nothing carries. Otherwise keep it for the
-                    // surviving subjects but away from Core's toggle chrome.
-                    $insertion = $hasNonProjected
-                        ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION
-                        : ':where(.' . AuthorStylesheetProjector::SUPERSEDED_MENU_TOGGLE_CLASS . ')';
-                }
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, $insertion . self::sourceResolvedSiblingExclusion($parsed));
-                continue;
-            }
-            $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
-            // Shared stylesheets are projected once per document into that
-            // document's marker namespace. Class-bound rules still address
-            // emitted markup that kept the authored class (button inner HTML,
-            // extracted chrome), so dropping the class leaves those elements
-            // unmatched in every other consuming document.
-            if ( $context->keepAuthorClassSelectors && array() !== $projectedMarkers && $this->isClassBoundSelector($parsed) ) {
-                $hasNonProjected = true;
-            }
-            // A RichText-marked element can be emitted as a block wrapper in
-            // another responsive representation, where only its authored class
-            // remains available to the projected rule.
-            if ( array() !== $richTextLeaves && $this->hasClassBoundSubject($parsed) ) {
-                $hasNonProjected = true;
-            }
-            // Source analysis marks potential inline carriers before pattern
-            // lowering. A native block can keep that source hook and topology
-            // instead; retain the authored arm wherever emitted markup still
-            // answers it, alongside the possible carrier forms.
-            $groupCarrier = false;
-            if ( $inlineLayoutCarriers ) {
-                $subject = substr($selector, (int) $parsed['rightmost_compound_span']['start']);
-                $groupCarrier = $this->matchesEmittedMarkup(CssSelectorMatcher::parse($subject . ':where(.wp-block-group)'), $context->emittedMarkup);
-                if ( $groupCarrier || $this->matchesEmittedMarkup($parsed, $context->emittedMarkup) ) {
-                    $hasNonProjected = true;
-                }
-            }
-            if ( $hasNonProjected ) {
-                // Control, semantic and RichText carriers also carry their
-                // kind's role class, so the authored arm stays off all of them
-                // through one constant class per kind instead of a list of
-                // per-element markers that differs on every page.
-                $exclusion = array_map(static fn (string $roleClass): string => '.' . $roleClass, EngineMarker::roleClasses($projectedMarkers));
-                $rewritten[] = $this->rewriteSourceTagTypes(
-                    $selector,
-                    $parsed,
-                    $context,
-                    ( array() === $exclusion ? '' : ':not(:where(' . implode(',', $exclusion) . '))' ) . ( $supersededToggles ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION : '' )
-                        . ( in_array('.' . self::SEMANTIC_ROLE_CLASS, $exclusion, true) ? '' : self::sourceResolvedSiblingExclusion($parsed) )
-                );
-            }
-            // A context-free subject (`a`, `.btn`, `*`) reaches every control
-            // carrier whose source it matches, wherever it sits. When this page
-            // routes all of those carriers to the control arm, one arm naming
-            // their subject classes replaces their per-element arms, and the
-            // projection no longer depends on the page's other content. In
-            // wrapper mode each control's arm shape depends on its own layout
-            // participation, so those stay per element.
-            $controlSubject = $subjectArms && ! $controlWrapper && null === $this->universalControlSubject($selector, $parsed, $context) && array() !== $controls
-                ? $this->contextFreeSubject('control', $parsed, $controls, $context)
-                : null;
-            if ( null !== $controlSubject ) {
-                $rewritten[] = $this->projectControlTarget($controlSubject['target'], $selector, $parsed, $context, false);
-            }
-            foreach ( null === $controlSubject ? $controls : $controlSubject['rest'] as $marker ) {
-                $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $context, $controlWrapper && ! isset($linkOwnedControls[$marker]));
-            }
-            // Semantic arms take one shape whatever the rule declares, so they
-            // only need the subject to be context-free.
-            $semanticSubject = $semanticSubjectArms && array() !== $semanticLeaves
-                ? $this->contextFreeSubject('semantic', $parsed, $semanticLeaves, $context)
-                : null;
-            if ( null !== $semanticSubject ) {
-                $rewritten[] = $this->projectSemanticTarget($semanticSubject['target'], $selector, $parsed, $context);
-            }
-            foreach ( null === $semanticSubject ? $semanticLeaves : $semanticSubject['rest'] as $marker ) {
-                $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
-            }
-            // RichText arms take one shape too; a carrier the subject arm does
-            // not cover keeps its per-element attribute arm.
-            $richTextSubject = $semanticSubjectArms && array() !== $richTextLeaves
-                ? $this->contextFreeSubject('richtext', $parsed, $richTextLeaves, $context)
-                : null;
-            if ( null !== $richTextSubject ) {
-                $rewritten[] = $this->projectSemanticTarget($richTextSubject['target'], $selector, $parsed, $context);
-            }
-            foreach ( null === $richTextSubject ? $richTextLeaves : $richTextSubject['rest'] as $marker ) {
-                $rewritten[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker, $context);
-            }
-            if ( $inlineLayoutCarriers ) {
-                $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed, $addressableInlineCarriers);
-                // Potential inline leaves can instead lower to a native group
-                // when their attached source cascade establishes a block box.
-                // Keep that hook addressable even when document context (such
-                // as a body class) is absent from the emitted fragment here.
-                if ( $groupCarrier ) {
-                    $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':where(.wp-block-group)');
-                }
-            }
+            array_push($rewritten, ...$this->projectSelectorArms($selector, $context, $controlWrapper, $subjectArms, $semanticSubjectArms));
         }
         $projected = implode(',', array_values(array_unique($rewritten)));
         if ( $projected !== $prelude && EngineMarker::matchesAny($projected) ) {
@@ -748,6 +234,688 @@ final class AuthorSelectorProjector
         }
 
         return $projected;
+    }
+
+    /**
+     * Every arm one authored selector projects to, in emission order.
+     *
+     * @return array<int, string>
+     */
+    private function projectSelectorArms(string $selector, AuthorStylesheetProjectionContext $context, bool $controlWrapper, bool $subjectArms, bool $semanticSubjectArms): array
+    {
+        if ( $context->selectorProjections->retainsRuntimeOwnedSelector($selector)
+            || $this->isNativeCoreNavigationSelector($selector, $context) ) {
+            return array(trim($selector));
+        }
+        // Arms for retained control descendants reached through the
+        // control's own source identity. The selector's other
+        // projections still follow.
+        $arms = $this->projectRetainedControlRootSelector($selector, $context);
+        $socialAnchor = SocialAnchorSelectorProjector::project($selector, $context);
+        if (null !== $socialAnchor) {
+            $arms[] = $socialAnchor;
+            return $arms;
+        }
+        $structuralParsed = $context->sourceStyles->parsedSelector($selector);
+        $documentVariantBody = $this->projectDocumentVariantBodySelector($selector, $structuralParsed, $context);
+        if ( null !== $documentVariantBody ) {
+            $arms[] = $documentVariantBody;
+            return $arms;
+        }
+        if ( $structuralParsed['supported'] && $this->hasUniversalStructuralLeaf($structuralParsed) ) {
+            $arms[] = $this->rewriteSourceTagTypes($selector, $structuralParsed, $context);
+            return $arms;
+        }
+        $entrancePose = $this->projectEntrancePoseSelector($selector, $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
+        if ( null !== $entrancePose ) {
+            array_push($arms, ...$entrancePose);
+            return $arms;
+        }
+        $runtimeProjection = $this->projectRuntimeAttributeSelector($selector, $context);
+        if ( null !== $runtimeProjection ) {
+            array_push($arms, ...$runtimeProjection);
+            return $arms;
+        }
+        $pseudoElement = $this->projectPseudoElementSelector($selector, $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
+        if ( null !== $pseudoElement ) {
+            array_push($arms, ...$pseudoElement);
+            return $arms;
+        }
+        $negatedAttributeCarrier = $this->projectNegatedAttributeCarrierSelector($selector, $context, $controlWrapper);
+        if ( null !== $negatedAttributeCarrier ) {
+            array_push($arms, ...$negatedAttributeCarrier);
+            return $arms;
+        }
+        $selector = $this->projectSourceAttributeNegationStateSelector($selector, $context);
+        $parsed = $context->sourceStyles->parsedSelector($selector);
+        if ( ! $parsed['supported'] ) {
+            $projectedControls = $this->projectUnsupportedFunctionalControlSelector($selector, $context, $controlWrapper);
+            if ( array() === $projectedControls ) {
+                $arms[] = $this->rewriteSourceTagTypes($this->projectImageLinkIdentitySelector($selector, $context), $parsed, $context);
+            } else {
+                array_push($arms, ...$projectedControls);
+            }
+            return $arms;
+        }
+        $matches = $this->matchingSourceElements($selector, $parsed, $context);
+        foreach ($matches as $element) {
+            if ($context->selectorProjections->isRetainedAuthoredControl($element->getNodePath() ?? '')
+                && !($parsed['compounds'][count($parsed['compounds']) - 1]['universal'] ?? false)) {
+                $arms[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+                break;
+            }
+        }
+        if ( array() === $matches ) {
+            $dormantControls = $this->projectDormantAncestorControlSelector($selector, $parsed, $context, $controlWrapper, $subjectArms);
+            if ( array() !== $dormantControls ) {
+                array_push($arms, ...$dormantControls);
+                return $arms;
+            }
+            $arms[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, self::sourceResolvedSiblingExclusion($parsed));
+            return $arms;
+        }
+
+        // Some lowering paths retain the source leaf inside a paragraph
+        // without marking it as a potential standalone inline carrier.
+        // The emitted tree is authoritative: add a zero-specificity hop
+        // only when that topology actually exists, keeping the source arm
+        // for matches that were not wrapped.
+        $carrierChild = $this->projectParagraphCarrierChildSelector($selector, $parsed, $context);
+        if ( null !== $carrierChild ) {
+            $arms[] = $carrierChild;
+        }
+
+        $anchorAncestor = $this->projectParagraphAnchorAncestorSelector($selector, $parsed, $context);
+        if (null !== $anchorAncestor) $arms[] = $anchorAncestor;
+
+        [$navigationArms, $matches] = $this->projectNavigationSubjects($selector, $parsed, $matches, $context);
+        array_push($arms, ...$navigationArms);
+        if ( array() === $matches ) {
+            return $arms;
+        }
+
+        [$innerArms, $matches] = $this->projectInnerSubjects($selector, $parsed, $matches, $context);
+        array_push($arms, ...$innerArms);
+        if ( array() === $matches ) {
+            return $arms;
+        }
+
+        $attributeAncestryProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $matches, $context, $controlWrapper);
+        if ( null !== $attributeAncestryProjection ) {
+            array_push($arms, ...$attributeAncestryProjection);
+            return $arms;
+        }
+        $attributeProjection = $this->projectSourceAttributeSelector($selector, $parsed, $matches, $context, $controlWrapper);
+        if ( null !== $attributeProjection ) {
+            array_push($arms, ...$attributeProjection);
+            return $arms;
+        }
+        if ( AuthorSelectorSemanticPreparer::isRootChildSelector($parsed) ) {
+            array_push($arms, ...$this->projectRootChildSelector($selector, $parsed, $matches, $context));
+            return $arms;
+        }
+
+        [$tableArms, $matches] = $this->projectTableDescendants($selector, $parsed, $matches, $context);
+        array_push($arms, ...$tableArms);
+        if ( array() === $matches ) {
+            return $arms;
+        }
+
+        [$figureArms, $matches] = $this->projectImageFigureSubjects($selector, $parsed, $matches, $context);
+        array_push($arms, ...$figureArms);
+        if ( array() === $matches ) {
+            return $arms;
+        }
+
+        $navigationRole = $this->projectNavigationRoleSelector($selector, $parsed, $matches, $context);
+        if ( null !== $navigationRole ) {
+            $arms[] = $navigationRole;
+            return $arms;
+        }
+
+        array_push($arms, ...$this->projectMarkerCarriers($selector, $parsed, $matches, $context, $controlWrapper, $subjectArms, $semanticSubjectArms));
+        return $arms;
+    }
+
+    /**
+     * A lone class subject that only capture-created document variant roots
+     * match addresses the body those roots stand in for.
+     *
+     * @param array<string, mixed> $structuralParsed
+     */
+    private function projectDocumentVariantBodySelector(string $selector, array $structuralParsed, AuthorStylesheetProjectionContext $context): ?string
+    {
+        $subject = $structuralParsed['compounds'][0] ?? array();
+        if (($structuralParsed['supported'] ?? false) && 1 === count($structuralParsed['compounds'] ?? array())
+            && null === ($subject['type'] ?? null) && !($subject['universal'] ?? false)
+            && array() !== ($subject['classes'] ?? array())
+            && array() === array_merge($subject['ids'] ?? array(), $subject['attributes'] ?? array(), $subject['not'] ?? array(), $subject['any'] ?? array(), $subject['has'] ?? array())
+            && null === ($subject['nth_child'] ?? null) && !($subject['first_child'] ?? false) && !($subject['last_child'] ?? false) && !($subject['root'] ?? false)
+            && null === ($structuralParsed['pseudo_state_suffix_span'] ?? null)
+            && CssSelectorMatcher::matches($context->authorStyles->sourceBody(), $structuralParsed)['matches']) {
+            $subjects = $this->matchingSourceElements($selector, $structuralParsed, $context);
+            if (array() !== $subjects && array() === array_filter($subjects, static fn(DOMElement $element): bool => !SourceDom::isDocumentVariantRoot($element))) {
+                // Capture-created variant roots stand in for a body; they
+                // must not turn canvas paint into an opaque content layer.
+                // Keep the real body's state and the authored specificity.
+                return ':where(body)' . trim($selector);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Captured entrance attributes are written by the engine replay,
+     * not by the removed source script. Project the resting subject but
+     * keep its live pose predicate rather than freezing the after pose
+     * into an attribute-state marker.
+     * Stylesheet selector arms can include whitespace before the brace.
+     *
+     * @return array<int, string>|null
+     */
+    private function projectEntrancePoseSelector(string $selector, AuthorStylesheetProjectionContext $context, bool $controlWrapper, bool $subjectArms, bool $semanticSubjectArms): ?array
+    {
+        if (preg_match('/(:not\(\s*\[\s*(data-[a-z0-9_-]+)(?:\s*[~|^$*]?=\s*(?:"[^"]*"|\'[^\']*\'|[^\]\\s]+))?\s*\]\s*\))$/i', rtrim($selector), $pose)) {
+            $base = substr(rtrim($selector), 0, -strlen($pose[1]));
+            $baseParsed = CssSelectorMatcher::parse($base);
+            $subjects = $this->matchingSourceElements($base, $baseParsed, $context);
+            // A custom source host may already have been normalized. Its
+            // descendant's retained ID still identifies the replay owner.
+            if (array() === $subjects && isset($baseParsed['rightmost_compound_span']['start'])) {
+                $leaf = substr($base, (int) $baseParsed['rightmost_compound_span']['start']);
+                $leafParsed = CssSelectorMatcher::parse($leaf);
+                if (str_contains($leaf, '#')) {
+                    $base = $leaf;
+                    $subjects = $this->matchingSourceElements($base, $leafParsed, $context);
+                }
+            }
+            $driven = array_filter($subjects, static function (DOMElement $element) use ($pose): bool {
+                $state = json_decode($element->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true);
+                return is_array($state) && array_key_exists($pose[2], $state['attributes'] ?? array());
+            });
+            if (array() !== $driven && count($driven) === count($subjects)) {
+                $projected = $this->rewriteSelectorPreludeOnce($base, $context, $controlWrapper, $subjectArms, $semanticSubjectArms);
+                $arms = array();
+                foreach (CssStylesheetTransformer::splitSelectorList($projected) ?? array() as $target) {
+                    $arms[] = $target . $pose[1];
+                }
+                return $arms;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Project a pseudo-element rule's originating element, then restore the
+     * suffix on every arm. Null when the selector has no pseudo-element, or
+     * when its host projects to nothing (recorded as a diagnostic).
+     *
+     * @return array<int, string>|null
+     */
+    private function projectPseudoElementSelector(string $selector, AuthorStylesheetProjectionContext $context, bool $controlWrapper, bool $subjectArms, bool $semanticSubjectArms): ?array
+    {
+        $host = CssSelectorMatcher::pseudoElementHost($selector);
+        if (null !== $host) {
+            // Project the originating element through the same subject
+            // pipeline as a non-pseudo rule, then restore the suffix on
+            // every arm (including RichText marker arms).
+            $projectedHost = $this->rewriteSelectorPreludeOnce(
+                preg_match('/[\s>+~]$/', $host['selector']) ? $host['selector'] . '*' : $host['selector'],
+                $context, $controlWrapper, $subjectArms, $semanticSubjectArms
+            );
+            $targets = CssStylesheetTransformer::splitSelectorList($projectedHost) ?? array();
+            $arms = array();
+            foreach ($targets as $target) {
+                $arms[] = $target . $host['suffix'];
+            }
+            if (array() !== $targets) return $arms;
+        }
+        // A host that projects to nothing would ship a dead rule. State
+        // hosts (:hover, :checked) have no host here; the state path owns them.
+        if (null !== $host) {
+            $context->evidence->recordConversionDiagnostic(array(
+                'code' => 'html_unprojectable_pseudo_element_selector',
+                'severity' => 'error',
+                'conversion_classification' => 'unacceptable',
+                'selector' => $selector,
+                'message' => 'Could not project the originating element of an author pseudo-element rule.',
+            ));
+        }
+        return null;
+    }
+
+    /**
+     * Attribute carriers are keyed by the authored selector. Resolve the
+     * complete captured predicate before rewriting a negation to its
+     * live state class, which would change that identity.
+     *
+     * @return array<int, string>|null
+     */
+    private function projectNegatedAttributeCarrierSelector(string $selector, AuthorStylesheetProjectionContext $context, bool $controlWrapper): ?array
+    {
+        $parsed = $context->sourceStyles->parsedSelector($selector);
+        if ($parsed['supported'] && str_contains($selector, ':not(')) {
+            $sourceMatches = $this->matchingSourceElements($selector, $parsed, $context);
+            if (array() !== $sourceMatches) {
+                $attributeProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $sourceMatches, $context, $controlWrapper)
+                    ?? $this->projectSourceAttributeSelector($selector, $parsed, $sourceMatches, $context, $controlWrapper);
+                if (null !== $attributeProjection) {
+                    return $attributeProjection;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Matches core renders as navigation items bind to their recorded marker
+     * target, once per rule; the rest stay for the stages that follow.
+     *
+     * @param array<string, mixed> $parsed
+     * @param array<int, DOMElement> $matches
+     * @return array{0: array<int, string>, 1: array<int, DOMElement>}
+     */
+    private function projectNavigationSubjects(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): array
+    {
+        $otherSubjects = array();
+        $navigationSubjects = array();
+        foreach ($matches as $element) {
+            $target = $context->selectorProjections->navigationSubject($element->getNodePath() ?? '');
+            $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
+            $structural = array_filter($parsed['compounds'], static fn(array $compound): bool => ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false) || null !== ($compound['nth_child'] ?? null) || null !== ($compound['nth_of_type'] ?? null));
+            if ('a' === strtolower($element->tagName) && array() !== $structural) {
+                // Core still renders this anchor in its source item. Keep
+                // existing structural predicates live rather than binding
+                // a captured first/last item to a permanent marker.
+                $otherSubjects[] = $element;
+                continue;
+            }
+            if (in_array(strtolower($element->tagName), array('li', 'ul', 'ol'), true) && null !== ($subject['type'] ?? null)) {
+                // Typed item subjects retain the existing structural
+                // projection, including sibling predicates and whitespace
+                // participation. The new anchor subject is independent.
+                $otherSubjects[] = $element;
+                continue;
+            }
+            if (in_array(strtolower($element->tagName), array('li', 'ul', 'ol'), true) && null === ($subject['type'] ?? null)
+                && $this->typedItemRuleOutranks($element, $parsed, $context)) {
+                // A typed rule on this item stays on the structural tier
+                // above. When it beat this subject in the source, join it
+                // there: the carrier baseline would lift this subject above
+                // it and invert the authored cascade.
+                $otherSubjects[] = $element;
+                continue;
+            }
+            if ('' === $target) {
+                $otherSubjects[] = $element;
+                continue;
+            }
+            $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+            // One shared carrier baseline defeats Core defaults while the
+            // original specificity and order arbitrate author declarations.
+            $stateSelector = substr($selector, 0, null === $parsed['pseudo_state_suffix_span'] ? null : $parsed['pseudo_state_suffix_span']['start']);
+            if ($context->selectorProjections->selectsCurrentNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::currentNavigationSubject($target);
+            elseif ($context->selectorProjections->selectsRestingNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::restingNavigationSubject($target);
+            // Many source items share one recorded marker target. Emit
+            // that subject once per source rule, not once per matching item.
+            $navigationProjection = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+            $navigationSubjects[$navigationProjection] = true;
+        }
+        return array(array_keys($navigationSubjects), $otherSubjects);
+    }
+
+    /**
+     * Native blocks that cannot store source classes on an inner part
+     * (core/search input/button) register that part as the subject;
+     * project onto it with the same specificity/state bridge as
+     * button lowering.
+     *
+     * @param array<string, mixed> $parsed
+     * @param array<int, DOMElement> $matches
+     * @return array{0: array<int, string>, 1: array<int, DOMElement>}
+     */
+    private function projectInnerSubjects(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): array
+    {
+        $innerArms = array();
+        $remainingSubjects = array();
+        foreach ( $matches as $element ) {
+            $inner = $context->selectorProjections->innerSubject($element->getNodePath() ?? '');
+            if ( null === $inner ) {
+                $remainingSubjects[] = $element;
+                continue;
+            }
+            $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+            if ($inner['author_precedence']) {
+                $innerArms[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+            }
+            // A constant baseline beats native defaults without flattening
+            // source specificity, states, conditional groups or layer order.
+            $baseline = $inner['author_precedence']
+                ? str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', 4)
+                : '';
+            $innerArms[] = $inner['selector'] . $baseline . $this->selectorSpecificityShims($parsed, $context) . $suffix . $inner['pseudo_element'];
+        }
+        return array($innerArms, $remainingSubjects);
+    }
+
+    /**
+     * A body-child rule addresses the root-child markers its matches carry and
+     * the template-part landmark of a matched header or footer.
+     *
+     * @param array<string, mixed> $parsed
+     * @param array<int, DOMElement> $matches
+     * @return array<int, string>
+     */
+    private function projectRootChildSelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): array
+    {
+        $shellTags = array_values(array_unique(array_filter(array_map(
+            static function (DOMElement $element) use ($context): string {
+                if ( $element->parentNode !== $context->authorStyles->sourceBody() ) {
+                    return '';
+                }
+                $tag = strtolower($element->tagName);
+                $area = ShellLandmarkPolicy::landmarkKind($tag, $element->getAttribute('role'));
+                return in_array($area, array( 'header', 'footer' ), true) ? $tag : '';
+            },
+            $matches
+        ))));
+        $markers = array_values(array_unique(array_filter(array_map(
+            static fn (DOMElement $element): string => $context->selectorProjections->rootChildMarker($element->getNodePath() ?? ''),
+            $matches
+        ))));
+        if ( array() === $markers && array() === $shellTags ) {
+            return array($selector);
+        }
+        $rootArms = array();
+        foreach ( $markers as $marker ) {
+            $rootArms[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
+        }
+        foreach ( $shellTags as $tag ) {
+            // A shell part's landmark group is the box and keeps the
+            // authored selector's projection. The editor still nests
+            // it in Core's template-part transport wrapper.
+            $rootArms[] = ':root .editor-styles-wrapper :where(.wp-block-template-part) > ' . $tag . $this->selectorSpecificityShims($parsed, $context);
+        }
+        return $rootArms;
+    }
+
+    /**
+     * Matches inside a converted table address their serialized table path,
+     * with structural cells compacted per table; the rest stay.
+     *
+     * @param array<string, mixed> $parsed
+     * @param array<int, DOMElement> $matches
+     * @return array{0: array<int, string>, 1: array<int, DOMElement>}
+     */
+    private function projectTableDescendants(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): array
+    {
+        $tableDescendants = array();
+        $nonTableMatches = array();
+        $tableCellGroups = array();
+        foreach ( $matches as $element ) {
+            $projected = $this->projectTableDescendantSelector($selector, $parsed, $element, $context);
+            if ( null === $projected ) {
+                $nonTableMatches[] = $element;
+                continue;
+            }
+            $cellTarget = $this->structuralTableCellTarget($projected, $element, $context);
+            if ( null === $cellTarget ) {
+                $tableDescendants[] = $projected;
+                continue;
+            }
+            $groupKey = spl_object_id($cellTarget['table']) . "\0" . $cellTarget['tail'];
+            $tableCellGroups[$groupKey] ??= array( 'table' => $cellTarget['table'], 'marker' => $cellTarget['marker'], 'tail' => $cellTarget['tail'], 'cells' => array() );
+            $tableCellGroups[$groupKey]['cells'][spl_object_id($element)] = $element;
+        }
+        foreach ( $tableCellGroups as $group ) {
+            foreach ( $this->compactTableCellPaths($group['table'], $group['cells']) as $path ) {
+                $tableDescendants[] = '.' . $group['marker'] . '>table>' . $path . $group['tail'];
+            }
+        }
+        return array(array_values(array_unique($tableDescendants)), $nonTableMatches);
+    }
+
+    /**
+     * core/image saves the source image's classes and id on its
+     * <figure>, never on the <img>. A subject that names the image
+     * through them has nothing left to match, so it follows them to
+     * the figure: the box the image bridge already fills.
+     *
+     * @param array<string, mixed> $parsed
+     * @param array<int, DOMElement> $matches
+     * @return array{0: array<int, string>, 1: array<int, DOMElement>}
+     */
+    private function projectImageFigureSubjects(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): array
+    {
+        $figureSubjects = array();
+        $otherMatches = array();
+        $namesOnlyPositionedImages = array() === array_filter($matches, fn (DOMElement $element): bool => ! $this->isPositionedImage($element));
+        foreach ( $matches as $element ) {
+            $figureSubject = $this->projectImageFigureSubjectSelector($selector, $parsed, $element, $context, $namesOnlyPositionedImages);
+            if ( null === $figureSubject ) {
+                $otherMatches[] = $element;
+            } else {
+                $figureSubjects[] = $figureSubject;
+            }
+        }
+        return array(array_values(array_unique($figureSubjects)), $otherMatches);
+    }
+
+    /**
+     * When every match plays one navigation role core renders itself (direct
+     * anchor, list item, or list host), the subject moves onto core's markup.
+     *
+     * @param array<string, mixed> $parsed
+     * @param array<int, DOMElement> $matches
+     */
+    private function projectNavigationRoleSelector(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): ?string
+    {
+        // Every match is a direct anchor core re-parents into a list item of
+        // its own, so the subject's sibling position belongs to that item.
+        // Any other match, or a subject this projection cannot place, keeps
+        // the authored selector exactly.
+        if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ANCHOR, $context) ) {
+            $itemSelector = $this->projectNavigationItemAnchorSelector($selector, $parsed, $context);
+            if ( null !== $itemSelector ) {
+                return $itemSelector;
+            }
+        }
+        // Every match is a source list item core renders as a navigation
+        // item of its own. The source-type marker never reaches that
+        // rendered item, so the subject moves onto core's item class.
+        if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ITEM, $context) ) {
+            $itemSelector = $this->projectNavigationListItemSelector($selector, $parsed, $context);
+            if ( null !== $itemSelector ) {
+                $context->bindings->recordNativeSelector($selector);
+                return $itemSelector;
+            }
+        }
+        // Every match is a source list that is itself the element a
+        // core/navigation block stands in for. Its classes and id sit on
+        // the rendered `<nav>` (and on the inner list copy); the list type
+        // has to address that block rather than the copy.
+        if ( $this->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_LIST_HOST, $context) ) {
+            $hostSelector = $this->projectNavigationListHostSelector($selector, $parsed, $context, $matches);
+            if ( null !== $hostSelector ) {
+                return $hostSelector;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Classify the remaining matches by the engine marker each carries
+     * (control, semantic, RichText, inline layout carrier) and emit one arm
+     * per marker kind, keeping the authored arm, minus those carriers, for
+     * matches no marker covers.
+     *
+     * @param array<string, mixed> $parsed
+     * @param array<int, DOMElement> $matches
+     * @return array<int, string>
+     */
+    private function projectMarkerCarriers(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context, bool $controlWrapper, bool $subjectArms, bool $semanticSubjectArms): array
+    {
+        $arms = array();
+        $controls = array();
+        $linkOwnedControls = array();
+        $semanticLeaves = array();
+        $richTextLeaves = array();
+        $inlineLayoutCarriers = false;
+        $addressableInlineCarriers = false;
+        $hasNonProjected = false;
+        // A type selector that matched a menu toggle dropped for Core's
+        // native overlay control (or something inside it) has lost that
+        // subject; left bare it would reach the open/close buttons Core
+        // renders in the toggle's place. Only a type subject can reach
+        // them: Core's chrome carries no authored class, id or attribute.
+        $typeSubject = null !== (CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type'] ?? null);
+        $supersededToggles = false;
+        foreach ( $matches as $element ) {
+            $path = $element->getNodePath() ?? '';
+            if ( $context->selectorProjections->isRetainedSourcePath($path) || $this->isPreservedCodeSyntaxElement($element) ) {
+                $hasNonProjected = true;
+            } elseif ( $typeSubject && $context->selectorProjections->isSupersededControlPath($path) ) {
+                $supersededToggles = true;
+            } elseif ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
+                // Structured card lowering unwraps the fragment and hoists
+                // its styling hook onto the paragraph it emits, so the class
+                // lands on that paragraph instead of inside a carrier.
+                // Conversely, a retained ancestor carrier keeps this element
+                // in its source wrapper rather than emitting another carrier.
+                if ( $this->isHoistedCardFragment($element) || $this->isInsideRetainedInlineLayoutCarrier($element, $context) ) {
+                    $hasNonProjected = true;
+                    continue;
+                }
+                $inlineLayoutCarriers = true;
+                // Source analysis may add its own markers before stylesheet
+                // projection. Only the emitted paragraph can own this ID;
+                // unpromoted leaves make the additional selector inert.
+                $addressableInlineCarriers = $addressableInlineCarriers || ('span' === strtolower($element->tagName) && '' !== SourceDom::attr($element, 'id'));
+            } elseif ( '' !== ($marker = $context->selectorProjections->richTextMarker($path)) ) {
+                $richTextLeaves[] = $marker;
+            } elseif ( '' !== ($marker = $context->selectorProjections->controlMarker($path)) ) {
+                $controls[] = $marker;
+                if ( $controlWrapper && LayoutParticipation::BOX_LINK === LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox() ) {
+                    $linkOwnedControls[$marker] = true;
+                }
+            } elseif ( '' !== ($marker = $context->selectorProjections->imageWrapperMarker($path)) ) {
+                $semanticLeaves[] = $marker;
+            } elseif ( '' !== ($marker = $context->selectorProjections->semanticMarker($path)) ) {
+                $semanticLeaves[] = $marker;
+            } else {
+                $hasNonProjected = true;
+            }
+        }
+        $controls = array_values(array_unique($controls));
+        $semanticLeaves = array_values(array_unique($semanticLeaves));
+        $richTextLeaves = array_values(array_unique($richTextLeaves));
+        // In a mixed set the authored selector stays for the other matches,
+        // but every rendered menu anchor is the only child of its item, so
+        // the kept selector has to stop reaching them. Exclude them through
+        // the class core hard-codes on them; `:not(:where(…))` adds no
+        // specificity.
+        if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves && ! $inlineLayoutCarriers ) {
+            $insertion = '';
+            if ( $supersededToggles ) {
+                // Nothing else matched: the rule's subject is gone, so bind
+                // it to a marker nothing carries. Otherwise keep it for the
+                // surviving subjects but away from Core's toggle chrome.
+                $insertion = $hasNonProjected
+                    ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION
+                    : ':where(.' . AuthorStylesheetProjector::SUPERSEDED_MENU_TOGGLE_CLASS . ')';
+            }
+            return array($this->rewriteSourceTagTypes($selector, $parsed, $context, $insertion . self::sourceResolvedSiblingExclusion($parsed)));
+        }
+        $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
+        // Shared stylesheets are projected once per document into that
+        // document's marker namespace. Class-bound rules still address
+        // emitted markup that kept the authored class (button inner HTML,
+        // extracted chrome), so dropping the class leaves those elements
+        // unmatched in every other consuming document.
+        if ( $context->keepAuthorClassSelectors && array() !== $projectedMarkers && $this->isClassBoundSelector($parsed) ) {
+            $hasNonProjected = true;
+        }
+        // A RichText-marked element can be emitted as a block wrapper in
+        // another responsive representation, where only its authored class
+        // remains available to the projected rule.
+        if ( array() !== $richTextLeaves && $this->hasClassBoundSubject($parsed) ) {
+            $hasNonProjected = true;
+        }
+        // Source analysis marks potential inline carriers before pattern
+        // lowering. A native block can keep that source hook and topology
+        // instead; retain the authored arm wherever emitted markup still
+        // answers it, alongside the possible carrier forms.
+        $groupCarrier = false;
+        if ( $inlineLayoutCarriers ) {
+            $subject = substr($selector, (int) $parsed['rightmost_compound_span']['start']);
+            $groupCarrier = $this->matchesEmittedMarkup(CssSelectorMatcher::parse($subject . ':where(.wp-block-group)'), $context->emittedMarkup);
+            if ( $groupCarrier || $this->matchesEmittedMarkup($parsed, $context->emittedMarkup) ) {
+                $hasNonProjected = true;
+            }
+        }
+        if ( $hasNonProjected ) {
+            // Control, semantic and RichText carriers also carry their
+            // kind's role class, so the authored arm stays off all of them
+            // through one constant class per kind instead of a list of
+            // per-element markers that differs on every page.
+            $exclusion = array_map(static fn (string $roleClass): string => '.' . $roleClass, EngineMarker::roleClasses($projectedMarkers));
+            $arms[] = $this->rewriteSourceTagTypes(
+                $selector,
+                $parsed,
+                $context,
+                ( array() === $exclusion ? '' : ':not(:where(' . implode(',', $exclusion) . '))' ) . ( $supersededToggles ? self::NAVIGATION_TOGGLE_CHROME_EXCLUSION : '' )
+                    . ( in_array('.' . self::SEMANTIC_ROLE_CLASS, $exclusion, true) ? '' : self::sourceResolvedSiblingExclusion($parsed) )
+            );
+        }
+        // A context-free subject (`a`, `.btn`, `*`) reaches every control
+        // carrier whose source it matches, wherever it sits. When this page
+        // routes all of those carriers to the control arm, one arm naming
+        // their subject classes replaces their per-element arms, and the
+        // projection no longer depends on the page's other content. In
+        // wrapper mode each control's arm shape depends on its own layout
+        // participation, so those stay per element.
+        $controlSubject = $subjectArms && ! $controlWrapper && null === $this->universalControlSubject($selector, $parsed, $context) && array() !== $controls
+            ? $this->contextFreeSubject('control', $parsed, $controls, $context)
+            : null;
+        if ( null !== $controlSubject ) {
+            $arms[] = $this->projectControlTarget($controlSubject['target'], $selector, $parsed, $context, false);
+        }
+        foreach ( null === $controlSubject ? $controls : $controlSubject['rest'] as $marker ) {
+            $arms[] = $this->projectControlSelector($selector, $parsed, $marker, $context, $controlWrapper && ! isset($linkOwnedControls[$marker]));
+        }
+        // Semantic arms take one shape whatever the rule declares, so they
+        // only need the subject to be context-free.
+        $semanticSubject = $semanticSubjectArms && array() !== $semanticLeaves
+            ? $this->contextFreeSubject('semantic', $parsed, $semanticLeaves, $context)
+            : null;
+        if ( null !== $semanticSubject ) {
+            $arms[] = $this->projectSemanticTarget($semanticSubject['target'], $selector, $parsed, $context);
+        }
+        foreach ( null === $semanticSubject ? $semanticLeaves : $semanticSubject['rest'] as $marker ) {
+            $arms[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker, $context);
+        }
+        // RichText arms take one shape too; a carrier the subject arm does
+        // not cover keeps its per-element attribute arm.
+        $richTextSubject = $semanticSubjectArms && array() !== $richTextLeaves
+            ? $this->contextFreeSubject('richtext', $parsed, $richTextLeaves, $context)
+            : null;
+        if ( null !== $richTextSubject ) {
+            $arms[] = $this->projectSemanticTarget($richTextSubject['target'], $selector, $parsed, $context);
+        }
+        foreach ( null === $richTextSubject ? $richTextLeaves : $richTextSubject['rest'] as $marker ) {
+            $arms[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker, $context);
+        }
+        if ( $inlineLayoutCarriers ) {
+            $arms[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed, $addressableInlineCarriers);
+            // Potential inline leaves can instead lower to a native group
+            // when their attached source cascade establishes a block box.
+            // Keep that hook addressable even when document context (such
+            // as a body class) is absent from the emitted fragment here.
+            if ( $groupCarrier ) {
+                $arms[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':where(.wp-block-group)');
+            }
+        }
+        return $arms;
     }
 
     /**
@@ -1273,7 +1441,12 @@ final class AuthorSelectorProjector
         // core/button wrappers. Its surface is owned by the control arm below;
         // the attribute arm for the selector's other subjects must not paint
         // those wrappers a second time.
-        $attributeTarget = in_array(true, $controlOwned, true) ? ':not(.wp-block-buttons):not(.wp-block-button)' : '';
+        // Only the attribute predicates become static identity. Class tokens
+        // survive lowering and can change at runtime, so keep their conditions
+        // inside :where() while the shims retain the authored specificity.
+        $attributeTarget = CssSelectorCompoundInspector::markerClassConditions($rightmost);
+        if (null === $attributeTarget) return null;
+        $attributeTarget .= in_array(true, $controlOwned, true) ? ':not(.wp-block-buttons):not(.wp-block-button)' : '';
         foreach ( $matches as $index => $element ) {
             $path = $element->getNodePath() ?? '';
             if ( $controlOwned[$index] ) {
@@ -1616,6 +1789,22 @@ final class AuthorSelectorProjector
             // The same subject predicate guards the item slot: unrelated
             // synthetic paragraphs must not receive this item's placement.
             $arms[] = $itemSlot ? $prefix . $carrier . ':has(>' . $subject . ')' : $projected;
+        }
+        return array() === $arms ? null : implode(',', $arms);
+    }
+
+    /** Project child edges to retained anchors even when the rule addresses a descendant. */
+    private function projectParagraphAnchorAncestorSelector(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): ?string
+    {
+        $arms = array();
+        foreach ($parsed['type_spans'] ?? array() as $span) {
+            $index = (int) $span['compound'];
+            if ($index === count($parsed['compounds']) - 1
+                || 'a' !== strtolower($span['name']) || '>' !== ($parsed['combinators'][$index - 1] ?? null)) continue;
+            $start = (int) $span['start'];
+            $target = substr($selector, 0, $start) . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ')>' . substr($selector, $start);
+            $target = $this->rewriteSourceTagTypes($target, CssSelectorMatcher::parse($target), $context);
+            if ($this->matchesEmittedMarkup(CssSelectorMatcher::parse($target), $context->emittedMarkup)) $arms[] = $target;
         }
         return array() === $arms ? null : implode(',', $arms);
     }
@@ -2368,10 +2557,13 @@ final class AuthorSelectorProjector
      * `ul.wp-block-navigation__container` that holds the items. An item rule
      * whose parent compound is that list (`#menu > ul > li`) therefore has to
      * step through both: the list compound addresses the root through the
-     * list's semantic identity, and a child hop reaches core's container.
+     * list's semantic identity, and a descendant hop through Core's responsive
+     * wrappers reaches the container.
      * Otherwise `#menu > ul` looks for a UL child of `#menu` that no longer
      * exists, and the item loses its authored box (padding, height, display).
-     * Only applies when every matched item's parent is such a root-owning list.
+     * When the carrier owns the root instead, the source list maps directly
+     * to the inner container, with a descendant hop through Core's wrappers.
+     * Mixed root ownership is left alone.
      *
      * @param array<string, mixed> $parsed
      * @param list<DOMElement> $matches
@@ -2390,14 +2582,30 @@ final class AuthorSelectorProjector
             return array();
         }
         $identities = array();
+        $ownsRoot = null;
         foreach ( $matches as $item ) {
             $list = $item->parentNode;
             if ( ! $list instanceof DOMElement ) {
                 return array();
             }
             $path = $list->getNodePath() ?? '';
-            if ( ! $context->selectorProjections->navigationListOwnsRoot($path) ) {
+            $listOwnsRoot = $context->selectorProjections->navigationListOwnsRoot($path);
+            if ( null !== $ownsRoot && $ownsRoot !== $listOwnsRoot ) {
                 return array();
+            }
+            $ownsRoot = $listOwnsRoot;
+            if ( ! $ownsRoot ) {
+                if ( $parentIndex < 1 || '>' !== ($combinators[$parentIndex - 1] ?? null)
+                    || ! $context->selectorProjections->isNavigationSourcePath($item->getNodePath() ?? '', AuthorSelectorProjectionState::NAVIGATION_ITEM) ) {
+                    return array();
+                }
+                // Submenu lists live inside an item, not in the root container.
+                for ( $ancestor = $list->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                    if ( $context->selectorProjections->isNavigationSourcePath($ancestor->getNodePath() ?? '', AuthorSelectorProjectionState::NAVIGATION_ITEM) ) {
+                        return array();
+                    }
+                }
+                continue;
             }
             if ( '' === $type ) {
                 continue;
@@ -2408,6 +2616,31 @@ final class AuthorSelectorProjector
             }
             $identities[$marker] = '.wp-block-navigation.' . $marker;
         }
+        if ( false === $ownsRoot ) {
+            // The carrier, rather than this list, owns the navigation root.
+            // Core inserts responsive wrappers before the item container: relax
+            // the hop into the list, but keep its direct-child hop to the item.
+            foreach ( $parsed['type_spans'] as $typeSpan ) {
+                if ( $parentIndex !== ($typeSpan['compound'] ?? null) ) {
+                    continue;
+                }
+                $listStart = (int) $typeSpan['start'];
+                $replacements = array(
+                    $listStart => array(
+                        'end' => (int) $typeSpan['end'],
+                        'value' => ':where(.wp-block-navigation__container)' . $this->typeSpecificityShim($context),
+                    ),
+                );
+                if ( $parentIndex > 0 && '>' === ($combinators[$parentIndex - 1] ?? null) ) {
+                    $hop = $listStart;
+                    while ( $hop > 0 && ctype_space($selector[$hop - 1]) ) --$hop;
+                    if ( $hop < 1 || '>' !== $selector[$hop - 1] ) return array();
+                    $replacements[$hop - 1] = array( 'end' => $hop, 'value' => ' ' );
+                }
+                return $replacements;
+            }
+            return array();
+        }
         // The parent compound ends where the `>` before the item begins.
         $parentEnd = (int) $parsed['rightmost_compound_span']['start'];
         while ( $parentEnd > 0 && ctype_space($selector[$parentEnd - 1]) ) --$parentEnd;
@@ -2417,7 +2650,7 @@ final class AuthorSelectorProjector
         --$parentEnd;
         while ( $parentEnd > 0 && ctype_space($selector[$parentEnd - 1]) ) --$parentEnd;
         $replacements = array(
-            $parentEnd => array( 'end' => $parentEnd, 'value' => ' > :where(.wp-block-navigation__container)' ),
+            $parentEnd => array( 'end' => $parentEnd, 'value' => ' :where(.wp-block-navigation__container)' ),
         );
         if ( '' !== $type ) {
             foreach ( $parsed['type_spans'] as $typeSpan ) {

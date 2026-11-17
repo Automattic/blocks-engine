@@ -48,7 +48,7 @@ $transform = static function (string $html): array {
 
 /** The generated carrier class on `$markup`'s outermost `<header>` that declares `$property: $value`. */
 $headerCarrierDeclaring = static function (array $result, string $declaration): string {
-    if ( ! preg_match('/<header\b[^>]*\bclass="([^"]*)"/', $result['blocks'], $match) ) {
+    if ( ! preg_match('/<(?:header|div)\b[^>]*\bclass="([^"]*)"/', $result['blocks'], $match) ) {
         return '';
     }
     foreach ( preg_split('/\s+/', $match[1]) ?: array() as $class ) {
@@ -85,7 +85,7 @@ $scroll = $transform(
     . $inner . '</header>'
 );
 $carrier = $headerCarrierDeclaring($scroll, '--panelBg:#1e4a47');
-$assert(str_ends_with((string) ( $scroll['block']['blockName'] ?? '' ), '/scroll-state'), '2: the marked header still lowers to the scroll-state block');
+$assert('core/group' === ( $scroll['block']['blockName'] ?? '' ), '2: the marked header still lowers to the scroll-state block');
 $assert('' !== $carrier, '3: the scroll-state header keeps its inline custom property on a carrier', $scroll['blocks'] . "\n" . $scroll['css']);
 $assert(
     '' !== $carrier && in_array($carrier, preg_split('/\s+/', (string) ( $scroll['block']['attrs']['className'] ?? '' )) ?: array(), true),
@@ -93,7 +93,7 @@ $assert(
     (string) ( $scroll['block']['attrs']['className'] ?? '' )
 );
 $assert(str_contains($scroll['css'], ':root{--panelBg:#ffffff}'), '5: the :root default is still emitted for everything outside the header', $scroll['css']);
-$assert(str_contains($scroll['blocks'], 'data-blocks-engine-scroll-state-config='), '6: the captured scroll evidence still rides the saved markup');
+$assert(str_contains($scroll['blocks'], 'blocksEngineScrollState'), '6: the captured scroll evidence still rides the saved markup');
 $assert('pass' === $scroll['validity'], '7: the carried scroll-state header is editor-valid', (string) json_encode($scroll['validity']));
 
 // 3. An inline token that reads another inline token keeps both authored names.
