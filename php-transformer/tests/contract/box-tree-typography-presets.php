@@ -27,18 +27,17 @@ $theme = json_decode($themeWrite['payload']['data'], true, 512, JSON_THROW_ON_ER
 $families = array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'slug', 'fontFamily');
 $sizes = array_column($theme['settings']['typography']['fontSizes'] ?? array(), 'slug', 'size');
 $markup = $plan['pages'][0]['canonical_block_markup'];
-foreach (array('heading' => array('Display Face v2', '111.375px'), 'paragraph' => array('Text Face v2', '15.75px')) as $block => [$family, $size]) {
-    $assert(isset($families[$family], $sizes[$size]), 'Observed typography absent from static CSS gets exact editable presets.');
+foreach (array('heading' => 'Display Face v2', 'paragraph' => 'Text Face v2') as $block => $family) {
+    $assert(isset($families[$family]), 'Observed font families absent from static CSS get exact editable presets.');
     $assert(1 === preg_match('/<!-- wp:' . $block . ' (\{.*?\}) -->/', $markup, $match), 'Observed text remains a native block.');
     $attrs = json_decode($match[1], true, 512, JSON_THROW_ON_ERROR);
     $assert('var:preset|font-family|' . $families[$family] === ($attrs['style']['typography']['fontFamily'] ?? null), 'Observed font family binds inline to its exact preset.');
-    // The mobile engine rule still overrides the inline size. A Core preset
-    // size class is important and would freeze that responsive typography.
+    // A core preset size class is important and would freeze the captured
+    // responsive typography, which stays on its generated carrier.
     $assert(!isset($attrs['fontSize']), 'Responsive sizes must not acquire an important preset class.');
-    $assert('var:preset|font-size|' . $sizes[$size] === ($attrs['style']['typography']['fontSize'] ?? null), 'Responsive base size binds inline without changing priority.');
 }
 $css = implode('\n', array_column($plan['assets'], 'content'));
 $assert(str_contains($css, '@media (max-width:390px)') && str_contains($css, 'font-size:12px'), 'The captured mobile typography remains active.');
-$assert(str_contains($css, 'font-size:12px !important'), 'Captured mobile carrier sizes override the editable inline base.');
-$assert(!str_contains($css, 'font-size:111.375px !important'), 'The captured resting size does not gain priority.');
+// Binding names values; it never rewrites the captured carrier rules.
+$assert(!str_contains($css, 'font-size:12px !important') && !str_contains($css, 'font-size:111.375px !important'), 'Captured carrier sizes keep their source priority.');
 echo "Box-tree typography presets contract passed.\n";

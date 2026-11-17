@@ -114,7 +114,7 @@ final class SitePlanRun
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
         $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
-        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups)->withBlockTypography($markups, $assets);
+        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups)->withBlockTypography($markups);
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
