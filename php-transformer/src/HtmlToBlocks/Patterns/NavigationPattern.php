@@ -538,6 +538,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         // block's importer identity when the source carries only core classes.
         $scopedClasses = $this->scopedNavigationClasses($authorClasses, $navigation);
         $navigationContext->recordInheritedPresentation($navigationSource, $scopedClasses, ! $this->hasDirectListItemCorrespondence($listSource));
+        if (null === $listSource) {
+            $navigationContext->projectBareAnchorAlignment($navigationSource, $scopedClasses);
+        }
         // WordPress copies the emitted block's classes onto its inner list.
         $navigationContext->recordNavigationContainerReset(
             $navigationSource,
@@ -3810,7 +3813,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $sourceClasses;
         }
 
-        return $this->carriedClassNames((string) ($navigation['attrs']['className'] ?? ''));
+        // Shape markers do not identify a source box. In particular, adding
+        // an anchor-items marker must not change the source-tag reset selector.
+        return array_values(array_filter(
+            $this->carriedClassNames((string) ($navigation['attrs']['className'] ?? '')),
+            static fn (string $class): bool => self::ANCHOR_ITEMS_NAVIGATION_CLASS !== $class
+        ));
     }
 
     /**

@@ -27,6 +27,15 @@ $assert = static function (bool $ok, string $message): void {
 };
 $assert(str_contains($markup, 'wp:navigation '), 'bare anchors remain native navigation');
 $assert(str_contains($markup, 'blocks-engine-anchor-items-navigation'), 'bare-anchor navigation is marked independently of responsive toggles');
-$assert(str_contains($css, '.wp-block-navigation.blocks-engine-anchor-items-navigation{align-items:normal}'), 'source flex alignment replaces Core centering on the host and cloned list');
+$assert(str_contains($css, '.wp-block-navigation.menu{align-items:normal}'), 'source default alignment is projected onto its own navigation');
 $assert(str_contains($css, '.wp-block-navigation:where(.blocks-engine-anchor-items-navigation) .wp-block-navigation-item{align-items:normal}'), 'synthetic items stretch their anchor instead of centering it');
+if (in_array('--json', $argv, true)) {
+    $centered = (new HtmlTransformer())->transform(str_replace('display:flex;', 'display:flex;align-items:center;', $html), array())->toArray();
+    $centeredCss = '';
+    foreach ($centered['assets'] as $asset) {
+        if ('css' === ($asset['kind'] ?? '')) $centeredCss .= $asset['content'] ?? '';
+    }
+    echo json_encode(array('css' => $css, 'centeredCss' => $centeredCss));
+    exit;
+}
 echo "Bare-anchor navigation alignment passed\n";
