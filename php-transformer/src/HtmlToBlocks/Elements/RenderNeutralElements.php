@@ -37,6 +37,18 @@ final class RenderNeutralElements
     /** URL-bearing attributes; a nonempty value means the subtree references rendered content elsewhere. */
     private const SUBTREE_URL_ATTRIBUTES = array( 'src', 'srcset', 'href', 'data-src', 'data-url' );
 
+    /**
+     * Landmark (non-widget) roles a named custom element may carry, and the
+     * core/group tag that keeps them. `group` has no native tag core/group can
+     * save, so it would lose its role and stays on the fallback path.
+     */
+    private const LANDMARK_ROLE_TAGS = array(
+        'region' => 'section',
+        'complementary' => 'aside',
+        'navigation' => 'nav',
+        'search' => 'search',
+    );
+
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly SourceElementClassifier $sourceElementClassifier,
@@ -291,6 +303,50 @@ final class RenderNeutralElements
         return 1 === preg_match('/^[+-]?0(?:\.0+)?(?:[a-z]+|%)?(?:\s+[+-]?0(?:\.0+)?(?:[a-z]+|%)?){0,3}$/', CssValueInspector::comparable($value));
     }
 
+    /**
+     * The core/group a custom element's landmark semantics lower to: a
+     * landmark role (no widget role) with an accessible name that core/group
+     * can carry as `ariaLabel`. Returns null for anything else, including an
+     * unresolvable `aria-labelledby`, so those hosts keep their existing
+     * disposition.
+     *
+     * @return array{tagName: string, ariaLabel: string}|null
+     */
+    public function namedLandmark(DOMElement $element): ?array
+    {
+        if ( ! str_contains($element->tagName, '-') ) {
+            return null;
+        }
+        $tagName = self::LANDMARK_ROLE_TAGS[strtolower(trim(SourceDom::attr($element, 'role')))] ?? null;
+        if ( null === $tagName ) {
+            return null;
+        }
+        $label = trim(SourceDom::attr($element, 'aria-label'));
+        $labelledBy = array_filter(SourceDom::tokens(SourceDom::attr($element, 'aria-labelledby')), static fn (string $id): bool => '' !== $id);
+        if ( array() !== $labelledBy ) {
+            // aria-labelledby wins the accessible name; carry its text.
+            $parts = array();
+            foreach ( $labelledBy as $id ) {
+                $reference = $element->ownerDocument?->getElementById($id);
+                if ( null === $reference ) {
+                    foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $candidate ) {
+                        if ( $candidate instanceof DOMElement && $id === $candidate->getAttribute('id') ) {
+                            $reference = $candidate;
+                            break;
+                        }
+                    }
+                }
+                if ( ! $reference instanceof DOMElement ) {
+                    return null;
+                }
+                $parts[] = trim((string) preg_replace('/\s+/u', ' ', $reference->textContent ?? ''));
+            }
+            $label = trim(implode(' ', $parts));
+        }
+
+        return '' === $label ? null : array( 'tagName' => $tagName, 'ariaLabel' => $label );
+    }
+
     /** A neutral autonomous host whose ordinary light DOM needs no component lowering. */
     public function isRenderNeutralCustomFlowWrapper(DOMElement $element): bool
     {
@@ -524,8 +580,10 @@ final class RenderNeutralElements
      * accessible name (a widget, not a wrapper) stays on the preservation
      * path, as do the legacy Shadow DOM insertion points `content` and
      * `shadow`, and a textless hyphenated custom element, which a script may
-     * still upgrade into rendered shadow content. Passive graphic-only light
-     * DOM, captured native media, or an empty host painting only its inline
+     * still upgrade into rendered shadow content. A named landmark role
+     * (`role="region" aria-label="…"`, see namedLandmark()) only names a
+     * section of the page, so it does not make the host a widget. Passive
+     * graphic-only light DOM, captured native media, or an empty host painting only its inline
      * background is the exception, unless configuration or a proven runtime
      * owns the host. As with a background-paint-only host, a host whose light
      * DOM is nothing but captured native media already renders without a
@@ -542,8 +600,16 @@ final class RenderNeutralElements
         ) {
             return false;
         }
+        // A landmark host only names a section; a proven runtime definition
+        // may still give it widget behaviour, so it keeps the widget path.
+        $landmark = null !== $this->namedLandmark($element)
+            && ! ( new CustomElementRuntimeDependency() )->hasProvenRuntimeDependency(
+                $element,
+                $this->session->runtimeBehaviorState()->runtimeScriptMetadata(),
+                $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets()
+            );
         foreach ( array( 'role', 'aria-label', 'aria-labelledby' ) as $attribute ) {
-            if ( '' !== trim(SourceDom::attr($element, $attribute)) ) {
+            if ( ! $landmark && '' !== trim(SourceDom::attr($element, $attribute)) ) {
                 return false;
             }
         }
