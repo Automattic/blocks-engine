@@ -781,20 +781,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        // A landmark often holds one authored layout wrapper (a centred
-        // `.container` row) around the brand, the menu and its CTA. That
-        // wrapper owns the row's width, inline margins and spacing, so the
-        // carrier reads the brand shape inside it and keeps it as its own
-        // group instead of letting the generic path flatten the brand, menu
-        // and CTA into one menu that loses the wrapper's box.
-        $row = $this->soleLayoutWrapper($element, $navigationContext) ?? $element;
         $anchor = null;
         $cluster = null;
         $brandLeads = true;
         $extras = array();
         $order = array();
         $buttonSignals = new ButtonSignalClassifier();
-        $nonAnchorShape = $this->nonAnchorBrandNavigationShape($row);
+        $nonAnchorShape = $this->nonAnchorBrandNavigationShape($element);
         if ( null !== $nonAnchorShape ) {
             $anchor = $nonAnchorShape['brand'];
             $cluster = $nonAnchorShape['cluster'];
@@ -804,7 +797,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 : array( array( 'kind' => 'cluster' ), array( 'kind' => 'brand' ) );
         }
 
-        foreach ( null === $nonAnchorShape ? $row->childNodes : array() as $child ) {
+        foreach ( null === $nonAnchorShape ? $element->childNodes : array() as $child ) {
             if ( XML_COMMENT_NODE === $child->nodeType ) {
                 continue;
             }
@@ -828,7 +821,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            if ( $this->isCollapsedNavigationDuplicate($child, $row, $navigationContext) ) {
+            if ( $this->isCollapsedNavigationDuplicate($child, $element, $navigationContext) ) {
                 continue;
             }
 
@@ -923,8 +916,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         $links = array();
         $directAnchors = array();
         $listItems = array();
-        if ( $cluster->isSameNode($row) ) {
-            foreach ( $row->childNodes as $child ) {
+        if ( $cluster->isSameNode($element) ) {
+            foreach ( $element->childNodes as $child ) {
                 if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== $this->anchorLabel($child, $innerHtml) ) {
                     $links[] = $this->navigationLinkBlock($child, $presentationAttributes, $innerHtml, $createBlock, $child, $navigationContext);
                     $directAnchors[] = $child;
@@ -962,7 +955,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // The link cluster owns the navigation block's presentation: it is the
         // element core/navigation stands in for, so the menu list's className
         // stays with the menu instead of being copied onto the landmark.
-        $navigationAttrs = $cluster->isSameNode($row)
+        $navigationAttrs = $cluster->isSameNode($element)
             ? array()
             : $this->navigationContainerAttributes($cluster, $presentationAttributes, $navigationContext);
         $navigationAttrs = $this->withCollapsedItemBand($navigationAttrs, $cluster, $navigationContext);
@@ -1023,7 +1016,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $navigationAttrs = $this->withClassName($navigationAttrs, $marker);
                     $navigationContext->projectSourceToNativeTarget(
                         $element,
-                        '.wp-block-group.blocks-engine-brand-navigation-carrier>' . ( $row->isSameNode($element) ? '' : '.wp-block-group>' ) . '.wp-block-navigation.blocks-engine-direct-navigation.' . $marker,
+                        '.wp-block-group.blocks-engine-brand-navigation-carrier>.wp-block-navigation.blocks-engine-direct-navigation.' . $marker,
                         'max-width' === $family ? 'max-width:none' : $family . ':0'
                     );
                 }
@@ -1082,14 +1075,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             $navigation = $createBlock('core/group', $presentationAttributes($clusterWrapper), $clusterBlocks, $clusterWrapper);
         }
 
-        $carrier = function (array $children) use ($createBlock, $carrierAttrs, $presentationAttributes, $element, $row): array {
-            if ( ! $row->isSameNode($element) ) {
-                $children = array( $createBlock('core/group', $presentationAttributes($row), $children, $row) );
-            }
-            return $createBlock('core/group', $carrierAttrs, $children, $element);
-        };
         if ( array() === $extraBlocks ) {
-            return $carrier($brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ));
+            return $createBlock('core/group', $carrierAttrs, $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ), $element);
         }
 
         // Authored order is the only order that reproduces the design: the CTA
@@ -1107,44 +1094,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             $children[] = $extraBlocks[$slot['index']];
         }
 
-        return $carrier($children);
-    }
-
-    /**
-     * The one authored layout `<div>` a landmark wraps all of its content in,
-     * when that wrapper is ordinary layout: no text of its own, no runtime or
-     * navigation-chrome role, and at least two children to lay out.
-     */
-    private function soleLayoutWrapper(DOMElement $landmark, NavigationPatternContext $navigationContext): ?DOMElement
-    {
-        $wrapper = null;
-        foreach ( $landmark->childNodes as $child ) {
-            if ( XML_COMMENT_NODE === $child->nodeType
-                || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement || $wrapper instanceof DOMElement ) {
-                return null;
-            }
-            $wrapper = $child;
-        }
-        if ( ! $wrapper instanceof DOMElement
-            || 'div' !== strtolower($wrapper->tagName)
-            || $this->isNavigationChromeElement($wrapper)
-            || $navigationContext->isRuntimeDomTarget($wrapper)
-        ) {
-            return null;
-        }
-        $children = 0;
-        foreach ( $wrapper->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
-                return null;
-            }
-            if ( $child instanceof DOMElement ) {
-                ++$children;
-            }
-        }
-        return 2 <= $children ? $wrapper : null;
+        return $createBlock('core/group', $carrierAttrs, $children, $element);
     }
 
     /**

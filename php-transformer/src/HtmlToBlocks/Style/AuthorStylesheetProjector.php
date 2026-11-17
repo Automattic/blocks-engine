@@ -91,29 +91,8 @@ final class AuthorStylesheetProjector
                 $class = '.' . ImageLowering::BACKGROUND_IMAGE_CLASS;
                 $guard = ':where(:not(' . $class . ',' . $class . ' *))';
                 foreach ( $arms as &$arm ) {
-                    $tokens = CssSelectorTokenizer::tokenize($arm);
-                    if ( ! $tokens['supported'] ) continue;
-                    $span = $tokens['compound_spans'][count($tokens['compound_spans']) - 1];
-                    $insert = $span['end'];
-                    $hooked = 1 === preg_match('/\G(?:[a-z][\w-]*\|)?([a-z][\w-]*)/i', $arm, $type, 0, $span['start'])
-                        && ! in_array(strtolower($type[1]), array( 'img', 'figure' ), true);
-                    $state = CssSyntaxScanner::state();
-                    for ( $offset = $span['start']; ! $hooked && $offset < $span['end']; ) {
-                        $topLevel = CssSyntaxScanner::isTopLevel($state);
-                        $next = CssSyntaxScanner::consume($arm, $offset, $state);
-                        if ( null === $next ) break;
-                        if ( $topLevel && ('.' === $arm[$offset] || '#' === $arm[$offset] || preg_match('/\G(?::(?:where|is)\([.#][\w-]+(?:\s*,\s*[.#][\w-]+)*\)|\[(?!(?:src|srcset|alt|class|style|sizes|width|height|loading|decoding)\b))/i', $arm, $_, 0, $offset)) ) {
-                            $hooked = true;
-                            break;
-                        }
-                        if ( $topLevel && ':' === $arm[$offset]
-                            && (':' === ($arm[$offset + 1] ?? '') || preg_match('/\G:(?:before|after|first-line|first-letter)(?![\w-])/i', $arm, $_, 0, $offset)) ) {
-                            $insert = $offset;
-                            break;
-                        }
-                        $offset = $next;
-                    }
-                    if ( ! $hooked ) $arm = substr($arm, 0, $insert) . $guard . substr($arm, $insert);
+                    $insert = self::backgroundGuardOffset($arm);
+                    if ( null !== $insert ) $arm = substr($arm, 0, $insert) . $guard . substr($arm, $insert);
                 }
                 unset($arm);
                 return implode(',', $arms) . '{' . $body . '}';
@@ -212,6 +191,45 @@ final class AuthorStylesheetProjector
     }
 
     /** @param list<string> $ancestors */
+    /**
+     * Where a materialized background guard belongs in a selector arm: before
+     * its subject's pseudo-element, or null when the subject compound already
+     * requires a hook the background figure and img never carry.
+     */
+    private static function backgroundGuardOffset(string $arm): ?int
+    {
+        $tokens = CssSelectorTokenizer::tokenize($arm);
+        if ( ! $tokens['supported'] || array() === $tokens['compound_spans'] ) return null;
+        $span = $tokens['compound_spans'][count($tokens['compound_spans']) - 1];
+        if ( 1 === preg_match('/\G(?:[a-z][\w-]*\|)?([a-z][\w-]*)/i', $arm, $type, 0, $span['start'])
+            && ! in_array(strtolower($type[1]), array( 'img', 'figure' ), true) ) return null;
+        $state = CssSyntaxScanner::state();
+        for ( $offset = $span['start']; $offset < $span['end']; ) {
+            $topLevel = CssSyntaxScanner::isTopLevel($state);
+            if ( $topLevel && ('.' === $arm[$offset] || '#' === $arm[$offset] || preg_match('/\G\[(?!(?:src|srcset|alt|class|style|sizes|width|height|loading|decoding)\b)/i', $arm, $_, 0, $offset)) ) {
+                return null;
+            }
+            // A matches-any list hooks the subject when every argument's own
+            // subject is hooked, such as :where(.a.b) or :where(mark[x],span[y]).
+            if ( $topLevel && 1 === preg_match('/\G:(?:where|is)\(/i', $arm, $open, 0, $offset) ) {
+                $close = CssSyntaxScanner::matchingClose($arm, $offset + strlen($open[0]) - 1);
+                $arguments = null === $close ? null : CssStylesheetTransformer::splitSelectorList(substr($arm, $offset + strlen($open[0]), $close - $offset - strlen($open[0])));
+                if ( null !== $arguments && array() !== $arguments
+                    && array() === array_filter($arguments, static fn (string $argument): bool => '' === trim($argument) || ! CssSelectorTokenizer::tokenize(trim($argument))['supported'] || null !== self::backgroundGuardOffset(trim($argument))) ) {
+                    return null;
+                }
+            }
+            if ( $topLevel && ':' === $arm[$offset]
+                && (':' === ($arm[$offset + 1] ?? '') || preg_match('/\G:(?:before|after|first-line|first-letter)(?![\w-])/i', $arm, $_, 0, $offset)) ) {
+                return $offset;
+            }
+            $next = CssSyntaxScanner::consume($arm, $offset, $state);
+            if ( null === $next ) break;
+            $offset = $next;
+        }
+        return $span['end'];
+    }
+
     private static function ancestorsAreConditional(array $ancestors): bool
     {
         foreach ( $ancestors as $ancestor ) {
@@ -1291,40 +1309,33 @@ final class AuthorStylesheetProjector
         if ( null === $selectors ) {
             return '';
         }
-        $projected = array();
+        // Each matched native button, with the longhands of this rule that a
+        // stronger source rule wins on it. The restatement below carries two
+        // extra class weights, so it must leave those longhands to the winner.
+        $carriers = array();
         foreach ( $selectors as $selector ) {
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] ) {
                 continue;
             }
-            $markers = array();
-            $flattened = true;
             foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
                 $path = $element->getNodePath() ?? '';
                 $marker = $context->selectorProjections->controlMarker($path);
                 if ( 'button' !== strtolower($element->tagName) || '' === $marker || $this->isSpecializedNativeButton($element, $body) ) {
                     continue;
                 }
-                $markers[] = $marker;
-                $flattened = $flattened && LayoutParticipation::resolve($element, $this->styleResolver)->neutralizeButtonWrapper();
-            }
-            $arms = array();
-            // Every native button carrier the context-free subject matches is
-            // reached through the role and subject classes; `.button` stands
-            // for the tag test the per-element list applied.
-            $subject = array() !== $markers ? $this->selectors->contextFreeSubject('control', $this->withButtonSubject($parsed), $markers, $context) : null;
-            if ( null !== $subject ) {
-                $arms[] = $this->nativeButtonControlTarget($subject['target'], $selector, $parsed, $context);
-                $markers = $subject['rest'];
-            }
-            foreach ( $markers as $marker ) {
-                $arms[] = $this->nativeButtonControlSelector($selector, $parsed, $marker, $context);
-            }
-            foreach ( $arms as $arm ) {
-                $projected[] = array( $arm, $flattened ? $this->flattenedWrapperLinkArm($arm) : $arm );
+                $carriers[$selector][] = array(
+                    'marker' => $marker,
+                    'flattened' => LayoutParticipation::resolve($element, $this->styleResolver)->neutralizeButtonWrapper(),
+                    'outranked' => array_filter(
+                        $this->styleResolver->outrankedAuthorLonghands($element, $selector, $body),
+                        fn (string $longhand): bool => ! $this->isBlockCarriedColourLonghand($longhand),
+                        ARRAY_FILTER_USE_KEY
+                    ),
+                );
             }
         }
-        if ( array() === $projected ) {
+        if ( array() === $carriers ) {
             return '';
         }
 
@@ -1334,20 +1345,85 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $exclusion = $this->nativeButtonEditedPropertyExclusion($name);
-            $declarations[$exclusion][ButtonDeclarationRouting::isWrapperOwnedProperty($name) ? 1 : 0][] = $name . ':' . $value;
+            $declarations[$exclusion][ButtonDeclarationRouting::isWrapperOwnedProperty($name) ? 1 : 0][] = array(
+                'declaration' => $name . ':' . $value,
+                'longhands' => array_map('strtolower', array_keys(SourceDeclarations::parse($name . ':' . CssValueInspector::withoutImportant($value)))),
+            );
         }
         if ( array() === $declarations ) {
             return '';
         }
+        $arms = array();
         $rules = array();
         foreach ( $declarations as $exclusion => $groups ) {
-            foreach ( $groups as $wrapperOwned => $properties ) {
-                foreach ( array_values(array_unique(array_column($projected, $wrapperOwned))) as $selector ) {
-                    $rules[] = $selector . $exclusion . '{' . implode(';', $properties) . '}';
+            foreach ( $groups as $wrapperOwned => $entries ) {
+                $bySelector = array();
+                foreach ( $carriers as $selector => $matched ) {
+                    // Declarations whose winning carriers are the same share one rule.
+                    $partitions = array();
+                    foreach ( $entries as $entry ) {
+                        $markers = array_values(array_filter(
+                            $matched,
+                            static fn (array $carrier): bool => array() === array_intersect_key($carrier['outranked'], array_flip($entry['longhands']))
+                        ));
+                        if ( array() !== $markers ) {
+                            $key = implode(' ', array_column($markers, 'marker'));
+                            $partitions[$key]['carriers'] = $markers;
+                            $partitions[$key]['declarations'][] = $entry['declaration'];
+                        }
+                    }
+                    foreach ( $partitions as $key => $partition ) {
+                        $arms[$selector][$key] ??= $this->nativeButtonCompatArms((string) $selector, $partition['carriers'], $context);
+                        foreach ( array_column($arms[$selector][$key], $wrapperOwned) as $arm ) {
+                            $bySelector[$arm] = array_merge($bySelector[$arm] ?? array(), $partition['declarations']);
+                        }
+                    }
+                }
+                foreach ( $bySelector as $arm => $properties ) {
+                    $rules[] = $arm . $exclusion . '{' . implode(';', array_values(array_unique($properties))) . '}';
                 }
             }
         }
         return implode('', $rules);
+    }
+
+    /**
+     * core/button serializes the source button's colours itself (preset class
+     * or inline style), and the restatement of a colour longhand is guarded by
+     * `.has-background` / `.has-text-color` / the inline style, so it already
+     * yields to a stronger source colour. It stays as the owner's fallback
+     * when that colour is cleared in the editor.
+     */
+    private function isBlockCarriedColourLonghand(string $longhand): bool
+    {
+        return 'color' === $longhand || str_starts_with($longhand, 'background');
+    }
+
+    /**
+     * The restatement arms for the native buttons one source selector matches:
+     * each pairs the link arm with its flattened-wrapper geometry form.
+     *
+     * @param list<array{marker: string, flattened: bool}> $carriers
+     * @return list<array{0: string, 1: string}>
+     */
+    private function nativeButtonCompatArms(string $selector, array $carriers, AuthorStylesheetProjectionContext $context): array
+    {
+        $parsed = $context->sourceStyles->parsedSelector($selector);
+        $markers = array_column($carriers, 'marker');
+        $flattened = ! in_array(false, array_column($carriers, 'flattened'), true);
+        $arms = array();
+        // Every native button carrier the context-free subject matches is
+        // reached through the role and subject classes; `.button` stands
+        // for the tag test the per-element list applied.
+        $subject = $this->selectors->contextFreeSubject('control', $this->withButtonSubject($parsed), $markers, $context);
+        if ( null !== $subject ) {
+            $arms[] = $this->nativeButtonControlTarget($subject['target'], $selector, $parsed, $context);
+            $markers = $subject['rest'];
+        }
+        foreach ( $markers as $marker ) {
+            $arms[] = $this->nativeButtonControlSelector($selector, $parsed, $marker, $context);
+        }
+        return array_map(fn (string $arm): array => array( $arm, $flattened ? $this->flattenedWrapperLinkArm($arm) : $arm ), $arms);
     }
 
     /**

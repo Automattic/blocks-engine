@@ -535,16 +535,31 @@ final class ArtifactCompiler
         $assets = $this->pruneAbsentSupportSubjects($assets, $authoredFiles, implode("\n", $pageMarkup) . "\n" . $sharedMarkup);
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets);
+        // Both pruners read the same consumer evidence; build it once.
+        // Staged transport compiles one route at a time; use the whole site's
+        // evidence so a definition consumed on another route survives.
+        $consumerEvidence = array_merge($this->siteSelectorEvidence ?? $this->selectorEvidence($authoredFiles), array_values($pageMarkup));
+        $definitionPruner = new \Automattic\BlocksEngine\PhpTransformer\Css\UnusedDefinitionPruner(
+            array_values(array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')))),
+            $consumerEvidence
+        );
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? '') || !is_string($asset['content'] ?? null)) continue;
+            $content = $definitionPruner->prune($asset['content']);
+            if ($content !== $asset['content']) $asset = ArtifactNormalizer::withTextPayload($asset, $content);
+        }
+        unset($asset, $definitionPruner);
         $propertyPruner = new \Automattic\BlocksEngine\PhpTransformer\Css\UnusedCustomPropertyPruner(
             array_values(array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')))),
-            array_merge($this->selectorEvidence($authoredFiles), array_values($pageMarkup))
+            $consumerEvidence
         );
+        unset($consumerEvidence);
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? '') || !is_string($asset['content'] ?? null)) continue;
             $content = $propertyPruner->prune($asset['content']);
             if ($content !== $asset['content']) $asset = ArtifactNormalizer::withTextPayload($asset, $content);
         }
-        unset($asset);
+        unset($asset, $propertyPruner);
         $diagnostics = ArtifactDiagnostics::dedupe(array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics, $this->omittedPageDiagnostics($omittedPages)));
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {

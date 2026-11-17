@@ -4,6 +4,10 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
 // #6152: repeated thumbnail cards and carousel controls must not retain post chrome.
@@ -134,6 +138,86 @@ foreach ($posts as $post) {
     if (!in_array('<span>' . $dateLabel . '</span>', $post['metadata']['post_meta'] ?? array(), true)) $failures[] = $case . ': projected card date for ' . $slug;
 }
 echo $case . ': ' . implode('/', array_map(static fn(array $post): int => strlen($post['canonical_block_markup']), $posts)) . ' bytes; ' . count($findings) . " findings\n";
+
+// #6334: source `container > *` rules reach the rendered card root through
+// the Query Loop transport wrappers for related and listing loops alike.
+$cssRules = static function (string $css): array {
+    $rules = array();
+    (new CssStylesheetTransformer())->transformStyleRules($css, static function (string $prelude, string $body) use (&$rules): string {
+        $rules[] = array('selectors' => CssStylesheetTransformer::splitSelectorList($prelude) ?? array(), 'body' => $body);
+        return $prelude . '{' . $body . '}';
+    });
+    return $rules;
+};
+$listingTitles = array('first' => 'First notes', 'second' => 'Second notes', 'third' => 'Third notes');
+$transportCases = array(
+    'related-track' => array(
+        'css' => '.track{display:flex;list-style:none;padding:0}.track>*{flex:0 0 auto;width:33%}',
+        'expect' => array('flex' => '0 0 auto', 'width' => '33%'),
+        'owner' => 'template',
+    ),
+    'listing-cards' => array(
+        'css' => '.cards{display:flex}.cards>*{flex:0 0 auto;width:33%}:where(.cards>:not(:last-child)){margin-bottom:24px}',
+        'expect' => array('flex' => '0 0 auto', 'width' => '33%'),
+        'owner' => 'page',
+    ),
+);
+foreach ($transportCases as $case => $spec) {
+    $files = array();
+    if ('related-track' === $case) {
+        $links = '';
+        foreach ($listingTitles as $slug => $title) $links .= '<p><a href="/2024/02/' . $slug . '.html">' . $title . '</a></p>';
+        $files[] = array('path' => 'index.html', 'content' => '<!doctype html><html><head><title>Example Journal</title></head><body><main><h1>Example Journal</h1>' . $links . '</main></body></html>');
+        foreach (array_keys($listingTitles) as $i => $slug) {
+            $date = sprintf('2024-02-%02d', 10 + $i);
+            $cards = '';
+            foreach (array_diff(array_keys($listingTitles), array($slug)) as $other) $cards .= '<li><div class="card"><a class="thumb" href="/2024/02/' . $other . '.html"><img src="/media/' . $other . '.png" width="120" height="80" alt=""></a><a href="/2024/02/' . $other . '.html">' . $listingTitles[$other] . '</a></div></li>';
+            $html = '<!doctype html><html><head><title>' . $listingTitles[$slug] . '</title><meta property="article:published_time" content="' . $date . 'T00:00:00Z"><style>' . $spec['css'] . '</style></head><body><main><article class="post"><h1 class="post-title">' . $listingTitles[$slug] . '</h1><p class="post-date"><time datetime="' . $date . '">' . $date . '</time></p><div class="post-body"><p>' . $slug . ' opening paragraph.</p><p>' . $slug . ' closing paragraph.</p></div><div class="related"><h3>Related Posts</h3><ul class="track">' . $cards . '</ul></div></article></main></body></html>';
+            $files[] = array('path' => '2024/02/' . $slug . '.html', 'content' => $html, 'metadata' => array('post_type' => 'post', 'declared_content' => array('title' => $listingTitles[$slug], 'slug' => $slug, 'published' => $date . 'T00:00:00Z', 'updated' => $date . 'T00:00:00Z', 'author' => 'Example Author', 'terms' => array('Notes'))));
+            $files[] = array('path' => 'media/' . $slug . '.png', 'content' => hex2bin('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63000100000500010d0a2db40000000049454e44ae426082'));
+        }
+    } else {
+        $cards = '';
+        foreach (array('first' => 'Jan 3, 2026', 'second' => 'Jan 2, 2026') as $slug => $date) $cards .= '<article class="card"><h2><a href="/' . $slug . '.html">' . $listingTitles[$slug] . '</a></h2><p><time datetime="' . date('Y-m-d', strtotime($date)) . '">' . $date . '</time></p></article>';
+        $files[] = array('path' => 'index.html', 'content' => '<style>' . $spec['css'] . '</style><main><section class="cards">' . $cards . '</section></main>');
+        foreach (array('first' => '2026-01-03', 'second' => '2026-01-02') as $slug => $date) $files[] = array('path' => $slug . '.html', 'content' => '<html><head><title>' . $listingTitles[$slug] . '</title><meta property="og:type" content="article"><meta property="article:published_time" content="' . $date . 'T00:00:00Z"></head><body><main><h1>' . $listingTitles[$slug] . '</h1><p>' . $slug . ' article body.</p></main></body></html>');
+    }
+    $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
+    $owners = 'template' === $spec['owner'] ? $plan['templates'] : $plan['pages'];
+    $query = '';
+    foreach ($owners as $owner) if (str_contains($owner['canonical_block_markup'], 'blocks-engine-listing-query')) { $query = $owner['canonical_block_markup']; break; }
+    // Model the server-rendered query: core/post-template renders a ul whose
+    // li.wp-block-post holds the card. The placeholder keeps the HTML parser
+    // from closing that li at an li card root; the tree is rebuilt below.
+    $rendered = preg_replace('/<!--.*?-->/s', '', strtr($query, array('<!-- wp:post-template -->' => '<ul class="wp-block-post-template"><be-post>', '<!-- /wp:post-template -->' => '</be-post></ul>')));
+    $document = HtmlSerialization::parseDocument('<body>' . $rendered . '</body>');
+    $placeholder = $document->getElementsByTagName('be-post')->item(0);
+    $transport = null;
+    if ($placeholder instanceof DOMElement) {
+        $transport = $document->createElement('li');
+        $transport->setAttribute('class', 'wp-block-post');
+        while (null !== $placeholder->firstChild) $transport->appendChild($placeholder->firstChild);
+        $placeholder->parentNode->replaceChild($transport, $placeholder);
+    }
+    $root = null;
+    foreach ($transport?->childNodes ?? array() as $child) if ($child instanceof DOMElement) { $root = $child; break; }
+    if (null === $root) { $failures[] = $case . ': renders a card root under li.wp-block-post'; continue; }
+    $css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '') && is_string($asset['content'] ?? null)), 'content'));
+    $reachesRoot = false;
+    foreach ($cssRules($css) as $rule) {
+        $declarations = array();
+        foreach (CssRuleAnalyzer::declarationList($rule['body']) as $declaration) $declarations[$declaration['name']] = trim($declaration['value']);
+        if (array_intersect_key($declarations, $spec['expect']) != $spec['expect']) continue;
+        foreach ($rule['selectors'] as $selector) {
+            $parsed = CssSelectorMatcher::parse(trim($selector));
+            if (!($parsed['supported'] ?? false)) continue;
+            if (CssSelectorMatcher::matches($transport, $parsed)['matches']) $failures[] = $case . ': rule ' . $selector . ' does not target the transport li';
+            if (CssSelectorMatcher::matches($root, $parsed)['matches'] && str_contains($selector, '.wp-block-post-template)')) $reachesRoot = true;
+        }
+    }
+    if (!$reachesRoot) $failures[] = $case . ': width and flex reach the ' . $root->tagName . ' card root through the transport wrappers';
+    echo $case . ': card root ' . $root->tagName . "\n";
+}
 
 if (array() !== $failures) {
     fwrite(STDERR, 'FAIL: ' . implode("\nFAIL: ", $failures) . "\n");
