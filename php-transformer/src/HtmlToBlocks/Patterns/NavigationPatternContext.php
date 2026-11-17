@@ -2004,6 +2004,39 @@ final class NavigationPatternContext
         }
     }
 
+    /**
+     * A flex row of bare anchors stretches them by default: every anchor box
+     * is as tall as the row and its text sits at the row's top. Core centers
+     * its synthetic list items in the list and each anchor inside its item, so
+     * a link that wraps onto a second line drops its one-line siblings to the
+     * row's middle. Restore the source's stretch on both synthetic boxes.
+     * Only an alignment the author leaves at its default (or states as
+     * `normal`/`stretch`) at every viewport is restated; any other value is
+     * left to core and the projected author rules.
+     *
+     * @param array<int, string> $classes Classes the emitted block carries, so copied onto the container.
+     */
+    public function recordBareAnchorRowStretch(DOMElement $navigation, array $classes): void
+    {
+        if ( array() === $classes || ! $this->sourceTargetProjection instanceof SourceTargetProjectionState
+            || ! in_array($this->resolvedDisplay($navigation), array( 'flex', 'inline-flex' ), true) ) {
+            return;
+        }
+        $direction = $this->styleResolver->declaredPresentation($navigation, 'flex-direction');
+        $alignment = $this->styleResolver->declaredPresentation($navigation, 'align-items');
+        $isDefault = static fn (string $value, array $defaults): bool => in_array(strtolower(CssValueInspector::withoutImportant($value)), $defaults, true);
+        if ( $direction->isConditional() || ! $isDefault($direction->base(), array( '', 'row', 'row-reverse' ))
+            || $alignment->isConditional() || ! $isDefault($alignment->base(), array( '', 'normal', 'stretch' )) ) {
+            return;
+        }
+        $host = '.wp-block-navigation' . CssIdent::compoundClassSelector($classes);
+        $this->sourceTargetProjection->record(
+            SourceDom::elementSelector($navigation),
+            $host . ' :is(.wp-block-navigation__container,.wp-block-navigation-item)',
+            'align-items:normal'
+        );
+    }
+
     /** Record unsupported source residue on the native element replacing it. */
     public function projectSourceToNativeTarget(DOMElement $element, string $targetSelector, string $declarations): void
     {
