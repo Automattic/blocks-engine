@@ -32,7 +32,7 @@ final class SvgElementConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
 
-        if ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::isCarrier($element) ) {
+        if ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::isCarrier($element, $this->presentationResolver) ) {
             return ConversionOutcome::handled(null);
         }
 
