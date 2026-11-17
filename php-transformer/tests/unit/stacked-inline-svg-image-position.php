@@ -43,6 +43,10 @@ if ( ! str_contains($css, ':is(.fa-stack-1x.wp-block-image:where(.blocks-engine-
 }
 
 $inline = 'blocks-engine-synthetic-image-figure-inline';
+if ( ! str_contains($css, ':root .editor-styles-wrapper figure.' . $inline . '.wp-block-image img{position:static!important}') ) {
+    fwrite(STDERR, "FAIL: editor image leaves must remain inside their selection boxes\n");
+    exit(1);
+}
 if ( 2 !== preg_match_all('/<figure class="([^"]*fa-stack-[12]x[^"]*)"/', $markup, $figures) ) {
     fwrite(STDERR, "FAIL: each stacked SVG layer must become an image figure\n" . $markup . "\n");
     exit(1);
@@ -63,7 +67,7 @@ foreach ( $layers as $classes ) {
     $leaf = null;
     if ( preg_match_all('/([^{}]*\.' . preg_quote($inline, '/') . '[^{}]*>\s*img)\{([^{}]*)\}/', $css, $rules, PREG_SET_ORDER) ) {
         foreach ( $rules as $rule ) {
-            if ( str_contains($rule[2], 'position:inherit') && str_contains($rule[2], 'inset:inherit') ) {
+            if ( str_contains($rule[2], 'position:absolute') && str_contains($rule[2], 'top:0') && str_contains($rule[2], 'bottom:0') ) {
                 $leaf = $rule;
             }
         }
@@ -72,9 +76,17 @@ foreach ( $layers as $classes ) {
         fwrite(STDERR, "FAIL: the image under a box-less stacked layer figure must take the layer's position and insets\n" . $css . "\n");
         exit(1);
     }
-    // Zero weight: an author rule that positions the image itself still wins.
-    if ( ! str_starts_with(trim($leaf[1]), ':where(') ) {
-        fwrite(STDERR, "FAIL: the inherited placement must carry no specificity\n" . $leaf[0] . "\n");
+    // Position must follow the source selector, never every inline image.
+    if ( ! str_contains($leaf[1], '.fa-stack-1x.wp-block-image:where(.') ) {
+        fwrite(STDERR, "FAIL: placement must retain authored selector ownership\n" . $leaf[0] . "\n");
+        exit(1);
+    }
+}
+
+$ordinary = ( new HtmlTransformer() )->transform('<main><p><img src="photo.jpg" alt="Photo"></p></main>', array())->toArray();
+foreach ( $ordinary['assets'] ?? array() as $asset ) {
+    if ( 'css' === ($asset['kind'] ?? null) && str_contains((string) ($asset['content'] ?? ''), 'position:inherit;inset:inherit') ) {
+        fwrite(STDERR, "FAIL: ordinary inline images must not inherit figure positioning\n");
         exit(1);
     }
 }
