@@ -69,6 +69,44 @@ final class CommentTextRunBoundaries
         }
     }
 
+    /**
+     * An empty comment ordinarily leaves no boundary ({@see apply()}). Where
+     * the source's runs are painted one by one, as under a clip that moving
+     * content crosses, its seams are kept like any other comment boundary.
+     */
+    public static function keepEmptySeams(string $content): string
+    {
+        return str_replace('<!---->', '<!-- -->', $content);
+    }
+
+    /** Whether a serialization clone holds an empty comment seam. */
+    public static function hasEmptySeams(DOMElement $clone): bool
+    {
+        return array() !== self::emptyComments($clone);
+    }
+
+    /** {@see keepEmptySeams()} on a serialization clone. */
+    public static function keepEmptySeamsIn(DOMElement $clone): void
+    {
+        foreach ( self::emptyComments($clone) as $comment ) {
+            $comment->data = ' ';
+        }
+    }
+
+    /** @return list<DOMComment> */
+    private static function emptyComments(DOMElement $root): array
+    {
+        if ( ! $root->ownerDocument instanceof \DOMDocument ) {
+            return array();
+        }
+        $comments = ( new \DOMXPath($root->ownerDocument) )->query('.//comment()', $root);
+
+        return array_values(array_filter(
+            false === $comments ? array() : iterator_to_array($comments),
+            static fn ($comment): bool => $comment instanceof DOMComment && '' === $comment->data
+        ));
+    }
+
     public static function apply(string $content): string
     {
         if ( ! str_contains($content, '<!--') ) {

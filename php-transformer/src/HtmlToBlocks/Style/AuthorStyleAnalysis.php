@@ -438,7 +438,9 @@ final class AuthorStyleAnalysis
         $tag = strtolower($element->tagName);
         $attributes = array();
         foreach ( $element->attributes ?? array() as $attribute ) {
-            if ( \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($attribute->nodeName) ) continue;
+            if ( \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($attribute->nodeName)
+                || \Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::GLYPH_COLOR === strtolower($attribute->nodeName)
+            ) continue;
             $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
         }
         if ( $observable ) {
