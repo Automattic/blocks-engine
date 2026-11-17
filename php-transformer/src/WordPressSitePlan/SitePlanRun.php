@@ -309,7 +309,6 @@ final class SitePlanRun
          $parts = $navigation['parts'];
          $menus = $navigation['menus'];
           $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
-          $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
          // Content every panel of one tabs block repeats is declared once.
          $syncedPatterns = SyncedPatternProjection::project($pages, $assets);
          $pages = $syncedPatterns['pages'];
@@ -333,6 +332,8 @@ final class SitePlanRun
         // Template-group lifting settles post bodies and can add featured images.
         $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true, $foldedListingRoutes);
         $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
+        // Related-section queries are registered while article chrome is factored.
+        $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
         $themeProjection = ThemeTemplates::withCustomTemplates($themeProjection, $pages, $sharedTemplateTitles);
         $taxonomyProjection = TaxonomyProjection::withArchivePresentation($taxonomyProjection, $templates);
         $this->timer?->start('compose.site_plan.asset_writes');
