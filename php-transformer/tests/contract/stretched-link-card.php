@@ -17,6 +17,9 @@ $cases = array(
     'single label' => array('<div><p>Label</p></div>', '', true),
     'media card' => array('<img src="cover.png" alt=""><h3>Title</h3><p>Summary</p>', '', true),
     'icon row' => array('<svg viewBox="0 0 24 24"></svg><h3>Title</h3><p>Summary</p>', '', true),
+    'leading eyebrow span' => array('<span class="eyebrow">Journal</span><h3>Title</h3><p>Summary</p>', '', true),
+    'leading glyph span' => array('<span class="mark" aria-hidden="true">✦</span><h3>Title</h3><p>Summary</p>', '', true),
+    'worded trailing span' => array('<h3>Title</h3><p>Summary</p><span class="more">Learn more →</span>', '', true),
     'role control' => array('<h3>Title</h3><p>Summary</p><span role="button">Choose</span>', '', true),
 );
 foreach ($cases as $name => [$content, $carrier, $shell]) {

@@ -220,7 +220,7 @@ final class StylesheetScopes
                 $arms = \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer::splitSelectorList($prelude);
                 if (null === $arms) { $failed = true; return ''; }
                 $arms = array_map('trim', $arms);
-                if (array() === array_filter($arms, static fn(string $arm): bool => !$index->inertOutside($arm, $outside))) return $prelude . '{' . $body . '}';
+                if (array() === array_filter($arms, static fn(string $arm): bool => !$index->inertOutside(self::inertnessProbe($arm), $outside))) return $prelude . '{' . $body . '}';
                 $scoped = \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer::routeScopedArms($arms, $scope);
                 if (null === $scoped) { $failed = true; return ''; }
                 return implode(',', $scoped) . '{' . $body . '}';
@@ -285,6 +285,18 @@ final class StylesheetScopes
         }
         $flush();
         return array_values($result);
+    }
+
+    /**
+     * A selector reaching every element the support arm can style, for proving
+     * it inert outside its owners. A generated pseudo-element exists only where
+     * its host matches, and an only child is always a first child, so a route
+     * without the wider subject has nothing the arm could paint.
+     */
+    private static function inertnessProbe(string $arm): string
+    {
+        $probe = (string) preg_replace('/:only-child(?![\w(-])/i', ':first-child', $arm);
+        return \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::pseudoElementHost($probe)['selector'] ?? $probe;
     }
 
     /**

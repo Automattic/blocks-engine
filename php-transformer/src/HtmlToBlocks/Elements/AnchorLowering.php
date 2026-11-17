@@ -402,7 +402,8 @@ final class AnchorLowering implements ButtonLinkLeftovers
             }
         }
         foreach ( $anchor->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'img', 'picture'), true) ) {
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true)
+                && ! $this->isTrailingAffordanceGlyph($child) ) {
                 return false;
             }
         }
@@ -419,6 +420,40 @@ final class AnchorLowering implements ButtonLinkLeftovers
         return $hasSummary && ($hasHeading || $hasImage
             || (null !== SourceDom::firstChildElement($anchor, 'div')
                 && null !== SourceDom::firstChildElement($anchor, 'p')));
+    }
+
+    /**
+     * A card's closing affordance (`→`, `›`) is a glyph-only span after all of
+     * its content: it names no destination of its own and lowers to a
+     * paragraph beside the card's text, so it does not compete with the
+     * heading for the link. Spans that lead the card (eyebrows, badges,
+     * icons) or carry words ("Learn more →") keep the source wrapper.
+     */
+    private function isTrailingAffordanceGlyph(DOMElement $child): bool
+    {
+        if ( 'span' !== strtolower($child->tagName) ) {
+            return false;
+        }
+        foreach ( $child->childNodes as $node ) {
+            if ( $node instanceof DOMElement ) {
+                return false;
+            }
+        }
+        $text = trim($child->textContent);
+        if ( '' === $text || 1 === preg_match('/[\p{L}\p{N}]/u', $text) ) {
+            return false;
+        }
+        for ( $next = $child->nextSibling; null !== $next; $next = $next->nextSibling ) {
+            if ( $next instanceof DOMElement || '' !== trim((string) $next->textContent) ) {
+                return false;
+            }
+        }
+        for ( $previous = $child->previousSibling; null !== $previous; $previous = $previous->previousSibling ) {
+            if ( $previous instanceof DOMElement ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
