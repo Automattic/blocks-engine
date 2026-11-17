@@ -162,7 +162,10 @@ final class InlineTextWrapperLowering
             }
         }
 
-        if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) ) {
+        if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren(
+            $element,
+            fn (DOMElement $child): bool => 'none' !== $this->styleResolver->resolvedDeclaration($child, 'display')
+        ) ) {
             return null;
         }
 
