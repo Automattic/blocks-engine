@@ -524,6 +524,10 @@ final class SitePlanRun
             }
             // A restated arm folded beside the arm it restricts adds nothing.
             $compacted = CssSelectorListCompactor::withoutSubsumedArmsInStylesheet($compacted);
+            // Projection writes combinators and selector lists spaced out;
+            // the selector whitespace that separates no tokens ships once
+            // per arm. Declaration values are left byte for byte.
+            $compacted = CssSelectorListCompactor::withoutRedundantSelectorWhitespaceInStylesheet($compacted);
             if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);
