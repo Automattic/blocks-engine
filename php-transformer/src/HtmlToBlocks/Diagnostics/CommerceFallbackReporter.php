@@ -172,17 +172,13 @@ final class CommerceFallbackReporter
             $listing = $this->listingControls($element, $products);
 
             // A split product-detail layout (a cover beside one purchase panel)
-            // keeps its media: a provider repeats the card in place of the
-            // region's children, so a grid region would discard the unclaimed
-            // cover and its track. The panel is the only region that holds
-            // exactly the product, so the loop renders inside it.
+            // is not a collection: its media and panel are sibling tracks of
+            // one product, not independent cards. A provider repeats the card
+            // in place of the region's children, so claiming the layout would
+            // discard the cover and its track, and claiming the panel alone
+            // would nest the authored panel inside a second copy of itself.
             if ( 1 === count($products) && array() === $listing && $this->isSplitDetailLayout($element) ) {
-                foreach ( $element->childNodes as $child ) {
-                    if ( $child instanceof DOMElement && null !== $this->recognizer->productCardData($child) ) {
-                        $element = $child;
-                        break;
-                    }
-                }
+                continue;
             }
 
             // A card only reaches here via schema.org evidence, a cart control,
