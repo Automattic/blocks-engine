@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { chromium } from '../../tools/visual-parity/node_modules/playwright/index.mjs';
+
+const root = new URL('../..', import.meta.url).pathname;
 const runtime = execFileSync('php', ['-r', `require '${root}/vendor/autoload.php'; echo Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\Generators\\ViewportEntranceRuntime::script('{"mobile":"(width <= 750px)","desktop":"(width > 750px)"}');`], { encoding: 'utf8' });
 const state = (repeat, devices) => JSON.stringify({ ...(devices ? { devices } : {}), attributes: { class: { before: 'reveal', after: 'reveal in' }, style: { before: 'translate: 0 8px', after: null }, 'data-pose': { before: null, after: 'done' } }, threshold: [0.12], rootMargin: '0px 0px 0px 0px', repeat });
 const html = (devices) => `<style>.reveal{height:200px;opacity:0;transform:translateY(24px);transition:opacity .8s linear,transform .8s}.reveal.in{opacity:1;transform:none}</style><div style="height:1400px"></div>${[false, true].map((repeat, index) => `<section id="card${index}" class="wp-block-group reveal in" style="color: rgb(1, 2, 3)" data-blocks-engine-capture-viewport-entrance='${state(repeat, devices)}'>Card</section>`).join('')}<div style="height:1400px"></div>`;
