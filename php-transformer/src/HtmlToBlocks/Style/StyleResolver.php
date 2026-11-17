@@ -5753,12 +5753,20 @@ final class StyleResolver implements ElementPresentationResolver
         }
     }
 
-    /** @return list<array{property: string, value: string}> */
+    /**
+     * Image box and crop declarations, with logical sizes (`inline-size`,
+     * `block-size` and their min/max forms) read as the physical axis they
+     * size in horizontal writing: `.frame img{block-size:100%}` fills the
+     * frame's height exactly as `height:100%` would.
+     *
+     * @return list<array{property: string, value: string}>
+     */
     public function imageShapeDeclarationEntries(string $style): array
     {
         $entries = array();
         foreach (CssRuleAnalyzer::declarationList($style) as ['name' => $property, 'value' => $value]) {
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+            $property = (string) preg_replace(array('/^((?:min-|max-)?)inline-size$/', '/^((?:min-|max-)?)block-size$/'), array('$1width', '$1height'), $property);
             if (in_array($property, array('width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
                 $entries[] = array('property' => $property, 'value' => $value);
             }
