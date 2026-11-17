@@ -57,7 +57,18 @@ foreach ( $rules as $rule ) {
 }
 $assert('max-content' === $winner, 'saved link width beats core buttons CSS even when core loads last (got ' . $winner . ')');
 if ( in_array('--fixture', $argv, true) && 0 === $failures ) {
-    echo json_encode(array( 'source' => $html, 'markup' => $out['serialized_blocks'], 'css' => $css ));
+    $colorSource = '<style>body{margin:0}a{color:inherit;width:max-content}.button.primary{display:inline-block;padding:14px 28px;background:#fff;color:#17231d}</style><main><section style="color:white"><a class="button primary" href="/explore">Explore Blocks Engine</a></section></main>';
+    $colorOut = (new HtmlTransformer())->transform($colorSource)->toArray();
+    echo json_encode(array(
+        'source' => $html,
+        'markup' => $out['serialized_blocks'],
+        'css' => $css,
+        'color' => array(
+            'source' => $colorSource,
+            'markup' => $colorOut['serialized_blocks'],
+            'css' => implode('', array_column($colorOut['assets'] ?? array(), 'content')),
+        ),
+    ));
     exit(0);
 }
 if ( $failures > 0 ) {

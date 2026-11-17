@@ -59,7 +59,7 @@ foreach ( $height['assets'] ?? array() as $asset ) {
 }
 
 $assert(
-    (bool) preg_match('/wp-block-button__link\):not\(\.be-c-0\):not\(\.be-c-0\):not\(be-t-0\)\{[^}]*height:45\.8594px/', $heightCss),
+    (bool) preg_match('/wp-block-button__link\):not\(be-t-0\)\{[^}]*height:45\.8594px/', $heightCss),
     '4: source-authored height stays on the participating link box',
     $heightCss
 );
@@ -86,7 +86,7 @@ $responsiveHeight = ( new HtmlTransformer() )->transform(
 )->toArray();
 $responsiveHeightCss = implode('', array_map(static fn (array $asset): string => 'css' === ( $asset['kind'] ?? '' ) ? (string) ( $asset['content'] ?? '' ) : '', $responsiveHeight['assets'] ?? array()));
 $assert(
-    (bool) preg_match('/@media\(max-width:600px\)\{[^}]*wp-block-button__link\):not\(\.be-c-0\):not\(\.be-c-0\):not\(be-t-0\)\{height:auto\}/', $responsiveHeightCss),
+    (bool) preg_match('/@media\(max-width:600px\)\{[^}]*wp-block-button__link\):not\(be-t-0\)\{height:auto\}/', $responsiveHeightCss),
     '7: responsive auto-height clears the participating link in the same condition',
     $responsiveHeightCss
 );
@@ -98,13 +98,13 @@ $mathMinimumHeight = ( new HtmlTransformer() )->transform(
 $mathMinimumHeightCss = implode('', array_map(static fn (array $asset): string => 'css' === ( $asset['kind'] ?? '' ) ? (string) ( $asset['content'] ?? '' ) : '', $mathMinimumHeight['assets'] ?? array()));
 $assert(
     str_contains($mathMinimumHeightCss, 'min-height:max(.5px,.1175977*(var(--scaling-factor) - var(--scrollbar-width)))')
-        && (bool) preg_match('/wp-block-button__link\):not\(\.be-c-0\):not\(\.be-c-0\):not\(be-t-0\)\{[^}]*min-height:max/', $mathMinimumHeightCss)
+        && (bool) preg_match('/wp-block-button__link\):not\(be-t-0\)\{[^}]*min-height:max/', $mathMinimumHeightCss)
         && ! str_contains($mathMinimumHeightCss, 'min-height:inherit!important'),
     '8: variable-backed math minimum height stays on the participating link without nested inherit fill',
     $mathMinimumHeightCss
 );
 $assert(
-    (bool) preg_match('/@media\(max-width:600px\)\{[^}]*wp-block-button__link\):not\(\.be-c-0\):not\(\.be-c-0\):not\(be-t-0\)\{min-height:0\}/', $mathMinimumHeightCss),
+    (bool) preg_match('/@media\(max-width:600px\)\{[^}]*wp-block-button__link\):not\(be-t-0\)\{min-height:0\}/', $mathMinimumHeightCss),
     '9: responsive minimum-height reset reaches the participating link in the same condition',
     $mathMinimumHeightCss
 );
@@ -124,7 +124,7 @@ $minimum = ( new HtmlTransformer() )->transform(
 )->toArray();
 $minimumCss = implode('', array_map(static fn (array $asset): string => 'css' === ( $asset['kind'] ?? '' ) ? (string) ( $asset['content'] ?? '' ) : '', $minimum['assets'] ?? array()));
 $assert(
-    str_contains($minimumCss, 'wp-block-button__link):not(.be-c-0):not(.be-c-0):not(be-t-0){min-width:inherit}') && ! str_contains($minimumCss, '{width:100%'),
+    str_contains($minimumCss, 'wp-block-button__link):not(be-t-0){min-width:inherit}') && ! str_contains($minimumCss, '{width:100%'),
     '11: a minimum width floors the shrink-to-fit link instead of filling the wrapper',
     $minimumCss
 );

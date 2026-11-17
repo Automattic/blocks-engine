@@ -1658,15 +1658,14 @@ final class AuthorSelectorProjector
      * The child step onto core's button link for an authored rule. Core's
      * buttons stylesheet uses `.wp-block-buttons .wp-block-button__link`
      * (0,2,0), in addition to the global-styles button rule (0,1,0).
-     * Two class weights and one type weight beat both even for a universal
-     * source selector and when core loads last. Apply the same baseline to
-     * every authored link arm to preserve their relative specificity; do not
-     * freeze a resolved width with !important and defeat responsive rules.
+     * Keep the source specificity for presentation: generic link resets must
+     * still lose to button values lifted into theme.json. The stylesheet
+     * projector adds class weight only to width declarations competing with
+     * core's buttons default, retaining the authored conditional cascade.
      */
     public function buttonLinkTarget(AuthorStylesheetProjectionContext $context): string
     {
-        $classShim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-        return '> :where(.wp-block-button__link)' . $classShim . $classShim . $this->typeSpecificityShim($context);
+        return '> :where(.wp-block-button__link)' . $this->typeSpecificityShim($context);
     }
 
     /**

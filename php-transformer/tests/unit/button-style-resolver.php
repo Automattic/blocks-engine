@@ -261,7 +261,7 @@ $generatedSurfaceMarkup = (string) ($generatedSurface['serialized_blocks'] ?? ''
 $generatedSurfaceCss = implode("\n", array_column($generatedSurface['assets'] ?? array(), 'content'));
 $assert('core/button' === ($generatedSurface['blocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'generated inner surface remains a native core/button', $generatedSurfaceMarkup);
 $assert($hasLinkDeclaration($generatedSurface, 'background-color', '#0077cc') && $hasLinkDeclaration($generatedSurface, 'color', '#000'), 'inner-surface foreground and background reach the native button link', $generatedSurfaceCss);
-$assert(2 === preg_match_all('/wp-block-button__link\):not\(\.be-c-0\):not\(\.be-c-0\):not\(be-t-0\)::after\{(?:content:" arrow"|margin-left:8px)\}/', $generatedSurfaceCss), 'inner-surface generated content and geometry reach the native button link', $generatedSurfaceCss);
+$assert(2 === preg_match_all('/wp-block-button__link\):not\(be-t-0\)::after\{(?:content:" arrow"|margin-left:8px)\}/', $generatedSurfaceCss), 'inner-surface generated content and geometry reach the native button link', $generatedSurfaceCss);
 $assert(! str_contains($generatedSurfaceCss, '.surface::after') && ! str_contains($generatedSurfaceMarkup, '<!-- wp:html') && 'pass' === ($generatedSurface['source_reports']['wp_block_validity']['status'] ?? ''), 'generated inner-surface native button remains editor-valid without HTML fallback', $generatedSurfaceMarkup);
 
 $differentAccessibleName = ( new HtmlTransformer() )->transform('<a class="wix-button" href="/contact" aria-label="Open contact form"><span class="wix-label">Contact us</span><svg aria-hidden="true"><path d="M0 0h1v1z"/></svg></a>')->toArray();

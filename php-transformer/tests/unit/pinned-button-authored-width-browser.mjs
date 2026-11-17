@@ -26,6 +26,18 @@ try {
         assert.ok(label.contained, 'Full label must remain on the link background');
         console.log(`Source ${source.width.toFixed(2)}px; imported ${actual.width.toFixed(2)}px; label contained`);
     }
+    // Fixture 89: a low-specificity link reset must not beat the button
+    // color lifted into theme.json, in either stylesheet load order.
+    await page.setContent(fixture.color.source);
+    const sourceColor = await page.locator('a').evaluate(element => getComputedStyle(element).color);
+    assert.equal(sourceColor, 'rgb(23, 35, 29)');
+    const globalStyles = ':root :where(.wp-element-button,.wp-block-button__link){color:#17231d}';
+    for (const css of [globalStyles + fixture.color.css, fixture.color.css + globalStyles]) {
+        await page.setContent(`<style>${coreCss}${css}</style>${fixture.color.markup}`);
+        const actualColor = await page.locator('a.wp-block-button__link').evaluate(element => getComputedStyle(element).color);
+        assert.equal(actualColor, sourceColor, 'Generic color:inherit must lose to the lifted button color');
+        console.log(`Source and imported button label color: ${actualColor}`);
+    }
 } finally {
     await browser.close();
 }
