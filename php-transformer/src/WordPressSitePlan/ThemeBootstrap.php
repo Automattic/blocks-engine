@@ -156,7 +156,16 @@ PHP;
         return $routes;
     }
 
-    /** @param array<string,array<string,mixed>> $routes @return list<string> */
+    /**
+     * The route stylesheet table in two parts. `selection` picks the request's
+     * route sequences and sets the route flag; it runs before any enqueue, so
+     * every fallback guarded by the flag (before-author ones included) reads
+     * the request's final answer. `enqueue` loads the selected sequences at
+     * their cascade position.
+     *
+     * @param array<string,array<string,mixed>> $routes
+     * @return array{selection:list<string>,enqueue:list<string>}
+     */
     private static function routeStylesheetTable(array $routes): array
     {
         $sequences = $indices = $matches = array();
@@ -167,15 +176,19 @@ PHP;
             // into a sequence shared by different source documents.
             $matches[] = '    if ( ' . $route['condition'] . ' ) $blocks_engine_style_routes[] = [' . $indices[$key] . ',' . BootstrapData::literal($route['handles']) . '];';
         }
-        return array_merge(array(
-            '    $blocks_engine_style_sequences = ' . BootstrapData::literal($sequences) . ';',
-            '    $blocks_engine_style_routes = [];',
-        ), $matches, array(
-            '    foreach ( $blocks_engine_style_routes as [$sequence, $handles] ) {',
-            '        $blocks_engine_route_styles = true;',
-            '        foreach ( $blocks_engine_style_sequences[$sequence] as $position => $style ) wp_enqueue_style( $handles[$position], get_theme_file_uri( $style[0] ), array(), null, \'\' !== $style[1] ? $style[1] : \'all\' );',
-            '    }',
-        ));
+        return array(
+            'selection' => array_merge(array(
+                '    $blocks_engine_style_sequences = ' . BootstrapData::literal($sequences) . ';',
+                '    $blocks_engine_style_routes = [];',
+            ), $matches, array(
+                '    $blocks_engine_route_styles = array() !== $blocks_engine_style_routes;',
+            )),
+            'enqueue' => array(
+                '    foreach ( $blocks_engine_style_routes as [$sequence, $handles] ) {',
+                '        foreach ( $blocks_engine_style_sequences[$sequence] as $position => $style ) wp_enqueue_style( $handles[$position], get_theme_file_uri( $style[0] ), array(), null, \'\' !== $style[1] ? $style[1] : \'all\' );',
+                '    }',
+            ),
+        );
     }
 
     /** @param array<int,array<string,mixed>> $assets */
@@ -224,7 +237,11 @@ PHP;
         // Each source document's ordered stylesheet instances form one route
         // block; a repeated resource gets one handle per instance, same URI.
         $evidencePages = array_filter(array_merge($pages, $rootDocuments), static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles']));
-        if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
+        $flagPosition = null;
+        if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) {
+            $flagPosition = count($lines);
+            $lines[] = '    $blocks_engine_route_styles = false;';
+        }
         $routeRows = array();
         foreach ($evidencePages as $page) $routeRows[$page['source_path']] = array('condition' => self::bootstrapScopeCondition(PageStylesheets::documentScope($page), true), 'styles' => array(), 'handles' => array());
         $routePosition = array() !== $routeRows ? count($lines) : null;
@@ -252,7 +269,12 @@ PHP;
             $condition = empty($enqueue['fallback']) ? $enqueue['condition'] : '! $blocks_engine_route_styles';
             $lines[] = "    if ( {$condition} ) {$call}";
         }
-        if (null !== $routePosition) array_splice($lines, $routePosition, 0, self::routeStylesheetTable($routeRows));
+        if (null !== $routePosition) {
+            $table = self::routeStylesheetTable($routeRows);
+            array_splice($lines, $routePosition, 0, $table['enqueue']);
+            // The selection replaces the flag's default, ahead of every enqueue.
+            array_splice($lines, (int) $flagPosition, 1, $table['selection']);
+        }
         $attributes = array();
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
@@ -673,7 +695,10 @@ PHP;
                 $scope = PageStylesheets::documentScope($documentsBySource[$source]);
                 $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + PageStylesheets::deviceAttributes($occurrence);
             }
-            if (!empty($asset['frame_fallback'])) {
+            // A global resource without document instances already loads on
+            // every view, so lending it as a frame fallback would load it twice.
+            $everywhere = array() === $occurrences && array() !== array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind']);
+            if (!empty($asset['frame_fallback']) && !$everywhere) {
                 $row = array('asset' => $asset, 'scope' => array('kind' => 'global'), 'condition' => 'true', 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-frame-fallback-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => true);
                 if ('before-author' === ($asset['stylesheet_placement'] ?? '')) $before[] = $row; else $after[] = $row;
             }
