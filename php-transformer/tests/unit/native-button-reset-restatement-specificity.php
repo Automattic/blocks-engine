@@ -2,6 +2,8 @@
 declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 // A `button` reset restated on the core/button link gains two class weights
@@ -35,9 +37,17 @@ $padding = array_filter($restated, static fn (array $rule): bool => str_contains
 if (array() === $padding) {
     throw new RuntimeException('The reset must still be restated for buttons it wins on');
 }
+$dom = new DOMDocument();
+@$dom->loadHTML($result['serialized_blocks']);
+$skipLink = (new DOMXPath($dom))->query('//*[contains(concat(" ", @class, " "), " ' . $skipMarker . ' ")]/*[contains(@class, "wp-block-button__link")]')->item(0);
+if (! $skipLink instanceof DOMElement) {
+    throw new RuntimeException('The skip button must render a core/button link');
+}
 foreach ($padding as $rule) {
-    if (str_contains($rule['selector'], $skipMarker) || str_contains($rule['selector'], 'blocks-engine-role-control.blocks-engine-role-control')) {
-        throw new RuntimeException('The boosted reset must not override the skip link class padding: ' . $rule['selector']);
+    foreach (CssStylesheetTransformer::splitSelectorList($rule['selector']) ?? array() as $arm) {
+        if (CssSelectorMatcher::matches($skipLink, CssSelectorMatcher::parse(trim($arm)))['matches'] ?? false) {
+            throw new RuntimeException('The boosted reset must not override the skip link class padding: ' . $arm);
+        }
     }
 }
 if (array() === array_filter($restated, static fn (array $rule): bool => str_contains($rule['body'], 'border:0'))) {
