@@ -797,15 +797,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 : array( array( 'kind' => 'cluster' ), array( 'kind' => 'brand' ) );
         }
 
-        // A landmark often wraps its row in one authored layout box
-        // (`<nav><div class="container">brand, links, CTA</div></nav>`).
-        // That box owns the row's width, centring and flex distribution, so
-        // the carrier reads the row inside it and keeps the box as its own
-        // group instead of folding brand, links and CTA into one flat menu.
-        $layoutWrapper = null === $nonAnchorShape ? $this->carrierLayoutWrapper($element) : null;
-        $scope = $layoutWrapper ?? $element;
-
-        foreach ( null === $nonAnchorShape ? $scope->childNodes : array() as $child ) {
+        foreach ( null === $nonAnchorShape ? $element->childNodes : array() as $child ) {
             if ( XML_COMMENT_NODE === $child->nodeType ) {
                 continue;
             }
@@ -829,7 +821,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            if ( $this->isCollapsedNavigationDuplicate($child, $scope, $navigationContext) ) {
+            if ( $this->isCollapsedNavigationDuplicate($child, $element, $navigationContext) ) {
                 continue;
             }
 
@@ -1084,12 +1076,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         if ( array() === $extraBlocks ) {
-            $children = $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand );
-            if ( $layoutWrapper instanceof DOMElement ) {
-                $children = array( $createBlock('core/group', $presentationAttributes($layoutWrapper), $children, $layoutWrapper) );
-            }
-
-            return $createBlock('core/group', $carrierAttrs, $children, $element);
+            return $createBlock('core/group', $carrierAttrs, $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ), $element);
         }
 
         // Authored order is the only order that reproduces the design: the CTA
@@ -1106,45 +1093,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
             $children[] = $extraBlocks[$slot['index']];
         }
-        if ( $layoutWrapper instanceof DOMElement ) {
-            $children = array( $createBlock('core/group', $presentationAttributes($layoutWrapper), $children, $layoutWrapper) );
-        }
 
         return $createBlock('core/group', $carrierAttrs, $children, $element);
-    }
-
-    /**
-     * The landmark's sole layout box, when the brand row sits one level down.
-     *
-     * Only a `div` that is the landmark's one significant child and itself
-     * holds at least two element children qualifies: that is a row container,
-     * not a menu list, link or chrome control.
-     */
-    private function carrierLayoutWrapper(DOMElement $nav): ?DOMElement
-    {
-        $wrapper = null;
-        foreach ( $nav->childNodes as $child ) {
-            if ( XML_COMMENT_NODE === $child->nodeType
-                || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement || $wrapper instanceof DOMElement ) {
-                return null;
-            }
-            $wrapper = $child;
-        }
-        if ( ! $wrapper instanceof DOMElement || 'div' !== strtolower($wrapper->tagName)
-            || $this->isNavigationChromeElement($wrapper) ) {
-            return null;
-        }
-        $elements = 0;
-        foreach ( $wrapper->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$elements;
-            }
-        }
-
-        return 2 <= $elements ? $wrapper : null;
     }
 
     /**
