@@ -11,7 +11,6 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredLabelBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
@@ -28,6 +27,8 @@ final class AuthoredFormControlBlockConverter
 {
     /** Text-entry types whose only editable content is a single line of text. */
     private const NATIVE_TEXT_INPUT_TYPES = array('text', 'email', 'search', 'tel', 'url', 'password', 'number');
+    /** Paragraph metadata naming the source label element and its host attributes. */
+    public const LABEL_METADATA_KEY = 'blocksEngineLabel';
 
     /** @var Closure(DOMElement): string */
     private readonly Closure $richTextLabelContent;
@@ -72,26 +73,33 @@ final class AuthoredFormControlBlockConverter
         return str_contains($content, '<!--') ? CommentTextRunBoundaries::apply($content) : $content;
     }
 
-    /** Keep an explicit external association even when its control is outside this fragment. */
+    /**
+     * Keep an explicit external association even when its control is outside
+     * this fragment. The caption is a core paragraph, edited with core
+     * RichText; the label element and its association are block metadata the
+     * theme renderer publishes in place of the paragraph box.
+     */
     public function label(DOMElement $label): ?array
     {
         if (!FormControlClassifier::isExternalAssociatedLabel($label)) {
             return null;
         }
-        $generator = new AuthoredLabelBlockGenerator();
-        $registry = $this->session->requireGeneratedBlockRegistry();
-        $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
         $projected = ($this->projectSourceTags)($label) ?? $label;
-        $attrs = array_filter(array(
-            'htmlFor' => SourceDom::attr($label, 'for'),
+        $className = SourceDom::attr($projected, 'class');
+        $content = $this->labelContent($label);
+        $host = array_filter(array(
+            'for' => SourceDom::attr($label, 'for'),
             'id' => SourceDom::attr($label, 'id'),
-            'className' => SourceDom::attr($projected, 'class'),
             'style' => SourceDom::attr($label, 'style'),
-            'content' => $this->labelContent($label),
-            'sourceAttributes' => SourceAttribute::staticAttributes(SourceDom::htmlAttributes($label), array_values(AuthoredLabelBlockGenerator::HOST_ATTRIBUTES)),
-        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
-        $markup = $generator->markup($attrs);
-        return BlockFactory::leaf($registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME), $attrs, $markup);
+        ), static fn (string $value): bool => '' !== $value);
+        $host += SourceAttribute::staticAttributes(SourceDom::htmlAttributes($label), array('for', 'id', 'class', 'style'));
+        $attrs = array_filter(array(
+            'content' => $content,
+            'className' => $className,
+        ), static fn (string $value): bool => '' !== $value);
+        $attrs['metadata'] = array(self::LABEL_METADATA_KEY => $host);
+        $markup = '<p' . ('' !== $className ? ' class="' . htmlspecialchars($className, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '') . '>' . $content . '</p>';
+        return BlockFactory::leaf('core/paragraph', $attrs, $markup);
     }
 
     /**

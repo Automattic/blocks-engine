@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeLabelRendering;
 
 /**
  * Contract coverage for a label that names a group through `aria-labelledby`.
@@ -33,7 +34,7 @@ $page = (string) (current($result['source_reports']['wordpress_site_plan']['page
 $found = null;
 $walk = static function (array $blocks) use (&$walk, &$found): void {
     foreach ($blocks as $block) {
-        if (str_ends_with((string) ($block['blockName'] ?? ''), '/authored-label') && 'kind-label' === ($block['attrs']['id'] ?? null)) {
+        if ('core/paragraph' === ($block['blockName'] ?? null) && 'kind-label' === ($block['attrs']['metadata']['blocksEngineLabel']['id'] ?? null)) {
             $found = $block;
         }
         $walk($block['innerBlocks'] ?? array());
@@ -41,8 +42,8 @@ $walk = static function (array $blocks) use (&$walk, &$found): void {
 };
 $walk((new Runtime())->parseBlocks($page));
 
-$assert(is_array($found) && 'Kind' === ($found['attrs']['content'] ?? null) && ! isset($found['attrs']['htmlFor']), 'The group caption stays an editable label block with its id: ' . substr($page, 0, 1200));
-$assert(1 === preg_match_all('/<label id="kind-label" class="caption [^"]*">Kind<\/label>/', $page), 'The group caption renders as the source label element, so aria-labelledby resolves.');
+$assert(is_array($found) && str_ends_with(trim((string) ($found['innerHTML'] ?? '')), '>Kind</p>') && ! isset($found['attrs']['metadata']['blocksEngineLabel']['for']), 'The group caption stays an editable core paragraph carrying its label id: ' . substr($page, 0, 1200));
+$assert(1 === preg_match_all('/<label id="kind-label" class="caption [^"]*">Kind<\/label>/', NativeLabelRendering::publish($page)), 'The group caption renders as the source label element, so aria-labelledby resolves.');
 $assert(! str_contains($page, '<label id="loose-label"') && 1 === preg_match('/<p id="loose-label" class="[^"]*blocks-engine-source-label-[^"]*">Loose caption<\/p>/', $page), 'A label nothing names keeps its paragraph conversion and its source label marker.');
 
 echo "aria-labelledby label element contract passed.\n";

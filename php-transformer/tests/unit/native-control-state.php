@@ -40,7 +40,7 @@ $assert('file' === $byId['file']['attrs']['type'] && '' === $byId['file']['attrs
 $selectBlock = array_values(array_filter($blocks, static fn (array $block): bool => isset($block['attrs']['metadata']['blocksEngineSelect'])))[0];
 $selectOption = $selectBlock['innerBlocks'][0]['attrs']['metadata']['blocksEngineSelectOption'];
 $assert('core/list' === $selectBlock['blockName'] && true === $selectOption['selected'] && false === $selectOption['initialSelected'], 'native select retains distinct default/current option state');
-$document = new DOMDocument(); $document->loadHTML($result['serialized_blocks'], LIBXML_NOERROR | LIBXML_NOWARNING);
+$document = new DOMDocument(); $document->loadHTML(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeLabelRendering::publish($result['serialized_blocks']), LIBXML_NOERROR | LIBXML_NOWARNING);
 $xpath = new DOMXPath($document);
 $assert(1 === $xpath->query('//input[@id="choice"]/following-sibling::*[1][self::label][@for="choice"]')->length, 'associated label stays on its independent clickable source host');
 $assert(!$document->getElementById('choice')->hasAttribute('checked'), 'checked property is not substituted into authored default markup');

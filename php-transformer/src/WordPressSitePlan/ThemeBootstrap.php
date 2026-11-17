@@ -566,6 +566,9 @@ PHP;
         if (self::markupContains($documentsWithMenus, 'blocksEngineInput')) {
             $lines[] = NativeInputRuntime::source();
         }
+        if (self::markupContains($documentsWithMenus, 'blocksEngineLabel')) {
+            $lines[] = NativeLabelRuntime::source();
+        }
         $breadcrumbLabels = BreadcrumbLabelRuntime::labels($documents, $pages);
         $breadcrumbPostTrails = BreadcrumbLabelRuntime::postTrails($pages);
         if (array() !== $breadcrumbLabels || array() !== $breadcrumbPostTrails) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels, $breadcrumbPostTrails);
