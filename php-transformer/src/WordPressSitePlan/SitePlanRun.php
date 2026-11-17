@@ -504,11 +504,14 @@ final class SitePlanRun
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
         // Every emitted stylesheet is serialized once, at its smallest
-        // cascade-equivalent size.
+        // cascade-equivalent size. Projection restates one author declaration
+        // block for each carrier it reaches (a class, its control twin, the
+        // editor canvas); that block ships once, for all of them.
         $compactor = new CssStylesheetTransformer();
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $compacted = $compactor->compactStylesheet($asset['content']);
+            if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
             if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);

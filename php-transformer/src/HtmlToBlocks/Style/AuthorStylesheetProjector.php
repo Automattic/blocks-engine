@@ -1965,7 +1965,9 @@ final class AuthorStylesheetProjector
      */
     private function editorDocumentRootRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        // A license comment ahead of the source rule stays with that rule;
+        // the restatement must not ship it again inside its selectors.
+        $selectors = CssStylesheetTransformer::splitSelectorList(trim(CssSyntaxScanner::withoutComments($prelude)));
         $bodySelectors = $rootSelectors = array();
         $root = $context->authorStyles->sourceBody()->ownerDocument?->documentElement;
         foreach ($selectors ?? array() as $selector) {
