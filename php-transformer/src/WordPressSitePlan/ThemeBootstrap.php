@@ -536,6 +536,9 @@ PHP;
         if (self::markupContains($documents, 'blocksEngineScrollState')) {
             $lines[] = ScrollStateRuntime::bootstrap();
         }
+        if (self::markupContains($documentsWithMenus, '"' . \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator::GALLERY_SHELL_METADATA . '"')) {
+            $lines[] = CarouselGalleryRuntime::bootstrap();
+        }
         if (self::markupContains($documents, 'blocksEngineChoiceGroup')) {
             $lines[] = CapturedChoiceGroupRuntime::bootstrap();
         }

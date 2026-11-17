@@ -35,6 +35,8 @@ final class AuthoredCarouselBlockGenerator
     private SplObjectStorage $recognitions;
 
     public const LOCAL_NAME = 'authored-carousel';
+    /** Gallery metadata key holding the published carousel shell (`opening`, `closing`). */
+    public const GALLERY_SHELL_METADATA = 'blocksEngineCarousel';
     /**
      * Below a recorded breakpoint the rail is hidden and the stage spans the
      * carousel. The root attribute scopes each rule to opted-in instances.
@@ -1685,6 +1687,15 @@ JS;
     private function carouselBlock(GeneratedBlockRegistry $registry, array $attributes, array $slides): array
     {
         $shell = $this->shell($attributes);
+        // A carousel of images is a core Gallery an editor changes with core
+        // tools. The source's navigable stage is published around the
+        // gallery's images by the theme runtime from the shell recorded here.
+        if ( 'src-swap' !== ($attributes['presentation'] ?? 'track') && array() !== $slides
+            && array() === array_filter($slides, static fn (array $slide): bool => 'core/image' !== ($slide['blockName'] ?? null))
+        ) {
+            $createBlock = $this->createBlock ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
+            return $createBlock->createBlock('core/gallery', array('metadata' => array(self::GALLERY_SHELL_METADATA => $shell)), $slides);
+        }
         return array(
             'blockName' => $registry->blockName(self::LOCAL_NAME),
             'attrs' => $attributes,
