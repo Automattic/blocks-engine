@@ -10,6 +10,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EntranceAnimation;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceCascade;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -116,7 +118,8 @@ final class RenderNeutralElements
     /**
      * Configuration alone may describe a runtime placeholder, but semantic
      * attributes can describe missing visible output or a control. Only the
-     * former is safe to omit before recording an unproven-runtime finding.
+     * former is safe to omit (or retain as a paint-free spacing group) before
+     * recording an unproven-runtime finding.
      * The caller must already have established that the runtime is unproven.
      */
     public function isEmptyRenderNeutralConfiguredHost(DOMElement $element): bool
@@ -128,7 +131,7 @@ final class RenderNeutralElements
             || $this->sourceElementClassifier->hasTokenBoundary($element->tagName, 'checkout')
             || $this->sourceElementClassifier->hasTokenBoundary($element->tagName, 'cart')
             || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, false, true)
-            || ! $this->isRenderNeutralWrapper($element, true, true)
+            || ( ! $this->isRenderNeutralWrapper($element, true, true) && ! $this->configuredHostStylesArePaintFree($element) )
         ) {
             return false;
         }
@@ -147,6 +150,100 @@ final class RenderNeutralElements
         }
         $id = SourceDom::namedFragmentTargetId($element);
         return '' === $id || ! SourceDom::documentReferencesFragmentId($element, $id);
+    }
+
+    /**
+     * Only the empty configured-host path may retain geometry without paint.
+     * Inspect every matching rule, including conditional rules, rather than a
+     * single viewport's computed style. Unknown effects stay on the fallback path.
+     */
+    private function configuredHostStylesArePaintFree(DOMElement $element): bool
+    {
+        if ( null === $element->parentNode
+            || '' !== trim(SourceDom::attr($element, 'role'))
+            || array() !== $this->sourceElementDescription->interactiveAttributes($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || $this->sourceElementClassifier->hasMotionStructureToken($element)
+        ) {
+            return false;
+        }
+        $declarations = SourceDeclarations::inline($element);
+        $reveal = $this->configuredHostHasEntranceReveal($element, $declarations);
+        foreach ( $this->session->authorStyleRuleCandidates($element) as $candidate ) {
+            $selector = $candidate['selector'];
+            $parsed = $candidate['parsed'];
+            if ( ! ($parsed['supported'] ?? false) ) {
+                // Shared with the render-neutral drop: unreachable or boxless
+                // pseudo-elements and global resets do not paint this host.
+                if ( $this->pseudoElementRuleCannotPaintEmptyHost($element, $selector) ) {
+                    continue;
+                }
+                $pseudo = CssSelectorMatcher::pseudoElementHost($selector);
+                if ( null === $pseudo ) {
+                    return false;
+                }
+                if ( $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $pseudo['selector'], $pseudo['parsed'])['matches']
+                    && array() !== array_filter($candidate['declarations'], fn (string $value, string $property): bool => ! $this->isEmptyHostReset($property, $value), ARRAY_FILTER_USE_BOTH)
+                ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $selector, $parsed)['matches'] ) {
+                // Do not let a later declaration hide possible conditional paint.
+                if ( ! $this->configuredHostDeclarationsArePaintFree($candidate['declarations'], $reveal) ) {
+                    return false;
+                }
+            }
+        }
+        return $this->configuredHostDeclarationsArePaintFree($declarations, $reveal);
+    }
+
+    /**
+     * A finite entrance reveal (fade/translate in) moves or fades an empty
+     * host's box; it paints nothing the placeholder would not already omit.
+     *
+     * @param array<string, string> $inline
+     */
+    private function configuredHostHasEntranceReveal(DOMElement $element, array $inline): bool
+    {
+        $declarations = $inline;
+        foreach ( $this->session->authorStyleRuleCandidates($element) as $candidate ) {
+            if ( ($candidate['parsed']['supported'] ?? false)
+                && $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
+            ) {
+                $declarations = array_merge($declarations, $candidate['declarations']);
+            }
+        }
+        return EntranceAnimation::matches(
+            $declarations,
+            $this->session->authorStyleAnalysis()->combinedCss(),
+            (new SourceCascade($this->session->sourceStyleResolutionState()))->customProperties($element)
+        );
+    }
+
+    /** @param array<string, string> $declarations */
+    private function configuredHostDeclarationsArePaintFree(array $declarations, bool $reveal = false): bool
+    {
+        foreach ( $declarations as $property => $value ) {
+            // Opacity and transitions cannot paint an empty host; reveal
+            // motion is only accepted once the keyframes prove a reveal.
+            if ( 'opacity' === $property || 'z-index' === $property || str_starts_with($property, 'transition')
+                || ('position' === $property && in_array(strtolower(trim($value)), array('static', 'relative'), true))
+                || ($reveal && (str_starts_with($property, 'animation') || in_array($property, array('transform', 'translate'), true)))
+            ) {
+                continue;
+            }
+            if ( in_array($property, array(
+                'white-space', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight',
+                'font-variant', 'line-height', 'letter-spacing', 'word-spacing', 'text-align',
+                'text-transform', 'text-indent', 'display', 'box-sizing',
+            ), true) || 1 === preg_match('/^(?:(?:padding|margin)(?:-(?:top|right|bottom|left|block(?:-start|-end)?|inline(?:-start|-end)?))?|(?:(?:min|max)-)?(?:width|height|inline-size|block-size)|(?:row-|column-)?gap)$/', $property) ) {
+                continue;
+            }
+            return false;
+        }
+        return true;
     }
 
     /**
