@@ -434,12 +434,23 @@ final class ReadableFormBlockBuilder
         return $blocks;
     }
 
-    /** Geometry provenance does not change a container's native transport. */
+    /**
+     * Geometry provenance does not change a container's native transport. A
+     * Group carries the class and the id (as its anchor); a data attribute no
+     * stylesheet, script or runtime selector addresses is inert, so dropping
+     * it loses nothing and needs no generated block to keep it.
+     */
     private function hasNativeContainerAttributes(DOMElement $element): bool
     {
         foreach ($element->attributes as $attribute) {
-            if (in_array($attribute->name, array('class', BoxTree::NODE_ATTRIBUTE), true)
-                || ('style' === $attribute->name && '' === trim($attribute->value))) {
+            $name = strtolower($attribute->name);
+            if (in_array($name, array('class', 'id', BoxTree::NODE_ATTRIBUTE), true)
+                || ('style' === $name && '' === trim($attribute->value))) {
+                continue;
+            }
+            if (str_starts_with($name, 'data-')
+                && ! $this->runtimeDomTargets->isRuntimeDomTarget($element)
+                && ! DataAttributeReferences::isReferenced($this->session, $element, $name)) {
                 continue;
             }
             return false;
