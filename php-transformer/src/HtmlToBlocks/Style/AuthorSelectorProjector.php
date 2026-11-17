@@ -457,6 +457,9 @@ final class AuthorSelectorProjector
     private function projectPseudoElementSelector(string $selector, AuthorStylesheetProjectionContext $context, bool $controlWrapper, bool $subjectArms, bool $semanticSubjectArms): ?array
     {
         $host = CssSelectorMatcher::pseudoElementHost($selector);
+        if (null === $host) {
+            return $this->projectTrailingPseudoElementSelector($selector, $context);
+        }
         if (null !== $host) {
             // Project the originating element through the same subject
             // pipeline as a non-pseudo rule, then restore the suffix on
@@ -484,6 +487,35 @@ final class AuthorSelectorProjector
             ));
         }
         return null;
+    }
+
+    /**
+     * Any other trailing pseudo-element (`::placeholder`,
+     * `::-webkit-input-placeholder`, `::selection`, `::marker`, ...) puts the
+     * selector outside the static matcher's subset, so the unsupported-selector
+     * fallback finds no type spans and the rule keeps naming source tags the
+     * block tree lowered (`form#contact ::placeholder` once the form became a
+     * group), and matches nothing. Read the type spans of its originating
+     * element instead: they sit at the same offsets, so the authored selector
+     * keeps its shape, suffix and weight, with only the lowered tags replaced
+     * by their source identity markers.
+     *
+     * @return array<int, string>|null
+     */
+    private function projectTrailingPseudoElementSelector(string $selector, AuthorStylesheetProjectionContext $context): ?array
+    {
+        $selector = trim($selector);
+        if (1 !== preg_match('/::-?[A-Za-z_][\w-]*$/', $selector, $suffix)) {
+            return null;
+        }
+        $host = substr($selector, 0, -strlen($suffix[0]));
+        // A bare or combinator-ended host originates on any element.
+        $parsed = CssSelectorMatcher::parse('' === trim($host) || preg_match('/[\s>+~]$/', $host) ? $host . '*' : $host);
+        if (!$parsed['supported'] || array() === $parsed['type_spans']) {
+            return null;
+        }
+        $projected = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+        return $projected === $selector ? null : array($projected);
     }
 
     /**
