@@ -1188,6 +1188,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html), array() !== $this->session->boxTreeViewports()))
         );
         $document = HtmlSerialization::parseFragment('<body>' . $normalizedHtml . '</body>');
+        CommerceStructureRecognizer::registerSourceDocument($document, (string) ($options['declarative_state_html'] ?? $html));
 
         $resultComposer = new HtmlResultComposer();
         $selectorCache = $this->session->sourceStyleResolutionState()->selectorMatchCache;
