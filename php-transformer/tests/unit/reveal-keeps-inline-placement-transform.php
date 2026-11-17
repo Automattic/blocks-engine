@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 $assert = static function (bool $condition, string $message): void { if (!$condition) { fwrite(STDERR, "FAIL: {$message}\n"); exit(1); } };
 $css = '.track{display:grid}.track>li{grid-area:1/1/2/2;list-style:none}.preFade{opacity:0;transition-property:opacity}';
 $html = '<!DOCTYPE html><html><head><link rel="stylesheet" href="site.css"></head><body><main>'
+    . '<ul class="track"><li class="slide preFade"><h2>Unplaced</h2></li></ul>'
     . '<ul class="track"><li class="slide preFade" style="transform: translate3d(0px, 0px, 0px)"><h2>One</h2></li><li class="slide preFade" style="transform: translate3d(261px, 0px, 0px)"><h2>Two</h2></li></ul>'
     . '<p class="intro preFade">Faded in from below.</p></main></body></html>';
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
@@ -20,5 +21,5 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
 )))->toArray();
 $staticState = implode('', array_map(static fn (array $asset): string => str_contains((string) ($asset['path'] ?? ''), 'editor-static-state') ? (string) ($asset['content'] ?? '') : '', $result['assets']));
 
-$assert(1 === preg_match('/\.slide\.preFade\{opacity:1!important\}/', $staticState), 'the placed slides are revealed without losing their track transform');
+$assert(1 === preg_match('/\.slide\.preFade\{opacity:1!important\}/', $staticState), 'placed slides keep their track transform, even beside an unplaced slide sharing their selector');
 $assert(1 === preg_match('/\.intro\.preFade\{opacity:1!important;transform:none!important\}/', $staticState), 'an unplaced faded element still drops its entrance offset');

@@ -58,26 +58,31 @@ foreach ( array(
     $assert(! str_contains($reset['serialized_blocks'], 'product-recommendations') && ! str_contains($reset['serialized_blocks'], 'store-config'), 'reset hosts produce no blocks: ' . $css);
 }
 
-// Host paint, geometry, generated content, and child content retain the old path.
+// Host paint, generated content, and child content retain the old path.
 foreach ( array(
-    '.related-products{height:20px}',
-    '.related-products{margin:0}',
-    'product-recommendations{box-sizing:inherit}',
-    ':where(.related-products){padding:0}',
-    '*{padding:1px}',
-    '*{margin:1px}',
     '*{background:red}',
-    '*{height:20px}',
-    '*{margin:0}.related-products{height:20px}',
-    '.related-products{height:20px}*{margin:0}',
     '.related-products{background:red}',
     '.related-products{border:1px solid}',
     'product-recommendations::before{content:"Related"}',
-    '@media(min-width:900px){.related-products{width:100px}}',
+    '.related-products{box-shadow:0 0 4px red}',
+    '.related-products{outline:1px solid}',
+    '@media(min-width:900px){.related-products{background:red}}',
 ) as $css ) {
     $styled = $transform(str_replace('</head>', '<style>' . $css . '</style></head>', $fixture));
     $assert(in_array('product-recommendations', array_column($styled['fallbacks'], 'tag'), true), 'styled host retains fallback: ' . $css);
 }
+// Paint-free geometry is retained as an empty native group, never dropped.
+foreach ( array(
+    '.related-products{height:20px}',
+    '@media(min-width:900px){.related-products{width:100px}}',
+    '.related-products{margin:20px;padding:10px;min-height:5px;gap:4px}',
+) as $css ) {
+    $spaced = $transform(str_replace('</head>', '<style>' . $css . '</style></head>', $fixture));
+    $assert(array() === $spaced['fallbacks'], 'paint-free geometry has no fallback: ' . $css);
+    $assert(str_contains($spaced['serialized_blocks'], 'related-products'), 'paint-free geometry retains its group: ' . $css);
+}
+$inline = $transform('<x-config data-config="value" style="width:10px"></x-config>');
+$assert(array() === $inline['fallbacks'] && str_contains($inline['serialized_blocks'], '<!-- wp:group') && str_contains(implode("\n", array_column($inline['assets'], 'content')), 'width:10px'), 'inline geometry survives in a native group');
 $nonempty = $transform(str_replace('  </product-recommendations>', '<span></span></product-recommendations>', $fixture));
 $assert(in_array('product-recommendations', array_column($nonempty['fallbacks'], 'tag'), true), 'a host with an element child retains fallback');
 
@@ -92,7 +97,6 @@ foreach ( array(
     '<x-cart data-config="value"></x-cart>',
     '<a href="#target">Jump</a><x-target id="target" data-config="value"></x-target>',
     '<x-config data-config="value">Text</x-config>',
-    '<x-config data-config="value" style="width:10px"></x-config>',
     '<x-config data-config="value" role="status"></x-config>',
     '<x-config data-config="value" tabindex="0"></x-config>',
     '<x-config data-config="value" data-wp-bind--hidden="state.hidden"></x-config>',

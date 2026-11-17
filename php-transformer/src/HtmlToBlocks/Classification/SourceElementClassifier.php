@@ -58,15 +58,32 @@ final class SourceElementClassifier
         return false;
     }
 
-    public function isRuntimeMediaSurfaceElement(DOMElement $element): bool
+    public function isRuntimeMediaSurfaceElement(DOMElement $element, bool $includeMotionTopology = true): bool
     {
         $tagName = strtolower($element->tagName);
         if ( in_array($tagName, array( 'iframe', 'canvas', 'embed', 'object' ), true) ) {
             return true;
         }
 
-        return str_contains($tagName, '-')
-            && 1 === preg_match('/(?:^|-)(?:audio|carousel|gallery|iframe|media|player|slideshow|video)(?:-|$)/', $tagName);
+        $tokens = $includeMotionTopology ? 'audio|carousel|gallery|iframe|media|player|slideshow|video' : 'audio|iframe|player|video';
+        if ( ! str_contains($tagName, '-') ) {
+            return false;
+        }
+        if ( 1 === preg_match('/(?:^|-)(?:' . $tokens . ')(?:-|$)/', $tagName) ) {
+            return true;
+        }
+        // Without motion topology, the generic "media" token only marks a
+        // runtime surface when the host actually carries playable media; a
+        // media gallery of static images is ordinary content.
+        if ( $includeMotionTopology || 1 !== preg_match('/(?:^|-)media(?:-|$)/', $tagName) ) {
+            return false;
+        }
+        foreach ( array( 'video', 'audio', 'iframe', 'embed', 'object', 'canvas' ) as $playable ) {
+            if ( $element->getElementsByTagName($playable)->length > 0 ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function isDependentRuntimeMediaMask(DOMElement $element): bool

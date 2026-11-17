@@ -1342,6 +1342,14 @@ final class PresetBinding
                 if (array() !== array_diff($classes, explode(' ', $key))) continue;
                 $matched = true;
                 $observed = $this->presetSlug('color', null, $properties[$property] ?? null);
+                // This fallback is still a stylesheet binding, not a block
+                // attribute. Scoped variables must obey the same palette
+                // boundary as directly resolved declarations.
+                if (null !== $observed) {
+                    foreach ($this->system->colors as $color) {
+                        if ($color['slug'] === $observed && null === $this->system->stylesheetColorSlug($color['color'])) return null;
+                    }
+                }
                 if (null === $observed || (null !== $slug && $slug !== $observed)) return null;
                 $slug = $observed;
             }
@@ -1408,7 +1416,7 @@ final class PresetBinding
         };
         if (null === $kind) return $declaration;
         $slug = match ($kind) {
-            'color' => $this->comparable('color', $this->resolve($value)) ? $this->system->colorSlug($this->resolve($value)) : null,
+            'color' => $this->comparable('color', $this->resolve($value)) ? $this->system->stylesheetColorSlug($this->resolve($value)) : null,
             'font-size' => $this->exactFontSizeSlug($value),
             default => $this->exactFontFamilySlug($value),
         };
@@ -1448,7 +1456,7 @@ final class PresetBinding
                 // but retain the authored token as the rendering fallback.
                 $resolved = $this->resolve($token);
                 if (null !== CssColor::parse($resolved)) {
-                    $slug = $this->system->colorSlug($resolved);
+                    $slug = $this->system->stylesheetColorSlug($resolved);
                     $replacement = null !== $slug ? 'var(--wp--preset--color--' . $slug . ',' . self::sourcePresets($token) . ')' : $this->translucentMix($token, true);
                     if (null !== $replacement) ++$this->bound;
                 } elseif (1 === preg_match('/^((?:repeating-)?(?:linear|radial|conic)-gradient)\((.*)\)$/is', $token, $match) && CssValueSplitter::hasBalancedParens($token)) {
@@ -1474,11 +1482,11 @@ final class PresetBinding
         $color = CssColor::parse($resolved);
         if (null === $color) return null;
         $opaque = sprintf('#%02x%02x%02x', (int) round($color[0]), (int) round($color[1]), (int) round($color[2]));
-        $translucent = $this->comparable('color', $resolved) ? $this->system->translucentColor($resolved) : null;
+        $translucent = $this->comparable('color', $resolved) && null !== $this->system->stylesheetColorSlug($opaque) ? $this->system->translucentColor($resolved) : null;
         // Transparent gradient stops still carry the palette colour's RGB.
         // Keep whole-value transparent declarations on their existing path.
         if ($includeTransparent && 0.0 === $color[3]) {
-            $slug = $this->system->colorSlug($opaque);
+            $slug = $this->system->stylesheetColorSlug($opaque);
             if (null !== $slug) $translucent = array('slug' => $slug, 'percent' => 0);
         }
         if (null === $translucent) return null;
