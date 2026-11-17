@@ -345,9 +345,6 @@ final class AuthoredFormControlBlockConverter
             return null;
         }
 
-        $generator = new AuthoredTextareaBlockGenerator();
-        $registry = $this->session->requireGeneratedBlockRegistry();
-        $registry->register(AuthoredTextareaBlockGenerator::class, $generator->definition($registry->namespace()));
         $attrs = array_filter(array(
             'id' => SourceDom::attr($textarea, 'id'),
             'name' => SourceDom::attr($textarea, 'name'),
@@ -363,6 +360,7 @@ final class AuthoredFormControlBlockConverter
             'rows' => SourceDom::attr($textarea, 'rows'),
             'cols' => SourceDom::attr($textarea, 'cols'),
             'maxLength' => SourceDom::attr($textarea, 'maxlength'),
+            'minLength' => null !== $state ? SourceDom::attr($textarea, 'minlength') : '',
             'required' => $textarea->hasAttribute('required'),
             'disabled' => $textarea->hasAttribute('disabled'),
             'readOnly' => $textarea->hasAttribute('readonly'),
@@ -372,9 +370,36 @@ final class AuthoredFormControlBlockConverter
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $attrs = array_replace($attrs, $state ?? array());
+        // Capture-backed controls have an explicit state contract for the core
+        // paragraph renderer. Ordinary authored controls keep their saved
+        // native markup (including form submission and source CSS topology).
+        if (null !== $state) {
+            return $this->nativeTextarea($attrs, $textarea);
+        }
+        $generator = new AuthoredTextareaBlockGenerator();
+        $registry = $this->session->requireGeneratedBlockRegistry();
+        $registry->register(AuthoredTextareaBlockGenerator::class, $generator->definition($registry->namespace()));
         $markup = $generator->markup($attrs);
 
         return BlockFactory::leaf($registry->blockName(AuthoredTextareaBlockGenerator::LOCAL_NAME), $attrs, $markup);
+    }
+
+    /**
+     * A core paragraph owns the editable default text. Native semantics are
+     * metadata, consumed by the theme renderer instead of a companion block.
+     * @param array<string, mixed> $attrs
+     */
+    private function nativeTextarea(array $attrs, DOMElement $source): array
+    {
+        // `value` stays as the captured default (it keeps the metadata an
+        // object); the renderer reads the saved paragraph text instead.
+        $value = (string) ($attrs['value'] ?? '');
+        $content = str_replace(array("\r\n", "\r", "\n"), '<br>', $this->runtime->escapeHtml(str_replace(array("\r\n", "\r"), "\n", $value)));
+        return $this->createBlock->createBlock('core/paragraph', array_filter(array(
+            'content' => $content,
+            'placeholder' => (string) ($attrs['placeholder'] ?? ''),
+            'metadata' => array('blocksEngineTextarea' => $attrs),
+        ), static fn (mixed $value): bool => '' !== $value), array(), $source);
     }
 
     /**
