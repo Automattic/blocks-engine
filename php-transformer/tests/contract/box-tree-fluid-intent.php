@@ -140,6 +140,45 @@ $cases = array(
         ),
         array('font-size:270px', 'font-size:40px'), array('font-size:inherit'),
     ),
+    // imb-culinary-craft (#6448): wrappers that fill the viewport were frozen
+    // to the 1440px and 402px captures and overflowed every width between.
+    'an undeclared width filling its parent at every capture lifts auto' => array(
+        '',
+        array(
+            'n4.width' => array('1440px', '402px'), 'n4.padding-left' => array('0px', '0px'), 'n4.padding-right' => array('0px', '0px'),
+            'n5.width' => array('1440px', '402px'), 'n5.margin-left' => array('0px', '0px'), 'n5.margin-right' => array('0px', '0px'),
+            'n5.padding-left' => array('0px', '0px'), 'n5.padding-right' => array('0px', '0px'),
+        ),
+        array('width:auto'), array('width:1440px', 'width:402px'),
+    ),
+    'a width capped by its own max-width lifts auto' => array(
+        'main{max-width:768px}',
+        array(
+            'n4.width' => array('1440px', '402px'), 'n4.padding-left' => array('0px', '0px'), 'n4.padding-right' => array('0px', '0px'),
+            'n5.width' => array('768px', '402px'), 'n5.max-width' => array('768px', '768px'), 'n5.margin-left' => array('0px', '0px'), 'n5.margin-right' => array('0px', '0px'),
+            'n5.padding-left' => array('0px', '0px'), 'n5.padding-right' => array('0px', '0px'),
+        ),
+        array('width:auto'), array('width:768px', 'width:402px'),
+    ),
+    'a width that does not fill its parent stays in pixels' => array(
+        '',
+        array(
+            'n4.width' => array('1440px', '402px'), 'n4.padding-left' => array('0px', '0px'), 'n4.padding-right' => array('0px', '0px'),
+            'n5.width' => array('1000px', '402px'), 'n5.margin-left' => array('0px', '0px'), 'n5.margin-right' => array('0px', '0px'),
+            'n5.padding-left' => array('0px', '0px'), 'n5.padding-right' => array('0px', '0px'),
+        ),
+        array('width:1000px'), array('width:auto'),
+    ),
+    'fr tracks lift through a breakpoint no capture holds' => array(
+        'main{display:grid}@media (min-width:640px){main{grid-template-columns:repeat(2,minmax(0,1fr))}}@media (min-width:1024px){main{grid-template-columns:repeat(4,minmax(0,1fr))}}',
+        array(
+            'n5.display' => array('grid', 'grid'), 'n5.width' => array('1440px', '402px'), 'n5.box-sizing' => array('border-box', 'border-box'),
+            'n5.padding-left' => array('0px', '0px'), 'n5.padding-right' => array('0px', '0px'), 'n5.column-gap' => array('0px', '0px'),
+            'n5.grid-template-columns' => array('360px 360px 360px 360px', '402px'),
+        ),
+        array('grid-template-columns:repeat(4,minmax(0,1fr))', 'grid-template-columns:repeat(2,minmax(0,1fr))', 'grid-template-columns:none'),
+        array('360px 360px', 'grid-template-columns:402px'),
+    ),
     'an authored heading size is not replaced by inherit' => array(
         $wixFont . 'main{font:var(--wst-heading-1-font)}h1{font-size:270px}@media (max-width:500px){h1{font-size:75.375px}}',
         array('n5.font-size' => array('270px', '75.375px'), 'n6.font-size' => array('270px', '75.375px')),

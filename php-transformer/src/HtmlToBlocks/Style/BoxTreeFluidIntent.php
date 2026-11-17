@@ -26,11 +26,23 @@ use DOMElement;
  *   and follows the parent at every width. It is limited to headings: their
  *   source parent stays their block parent, while blocks core rebuilds
  *   (navigation items, buttons) sit in wrappers the source never had.
+ * - A `width` or horizontal margin the author leaves `auto` (or declares
+ *   `auto`) is lifted as `auto` when the box fills its line at every capture:
+ *   a block-level box in a block container, a stretched column-flex item, a
+ *   grid item in a uniform track, or an absolutely positioned box with both
+ *   horizontal insets, whose margin box equals the space its parent gives
+ *   it. Frozen pixels there pin the box to one capture's width and overflow
+ *   every narrower viewport.
+ * - A `grid-template-columns` track list in `fr` (with `px`, `repeat()` and
+ *   `minmax(<px>, <fr>)`) is lifted when it resolves to the observed tracks
+ *   at every capture; an undeclared list where the one implicit column fills
+ *   the grid. Its bands between captures resolve by that same arithmetic.
  *
  * Where the author's cascade switches between captures (a width query that
  * redefines a scaling token), the lift is a set of bands keyed by the
  * author's own breakpoint, not the capture width. Each band must contain a
- * capture that proves its value; otherwise the property keeps its pixels.
+ * capture that proves its value (track lists excepted, above); otherwise the
+ * property keeps its pixels.
  */
 final class BoxTreeFluidIntent
 {
@@ -83,7 +95,9 @@ final class BoxTreeFluidIntent
         $widest = reset($widths);
         $narrowest = end($widths);
         foreach ($resolver->authorViewport->widthBreakpoints() as $breakpoint) {
-            foreach (array(floor($breakpoint), floor($breakpoint) + 1) as $width) {
+            // A `min-width` query switches below its breakpoint, a `max-width`
+            // query above it: sample both sides.
+            foreach (array(floor($breakpoint) - 1, floor($breakpoint), floor($breakpoint) + 1) as $width) {
                 if ($width > $narrowest && $width < $widest) $samples[(string) $width] = $width;
             }
         }
@@ -92,6 +106,8 @@ final class BoxTreeFluidIntent
         $lifted = array();
         foreach ($properties as $property) {
             $bands = $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents)
+                ?? $this->liftedTracks($property, $widths, $samples, $observations)
+                ?? $this->liftedFill($property, $widths, $samples, $observations, $parents)
                 ?? ($inheriting ? $this->liftedInheritance($property, $widths, $samples, $observations, $parents) : null);
             if (null !== $bands) $lifted[$property] = $bands;
         }
@@ -115,10 +131,265 @@ final class BoxTreeFluidIntent
             [$percent, $em] = $this->bases($property, $styles, $parent);
             $actual = self::pixels((string) ($styles[$property] ?? ''));
             $predicted = CssFluidLength::evaluate($value, $width, (float) ($viewports[$key]['height'] ?? 0), $percent, $em);
+            // The box's own min/max-width (kept on the carrier) clamp its width.
+            if ('width' === $property && null !== $predicted) {
+                $max = self::pixels((string) ($styles['max-width'] ?? ''));
+                $min = self::pixels((string) ($styles['min-width'] ?? ''));
+                if (null !== $max) $predicted = min($predicted, $max);
+                if (null !== $min) $predicted = max($predicted, $min);
+            }
             if (null === $actual || null === $predicted || abs($actual - $predicted) > self::TOLERANCE) return null;
             $proven[$key] = $value;
         }
         return $this->bands($property, $widths, $samples, $proven);
+    }
+
+    private const INTRINSIC_ELEMENTS = array('img', 'picture', 'video', 'audio', 'iframe', 'canvas', 'svg', 'object', 'embed', 'input', 'textarea', 'select', 'button', 'progress', 'meter', 'table');
+
+    /**
+     * `auto` width and horizontal margins of a box that fills its line: the
+     * author's own value, proven at every capture where the box renders. An
+     * `auto` width is the space its parent gives it less its margins, clamped
+     * by its own min/max-width; `auto` margins take what the box leaves.
+     *
+     * @param array<string, float> $widths
+     * @param array<string, float> $samples
+     * @return list<array{0: float|null, 1: string}>|null
+     */
+    private function liftedFill(string $property, array $widths, array $samples, array $observations, array $parents): ?array
+    {
+        if (!in_array($property, array('width', 'margin-left', 'margin-right'), true)) return null;
+        // Replaced elements and form controls size to their content, not their line.
+        if (in_array(strtolower($this->element->tagName), self::INTRINSIC_ELEMENTS, true)) return null;
+        $other = array('margin-left' => 'margin-right', 'margin-right' => 'margin-left')[$property] ?? null;
+        $bothAuto = null !== $other;
+        foreach ($widths + $samples as $width) {
+            $declared = $this->declared($property, $width);
+            // An undeclared width is `auto`; an undeclared margin is `0`.
+            if ('width' === $property ? null !== $declared && 'auto' !== strtolower($declared) : 'auto' !== strtolower((string) $declared)) return null;
+            if (null !== $other && 'auto' !== strtolower((string) $this->declared($other, $width))) $bothAuto = false;
+        }
+        $proven = false;
+        foreach ($widths as $key => $_) {
+            $styles = $observations[$key]['used_styles'] ?? array();
+            if ('none' === ($styles['display'] ?? '')) continue;
+            $available = self::fillSpace($styles, $parents[$key]['used_styles'] ?? array());
+            $box = self::borderBoxWidth($styles, 'width');
+            $left = self::pixels((string) ($styles['margin-left'] ?? ''));
+            $right = self::pixels((string) ($styles['margin-right'] ?? ''));
+            if (null === $available || null === $box || null === $left || null === $right) return null;
+            if ('width' === $property) {
+                $predicted = $available - $left - $right;
+                $max = self::borderBoxWidth($styles, 'max-width');
+                $min = self::borderBoxWidth($styles, 'min-width');
+                if (null !== $max) $predicted = min($predicted, $max);
+                if (null !== $min) $predicted = max($predicted, $min);
+                if (abs($predicted - $box) > self::TOLERANCE) return null;
+            } else {
+                if (abs($box + $left + $right - $available) > self::TOLERANCE) return null;
+                if ($bothAuto && abs($left - $right) > 1.0) return null;
+            }
+            $proven = true;
+        }
+        return $proven ? array(array(null, 'auto')) : null;
+    }
+
+    /**
+     * The width an `auto`-width box's margin box fills, from observed facts:
+     * the parent's content width for an in-flow block-level box in a block
+     * container or a stretched column-flex item, the track for a grid item
+     * auto-placed in uniform tracks, the parent's padding box less the insets
+     * for an absolutely positioned box with both insets set inside a
+     * positioned parent. null when `auto` would not fill.
+     */
+    private static function fillSpace(array $styles, array $parent): ?float
+    {
+        if (!in_array($styles['display'] ?? '', array('block', 'flex', 'grid', 'flow-root', 'list-item'), true)) return null;
+        $position = $styles['position'] ?? 'static';
+        if ('absolute' === $position) {
+            if ('static' === ($parent['position'] ?? 'static')) return null;
+            $left = self::pixels((string) ($styles['left'] ?? ''));
+            $right = self::pixels((string) ($styles['right'] ?? ''));
+            $content = self::contentWidth($parent);
+            $padding = self::horizontalEdges($parent, false);
+            return null === $left || null === $right || null === $content || null === $padding ? null : $content + $padding - $left - $right;
+        }
+        if (!in_array($position, array('static', 'relative', 'sticky'), true) || 'none' !== ($styles['float'] ?? 'none')) return null;
+        $display = $parent['display'] ?? '';
+        if (in_array($display, array('block', 'flow-root', 'list-item'), true)) return self::contentWidth($parent);
+        if (in_array($display, array('flex', 'inline-flex'), true)) {
+            if (!in_array($parent['flex-direction'] ?? '', array('column', 'column-reverse'), true) || 'nowrap' !== ($parent['flex-wrap'] ?? '')) return null;
+            $align = $styles['align-self'] ?? 'auto';
+            if ('auto' === $align) $align = $parent['align-items'] ?? '';
+            return in_array($align, array('normal', 'stretch'), true) ? self::contentWidth($parent) : null;
+        }
+        if (in_array($display, array('grid', 'inline-grid'), true)) {
+            foreach (array('grid-column-start', 'grid-column-end') as $line) {
+                if (!in_array($styles[$line] ?? '', array('auto', 'span 1'), true)) return null;
+            }
+            $justify = $styles['justify-self'] ?? 'auto';
+            if ('auto' === $justify) $justify = $parent['justify-items'] ?? '';
+            if (!in_array($justify, array('normal', 'stretch', 'legacy'), true)) return null;
+            $tracks = array_map(static fn(string $track): ?float => self::pixels($track), preg_split('/\s+/', trim((string) ($parent['grid-template-columns'] ?? ''))) ?: array());
+            if (array() === $tracks || in_array(null, $tracks, true) || max($tracks) - min($tracks) > self::TOLERANCE) return null;
+            return $tracks[0];
+        }
+        return null;
+    }
+
+    /** A box's content width from its observed `width`, padding and borders. */
+    private static function contentWidth(array $styles): ?float
+    {
+        $width = self::pixels((string) ($styles['width'] ?? ''));
+        if (null === $width || 'border-box' !== ($styles['box-sizing'] ?? '')) return $width;
+        $edges = self::horizontalEdges($styles);
+        return null === $edges ? null : $width - $edges;
+    }
+
+    /** A box's observed `width`, `min-width` or `max-width` as a border-box length; null when not in pixels. */
+    private static function borderBoxWidth(array $styles, string $property): ?float
+    {
+        $width = self::pixels((string) ($styles[$property] ?? ''));
+        if (null === $width || 'border-box' === ($styles['box-sizing'] ?? '')) return $width;
+        $edges = self::horizontalEdges($styles);
+        return null === $edges ? null : $width + $edges;
+    }
+
+    /** Horizontal padding, and with $borders the border widths, of a box. */
+    private static function horizontalEdges(array $styles, bool $borders = true): ?float
+    {
+        $sum = 0.0;
+        foreach (array('padding-left', 'padding-right') as $property) {
+            $value = self::pixels((string) ($styles[$property] ?? ''));
+            if (null === $value) return null;
+            $sum += $value;
+        }
+        if (!$borders) return $sum;
+        foreach (array('border-left', 'border-right') as $property) {
+            $border = trim((string) ($styles[$property] ?? '0px'));
+            if (preg_match('/(?:^|\s)(?:none|hidden)(?:\s|$)/', $border)) continue;
+            if (!preg_match('/^(-?(?:\d*\.)?\d+px)\b/', $border, $m)) return null;
+            $sum += (float) CssLength::toPx($m[1]);
+        }
+        return $sum;
+    }
+
+    /**
+     * A `grid-template-columns` track list in `fr` that resolves to the
+     * observed tracks at every capture. An undeclared list (`none`) holds
+     * where the one implicit column fills the content width. A band between
+     * captures carries a list resolved by the same arithmetic the captures
+     * proved, so it needs no capture of its own.
+     *
+     * @param array<string, float> $widths
+     * @param array<string, float> $samples
+     * @return list<array{0: float|null, 1: string}>|null
+     */
+    private function liftedTracks(string $property, array $widths, array $samples, array $observations): ?array
+    {
+        if ('grid-template-columns' !== $property) return null;
+        $proven = array();
+        $fractional = false;
+        foreach ($widths as $key => $width) {
+            $value = $this->declared($property, $width) ?? 'none';
+            $styles = $observations[$key]['used_styles'] ?? array();
+            if (!in_array($styles['display'] ?? '', array('grid', 'inline-grid'), true)) return null;
+            $content = self::contentWidth($styles);
+            $gap = 'normal' === ($styles['column-gap'] ?? 'normal') ? 0.0 : self::pixels((string) $styles['column-gap']);
+            $observed = array_map(static fn(string $track): ?float => self::pixels($track), preg_split('/\s+/', trim((string) ($styles[$property] ?? ''))) ?: array());
+            if (null === $content || null === $gap || in_array(null, $observed, true)) return null;
+            if ('none' === strtolower($value)) {
+                $predicted = array($content);
+            } else {
+                if (!preg_match('/\dfr\b/i', $value)) return null;
+                $predicted = self::resolveTracks($value, $content, $gap);
+                $fractional = true;
+            }
+            if (null === $predicted || count($predicted) !== count($observed)) return null;
+            foreach ($predicted as $index => $track) {
+                if (abs($track - $observed[$index]) > self::TOLERANCE) return null;
+            }
+            $proven[$key] = $value;
+        }
+        if (!$fractional) return null;
+        foreach ($samples as $width) {
+            $value = $this->declared($property, $width) ?? 'none';
+            if ('none' !== strtolower($value) && null === self::resolveTracks($value, 1000.0, 0.0)) return null;
+        }
+        return $this->bands($property, $widths, $samples, $proven, 'none', true);
+    }
+
+    /**
+     * Track sizes a list of `px`, `fr` and `minmax(<px>, <fr>)` tracks (with
+     * integer `repeat()`) resolves to in a content width. null for anything
+     * else (keywords, named lines, auto-repeat), whose size depends on content.
+     *
+     * @return list<float>|null
+     */
+    private static function resolveTracks(string $value, float $content, float $gap): ?array
+    {
+        $tracks = array();
+        $value = trim($value);
+        while ('' !== $value) {
+            if (preg_match('/^repeat\(\s*(\d+)\s*,/i', $value, $m)) {
+                $depth = 0;
+                $end = null;
+                for ($i = strlen('repeat'); $i < strlen($value); $i++) {
+                    if ('(' === $value[$i]) $depth++;
+                    elseif (')' === $value[$i] && 0 === --$depth) { $end = $i; break; }
+                }
+                if (null === $end || (int) $m[1] < 1 || (int) $m[1] > 1000) return null;
+                $inner = self::resolveTrackTokens(substr($value, strlen($m[0]), $end - strlen($m[0])));
+                if (null === $inner) return null;
+                for ($i = 0; $i < (int) $m[1]; $i++) array_push($tracks, ...$inner);
+                $value = ltrim(substr($value, $end + 1));
+                continue;
+            }
+            if (!preg_match('/^(minmax\([^()]*\)|[^\s()]+)\s*/i', $value, $m)) return null;
+            $inner = self::resolveTrackTokens($m[1]);
+            if (null === $inner) return null;
+            array_push($tracks, ...$inner);
+            $value = substr($value, strlen($m[0]));
+        }
+        if (array() === $tracks) return null;
+        $free = $content - $gap * (count($tracks) - 1);
+        $fractions = 0.0;
+        foreach ($tracks as [$min, $fr]) {
+            if (null === $fr) $free -= $min;
+            else $fractions += $fr;
+        }
+        $sizes = array();
+        foreach ($tracks as [$min, $fr]) {
+            if (null === $fr) { $sizes[] = $min; continue; }
+            $share = $fractions > 0 ? max(0.0, $free) * $fr / $fractions : 0.0;
+            // A track whose minimum exceeds its share redistributes the rest: unproven.
+            if ($share < $min) return null;
+            $sizes[] = $share;
+        }
+        return $sizes;
+    }
+
+    /** @return list<array{0: float, 1: float|null}>|null [minimum px, fr or null for a fixed track] per track. */
+    private static function resolveTrackTokens(string $tokens): ?array
+    {
+        $tracks = array();
+        foreach (preg_split('/\s+(?![^()]*\))/', trim($tokens)) ?: array() as $token) {
+            if ('' === $token) continue;
+            if (preg_match('/^(\d*\.?\d+)fr$/i', $token, $m)) {
+                // A bare `fr` track's automatic minimum is its content: the
+                // observed tracks prove it does not bind at the captures.
+                $tracks[] = array(0.0, (float) $m[1]);
+                continue;
+            }
+            if (preg_match('/^minmax\(\s*(0|(?:\d*\.)?\d+px)\s*,\s*(\d*\.?\d+)fr\s*\)$/i', $token, $m)) {
+                $tracks[] = array('0' === $m[1] ? 0.0 : (float) CssLength::toPx($m[1]), (float) $m[2]);
+                continue;
+            }
+            $px = self::pixels($token);
+            if (null === $px) return null;
+            $tracks[] = array($px, null);
+        }
+        return $tracks;
     }
 
     /**
@@ -146,19 +417,20 @@ final class BoxTreeFluidIntent
     /**
      * Split the author's value into bands at the breakpoints where it
      * switches between captures. Each band must hold a capture whose proven
-     * value it carries.
+     * value it carries, unless $uncovered: the caller proved the value model
+     * itself. $initial stands in for an undeclared value.
      *
      * @param array<string, float> $widths
      * @param array<string, float> $samples
      * @param array<string, string> $proven Proven value by capture key.
      * @return list<array{0: float|null, 1: string}>|null
      */
-    private function bands(string $property, array $widths, array $samples, array $proven): ?array
+    private function bands(string $property, array $widths, array $samples, array $proven, ?string $initial = null, bool $uncovered = false): ?array
     {
         $points = array();
         foreach ($widths as $key => $width) $points[] = array($width, $proven[$key], true);
         foreach ($samples as $width) {
-            $value = $this->declared($property, $width);
+            $value = $this->declared($property, $width) ?? $initial;
             if (null === $value || '' === $value) return null;
             $points[] = array($width, $value, false);
         }
@@ -173,7 +445,7 @@ final class BoxTreeFluidIntent
             }
             if ($capture) $covered[$last] = true;
         }
-        return count($covered) === count($bands) ? $bands : null;
+        return $uncovered || count($covered) === count($bands) ? $bands : null;
     }
 
     /**
@@ -216,10 +488,9 @@ final class BoxTreeFluidIntent
         if ('line-height' === $property) return array($own, $own);
         $percent = null;
         if (in_array($property, array('width', 'min-width', 'max-width'), true)
-            && 'content-box' === ($parent['box-sizing'] ?? '')
             && !in_array($styles['position'] ?? '', array('absolute', 'fixed'), true)
-            && !in_array($parent['display'] ?? '', array('inline', 'contents'), true)) {
-            $percent = self::pixels((string) ($parent['width'] ?? ''));
+            && !in_array($parent['display'] ?? '', array('inline', 'contents', 'grid', 'inline-grid'), true)) {
+            $percent = self::contentWidth($parent);
         }
         return array($percent, $own);
     }

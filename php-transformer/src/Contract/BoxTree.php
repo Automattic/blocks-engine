@@ -71,4 +71,20 @@ final class BoxTree
     {
         return $tree['nodes'][$element->getAttribute(self::NODE_ATTRIBUTE)]['viewports'] ?? array();
     }
+
+    /**
+     * Return the viewport observations of the node the capture recorded as
+     * this element's parent. The compiled DOM can re-parent a source element
+     * (a document body becomes a fragment root), so the tree, not the DOM, is
+     * authoritative for the observed parent.
+     */
+    public static function parentForElement(array $tree, DOMElement $element): array
+    {
+        $id = $element->getAttribute(self::NODE_ATTRIBUTE);
+        if ('' === $id || !isset($tree['nodes'][$id])) return array();
+        foreach ($tree['nodes'] as $node) {
+            if (is_array($node) && in_array($id, is_array($node['children'] ?? null) ? $node['children'] : array(), true)) return $node['viewports'] ?? array();
+        }
+        return array();
+    }
 }

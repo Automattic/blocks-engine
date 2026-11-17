@@ -316,6 +316,14 @@ final class HtmlTransformerSession
         return \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::forElement($this->boxTree, $element);
     }
 
+    /** Browser observations for the source element's captured parent, keyed by captured viewport. */
+    public function boxTreeParentEvidence(\DOMElement $element): array
+    {
+        $parent = $element->parentNode instanceof \DOMElement ? $this->boxTreeEvidence($element->parentNode) : array();
+
+        return array() !== $parent ? $parent : \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::parentForElement($this->boxTree, $element);
+    }
+
     public function installTransformOptions(array $options): void
     {
         $this->boxTree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
