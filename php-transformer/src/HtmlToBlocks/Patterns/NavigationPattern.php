@@ -22,6 +22,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScopin
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedMenuDialogFold;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LoweredLinkHost;
 use DOMElement;
 
 final class NavigationPattern implements PatternRecognizerInterface
@@ -1064,7 +1065,15 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $extraBlocks = array();
         foreach ( $extras as $extra ) {
-            $extraBlock = $converter->element($extra, $fallbacks, true);
+            // A link beside the menu remains a link, not a new source of
+            // site-wide button defaults. Preserve its authored anchor and
+            // presentation without introducing button wrapper projections.
+            $extraBlock = $layoutWrapper instanceof DOMElement
+                ? $createBlock('core/paragraph', array_merge(
+                    LoweredLinkHost::attributes($presentationAttributes($extra), $extra),
+                    array( 'content' => SourceDom::outerHtml($extra) )
+                ), array(), $extra)
+                : $converter->element($extra, $fallbacks, true);
             $extraName = is_array($extraBlock) ? (string) ($extraBlock['blockName'] ?? '') : '';
             if ( '' === $extraName || 'core/html' === $extraName ) {
                 return null;

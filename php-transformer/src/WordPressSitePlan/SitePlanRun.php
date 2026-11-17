@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use InvalidArgumentException;
@@ -514,6 +515,14 @@ final class SitePlanRun
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $compacted = $compactor->compactStylesheet($asset['content']);
             if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
+            // Compatibility replays use :root only as a specificity shim,
+            // not as a document reset. Their repeated native-host arms can
+            // share a declaration body after preset binding has settled it.
+            if ('wordpress-compat' === ($asset['source'] ?? null)) {
+                $compacted = CssSelectorListCompactor::stylesheet($compactor->mergeRepeatedDeclarationRules($compacted, true));
+            }
+            // A restated arm folded beside the arm it restricts adds nothing.
+            $compacted = CssSelectorListCompactor::withoutSubsumedArmsInStylesheet($compacted);
             if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);

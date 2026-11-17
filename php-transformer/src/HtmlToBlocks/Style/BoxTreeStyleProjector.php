@@ -38,7 +38,16 @@ final class BoxTreeStyleProjector
         $existingDeclarations = SourceDeclarations::parse($mapper->serialize($existing)['style']);
         // Never resurrect authored values for observed (including inherited) properties.
         $unobserved = array_diff_key($existingDeclarations, $observations[$baseKey]['used_styles']);
-        $mapped = $mapper->map(array_replace($unobserved, $base));
+        // Block attributes serialize inline and beat every @media carrier rule,
+        // so only a value observed identically in every viewport may become one.
+        // A varying property stays entirely in the carrier: base rule plus deltas.
+        $invariant = array_filter($base, static function (string $value, string $property) use ($keys, $observations): bool {
+            foreach ($keys as $key) {
+                if (($observations[$key]['used_styles'][$property] ?? null) !== $value) return false;
+            }
+            return true;
+        }, ARRAY_FILTER_USE_BOTH);
+        $mapped = $mapper->map(array_replace($unobserved, $invariant));
         $attrs['style'] = $mapped['style'];
         $attrs = array_replace($attrs, $mapped['attrs']);
         // Layout declarations are deliberately excluded by StyleAttributeMapper;

@@ -81,6 +81,8 @@ foreach ( array( 'with CTA' => $html, 'without CTA' => str_replace('<a class="na
     $assert(str_contains($markup, 'class="brand"') && str_contains($markup, 'RICHARDS'), $label . ': the brand survives beside the menu');
     if ( 'with CTA' === $label ) {
         $assert(str_contains($markup, 'Get the audiobook') && ! in_array('Get the audiobook', $labels, true), $label . ': the CTA stays outside the menu');
+        $assert(array() === $find($inner, 'core/button'), $label . ': the carried anchor does not introduce site-wide button defaults');
+        $assert(str_contains($markup, '<a class="nav-cta" href="#book">Get the audiobook</a>'), $label . ': the CTA keeps its authored link and classes');
     }
 }
 
