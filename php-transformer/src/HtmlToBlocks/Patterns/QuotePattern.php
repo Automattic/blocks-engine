@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -136,6 +137,7 @@ final class QuotePattern implements PatternRecognizerInterface
 
         $citation = $quotes->citationFromElement($blockquote);
         $caption = SourceDom::firstChildElement($figure, 'figcaption');
+        $captionCited = false;
         // The figure collapses into core/quote only when it holds just the
         // blockquote, its caption, and aria-hidden decoration. Any other
         // child (a rating row, an author card) has no place in the quote, and
@@ -154,6 +156,7 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
         if ( '' === $citation && $caption instanceof DOMElement ) {
+            $captionCited = true;
             $citation = SourceDom::innerHtml($caption);
             $captionClass = trim(SourceDom::attr($caption, 'class'));
             if ( '' !== $captionClass ) {
@@ -185,9 +188,22 @@ final class QuotePattern implements PatternRecognizerInterface
             }
             $innerBlocks[] = $createBlock('core/paragraph', array_merge($context->presentationAttributes($child), array( 'content' => $content )), array(), $child);
         }
-        $innerBlocks = array_merge($innerBlocks, $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes));
+        // The quote saves the figure's box; the source blockquote's box is
+        // now the paragraph holding its text. Its author rules follow it.
+        $phrasing = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes, static fn (): string => (
+            '' === ($carrier = $quotes->figureBlockquoteCarrier($blockquote))
+                ? ''
+                : SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ' ' . $carrier
+        ));
+        $innerBlocks = array_merge($innerBlocks, $phrasing);
         if ( array() === $innerBlocks ) {
             $innerBlocks = $converter->childrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' ));
+        }
+        if ( $captionCited && $caption instanceof DOMElement ) {
+            $captionCarrier = $quotes->figureCaptionCarrier($caption);
+            if ( '' !== $captionCarrier ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $captionCarrier);
+            }
         }
         if ( array() === $innerBlocks ) {
             $innerBlocks[] = $createBlock('core/paragraph', array( 'content' => $value ));
@@ -197,9 +213,10 @@ final class QuotePattern implements PatternRecognizerInterface
     }
 
     /**
+     * @param (callable(): string)|null $boxClassName Classes for a paragraph that stands in for the element's box.
      * @return array<int, array<string, mixed>>
      */
-    private function phrasingQuoteChildren(DOMElement $element, string $value, PatternContext $context, QuotePatternContext $quotes): array
+    private function phrasingQuoteChildren(DOMElement $element, string $value, PatternContext $context, QuotePatternContext $quotes, ?callable $boxClassName = null): array
     {
         // A blockquote may be wrapped in phrasing elements while still carrying
         // structural descendants. Send that shape through child lowering so the
@@ -229,7 +246,7 @@ final class QuotePattern implements PatternRecognizerInterface
 
         return array( $this->createBlock->createBlock('core/paragraph', array_filter(array(
             'content'   => $value,
-            'className' => 'blocks-engine-synthetic-paragraph',
+            'className' => SourceDom::mergeClassNames('blocks-engine-synthetic-paragraph', null === $boxClassName ? '' : $boxClassName()),
         ), static fn (string $value): bool => '' !== $value)) );
     }
 

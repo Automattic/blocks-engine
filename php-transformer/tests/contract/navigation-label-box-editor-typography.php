@@ -14,8 +14,9 @@ $frontend = array('blocks' => $result['serialized_blocks'], 'assets' => array_va
 // label boxes share markers and structural selectors instead of enumerating positions.
 // Duplicate subject removal also removes a redundant single-arm :is().
 // Canonical subject-set ordering changes only the navigation instance name
-// and its dependent asset hashes. Keep the resulting frontend byte-locked.
-if ('c646f7af470085def42ab04f776c1ff85bba57236434a41bc7fe057425c2fc69' !== hash('sha256', json_encode($frontend))) {
+// and its dependent asset hashes. Projected box rules name the box marker
+// (#6307) so they stay off sibling elements. Keep the frontend byte-locked.
+if ('7d484d9efbae5cedd5d864f89d942f473835e1e14132c2ac2ddcfc4065fabe92' !== hash('sha256', json_encode($frontend))) {
     throw new RuntimeException('Frontend markup or stylesheet output changed.');
 }
 $native = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($result['serialized_blocks']);

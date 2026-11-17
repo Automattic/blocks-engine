@@ -513,11 +513,7 @@ final class EngineSupportCss
                 . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation) .wp-block-navigation-item{display:list-item;align-items:normal}'
                 . "\n" . '.wp-block-navigation:where(.blocks-engine-list-navigation:not(.blocks-engine-anchor-items-navigation)) .wp-block-navigation-item__content{display:inline}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:var(--navigation-layout-wrap,wrap);list-style:none}';
-            // Core's closed overlay transport otherwise inserts a column
-            // between the source list host and its duplicated container. Carry
-            // the host's responsive direction through both transport boxes;
-            // an opened overlay retains Core's independent interaction layout.
-            if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
+            if (str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation')) {
                 $parts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__responsive-container:not(.is-menu-open) :where(.wp-block-navigation__responsive-close,.wp-block-navigation__responsive-dialog,.wp-block-navigation__responsive-container-content){flex-direction:inherit}'
                     . "\n" . '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation .wp-block-navigation__responsive-container:not(.is-menu-open){flex-direction:inherit}';
             }

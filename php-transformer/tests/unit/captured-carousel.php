@@ -27,7 +27,7 @@ foreach ($carousels as $carousel) {
     $assert(20 === substr_count($markup, 'class="wp-block-group frame-crop'), 'conditional source crop holders survive around every native image');
     $assert(20 === substr_count($markup, '<!-- wp:image '), 'mixed intrinsic shapes remain twenty native images');
     $assert(20 === substr_count($markup, 'style="margin-top:0;margin-bottom:0"'), 'synthetic figures add no block-axis margin to absolutely positioned crop images');
-    $assert(str_contains($carousel['innerHTML'], 'blocks-engine-authored-carousel__controls frame-carousel') && str_contains($carousel['innerHTML'], 'style="position:absolute;inset:0;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;margin:0;padding:0"'), 'both control topology branches carry the same source wrapper presentation contract');
+    $assert(str_contains($carousel['innerHTML'], 'blocks-engine-authored-carousel__controls frame-carousel') && str_contains($carousel['innerHTML'], 'style="position:absolute;inset:0;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;min-height:0;max-height:none;margin:0;padding:0;border:0;background:none;box-shadow:none"'), 'both control topology branches carry the same source wrapper presentation contract');
 }
 $assert(array(true, false) === $topologies, 'fixture exercises source-topology and independent-control save branches');
 if ($failures) {

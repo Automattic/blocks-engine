@@ -47,6 +47,14 @@ final class FormFallbackFindingBuilder
         if ($containerPresentation) $formMetadata['container_presentation'] = $containerPresentation;
         $choiceGroups = $this->choiceGroups($element);
         $boundedHtml = $this->context->boundedFallbackHtml($element);
+        // A composed form binding replaces only its controls slot; the page
+        // keeps the form's other content as native blocks. The provider
+        // renders `readable_blocks` in place of the slot, so the readable form
+        // holds that slot alone, or the page renders the surrounding content
+        // twice.
+        if ( null !== $readableFormBlock && null !== $bindingBlock ) {
+            $readableFormBlock = $this->readableSlot($readableFormBlock, $bindingBlock, $element) ?? $readableFormBlock;
+        }
         $replacesRuntimeIsland = null !== $bindingBlock;
         $bindingBlock ??= $readableFormBlock;
         $supersededRuntimeSelectors = $this->context->runtimeDomSelectors($element);
@@ -327,5 +335,63 @@ final class FormFallbackFindingBuilder
             'selected_index' => 1 === count($chosen) ? $chosen[0] : null,
             'selected' => $selected,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $readable
+     * @param array<string, mixed> $slot
+     * @return array<string, mixed>|null
+     */
+    private function readableSlot(array $readable, array $slot, DOMElement $form): ?array
+    {
+        $provenance = $this->session->transformationProvenanceState();
+        $path = static function (array $block) use ($provenance): ?string {
+            $id = $block['_source_provenance_id'] ?? null;
+            $source = is_int($id) ? $provenance->sourceElement($id) : null;
+            return $source?->getNodePath();
+        };
+        $slotPath = $path($slot);
+        if ( null === $slotPath || ! str_starts_with($slotPath, $form->getNodePath() . '/') ) {
+            return null;
+        }
+        $find = static function (array $block) use (&$find, $path, $slotPath): ?array {
+            if ( $slotPath === $path($block) ) {
+                return $block;
+            }
+            foreach ( $block['innerBlocks'] ?? array() as $inner ) {
+                $match = is_array($inner) ? $find($inner) : null;
+                if ( null !== $match ) {
+                    return $match;
+                }
+            }
+            return null;
+        };
+
+        $match = $find($readable);
+        $indexes = static function (array $block) use (&$indexes): array {
+            $found = isset($block['form_control_index']) ? array($block['form_control_index']) : array();
+            foreach ( $block['innerBlocks'] ?? array() as $inner ) {
+                if ( is_array($inner) ) {
+                    $found = array_merge($found, $indexes($inner));
+                }
+            }
+            return $found;
+        };
+
+        // A control the form captures outside the slot (a `form=` peer)
+        // still belongs to the provider form, so the whole form stays.
+        if ( null === $match || count($indexes($match)) !== count($indexes($readable)) ) {
+            return null;
+        }
+
+        // Providers read the root as the form itself; it keeps its frame and
+        // holds the slot as its only content.
+        $content = $readable['innerContent'] ?? array();
+        $open = is_string($content[0] ?? null) ? $content[0] : '';
+        $close = is_string($content[count($content) - 1] ?? null) && count($content) > 1 ? $content[count($content) - 1] : '';
+        $readable['innerBlocks'] = array($match);
+        $readable['innerContent'] = array($open, null, $close);
+
+        return $readable;
     }
 }

@@ -584,6 +584,9 @@ final class AuthorSelectorProjector
                 $remainingSubjects[] = $element;
                 continue;
             }
+            if ( $inner['universal_reached'] && self::hasBareUniversalSubject($parsed) ) {
+                continue;
+            }
             $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
             if ($inner['author_precedence']) {
                 $innerArms[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
@@ -596,6 +599,22 @@ final class AuthorSelectorProjector
             $innerArms[] = $inner['selector'] . $baseline . $this->selectorSpecificityShims($parsed, $context) . $suffix . $inner['pseudo_element'];
         }
         return array($innerArms, $remainingSubjects);
+    }
+
+    /**
+     * The rule's subject is any element: a bare `*` with no simple selector
+     * of its own (`*`, `.x > *`, `*::before`).
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private static function hasBareUniversalSubject(array $parsed): bool
+    {
+        $subject = $parsed['compounds'][count($parsed['compounds'] ?? array()) - 1] ?? null;
+
+        return is_array($subject) && ($subject['universal'] ?? false) && null === $subject['type']
+            && array() === $subject['classes'] && array() === $subject['ids'] && array() === $subject['attributes']
+            && array() === $subject['not'] && array() === $subject['any'] && null === $subject['nth_child']
+            && ! $subject['first_child'] && ! $subject['last_child'] && ! $subject['root'];
     }
 
     /**
@@ -2557,7 +2576,8 @@ final class AuthorSelectorProjector
      * `ul.wp-block-navigation__container` that holds the items. An item rule
      * whose parent compound is that list (`#menu > ul > li`) therefore has to
      * step through both: the list compound addresses the root through the
-     * list's semantic identity, and a child hop reaches core's container.
+     * list's semantic identity, and a descendant hop through Core's responsive
+     * wrappers reaches the container.
      * Otherwise `#menu > ul` looks for a UL child of `#menu` that no longer
      * exists, and the item loses its authored box (padding, height, display).
      * When the carrier owns the root instead, the source list maps directly
@@ -2649,7 +2669,7 @@ final class AuthorSelectorProjector
         --$parentEnd;
         while ( $parentEnd > 0 && ctype_space($selector[$parentEnd - 1]) ) --$parentEnd;
         $replacements = array(
-            $parentEnd => array( 'end' => $parentEnd, 'value' => ' > :where(.wp-block-navigation__container)' ),
+            $parentEnd => array( 'end' => $parentEnd, 'value' => ' :where(.wp-block-navigation__container)' ),
         );
         if ( '' !== $type ) {
             foreach ( $parsed['type_spans'] as $typeSpan ) {

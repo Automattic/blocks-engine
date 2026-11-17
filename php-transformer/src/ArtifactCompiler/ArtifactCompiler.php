@@ -535,6 +535,16 @@ final class ArtifactCompiler
         $assets = $this->pruneAbsentSupportSubjects($assets, $authoredFiles, implode("\n", $pageMarkup) . "\n" . $sharedMarkup);
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets);
+        $propertyPruner = new \Automattic\BlocksEngine\PhpTransformer\Css\UnusedCustomPropertyPruner(
+            array_values(array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')))),
+            array_merge($this->selectorEvidence($authoredFiles), array_values($pageMarkup))
+        );
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? '') || !is_string($asset['content'] ?? null)) continue;
+            $content = $propertyPruner->prune($asset['content']);
+            if ($content !== $asset['content']) $asset = ArtifactNormalizer::withTextPayload($asset, $content);
+        }
+        unset($asset);
         $diagnostics = ArtifactDiagnostics::dedupe(array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics, $this->omittedPageDiagnostics($omittedPages)));
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
@@ -2243,7 +2253,7 @@ final class ArtifactCompiler
     /** @var list<string>|null Whole-site evidence supplied to a partition worker. */
     private ?array $siteSelectorEvidence = null;
 
-    /** @var list<string>|null The evidence {@see $siteSelectorPruner} indexes. */
+    /** @var array|null The subject and stylesheet evidence the pruner indexes. */
     private ?array $siteSelectorPrunerEvidence = null;
     private ?UnreachableSelectorPruner $siteSelectorPruner = null;
 
@@ -2256,9 +2266,22 @@ final class ArtifactCompiler
     private function siteSelectorPruner(array $files): UnreachableSelectorPruner
     {
         $evidence = $this->siteSelectorEvidence ?? $this->selectorEvidence($files);
-        if (null === $this->siteSelectorPruner || $evidence !== $this->siteSelectorPrunerEvidence) {
-            $this->siteSelectorPrunerEvidence = $evidence;
-            $this->siteSelectorPruner = new UnreachableSelectorPruner($evidence);
+        $stylesheets = array();
+        foreach ($files as $file) {
+            $content = $file['content'] ?? null;
+            if (!is_string($content)) continue;
+            if ('css' === ($file['kind'] ?? '')) $stylesheets[] = $content;
+            if ('html' === ($file['kind'] ?? '') && '' !== $content) {
+                // DOM extraction avoids PCRE limits on large inline sheets.
+                $document = new \DOMDocument();
+                @$document->loadHTML($content);
+                foreach ($document->getElementsByTagName('style') as $style) $stylesheets[] = $style->textContent;
+            }
+        }
+        $cacheEvidence = array($evidence, $stylesheets);
+        if (null === $this->siteSelectorPruner || $cacheEvidence !== $this->siteSelectorPrunerEvidence) {
+            $this->siteSelectorPrunerEvidence = $cacheEvidence;
+            $this->siteSelectorPruner = new UnreachableSelectorPruner($evidence, true, $stylesheets);
         }
         return $this->siteSelectorPruner;
     }
