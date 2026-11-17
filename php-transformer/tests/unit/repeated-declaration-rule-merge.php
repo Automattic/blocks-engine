@@ -29,4 +29,12 @@ if (!str_contains($css, ':root{--kit-gap:')) throw new RuntimeException("The doc
 if (1 !== substr_count($css, 'Kit v1')) throw new RuntimeException("The license comment ships exactly once:\n" . $css);
 if (2 !== substr_count($css, 'margin:3px')) throw new RuntimeException("A repeat that competes with a rule between keeps its place:\n" . $css);
 if (2 !== substr_count($css, 'opacity:.4')) throw new RuntimeException("A vendor-prefixed pseudo never joins a list a browser would otherwise keep:\n" . $css);
+// Compatibility replays have a :root specificity shim, not a root reset.
+// Preset binding can split their selector list; the published plan rejoins it.
+$navigation = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<html><head><link rel="stylesheet" href="site.css"></head><body><main><nav class="menu"><a href="/a">Alpha</a><a href="/b">Beta</a></nav></main></body></html>',
+    'site.css' => '.menu a{letter-spacing:.037em;color:#123456}',
+)))->toArray();
+$compat = implode("\n", array_column(array_filter($navigation['source_reports']['wordpress_site_plan']['assets'] ?? array(), static fn(array $asset): bool => 'wordpress-compat' === ($asset['source'] ?? null)), 'content'));
+if (1 !== substr_count($compat, 'letter-spacing:.037em')) throw new RuntimeException("Navigation replay declarations ship once:\n" . $compat);
 echo "Repeated declaration blocks ship once without crossing a competing rule\n";

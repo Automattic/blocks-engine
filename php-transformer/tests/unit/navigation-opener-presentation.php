@@ -13,6 +13,16 @@ $page = $plan['pages'][0]['canonical_block_markup'] ?? '';
 if ('' === $page) foreach ($plan['pages'] as $document) $page .= $document['canonical_block_markup'] ?? '';
 $assert(str_contains($page, 'blocksEngineNavigationOpener'), 'source-only single passive SVG reaches native navigation metadata');
 $assert(str_contains($page, 'M2 3h16v2H2zM2 9h16v2H2zM2 15h16v2H2z'), 'original source artwork is retained rather than a generic menu variant');
+$wrappedSource = str_replace($icon, '<div class="icon-wrapper"><div>' . $icon . '</div></div>', $source);
+$wrappedSource = str_replace('</style>', '.icon-wrapper{--icon-size:30px;width:var(--icon-size);height:var(--icon-size)}.icon-wrapper svg{width:100%;height:100%}</style>', $wrappedSource);
+$wrapped = $compile($wrappedSource);
+$wrappedMarkup = '';
+foreach ($wrapped['pages'] as $document) $wrappedMarkup .= $document['canonical_block_markup'] ?? '';
+$assert(str_contains($wrappedMarkup, 'blocksEngineNavigationOpener'), 'nested wrapper SVG reaches native navigation metadata');
+$assert(str_contains($wrappedMarkup, 'M2 3h16v2H2zM2 9h16v2H2zM2 15h16v2H2z'), 'wrapped source artwork is retained');
+$wrappedCss = implode("\n", array_column($wrapped['assets'], 'content'));
+$assert(1 === preg_match('/responsive-container-open\{[^}]*width:30px!important;height:30px!important/', $wrappedCss), 'wrapper custom-property dimensions size the native button');
+$assert(1 === preg_match('/responsive-container-open>svg\{[^}]*width:100%!important;height:100%!important/', $wrappedCss), 'wrapped SVG fills the transferred dimensions');
 foreach (array(
     'mixed label' => str_replace('data-blocks-engine-capture-dialog-trigger="phone-menu">', 'data-blocks-engine-capture-dialog-trigger="phone-menu">Menu', $source),
     'multiple icons' => str_replace('data-blocks-engine-capture-dialog-trigger="phone-menu">', 'data-blocks-engine-capture-dialog-trigger="phone-menu"><svg width="12" height="12"><circle r="4" /></svg>', $source),

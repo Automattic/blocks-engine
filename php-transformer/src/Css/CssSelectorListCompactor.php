@@ -282,6 +282,59 @@ final class CssSelectorListCompactor
     }
 
     /**
+     * The stylesheet with every style rule prelude passed through
+     * withoutRedundantSelectorWhitespace(). Declaration blocks, at-rule
+     * preludes and comments are kept byte for byte.
+     */
+    public static function withoutRedundantSelectorWhitespaceInStylesheet(string $css): string
+    {
+        if ( ! preg_match('/\s[,>+~]|[,>+~]\s/', $css) ) {
+            return $css;
+        }
+        return (new CssStylesheetTransformer())->transformStyleRules($css, static fn(string $prelude, string $body): string => self::withoutRedundantSelectorWhitespace($prelude) . '{' . $body . '}');
+    }
+
+    /**
+     * The selector list without top-level whitespace that separates no
+     * tokens: none beside a `,`, `>`, `+` or `~` combinator or at either
+     * end, and every other run collapsed to one space (a descendant
+     * combinator). Strings, comments, escapes (including an escape's
+     * terminating space), attribute brackets and functional pseudo-class
+     * arguments are kept byte for byte, so `[class~="a b"]`, `.a\ b` and
+     * `:has(> img)` are unchanged. Every arm matches the same elements with
+     * the same specificity. A malformed selector is returned unchanged.
+     */
+    public static function withoutRedundantSelectorWhitespace(string $prelude): string
+    {
+        $state     = CssSyntaxScanner::state();
+        $output    = '';
+        $length    = strlen($prelude);
+        $pending   = false;
+        $delimiter = ',';
+        for ( $offset = 0; $offset < $length; ) {
+            $character = $prelude[ $offset ];
+            $inert = $state['comment'] || $state['url'] || '' !== $state['quote'] || 0 < $state['brackets'] || 0 < $state['parens'];
+            if ( ! $inert && CssSyntaxScanner::isCssWhitespace($character) ) {
+                $pending = true;
+                ++$offset;
+                continue;
+            }
+            if ( $pending && ! in_array($delimiter, array( ',', '>', '+', '~' ), true) && ! in_array($character, array( ',', '>', '+', '~' ), true) ) {
+                $output .= ' ';
+            }
+            $pending = false;
+            $next = CssSyntaxScanner::consume($prelude, $offset, $state);
+            if ( null === $next ) {
+                return $prelude;
+            }
+            $delimiter = ! $inert && $next === $offset + 1 && '' === $state['quote'] && ! $state['comment'] && in_array($character, array( ',', '>', '+', '~' ), true) ? $character : '';
+            $output .= substr($prelude, $offset, $next - $offset);
+            $offset = $next;
+        }
+        return CssSyntaxScanner::isComplete($state) && ! $state['comment'] && '' === $state['quote'] ? $output : $prelude;
+    }
+
+    /**
      * The stylesheet with every selector arm dropped that another arm of the
      * same rule already covers. See withoutSubsumedArms().
      */
