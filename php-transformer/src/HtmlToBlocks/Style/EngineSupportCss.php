@@ -239,19 +239,15 @@ final class EngineSupportCss
                 // top of each other, making the lower image impossible to select.
                 // In editor flow each image instead has its own hit-test box.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '.wp-block-image{display:inline-block;position:static}'
+                // Editor figures keep real selection boxes. Their leaves must
+                // not escape those boxes when source icons are stacked.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '.wp-block-image img{position:static!important}'
                 // A fixed-height source stack must expand around the editor's
                 // now in-flow images, rather than covering them with later blocks.
                 // Captured geometry can emit important fixed heights; this
                 // editor-only override must also outrank those source carriers.
                 . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '){height:auto!important;min-height:0!important}'
                 . $inlineFigure . ' img{display:inline}'
-                // A box-less figure positions nothing, so the image is the box
-                // that its source offsets (e.g. stacked icon layers pinned by
-                // `position:absolute;inset:0`) must move. Inherit them at zero
-                // weight; a carousel slide figure keeps its box and its offsets.
-                . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS
-                . ( str_contains($serializedBlocks, 'authored-carousel') ? ':not(.blocks-engine-authored-carousel__track>*)' : '' )
-                . ')>img{position:inherit;inset:inherit;z-index:inherit}'
                 // A propagated card link adds another synthetic box. Core's
                 // inline-block anchor would make percentage images shrink to
                 // their intrinsic width instead of the retained source host.
