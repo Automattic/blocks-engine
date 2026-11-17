@@ -46,7 +46,7 @@ final class ResponsiveLayoutBlockGenerator
             )
         ) : null;
         return createElement( element.Fragment, {}, inspector,
-            createElement( 'div', Object.assign( {}, blockEditor.useBlockProps(), { dangerouslySetInnerHTML: { __html: props.attributes.content || '' } } ) )
+            rawHtmlRoot( props.attributes.content || '', blockEditor.useBlockProps() )
         );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
@@ -58,7 +58,7 @@ final class ResponsiveLayoutBlockGenerator
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
-        return array( 'index.js' => str_replace('__BLOCK_NAME__', $blockName, $script) );
+        return array( 'index.js' => str_replace('__BLOCK_NAME__', $blockName, RawHtmlEditorRoot::script($script)) );
     }
 
 }
