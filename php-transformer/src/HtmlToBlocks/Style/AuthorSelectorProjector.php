@@ -1724,7 +1724,7 @@ final class AuthorSelectorProjector
      * A subject arm target, `:where(.blocks-engine-role-<kind>.<subject
      * classes>)`, for a selector that is one context-free compound, and the
      * routed markers it does not cover (which keep their own arms); null when
-     * the target would cover none of them.
+     * it would cover none of them and would have to exclude a carrier.
      *
      * Control, semantic and RichText carriers carry their source element's
      * subject classes (tag and class tokens, EngineMarker::subjectTagClass()), which a
@@ -1758,10 +1758,10 @@ final class AuthorSelectorProjector
             return null;
         }
         $routed = array_values(array_unique($routedMarkers));
-        if ( array() === array_intersect($carriers['covered'], $routed) ) {
+        $unrouted = array_values(array_diff($carriers['reached'], $routed));
+        if ( array() !== $unrouted && array() === array_intersect($carriers['covered'], $routed) ) {
             return null;
         }
-        $unrouted = array_values(array_diff($carriers['reached'], $routed));
         $classes = array( 'blocks-engine-role-' . $kind, EngineMarker::SUBJECT_BASE_CLASS );
         if ( is_string($compound['type'] ?? null) ) {
             $classes[] = EngineMarker::subjectTagClass($compound['type']);
