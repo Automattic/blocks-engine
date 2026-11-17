@@ -645,7 +645,39 @@ final class AuthorStylesheetProjector
 
         $css .= $this->editorOverrideRules($css, $context);
 
-        return $css . $this->editorShellChildCombinatorVariants($css, $context->emittedMarkup) . $this->editorEmptyRichTextVariants($css);
+        return self::withoutEditableEmptyMatches($css) . $this->editorShellChildCombinatorVariants($css, $context->emittedMarkup) . $this->editorEmptyRichTextVariants($css);
+    }
+
+    /**
+     * Saved markup is never contenteditable, but a RichText in the editor is,
+     * and its DOM is briefly `:empty` while an author replaces its text. An
+     * authored `p:empty{display:none}` then hides the element being edited:
+     * the typed text never lands and its block toolbar anchors to a zero box
+     * over the canvas. Editor emptiness is `[data-empty]` (see
+     * editorEmptyRichTextVariants), so keep authored `:empty` off editable
+     * elements. The guard sits in `:where()` so the rule keeps its weight.
+     */
+    private static function withoutEditableEmptyMatches(string $css): string
+    {
+        if ( ! str_contains($css, ':empty') ) {
+            return $css;
+        }
+        return ( new CssStylesheetTransformer() )->transformStyleRules(
+            $css,
+            static function (string $prelude, string $body): string {
+                $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+                if ( null === $selectors ) {
+                    return $prelude . '{' . $body . '}';
+                }
+                foreach ( $selectors as $index => $selector ) {
+                    if ( 1 !== preg_match('/:empty(?![\\w-])/', $selector) || 1 === preg_match('/:not\([^)]*:empty/', $selector) ) {
+                        continue;
+                    }
+                    $selectors[$index] = preg_replace('/:empty(?![\\w-])/', ':empty:where(:not([contenteditable="true"]))', $selector);
+                }
+                return implode(',', $selectors) . '{' . $body . '}';
+            }
+        );
     }
 
     /**
@@ -654,6 +686,12 @@ final class AuthorStylesheetProjector
      * `data-empty="true"` instead. Emit editor-scoped variants of authored
      * `:empty` rules that match that marker. Negated `:empty` cannot be
      * mirrored by an added rule, so those selectors are left as they are.
+     *
+     * The marker also appears while an author clears a paragraph to retype
+     * it. An authored `p:empty{display:none}` would then hide the focused
+     * RichText, so typed text never lands and its toolbar anchors to a
+     * zero box over the canvas. The variant skips the focused element; the
+     * guard sits in `:where()` so the variant keeps its source rule's weight.
      */
     private function editorEmptyRichTextVariants(string $css): string
     {
@@ -671,7 +709,7 @@ final class AuthorStylesheetProjector
                     }
                     // `[data-empty]` and `:empty` weigh the same, and the editor
                     // scope adds nothing, so the variant ties as its source rule does.
-                    $variants[] = ':where(:root .editor-styles-wrapper) ' . preg_replace('/:empty(?![\\w-])/', '[data-empty="true"]', $selector);
+                    $variants[] = ':where(:root .editor-styles-wrapper) ' . preg_replace('/:empty(?![\\w-])/', ':where(:not(:focus))[data-empty="true"]', $selector);
                 }
                 return array() === $variants ? '' : implode(',', $variants) . '{' . $body . '}';
             }
