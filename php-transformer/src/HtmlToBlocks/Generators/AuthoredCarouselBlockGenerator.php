@@ -395,7 +395,7 @@ const syncDots = ( root, context ) => {
     root.querySelectorAll( '.blocks-engine-authored-carousel__dot' ).forEach( ( control ) => {
         const index = Number( control.dataset.carouselIndex );
         const active = index === context.index;
-        const item = control.closest( 'li' ) || control;
+        const item = control.parentElement?.matches( '.blocks-engine-authored-carousel__dots > li' ) ? control.parentElement : control;
         item.hidden = index > maximumIndex( context );
         ( item.dataset.carouselActiveClasses || '' ).split( /\s+/ ).filter( Boolean ).forEach( ( name ) => item.classList.toggle( name, active ) );
         control.classList.toggle( 'blocks-engine-authored-carousel__dot--active', active );
@@ -1105,7 +1105,8 @@ JS;
 
         [$presentation, $initialSlide] = $this->slidePresentation($element, $list, $items, $pagerItems, $capturedGallery, $styleResolver);
 
-        $showDots = $paginationCount >= 2 || $this->hasSlideIndexControl($element) || count($this->paginationControls($element)) >= 2;
+        $bullets = $this->bulletControls($element, $list, count($slides));
+        $showDots = $paginationCount >= 2 || $this->hasSlideIndexControl($element) || count($this->paginationControls($element)) >= 2 || array() !== $bullets;
 
         [$transitionDuration, $autoplayInterval] = $this->slideTimings($items);
 
@@ -1123,7 +1124,8 @@ JS;
         $presentationTargets = array_merge(
             $this->controlPresentationTargets($element, $this->allNavigationControls($element)),
             $this->stageGeometryTargets($element, $geometryList),
-            $this->controlPresentationTargets($element, $this->paginationControls($element))
+            $this->controlPresentationTargets($element, $this->paginationControls($element)),
+            $this->controlPresentationTargets($element, $bullets)
         );
         $sourceScope = $styleResolver->sourceCustomPropertyScope($element, $presentationTargets, $items);
         if ($list->hasAttribute(CaptureEvidence::DIALOG_TRIGGER) && '' !== $list->getAttribute('id')) $sourceScope['attributes']['id'] = $list->getAttribute('id');
@@ -1199,9 +1201,11 @@ JS;
             'sourceRootGeometry' => $this->sourceRootGeometry($element, $styleResolver),
             'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
             'autoplayInterval' => !$capturedGallery && 'slideshow' === $presentation ? $autoplayInterval : 0,
-            'showStatus' => $capturedGallery || $status instanceof DOMElement,
+            // A captured gallery paints its counter unless the source's only
+            // status is a silent live region, which has no visible box.
+            'showStatus' => $status instanceof DOMElement || ($capturedGallery && ! $this->hasSilentLiveRegion($element, $list)),
             'showDots' => $showDots && array() === $thumbnails,
-            'sourceDotsMarkup' => $showDots && array() === $thumbnails ? $this->sourceDotsMarkup($element, $styleResolver) : '',
+            'sourceDotsMarkup' => $showDots && array() === $thumbnails ? ($this->sourceDotsMarkup($element, $styleResolver) ?: $this->sourceBulletsMarkup($bullets, $styleResolver)) : '',
             'fullBleed' => 'slideshow' === $presentation && $fullBleed,
             'thumbnails' => $thumbnails,
             'thumbnailPosition' => $thumbnailPosition,
@@ -2096,6 +2100,82 @@ JS;
             $markup .= '<li data-carousel-active-classes="' . $escape(implode(' ', $activeClasses)) . '" class="' . $escape(implode(' ', $itemClasses)) . '"><button type="button" class="blocks-engine-authored-carousel__dot ' . $escape(implode(' ', $classes)) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></button></li>';
         }
         return $markup . '</' . strtolower($list->tagName) . '>';
+    }
+
+    /**
+     * Runtime pagination without slide-index attributes: one container whose
+     * children are all empty button-role bullets, one per slide.
+     *
+     * @return list<DOMElement>
+     */
+    private function bulletControls(DOMElement $root, DOMElement $list, int $slideCount): array
+    {
+        if ($slideCount < 2) {
+            return array();
+        }
+        foreach ($root->getElementsByTagName('*') as $container) {
+            if (!$container instanceof DOMElement || $container === $list || $this->containsNode($list, $container) || $this->containsNode($container, $list)) {
+                continue;
+            }
+            $bullets = array();
+            foreach ($container->childNodes as $child) {
+                if ($child instanceof DOMText && '' === trim(str_replace("\xc2\xa0", ' ', $child->data))) {
+                    continue;
+                }
+                if (!$child instanceof DOMElement || null !== $child->firstElementChild || '' !== trim((string) $child->textContent)
+                    || !('button' === strtolower($child->tagName) || 'button' === SourceDom::role($child))
+                    || $this->isNavigationControl($child, $root)
+                ) {
+                    $bullets = array();
+                    break;
+                }
+                $bullets[] = $child;
+            }
+            if (count($bullets) === $slideCount) {
+                return $bullets;
+            }
+        }
+        return array();
+    }
+
+    /**
+     * Keep the bullet container and each bullet's classes so authored bullet
+     * selectors still match; the active classes follow carousel selection.
+     *
+     * @param list<DOMElement> $bullets
+     */
+    private function sourceBulletsMarkup(array $bullets, StyleResolver $styleResolver): string
+    {
+        $container = array() === $bullets ? null : $bullets[0]->parentNode;
+        if (!$container instanceof DOMElement) {
+            return '';
+        }
+        $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $tag = in_array(strtolower($container->tagName), array('div', 'nav', 'span', 'p'), true) ? strtolower($container->tagName) : 'div';
+        $markup = '<' . $tag . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceClassTokens(SourceDom::attr($container, 'class'), $container, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        foreach ($bullets as $index => $bullet) {
+            $button = 'button' === strtolower($bullet->tagName);
+            $activeClasses = $styleResolver->paginationActiveClasses($bullet);
+            $classes = array_diff($this->sourceClassTokens(SourceDom::attr($bullet, 'class'), $bullet, $styleResolver), $activeClasses);
+            $markup .= ($button ? '<button type="button"' : '<span role="button" tabindex="0"')
+                . ' data-carousel-active-classes="' . $escape(implode(' ', $activeClasses)) . '" class="' . $escape(trim('blocks-engine-authored-carousel__dot ' . implode(' ', $classes))) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></' . ($button ? 'button' : 'span') . '>';
+        }
+        return $markup . '</' . $tag . '>';
+    }
+
+    /** An empty announcer beside the slides: the source status is not painted. */
+    private function hasSilentLiveRegion(DOMElement $root, DOMElement $list): bool
+    {
+        foreach ($root->getElementsByTagName('*') as $element) {
+            if ($element instanceof DOMElement && ($element->hasAttribute('aria-live') || 'status' === SourceDom::role($element))
+                && 'off' !== strtolower(trim(SourceDom::attr($element, 'aria-live')))
+                && !$this->containsNode($list, $element) && !$this->containsNode($element, $list)
+                && '' === trim(str_replace("\xc2\xa0", ' ', (string) $element->textContent))
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function isPaginationControl(DOMElement $element): bool

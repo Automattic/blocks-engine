@@ -708,4 +708,24 @@ foreach (array('uk-slider-item', 'data-uk-slider-item', 'data-carousel-index') a
     }
 }
 
+// A captured gallery with runtime span bullets (no slide-index attributes) and
+// an empty live-region announcer: bullets become dots, the status stays hidden.
+$slides = '';
+$bullets = '';
+for ($i = 0; $i < 3; ++$i) {
+    $slides .= '<div class="slide" data-blocks-engine-capture-gallery-frame="' . $i . '" data-blocks-engine-capture-gallery-display="block"' . ($i ? ' hidden' : '') . '><blockquote>Quote ' . $i . '</blockquote><img src="p' . $i . '.jpg" alt=""></div>';
+    $bullets .= '<span class="bullet' . (0 === $i ? ' bullet-active' : '') . '" role="button" tabindex="0" aria-label="Go to slide ' . ($i + 1) . '"></span>';
+}
+$output = (new HtmlTransformer())->transform('<style>.bullet{display:inline-block;width:8px;height:8px}.bullet-active{background:#123}</style><div class="slider" id="g" data-blocks-engine-capture-gallery data-blocks-engine-capture-gallery-source="#g" data-blocks-engine-capture-gallery-index="0"><div class="track" data-blocks-engine-capture-gallery-stage data-blocks-engine-capture-gallery-initial="0">' . $slides . '</div><div class="pager">' . $bullets . '</div><div class="prev" role="button" tabindex="0" aria-label="Previous slide" data-blocks-engine-capture-gallery-direction="-1"></div><div class="next" role="button" tabindex="0" aria-label="Next slide" data-blocks-engine-capture-gallery-direction="1"></div><span class="note" aria-live="assertive"></span></div>')->toArray();
+$assert('pass' === ($output['source_reports']['wp_block_validity']['status'] ?? null), 'span-bullet carousel serialization is editor-valid');
+$document = new DOMDocument();
+@$document->loadHTML((string) $output['serialized_blocks']);
+$xpath = new DOMXPath($document);
+$assert(0 === $xpath->query('//*[contains(@class,"blocks-engine-authored-carousel--show-status")]')->length, 'an empty live region keeps the captured gallery status visually hidden');
+$dots = $xpath->query('//div[contains(@class,"blocks-engine-authored-carousel__dots--source") and contains(@class,"pager")]/span[@role="button"][contains(concat(" ",@class," ")," blocks-engine-authored-carousel__dot bullet ")]');
+$assert(3 === $dots->length, 'span bullets become one source-classed dot per slide');
+foreach ($dots as $index => $dot) {
+    $assert((string) $index === $dot->getAttribute('data-carousel-index') && 'bullet-active' === $dot->getAttribute('data-carousel-active-classes') && !str_contains($dot->getAttribute('class'), 'bullet-active'), 'bullet active class follows carousel selection');
+}
+
 fwrite(STDOUT, "Authored carousel companion tests passed\n");
