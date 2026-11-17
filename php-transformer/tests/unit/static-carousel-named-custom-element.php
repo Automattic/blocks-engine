@@ -43,4 +43,30 @@ foreach ( array(
     }
 }
 
+
+// Nested Dawn-family shape: a "media" host wrapping a slider of static images.
+$nested = '<!DOCTYPE html><html><head></head><body><main><h1>Item</h1><item-media class="box"><item-carousel class="viewer"><ul class="item-list" role="list"><li><img src="/media/one.jpg" alt="Item photo" width="800" height="1000"></li></ul></item-carousel></item-media></main></body></html>';
+$result = (new HtmlTransformer())->transform($nested)->toArray();
+$markup = (string) json_encode($result['blocks'], JSON_UNESCAPED_SLASHES);
+if ( array() !== $result['fallbacks'] || ! str_contains($markup, 'core/image') || ! str_contains($markup, '/media/one.jpg') ) {
+    fwrite(STDERR, "FAIL: static media host with nested carousel must retain editable images without fallbacks\n");
+    exit(1);
+}
+// Playable media inside the host is still lowered, never silently dropped.
+$result = (new HtmlTransformer())->transform(str_replace('</ul>', '</ul><video src="/media/clip.mp4"></video>', $nested))->toArray();
+if ( ! str_contains((string) json_encode($result['blocks'], JSON_UNESCAPED_SLASHES), '/media/clip.mp4') ) {
+    fwrite(STDERR, "FAIL: playable media inside a media host must be preserved\n");
+    exit(1);
+}
+// Runtime evidence on the media host keeps it on the fallback path.
+foreach ( array(
+    'event handler' => str_replace('<item-media class="box">', '<item-media class="box" onclick="play()">', $nested),
+    'runtime definition' => str_replace('</body>', '<script>customElements.define("item-media", class extends HTMLElement { connectedCallback() { this.dataset.ready = "true"; } });</script></body>', $nested),
+) as $name => $source ) {
+    if ( array() === (new HtmlTransformer())->transform($source)->toArray()['fallbacks'] ) {
+        fwrite(STDERR, "FAIL: media host with {$name} must still fall back\n");
+        exit(1);
+    }
+}
+
 echo "Static carousel-named custom element tests passed\n";
