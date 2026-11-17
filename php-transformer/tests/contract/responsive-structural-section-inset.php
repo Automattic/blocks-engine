@@ -29,7 +29,7 @@ if (2 !== substr_count($markup, '"tagName":"section"') || 2 !== substr_count($ma
 if (str_contains($markup, 'padding') || str_contains($markup, '110px') || str_contains($markup, '78px')) {
     $failures[] = 'responsive padding must remain runtime-owned, not frozen in block attributes or inline styles';
 }
-foreach (array('section{padding:110px 8%}', '') as $rule) {
+foreach (array('section{padding:110px 8%}', '@media(max-width:520px){section{padding:78px 6%}}') as $rule) {
     if (!str_contains((string) preg_replace('/\s*([{}:;])\s*/', '$1', $css), $rule)) {
         $failures[] = 'missing source rule: ' . $rule;
     }
