@@ -20,8 +20,6 @@ final class MediaPatternContext
     }
 
     public function coverStyle(DOMElement $element): string { return $this->styleResolver->coverPresentationStyle($element); }
-    /** Recognition must also see positioning in desktop media-query rules. */
-    public function mediaTextGateStyle(DOMElement $element): string { return $this->styleResolver->controlSurfaceResolvedStyle($element); }
     /** Pattern gates need class-owned facts too, not only declarations materialized inline. */
     public function fullSourceStyle(DOMElement $element): string
     {
