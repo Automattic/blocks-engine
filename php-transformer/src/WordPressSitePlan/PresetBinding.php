@@ -189,6 +189,8 @@ final class PresetBinding
     private array $importantRules = array();
     /** @var array<string,list<array{tokens:list<string>|null,negated:list<string>,fragment:string}>> `[style*=…]` selectors per family; null tokens reach any element. */
     private array $styleTextRules = array();
+    /** @var array<string,array<string,list<array{0:string,1:string}>>> Per button box family (`border-radius`, `padding`), the declarations of rules naming each control marker. */
+    private array $controlBoxRules = array();
     /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>,compound?:array<string,mixed>}>> Subjects of interaction-state rules, per family. */
     private array $stateTokens = array();
     /** @var array<string,array<string,string>> Authored class list => property => the one observation every element agreed on, or `!`. */
@@ -787,13 +789,13 @@ final class PresetBinding
                 }
             }
             $value = $style->border->radius ?? null;
-            if (is_string($value) && $this->matchesButtonElement('border-radius', $value) && self::removeDeclaration($d->declarations, 'border-radius', $value)) {
+            if (is_string($value) && $this->matchesButtonElement('border-radius', $value) && !$this->controlRuleDeclares('border-radius', $tokens) && self::removeDeclaration($d->declarations, 'border-radius', $value)) {
                 unset($style->border->radius);
                 ++$d->bound;
             }
             foreach (array('top', 'right', 'bottom', 'left') as $side) {
                 $value = $style->spacing->padding->{$side} ?? null;
-                if (is_string($value) && $this->matchesButtonElement('padding-' . $side, $value) && self::removeDeclaration($d->declarations, 'padding-' . $side, str_starts_with($value, 'var:preset|spacing|') ? 'var(--wp--preset--spacing--' . substr($value, strlen('var:preset|spacing|')) . ')' : $value)) {
+                if (is_string($value) && $this->matchesButtonElement('padding-' . $side, $value) && !$this->controlRuleDeclares('padding', $tokens) && self::removeDeclaration($d->declarations, 'padding-' . $side, str_starts_with($value, 'var:preset|spacing|') ? 'var(--wp--preset--spacing--' . substr($value, strlen('var:preset|spacing|')) . ')' : $value)) {
                     unset($style->spacing->padding->{$side});
                     ++$d->bound;
                 }
@@ -1700,6 +1702,78 @@ final class PresetBinding
      *
      * @param array<string,true> $tokens
      */
+    /**
+     * A rule body's button box declarations per family, as the longhands the
+     * theme button element is compared on (`border-radius` per corner value,
+     * `padding-<side>`), with the rule's own custom properties substituted
+     * (`.btn{--edge:15px;padding-inline:var(--edge)}`).
+     *
+     * @return array<string,list<array{0:string,1:string}>>
+     */
+    private static function buttonBoxDeclarations(string $body): array
+    {
+        $declarations = array();
+        $locals = array();
+        foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
+            $parts = explode(':', $declaration, 2);
+            if (2 !== count($parts)) continue;
+            $property = strtolower(trim($parts[0]));
+            $value = trim((string) preg_replace('/!\s*important\s*$/i', '', trim($parts[1])));
+            if (str_starts_with($property, '--')) $locals[trim($parts[0])] = $value;
+            else $declarations[] = array($property, $value);
+        }
+        $boxes = array();
+        foreach ($declarations as [$property, $value]) {
+            for ($depth = 0; $depth < 5 && str_contains($value, 'var('); $depth++) {
+                $value = (string) preg_replace_callback('/var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*))?\)/', static fn(array $match): string => $locals[$match[1]] ?? $match[0], $value);
+            }
+            $values = CssValueSplitter::splitTopLevelWhitespace($value) ?: array($value);
+            $values = array_values(array_filter(array_map('trim', $values), static fn(string $part): bool => '' !== $part));
+            if (1 === preg_match('/^border(?:-(?:top|bottom)-(?:left|right)|-(?:start|end)-(?:start|end))?-radius$/', $property)) {
+                foreach ($values as $part) $boxes['border-radius'][] = array('border-radius', $part);
+                continue;
+            }
+            $sides = match ($property) {
+                'padding' => array('top', 'right', 'bottom', 'left'),
+                'padding-block' => array('top', 'bottom'),
+                'padding-inline' => array('left', 'right'),
+                'padding-top', 'padding-block-start' => array('top'),
+                'padding-bottom', 'padding-block-end' => array('bottom'),
+                'padding-left', 'padding-inline-start' => array('left'),
+                'padding-right', 'padding-inline-end' => array('right'),
+                default => null,
+            };
+            if (null === $sides) continue;
+            $count = count($values);
+            foreach ($sides as $index => $side) {
+                $at = 'padding' === $property
+                    ? array(0, 1 < $count ? 1 : 0, 2 < $count ? 2 : 0, 3 < $count ? 3 : (1 < $count ? 1 : 0))[$index]
+                    : (2 === count($sides) && 1 < $count ? $index : 0);
+                $boxes['padding'][] = array('padding-' . $side, $values[$at] ?? $value);
+            }
+        }
+        return $boxes;
+    }
+
+    /**
+     * Whether an author rule projected onto this block's control declares
+     * another value for the family. The theme's button element look is
+     * weaker than that rule, so only the block's inline value keeps the
+     * source's winner (`.btn-social{border-radius:100%}` over `.btn`).
+     *
+     * @param array<string,true> $tokens
+     */
+    private function controlRuleDeclares(string $family, array $tokens): bool
+    {
+        foreach ($this->controlBoxRules[$family] ?? array() as $marker => $declarations) {
+            if (!isset($tokens['class:' . $marker])) continue;
+            foreach ($declarations as [$property, $value]) {
+                if (!$this->matchesButtonElement($property, $value)) return true;
+            }
+        }
+        return false;
+    }
+
     private function rendersThroughElement(string $name, string $key, string $slug, string $property, array $tokens): bool
     {
         if ('button' !== $name) return false;
@@ -1822,6 +1896,13 @@ final class PresetBinding
                 foreach (self::families(self::nestedProperties((string) $part['body'])) as $family) $this->indexState($prelude, $family);
             }
         }
+        $boxFamilies = array();
+        foreach ($nested as $part) {
+            if (!isset($part['declarations'])) continue;
+            foreach (self::buttonBoxDeclarations((string) $part['declarations']) as $family => $declarations) {
+                $boxFamilies[$family] = array_merge($boxFamilies[$family] ?? array(), $declarations);
+            }
+        }
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
             if (preg_match_all('/\[\s*style\s*[*^$~|]?=\s*["\']?([^"\'\]]*)/i', $selector, $matches)) {
                 // Only a selector reading the subject's own style text is
@@ -1836,6 +1917,15 @@ final class PresetBinding
                 }
             }
             if (!str_contains($selector, 'blocks-engine-richtext-marker') && in_array('tag:mark', self::subjectTokens($selector)['tokens'] ?? array(), true)) $this->markRules = true;
+            // A rule projected onto a control outranks the theme's
+            // `:root :where(.wp-element-button)` look, so that look cannot
+            // stand in for the control's own inline value of these families.
+            if (array() !== $boxFamilies && 1 !== preg_match(self::STATE_PSEUDO, $selector)) {
+                foreach (EngineMarker::all($selector) as $marker) {
+                    if ('control' !== EngineMarker::markerKind($marker)) continue;
+                    foreach ($boxFamilies as $family => $declarations) $this->controlBoxRules[$family][$marker] = array_merge($this->controlBoxRules[$family][$marker] ?? array(), $declarations);
+                }
+            }
             if (1 === preg_match(self::STATE_PSEUDO, $selector)) {
                 foreach ($declared as $family => $_) $this->indexState($selector, $family);
                 continue;

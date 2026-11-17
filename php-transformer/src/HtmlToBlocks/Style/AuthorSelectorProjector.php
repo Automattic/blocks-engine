@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -1203,7 +1204,7 @@ final class AuthorSelectorProjector
                         if ( 'svg' === strtolower((string) $typeSpan['name']) && (int) $typeSpan['start'] >= (int) $span['end'] ) {
                             $replacements[$typeSpan['start']] = array(
                                 'end' => $typeSpan['end'],
-                                'value' => ':is(svg,:where(.wp-block-button__link > img[src*="assets/materialized-svg/inline-svg-"]))',
+                                'value' => ':is(svg,:where(.wp-block-button__link > img[src*="' . AssetMaterializationState::INLINE_SVG_FILE_PREFIX . '"]))',
                             );
                         }
                     }
@@ -1542,7 +1543,7 @@ final class AuthorSelectorProjector
                 // must still reach their intended materialized image leaf.
                 $replacements[$typeSpan['start']] = array(
                     'end' => $typeSpan['end'],
-                    'value' => substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ':not(:where([src*="assets/materialized-svg/inline-svg-"]))',
+                    'value' => substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ':not(:where([src*="' . AssetMaterializationState::INLINE_SVG_FILE_PREFIX . '"]))',
                 );
             } elseif ( 'span' === strtolower((string) $typeSpan['name']) ) {
                 // Core's label span has no source identity. Even a dormant
