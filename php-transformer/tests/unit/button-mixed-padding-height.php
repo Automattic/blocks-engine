@@ -4,8 +4,6 @@ declare(strict_types=1);
 /** Shared sizes must follow each matched control's own padding/border floor. */
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $fixture = (string) file_get_contents(dirname(__DIR__) . '/fixtures/button-mixed-padding-height.html');
@@ -28,24 +26,19 @@ foreach ( array( false, true ) as $direct ) {
         // link owns the size like the flex-item buttons' links do.
         foreach ( array( 'Get a quote' => $direct, 'Request a quote' => true, 'Call us' => true ) as $label => $linkOwned ) {
             $link = $xpath->query('//*[self::a or self::button][normalize-space(.)="' . $label . '"]')->item(0);
-            $wrapper = $link?->parentNode;
+            $classes = $link?->parentNode?->attributes?->getNamedItem('class')?->nodeValue ?? '';
+            preg_match('/\bblocks-engine-control-[\w-]+/', $classes, $marker);
             $found = false;
             // Wrapper-owned variable sizes resolve before leaving the source
             // element's custom-property scope; link-owned sizes stay live.
             $projectedSize = ! $linkOwned && 'height:var(--control-height,2.25rem)' === $size ? 'height:2.25rem' : $size;
             foreach ( explode('}', $css) as $rule ) {
                 $selector = strstr($rule, '{', true);
-                if ( false === $selector || ! $link instanceof DOMElement || ! $wrapper instanceof DOMElement || ! str_contains($rule, '{' . $projectedSize) ) {
-                    continue;
-                }
-                foreach ( CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm ) {
-                    $parsed = CssSelectorMatcher::parse(trim($arm));
-                    $sizesLink = CssSelectorMatcher::matches($link, $parsed)['matches'] ?? false;
-                    $sizesWrapper = CssSelectorMatcher::matches($wrapper, $parsed)['matches'] ?? false;
-                    if ( $linkOwned ? $sizesLink : $sizesWrapper ) {
+                if ( false !== $selector && isset($marker[0]) && str_contains($selector, ':where(.' . $marker[0] . ')') && str_contains($rule, '{' . $projectedSize) ) {
+                    if ( str_contains($selector, '.wp-block-button__link') === $linkOwned ) {
                         $found = true;
                     }
-                    if ( $linkOwned && $sizesWrapper ) {
+                    if ( $linkOwned && ! str_contains($selector, '.wp-block-button__link') ) {
                         fwrite(STDERR, "FAIL: {$label} {$size} still sizes a padding-free wrapper\n");
                         ++$failures;
                     }

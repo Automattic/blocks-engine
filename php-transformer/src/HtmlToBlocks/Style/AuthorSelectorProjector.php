@@ -42,10 +42,39 @@ final class AuthorSelectorProjector
 
     private const SEMANTIC_ROLE_CLASS = 'blocks-engine-role-semantic';
 
+    private ?string $loweredAnchorMarkup = null;
+
+    private bool $loweredAnchorCarrier = false;
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer
     ) {
+    }
+
+    /**
+     * Whether a source `<a>` was lowered to a non-anchor carrier (a link card
+     * with block children becomes a group). Only then do author `a` type
+     * selectors need the subject-tag bridge; other pages keep native `a`.
+     */
+    private function hasLoweredAnchorCarrier(string $markup): bool
+    {
+        if ( $markup !== $this->loweredAnchorMarkup ) {
+            $this->loweredAnchorMarkup = $markup;
+            $this->loweredAnchorCarrier = false;
+            if ( str_contains($markup, EngineMarker::subjectTagClass('a'))
+                && preg_match_all('/<(?!a[\s>])[a-z][a-z0-9]*\b[^>]*\sclass="([^"]*\b' . EngineMarker::subjectTagClass('a') . '\b[^"]*)"/i', $markup, $carriers)
+            ) {
+                foreach ( $carriers[1] as $classes ) {
+                    // Button wrappers restate the tag but are control carriers.
+                    if ( ! str_contains(' ' . $classes . ' ', ' blocks-engine-role-control ') ) {
+                        $this->loweredAnchorCarrier = true;
+                        break;
+                    }
+                }
+            }
+        }
+        return $this->loweredAnchorCarrier;
     }
 
     /**
@@ -1547,7 +1576,23 @@ final class AuthorSelectorProjector
      */
     public function rewriteSourceTagTypes(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, string $rightmostInsertion = '', array $replacements = array()): string
     {
-        foreach ( array_merge($parsed['type_spans'], CssSelectorMatcher::functionalTypeSpans($selector)) as $typeSpan ) {
+        $typeSpans = $parsed['type_spans'];
+        $bridgeAnchors = $this->hasLoweredAnchorCarrier($context->emittedMarkup);
+        if ($bridgeAnchors && ! $parsed['supported']) {
+            // Ancestor states are outside the matcher's static subset, but
+            // tokenization still identifies each compound's leading type.
+            $tokens = CssSelectorTokenizer::tokenize($selector);
+            foreach ($tokens['compounds'] as $index => $compound) {
+                $resting = preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $compound) ?? $compound;
+                $compoundParsed = CssSelectorMatcher::parse($resting);
+                foreach ($compoundParsed['type_spans'] as $span) {
+                    if (0 !== $span['start'] || 'a' !== strtolower($span['name'])) continue;
+                    $start = $tokens['compound_spans'][$index]['start'];
+                    $typeSpans[] = array('start' => $start, 'end' => $start + $span['end'], 'name' => $span['name']);
+                }
+            }
+        }
+        foreach ( array_merge($typeSpans, CssSelectorMatcher::functionalTypeSpans($selector)) as $typeSpan ) {
             // A caller that already replaced the compound holding this type has
             // decided where that type goes; the marker must not take it back.
             foreach ( $replacements as $replacementStart => $replacement ) {
@@ -1564,6 +1609,16 @@ final class AuthorSelectorProjector
                     ? ':is(' . substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ',:where(.' . $marker . '))'
                     : ':where(.' . $marker . ')' . $this->typeSpecificityShim($context);
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => $value );
+            } elseif ( $bridgeAnchors && 'a' === strtolower((string) $typeSpan['name']) ) {
+                // Block-child links lower to groups but retain their source
+                // subject tag. Keep native anchors in the same arm: inline
+                // links and lowered cards can share a rule. :is() preserves
+                // the type weight, including in functional pseudos/negations.
+                // Button wrappers keep their own control projection.
+                $replacements[$typeSpan['start']] = array(
+                    'end' => $typeSpan['end'],
+                    'value' => ':is(a,:where(.' . EngineMarker::subjectTagClass('a') . ':not(.blocks-engine-role-control)))',
+                );
             } elseif ( 'img' === strtolower((string) $typeSpan['name'])
                 && str_contains($context->emittedMarkup, 'assets/materialized-svg/inline-svg-')
             ) {
@@ -1724,21 +1779,20 @@ final class AuthorSelectorProjector
      * A subject arm target, `:where(.blocks-engine-role-<kind>.<subject
      * classes>)`, for a selector that is one context-free compound, and the
      * routed markers it does not cover (which keep their own arms); null when
-     * it would cover none of them and would have to exclude a carrier.
+     * the target would reach a carrier the per-element arms do not.
      *
      * Control, semantic and RichText carriers carry their source element's
      * subject classes (tag and class tokens, EngineMarker::subjectTagClass()), which a
      * type, universal or class compound can test without any context. The
      * target therefore reaches every `$kind` carrier with subject classes whose
      * source the compound matches, on any page. It stands in for the
-     * per-element arms of the `$routedMarkers` it covers. A carrier this rule
-     * routes elsewhere (a table or navigation subject, or a control that is
-     * also a RichText run, say) is excluded by its own marker, so one such
-     * carrier does not return every other carrier to a per-element arm. A
-     * routed marker without such a carrier (a presentation child that shares
-     * its control's marker, a carrier that carries no subject classes) keeps
-     * its own arm. This page's cascade is unchanged, and a covered carrier's
-     * arms no longer depend on which other elements the page has.
+     * per-element arms of `$routedMarkers` only when every such carrier on this
+     * page is among them: none is routed elsewhere (a table or navigation
+     * subject, or a control that is also a RichText run, say). A routed marker without such a carrier (a
+     * presentation child that shares its control's marker, a carrier that
+     * carries no subject classes) keeps its own arm. This page's cascade is
+     * unchanged, and the arm text no longer depends on which other elements
+     * the page has.
      *
      * @param array<string, mixed> $parsed
      * @param list<string> $routedMarkers
@@ -1758,8 +1812,7 @@ final class AuthorSelectorProjector
             return null;
         }
         $routed = array_values(array_unique($routedMarkers));
-        $unrouted = array_values(array_diff($carriers['reached'], $routed));
-        if ( array() !== $unrouted && array() === array_intersect($carriers['covered'], $routed) ) {
+        if ( array() !== array_diff($carriers['reached'], $routed) ) {
             return null;
         }
         $classes = array( 'blocks-engine-role-' . $kind, EngineMarker::SUBJECT_BASE_CLASS );
@@ -1769,8 +1822,7 @@ final class AuthorSelectorProjector
         foreach ( array_values(array_unique(array_map('strval', $compound['classes'] ?? array()))) as $class ) {
             $classes[] = EngineMarker::subjectClassClass($class);
         }
-        $exclusion = array() === $unrouted ? '' : ':not(:where(.' . implode(',.', $unrouted) . '))';
-        return array( 'target' => ':where(.' . implode('.', $classes) . ')' . $exclusion, 'rest' => array_values(array_diff($routed, $carriers['covered'])) );
+        return array( 'target' => ':where(.' . implode('.', $classes) . ')', 'rest' => array_values(array_diff($routed, $carriers['covered'])) );
     }
 
     /**

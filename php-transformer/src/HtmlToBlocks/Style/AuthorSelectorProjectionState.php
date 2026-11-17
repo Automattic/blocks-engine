@@ -227,6 +227,15 @@ final class AuthorSelectorProjectionState
     private array $innerSubjects = array();
 
     /**
+     * Markers whose carrier is itself an inner subject with author precedence
+     * (a linked image's link). Every rule matching its source projects onto it
+     * through that arm, above the rule's source specificity.
+     *
+     * @var array<string, true>
+     */
+    private array $selfAddressedInnerSubjects = array();
+
+    /**
      * A source element whose presentation a native block renders on one of
      * its inner parts (optionally a pseudo-element of it). Author precedence
      * requests the shared native-subject baseline above Core defaults; every
@@ -238,6 +247,9 @@ final class AuthorSelectorProjectionState
     public function installInnerSubject(string $path, string $selector, string $pseudoElement = '', bool $authorPrecedence = false, bool $universalReached = false): void
     {
         $this->innerSubjects[$path] = array( 'selector' => $selector, 'pseudo_element' => $pseudoElement, 'author_precedence' => $authorPrecedence, 'universal_reached' => $universalReached );
+        if ( $authorPrecedence && '' === $pseudoElement && 1 === preg_match('/^:where\(\.([\w-]+)\)$/', $selector, $marker) ) {
+            $this->selfAddressedInnerSubjects[$marker[1]] = true;
+        }
     }
 
     /** @return array{selector:string, pseudo_element:string, author_precedence:bool, universal_reached:bool}|null */
@@ -655,6 +667,11 @@ final class AuthorSelectorProjectionState
         foreach ( $this->subjectCarriers[$kind] ?? array() as $marker => $carrier ) {
             if ( null === $carrier ) {
                 return null;
+            }
+            // A subject arm that also reaches a self-addressed inner subject
+            // restates a rule its own arm already applies more strongly.
+            if ( isset($this->selfAddressedInnerSubjects[$marker]) ) {
+                continue;
             }
             if ( null !== $type && $type !== $carrier['tag'] ) {
                 continue;
