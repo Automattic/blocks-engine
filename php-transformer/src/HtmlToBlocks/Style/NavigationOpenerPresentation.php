@@ -52,10 +52,14 @@ final class NavigationOpenerPresentation
     /** @return array{artwork:string,text?:string,button:array<string,array<string,string>>,icon:array<string,array<string,string>>}|null */
     public function source(DOMElement $control): ?array
     {
-        // Only a bare, known menu glyph is proven artwork. Mixed content and
-        // labelled controls must not lose their descendants or accessible text.
+        // Intrinsic text metrics are proven only for a bare glyph with an
+        // authored font size and explicitly removed border. Boxed togglers
+        // retain the existing header-box path and its sizing floor.
         $text = trim($control->textContent ?? '');
-        if (0 === $control->childElementCount && preg_match('/^[\x{2630}\x{2261}][\x{FE0E}\x{FE0F}]?$/u', $text)) {
+        $glyphStyle = $this->styles->authorViewport->collapsed($control, array('border', 'font-size'));
+        if (0 === $control->childElementCount && preg_match('/^[\x{2630}\x{2261}][\x{FE0E}\x{FE0F}]?$/u', $text)
+            && in_array(CssValueInspector::withoutImportant($glyphStyle['border'] ?? ''), array('0', '0px', 'none'), true)
+            && '' !== CssValueInspector::withoutImportant($glyphStyle['font-size'] ?? '')) {
             $button = $this->styles->authoredControlPresentation($control, array('box-sizing', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-width', 'border-style', 'border-color', 'border-radius', 'background', 'background-color', 'color', 'font', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'transform', 'transform-origin', 'translate', 'rotate', 'scale'));
             return array('artwork' => '', 'text' => $text, 'button' => $button, 'icon' => array());
         }
