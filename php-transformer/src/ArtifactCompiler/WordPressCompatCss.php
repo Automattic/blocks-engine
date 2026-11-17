@@ -871,7 +871,25 @@ final class WordPressCompatCss
                 return false;
             }
         }
-        return true;
+        // One element is one block: another core block's root class is never
+        // also core/navigation's root.
+        return 1 !== preg_match('/\.wp-block-(?!navigation(?![A-Za-z0-9_]))[A-Za-z]/', $required);
+    }
+
+    /**
+     * Whether the prefix requires an ancestor core/navigation's `<nav>` can
+     * never sit inside: a phrasing element (`p`, a heading) or a leaf block
+     * (core/image) that has no inner blocks.
+     */
+    private function hostsNoNavigation(string $prefix): bool
+    {
+        $required = (string) preg_replace('/:not\((?:[^()]|\([^()]*\))*\)/i', '', $prefix);
+        if ( 1 === preg_match('/\.wp-block-(?:image|post-featured-image|heading|button|paragraph)(?![A-Za-z0-9_-])/', $required) ) {
+            return true;
+        }
+        preg_match_all('/(?:^|[\s>+~(,])\s*(p|h[1-6]|label|button|img)(?=$|[\s>+~.#:\[)])/i', $required, $types);
+
+        return array() !== $types[1];
     }
 
     /**
@@ -898,7 +916,7 @@ final class WordPressCompatCss
     private function insertNavigationDescendantWrapper(string $selector, string $prefix): ?string
     {
         $parentPrefix = rtrim((string) preg_replace('/[\s>+~]+$/', '', $prefix));
-        if ( '' === $parentPrefix || str_contains($parentPrefix, '.wp-block-navigation') ) {
+        if ( '' === $parentPrefix || str_contains($parentPrefix, '.wp-block-navigation') || $this->hostsNoNavigation($parentPrefix) ) {
             return null;
         }
 
