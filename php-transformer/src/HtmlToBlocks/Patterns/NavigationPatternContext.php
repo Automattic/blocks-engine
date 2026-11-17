@@ -877,7 +877,10 @@ final class NavigationPatternContext
                 }
                 $boxTarget = $item;
                 foreach ($block['attrs']['metadata']['blocksEngineNavigationAnchor']['boxes'] ?? array() as $box) {
-                    $boxTarget .= '>' . $box['tag'];
+                    // Retained boxes share their tag with inert sibling spacers.
+                    // Bind correspondence to the marker carried by this box,
+                    // not every child of the same type in the item.
+                    $boxTarget .= '>' . $box['tag'] . '.' . $box['marker'];
                     $targets[$box['marker']][$boxTarget] = true;
                 }
                 $collect($block['innerBlocks'] ?? array(), $item . '>.wp-block-navigation__submenu-container');

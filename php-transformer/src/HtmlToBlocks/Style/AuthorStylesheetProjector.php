@@ -91,29 +91,8 @@ final class AuthorStylesheetProjector
                 $class = '.' . ImageLowering::BACKGROUND_IMAGE_CLASS;
                 $guard = ':where(:not(' . $class . ',' . $class . ' *))';
                 foreach ( $arms as &$arm ) {
-                    $tokens = CssSelectorTokenizer::tokenize($arm);
-                    if ( ! $tokens['supported'] ) continue;
-                    $span = $tokens['compound_spans'][count($tokens['compound_spans']) - 1];
-                    $insert = $span['end'];
-                    $hooked = 1 === preg_match('/\G(?:[a-z][\w-]*\|)?([a-z][\w-]*)/i', $arm, $type, 0, $span['start'])
-                        && ! in_array(strtolower($type[1]), array( 'img', 'figure' ), true);
-                    $state = CssSyntaxScanner::state();
-                    for ( $offset = $span['start']; ! $hooked && $offset < $span['end']; ) {
-                        $topLevel = CssSyntaxScanner::isTopLevel($state);
-                        $next = CssSyntaxScanner::consume($arm, $offset, $state);
-                        if ( null === $next ) break;
-                        if ( $topLevel && ('.' === $arm[$offset] || '#' === $arm[$offset] || preg_match('/\G(?::(?:where|is)\([.#][\w-]+(?:\s*,\s*[.#][\w-]+)*\)|\[(?!(?:src|srcset|alt|class|style|sizes|width|height|loading|decoding)\b))/i', $arm, $_, 0, $offset)) ) {
-                            $hooked = true;
-                            break;
-                        }
-                        if ( $topLevel && ':' === $arm[$offset]
-                            && (':' === ($arm[$offset + 1] ?? '') || preg_match('/\G:(?:before|after|first-line|first-letter)(?![\w-])/i', $arm, $_, 0, $offset)) ) {
-                            $insert = $offset;
-                            break;
-                        }
-                        $offset = $next;
-                    }
-                    if ( ! $hooked ) $arm = substr($arm, 0, $insert) . $guard . substr($arm, $insert);
+                    $insert = self::backgroundGuardOffset($arm);
+                    if ( null !== $insert ) $arm = substr($arm, 0, $insert) . $guard . substr($arm, $insert);
                 }
                 unset($arm);
                 return implode(',', $arms) . '{' . $body . '}';
@@ -212,6 +191,45 @@ final class AuthorStylesheetProjector
     }
 
     /** @param list<string> $ancestors */
+    /**
+     * Where a materialized background guard belongs in a selector arm: before
+     * its subject's pseudo-element, or null when the subject compound already
+     * requires a hook the background figure and img never carry.
+     */
+    private static function backgroundGuardOffset(string $arm): ?int
+    {
+        $tokens = CssSelectorTokenizer::tokenize($arm);
+        if ( ! $tokens['supported'] || array() === $tokens['compound_spans'] ) return null;
+        $span = $tokens['compound_spans'][count($tokens['compound_spans']) - 1];
+        if ( 1 === preg_match('/\G(?:[a-z][\w-]*\|)?([a-z][\w-]*)/i', $arm, $type, 0, $span['start'])
+            && ! in_array(strtolower($type[1]), array( 'img', 'figure' ), true) ) return null;
+        $state = CssSyntaxScanner::state();
+        for ( $offset = $span['start']; $offset < $span['end']; ) {
+            $topLevel = CssSyntaxScanner::isTopLevel($state);
+            if ( $topLevel && ('.' === $arm[$offset] || '#' === $arm[$offset] || preg_match('/\G\[(?!(?:src|srcset|alt|class|style|sizes|width|height|loading|decoding)\b)/i', $arm, $_, 0, $offset)) ) {
+                return null;
+            }
+            // A matches-any list hooks the subject when every argument's own
+            // subject is hooked, such as :where(.a.b) or :where(mark[x],span[y]).
+            if ( $topLevel && 1 === preg_match('/\G:(?:where|is)\(/i', $arm, $open, 0, $offset) ) {
+                $close = CssSyntaxScanner::matchingClose($arm, $offset + strlen($open[0]) - 1);
+                $arguments = null === $close ? null : CssStylesheetTransformer::splitSelectorList(substr($arm, $offset + strlen($open[0]), $close - $offset - strlen($open[0])));
+                if ( null !== $arguments && array() !== $arguments
+                    && array() === array_filter($arguments, static fn (string $argument): bool => '' === trim($argument) || ! CssSelectorTokenizer::tokenize(trim($argument))['supported'] || null !== self::backgroundGuardOffset(trim($argument))) ) {
+                    return null;
+                }
+            }
+            if ( $topLevel && ':' === $arm[$offset]
+                && (':' === ($arm[$offset + 1] ?? '') || preg_match('/\G:(?:before|after|first-line|first-letter)(?![\w-])/i', $arm, $_, 0, $offset)) ) {
+                return $offset;
+            }
+            $next = CssSyntaxScanner::consume($arm, $offset, $state);
+            if ( null === $next ) break;
+            $offset = $next;
+        }
+        return $span['end'];
+    }
+
     private static function ancestorsAreConditional(array $ancestors): bool
     {
         foreach ( $ancestors as $ancestor ) {
