@@ -2565,8 +2565,7 @@ final class ArtifactCompiler
             $declarations = \Automattic\BlocksEngine\PhpTransformer\Support\BodyPresentationalHints::declarations((string) ($file['content'] ?? ''));
             if ('' === $declarations) continue;
             $source = (string) $file['path'];
-            $identity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
-            $class = $this->routeClasses[$identity] ?? \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($identity);
+            $class = $this->routeClasses[\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source)];
             $rules[] = ':where(html.' . $class . ') body{' . $declarations . '}';
         }
         if (array() === $rules) return null;
@@ -2604,8 +2603,7 @@ final class ArtifactCompiler
         }
         $rules = array();
         foreach ($documents as $source => $styles) {
-            $identity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
-            $class = $this->routeClasses[$identity] ?? \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($identity);
+            $class = $this->routeClasses[\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source)];
             $root = 'html.' . $class . ':is(.' . $class . ',' . str_repeat('#' . $class, $ids + 1) . ')';
             foreach ($styles as $tag => $style) {
                 $rules[] = $root . ('body' === $tag ? ' body' : '') . '{' . $style . '}';
