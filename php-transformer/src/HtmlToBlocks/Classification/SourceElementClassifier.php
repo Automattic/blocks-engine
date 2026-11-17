@@ -437,7 +437,9 @@ final class SourceElementClassifier
             }
 
             $tagName = strtolower($child->tagName);
-            if ( 'a' === $tagName ) {
+            // Inline artwork can share a text run, but does not by itself
+            // establish one: an icon-only wrapper still lowers as media.
+            if ( in_array($tagName, array( 'a', 'svg' ), true) ) {
                 continue;
             }
 
