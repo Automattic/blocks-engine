@@ -535,7 +535,7 @@ final class ArtifactCompiler
         $assets = $this->pruneAbsentSupportSubjects($assets, $authoredFiles, implode("\n", $pageMarkup) . "\n" . $sharedMarkup);
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets);
-        // Keep selector/definition evidence separate from property consumers.
+        // Both pruners read the same consumer evidence; build it once.
         // Staged transport compiles one route at a time; use the whole site's
         // evidence so a definition consumed on another route survives.
         $consumerEvidence = array_merge($this->siteSelectorEvidence ?? $this->selectorEvidence($authoredFiles), array_values($pageMarkup));
@@ -551,7 +551,7 @@ final class ArtifactCompiler
         unset($asset, $definitionPruner);
         $propertyPruner = new \Automattic\BlocksEngine\PhpTransformer\Css\UnusedCustomPropertyPruner(
             array_values(array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')))),
-            array_merge($this->sitePropertyEvidence ?? $this->selectorEvidence($authoredFiles, true), array_values($pageMarkup))
+            $consumerEvidence
         );
         unset($consumerEvidence);
         foreach ($assets as &$asset) {
@@ -560,9 +560,17 @@ final class ArtifactCompiler
             // Projection can give several author rules one long selector
             // list; ship that list once. Engine stylesheets are named by their
             // content and are reconciled with later page copies by it.
-            // The author's indentation and line breaks separate no tokens,
-            // yet every published byte counts towards the theme's weight.
-            if ('files' === ($asset['source'] ?? null)) $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace((new CssStylesheetTransformer())->mergeRepeatedSelectorRules($content));
+            // Fold repeated declaration blocks too, without crossing cascade
+            // barriers. Build annotations and formatting are not runtime CSS;
+            // keep license banners and literal strings while dropping that weight.
+            if ('files' === ($asset['source'] ?? null)) {
+                $transformer = new CssStylesheetTransformer();
+                $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments($content, true);
+                $content = $transformer->mergeRepeatedSelectorRules($content);
+                $content = $transformer->mergeRepeatedDeclarationRules($content);
+                $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::stylesheet($content, true);
+                $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace($content);
+            }
             if ($content !== $asset['content']) $asset = ArtifactNormalizer::withTextPayload($asset, $content);
         }
         unset($asset, $propertyPruner);
@@ -2274,9 +2282,6 @@ final class ArtifactCompiler
     /** @var list<string>|null Whole-site evidence supplied to a partition worker. */
     private ?array $siteSelectorEvidence = null;
 
-    /** @var list<string>|null Whole-site custom-property consumers for a partition worker. */
-    private ?array $sitePropertyEvidence = null;
-
     /** @var array|null The subject and stylesheet evidence the pruner indexes. */
     private ?array $siteSelectorPrunerEvidence = null;
     private ?UnreachableSelectorPruner $siteSelectorPruner = null;
@@ -2302,17 +2307,16 @@ final class ArtifactCompiler
                 foreach ($document->getElementsByTagName('style') as $style) $stylesheets[] = $style->textContent;
             }
         }
-        $propertyEvidence = $this->sitePropertyEvidence ?? $this->selectorEvidence($files, true);
-        $cacheEvidence = array($evidence, $stylesheets, $propertyEvidence);
+        $cacheEvidence = array($evidence, $stylesheets);
         if (null === $this->siteSelectorPruner || $cacheEvidence !== $this->siteSelectorPrunerEvidence) {
             $this->siteSelectorPrunerEvidence = $cacheEvidence;
-            $this->siteSelectorPruner = new UnreachableSelectorPruner($evidence, true, $stylesheets, $propertyEvidence);
+            $this->siteSelectorPruner = new UnreachableSelectorPruner($evidence, true, $stylesheets);
         }
         return $this->siteSelectorPruner;
     }
 
     /** @param array<int, array<string, mixed>> $files @return list<string> */
-    private function selectorEvidence(array $files, bool $propertyConsumers = false): array
+    private function selectorEvidence(array $files): array
     {
         $texts = array();
         foreach ($files as $file) {
@@ -2320,7 +2324,7 @@ final class ArtifactCompiler
             // The capture's custom-property inventory lists every property the
             // source defines, read or not: it is the stylesheets' own
             // definitions, not a consumer. Counting it keeps each one alive.
-            if ($propertyConsumers && is_string($file['path'] ?? null) && 'css-variables.json' === basename($file['path'])) continue;
+            if (is_string($file['path'] ?? null) && 'css-variables.json' === basename($file['path'])) continue;
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
             $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);

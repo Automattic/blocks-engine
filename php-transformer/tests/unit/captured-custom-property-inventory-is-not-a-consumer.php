@@ -22,7 +22,6 @@ $css = implode("\n", array_column(array_filter($result['assets'], static fn(arra
 if (str_contains($css, '--unread-token')) throw new RuntimeException('A property only the capture inventory names must not ship: ' . $css);
 if (str_contains($css, '--unreachable-reader-token')) throw new RuntimeException('Neither inventory names nor unreachable readers must keep a token alive: ' . $css);
 if (!str_contains($css, '--read-token:teal')) throw new RuntimeException('A property the stylesheet reads must survive: ' . $css);
-// Inventory text can still be conservative subject evidence. Excluding it
-// from property readers must not also change selector reachability.
-if (!str_contains($css, 'outline-color:orange')) throw new RuntimeException('Property inventory filtering must not prune selector evidence: ' . $css);
+// Inventory definitions are not evidence that an element has a class either.
+if (str_contains($css, 'outline-color:orange')) throw new RuntimeException('Inventory definitions must not keep absent selectors alive: ' . $css);
 echo "Captured custom-property inventory is not consumer evidence\n";

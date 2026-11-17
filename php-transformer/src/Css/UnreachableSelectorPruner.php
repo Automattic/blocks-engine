@@ -41,9 +41,8 @@ final class UnreachableSelectorPruner
      * @param list<string> $texts Every non-stylesheet file of the site, including its metadata.
      * @param bool $pruneTypes Whether evidence still describes source (not converted) element types.
      * @param list<string>|null $stylesheets Whole-site author styles, including inline sheets; null disables property pruning.
-     * @param list<string>|null $propertyEvidence Consumer evidence excluding definition inventories; null uses selector evidence.
      */
-    public function __construct(array $texts, private bool $pruneTypes = false, ?array $stylesheets = null, ?array $propertyEvidence = null)
+    public function __construct(array $texts, private bool $pruneTypes = false, ?array $stylesheets = null)
     {
         $this->evidenceText = implode("\n", $texts);
         $prefixes = array();
@@ -56,7 +55,7 @@ final class UnreachableSelectorPruner
         // read by no element: framework utilities the site never uses would
         // otherwise keep every reset token (and its registration) alive.
         // Readers are judged with the most conservative arm pruning (IDs kept).
-        if (null !== $stylesheets) $this->propertyPruner = new UnusedCustomPropertyPruner(array_map(fn (string $css): string => $this->withoutUnreachableArms($css, true), $stylesheets), $propertyEvidence ?? $texts);
+        if (null !== $stylesheets) $this->propertyPruner = new UnusedCustomPropertyPruner(array_map(fn (string $css): string => $this->withoutUnreachableArms($css, true), $stylesheets), $texts);
     }
 
     /** @param bool $preserveIds Keep arms whose only absent tokens are IDs. */
