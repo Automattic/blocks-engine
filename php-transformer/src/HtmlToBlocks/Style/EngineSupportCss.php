@@ -233,6 +233,9 @@ final class EngineSupportCss
                 // top of each other, making the lower image impossible to select.
                 // In editor flow each image instead has its own hit-test box.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '.wp-block-image{display:inline-block;position:static}'
+                // Editor figures keep real selection boxes. Their leaves must
+                // not escape those boxes when source icons are stacked.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '.wp-block-image img{position:static!important}'
                 // A fixed-height source stack must expand around the editor's
                 // now in-flow images, rather than covering them with later blocks.
                 // Captured geometry can emit important fixed heights; this

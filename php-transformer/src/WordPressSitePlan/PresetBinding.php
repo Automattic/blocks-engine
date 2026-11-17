@@ -959,6 +959,18 @@ final class PresetBinding
         );
         foreach ($typography as $key => [$attribute, $property, $presetClass]) {
             if ('fontFamily' === $key && !$this->themeDefaultsReady) continue;
+            $literal = $style->typography->{$key} ?? null;
+            // Supplemental block tokens were not part of static-cascade usage.
+            // Keep the captured declaration's priority: a size preset class is
+            // !important and would mask the box-tree's mobile delta rules.
+            $supplemental = 'fontSize' === $key ? $this->system->fontSizes : $this->system->fontFamilies;
+            foreach ($supplemental as $preset) {
+                if (0 !== $preset['weight'] || !is_string($literal) || isset($attributes->{$attribute}) || isset($deviceOverridden[$property])) continue;
+                $value = 'fontSize' === $key ? $preset['size'] : $preset['fontFamily'];
+                if ($literal !== $value) continue;
+                if ($this->safe($property, $tokens, array(), true) && $this->inlinePreset($style->typography, $key, $property, $preset['slug'], $d->declarations, $property, $literal)) ++$d->bound;
+                continue 2;
+            }
             if ($isLink) {
                 // Keep button typography inline: preset classes would change
                 // priority and the link's font reset. An exact variable in the
@@ -1515,13 +1527,15 @@ final class PresetBinding
     {
         $px = CssLength::toPx($value, $this->system->rootPx);
         if (null === $px) return null;
-        foreach ($this->system->fontSizes as $size) if (abs($size['px'] - $px) < 0.01 && $size['slug'] === $this->system->fontSizeSlug($value)) return $size['slug'];
+        foreach ($this->system->fontSizes as $size) if (0 !== $size['weight'] && abs($size['px'] - $px) < 0.01 && $size['slug'] === $this->system->fontSizeSlug($value)) return $size['slug'];
         return null;
     }
 
     private function exactFontFamilySlug(string $value): ?string
     {
-        return $this->system->fontFamilySlug($this->resolve($value));
+        $slug = $this->system->fontFamilySlug($this->resolve($value));
+        foreach ($this->system->fontFamilies as $family) if ($family['slug'] === $slug && 0 === $family['weight']) return null;
+        return $slug;
     }
 
     /**

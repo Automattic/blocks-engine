@@ -574,7 +574,21 @@ final class InlineGeometry
             $overrideDeclarations['height'] = $geometry['height'];
         }
         $overridePropertyLookup = array_fill_keys(array_keys($overrideDeclarations), true);
+        $deviceProperties = array();
+        $deviceStyles = json_decode($element->getAttribute(CaptureEvidence::DEVICE_INLINE), true);
+        if ( is_array($deviceStyles) ) {
+            foreach ( $deviceStyles as $deviceStyle ) {
+                if ( is_string($deviceStyle) ) $deviceProperties += SourceDeclarations::parse($deviceStyle);
+            }
+        }
         foreach ($geometry as $property => $value) {
+            // Device runtimes replace the inline style after load. A promoted
+            // important carrier would freeze the default document's geometry.
+            if ( isset($deviceProperties[$property]) ) {
+                $normalPriorityDeclarations[] = $property . ':' . $value;
+                $normalPriorityOverrides[] = $property;
+                continue;
+            }
             // core/button's carrier sits on the wrapper, but the link paints
             // the background that would cover a wrapper-owned inset shadow.
             if ( $buttonLinkShadow && 'box-shadow' === $property ) {

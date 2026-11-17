@@ -1329,20 +1329,55 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /** Whether an unconditional universal/type rule supplies a shared zero box.
+     * Scoped resets remain instance-owned when they win the source cascade:
+     * their inline zeros may be needed to neutralise WordPress element chrome.
      * Class, state and responsive resets remain instance-owned.
      */
-    public function hasGlobalZeroBox(DOMElement $element, string $box): bool
+    public function hasGlobalZeroBox(DOMElement $element, string $box, string $side): bool
     {
         foreach ($this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional') as $rule) {
             $selector = trim((string) ($rule['selector'] ?? ''));
-            if (1 !== preg_match('/^(?:\*|[a-zA-Z][a-zA-Z0-9-]*)$/D', $selector)) continue;
+            $parsed = CssSelectorMatcher::parse($selector);
+            if (!($parsed['supported'] ?? false)) continue;
+            $specificity = CssSelectorMatcher::specificityCounts($parsed);
+            if (0 !== $specificity['ids'] || 0 !== $specificity['classes'] || 1 < $specificity['types']) continue;
             foreach ($rule['conditions'] ?? array() as $condition) {
                 if (1 !== preg_match('/^@layer\b/i', trim($condition))) continue 2;
             }
             $value = CssValueInspector::withoutImportant((string) ($rule['declarations'][$box] ?? ''));
-            if (CssValueInspector::isZeroLength($value)) return true;
+            if (!CssValueInspector::isZeroLength($value)) continue;
+            if (!str_contains($selector, ':where(')) return true;
+
+            // Compare the source winner, not just the presence of a reset. Keep
+            // pending var() values in the shared cascade so an unresolved logical
+            // margin can still defeat a physical zero from the reset.
+            $cascade = array();
+            $sequence = 0;
+            $rules = array_merge($this->session->sourceStyleResolutionState()->matchingRulesInCascadeOrder($element, 'static'), $this->session->sourceStyleResolutionState()->matchingRules($element, 'cascaded-values'));
+            usort($rules, static fn(array $left, array $right): int => ($left['cascadeOrder'] ?? 0) <=> ($right['cascadeOrder'] ?? 0));
+            foreach ($rules as $matched) {
+                $this->applyZeroBoxCascade($cascade, $matched['sourceSpacingDeclarations'] ?? array(), $box, $side, false, $this->cascade->specificity((string) $matched['selector']), $sequence, $matched['layerRank'] ?? null);
+            }
+            $this->applyZeroBoxCascade($cascade, SourceDeclarations::inline($element), $box, $side, true, array(PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX), $sequence);
+            return isset($cascade[$box . '-' . $side]) && !CssValueInspector::isZeroLength($cascade[$box . '-' . $side]['value']);
         }
         return false;
+    }
+
+    /** Rank overlapping spacing declarations without resolving pending values. */
+    private function applyZeroBoxCascade(array &$cascade, array $declarations, string $box, string $side, bool $inline, array $specificity, int &$sequence, ?int $layer = null): void
+    {
+        $physical = $box . '-' . $side;
+        $axis = in_array($side, array('top', 'bottom'), true) ? 'block' : 'inline';
+        $edge = in_array($side, array('top', 'left'), true) ? 'start' : 'end';
+        foreach ($declarations as $property => $value) {
+            if (!in_array($property, array($box, $physical, $box . '-' . $axis, $box . '-' . $axis . '-' . $edge, 'all'), true)) continue;
+            // Expand literal shorthands per side; keep pending var() values
+            // intact when expansion cannot supply a physical longhand.
+            $expanded = SourceDeclarations::parse($property . ':' . $value);
+            $value = $expanded[$physical] ?? $value;
+            $this->applyMediaTextCascadeDeclaration($cascade, 'all' === $property ? 'all' : $physical, $value, $inline, $specificity, ++$sequence, $layer);
+        }
     }
 
     /** @return list<array{value:string,queries:list<string>,layer:string|null,layerRank:int|null,important:bool,order:int,specificity:array<int,int>}> */
@@ -4331,12 +4366,17 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Shorthand reset families projected by this resolver. Font is already
-     * expanded by cssDeclarations() using CssFontShorthand before ranking.
+     * Shorthand reset families projected by this resolver. Pending font and
+     * logical box substitutions still reset longhands before value resolution.
      * Include intermediate shorthands as well as terminal longhands so border
      * resets compete at every level without parsing or expanding CSS values.
      */
     private const BOX_SHORTHAND_LONGHANDS = array(
+        'font' => self::FONT_SHORTHAND_LONGHANDS,
+        'margin-block' => array('margin-top', 'margin-bottom'),
+        'margin-inline' => array('margin-left', 'margin-right'),
+        'padding-block' => array('padding-top', 'padding-bottom'),
+        'padding-inline' => array('padding-left', 'padding-right'),
         'background' => array('background-color', 'background-image', 'background-position', 'background-size',
             'background-repeat', 'background-attachment', 'background-origin', 'background-clip'),
         'padding' => array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'),
@@ -4617,6 +4657,37 @@ final class StyleResolver implements ElementPresentationResolver
                 && $this->session->sourceStyleResolutionState()->matches($element, (string) $rule['base_selector'])
             ) {
                 return true;
+            }
+
+            // An additional class/attribute gate on an anchored ancestor is also
+            // CSS reveal evidence. Subject-only toggles remain script entrances.
+            if (! is_numeric($revealedOpacity) || 0.0 >= (float) $revealedOpacity) {
+                continue;
+            }
+            $reveal = CssSelectorMatcher::parse((string) $rule['base_selector']);
+            if (! ($reveal['supported'] ?? false)) {
+                continue;
+            }
+            // Keep the subject and ancestor structure intact. Removing one
+            // additional condition must leave an anchored, matching selector.
+            $last = count($reveal['compounds']) - 1;
+            foreach ($reveal['compounds'] as $index => $compound) {
+                if ($index === $last) {
+                    continue;
+                }
+                foreach (array('classes', 'attributes') as $kind) {
+                    foreach (array_keys($compound[$kind]) as $key) {
+                        $candidate = $reveal;
+                        unset($candidate['compounds'][$index][$kind][$key]);
+                        $anchor = $candidate['compounds'][$index];
+                        if (null === $anchor['type'] && array() === $anchor['classes'] && array() === $anchor['ids'] && array() === $anchor['attributes']) {
+                            continue;
+                        }
+                        if (CssSelectorMatcher::matches($element, $candidate)['matches']) {
+                            return true;
+                        }
+                    }
+                }
             }
         }
 
@@ -5533,6 +5604,7 @@ final class StyleResolver implements ElementPresentationResolver
         $readingCustomProperties = static fn (array $rule): array => (array() === $customPropertyReferences
             ? $rule
             : $rule + array( 'customPropertyReferences' => $customPropertyReferences )) + $pendingFont
+                + array('sourceSpacingDeclarations' => array_filter($rawDeclarations, static fn(string $property): bool => 'all' === $property || 1 === preg_match('/^(margin|padding)(-|$)/', $property), ARRAY_FILTER_USE_KEY))
                 + (isset($rawDeclarations['vertical-align']) ? array('sourceVerticalAlign' => $rawDeclarations['vertical-align']) : array());
         $mediaTextDeclarations = array() === $conditions
             ? array_values(array_filter(
@@ -5651,6 +5723,10 @@ final class StyleResolver implements ElementPresentationResolver
                     $analysis['pseudo'][] = $readingCustomProperties(array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions));
                 }
             }
+            $positiveOpacity = CssValueInspector::declared($rawDeclarations, 'opacity');
+            if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && is_numeric($positiveOpacity) && 0.0 < (float) $positiveOpacity) {
+                $analysis['reveal_state'][] = array('base_selector' => $selector, 'state' => '', 'state_subject_selector' => '', 'declarations' => array('opacity' => $rawDeclarations['opacity']));
+            }
             if (array() === $declarations && ! isset($rawDeclarations['opacity']) && array() === array_filter(array_keys($rawDeclarations), static fn(string $name): bool => str_starts_with($name, '--'))) {
                 continue;
             }
@@ -5677,12 +5753,20 @@ final class StyleResolver implements ElementPresentationResolver
         }
     }
 
-    /** @return list<array{property: string, value: string}> */
+    /**
+     * Image box and crop declarations, with logical sizes (`inline-size`,
+     * `block-size` and their min/max forms) read as the physical axis they
+     * size in horizontal writing: `.frame img{block-size:100%}` fills the
+     * frame's height exactly as `height:100%` would.
+     *
+     * @return list<array{property: string, value: string}>
+     */
     public function imageShapeDeclarationEntries(string $style): array
     {
         $entries = array();
         foreach (CssRuleAnalyzer::declarationList($style) as ['name' => $property, 'value' => $value]) {
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+            $property = (string) preg_replace(array('/^((?:min-|max-)?)inline-size$/', '/^((?:min-|max-)?)block-size$/'), array('$1width', '$1height'), $property);
             if (in_array($property, array('width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
                 $entries[] = array('property' => $property, 'value' => $value);
             }
@@ -6010,6 +6094,8 @@ final class StyleResolver implements ElementPresentationResolver
             'justify-content',
             'line-height',
             'margin',
+            'margin-block',
+            'margin-inline',
             'margin-bottom',
             'margin-left',
             'margin-right',
@@ -6022,6 +6108,8 @@ final class StyleResolver implements ElementPresentationResolver
             'object-position',
             'order',
             'padding',
+            'padding-block',
+            'padding-inline',
             'padding-bottom',
             'padding-left',
             'padding-right',
@@ -6593,7 +6681,7 @@ final class StyleResolver implements ElementPresentationResolver
         // The font shorthand sets line-height too: a global keyword (font:inherit)
         // or an explicit /line-height is authored; otherwise it resets to normal.
         $font = strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['font'] ?? ''))));
-        if ( '' !== $font && ( in_array($font, array( 'inherit', 'unset', 'revert', 'revert-layer' ), true) || str_contains($font, '/') ) ) {
+        if ( '' !== $font && ( in_array($font, array( 'inherit', 'unset', 'revert', 'revert-layer' ), true) || str_contains($font, '/') || str_contains($font, 'var(') ) ) {
             return null;
         }
         return 'normal';
