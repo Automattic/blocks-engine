@@ -436,9 +436,11 @@ final class ReadableFormBlockBuilder
 
     /**
      * Geometry provenance does not change a container's native transport. A
-     * Group carries the class and the id (as its anchor); a data attribute no
-     * stylesheet, script or runtime selector addresses is inert, so dropping
-     * it loses nothing and needs no generated block to keep it.
+     * Group carries the class and the id (as its anchor). A valueless data
+     * attribute is a presence marker: when no stylesheet, script or runtime
+     * selector tests for it, it is inert, so dropping it loses nothing and
+     * needs no generated block to keep it. A data attribute with a value
+     * carries data a Group cannot hold, so it keeps the shell.
      */
     private function hasNativeContainerAttributes(DOMElement $element): bool
     {
@@ -449,6 +451,7 @@ final class ReadableFormBlockBuilder
                 continue;
             }
             if (str_starts_with($name, 'data-')
+                && '' === $attribute->value
                 && ! $this->runtimeDomTargets->isRuntimeDomTarget($element)
                 && ! DataAttributeReferences::isReferenced($this->session, $element, $name)) {
                 continue;

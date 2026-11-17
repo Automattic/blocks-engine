@@ -2,10 +2,11 @@
 declare(strict_types=1);
 
 /**
- * A form field wrapper whose only non-class attributes are an id and a data
- * attribute nothing addresses stays a native Group (id as its anchor) instead
- * of a generated layout-shell. A data attribute a stylesheet selects keeps
- * the shell, which is the only block that can carry it.
+ * A form field wrapper whose only non-class attributes are an id and a
+ * valueless data marker nothing addresses stays a native Group (id as its
+ * anchor) instead of a generated layout-shell. A marker a stylesheet selects,
+ * or a data attribute carrying a value, keeps the shell, the only block that
+ * can carry it.
  */
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
@@ -27,6 +28,9 @@ $assert(1 === preg_match('/<!-- wp:group \{"anchor":"textarea-field","className"
 
 $styled = ( new HtmlTransformer() )->transform('<!DOCTYPE html><html><head><style>[data-dynamic-strings]{color:red}</style></head><body>' . $field . '</body></html>')->toArray()['serialized_blocks'] ?? '';
 $assert(str_contains($styled, '"data-dynamic-strings":""'), 'a data attribute a stylesheet selects stays on a layout-shell wrapper');
+
+$valued = ( new HtmlTransformer() )->transform('<!DOCTYPE html><html><head></head><body>' . str_replace('data-dynamic-strings=""', 'data-dynamic-strings="keep"', $field) . '</body></html>')->toArray()['serialized_blocks'] ?? '';
+$assert(str_contains($valued, '"data-dynamic-strings":"keep"'), 'a data attribute carrying a value stays on a layout-shell wrapper');
 
 fwrite(STDOUT, sprintf('form-field-inert-data-attribute-group: %d failed%s', $failures, PHP_EOL));
 exit($failures > 0 ? 1 : 0);
