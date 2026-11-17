@@ -612,7 +612,7 @@ final class WordPressCompatCss
         $separator = (string) ($anchorMatch[1][0] ?? '');
         $anchorStart = (int) $anchorMatch[0][1] + strlen($separator);
         $prefix = substr($selector, 0, $anchorStart);
-        if ( 1 !== preg_match('/[.#\[]/', $prefix) || $this->anchorOwnedByNativeLeaf($prefix) ) {
+        if ( 1 !== preg_match('/[.#\[]/', $prefix) ) {
             return array();
         }
 
@@ -638,36 +638,6 @@ final class WordPressCompatCss
         }
 
         return array_keys($selectors);
-    }
-
-    /**
-     * Whether the anchor after `$prefix` can only be a native leaf block's own
-     * link, never a core/navigation item. Projection lowers subjects onto
-     * paragraph and image carriers (`p.carrier > a > *`, `.wp-block-image >
-     * a > img`); replaying those as navigation emits arms no element matches:
-     * the HTML parser closes a `<p>` before any `<nav>`, so no navigation
-     * lies inside one, and a navigation link's parent is its item, never a
-     * core/image wrapper, which holds no inner blocks. Alternatives (a comma
-     * outside negations) and negations require nothing, so they decide nothing.
-     */
-    private function anchorOwnedByNativeLeaf(string $prefix): bool
-    {
-        $required = (string) preg_replace('/:not\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/i', '', $prefix);
-        // Sibling combinators and relational pseudos do not establish
-        // ancestry: `p + .menu a` and `.menu:has(p) a` can own navigation.
-        if ( str_contains($required, ',') || str_contains($required, '.wp-block-navigation')
-            || str_contains($required, '+') || str_contains($required, '~')
-            || str_contains($required, ':has(')
-        ) {
-            return false;
-        }
-        if ( 1 === preg_match('/(?:^|[\s>+~(])p(?=$|[\s>+~.#:\[)])/i', $required) ) {
-            return true;
-        }
-        if ( 1 !== preg_match('/([^\s>+~]+)\s*>\s*$/', $required, $parent) ) {
-            return false;
-        }
-        return 1 === preg_match('/\.wp-block-image(?![\w-])/', $parent[1]);
     }
 
     /**
