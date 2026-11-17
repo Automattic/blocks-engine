@@ -517,9 +517,10 @@ final class SitePlanRun
             if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
             // A restated arm folded beside the arm it restricts adds nothing.
             $compacted = CssSelectorListCompactor::withoutSubsumedArmsInStylesheet($compacted);
-            // Inline and generated sheets need the same lossless serialization
-            // as linked author CSS, after all route and preset rewrites.
-            $compacted = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace($compacted);
+            // Projection writes combinators and selector lists spaced out;
+            // the selector whitespace that separates no tokens ships once
+            // per arm. Declaration values are left byte for byte.
+            $compacted = CssSelectorListCompactor::withoutRedundantSelectorWhitespaceInStylesheet($compacted);
             if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);
