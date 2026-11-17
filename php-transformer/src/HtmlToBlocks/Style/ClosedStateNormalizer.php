@@ -11,10 +11,10 @@ use DOMElement;
  *
  * Source widgets commonly hide a panel with `display:none`, `visibility:hidden`,
  * `opacity:0`, or a `height:0;overflow:hidden` collapse, then reveal it from
- * script or `:hover`. Import removes that behavior. Leaving the closed CSS in
- * place freezes content as unreachable dead controls. Content-bearing nodes
- * lose those declarations so the fallback is visible/static; decorative nodes
- * keep them.
+ * script. Leaving script-gated closed CSS in place freezes content as
+ * unreachable dead controls. Content-bearing nodes lose those declarations
+ * only with reveal evidence; decorative nodes keep them. CSS-only opacity
+ * reveals remain operable and retain their authored resting state.
  */
 final class ClosedStateNormalizer
 {
@@ -34,7 +34,7 @@ final class ClosedStateNormalizer
             $stripped[] = 'visibility:hidden';
         }
         $opacity = isset($declarations['opacity']) ? $this->normalizedValue($declarations['opacity']) : '';
-        if ( '' !== $opacity && is_numeric($opacity) && 0.0 === (float) $opacity ) {
+        if ( isset($revealProperties['opacity']) && '' !== $opacity && is_numeric($opacity) && 0.0 === (float) $opacity ) {
             unset($declarations['opacity']);
             $stripped[] = 'opacity:0';
         }
@@ -117,7 +117,7 @@ final class ClosedStateNormalizer
 
     public function isDecorativeHiddenElement(DOMElement $element, callable $attr): bool
     {
-        if ( $this->isAccessibilityBoundaryMarker($element, $attr) || $this->isMediaPlayerChrome($element, $attr) ) {
+        if ( 'true' === strtolower(trim((string) $attr($element, 'aria-hidden'))) || $this->isAccessibilityBoundaryMarker($element, $attr) || $this->isMediaPlayerChrome($element, $attr) ) {
             return true;
         }
 

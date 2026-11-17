@@ -52,7 +52,7 @@ $cssContent = static function (array $result, ?string $placement = null, ?string
 };
 
 // #3808: generated repairs must not restate a core-only authored selector.
-$neutral = '<!doctype html><html><head><style>.wp-block-x{opacity:0;visibility:hidden}</style></head>'
+$neutral = '<!doctype html><html><head><style>.wp-block-x{display:none;visibility:hidden}.wp-block-x:hover{display:block}</style></head>'
     . '<body><div><p>Hi</p><div class="wp-block-x"><p>Hidden</p></div></div></body></html>';
 $coreClosed = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'index.html',
@@ -61,7 +61,7 @@ $coreClosed = (new ArtifactCompiler())->compile(array(
 $coreRepairCss = $cssContent($coreClosed, 'after-author', 'both');
 $assert('success' === $coreClosed['status'], 'a core-shaped closed-state selector compiles successfully');
 $assert(
-    1 === preg_match('/:root \.(blocks-engine-semantic-[a-f0-9]+-\d+)\{opacity:1!important;transform:none!important\}/', $coreRepairCss, $repairMatch),
+    1 === preg_match('/:root \.(blocks-engine-semantic-[a-f0-9]+-\d+)\{display:revert!important\}/', $coreRepairCss, $repairMatch),
     'the frontend closed-state repair targets an importer semantic marker',
     $coreRepairCss
 );
@@ -148,9 +148,12 @@ foreach ( array(
     'without a seek range' => str_replace('type="range"', 'type="text"', $mediaControls),
     'without a media button' => str_replace('aria-label="Play"', 'aria-label="Submit"', $mediaControls),
 ) as $case => $contentPanel ) {
+    // These negative chrome cases are script-controlled content panels.
+    $contentPanel = str_replace('<div class="ctl">', '<div id="controlled-panel" class="ctl">', $contentPanel);
+    $contentPanel = '<button aria-expanded="false" aria-controls="controlled-panel">Toggle panel</button>' . $contentPanel;
     $contentPanelResult = ( new HtmlTransformer() )->transform($contentPanel)->toArray();
     $assert(
-        str_contains($cssContent($contentPanelResult, 'after-author', 'both'), '.ctl{opacity:1!important'),
+        str_contains($cssContent($contentPanelResult, 'after-author', 'both'), '#controlled-panel{opacity:1!important'),
         'content ' . $case . ' still receives the closed-state reveal'
     );
 }

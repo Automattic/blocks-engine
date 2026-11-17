@@ -4544,6 +4544,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         if ($this->session->sourceStyleResolutionState()->isAriaControlledTarget($element)) {
             return array(
+                'opacity' => true,
                 'display' => true,
                 'visibility' => true,
                 'height' => true,
