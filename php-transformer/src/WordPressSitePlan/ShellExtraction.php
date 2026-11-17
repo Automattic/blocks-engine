@@ -4083,8 +4083,18 @@ final class ShellExtraction
             foreach ($page['shell_candidates'] as &$candidate) {
                 $markup = $candidate['markup'];
                 $rested = $markup;
-                foreach (array_reverse($items($markup, $design($candidate) . "\0" . $candidate['area'], $route)) as $row) {
-                    if (!$row['valid'] || !($row['current'] || ('submenu' === $row['kind'] && $row['holds']))) continue;
+                $rows = $items($markup, $design($candidate) . "\0" . $candidate['area'], $route);
+                // Without an item naming the route, the navigation runtime marks
+                // the item naming its longest ancestor current (the served
+                // section), so that item's captured state rests too.
+                $section = null;
+                if (!array_filter($rows, static fn (array $row): bool => $row['current'])) {
+                    foreach ($rows as $position => $row) {
+                        if ($row['valid'] && $namesAncestor($row['attrs'], $route) && (null === $section || strlen((string) $urlPath($row['attrs'])) > strlen((string) $urlPath($rows[$section]['attrs'])))) $section = $position;
+                    }
+                }
+                foreach (array_reverse($rows, true) as $position => $row) {
+                    if (!$row['valid'] || !($row['current'] || $position === $section || ('submenu' === $row['kind'] && $row['holds']))) continue;
                     // Only one resting look is evidence of the item's own presentation.
                     $rest = $resting[$row['key']] ?? array();
                     if (1 !== count($rest)) continue;
