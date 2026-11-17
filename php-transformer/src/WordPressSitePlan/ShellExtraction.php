@@ -729,6 +729,7 @@ final class ShellExtraction
                 'source_path' => $sourcePath,
                 'source_hash' => $row['source_hash'],
                 'nested_shell' => true,
+                'document_edge' => 1 === count($rows) && !empty($row['document_edge']),
                 'device_document_bundle' => count($scoped) > 1 && !isset($scoped['']),
                 'offset' => $row['offset'],
                 'length' => $row['length'],
@@ -749,9 +750,15 @@ final class ShellExtraction
         // block that holds anything is the one that may be the header.
         $lead = 0;
         while ($lead < count($ranges) - 1 && self::isEmptyVisualGroup(substr($markup, $ranges[$lead]['offset'], $ranges[$lead]['length']))) ++$lead;
-        if (2 <= count($ranges) - $lead) {
-            $head = $ranges[$lead];
-            $first = substr($markup, $head['offset'], $head['length']);
+        // A text-only announcement bar above the navigation is part of the
+        // masthead: the header runs from it through the navigation block.
+        $navAt = $lead;
+        while ($navAt < $lead + 2 && $navAt < count($ranges) - 1 && self::isLeadingAnnouncement(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) ++$navAt;
+        if (!self::containsNavigation(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) $navAt = $lead;
+        if (2 <= count($ranges) - $navAt) {
+            $head = $ranges[$navAt];
+            $start = $ranges[$lead]['offset'];
+            $first = substr($markup, $start, $head['offset'] + $head['length'] - $start);
             // Capture documents are detection roots, not chrome: descend into
             // each device document instead of claiming its route content.
             if (!str_contains($first, CaptureEvidence::DOCUMENT_SCOPE) && self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($index, $head)) {
@@ -760,7 +767,7 @@ final class ShellExtraction
                 // page heading, that block is the route itself, not chrome.
                 $restHasContent = false;
                 $restInFlow = false;
-                foreach (array_slice($ranges, $lead + 1) as $range) {
+                foreach (array_slice($ranges, $navAt + 1) as $range) {
                     $sibling = substr($markup, $range['offset'], $range['length']);
                     if (self::isEmptyVisualGroup($sibling)) continue;
                     $restHasContent = true;
@@ -771,15 +778,15 @@ final class ShellExtraction
                 }
                 if (!$restInFlow && 1 === preg_match('/<h1\b/i', $first)) $restHasContent = false;
                 if ($restHasContent) {
-                    $headers[] = $this->nestedChromeRow($first, $head['offset'], $head['length']) + array('capture_scope' => $captureScope, 'capture_scope_shell' => $captureShell);
+                    $headers[] = $this->nestedChromeRow($first, $start, strlen($first)) + array('capture_scope' => $captureScope, 'capture_scope_shell' => $captureShell, 'document_edge' => self::leadsMainDocument($index, $start));
                     // A projected modal dialog mounts at the end of its document;
                     // it renders in the top layer, so the footer is the last
                     // sibling before it.
                     $lastIndex = count($ranges) - 1;
-                    while ($lastIndex > $lead && self::isCapturedModalDialogBlock(substr($markup, $ranges[$lastIndex]['offset'], $ranges[$lastIndex]['length']))) --$lastIndex;
+                    while ($lastIndex > $navAt && self::isCapturedModalDialogBlock(substr($markup, $ranges[$lastIndex]['offset'], $ranges[$lastIndex]['length']))) --$lastIndex;
                     $last = $ranges[$lastIndex];
                     $lastMarkup = substr($markup, $last['offset'], $last['length']);
-                    if ($last !== $head && self::isFooterChrome($lastMarkup)) {
+                    if ($lastIndex > $navAt && self::isFooterChrome($lastMarkup)) {
                         $footers[] = $this->nestedChromeRow($lastMarkup, $last['offset'], $last['length']) + array('capture_scope' => $captureScope, 'capture_scope_shell' => $captureShell);
                     }
                     return;
@@ -979,6 +986,33 @@ final class ShellExtraction
         if (1 !== preg_match('#^<!--\s*wp:group\s+(\{.*?\})\s*-->#s', ltrim($markup), $match)) return false;
         $shell = json_decode($match[1], true)['metadata']['blocksEngineDialog'] ?? null;
         return is_array($shell) && 'dropdown' !== ($shell['attributes']['data-blocks-engine-presentation'] ?? null);
+    }
+
+    /**
+     * A short text-only paragraph or group (an announcement bar): no heading,
+     * landmark, navigation, media or nested part, so it holds no page content.
+     */
+    private static function isLeadingAnnouncement(string $markup): bool
+    {
+        if (1 !== preg_match('/^<!--\s*wp:(?:paragraph|group)(?:\s|\/|-)/', ltrim($markup)) || self::isCapturedModalDialogBlock($markup) || self::containsNavigation($markup) || self::containsMainLandmark($markup)) return false;
+        if (str_contains($markup, '<!-- wp:heading') || str_contains($markup, 'wp:template-part') || 1 === preg_match('/"tagName":"(?:header|footer|nav|section|article|aside)"|<h[1-6]\b|<(?:img|picture|video|audio|iframe|svg|canvas|form|input|button)\b/i', $markup)) return false;
+        $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags(preg_replace('/<!--.*?-->/s', '', $markup) ?? ''))) ?? '');
+        return '' !== $text && mb_strlen($text) <= 200;
+    }
+
+    /**
+     * True when the block at $offset opens the page inside its main landmark:
+     * every block before it is one of its ancestors and one is the main.
+     */
+    private static function leadsMainDocument(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, int $offset): bool
+    {
+        $main = false;
+        foreach ($index->tokens() as $token) {
+            if ($token['offset'] >= $offset) break;
+            if ($token['closing'] || $token['self_closing']) return false;
+            $main = $main || 1 === preg_match('/"tagName":"main"/', $token['attributes']);
+        }
+        return $main;
     }
 
     private static function isHeadingBlock(string $markup): bool
