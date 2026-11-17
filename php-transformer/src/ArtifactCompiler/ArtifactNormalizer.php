@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
-use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle;
@@ -639,13 +638,6 @@ final class ArtifactNormalizer
                     continue;
                 }
                 $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
-                // A sheet delivered under its own media never applies a nested
-                // @media its delivery excludes. A device-selected sheet's
-                // `media` is inert capture state, not its delivery, so it keeps
-                // every block.
-                if ( '' === HtmlTagScanner::attribute($attributes, CaptureEvidence::DEVICE_STYLE) && ! array_key_exists(CaptureEvidence::SOURCE_MEDIA, HtmlTagScanner::attributes($attributes)) ) {
-                    $css = MediaCondition::withoutUnreachableBlocks($css, HtmlTagScanner::attribute($attributes, 'media'));
-                }
                 $styles[] = array( 'content' => $css, 'media' => HtmlTagScanner::attribute($attributes, 'media'), 'source_media' => array_key_exists(CaptureEvidence::SOURCE_MEDIA, \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, CaptureEvidence::DEVICE_STYLE => HtmlTagScanner::attribute($attributes, CaptureEvidence::DEVICE_STYLE), 'type' => HtmlTagScanner::attribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
             // Spacing and custom properties inline on <body> are data the

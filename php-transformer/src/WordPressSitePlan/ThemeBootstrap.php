@@ -156,17 +156,7 @@ PHP;
         return $routes;
     }
 
-    /**
-     * The route stylesheet table in two parts. `selection` picks the request's
-     * route sequences and sets the route flag; it runs before the first flag-guarded
-     * enqueue and the route sequences, so
-     * every fallback guarded by the flag (before-author ones included) reads
-     * the request's final answer. `enqueue` loads the selected sequences at
-     * their cascade position.
-     *
-     * @param array<string,array<string,mixed>> $routes
-     * @return array{selection:list<string>,enqueue:list<string>}
-     */
+    /** @param array<string,array<string,mixed>> $routes @return list<string> */
     private static function routeStylesheetTable(array $routes): array
     {
         $sequences = $indices = $matches = array();
@@ -177,19 +167,15 @@ PHP;
             // into a sequence shared by different source documents.
             $matches[] = '    if ( ' . $route['condition'] . ' ) $blocks_engine_style_routes[] = [' . $indices[$key] . ',' . BootstrapData::literal($route['handles']) . '];';
         }
-        return array(
-            'selection' => array_merge(array(
-                '    $blocks_engine_style_sequences = ' . BootstrapData::literal($sequences) . ';',
-                '    $blocks_engine_style_routes = [];',
-            ), $matches, array(
-                '    $blocks_engine_route_styles = array() !== $blocks_engine_style_routes;',
-            )),
-            'enqueue' => array(
-                '    foreach ( $blocks_engine_style_routes as [$sequence, $handles] ) {',
-                '        foreach ( $blocks_engine_style_sequences[$sequence] as $position => $style ) wp_enqueue_style( $handles[$position], get_theme_file_uri( $style[0] ), array(), null, \'\' !== $style[1] ? $style[1] : \'all\' );',
-                '    }',
-            ),
-        );
+        return array_merge(array(
+            '    $blocks_engine_style_sequences = ' . BootstrapData::literal($sequences) . ';',
+            '    $blocks_engine_style_routes = [];',
+        ), $matches, array(
+            '    foreach ( $blocks_engine_style_routes as [$sequence, $handles] ) {',
+            '        $blocks_engine_route_styles = true;',
+            '        foreach ( $blocks_engine_style_sequences[$sequence] as $position => $style ) wp_enqueue_style( $handles[$position], get_theme_file_uri( $style[0] ), array(), null, \'\' !== $style[1] ? $style[1] : \'all\' );',
+            '    }',
+        ));
     }
 
     /** @param array<int,array<string,mixed>> $assets */
@@ -246,7 +232,7 @@ PHP;
         // engine reset sheets that also declare the cascade layer order) keep
         // their place in the document. Pinning the table at the top would let
         // a route's author sheet name its layers first and invert that order.
-        $routePosition = $fallbackPosition = null;
+        $routePosition = null;
         foreach ($stylesheetEnqueues as $enqueue) {
             $asset = $enqueue['asset'];
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
@@ -270,18 +256,11 @@ PHP;
             }
             // A fallback reads the flag the route table sets: the table goes first.
             if (!empty($enqueue['fallback']) && null === $routePosition && array() !== $routeRows) $routePosition = count($lines);
-            if (!empty($enqueue['fallback']) && null === $fallbackPosition) $fallbackPosition = count($lines);
             $condition = empty($enqueue['fallback']) ? $enqueue['condition'] : '! $blocks_engine_route_styles';
             $lines[] = "    if ( {$condition} ) {$call}";
         }
         if (null === $routePosition && array() !== $routeRows) $routePosition = count($lines);
-        if (null !== $routePosition) {
-            $table = self::routeStylesheetTable($routeRows);
-            array_splice($lines, $routePosition, 0, $table['enqueue']);
-            // The selection sets the route flag ahead of the first fallback
-            // that reads it, even one ordered before every route instance.
-            array_splice($lines, min($routePosition, $fallbackPosition ?? $routePosition), 0, $table['selection']);
-        }
+        if (null !== $routePosition) array_splice($lines, $routePosition, 0, self::routeStylesheetTable($routeRows));
         $attributes = array();
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
@@ -702,10 +681,7 @@ PHP;
                 $scope = PageStylesheets::documentScope($documentsBySource[$source]);
                 $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + PageStylesheets::deviceAttributes($occurrence);
             }
-            // A global resource without document instances already loads on
-            // every view, so lending it as a frame fallback would load it twice.
-            $everywhere = array() === $occurrences && array() !== array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind']);
-            if (!empty($asset['frame_fallback']) && !$everywhere) {
+            if (!empty($asset['frame_fallback'])) {
                 $row = array('asset' => $asset, 'scope' => array('kind' => 'global'), 'condition' => 'true', 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-frame-fallback-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => true);
                 if ('before-author' === ($asset['stylesheet_placement'] ?? '')) $before[] = $row; else $after[] = $row;
             }

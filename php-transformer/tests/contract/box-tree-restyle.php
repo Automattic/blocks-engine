@@ -45,7 +45,7 @@ foreach (array(false, true, 'v1') as $mode) {
             $assert(!str_contains((string) ($asset['content'] ?? ''), 'h1{opacity'), 'No author selector bytes are delivered on the evidence route.');
         }
         $bootstrap = array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'];
-        $assert(str_contains($bootstrap, '$blocks_engine_route_styles = array() !== $blocks_engine_style_routes;') && str_contains($bootstrap, '$blocks_engine_style_routes[] = ['), 'Evidence route publishes a route row that disables global author fallback.');
+        $assert(str_contains($bootstrap, '$blocks_engine_route_styles = true;'), 'Evidence route publishes a route row that disables global author fallback.');
     } else {
         $assets = array_column($plan['assets'], null, 'target_path');
         $delivered = '';
