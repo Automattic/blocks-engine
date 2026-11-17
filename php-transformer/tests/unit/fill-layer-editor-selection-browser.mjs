@@ -37,6 +37,21 @@ try {
             const { width, height } = node.getBoundingClientRect();
             return { width, height };
         })), frontendBoxes, 'editor figures retain frontend geometry');
+        // Only the top layer is exposed to pointer selection in the source.
+        // Keep that layer clickable without flattening the authored stack.
+        await figures.nth(1).evaluate(node => {
+            node.addEventListener('click', () => { node.dataset.clicked = 'true'; });
+        });
+        await figures.nth(1).click({ timeout: 2000 });
+        assert.equal(await figures.nth(1).getAttribute('data-clicked'), 'true',
+            'the exposed fill figure receives the click, not the following section');
+        await page.locator('h2').click({ timeout: 2000 });
+        const imageBottom = await figures.evaluateAll(nodes =>
+            Math.max(...nodes.map(node => node.getBoundingClientRect().bottom)));
+        const headingTop = await page.locator('h2').evaluate(node => node.getBoundingClientRect().top);
+        assert.ok(headingTop >= imageBottom,
+            'following content stays below the fill figures and cannot intercept them');
+
     }
     console.log('fill layer editor selection passed');
 } finally {
