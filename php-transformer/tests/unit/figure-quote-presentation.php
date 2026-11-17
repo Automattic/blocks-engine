@@ -17,7 +17,7 @@ if ('core/quote' !== ($quote['blockName'] ?? '')
     || 'core/paragraph' !== ($text['blockName'] ?? '')
     || '14px' !== ($text['attrs']['style']['typography']['fontSize'] ?? '')
     || '1.45' !== ($text['attrs']['style']['typography']['lineHeight'] ?? '')
-    || isset($text['attrs']['style']['spacing'])
+    || '18px' !== ($text['attrs']['style']['spacing']['margin']['bottom'] ?? '')
     || !str_contains($quote['attrs']['citation'] ?? '', 'font-size:9px;font-weight:700;line-height:1.5;letter-spacing:1.44px')
     || 'pass' !== ((new BlockValidityValidator())->validateBlocks($result['blocks'])['status'] ?? '')
 ) {
@@ -33,7 +33,8 @@ if ('<b>Author</b><span>Title</span>' !== ($inherited['blocks'][0]['attrs']['cit
     throw new RuntimeException('Inherited caption typography must not change citation topology');
 }
 // Consuming the quote must not change another paragraph's typography or
-// transfer the quotation's box onto its synthetic text carrier.
+// transfer the quotation's sizing onto its synthetic text carrier; only the
+// blockquote's authored margins travel with the paragraph standing in for it.
 $scoped = (new HtmlTransformer())->transform(
     '<style>.review blockquote{font-size:14px;line-height:1.45;width:237px;margin:18px}'
     . '.review figcaption{font-size:9px;font-weight:700}p{font-size:16px}</style>'
@@ -44,7 +45,8 @@ $reviewText = $scoped['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $sibling = $scoped['blocks'][1]['attrs'] ?? array();
 if ('14px' !== ($reviewText['style']['typography']['fontSize'] ?? '')
     || isset($sibling['style']['typography']['fontSize'])
-    || array('typography') !== array_keys($reviewText['style'] ?? array())
+    || array('typography', 'spacing') !== array_keys($reviewText['style'] ?? array())
+    || array('margin') !== array_keys($reviewText['style']['spacing'] ?? array())
     || isset($reviewText['inlineGeometryStyle'])
     || 'pass' !== ((new BlockValidityValidator())->validateBlocks($scoped['blocks'])['status'] ?? '')
 ) {
