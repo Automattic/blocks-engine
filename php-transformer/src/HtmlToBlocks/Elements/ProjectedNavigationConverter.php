@@ -529,10 +529,15 @@ final class ProjectedNavigationConverter implements ElementConverter
             // sizing remains on the child, with margin/transform on the leaf
             // button so Core's overlay does not gain a transformed ancestor.
             $extraRules .= $open . '{min-width:0!important;min-height:0!important;' . ('button' === strtolower($toggle->tagName) ? '' : 'padding:0!important;') . 'border:0!important;width:auto!important;height:auto!important}';
+            // A text glyph uses the source button's native font metrics, not
+            // Core's inherited navigation line-height (or its SVG dimensions).
+            if (isset($source['text']) && 'button' === strtolower($toggle->tagName)) {
+                $extraRules .= $open . '{font:revert!important;letter-spacing:normal!important}';
+            }
             $extraRules .= $presentation->css($open, $source['button'], $toggle);
             $extraRules .= $presentation->css($open . '>svg', $source['icon'], $presentation->icon($toggle) ?? $toggle);
         }
-        if (null !== $source && null === $presentation->icon($toggle) && $this->hasNavigationHeader($navigation)) {
+        if (null !== $source && !isset($source['text']) && null === $presentation->icon($toggle) && $this->hasNavigationHeader($navigation)) {
             $paint = $this->responsiveNavigationOverlayAttributes($navigation)['customOverlayBackgroundColor'] ?? '';
             if ('' !== $paint) {
                 $openPanel = $host . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
@@ -597,7 +602,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         $toggle = $this->navigationToggleSuppressor->navigationToggleControl($navigation);
         if (!$toggle instanceof DOMElement) return $attrs;
         $source = (new NavigationOpenerPresentation($this->styleResolver, $this->svgMarkup))->source($toggle);
-        if (null !== $source) $attrs['metadata'][NavigationOpenerPresentation::METADATA_KEY] = array('svg' => $source['artwork']);
+        if (null !== $source) $attrs['metadata'][NavigationOpenerPresentation::METADATA_KEY] = isset($source['text'])
+            ? array('text' => $source['text']) : array('svg' => $source['artwork']);
         // A text-only opener is Core's text opener ("Menu"/"Close"), not its icon.
         elseif (NavigationOpenerPresentation::isTextOnly($toggle)) $attrs['hasIcon'] = false;
         return $attrs;
