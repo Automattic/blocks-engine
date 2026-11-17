@@ -69,6 +69,19 @@ try {
   }
   const initial = await blockTree();
   findings.editor = { initial };
+  const importedSlideshows = await page.evaluate(() => {
+    const flat = blocks => blocks.flatMap(block => [block, ...flat(block.innerBlocks || [])]);
+    return flat(wp.data.select('core/block-editor').getBlocks())
+      .filter(block => /authored-carousel$/.test(block.name))
+      .map(block => ({ name: block.name, presentation: block.attributes.presentation, valid: block.isValid, validates: wp.blocks.validateBlock(block)[0] }));
+  });
+  findings.editor.importedSlideshows = importedSlideshows;
+  assert.equal(importedSlideshows.length, 1, 'the imported fixture contains an authored carousel');
+  for (const block of importedSlideshows) {
+    assert.equal(block.presentation, 'slideshow', 'the regression exercises the slideshow controls overlay');
+    assert.equal(block.valid, true, 'the imported slideshow opens without block recovery');
+    assert.equal(block.validates, true, 'Gutenberg validates the original PHP markup against the registered save function');
+  }
   const saveContracts = await page.evaluate(() => {
     const flat = blocks => blocks.flatMap(block => [block, ...flat(block.innerBlocks || [])]);
     const presentation = markup => {
@@ -100,7 +113,7 @@ try {
     return visit(window.wp.blocks.parse(window.wp.data.select('core/editor').getEditedPostContent()));
   });
   assert.ok(validation.every(b => b.registered && b.valid), 'Gutenberg save/parse validates every native child and generated parent');
-  findings.editor = { nativeImages: fixture.source.images, saveContracts, editedAlt: reloaded.find(b => b.name === 'core/image').attrs.alt, validation };
+  findings.editor = { nativeImages: fixture.source.images, importedSlideshows, saveContracts, editedAlt: reloaded.find(b => b.name === 'core/image').attrs.alt, validation };
   await page.screenshot({ path: `${evidence}/editor-saved.png`, fullPage: true });
   console.log(JSON.stringify({ ok: true, ...findings }));
 } finally {

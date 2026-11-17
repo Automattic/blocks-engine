@@ -420,7 +420,8 @@ final class SourceElementClassifier
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:chips?|pills?|badges?|tags?|filters?|facets?)(?:[^a-z0-9]|$)/', $tokens);
     }
 
-    public function hasOnlyPhrasingChildren(DOMElement $element): bool
+    /** @param null|callable(DOMElement): bool $isRendered Additional presentation visibility check. */
+    public function hasOnlyPhrasingChildren(DOMElement $element, ?callable $isRendered = null): bool
     {
         $nonAnchorText = false;
 
@@ -437,12 +438,17 @@ final class SourceElementClassifier
             }
 
             $tagName = strtolower($child->tagName);
-            if ( 'a' === $tagName ) {
+            // Inline artwork can share a text run, but does not by itself
+            // establish one: an icon-only wrapper still lowers as media.
+            if ( in_array($tagName, array( 'a', 'svg' ), true) ) {
                 continue;
             }
 
             if ( 'br' === $tagName || ( $this->isInlineContentElement($tagName) && ! SourceDom::isImageOnlyNamedGraphic($child) ) ) {
-                $nonAnchorText = true;
+                // Label references and empty decoration do not establish a text
+                // run. Inspect descendants too: a visible span may wrap only
+                // hidden text (or SVG accessibility metadata).
+                $nonAnchorText = $nonAnchorText || $this->hasRenderedInlineText($child, $isRendered);
                 continue;
             }
 
@@ -450,6 +456,30 @@ final class SourceElementClassifier
         }
 
         return $nonAnchorText;
+    }
+
+    /** @param null|callable(DOMElement): bool $isRendered */
+    private function hasRenderedInlineText(DOMElement $element, ?callable $isRendered): bool
+    {
+        if ( $element->hasAttribute('hidden') || SourceDom::isAriaHidden($element)
+            || 'none' === CssValueInspector::declared(SourceDeclarations::inline($element), 'display')
+            || ( null !== $isRendered && ! $isRendered($element) )
+            || in_array(strtolower($element->tagName), array( 'svg', 'script', 'style', 'template' ), true) ) {
+            return false;
+        }
+
+        if ( 'br' === strtolower($element->tagName) ) {
+            return true;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMText && '' !== trim($child->textContent) ) {
+                return true;
+            }
+            if ( $child instanceof DOMElement && $this->hasRenderedInlineText($child, $isRendered) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function isClassedPhrasingItem(DOMElement $element): bool
