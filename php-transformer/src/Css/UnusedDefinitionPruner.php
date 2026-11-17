@@ -73,7 +73,9 @@ final class UnusedDefinitionPruner
     private function observe(string $text): void
     {
         foreach ($this->keyframes as $name => $used) {
-            if (!$used && str_contains($text, $name)) $this->keyframes[$name] = true;
+            // A name is an identifier: `enter` inside `center` or
+            // `slide-enter` names no animation.
+            if (!$used && str_contains($text, $name) && preg_match('/(?<![\w-])' . preg_quote($name, '/') . '(?![\w-])/', $text)) $this->keyframes[$name] = true;
         }
         foreach ($this->fonts as $name => $used) {
             if (!$used && false !== stripos($text, $name)) $this->fonts[$name] = true;
