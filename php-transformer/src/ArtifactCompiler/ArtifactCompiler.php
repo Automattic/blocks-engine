@@ -2779,13 +2779,21 @@ final class ArtifactCompiler
                 // Identity excludes capture-only entrance state, but the emitted
                 // part must retain it. Prefer a member that observed entrances,
                 // even when the entry route was too short to trigger them.
+                // A member restyled from box-tree evidence ranks first: its
+                // copy carries engine-owned styles, which every route renders,
+                // while a copy styled only by author CSS renders unstyled on
+                // the evidence routes that retire it (EvidenceRouteStylesheets).
+                $rank = fn(string $path, string $markup): array => array(array() !== $this->boxTreeForSource($files, $path) ? 1 : 0, SourceShells::evidenceCount($markup));
                 $canonicalSource = $members[$sourcePath]['rows'][$area][$variant]['markup'];
                 $evidenceSourcePath = $sourcePath;
+                $canonicalRank = $rank($sourcePath, $canonicalSource);
                 foreach ($members as $memberPath => $member) {
                     $candidate = $member['rows'][$area][$variant]['markup'];
-                    if (SourceShells::evidenceCount($candidate) > SourceShells::evidenceCount($canonicalSource)) {
+                    $candidateRank = $rank((string) $memberPath, $candidate);
+                    if ($candidateRank > $canonicalRank) {
                         $canonicalSource = $candidate;
-                        $evidenceSourcePath = $memberPath;
+                        $evidenceSourcePath = (string) $memberPath;
+                        $canonicalRank = $candidateRank;
                     }
                 }
                 $canonicalMarkup = SourceShells::identity($canonicalSource, false);
