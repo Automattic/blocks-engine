@@ -1188,6 +1188,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html), array() !== $this->session->boxTreeViewports()))
         );
         $document = HtmlSerialization::parseFragment('<body>' . $normalizedHtml . '</body>');
+        CommerceStructureRecognizer::registerSourceDocument($document, (string) ($options['declarative_state_html'] ?? $html));
 
         $resultComposer = new HtmlResultComposer();
         $selectorCache = $this->session->sourceStyleResolutionState()->selectorMatchCache;
@@ -1203,7 +1204,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Resolve before dispatch: controls, rich text, and preserved markup
         // serialize source images without passing through native image lowering.
         $this->imageUrls->resolveSourceImages($body);
-        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewriteInlineStyles($body);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewriteInlineStyles($body, $this->styleResolver);
         CapturedNavigationPanels::restoreNative($body);
         CapturedNavigationPanels::restoreRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
@@ -1725,7 +1726,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new MediaPatternContext($this->styleResolver, $this->imageUrls, $this->imageDimensions, $this->session),
             new ColumnsPatternContext($this->styleResolver),
             new MarkupPatternContext(
-                $this->session
+                $this->session,
+                $this->svgMaterializer->withReferencedDefinitions(...)
             ),
             new ButtonPatternContext(
                 $this->styleResolver,
@@ -1822,7 +1824,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 publishesSubjects: false
             ),
             markupContext: new MarkupPatternContext(
-                $this->session
+                $this->session,
+                $this->svgMaterializer->withReferencedDefinitions(...)
             ),
             codeWindowContext: new CodeWindowPatternContext($this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver)),
             logoContext: new LogoPatternContext(
@@ -2089,7 +2092,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     : $this->sourceVisibility->startsHidden($sourceElement),
                 SourceDom::htmlAttributes($sourceElement),
                 $this->sourceElementDescription->structureSignals($sourceElement, $attrs),
-                array() === $innerBlocks && 'core/group' === $name
+                // A populated group whose box is responsive and stylesheet-owned
+                // carries no block style, yet must stay independently editable
+                // rather than folding into a layout-shell wrapper list.
+                'core/group' === $name && (array() === $innerBlocks || $this->emptyVisualRetention->responsiveStylesheetOwnsWrapperBox($sourceElement))
                     ? $this->emptyVisualRetention->emptyVisualTopologyEvidence($sourceElement)
                     : array(),
                 'core/navigation' === $name && $this->sourceVisibility->wrapperHiddenAtCollapsedViewport($sourceElement)

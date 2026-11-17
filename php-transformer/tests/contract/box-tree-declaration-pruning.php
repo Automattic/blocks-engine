@@ -130,3 +130,18 @@ foreach (array('strong' => 'font-weight', 'b' => 'font-weight', 'small' => 'font
 $status = $pruner->classify($same, $same, '', 'strong');
 $assert(BoxTreeDeclarationPruner::INHERITED === $status['font-size'], 'A `strong` still inherits properties it has no default for.');
 $assert(BoxTreeDeclarationPruner::INHERITED === $pruner->classify($same, $same, '', 'div')['font-weight'], 'A `div` inherits its weight from the parent.');
+
+// Block attributes serialize inline and would beat every @media carrier rule,
+// so a value that varies by viewport stays entirely in the carrier (#6377).
+$state = new LayoutGeometryState();
+$attrs = (new BoxTreeStyleProjector())->project(array('level' => 1), array(
+    'desktop' => array('used_styles' => array_replace($initial, array('font-size' => '270px', 'line-height' => '216px', 'font-weight' => '500'))),
+    'mobile' => array('used_styles' => array_replace($initial, array('font-size' => '75px', 'line-height' => '60px', 'font-weight' => '500'))),
+), $viewports, $state, array('desktop' => array('used_styles' => $initial), 'mobile' => array('used_styles' => $initial)), 'core/heading');
+$inline = (new StyleAttributeMapper())->serialize(is_array($attrs['style'] ?? null) ? $attrs['style'] : array())['style'];
+$rule = $state->cssForSerializedBlocks((string) ($attrs['className'] ?? ''));
+$media = substr($rule, (int) strpos($rule, '@media (max-width:390px)'));
+$assert(!str_contains($inline, 'font-size') && !str_contains($inline, 'line-height'), 'A font size that varies by viewport is not a block attribute.');
+$assert(str_contains($inline, 'font-weight'), 'A font weight observed identically in every viewport stays a block attribute.');
+$assert($declares(substr($rule, 0, (int) strpos($rule, '@media')), 'font-size:270px'), 'The carrier base rule declares the widest font size.');
+$assert($declares($media, 'font-size:75px') && $declares($media, 'line-height:60px'), 'The carrier @media rule overrides the font size on mobile.');

@@ -385,8 +385,16 @@ final class RuntimeEntityCollector
                 if ( $declarable ) $this->diagnostics[] = $this->rejectedFormGraphDiagnostic($fallback, $sourcePath, $selector, 'steps', $error->getMessage());
             }
         }
-        if (true === ($fallback['layout_graph']['truncated'] ?? false)) {
-            $form['source_contract_losses'] = array_slice(array_values(array_filter($fallback['layout_graph']['diagnostics'] ?? array(), 'is_string')), 0, 32);
+        // A truncated graph is withheld whole; name why so the form's provider
+        // reports the presentation or layout it could not reproduce.
+        $losses = array();
+        foreach (array('layout_graph', 'presentation_graph') as $graph) {
+            if (true === ($fallback[$graph]['truncated'] ?? false)) {
+                array_push($losses, ...array_filter($fallback[$graph]['diagnostics'] ?? array(), 'is_string'));
+            }
+        }
+        if (array() !== $losses) {
+            $form['source_contract_losses'] = array_slice(array_values(array_unique($losses)), 0, 32);
         }
         if ( is_array($fallback['presentation_graph'] ?? null) && true !== ($fallback['presentation_graph']['truncated'] ?? false) ) {
             try {
