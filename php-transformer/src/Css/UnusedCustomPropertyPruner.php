@@ -41,6 +41,10 @@ final class UnusedCustomPropertyPruner
 
     private function isInventory(string $selector): bool
     {
+        // A prelude carries the comments ahead of its rule (a framework's
+        // license banner usually precedes its `:root` inventory); they do not
+        // change which elements the selector matches.
+        $selector = CssSyntaxScanner::withoutComments($selector);
         if (in_array(trim($selector), array(':root', ':where(:root) .editor-styles-wrapper', ':root *.editor-styles-wrapper'), true)) return true;
         // Universal resets may initialize pseudo-elements too. Require every
         // arm to be a universal subject, rather than accepting a component

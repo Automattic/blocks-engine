@@ -2316,6 +2316,11 @@ final class ArtifactCompiler
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
             $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
+            // A capture report describes the source as measured; it never
+            // reads a custom property. Its variable inventory (every property
+            // the source declared) would otherwise keep each unused token alive.
+            // BEM-style names such as `card--active` stay intact.
+            if (ArtifactNormalizer::CAPTURE_REPORT_ROLE === ($file['role'] ?? null) && is_string($text)) $text = (string) preg_replace('/(?<![\w-])--[\w-]+/', '', $text);
             // A complete document supplies subject evidence, not its style
             // inventory. Otherwise an inline framework sheet keeps every one
             // of its own unused selectors alive. Fragments remain conservative:
