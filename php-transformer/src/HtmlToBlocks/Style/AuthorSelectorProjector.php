@@ -1656,11 +1656,12 @@ final class AuthorSelectorProjector
 
     /**
      * The child step onto core's button link for an authored rule. Core's
-     * global-styles `:root :where(.wp-element-button, .wp-block-button__link)`
-     * weighs (0,1,0), and the editor prints global styles after every other
-     * style, so a tie loses there. One type weight on every projected link
-     * arm outranks it by specificity on every surface, and leaves the order
-     * among authored link rules as it was.
+     * buttons stylesheet uses `.wp-block-buttons .wp-block-button__link`
+     * (0,2,0), in addition to the global-styles button rule (0,1,0).
+     * Keep the source specificity for presentation: generic link resets must
+     * still lose to button values lifted into theme.json. The stylesheet
+     * projector adds class weight only to width declarations competing with
+     * core's buttons default, retaining the authored conditional cascade.
      */
     public function buttonLinkTarget(AuthorStylesheetProjectionContext $context): string
     {

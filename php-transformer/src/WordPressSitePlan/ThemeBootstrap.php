@@ -156,15 +156,7 @@ PHP;
         return $routes;
     }
 
-    /**
-     * Route selection and route enqueues are separate lines: selection runs
-     * ahead of every global so a fallback guard sees the route flag, while
-     * the enqueues sit where the route instances fall in the authored
-     * sequence (after before-author globals, before after-author ones).
-     *
-     * @param array<string,array<string,mixed>> $routes
-     * @return array{0:list<string>,1:list<string>}
-     */
+    /** @param array<string,array<string,mixed>> $routes @return list<string> */
     private static function routeStylesheetTable(array $routes): array
     {
         $sequences = $indices = $matches = array();
@@ -175,19 +167,15 @@ PHP;
             // into a sequence shared by different source documents.
             $matches[] = '    if ( ' . $route['condition'] . ' ) $blocks_engine_style_routes[] = [' . $indices[$key] . ',' . BootstrapData::literal($route['handles']) . '];';
         }
-        return array(
-            array_merge(array(
-                '    $blocks_engine_style_sequences = ' . BootstrapData::literal($sequences) . ';',
-                '    $blocks_engine_style_routes = [];',
-            ), $matches, array(
-                '    if ( array() !== $blocks_engine_style_routes ) $blocks_engine_route_styles = true;',
-            )),
-            array(
-                '    foreach ( $blocks_engine_style_routes as [$sequence, $handles] ) {',
-                '        foreach ( $blocks_engine_style_sequences[$sequence] as $position => $style ) wp_enqueue_style( $handles[$position], get_theme_file_uri( $style[0] ), array(), null, \'\' !== $style[1] ? $style[1] : \'all\' );',
-                '    }',
-            ),
-        );
+        return array_merge(array(
+            '    $blocks_engine_style_sequences = ' . BootstrapData::literal($sequences) . ';',
+            '    $blocks_engine_style_routes = [];',
+        ), $matches, array(
+            '    foreach ( $blocks_engine_style_routes as [$sequence, $handles] ) {',
+            '        $blocks_engine_route_styles = true;',
+            '        foreach ( $blocks_engine_style_sequences[$sequence] as $position => $style ) wp_enqueue_style( $handles[$position], get_theme_file_uri( $style[0] ), array(), null, \'\' !== $style[1] ? $style[1] : \'all\' );',
+            '    }',
+        ));
     }
 
     /** @param array<int,array<string,mixed>> $assets */
@@ -240,7 +228,6 @@ PHP;
         $routeRows = array();
         foreach ($evidencePages as $page) $routeRows[$page['source_path']] = array('condition' => self::bootstrapScopeCondition(PageStylesheets::documentScope($page), true), 'styles' => array(), 'handles' => array());
         $routePosition = array() !== $routeRows ? count($lines) : null;
-        $routeEnqueuePosition = null;
         foreach ($stylesheetEnqueues as $enqueue) {
             $asset = $enqueue['asset'];
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
@@ -257,7 +244,6 @@ PHP;
             $call = "wp_enqueue_style( " . var_export($enqueue['handle'], true) . ", get_theme_file_uri( " . var_export(self::encodedAssetUrlPath($asset['target_path']), true) . " ), array(), null{$media} );";
             if (isset($enqueue['route'])) {
                 if (null === $routePosition) $routePosition = count($lines);
-                if (null === $routeEnqueuePosition) $routeEnqueuePosition = count($lines);
                 $routeRows[$enqueue['route']]['condition'] = $enqueue['condition'];
                 $routeRows[$enqueue['route']]['styles'][] = array(self::encodedAssetUrlPath($asset['target_path']), $enqueue['media'], $stylesheetAttributes[$enqueue['handle']] ?? array());
                 $routeRows[$enqueue['route']]['handles'][] = $enqueue['handle'];
@@ -266,11 +252,7 @@ PHP;
             $condition = empty($enqueue['fallback']) ? $enqueue['condition'] : '! $blocks_engine_route_styles';
             $lines[] = "    if ( {$condition} ) {$call}";
         }
-        if (null !== $routePosition) {
-            [$routeSelection, $routeEnqueues] = self::routeStylesheetTable($routeRows);
-            array_splice($lines, $routeEnqueuePosition ?? $routePosition, 0, $routeEnqueues);
-            array_splice($lines, $routePosition, 0, $routeSelection);
-        }
+        if (null !== $routePosition) array_splice($lines, $routePosition, 0, self::routeStylesheetTable($routeRows));
         $attributes = array();
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);

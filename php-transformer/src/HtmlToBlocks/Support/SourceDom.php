@@ -966,9 +966,9 @@ final class SourceDom
     /**
      * Whitespace-delimited class tokens that a receipt may retain.
      *
-     * `.` and `:` are legal inside a token; they are not selector delimiters.
-     * Tokens that need CSS escaping are still tokens. Length and count stay
-     * bounded so metadata stays finite.
+     * Tokens that need CSS escaping are still tokens. Callers must escape
+     * identifiers in selectors and attribute values in HTML. Length and count
+     * stay bounded so metadata stays finite.
      *
      * @return list<string>
      */
@@ -992,7 +992,7 @@ final class SourceDom
     {
         return '' !== $token
             && strlen($token) <= $maxLength
-            && 1 === preg_match('/^[A-Za-z0-9_-][A-Za-z0-9_.:-]*$/D', $token);
+            && 0 === preg_match('/[\x09-\x0D\x20"\'<>\x5C]/', $token);
     }
 
     /**
