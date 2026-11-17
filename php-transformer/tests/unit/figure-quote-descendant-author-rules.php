@@ -45,7 +45,7 @@ $find = static function (array $blocks, string $name) use (&$find): ?array {
 $css = implode("\n", array_column(array_filter($result['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
 $markup = $result['serialized_blocks'];
 $quote = $find($result['blocks'], 'core/quote');
-$assert(null !== $quote && 'Publication' === ($quote['attrs']['citation'] ?? null), 'The figure still collapses into a cited quote: ' . $markup);
+$assert(null !== $quote && 'Publication' === trim(strip_tags((string) ($quote['attrs']['citation'] ?? ''))), 'The figure still collapses into a cited quote: ' . $markup);
 $paragraph = $find($quote['innerBlocks'] ?? array(), 'core/paragraph');
 $assert(null !== $paragraph, 'The quote keeps its text paragraph: ' . $markup);
 

@@ -4060,12 +4060,14 @@ final class StyleResolver implements ElementPresentationResolver
      * answers "does the source ever state X here" for recognition, not which
      * value wins, so callers must not project it.
      *
-     * @param array<int, string> $properties
+     * A null property list answers for every property the source states.
+     *
+     * @param array<int, string>|null $properties
      * @return array<string, list<string>>
      */
-    public function authorDeclaredValuesAtAnyViewport(DOMElement $element, array $properties): array
+    public function authorDeclaredValuesAtAnyViewport(DOMElement $element, ?array $properties): array
     {
-        $wanted = array_fill_keys(array_map('strtolower', $properties), true);
+        $wanted = null === $properties ? null : array_fill_keys(array_map('strtolower', $properties), true);
         $authorStyles = $this->session->authorStyleAnalysis();
         $selectorCache = $authorStyles->selectorMatchCache();
         $rules = $selectorCache->styleRuleCandidates($element, 'author-structural', $authorStyles->styleRuleCandidateIndex());
@@ -4081,7 +4083,7 @@ final class StyleResolver implements ElementPresentationResolver
         foreach ( $declarationSets as $declarations ) {
             foreach ( $declarations as $property => $value ) {
                 $property = strtolower((string) $property);
-                if ( isset($wanted[ $property ]) ) {
+                if ( null === $wanted || isset($wanted[ $property ]) ) {
                     $declared[ $property ][] = (string) $value;
                 }
             }
@@ -4445,6 +4447,7 @@ final class StyleResolver implements ElementPresentationResolver
                 'editor_selector' => $this->editorStaticStateSelector($element),
                 'declarations' => $normalized['stripped'],
                 'placed'       => $this->hasInlinePlacementTransform($element),
+                'offset'       => ! in_array(CssValueInspector::declared($declarations, 'transform'), array( '', 'none' ), true),
             ));
         }
 
@@ -4680,7 +4683,12 @@ final class StyleResolver implements ElementPresentationResolver
                 }
                 // Projected stylesheets may not be in the static rule analysis.
                 // Keep positioning alongside visibility for the overlay guard.
-                $declarations = array_intersect_key(SourceDeclarations::parse($body), $this->closedStateNormalizer()->hiddenStateProperties() + array('position' => true));
+                $parsed = SourceDeclarations::parse($body);
+                $declarations = array_intersect_key($parsed, $this->closedStateNormalizer()->hiddenStateProperties() + array('position' => true));
+                // A transform declared with the hidden state is its entrance offset.
+                if (array() !== $declarations && isset($parsed['transform'])) {
+                    $declarations['transform'] = $parsed['transform'];
+                }
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     $selector = trim($selector);
                     if (array() !== $declarations && '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector)) {

@@ -16,8 +16,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
  * cards' own excerpts, featured images and literal fields move to the posts as
  * metadata, so the loop renders what the source showed.
  *
- * One instance serves one site plan run; it records the source container of
- * every loop it materializes for the stylesheet that presents them.
+ * One instance serves one site plan run; it records the projected markup
+ * around every listing or related-section loop for the stylesheet that
+ * presents them.
  */
 final class ListingQueryLoops
 {
@@ -38,13 +39,20 @@ final class ListingQueryLoops
     }
 
     /**
-     * The source container of each query loop materialized so far.
+     * Projected markup around each query loop materialized so far: the
+     * query and the source container it replaced the cards in.
      *
      * @return list<string>
      */
     public function queryContainers(): array
     {
         return $this->queryContainers;
+    }
+
+    /** Register projected markup containing a query and its source container. */
+    public function registerQueryContainer(string $markup): void
+    {
+        $this->queryContainers[] = $markup;
     }
 
     /**
@@ -151,9 +159,7 @@ final class ListingQueryLoops
             $page['content_hash'] = WordPressSitePlan::contentHash($replaced);
             $listingIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($sourceListingMarkup);
             $cards = $this->cardRanges($listingIndex, $posts, isset($postsByArchive[$page['source_path']]) ? 1 : 2) ?? array();
-            $firstCard = $cards[0] ?? null;
-            $parent = is_array($firstCard) ? $listingIndex->parent($firstCard) : null;
-            if (is_array($parent)) $this->queryContainers[] = substr($sourceListingMarkup, $parent['offset'], $parent['length']);
+            $this->registerQueryContainer($replaced);
             foreach ($fields as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
             foreach ($cards as $card) {
                 $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);

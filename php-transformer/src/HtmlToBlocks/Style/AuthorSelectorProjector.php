@@ -262,7 +262,8 @@ final class AuthorSelectorProjector
             $arms[] = $documentVariantBody;
             return $arms;
         }
-        if ( $structuralParsed['supported'] && $this->hasUniversalStructuralLeaf($structuralParsed) ) {
+        if ( $structuralParsed['supported'] && $this->hasUniversalStructuralLeaf($structuralParsed)
+            && ! $this->hasDroppedDataAncestry($selector, $structuralParsed, $context) ) {
             $arms[] = $this->rewriteSourceTagTypes($selector, $structuralParsed, $context);
             return $arms;
         }
@@ -2685,6 +2686,21 @@ final class AuthorSelectorProjector
             }
         }
         return $replacements;
+    }
+
+    /**
+     * A data predicate on an ancestor compound does not survive lowering: the
+     * block wrapper drops the attribute. Such a selector must bind through the
+     * attribute markers its source matches carry instead of staying live.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function hasDroppedDataAncestry(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): bool
+    {
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $ancestry = is_array($rightmost) ? substr($selector, 0, (int) $rightmost['start']) : '';
+        return 1 === preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry)
+            && ! SourceAttributeSubjects::retainsDataPredicates($parsed, $context->authorStyles);
     }
 
     /** @param array<string, mixed> $parsed */

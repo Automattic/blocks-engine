@@ -157,7 +157,7 @@ final class QuotePattern implements PatternRecognizerInterface
         }
         if ( '' === $citation && $caption instanceof DOMElement ) {
             $captionCited = true;
-            $citation = SourceDom::innerHtml($caption);
+            $citation = $quotes->figureCaptionContent($caption);
             $captionClass = trim(SourceDom::attr($caption, 'class'));
             if ( '' !== $captionClass ) {
                 $citation = '<span class="' . htmlspecialchars($captionClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $citation . '</span>';
@@ -188,14 +188,24 @@ final class QuotePattern implements PatternRecognizerInterface
             }
             $innerBlocks[] = $createBlock('core/paragraph', array_merge($context->presentationAttributes($child), array( 'content' => $content )), array(), $child);
         }
-        // The quote saves the figure's box; the source blockquote's box is
-        // now the paragraph holding its text. Its author rules follow it.
-        $phrasing = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes, static fn (): string => (
-            '' === ($carrier = $quotes->figureBlockquoteCarrier($blockquote))
-                ? ''
-                : SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ' ' . $carrier
-        ));
-        $innerBlocks = array_merge($innerBlocks, $phrasing);
+        $quoteChildren = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes);
+        if ( array() !== $quoteChildren ) {
+            // Only transfer text presentation: the consumed blockquote's box
+            // (especially margins) must not become the synthetic paragraph's
+            // inline box. The quote saves the figure's box; author rules that
+            // address the source blockquote follow its text onto this
+            // paragraph through a source-addressed carrier class.
+            $carrier = $quotes->figureBlockquoteCarrier($blockquote);
+            $quoteChildren[0] = $createBlock('core/paragraph', array(
+                'content' => $value,
+                'className' => SourceDom::mergeClassNames(
+                    'blocks-engine-synthetic-paragraph',
+                    '' === $carrier ? '' : SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ' ' . $carrier
+                ),
+                'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
+            ));
+        }
+        $innerBlocks = array_merge($innerBlocks, $quoteChildren);
         if ( array() === $innerBlocks ) {
             $innerBlocks = $converter->childrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' ));
         }
@@ -213,10 +223,9 @@ final class QuotePattern implements PatternRecognizerInterface
     }
 
     /**
-     * @param (callable(): string)|null $boxClassName Classes for a paragraph that stands in for the element's box.
      * @return array<int, array<string, mixed>>
      */
-    private function phrasingQuoteChildren(DOMElement $element, string $value, PatternContext $context, QuotePatternContext $quotes, ?callable $boxClassName = null): array
+    private function phrasingQuoteChildren(DOMElement $element, string $value, PatternContext $context, QuotePatternContext $quotes): array
     {
         // A blockquote may be wrapped in phrasing elements while still carrying
         // structural descendants. Send that shape through child lowering so the
@@ -246,7 +255,7 @@ final class QuotePattern implements PatternRecognizerInterface
 
         return array( $this->createBlock->createBlock('core/paragraph', array_filter(array(
             'content'   => $value,
-            'className' => SourceDom::mergeClassNames('blocks-engine-synthetic-paragraph', null === $boxClassName ? '' : $boxClassName()),
+            'className' => 'blocks-engine-synthetic-paragraph',
         ), static fn (string $value): bool => '' !== $value)) );
     }
 

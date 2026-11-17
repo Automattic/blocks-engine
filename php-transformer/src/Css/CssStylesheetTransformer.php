@@ -146,6 +146,86 @@ final class CssStylesheetTransformer
     }
 
     /**
+     * The stylesheet with each later rule whose selector list repeats an
+     * earlier rule's, in the same conditional groups, folded into that
+     * earlier rule. Projection can give several source rules one long
+     * selector list (a reset's `*` and its pseudo-element twins), which then
+     * ships once per rule. The folded declarations keep their order after
+     * the earlier ones, and are only moved when no rule between the two
+     * declares a property of the same cascade family, so every element keeps
+     * its computed values. Malformed input is returned unchanged.
+     */
+    public function mergeRepeatedSelectorRules(string $css): string
+    {
+        if ( ! str_contains($css, '{') || ! $this->isWellFormedStylesheet($css) ) {
+            return $css;
+        }
+        $units = array();
+        $this->collectRuleUnits($css, array(), $units);
+        $anchors = array();
+        $families = array();
+        $merged = false;
+        foreach ( $units as $index => $unit ) {
+            // Families are read lazily: only units between two candidates matter.
+            $key = $this->repeatableSelectorRuleKey($unit);
+            if ( null === $key ) {
+                continue;
+            }
+            if ( isset($anchors[ $key ]) ) {
+                $anchor = $anchors[ $key ];
+                [$lead, $rule] = self::splitLeadingComments($unit['text']);
+                // Never drop a comment (a license, say) with the folded rule.
+                $own = str_contains($lead, '/*') ? array( '*' => true ) : null;
+                $own ??= self::cascadePropertyFamilies($rule);
+                $blocked = isset($own['*']);
+                for ( $between = $anchor + 1; $between < $index && ! $blocked; ++$between ) {
+                    if ( ! isset($units[ $between ]) ) {
+                        continue;
+                    }
+                    // Unparsed trailing text could hide anything.
+                    $families[ $between ] ??= $units[ $between ]['dedupable'] || str_contains($units[ $between ]['text'], '{') ? self::cascadePropertyFamilies(self::splitLeadingComments($units[ $between ]['text'])[1]) : array( '*' => true );
+                    $blocked = self::cascadeFamiliesOverlap($own, $families[ $between ]);
+                }
+                if ( ! $blocked ) {
+                    $target = $units[ $anchor ]['text'];
+                    $close = strrpos($target, '}');
+                    $brace = strpos($rule, '{');
+                    $units[ $anchor ]['text'] = rtrim(substr($target, 0, (int) $close), " \t\n\r\f;") . ';' . substr($rule, (int) $brace + 1);
+                    unset($units[ $index ], $families[ $anchor ]);
+                    $merged = true;
+                    continue;
+                }
+            }
+            $anchors[ $key ] = $index;
+        }
+        return $merged ? $this->serializeRuleUnits(array_values($units)) : $css;
+    }
+
+    /**
+     * A plain style rule's conditional groups and selector list, or null for
+     * at-rules, nested rules, comments inside the selector and empty blocks.
+     *
+     * @param array{context: list<string>, text: string, dedupable: bool} $unit
+     */
+    private function repeatableSelectorRuleKey(array $unit): ?string
+    {
+        if ( ! $unit['dedupable'] ) {
+            return null;
+        }
+        [, $rule] = self::splitLeadingComments($unit['text']);
+        $brace = strpos($rule, '{');
+        if ( false === $brace || $this->isAtRule($rule) || ! str_ends_with(rtrim($rule), '}') ) {
+            return null;
+        }
+        $prelude = trim(substr($rule, 0, $brace));
+        $body = substr(rtrim($rule), $brace + 1, -1);
+        if ( '' === $prelude || str_contains($prelude, '/*') || str_contains($body, '{') || str_contains($body, '}') || '' === trim($body) ) {
+            return null;
+        }
+        return implode("\0", array_map(self::normalizedCss(...), $unit['context'])) . "\0" . self::normalizedCss($prelude);
+    }
+
+    /**
      * CSS with insignificant whitespace collapsed; quoted strings are kept
      * verbatim. Space before a colon is a descendant combinator, so only the
      * space after one goes.
