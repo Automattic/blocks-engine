@@ -31,7 +31,7 @@ class WP_HTML_Tag_Processor
     public function get_updated_html(): string { return $this->dom->saveHTML($this->dom->getElementsByTagName('body')->item(0)); }
 }
 function esc_attr(string $value): string { return htmlspecialchars($value, ENT_QUOTES); }
-function add_filter(string $name, callable $callback, int $priority, int $arguments): void { if ('render_block_core/image' === $name) $GLOBALS['imageSelectionRenderer'] = $callback; }
+function add_filter(string $name, callable $callback, int $priority, int $arguments): void { $GLOBALS['imageSelectionRenderer'] = $callback; }
 eval(Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap::IMAGE_SELECTION_RENDERER);
 
 $image = static function (string $name, bool $responsive, bool $hidden = false): string {

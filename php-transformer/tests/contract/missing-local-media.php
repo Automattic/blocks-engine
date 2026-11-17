@@ -57,8 +57,7 @@ $multiTokens = array_values(array_filter($multiPlan['reference_tokens'] ?? array
 $assert(1 === count($multiAssets) && 1 === count($multiWrites) && 1 === count($multiTokens), 'Recovered media declares exactly one placeholder asset, token and write.');
 $assert('image/svg+xml' === ($multiAssets[0]['mime_type'] ?? null) && 'utf8' === ($multiWrites[0]['payload']['encoding'] ?? null) && str_contains((string) ($multiWrites[0]['payload']['data'] ?? ''), '<svg'), 'The placeholder write materializes an inert SVG payload.');
 $assert(3 === count($mediaDiagnostics($multiPlan)), 'Each distinct missing asset is reported once per source document.');
-// Each image's src-only selection names the same placeholder its src does.
-$assert(4 === substr_count((string) ($markupOf($multiPlan) . $markupOf($multiPlan, 1)), 'src="' . $placeholder), 'Every missing media reference resolves to the shared placeholder token.');
+$assert(4 === substr_count((string) ($markupOf($multiPlan) . $markupOf($multiPlan, 1)), $placeholder), 'Every missing media reference resolves to the shared placeholder token.');
 WordPressSitePlan::assertValid($multiPlan);
 
 // Stylesheet urls and responsive candidate lists recover through the same token.
@@ -113,7 +112,7 @@ $stagedReceipts = array();
 foreach ($stagedShared['analysis']['page_ids'] as $pageId) $stagedReceipts[] = $stagedCompiler->compilePage($stagedArtifact, $stagedShared, $pageId);
 $stagedPlan = $planOf($stagedCompiler->compose($stagedShared, $stagedReceipts)->toArray());
 $stagedMarkup = implode('', array_column($stagedPlan['pages'] ?? array(), 'canonical_block_markup'));
-$assert(array() !== $stagedPlan && 2 === substr_count($stagedMarkup, 'src="' . $placeholder) && 2 === count($mediaDiagnostics($stagedPlan)), 'Staged compilation recovers missing media on every composed page.');
+$assert(array() !== $stagedPlan && 2 === substr_count($stagedMarkup, $placeholder) && 2 === count($mediaDiagnostics($stagedPlan)), 'Staged compilation recovers missing media on every composed page.');
 $assert(1 === count(array_values(array_filter($stagedPlan['assets'] ?? array(), static fn (array $asset): bool => MissingMediaRecovery::TARGET_PATH === ($asset['target_path'] ?? null)))), 'Staged composition declares the placeholder asset exactly once.');
 WordPressSitePlan::assertValid($stagedPlan);
 

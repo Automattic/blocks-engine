@@ -646,19 +646,12 @@ final class ImageLowering
      * Authored `loading` belongs to it: when candidates share a URL, the first
      * fetch fixes the image's density, so eager and lazy copies render apart.
      *
-     * A lone `src` is a selection too: the source decodes that one file at
-     * every width. Without it the materialized attachment's generated
-     * renditions would let a narrow viewport decode different bytes.
-     *
      * @return array<string, mixed>
      */
     private function authoredImageSelection(DOMElement $image, string $src, ?DOMElement $picture = null): array
     {
-        if ( $this->hasUnsafeResponsiveImageSources($picture ?? $image) ) {
+        if ( (null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset'))) || $this->hasUnsafeResponsiveImageSources($picture ?? $image) ) {
             return array();
-        }
-        if ( null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset')) ) {
-            return '' === $src || preg_match('/^(?:data|blob)\s*:/i', $src) ? array() : array( 'src' => $src );
         }
         $loading = strtolower(trim(SourceDom::attr($image, 'loading')));
         $sizes   = trim(SourceDom::attr($image, 'sizes'));

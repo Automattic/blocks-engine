@@ -246,7 +246,7 @@ try {
 // an asset token, and another precedes it on the page.
 $png = base64_encode("\x89PNG\r\n\x1a\n" . str_repeat("\0", 32));
 $copy = rtrim(str_repeat('Listing copy. ', 150));
-$listingBlock = '<!-- wp:group {"className":"listing"} --><div class="wp-block-group listing"><!-- wp:image {"metadata":{"blocksEngineImageSelection":{"src":"item.png"}},"className":"blocks-engine-synthetic-image-figure"} --><figure class="wp-block-image blocks-engine-synthetic-image-figure blocks-engine-image"><img src="item.png" alt="Item"/></figure><!-- /wp:image --><!-- wp:paragraph --><p>' . $copy . '</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
+$listingBlock = '<!-- wp:group {"className":"listing"} --><div class="wp-block-group listing"><!-- wp:image {"className":"blocks-engine-synthetic-image-figure"} --><figure class="wp-block-image blocks-engine-synthetic-image-figure blocks-engine-image"><img src="item.png" alt="Item"/></figure><!-- /wp:image --><!-- wp:paragraph --><p>' . $copy . '</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
 $listingSite = $compile(
     array(
         'index.html' => '<main><img src="logo.png" alt="Logo"><h1>Shop</h1><div class="listing"><img src="item.png" alt="Item"><p>' . $copy . '</p></div></main>',
@@ -281,7 +281,7 @@ $assert(is_string($resolvedBinding['search_block_markup'] ?? null) && !str_conta
 
 // A canonical inline collection fits, even when destination URLs push its resolved projection over the limit.
 $grid = ''; $files = array();
-for ($item = 0; $item < 40; ++$item) {
+for ($item = 0; $item < 46; ++$item) {
     $images = '';
     for ($image = 0; $image < 6; ++$image) {
         $path = 'img/p' . $item . '-' . $image . '.png';

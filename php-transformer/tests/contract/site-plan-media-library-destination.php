@@ -21,8 +21,7 @@ $assert(WordPressSitePlan::SCHEMA === 'blocks-engine/wordpress-site-plan/v3', 'T
 $assets = array();
 foreach ($plan['assets'] as $asset) $assets[basename($asset['source_path'])] = $asset;
 $content = $assets['content.png']; $texture = $assets['texture.png']; $shared = $assets['shared.png'];
-// An image's src-only selection names the same asset as its url; the url is the consumer that binds it.
-$blockConsumers = static fn(array $asset): array => array_values(array_filter($asset['consumers'], static fn(array $consumer): bool => 'block' === $consumer['kind'] && 'metadata.blocksEngineImageSelection.src' !== $consumer['attribute_path']));
+$blockConsumers = static fn(array $asset): array => array_values(array_filter($asset['consumers'], static fn(array $consumer): bool => 'block' === $consumer['kind']));
 $styleConsumers = static fn(array $asset): array => array_values(array_filter($asset['consumers'], static fn(array $consumer): bool => 'stylesheet' === $consumer['kind']));
 
 $assert('media_library' === $content['destination'] && array() === $styleConsumers($content) && 'core/image' === ($blockConsumers($content)[0]['block_name'] ?? null) && 'url' === $blockConsumers($content)[0]['attribute_path'] && array() === $content['theme_write_reasons'], 'An image-only asset is a Media Library asset consumed by a core/image url.');

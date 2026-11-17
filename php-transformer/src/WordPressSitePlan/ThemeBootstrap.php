@@ -82,25 +82,15 @@ PHP;
      * A lowered srcset family keeps its authored candidates, slot sizes and
      * loading in core/image metadata. They describe the source `src`; once
      * the image is replaced, the new attachment's own candidates apply.
-     *
-     * A src-only selection is one exact file: the source decoded it at every
-     * width. Renditions generated for its attachment later (by a plugin's
-     * image-size regeneration, say) are not candidates the source offered, so
-     * core's content filter adds no srcset to that image while it still shows
-     * the selected `src`.
      */
     public const IMAGE_SELECTION_RENDERER = <<<'PHP'
-$blocks_engine_src_only_images = new ArrayObject();
-add_filter( 'render_block_core/image', static function ( string $content, array $block ) use ( $blocks_engine_src_only_images ): string {
+add_filter( 'render_block_core/image', static function ( string $content, array $block ): string {
     $selection = $block['attrs']['metadata']['blocksEngineImageSelection'] ?? null;
     if ( ! is_array( $selection ) || ! is_string( $selection['src'] ?? null ) ) return $content;
     $picture = is_array( $selection['picture'] ?? null ) && is_array( $selection['sources'] ?? null );
+    if ( ! $picture && empty( $selection['srcset'] ) ) return $content;
     $tag = new WP_HTML_Tag_Processor( $content );
     if ( ! $tag->next_tag( 'IMG' ) || $tag->get_attribute( 'src' ) !== $selection['src'] ) return $content;
-    if ( ! $picture && empty( $selection['srcset'] ) ) {
-        if ( null === $tag->get_attribute( 'srcset' ) ) $blocks_engine_src_only_images[ $selection['src'] ] = true;
-        return $content;
-    }
     if ( is_string( $selection['srcset'] ?? null ) && '' !== $selection['srcset'] ) $tag->set_attribute( 'srcset', $selection['srcset'] );
     else $tag->remove_attribute( 'srcset' );
     if ( is_string( $selection['sizes'] ?? null ) && '' !== $selection['sizes'] ) $tag->set_attribute( 'sizes', $selection['sizes'] );
@@ -130,10 +120,31 @@ add_filter( 'render_block_core/image', static function ( string $content, array 
     }
     return preg_replace_callback( '/<img\\b(?:[^>"\']|"[^"]*"|\'[^\']*\')*>/i', static fn ( array $match ): string => $open . $match[0] . '</picture>', $content, 1 ) ?? $content;
 }, 10, 2 );
-add_filter( 'wp_img_tag_add_srcset_and_sizes_attr', static function ( $add, $image ) use ( $blocks_engine_src_only_images ) {
-    if ( true !== $add || ! is_string( $image ) || 0 === count( $blocks_engine_src_only_images ) ) return $add;
+PHP;
+
+    /**
+     * A lowered image without an authored srcset family decoded its one `src`
+     * at every source width. Core's content filter would offer the materialized
+     * attachment's generated renditions as srcset candidates, so a narrow
+     * viewport decodes resized bytes the source never served. Such an image
+     * keeps its single `src`; images the importer did not lower (no
+     * `blocks-engine-image` figure) and authored families keep core behavior.
+     */
+    public const SINGLE_SOURCE_IMAGE_RUNTIME = <<<'PHP'
+$blocks_engine_single_source_images = new ArrayObject();
+add_filter( 'render_block_core/image', static function ( string $content, array $block ) use ( $blocks_engine_single_source_images ): string {
+    if ( isset( $block['attrs']['metadata']['blocksEngineImageSelection'] ) ) return $content;
+    $tag = new WP_HTML_Tag_Processor( $content );
+    if ( ! $tag->next_tag( 'FIGURE' ) || ! $tag->has_class( 'blocks-engine-image' ) ) return $content;
+    if ( ! $tag->next_tag( 'IMG' ) || null !== $tag->get_attribute( 'srcset' ) ) return $content;
+    $src = $tag->get_attribute( 'src' );
+    if ( is_string( $src ) && '' !== $src ) $blocks_engine_single_source_images[ $src ] = true;
+    return $content;
+}, 10, 2 );
+add_filter( 'wp_img_tag_add_srcset_and_sizes_attr', static function ( $add, $image ) use ( $blocks_engine_single_source_images ) {
+    if ( true !== $add || ! is_string( $image ) || 0 === count( $blocks_engine_single_source_images ) ) return $add;
     $tag = new WP_HTML_Tag_Processor( $image );
-    return ! ( $tag->next_tag( 'IMG' ) && isset( $blocks_engine_src_only_images[ (string) $tag->get_attribute( 'src' ) ] ) );
+    return ! ( $tag->next_tag( 'IMG' ) && isset( $blocks_engine_single_source_images[ (string) $tag->get_attribute( 'src' ) ] ) );
 }, 10, 2 );
 PHP;
 
@@ -225,6 +236,9 @@ PHP;
         }
         if (self::markupContains($documents, 'blocksEngineImageSelection')) {
             $lines[] = self::IMAGE_SELECTION_RENDERER;
+        }
+        if (self::markupContains($documents, 'blocks-engine-image')) {
+            $lines[] = self::SINGLE_SOURCE_IMAGE_RUNTIME;
         }
         if (array_filter($pages, static fn(array $page): bool => str_contains($page['canonical_block_markup'], 'blocks-engine-listing-overlay'))) {
             $lines[] = "add_filter( 'render_block_core/read-more', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-listing-overlay', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) { \$tag->set_attribute( 'aria-hidden', 'true' ); \$tag->set_attribute( 'tabindex', '-1' ); } return \$tag->get_updated_html(); }, 10, 2 );";
