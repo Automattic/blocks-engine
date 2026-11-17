@@ -1852,16 +1852,24 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $attrs;
     }
 
-    /** Whether the source list lays out its items as a horizontal row. */
+    /**
+     * Whether the source list lays out its items as a horizontal row.
+     *
+     * A `ul`/`ol` holds its items as `li`s. A landmark without a list (a
+     * `<nav>` of `<div>` items, as Squarespace chrome renders) holds them as
+     * its direct element children, which form the same inline row when each
+     * is inline or inline-block.
+     */
     private function isResolvedNavigationRow(DOMElement $list, NavigationPatternContext $navigationContext): bool
     {
         if ( in_array($navigationContext->resolvedDisplay($list), array( 'flex', 'inline-flex' ), true) ) {
             return ! in_array(CssValueInspector::declared(SourceDeclarations::parse($navigationContext->resolvedStyle($list)), 'flex-direction'), array( 'column', 'column-reverse' ), true);
         }
 
+        $isList = in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true);
         $items = 0;
         foreach ( $list->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+            if ( ! $child instanceof DOMElement || ( $isList && 'li' !== strtolower($child->tagName) ) ) {
                 continue;
             }
             $display = $navigationContext->resolvedDisplay($child);

@@ -5227,6 +5227,35 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function authoredInheritedPropertyWinner(DOMElement $element, string $property, bool $navigationEditor = false, array $conditions = array()): string
     {
+        return $this->authoredInheritedPropertyOrigin($element, $property, $navigationEditor, $conditions, false)['value'];
+    }
+
+    /**
+     * The authored inherited winner under exactly one media stack, and how
+     * many boxes above the element declares it (0 is the element itself, -1
+     * when no box does).
+     *
+     * Unlike {@see authoredInheritedPropertyWinner()}, a rule under some other
+     * condition is left out rather than blocking inheritance: the answer is
+     * the value for the part of the stack that condition does not cover. A
+     * caller replaying several stacks orders them by that distance, so where
+     * two stacks overlap the nearer declaration wins, as it does in the source.
+     *
+     * @param list<string> $conditions
+     * @return array{value: string, depth: int}
+     */
+    public function conditionedInheritedPropertyOrigin(DOMElement $element, string $property, array $conditions): array
+    {
+        return $this->authoredInheritedPropertyOrigin($element, $property, true, $conditions, true);
+    }
+
+    /**
+     * @param list<string> $conditions
+     * @return array{value: string, depth: int}
+     */
+    private function authoredInheritedPropertyOrigin(DOMElement $element, string $property, bool $navigationEditor, array $conditions, bool $skipForeignConditions): array
+    {
+        $none = array( 'value' => '', 'depth' => -1 );
         $property = strtolower(trim($property));
         if ( ! in_array($property, array(
             'color',
@@ -5240,18 +5269,20 @@ final class StyleResolver implements ElementPresentationResolver
             'text-transform',
             'white-space',
         ), true) ) {
-            return '';
+            return $none;
         }
 
+        $depth = -1;
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-            $declarations = $this->authoredInheritedDeclarations($current, $navigationEditor, $conditions);
+            ++$depth;
+            $declarations = $this->authoredInheritedDeclarations($current, $navigationEditor, $conditions, $skipForeignConditions);
             if ( ! array_key_exists($property, $declarations) ) {
                 continue;
             }
 
             $rawValue = (string) $declarations[$property];
             if ( 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue) ) {
-                return '';
+                return $none;
             }
             $value = trim($rawValue);
             $keyword = strtolower($value);
@@ -5259,13 +5290,13 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             if ( in_array($keyword, array( 'initial', 'revert', 'revert-layer' ), true) ) {
-                return '';
+                return $none;
             }
 
-            return $this->customProperties->resolve($value, $current);
+            return array( 'value' => $this->customProperties->resolve($value, $current), 'depth' => $depth );
         }
 
-        return '';
+        return $none;
     }
 
     /** @return list<list<string>> Media stacks needed by omitted navigation boxes. */
@@ -5318,7 +5349,7 @@ final class StyleResolver implements ElementPresentationResolver
      *
      * @return array<string, string>
      */
-    private function authoredInheritedDeclarations(DOMElement $element, bool $navigationEditor = false, array $conditions = array()): array
+    private function authoredInheritedDeclarations(DOMElement $element, bool $navigationEditor = false, array $conditions = array(), bool $skipForeignConditions = false): array
     {
         $cascade = array();
         $sequence = 0;
@@ -5354,6 +5385,7 @@ final class StyleResolver implements ElementPresentationResolver
             // projected condition it blocks inheritance, rather than exposing
             // a body reset. Rank the blocker normally against base declarations.
             if ($navigationEditor && array() !== $ruleConditions && array() !== array_diff($ruleConditions, $conditions)) {
+                if ($skipForeignConditions) continue;
                 $declarations = array_map(static fn(string $value): string => 'initial' . (CssValueInspector::isImportant($value) ? ' !important' : ''), $declarations);
                 if (null !== $font) $font = 'initial' . (CssValueInspector::isImportant($font) ? ' !important' : '');
             }
