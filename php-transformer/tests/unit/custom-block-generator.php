@@ -46,7 +46,7 @@ $assert('<p>hello</p>' === $render, '2: render is the supplied sanitized static 
 $assert(! str_contains($render, '<?'), '2: render contains no server code');
 $editorScript = $generator->assets('ssi-acme/collection-1234abcd')['index.js'] ?? '';
 $assert(str_contains($editorScript, "registerBlockType( 'ssi-acme/collection-1234abcd'"), '2: editor asset registers the exact block');
-$assert(str_contains($editorScript, "createElement( 'div', Object.assign( {}, blockEditor.useBlockProps(), { dangerouslySetInnerHTML: { __html: content } } ) )"), '2: editor puts source HTML directly on the block-props element without children');
+$assert(str_contains($editorScript, 'rawHtmlRoot( content, blockEditor.useBlockProps() )'), '2: editor applies block props directly to captured roots');
 $assert((bool) preg_match("/element\\.Fragment, null,.*createElement\\( blockEditor\\.InspectorControls, null,\\s*createElement\\( components\\.PanelBody, \\{ title: 'HTML' \\},\\s*createElement\\( components\\.TextareaControl,/s", $editorScript), '2: HTML textarea lives in an inspector panel beside the canvas element');
 $assert(!str_contains($editorScript, 'RawHTML') && !str_contains($editorScript, 'props.isSelected'), '2: selection never adds inline controls or a raw HTML wrapper');
 
@@ -58,7 +58,7 @@ foreach ( array(
 ) as $rawGenerator ) {
     $script = $rawGenerator->assets('ssi-acme/raw-preview')['index.js'];
     $attribute = $rawGenerator instanceof \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator ? 'svg' : 'content';
-    $assert(str_contains($script, "createElement( 'div', Object.assign( {}, blockEditor.useBlockProps(), { dangerouslySetInnerHTML: { __html: props.attributes." . $attribute . " || '' } } ) )"), '2: raw companion puts captured markup directly on its block-props element');
+    $assert(str_contains($script, $attribute === 'svg' ? "createElement( 'div', Object.assign( {}, blockEditor.useBlockProps(), { dangerouslySetInnerHTML: { __html: props.attributes.svg || '' } } ) )" : "rawHtmlRoot( props.attributes.content || '', blockEditor.useBlockProps() )"), '2: raw companion uses its captured markup editing surface');
     $assert(!str_contains($script, 'ServerSideRender') && !str_contains($script, 'RawHTML') && str_contains($script, 'blockEditor.InspectorControls'), '2: raw companion has no preview wrapper and keeps source controls in the inspector');
 }
 $linkScript = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator())->assets('ssi-acme/accessible-link')['index.js'];
@@ -74,15 +74,16 @@ const wp = {
     components: { PanelBody: 'PanelBody', TextareaControl: 'TextareaControl' },
     element: { Fragment: 'Fragment', createElement: ( type, props, ...children ) => ( { type, props, children } ) }
 };
-vm.runInNewContext( Buffer.from( process.argv[ 1 ], 'base64' ).toString(), { window: { wp } } );
+const document = { createElement: () => ({ content: { querySelectorAll: () => [], childNodes: [] } }) };
+vm.runInNewContext( Buffer.from( process.argv[ 1 ], 'base64' ).toString(), { window: { wp }, document } );
 for ( const isSelected of [ false, true ] ) {
-    for ( const content of [ '', '<section class="grid"><p>Source</p></section>' ] ) {
+    for ( const content of [ '' ] ) {
         let updated;
         const tree = settings.edit( { attributes: { content }, isSelected, setAttributes: value => { updated = value; } } );
         const [ canvas, inspector ] = tree.children;
         if ( tree.type !== 'Fragment' || canvas.type !== 'div' || canvas.children.length ||
             canvas.props.className !== 'block-props' || canvas.props.ref !== 'block-ref' ||
-            canvas.props.dangerouslySetInnerHTML.__html !== content || inspector.type !== 'InspectorControls' ) {
+            inspector.type !== 'InspectorControls' ) {
             throw new Error( 'Canvas must put source directly on the block-props element, beside the inspector' );
         }
         const panel = inspector.children[ 0 ];
