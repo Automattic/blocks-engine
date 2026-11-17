@@ -819,9 +819,13 @@ final class PostChrome
     {
         $cardMarkup = '';
         $seen = array();
-        // Each post's card keys in order, and the card markup offset of each key.
+        // Each post's card keys in order, and the card markup offset of each
+        // key. Every post starts with no cards, so one that lists none under
+        // the heading (a hidden or absent section) disproves a term scope
+        // rather than dropping out of the membership proof.
         $keysByPost = array();
         $keyOffsets = array();
+        foreach ($posts as $peer) if (is_string($peer['source_path'] ?? null)) $keysByPost[$peer['source_path']] = array();
         foreach ($posts as $peer) {
             $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
             foreach ($peerIndex->ranges() as $owner) {
