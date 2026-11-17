@@ -20,14 +20,38 @@ try {
             'front-end source grid is unchanged');
         assert.equal(await page.locator('.grid').evaluate(node => getComputedStyle(node).containerType), 'size',
             'front-end source size containment is unchanged');
+        const frontendBoxes = await page.locator('figure.wp-block-image').evaluateAll(nodes => nodes.map(node => {
+            const { width, height } = node.getBoundingClientRect();
+            return { width, height };
+        }));
         await page.setContent(`<style>${css}</style><div class="editor-styles-wrapper">${markup}</div>`);
         const figures = page.locator('figure.wp-block-image');
         assert.equal(await figures.count(), 2);
-        for (let i = 0; i < 2; i++) await figures.nth(i).click({ timeout: 2000 });
+        // Overlapping source layers remain overlapping in the editor; do not
+        // expand every ancestor to expose them at the expense of source layout.
+        assert.deepEqual(await page.locator('.layer').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).position)),
+            ['absolute', 'absolute'], 'editor background layers retain source positioning');
+        assert.equal(await page.locator('.grid').evaluate(node => getComputedStyle(node).display), 'grid');
+        assert.equal(await page.locator('.grid').evaluate(node => getComputedStyle(node).containerType), 'size');
+        assert.deepEqual(await figures.evaluateAll(nodes => nodes.map(node => {
+            const { width, height } = node.getBoundingClientRect();
+            return { width, height };
+        })), frontendBoxes, 'editor figures retain frontend geometry');
+        // Only the top layer is exposed to pointer selection in the source.
+        // Keep that layer clickable without flattening the authored stack.
+        await figures.nth(1).evaluate(node => {
+            node.addEventListener('click', () => { node.dataset.clicked = 'true'; });
+        });
+        await figures.nth(1).click({ timeout: 2000 });
+        assert.equal(await figures.nth(1).getAttribute('data-clicked'), 'true',
+            'the exposed fill figure receives the click, not the following section');
         await page.locator('h2').click({ timeout: 2000 });
-        const imageBottom = await figures.evaluateAll(nodes => Math.max(...nodes.map(node => node.getBoundingClientRect().bottom)));
+        const imageBottom = await figures.evaluateAll(nodes =>
+            Math.max(...nodes.map(node => node.getBoundingClientRect().bottom)));
         const headingTop = await page.locator('h2').evaluate(node => node.getBoundingClientRect().top);
-        assert.ok(headingTop >= imageBottom, 'background layer ancestors expand so following sections cannot intercept image selection');
+        assert.ok(headingTop >= imageBottom,
+            'following content stays below the fill figures and cannot intercept them');
+
     }
     console.log('fill layer editor selection passed');
 } finally {

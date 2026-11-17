@@ -144,6 +144,14 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/details-control-presentation-browser.mjs
 
+      - name: Verify fill-image rows preserve frontend layout in the editor
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/fill-image-flex-row-browser.mjs
+
+      - name: Verify exposed fill layers stay selectable without following-content interception
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/fill-layer-editor-selection-browser.mjs
+
       - name: Verify standalone line breaks keep source line spacing
         working-directory: php-transformer
         run: php tests/unit/standalone-break-spacing.php

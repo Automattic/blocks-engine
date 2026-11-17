@@ -172,6 +172,16 @@ final class CommerceFallbackReporter
             }
             $listing = $this->listingControls($element, $products);
 
+            // A split product-detail layout (a cover beside one purchase panel)
+            // is not a collection: its media and panel are sibling tracks of
+            // one product, not independent cards. A provider repeats the card
+            // in place of the region's children, so claiming the layout would
+            // discard the cover and its track, and claiming the panel alone
+            // would nest the authored panel inside a second copy of itself.
+            if ( 1 === count($products) && array() === $listing && $this->isSplitDetailLayout($element) ) {
+                continue;
+            }
+
             // A card only reaches here via schema.org evidence, a cart control,
             // or the weaker image-corroborated catalog path (see
             // `CommerceStructureRecognizer::productCardData()`). A grid needs
@@ -270,6 +280,27 @@ final class CommerceFallbackReporter
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
         }
+    }
+
+    /**
+     * A two-track layout of one product card and its text-free media, such
+     * as a cover beside a purchase panel.
+     */
+    private function isSplitDetailLayout(DOMElement $element): bool
+    {
+        if ( 2 !== SourceDom::childElementCount($element) ) {
+            return false;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement
+                && null === $this->recognizer->productCardData($child)
+                && '' === SourceDom::renderedTextContent($child)
+                && ('img' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('img')->length)
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

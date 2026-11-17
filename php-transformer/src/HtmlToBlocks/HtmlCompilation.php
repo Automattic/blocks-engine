@@ -2075,7 +2075,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $this->session->boxTreeEvidence($sourceElement), $this->session->boxTreeViewports(), $this->session->layoutGeometryState(), $sourceElement->parentNode instanceof DOMElement ? $this->session->boxTreeEvidence($sourceElement->parentNode) : array());
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $this->session->boxTreeEvidence($sourceElement), $this->session->boxTreeViewports(), $this->session->layoutGeometryState(), $sourceElement->parentNode instanceof DOMElement ? $this->session->boxTreeEvidence($sourceElement->parentNode) : array(), $name);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,
@@ -2089,7 +2089,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     : $this->sourceVisibility->startsHidden($sourceElement),
                 SourceDom::htmlAttributes($sourceElement),
                 $this->sourceElementDescription->structureSignals($sourceElement, $attrs),
-                array() === $innerBlocks && 'core/group' === $name
+                // A populated group whose box is responsive and stylesheet-owned
+                // carries no block style, yet must stay independently editable
+                // rather than folding into a layout-shell wrapper list.
+                'core/group' === $name && (array() === $innerBlocks || $this->emptyVisualRetention->responsiveStylesheetOwnsWrapperBox($sourceElement))
                     ? $this->emptyVisualRetention->emptyVisualTopologyEvidence($sourceElement)
                     : array(),
                 'core/navigation' === $name && $this->sourceVisibility->wrapperHiddenAtCollapsedViewport($sourceElement)

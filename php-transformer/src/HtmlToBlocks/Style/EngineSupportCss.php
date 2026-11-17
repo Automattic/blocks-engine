@@ -159,22 +159,12 @@ final class EngineSupportCss
             // extent so the image's percentage width does not size from an
             // aspect-ratio-constrained, shrink-to-fit figure instead.
             $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '){width:100%}'
-                // The figure has no source element, so the absolutely placed
-                // image fills the source parent, not the figure. The editor
-                // makes every block root `position:relative`; keep the figure
-                // static there so the image resolves against the same
-                // containing block as on the front end.
+                // Give Gutenberg a selectable block-root box over the same
+                // containing block the source image fills. Do not expand its
+                // ancestors or reset the image: those boxes own the authored
+                // flex/grid layout and percentage sizing on both surfaces.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{position:static}'
-                // Background/fill layers may be absolute inside fixed grid
-                // tracks. Giving only the figure a box leaves it underneath
-                // later editable groups. Expand its entire editor ancestry in
-                // normal flow; the source geometry remains front-end-only.
-                // Size query containers also suppress descendant contributions
-                // to auto height. Release that containment in the editor or the
-                // expanded media still overflows beneath the following section.
-                . ':root .editor-styles-wrapper .wp-block-group:has(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '){display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;overflow:visible!important;transform:none!important;container-type:normal!important;contain:none!important}'
-                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
-                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . ' img{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block;height:100%}'
                 // A linked image adds core's inline-block anchor between the
                 // figure and the image. Shrink-to-fit, it sizes from the image
                 // whose percentages size from it, so the fill collapses. Let

@@ -720,6 +720,7 @@ JS;
             : '';
         if (!empty($attributes['showStatus'])) $classes .= ' blocks-engine-authored-carousel--show-status';
         if ('src-swap' === $presentation) $classes = 'blocks-engine-authored-carousel--src-swap' . ('' !== trim((string) ($attributes['sourcePresentationClasses'] ?? '')) ? ' ' . implode(' ', SourceDom::boundedClassTokens((string) $attributes['sourcePresentationClasses'])) : '');
+        $classes = htmlspecialchars($classes, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $stageAspect = 0 < $viewportHeight ? '' : $this->normalizedAspectRatio($attributes['stageAspectRatio'] ?? '');
         if ( '' !== $stageAspect ) {
             $classes .= ' blocks-engine-authored-carousel--stage-aspect';
@@ -858,7 +859,7 @@ JS;
             ? ' style="position:absolute;inset:0;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;min-height:0;max-height:none;margin:0;padding:0;border:0;background:none;box-shadow:none"'
             : '';
         return array(
-            'opening' => '<div class="' . $classes . '"' . $identityAttributes . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><div class="blocks-engine-authored-carousel__controls ' . implode(' ', SourceDom::boundedClassTokens((string) ($attributes['sourceControlClasses'] ?? ''))) . '"' . $controlsPositionStyle . $controlIdentityAttributes . '>' . $controlsMarkup . '</div>' . $stageWrapperOpen,
+            'opening' => '<div class="' . $classes . '"' . $identityAttributes . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><div class="blocks-engine-authored-carousel__controls ' . htmlspecialchars(implode(' ', SourceDom::boundedClassTokens((string) ($attributes['sourceControlClasses'] ?? ''))), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' . $controlsPositionStyle . $controlIdentityAttributes . '>' . $controlsMarkup . '</div>' . $stageWrapperOpen,
             'closing' => $stageWrapperClose . $dots . $playback . $rail . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
         );
     }
@@ -867,7 +868,7 @@ JS;
     {
         $direction = $next ? 'next' : 'previous';
         $label = $next ? 'Next' : 'Previous';
-        $boundedClasses = implode(' ', SourceDom::boundedClassTokens($classes));
+        $boundedClasses = htmlspecialchars(implode(' ', SourceDom::boundedClassTokens($classes)), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $action = $next ? 'actions.next' : 'actions.previous';
         $bound = $next ? 'state.atEnd' : 'state.atStart';
         $style = '';
