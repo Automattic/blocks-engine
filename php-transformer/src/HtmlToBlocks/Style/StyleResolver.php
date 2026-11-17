@@ -799,6 +799,33 @@ final class StyleResolver implements ElementPresentationResolver
             && 'nowrap' === $wrap;
     }
 
+    /**
+     * With box-tree evidence the author stylesheet is not shipped (ADR 0005),
+     * so an inline inside RichText (a list item's link, a span in a heading)
+     * keeps its observed typography only through an engine carrier. The
+     * RichText root is the block itself, restyled with the block.
+     *
+     * @param list<DOMElement> $sources Source elements, the RichText root first.
+     * @param list<DOMElement> $targets Their serialization clones, in the same order.
+     */
+    private function restyleRichTextInlines(array $sources, array $targets): void
+    {
+        $viewports = $this->session->boxTreeViewports();
+        if (array() === $viewports) return;
+        $projector = null;
+        foreach (array_slice($sources, 1, null, true) as $index => $source) {
+            $target = $targets[$index] ?? null;
+            $parent = $source->parentNode;
+            if (!$target instanceof DOMElement || !$parent instanceof DOMElement) continue;
+            $observations = $this->session->boxTreeEvidence($source);
+            $parents = $this->session->boxTreeEvidence($parent);
+            if (array() === $observations || array() === $parents) continue;
+            $fluid = (new BoxTreeFluidIntent())->lift($source, $this, $observations, $viewports, $parents);
+            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
+            if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
+        }
+    }
+
     /** Preserve authored inline CSS except typography already supplied by the parent. */
     public function serializedInlineStyle(DOMElement $element): string
     {
@@ -836,6 +863,7 @@ final class StyleResolver implements ElementPresentationResolver
         // and pre-line content must retain its meaningful line endings.
         $sources = array_merge(array($element), iterator_to_array($element->getElementsByTagName('*')));
         $targets = array_merge(array($clone), iterator_to_array($clone->getElementsByTagName('*')));
+        $this->restyleRichTextInlines($sources, $targets);
         foreach ($sources as $index => $source) {
             $collapse = '';
             for ($ancestor = $source; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
