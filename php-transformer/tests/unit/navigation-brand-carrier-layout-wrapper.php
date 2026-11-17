@@ -63,6 +63,16 @@ foreach ( array( 'with CTA' => $html, 'without CTA' => str_replace('<a class="na
     $assert(array( 'About', 'Audiobook', 'Speaking', 'Blog' ) === $labels, $label . ': the menu holds only the link cluster: ' . json_encode($labels));
     $assert(str_contains((string) ($navigation['attrs']['className'] ?? ''), 'nav-links'), $label . ': the cluster keeps its own class on the menu');
     $assert(array() === $find($navigation['innerBlocks'] ?? array(), 'core/navigation-submenu'), $label . ': the layout box is not mapped to a submenu');
+    // Recognizing the outer layout must not bypass the flattened link run's
+    // responsive visibility, which ordinary navigation already preserves.
+    $carriers = array();
+    foreach ( $navigation['innerBlocks'] ?? array() as $link ) {
+        $classes = preg_split('/\s+/', (string) ($link['attrs']['className'] ?? '')) ?: array();
+        $semantic = array_values(array_filter($classes, static fn (string $class): bool => str_starts_with($class, 'blocks-engine-semantic-')));
+        $assert(1 === count($semantic), $label . ': each menu item retains the responsive wrapper carrier');
+        $carriers = array_merge($carriers, $semantic);
+    }
+    $assert(1 === count(array_unique($carriers)), $label . ': the wrapper visibility follows every menu item together');
 
     $carrier = null;
     foreach ( $find($blocks, 'core/group') as $group ) {

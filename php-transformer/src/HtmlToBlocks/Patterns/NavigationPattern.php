@@ -935,6 +935,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         } else {
             $clusterAnchors = null;
             $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, false, true, $clusterAnchors, $listItems);
+            // Retain the responsive visibility contract when the layout carrier
+            // recognizes a link run before ordinary navigation flattens it.
+            $links = $this->withFlattenedWrapperVisibility($links, $cluster, $navigationContext);
         }
         if ( 2 > count($links) ) {
             return null;
@@ -2579,7 +2582,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $wrappedAnchors = null;
                     $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $allowsDescriptiveChrome, $allowsDirectItems || $this->hasButtonDropdownChild($child), $wrappedAnchors, $collected);
                     if ( array() !== $wrappedBlocks ) {
-                        $blocks = array_merge($blocks, $wrappedBlocks);
+                        $blocks = array_merge($blocks, $this->withFlattenedWrapperVisibility($wrappedBlocks, $child, $navigationContext));
                         continue;
                     }
                 }
@@ -2593,6 +2596,87 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $blocks;
+    }
+
+    /**
+     * Properties a flattened wrapper may state and still hand to each of its
+     * items unchanged: its visibility, the packing of its (now per-item)
+     * children, and inherited text presentation. Anything that paints or sizes
+     * the wrapper's own box would be repeated once per item.
+     */
+    private const FLATTENED_WRAPPER_DISTRIBUTABLE_PROPERTIES = array(
+        'display', 'visibility', 'align-items', 'align-content', 'justify-content', 'justify-items', 'place-items',
+        'place-content', 'gap', 'row-gap', 'column-gap', 'flex-direction', 'flex-wrap', 'flex-flow', 'list-style',
+        'list-style-type', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'line-height',
+        'letter-spacing', 'text-transform', 'text-decoration', 'text-align', 'white-space', 'cursor', 'transition',
+    );
+
+    /**
+     * A link run wrapper core/navigation flattens into the menu takes its
+     * responsive visibility with it: `.nav-links{display:none}` at a
+     * breakpoint hides those links while the brand and CTA beside them stay.
+     * Each item replacing the wrapper carries a carrier class its author
+     * rules project onto, so they hide exactly those items where they hid
+     * the wrapper. Only
+     * a wrapper the cascade hides at some viewport, and whose rules state
+     * nothing a per-item copy would repeat (a box, a background), qualifies.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function withFlattenedWrapperVisibility(array $blocks, DOMElement $wrapper, ?NavigationPatternContext $navigationContext): array
+    {
+        if ( null === $navigationContext || $navigationContext->isDisplayNoneAtEveryViewport($wrapper) ) {
+            return $blocks;
+        }
+        $declared = $navigationContext->declaredValuesAtAnyViewport($wrapper, null);
+        $hides = in_array('none', array_map(static fn (string $value): string => strtolower(trim(preg_replace('/!\s*important\s*$/i', '', $value) ?? $value)), $declared['display'] ?? array()), true);
+        if ( ! $hides ) {
+            return $blocks;
+        }
+        foreach ( $declared as $property => $values ) {
+            if ( ! self::isDistributableWrapperDeclaration((string) $property, $values) ) {
+                return $blocks;
+            }
+        }
+        $className = $navigationContext->recordFlattenedWrapperSubject($wrapper);
+        if ( '' === $className ) {
+            return $blocks;
+        }
+        foreach ( $blocks as &$block ) {
+            if ( 'core/navigation-link' === ( $block['blockName'] ?? '' ) || 'core/navigation-submenu' === ( $block['blockName'] ?? '' ) ) {
+                $block['attrs'] = $this->withClassName(ArrayField::array($block, 'attrs'), $className);
+            }
+        }
+        unset($block);
+
+        return $blocks;
+    }
+
+    /**
+     * Whether a wrapper declaration repeats harmlessly on each item: a
+     * distributable property, a custom property, or a reset (`margin:0`,
+     * `border:0 solid`) that leaves the box unpainted and unsized.
+     *
+     * @param list<string> $values
+     */
+    private static function isDistributableWrapperDeclaration(string $property, array $values): bool
+    {
+        if ( str_starts_with($property, '--') || in_array($property, self::FLATTENED_WRAPPER_DISTRIBUTABLE_PROPERTIES, true)
+            || in_array($property, array( 'box-sizing', 'border-color', 'outline-color' ), true) ) {
+            return true;
+        }
+        if ( 1 !== preg_match('/^(?:margin|padding|border|outline)(?:-[a-z-]+)?$/', $property) ) {
+            return false;
+        }
+        foreach ( $values as $value ) {
+            $value = strtolower(trim(preg_replace('/!\s*important\s*$/i', '', $value) ?? $value));
+            if ( 1 !== preg_match('/^(?:0(?:px|em|rem|%)?|none)(?:\s+(?:0(?:px|em|rem|%)?|none|solid|dashed|dotted|double|currentcolor))*$/', $value) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** Reused resting panels still depend on the capture runtime's wiring. */

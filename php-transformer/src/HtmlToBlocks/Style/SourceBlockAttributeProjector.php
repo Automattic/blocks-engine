@@ -32,6 +32,7 @@ final class SourceBlockAttributeProjector
     /** An image unwrapped from a paragraph whose line box it sized in the source. */
     public const PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS = 'blocks-engine-paragraph-line-box-image';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
+    public const LAYER_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-layer-fill-image';
     public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
     /** A core/embed under inherited whitespace preservation its wrapper must not apply. */
@@ -78,6 +79,7 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
+            self::LAYER_FILL_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_IMAGE_GAP_CLASS,
             self::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS,
         ),
@@ -203,6 +205,13 @@ final class SourceBlockAttributeProjector
                 }
             } elseif ( $this->sourceImageFillsParent($sourceElement) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS);
+                $parent = $sourceElement->parentNode;
+                if ( $parent instanceof DOMElement ) {
+                    $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['position'] ?? ''));
+                    if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+                        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYER_FILL_IMAGE_FIGURE_CLASS);
+                    }
+                }
             }
         }
         return $attrs;
