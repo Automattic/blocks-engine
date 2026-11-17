@@ -6,8 +6,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 
 /**
- * Drops stylesheet selector arms that require a class or id the site never
- * carries.
+ * Drops stylesheet selector arms that require a class, id or custom attribute
+ * the site never carries.
  *
  * A theme stylesheet shared by many sites styles layouts, widgets and states
  * this site never renders. Projection then multiplies each such arm into
@@ -33,6 +33,8 @@ final class UnreachableSelectorPruner
     /** @var list<string> */
     private array $livePrefixes = array();
     private string $evidenceText;
+    /** @var array<string, bool> */
+    private array $typeNamed = array();
     private ?UnusedCustomPropertyPruner $propertyPruner = null;
 
     /**
@@ -116,7 +118,7 @@ final class UnreachableSelectorPruner
                     $type = $compound['type'];
                     // Substring evidence deliberately retains script-created
                     // tags and metadata references, not just literal HTML tags.
-                    if (null !== $type && false === stripos($this->evidenceText, $type)) return false;
+                    if (null !== $type && !$this->typeNamed($type)) return false;
                 }
             }
         }
@@ -128,6 +130,25 @@ final class UnreachableSelectorPruner
             if ('[' === $selector[$i]) {
                 $close = CssSyntaxScanner::matchingClose($selector, $i);
                 if (null === $close) return true;
+                // Attribute subjects are requirements too. Only source-side
+                // complete documents can prove absence: conversion introduces
+                // attributes of its own, and fragments omit surrounding chrome.
+                // Custom data/ARIA attributes have no implicit browser state;
+                // runtime and metadata mentions (including constructed prefixes)
+                // conservatively keep them live. Never inspect :not() arguments.
+                if ($this->pruneTypes && preg_match('/<html\b/i', $this->evidenceText)) {
+                    $attribute = CssSelectorMatcher::parse('*' . substr($selector, $i, $close - $i + 1));
+                    foreach ($attribute['compounds'][0]['attributes'] ?? array() as $requirement) {
+                        $name = strtolower($requirement['name']);
+                        if (!preg_match('/^(?:data|aria)-/', $name) || $this->sourceNamed($name)) continue;
+                        // DOMStringMap spells data-long-name as longName;
+                        // reflected ARIA properties spell aria-hidden as ariaHidden.
+                        $data = str_starts_with($name, 'data-');
+                        $key = preg_replace_callback('/-([a-z])/', static fn(array $match): string => strtoupper($match[1]), $data ? substr($name, 5) : $name);
+                        if (str_contains($this->evidenceText, (string) $key) || ($data && str_contains($this->evidenceText, 'dataset['))) continue;
+                        return false;
+                    }
+                }
                 $i = $close;
             } elseif ('(' === $selector[$i]) {
                 $close = CssSyntaxScanner::matchingClose($selector, $i);
@@ -140,6 +161,17 @@ final class UnreachableSelectorPruner
             }
         }
         return true;
+    }
+
+    /**
+     * Whether any evidence names an element type as a whole word: a tag
+     * (`<pre`), a script string (`createElement("pre")`) or a metadata value.
+     * A type inside a longer identifier (`pre` in `preview` or `pre-wrap`,
+     * `sub` in `subheading`) names no element.
+     */
+    private function typeNamed(string $type): bool
+    {
+        return $this->typeNamed[$type = strtolower($type)] ??= 1 === preg_match('/(?<![\w-])' . preg_quote($type, '/') . '(?![\w-])/i', $this->evidenceText);
     }
 
     private function sourceNamed(string $token): bool

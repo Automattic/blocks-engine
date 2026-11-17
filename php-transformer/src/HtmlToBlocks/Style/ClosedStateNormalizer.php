@@ -102,7 +102,9 @@ final class ClosedStateNormalizer
                 continue;
             }
             foreach ( $this->repairs((array) ($finding['declarations'] ?? array())) as $property => $value ) {
-                if ( 'transform' === $property && isset($placed[$selector]) ) {
+                // Reset only an entrance offset the hidden state declares, never
+                // a placement transform another element sharing the selector owns.
+                if ( 'transform' === $property && ( empty($finding['offset']) || isset($placed[$selector]) ) ) {
                     continue;
                 }
                 $repairs[$selector][$property] = $value;
