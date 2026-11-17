@@ -5,6 +5,8 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 
 $html = <<<'HTML'
 <!doctype html><html><head><meta charset="utf-8"><title>Button fixture</title><style>
@@ -32,6 +34,32 @@ $assert((bool) preg_match('/[^{}]*wp-block-button__link[^{}]*\{[^{}]*position:ab
 $assert((bool) preg_match('/[^{}]*wp-block-button__link[^{}]*\{[^{}]*inset:0/', $css), 'attribute-gated inset stays on the link');
 $assert(! preg_match('/[^{}]*wp-block-button__link[^{}]*\{[^{}]*(?<![\w-])width:100%!important/', $css), 'pinned link does not override authored width with an important fill');
 $assert((bool) preg_match('/[^{}]*wp-block-button__link[^{}]*\{[^{}]*height:100%!important/', $css), 'pinned height fill is retained');
+// Resolve the width cascade on the actual saved link, with core loaded LAST.
+// This catches declarations that survive as text but lose to core's default.
+$document = new DOMDocument();
+@$document->loadHTML((string) $out['serialized_blocks']);
+$link = (new DOMXPath($document))->query('//a[contains(@class,"wp-block-button__link")]')->item(0);
+$winner = '';
+$rank = array( -1, -1, -1, -1 );
+preg_match_all('/([^{}]+)\{([^{}]*)\}/', $css . '.wp-block-buttons .wp-block-button__link{width:100%}', $rules, PREG_SET_ORDER);
+foreach ( $rules as $rule ) {
+    if ( ! preg_match('/(?:^|;)\s*width:([^;]+)/', $rule[2], $width) ) continue;
+    foreach ( CssStylesheetTransformer::splitSelectorList(trim($rule[1])) ?? array() as $selector ) {
+        $parsed = CssSelectorMatcher::parse($selector);
+        if ( ! $link instanceof DOMElement || ! CssSelectorMatcher::matches($link, $parsed)['matches'] ) continue;
+        $specificity = CssSelectorMatcher::specificityCounts($parsed);
+        $candidate = array( str_contains($width[1], '!important') ? 1 : 0, $specificity['ids'], $specificity['classes'], $specificity['types'] );
+        if ( $candidate >= $rank ) {
+            $rank = $candidate;
+            $winner = trim(str_replace('!important', '', $width[1]));
+        }
+    }
+}
+$assert('max-content' === $winner, 'saved link width beats core buttons CSS even when core loads last (got ' . $winner . ')');
+if ( in_array('--fixture', $argv, true) && 0 === $failures ) {
+    echo json_encode(array( 'source' => $html, 'markup' => $out['serialized_blocks'], 'css' => $css ));
+    exit(0);
+}
 if ( $failures > 0 ) {
     exit(1);
 }

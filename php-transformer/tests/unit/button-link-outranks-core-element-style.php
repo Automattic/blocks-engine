@@ -56,6 +56,13 @@ $project = static function (string $css, string $body): string {
     return implode("\n", array_column($result['assets'] ?? array(), 'content'));
 };
 
+$coreButtons = $weight('.wp-block-buttons .wp-block-button__link');
+// Even zero-specificity authored rules must win over core, without an
+// !important snapshot that would suppress the author's conditional cascade.
+$universalCss = $project('*{width:max-content}', '<button type="button">Go</button>');
+$universalArm = $linkArm($universalCss, 'width:max-content');
+$check(null !== $universalArm && $compare($universalArm['weight'], $coreButtons) > 0, 'universal authored width outranks core buttons (0,2,0)', $universalCss);
+
 $core = $weight(':root :where(.wp-element-button, .wp-block-button__link)');
 $check(array( 'ids' => 0, 'classes' => 1, 'types' => 0 ) === $core, 'core button element rule weighs (0,1,0)', json_encode($core) ?: '');
 
@@ -88,6 +95,7 @@ if ( null !== $plain && null !== $scoped ) {
         $plain['selector'] . "\n" . $scoped['selector']
     );
     $check($compare($plain['weight'], $core) > 0 && $compare($scoped['weight'], $core) > 0, 'both authored button link rules outrank core');
+    $check($compare($plain['weight'], $coreButtons) > 0 && $compare($scoped['weight'], $coreButtons) > 0, 'both authored button link rules outrank core buttons');
 }
 
 exit($failures > 0 ? 1 : 0);

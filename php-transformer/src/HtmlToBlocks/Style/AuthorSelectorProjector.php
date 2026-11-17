@@ -262,7 +262,8 @@ final class AuthorSelectorProjector
             $arms[] = $documentVariantBody;
             return $arms;
         }
-        if ( $structuralParsed['supported'] && $this->hasUniversalStructuralLeaf($structuralParsed) ) {
+        if ( $structuralParsed['supported'] && $this->hasUniversalStructuralLeaf($structuralParsed)
+            && ! $this->hasDroppedDataAncestry($selector, $structuralParsed, $context) ) {
             $arms[] = $this->rewriteSourceTagTypes($selector, $structuralParsed, $context);
             return $arms;
         }
@@ -1655,15 +1656,17 @@ final class AuthorSelectorProjector
 
     /**
      * The child step onto core's button link for an authored rule. Core's
-     * global-styles `:root :where(.wp-element-button, .wp-block-button__link)`
-     * weighs (0,1,0), and the editor prints global styles after every other
-     * style, so a tie loses there. One type weight on every projected link
-     * arm outranks it by specificity on every surface, and leaves the order
-     * among authored link rules as it was.
+     * buttons stylesheet uses `.wp-block-buttons .wp-block-button__link`
+     * (0,2,0), in addition to the global-styles button rule (0,1,0).
+     * Two class weights and one type weight beat both even for a universal
+     * source selector and when core loads last. Apply the same baseline to
+     * every authored link arm to preserve their relative specificity; do not
+     * freeze a resolved width with !important and defeat responsive rules.
      */
     public function buttonLinkTarget(AuthorStylesheetProjectionContext $context): string
     {
-        return '> :where(.wp-block-button__link)' . $this->typeSpecificityShim($context);
+        $classShim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
+        return '> :where(.wp-block-button__link)' . $classShim . $classShim . $this->typeSpecificityShim($context);
     }
 
     /**
@@ -2666,6 +2669,21 @@ final class AuthorSelectorProjector
             }
         }
         return $replacements;
+    }
+
+    /**
+     * A data predicate on an ancestor compound does not survive lowering: the
+     * block wrapper drops the attribute. Such a selector must bind through the
+     * attribute markers its source matches carry instead of staying live.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function hasDroppedDataAncestry(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): bool
+    {
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $ancestry = is_array($rightmost) ? substr($selector, 0, (int) $rightmost['start']) : '';
+        return 1 === preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry)
+            && ! SourceAttributeSubjects::retainsDataPredicates($parsed, $context->authorStyles);
     }
 
     /** @param array<string, mixed> $parsed */
