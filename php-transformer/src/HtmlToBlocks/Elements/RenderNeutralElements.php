@@ -536,7 +536,8 @@ final class RenderNeutralElements
     {
         if ( ( ! RichTextInlineTags::isUnknownHtmlElement($element) && ! str_contains(strtolower($element->tagName), '-') )
             || in_array(strtolower($element->tagName), array( 'content', 'shadow' ), true)
-            || $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element)
+            // Motion topology names alone do not make static content runtime-owned.
+            || $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element, false)
             || ! $this->runtimeIslands->isSafeTransparentCustomElement($element)
         ) {
             return false;
