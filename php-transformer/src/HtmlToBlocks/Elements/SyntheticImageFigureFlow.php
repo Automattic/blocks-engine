@@ -78,6 +78,16 @@ final class SyntheticImageFigureFlow
             $node = $node->parentNode;
         }
 
-        return false;
+        // Inline images also create a line box in ordinary block parents,
+        // even without text-align or a link. Keep its baseline strut rather
+        // than letting image support turn the replaced leaf into a block.
+        // Blockified items and out-of-flow images have no such source strut.
+        $floats = $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array( 'float' ))['float'] ?? array();
+        if ( array() !== array_diff($floats, array( '', 'none' )) ) {
+            return false;
+        }
+        return ! $this->styleResolver->imageIsFlexOrGridItem($element)
+            && ! in_array($this->styleResolver->resolvedDeclaration($element, 'position'), array( 'absolute', 'fixed' ), true)
+            && in_array($this->styleResolver->resolvedDeclaration($element, 'float'), array( '', 'none' ), true);
     }
 }
