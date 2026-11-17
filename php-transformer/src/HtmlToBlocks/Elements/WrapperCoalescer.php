@@ -93,9 +93,9 @@ final class WrapperCoalescer
         if (1 === $depth) {
             $metrics = (new EditabilityReport())->fromBlocks($blocks)['metrics'];
             $this->wrapperBudgetExceeded = $metrics['wrapper_to_content_ratio'] > EditabilityPolicy::THRESHOLDS['wrapper_to_content_ratio'];
-            // A majority of Groups alone does not justify changing native
-            // transport: branching documents can still be within the wrapper
-            // budget. Tighten only wrapper-heavy documents, once per document.
+            // List View depth is independent of the wrapper-to-content ratio:
+            // branching wrappers still contribute an entry at every level.
+            // Apply its budget only when Groups dominate the document.
             $groups = 0;
             $count = 0;
             $visit = static function (array $items) use (&$visit, &$groups, &$count): void {
@@ -108,7 +108,7 @@ final class WrapperCoalescer
                 }
             };
             $visit($blocks);
-            $this->nativeWrapperDepthBudget = $groups > $count / 2 && $this->wrapperBudgetExceeded ? 8 : self::MAX_NATIVE_WRAPPER_DEPTH;
+            $this->nativeWrapperDepthBudget = $groups > $count / 2 ? 8 : self::MAX_NATIVE_WRAPPER_DEPTH;
         }
         return array_values(array_map(fn (array $block): array => $this->normalizeWrapperChain($block, $depth), $blocks));
     }

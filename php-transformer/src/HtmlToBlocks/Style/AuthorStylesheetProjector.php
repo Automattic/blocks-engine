@@ -79,6 +79,7 @@ final class AuthorStylesheetProjector
             }
         );
         $projected .= implode('', array_keys($bridges));
+        $projected = $this->buttonLinkWidthRules($projected, $context);
         if ( str_contains($context->emittedMarkup, ImageLowering::BACKGROUND_IMAGE_CLASS) ) {
             // A materialized background is paint, not another author subject.
             // Exclude both its synthetic wrapper and leaf without changing the
@@ -111,6 +112,37 @@ final class AuthorStylesheetProjector
             });
         }
         return CssSelectorListCompactor::stylesheet($projected);
+    }
+
+    /**
+     * Only width competes with core/buttons' (0,2,0) width:100% default.
+     * Weight all projected authored widths equally, including auto and
+     * conditional resets, but leave color and other presentation at their
+     * source specificity so theme.json's lifted button values can still win.
+     */
+    private function buttonLinkWidthRules(string $css, AuthorStylesheetProjectionContext $context): string
+    {
+        $target = '> :where(.wp-block-button__link)';
+        $shim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
+        return (new CssStylesheetTransformer())->transform($css, static function (string $prelude, string $body) use ($target, $shim): string|array {
+            if ( ! str_contains($prelude, $target) ) return $prelude;
+            $weighted = implode(',', array_map(
+                static fn (string $arm): string => str_replace($target, $target . $shim . $shim, $arm),
+                CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude)
+            ));
+            $runs = array();
+            foreach ( CssValueSplitter::splitTopLevel($body, array(';')) as $declaration ) {
+                if ( '' === trim($declaration) ) continue;
+                $selector = 1 === preg_match('/^\s*width\s*:/i', $declaration) ? $weighted : $prelude;
+                $last = count($runs) - 1;
+                if ( $last >= 0 && $runs[$last]['prelude'] === $selector ) {
+                    $runs[$last]['body'] .= ';' . $declaration;
+                } else {
+                    $runs[] = array('prelude' => $selector, 'body' => $declaration);
+                }
+            }
+            return $runs;
+        });
     }
 
     /**
