@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialo
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
@@ -32,6 +33,8 @@ final class CapturedDialogProjector
 
     /** @var list<DOMElement> Panels proven by the existing complete gallery contract. */
     private array $nativeGalleryPanels = array();
+    /** @var array<string, true> Chrome triggers whose evidence some route could not verify. */
+    private array $unverifiedChromeTriggers = array();
 
     /**
      * @param array<int, array<string, mixed>> $files
@@ -234,6 +237,7 @@ final class CapturedDialogProjector
         }
 
         $routes = CaptureReceiptRoutes::forFiles($files, $receipt);
+        $this->unverifiedChromeTriggers = $this->unverifiedChromeTriggers($files, $report['pages'], $routes);
 
         $projected = 0;
         $retired = array();
@@ -463,8 +467,7 @@ final class CapturedDialogProjector
             }
             $dialog = $state['dialog'];
             $dialogHtml = ArrayField::string($dialog, 'html');
-            $declaredBytes = is_int($dialog['htmlBytes'] ?? null) ? $dialog['htmlBytes'] : -1;
-            if ('' === $dialogHtml || ! empty($dialog['htmlTruncated']) || strlen($dialogHtml) > self::MAX_DIALOG_BYTES || $declaredBytes !== strlen($dialogHtml)) {
+            if (! $this->verifiedDialogEvidence($dialog)) {
                 $diagnostics[] = $this->diagnostic('captured_dialog_unsafe_or_truncated', 'warning', 'A captured dialog was ignored because its HTML is empty, truncated, or exceeds the byte limit.', array('source_path' => $sourcePath));
                 continue;
             }
@@ -483,6 +486,12 @@ final class CapturedDialogProjector
             }
             $triggers = array_values(array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isAdopted($adopted, $trigger)));
             if (array() === $triggers) {
+                continue;
+            }
+            // Shared chrome renders alike on every route. A chrome control
+            // whose evidence another route could not verify stays as the
+            // source wired it here too, as it does on that route.
+            if (array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! isset($this->unverifiedChromeTriggers[$this->chromeTriggerIdentity($trigger) ?? '']))) {
                 continue;
             }
             // A navigation button with its dropdown panel of links stays in place:
@@ -1185,6 +1194,60 @@ final class CapturedDialogProjector
             if ($changed) $file = ArtifactNormalizer::withTextPayload($file, HtmlSerialization::documentHtml($document));
         }
         unset($file);
+    }
+
+    /** Evidence is complete when it is non-empty, bounded and exactly its declared size. */
+    private function verifiedDialogEvidence(array $dialog): bool
+    {
+        $dialogHtml = ArrayField::string($dialog, 'html');
+        $declaredBytes = is_int($dialog['htmlBytes'] ?? null) ? $dialog['htmlBytes'] : -1;
+        return '' !== $dialogHtml && empty($dialog['htmlTruncated']) && strlen($dialogHtml) <= self::MAX_DIALOG_BYTES && $declaredBytes === strlen($dialogHtml);
+    }
+
+    /**
+     * The chrome triggers (inside a header or footer landmark) of dialog
+     * states whose evidence was rejected on their route.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @param array<int, mixed> $pages
+     * @return array<string, true>
+     */
+    private function unverifiedChromeTriggers(array $files, array $pages, CaptureReceiptRoutes $routes): array
+    {
+        $unverified = array();
+        foreach ($pages as $page) {
+            if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['components'] ?? null)) continue;
+            $states = array_values(array_filter(
+                $this->dialogStates(CapturedComponentStates::evidence($page['components'], array('dialog', 'listbox', 'menu', 'disclosure', 'carousel'))),
+                fn (array $state): bool => 'gallery' !== ($state['kind'] ?? '') && 'captured' === ($state['status'] ?? null) && is_array($state['trigger'] ?? null) && is_array($state['dialog'] ?? null) && ! $this->verifiedDialogEvidence($state['dialog'])
+            ));
+            if (array() === $states || count($states) > self::MAX_DIALOG_STATES_PER_PAGE) continue;
+            $index = $routes->pathIndex($routes->path($page['sourceUrl']));
+            if (null === $index || ! is_string($files[$index]['content'] ?? null)) continue;
+            $document = HtmlSerialization::parseDocument($files[$index]['content']);
+            foreach ($states as $state) {
+                $found = $this->findTriggers($document, $state['trigger']);
+                if ('ambiguous' === $found['status']) continue;
+                foreach ($found['elements'] as $trigger) {
+                    $identity = $this->chromeTriggerIdentity($trigger);
+                    if (null !== $identity) $unverified[$identity] = true;
+                }
+            }
+        }
+        return $unverified;
+    }
+
+    /** A trigger's route-independent identity, when it sits in header or footer chrome. */
+    private function chromeTriggerIdentity(DOMElement $trigger): ?string
+    {
+        for ($node = $trigger->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+            $area = ShellLandmarkPolicy::landmarkKind($node->tagName, trim($node->getAttribute('role')));
+            if ('main' === $area) return null;
+            if ('header' === $area || 'footer' === $area) {
+                return $area . "\n" . hash('sha256', SourceShells::identity((string) $trigger->ownerDocument?->saveHTML($trigger)));
+            }
+        }
+        return null;
     }
 
     private function isCapturedNavigationOverlayTrigger(DOMElement $trigger): bool

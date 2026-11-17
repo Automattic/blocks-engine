@@ -306,6 +306,11 @@ final class HtmlTransformerSession
     private array $boxTree = array();
 
     /** Browser observations for the source element, keyed by captured viewport. */
+    public function boxTreeViewports(): array
+    {
+        return $this->boxTree['viewports'] ?? array();
+    }
+
     public function boxTreeEvidence(\DOMElement $element): array
     {
         return \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::forElement($this->boxTree, $element);

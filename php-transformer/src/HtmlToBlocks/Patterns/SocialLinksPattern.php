@@ -362,7 +362,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             foreach ($element->getElementsByTagName('*') as $child) {
                 if (in_array(strtolower($child->tagName), array('title', 'desc'), true)) continue;
                 $attrs = array();
-                foreach ($child->attributes as $attr) {
+                foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($child) as $attr) {
                     $attrs[$attr->name] = preg_replace('/[\s,]+/', '', $attr->value);
                 }
                 ksort($attrs);

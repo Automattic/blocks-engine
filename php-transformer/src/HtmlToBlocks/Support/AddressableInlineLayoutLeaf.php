@@ -17,7 +17,7 @@ final class AddressableInlineLayoutLeaf
     public static function isPlainTextSpan(DOMElement $element): bool
     {
         if ('span' !== strtolower($element->tagName) || 0 !== SourceDom::childElementCount($element) || '' === trim($element->textContent)) return false;
-        foreach ($element->attributes as $attribute) {
+        foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($element) as $attribute) {
             if ('class' !== strtolower($attribute->name) && 'data-blocks-engine-richtext-marker' !== strtolower($attribute->name)) return false;
         }
         for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
@@ -35,7 +35,7 @@ final class AddressableInlineLayoutLeaf
         ) return null;
         $id = SourceDom::attr($element, 'id');
         if (1 !== preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,199}$/', $id)) return null;
-        foreach ($element->attributes as $attribute) {
+        foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($element) as $attribute) {
             if (!in_array(strtolower($attribute->name), array('id', 'class'), true)) return null;
         }
         $display = $styles->declaredPresentation($element, 'display');

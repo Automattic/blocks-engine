@@ -1006,12 +1006,19 @@ final class FormControlMetadataBuilder
                     continue;
                 }
             }
-            // Hidden source copy is not permanent field help. Providers render
-            // descriptions independently of the original node and its CSS box.
-            if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden'))
-                || $this->styleResolver?->isVisuallyHiddenAtRest($node)
-                || null !== $this->hiddenState($node, $wrapper)
-            ) {
+            // Provider help is rendered independently of the source CSS box.
+            // Preserve resolved hidden state as well as inherited aria-hidden.
+            $hidden = ($this->styleResolver?->isVisuallyHiddenAtRest($node) ?? false)
+                || null !== $this->hiddenState($node, $wrapper);
+            for ( $ancestor = $node; $ancestor instanceof DOMElement && ! $ancestor->isSameNode($wrapper); $ancestor = $ancestor->parentNode ) {
+                if ( $ancestor->hasAttribute('hidden')
+                    || 'true' === strtolower(SourceDom::attr($ancestor, 'aria-hidden'))
+                    || ($this->presentation?->isDisplayNoneAtEveryViewport($ancestor) ?? false) ) {
+                    $hidden = true;
+                    break;
+                }
+            }
+            if ( $hidden ) {
                 continue;
             }
             $alreadyCounted = false;

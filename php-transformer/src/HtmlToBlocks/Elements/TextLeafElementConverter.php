@@ -163,7 +163,8 @@ final class TextLeafElementConverter implements ElementConverter
 
         return $this->createBlock->createBlock(
             'core/preformatted',
-            array_merge($this->presentationResolver->presentationAttributes($element), array( 'content' => SourceDom::innerHtmlPreservingWhitespace($element) )),
+            // core/preformatted has no text-align support; keep an inline alignment on the carrier.
+            array_merge($this->presentationResolver->presentationAttributes($element, array(), array( 'text-align' )), array( 'content' => SourceDom::innerHtmlPreservingWhitespace($element) )),
             array(),
             $element
         );

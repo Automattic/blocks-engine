@@ -78,6 +78,27 @@ final class ImageLowering
             return $this->blocks->createBlock('core/group', $attrs, array(), $element);
         }
 
+        $background = (string) ($declarations['background-image'] ?? $declarations['background'] ?? 'url(' . $url . ')');
+        $background = preg_replace('/\s*!\s*important\s*$/i', '', $background) ?? $background;
+        $layers = $this->backgroundImageLayers($background);
+        $urlLayer = null;
+        foreach ( $layers as $index => $layer ) {
+            if ( $url === $this->backgroundImageExtractor->urlFromStyle('background-image:' . $layer) ) {
+                $urlLayer = $index;
+                break;
+            }
+        }
+        // Layered backgrounds list one size and position per layer; the image
+        // takes its own layer's values (the list repeats when it is shorter).
+        if ( null !== $urlLayer ) {
+            foreach ( array('background-size', 'background-position') as $property ) {
+                $values = CssValueSplitter::splitTopLevel((string) ($declarations[$property] ?? ''), array( ',' ));
+                if ( 1 < count($values) ) {
+                    $declarations[$property] = trim($values[$urlLayer % count($values)]);
+                }
+            }
+        }
+
         $width = trim((string) ($declarations['width'] ?? ''));
         $height = trim((string) ($declarations['height'] ?? ''));
         $scale = strtolower(trim((string) ($declarations['background-size'] ?? '')));
@@ -122,35 +143,37 @@ final class ImageLowering
         // The image is now a child of the original painted box. Keep its
         // colour and other layers, but replace only the handed-off URL layer
         // with none (rather than shifting the remaining layers' geometry).
-        $background = (string) ($declarations['background-image'] ?? $declarations['background'] ?? 'url(' . $url . ')');
-        $background = preg_replace('/\s*!\s*important\s*$/i', '', $background) ?? $background;
-        $layers = CssValueSplitter::splitTopLevel($background, array( ',' ));
-        // Shorthand layers also contain position, repeat and colour tokens;
-        // only their image token belongs in the background-image override.
-        foreach ( $layers as &$layer ) {
-            $tokens = CssValueSplitter::splitTopLevelWhitespace($layer);
-            $layer = 'none';
-            foreach ( $tokens as $token ) {
-                if ( preg_match('/^(?:url|[a-z-]*gradient|image|image-set|cross-fade|var)\(/i', $token) ) {
-                    $layer = $token;
-                    break;
-                }
-            }
+        if ( null !== $urlLayer ) {
+            $layers[$urlLayer] = 'none';
         }
-        unset($layer);
-        foreach ( $layers as &$layer ) {
-            if ( $url === $this->backgroundImageExtractor->urlFromStyle('background-image:' . $layer) ) {
-                $layer = 'none';
-                break;
-            }
-        }
-        unset($layer);
         $rule = '{background-image:' . implode(',', $layers) . ' !important}';
         $carrier = $this->session->layoutGeometryState()->allocateCarrier('materialized-background' . "\n" . $rule);
         $this->session->layoutGeometryState()->registerRule($carrier, ':root .' . $carrier . $rule);
         $attrs = $this->styleResolver->presentationAttributes($element);
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
         return $this->blocks->createBlock('core/group', $attrs, array( $image ), $element);
+    }
+
+    /**
+     * The image token of each background layer ('none' when a layer has
+     * none). Shorthand layers also contain position, repeat and colour tokens.
+     *
+     * @return list<string>
+     */
+    private function backgroundImageLayers(string $background): array
+    {
+        $layers = array();
+        foreach ( CssValueSplitter::splitTopLevel($background, array( ',' )) as $layer ) {
+            $image = 'none';
+            foreach ( CssValueSplitter::splitTopLevelWhitespace($layer) as $token ) {
+                if ( preg_match('/^(?:url|[a-z-]*gradient|image|image-set|cross-fade|var)\(/i', $token) ) {
+                    $image = $token;
+                    break;
+                }
+            }
+            $layers[] = $image;
+        }
+        return $layers;
     }
 
     /** @return array<string, mixed> */
@@ -577,6 +600,25 @@ final class ImageLowering
             }
         }
 
+        // A hidden layout placeholder does not paint the card thumbnail. Keep
+        // the wrapper's painted image on the leaf before wrappers are flattened.
+        // The normal URL resolver and site-plan tokenization own this URL too.
+        $presentation = $this->styleResolver->authorViewport->collapsed($image, array('opacity', 'visibility'))
+            + $this->styleResolver->resolvedSourceStateDeclarations($image);
+        $opacity = CssValueInspector::comparable((string) ($presentation['opacity'] ?? ''));
+        $visibility = CssValueInspector::comparable((string) ($presentation['visibility'] ?? ''));
+        if (('' !== $opacity && is_numeric($opacity) && 0.0 === (float) $opacity)
+            || 'hidden' === $visibility
+        ) {
+            $wrapper = $image->parentNode;
+            if ($wrapper instanceof DOMElement) {
+                $background = $this->backgroundImageExtractor->urlFromStyle($this->styleResolver->mergedPresentationStyle($wrapper));
+                if (null !== $background && '' !== $background) {
+                    $attrs['metadata']['blocksEngineVisibleImage'] = array('url' => $this->imageUrls->resolvedAssetUrl($background));
+                }
+            }
+        }
+
         $selection = $this->authoredImageSelection($image, (string) $attrs['url'], $picture);
         if ( array() !== $selection ) {
             $attrs['metadata'] = array_merge(ArrayField::array($attrs, 'metadata'), array( 'blocksEngineImageSelection' => $selection ));
@@ -703,6 +745,10 @@ final class ImageLowering
      */
     private function imageLinkAttributes(DOMElement $link): array
     {
+        // The synthetic figure is display:contents; the link still owns its
+        // source box, including spacing that core/image cannot serialize.
+        $inline = SourceDeclarations::inline($link);
+        $boxProperties = array_keys(array_filter($inline, NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY));
         $attrs = array(
             'href'            => LinkUrlSanitizer::sanitize(SourceDom::attr($link, 'href')),
             'linkDestination' => 'custom',
@@ -712,9 +758,9 @@ final class ImageLowering
                 SourceDom::attr($link, 'class'),
                 $this->styleResolver->inlineCustomPropertyCarrierClassName($link),
                 $this->styleResolver->inlineGeometryClassName($link, array_values(array_diff(
-                    array_keys(SourceDeclarations::inline($link)),
-                    array('display')
-                ))),
+                    array_keys($inline),
+                    array_merge(array('display'), $boxProperties)
+                )), $boxProperties),
                 ...$this->session->authorSelectorProjectionState()->semanticMarkersForPath($link->getNodePath() ?? '')
             ),
         );

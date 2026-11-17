@@ -88,7 +88,9 @@ $runtimeRevealJs = implode("\n", array_column(array_filter($runtimeRevealAssets,
 preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $runtimeRevealMarkup, $runtimeRevealMarkerMatches);
 $runtimeRevealMarkers = array_keys(array_fill_keys($runtimeRevealMarkerMatches[0] ?? array(), true));
 $assert(2 === count($runtimeRevealMarkers) && ! str_contains($runtimeRevealMarkup, 'wp:html'), 'inline presentation runtime targets remain separate editable native blocks with deterministic identities');
-$assert(! str_contains($runtimeRevealCss, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealCss, ':where(.' . $marker . ')') || ! str_contains($runtimeRevealCss, ':where(.' . $marker . '):not(.be-c-') || ! str_contains($runtimeRevealCss, '.in-view')), 'initial and runtime-mutated author selectors project onto every editable runtime target');
+// Expand serialization-only marker lists before checking each target's arms.
+$runtimeRevealExpandedCss = (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->transform($runtimeRevealCss, static fn(string $selector): string => \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::expand($selector));
+$assert(! str_contains($runtimeRevealCss, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealExpandedCss, ':where(.' . $marker . ')') || ! str_contains($runtimeRevealExpandedCss, ':where(.' . $marker . '):not(.be-c-') || ! str_contains($runtimeRevealExpandedCss, '.in-view')), 'initial and runtime-mutated author selectors project onto every editable runtime target');
 $assert(array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => str_contains($runtimeRevealCss, ':root .' . $marker . '{opacity:1!important')), 'retained presentation runtimes keep their authored closed state instead of receiving inert-content visibility repairs');
 $assert(! str_contains($runtimeRevealJs, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealJs, '.' . $marker)), 'materialized inline script queries the same projected identities as author CSS');
 
@@ -349,9 +351,9 @@ $assert(! str_contains($nexusGeometryMarkup, 'wp-block-media-text is-stacked-on-
     && ! str_contains($nexusGeometryCss, '.h-9 .wp-block-media-text__media > img')
     && ! str_contains($nexusGeometryCss, '.max-w-[120px]{max-width:120px}')
     && ! str_contains($nexusGeometryCss, '.h-9{height:2.25rem}')
-    && str_contains($nexusGeometryCss, ':where(p.blocks-engine-synthetic-paragraph:not(.blocks-engine-source-box-paragraph)){display:inline}')
+    && str_contains($nexusGeometryCss, ':where(p.blocks-engine-synthetic-paragraph:not(.blocks-engine-source-box-paragraph):has(>a)){display:contents}')
      && 'pass' === ($nexusGeometryValidity['source_reports']['wp_block_validity']['status'] ?? ''),
-    'full artifact geometry fixture preserves footer image classes and editable inline link carriers while remaining valid');
+    'full artifact geometry fixture preserves footer image classes and makes floating link carriers transparent while remaining valid');
 
 $mediaRoleArtifact = ( new ArtifactCompiler() )->compile(array(
     'files' => array(

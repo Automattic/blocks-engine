@@ -87,10 +87,10 @@ $configured = $compile($reducedPage('src="/playlists.json"', $videoAndPoster));
 $assert(in_array(CustomElementRuntimeDependency::UNPROVEN_CODE, $codes($configured), true), 'non-data configuration attribute stays unproven');
 
 // Negative control: a config-attribute custom element with no renderable
-// media and no proving script still reports missing functional content.
+// media and no proving script is render-neutral, not missing media.
 $empty = $compile('<section><div class="bg"><x-widget data-config="{&quot;size&quot;:3}"></x-widget></div><h2>Hello</h2></section>');
-$assert(in_array(CustomElementRuntimeDependency::UNPROVEN_CODE, $codes($empty), true), 'configured element without media stays unproven');
-$assert(! str_contains($blocks($empty), '<!-- wp:video') && ! str_contains($blocks($empty), '<!-- wp:html'), 'unproven host is not silently lowered');
+$assert(! in_array(CustomElementRuntimeDependency::UNPROVEN_CODE, $codes($empty), true), 'empty configured element without media is render-neutral');
+$assert(! str_contains($blocks($empty), '<!-- wp:video') && ! str_contains($blocks($empty), '<!-- wp:html'), 'empty host does not invent a video or HTML block');
 
 if ( array() !== $failures ) {
     fwrite(STDERR, implode("\n", array_map(static fn (string $message): string => 'FAIL: ' . $message, $failures)) . "\n");

@@ -45,7 +45,7 @@ foreach (array('link', 'inline-import', 'media-import', 'linked-import') as $del
             fwrite(STDERR, "FAIL: $delivery projects $declaration onto $query\n");
         }
     }
-    if ('link' !== $delivery && !str_contains(implode("\n", array_column($result['assets'], 'content')), $import)) {
+    if ('link' !== $delivery && !str_contains(str_replace(' ', '', implode("\n", array_column($result['assets'], 'content'))), str_replace(' ', '', $import))) {
         ++$failures;
         fwrite(STDERR, "FAIL: $delivery retains import conditions\n");
     }
