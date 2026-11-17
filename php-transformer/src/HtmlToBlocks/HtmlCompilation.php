@@ -1204,7 +1204,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Resolve before dispatch: controls, rich text, and preserved markup
         // serialize source images without passing through native image lowering.
         $this->imageUrls->resolveSourceImages($body);
-        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewriteInlineStyles($body);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewriteInlineStyles($body, $this->styleResolver);
         CapturedNavigationPanels::restoreNative($body);
         CapturedNavigationPanels::restoreRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
@@ -1726,7 +1726,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new MediaPatternContext($this->styleResolver, $this->imageUrls, $this->imageDimensions, $this->session),
             new ColumnsPatternContext($this->styleResolver),
             new MarkupPatternContext(
-                $this->session
+                $this->session,
+                $this->svgMaterializer->withReferencedDefinitions(...)
             ),
             new ButtonPatternContext(
                 $this->styleResolver,
@@ -1823,7 +1824,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 publishesSubjects: false
             ),
             markupContext: new MarkupPatternContext(
-                $this->session
+                $this->session,
+                $this->svgMaterializer->withReferencedDefinitions(...)
             ),
             codeWindowContext: new CodeWindowPatternContext($this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver)),
             logoContext: new LogoPatternContext(

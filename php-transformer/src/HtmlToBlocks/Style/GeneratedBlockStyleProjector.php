@@ -247,6 +247,16 @@ final class GeneratedBlockStyleProjector
         // button controls in the editor and on the frontend.
         if ( $sourceControl instanceof DOMElement ) {
             $sourceDeclarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($sourceControl));
+            // Core makes native buttons inherit page typography. Revert only
+            // unauthored font longhands to the button's UA values; inline
+            // editor typography and authored font resets remain in control.
+            if ( 'button' === strtolower($sourceControl->tagName) && ! isset($sourceDeclarations['font']) ) {
+                foreach ( array( 'font-family', 'font-size' ) as $property ) {
+                    if ( ! isset($sourceDeclarations[$property]) ) {
+                        $guardedDeclarations[':not([style*="' . $property . '"]):not([style*="font:"])'][] = $property . ':revert';
+                    }
+                }
+            }
             $sourceStructuralDeclarations = $this->styleResolver->classOwnedResponsiveDeclarations(
                 $sourceControl,
                 $this->styleResolver->structuralPresentationDeclarations($sourceControl)

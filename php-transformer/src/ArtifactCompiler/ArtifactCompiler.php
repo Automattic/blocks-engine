@@ -560,9 +560,16 @@ final class ArtifactCompiler
             // Projection can give several author rules one long selector
             // list; ship that list once. Engine stylesheets are named by their
             // content and are reconciled with later page copies by it.
-            // The author's indentation and line breaks separate no tokens,
-            // yet every published byte counts towards the theme's weight.
-            if ('files' === ($asset['source'] ?? null)) $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace((new CssStylesheetTransformer())->mergeRepeatedSelectorRules($content));
+            // Build annotations and formatting are not runtime CSS, yet every
+            // published byte counts towards the theme's weight; keep /*!
+            // license banners and literal strings. Repeated declaration
+            // blocks are folded by the site plan once preset bindings, which
+            // can tell such rules apart, have been applied.
+            if ('files' === ($asset['source'] ?? null)) {
+                $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments($content, true);
+                $content = (new CssStylesheetTransformer())->mergeRepeatedSelectorRules($content);
+                $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace($content);
+            }
             if ($content !== $asset['content']) $asset = ArtifactNormalizer::withTextPayload($asset, $content);
         }
         unset($asset, $propertyPruner);

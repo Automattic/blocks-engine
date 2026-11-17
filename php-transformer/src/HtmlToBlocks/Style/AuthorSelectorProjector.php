@@ -585,6 +585,9 @@ final class AuthorSelectorProjector
                 $remainingSubjects[] = $element;
                 continue;
             }
+            if ( $inner['universal_reached'] && self::hasBareUniversalSubject($parsed) ) {
+                continue;
+            }
             $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
             if ($inner['author_precedence']) {
                 $innerArms[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
@@ -597,6 +600,22 @@ final class AuthorSelectorProjector
             $innerArms[] = $inner['selector'] . $baseline . $this->selectorSpecificityShims($parsed, $context) . $suffix . $inner['pseudo_element'];
         }
         return array($innerArms, $remainingSubjects);
+    }
+
+    /**
+     * The rule's subject is any element: a bare `*` with no simple selector
+     * of its own (`*`, `.x > *`, `*::before`).
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private static function hasBareUniversalSubject(array $parsed): bool
+    {
+        $subject = $parsed['compounds'][count($parsed['compounds'] ?? array()) - 1] ?? null;
+
+        return is_array($subject) && ($subject['universal'] ?? false) && null === $subject['type']
+            && array() === $subject['classes'] && array() === $subject['ids'] && array() === $subject['attributes']
+            && array() === $subject['not'] && array() === $subject['any'] && null === $subject['nth_child']
+            && ! $subject['first_child'] && ! $subject['last_child'] && ! $subject['root'];
     }
 
     /**
