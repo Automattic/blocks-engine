@@ -67,7 +67,7 @@ $rows = array(
     array('a zero-width border paints nothing', array('border-left' => '0px solid rgba(0, 0, 0, 0)'), array(), 'core/group', array(), array('border-left')),
     array('box model and sizing stay for user-agent and WordPress block spacing', array(), array(), 'core/paragraph', array('margin-top:0px', 'padding-left:0px', 'max-width:none'), array()),
     // Initial values WordPress base styles would set otherwise on the block.
-    array('a separator keeps its absent border over core styles', array(), array(), 'core/separator', array('border-top:0px none rgb(0, 0, 0)'), array()),
+    array('a separator keeps its absent border over core styles', array(), array(), 'core/separator', array('border-width:0px;border-style:none;border-color:rgb(0, 0, 0)'), array()),
     array('a cover keeps its observed minimum height over core styles', array('min-height' => '0px'), array(), 'core/cover', array('min-height:0px'), array()),
     array('a column keeps its flex sizing over core styles', array(), array('display' => 'flex'), 'core/column', array('flex-grow:0', 'flex-basis:auto', 'min-width:auto'), array()),
     // Inherited properties against the observed parent.
