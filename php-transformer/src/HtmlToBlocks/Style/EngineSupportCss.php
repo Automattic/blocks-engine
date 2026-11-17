@@ -159,22 +159,16 @@ final class EngineSupportCss
             // extent so the image's percentage width does not size from an
             // aspect-ratio-constrained, shrink-to-fit figure instead.
             $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '){width:100%}'
-                // The figure has no source element, so the absolutely placed
-                // image fills the source parent, not the figure. The editor
-                // makes every block root `position:relative`; keep the figure
-                // static there so the image resolves against the same
-                // containing block as on the front end.
+                // Give Gutenberg a selectable block-root box over the same
+                // containing block the source image fills. Keep the image's
+                // authored flex/grid layout and percentage sizing intact.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{position:static}'
-                // Background/fill layers may be absolute inside fixed grid
-                // tracks. Giving only the figure a box leaves it underneath
-                // later editable groups. Expand its entire editor ancestry in
-                // normal flow; the source geometry remains front-end-only.
-                // Size query containers also suppress descendant contributions
-                // to auto height. Release that containment in the editor or the
-                // expanded media still overflows beneath the following section.
-                . ':root .editor-styles-wrapper .wp-block-group:has(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '){display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;overflow:visible!important;transform:none!important;container-type:normal!important;contain:none!important}'
-                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
-                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . ' img{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block;height:100%}'
+                // A full-bleed source layer can sit underneath a later content
+                // group. A figure box alone cannot be clicked through that group.
+                // Put its immediate host in editor flow so both native blocks
+                // remain selectable, without changing front-end layer geometry.
+                . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::LAYER_FILL_IMAGE_FIGURE_CLASS . '){position:static!important;inset:auto!important}'
                 // A linked image adds core's inline-block anchor between the
                 // figure and the image. Shrink-to-fit, it sizes from the image
                 // whose percentages size from it, so the fill collapses. Let
@@ -245,6 +239,13 @@ final class EngineSupportCss
                 // editor-only override must also outrank those source carriers.
                 . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '){height:auto!important;min-height:0!important}'
                 . $inlineFigure . ' img{display:inline}'
+                // A box-less figure positions nothing, so the image is the box
+                // that its source offsets (e.g. stacked icon layers pinned by
+                // `position:absolute;inset:0`) must move. Inherit them at zero
+                // weight; a carousel slide figure keeps its box and its offsets.
+                . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS
+                . ( str_contains($serializedBlocks, 'authored-carousel') ? ':not(.blocks-engine-authored-carousel__track>*)' : '' )
+                . ')>img{position:inherit;inset:inherit;z-index:inherit}'
                 // A propagated card link adds another synthetic box. Core's
                 // inline-block anchor would make percentage images shrink to
                 // their intrinsic width instead of the retained source host.
@@ -641,7 +642,7 @@ final class EngineSupportCss
         // viewport visibility sheet belongs to the front end: hiding an island
         // in the editor makes its native blocks impossible to select or replace.
         $editorCss = '';
-        foreach ($editorVariants as $class => $selector) {
+        if (array() !== $editorVariants) {
             // Device copies often share absolute source coordinates. Once both
             // are exposed, they must occupy separate editor flow boxes, rather
             // than covering each other's block selection targets. Ancestor
@@ -650,10 +651,18 @@ final class EngineSupportCss
             // Use normal block flow for those editor ancestors: retained grid
             // placement and flex tracks can still overlap the expanded copies,
             // even with auto heights. The front-end layout stays source-owned.
-            $editorCss .= $selector . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;transform:none!important}'
-                . $selector . ' figure.wp-block-image{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
-                . $selector . ' img{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
-                . ':root .editor-styles-wrapper .wp-block-group:has(.' . $class . '){display:block!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;grid-template-rows:none!important;grid-auto-rows:auto!important;position:relative!important;inset:auto!important;overflow:visible!important}';
+            // A source size container (`container-type:size`) ignores its
+            // contents when sizing, so its auto height stays 0 and the
+            // expanded copies overflow beneath the following content: drop
+            // the containment in the editor so those heights take effect.
+            // Both variants share one rule per target: this sheet ships on
+            // every route, so a repeated declaration block is page weight.
+            $list = static fn (string $suffix): string => implode(',', array_map(static fn (string $selector): string => $selector . $suffix, $editorVariants));
+            $ancestors = implode(',', array_map(static fn (string $class): string => ':root .editor-styles-wrapper .wp-block-group:has(.' . $class . ')', array_keys($editorVariants)));
+            $editorCss = $list('') . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;transform:none!important;container-type:normal!important}'
+                . $list(' figure.wp-block-image') . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
+                . $list(' img') . '{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
+                . $ancestors . '{display:block!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;grid-template-rows:none!important;grid-auto-rows:auto!important;position:relative!important;inset:auto!important;overflow:visible!important;container-type:normal!important}';
         }
         $editorRules = '' !== $editorCss
             ? array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, $editorCss))

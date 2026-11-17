@@ -103,6 +103,25 @@ final class NavigationPatternContext
     }
 
     /**
+     * A wrapper core/navigation flattens away: author rules that address it
+     * land on each item that replaces it, through an engine carrier class
+     * the items carry. The item class plus the carrier outranks Core's item
+     * display, so a breakpoint `display:none` hides them. Returns the class.
+     */
+    public function recordFlattenedWrapperSubject(DOMElement $wrapper): string
+    {
+        $path = $wrapper->getNodePath() ?? '';
+        if ( '' === $path ) {
+            return '';
+        }
+        $projections = $this->session->authorSelectorProjectionState();
+        $marker = $projections->ensureSemanticMarker($path);
+        $projections->installInnerSubject($path, '.wp-block-navigation-item.' . $marker, '', false, true);
+
+        return $marker;
+    }
+
+    /**
      * A source element whose presentation lands on one of the block's inner
      * parts: author rules that address it project onto that part instead of
      * the block wrapper.
@@ -937,6 +956,9 @@ final class NavigationPatternContext
             ksort($resting);
             $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
+            // Shared entities retain every reference's subject markers. Editor
+            // label typography must bind inside the same instance as frontend CSS.
+            $this->session->generatedSupportStylesheetState()->scopeNavigationEditorTypography($scope, array_keys($targets));
             $this->recordCurrentItemPresentation($current, $scope, $source);
             $markup = (string) json_encode($block);
             // Without a submenu no item holds another item's links.
@@ -1560,10 +1582,12 @@ final class NavigationPatternContext
      * Every value the author states for these properties at any viewport.
      * A recognition signal only, never projected.
      *
-     * @param array<int, string> $properties
+     * A null property list answers for every property the author states.
+     *
+     * @param array<int, string>|null $properties
      * @return array<string, list<string>>
      */
-    public function declaredValuesAtAnyViewport(DOMElement $element, array $properties): array
+    public function declaredValuesAtAnyViewport(DOMElement $element, ?array $properties): array
     {
         return $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, $properties);
     }

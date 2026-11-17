@@ -156,7 +156,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 $content = '';
                 foreach ($anchor->childNodes as $child) {
                     if ($child instanceof DOMElement) {
-                        $content .= $context->markupContext()->safeFallbackHtml($child);
+                        $content .= $context->markupContext()->safeArtworkHtml($child);
                     } elseif ($child instanceof \DOMText) {
                         $content .= htmlspecialchars($child->textContent, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
                     }

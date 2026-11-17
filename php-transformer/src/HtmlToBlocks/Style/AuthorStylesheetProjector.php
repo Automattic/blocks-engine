@@ -68,7 +68,7 @@ final class AuthorStylesheetProjector
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
         $bridges = array();
-        $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody());
+        $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody(), $this->styleResolver);
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
             function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, &$bridges): string {
@@ -79,6 +79,7 @@ final class AuthorStylesheetProjector
             }
         );
         $projected .= implode('', array_keys($bridges));
+        $projected = $this->buttonLinkWidthRules($projected, $context);
         if ( str_contains($context->emittedMarkup, ImageLowering::BACKGROUND_IMAGE_CLASS) ) {
             // A materialized background is paint, not another author subject.
             // Exclude both its synthetic wrapper and leaf without changing the
@@ -88,7 +89,8 @@ final class AuthorStylesheetProjector
             // and without a class or id hook can reach them.
             $projected = (new CssStylesheetTransformer())->transformStyleRules($projected, static function (string $prelude, string $body): string {
                 $arms = CssStylesheetTransformer::splitSelectorList($prelude);
-                if ( null === $arms ) return $prelude . '{' . $body . '}';
+                // Custom properties paint nothing on the background either.
+                if ( null === $arms || self::declaresOnlyCustomProperties($body) ) return $prelude . '{' . $body . '}';
                 $class = '.' . ImageLowering::BACKGROUND_IMAGE_CLASS;
                 $guard = ':where(:not(' . $class . ',' . $class . ' *))';
                 foreach ( $arms as &$arm ) {
@@ -111,6 +113,37 @@ final class AuthorStylesheetProjector
             });
         }
         return CssSelectorListCompactor::stylesheet($projected);
+    }
+
+    /**
+     * Only width competes with core/buttons' (0,2,0) width:100% default.
+     * Weight all projected authored widths equally, including auto and
+     * conditional resets, but leave color and other presentation at their
+     * source specificity so theme.json's lifted button values can still win.
+     */
+    private function buttonLinkWidthRules(string $css, AuthorStylesheetProjectionContext $context): string
+    {
+        $target = '> :where(.wp-block-button__link)';
+        $shim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
+        return (new CssStylesheetTransformer())->transform($css, static function (string $prelude, string $body) use ($target, $shim): string|array {
+            if ( ! str_contains($prelude, $target) ) return $prelude;
+            $weighted = implode(',', array_map(
+                static fn (string $arm): string => str_replace($target, $target . $shim . $shim, $arm),
+                CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude)
+            ));
+            $runs = array();
+            foreach ( CssValueSplitter::splitTopLevel($body, array(';')) as $declaration ) {
+                if ( '' === trim($declaration) ) continue;
+                $selector = 1 === preg_match('/^\s*width\s*:/i', $declaration) ? $weighted : $prelude;
+                $last = count($runs) - 1;
+                if ( $last >= 0 && $runs[$last]['prelude'] === $selector ) {
+                    $runs[$last]['body'] .= ';' . $declaration;
+                } else {
+                    $runs[] = array('prelude' => $selector, 'body' => $declaration);
+                }
+            }
+            return $runs;
+        });
     }
 
     /**
@@ -918,6 +951,12 @@ final class AuthorStylesheetProjector
     /** @param list<DOMElement>|null $controls Limit a partition to these matched controls. */
     private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, ?array $controls = null): string
     {
+        if ( null === $controls && self::isUniversalCustomPropertyRule($prelude, $body) ) {
+            // Every emitted element already matches a bare universal subject,
+            // at the source's zero specificity. Per-subject arms add nothing
+            // a custom property needs, and outrank the author's own setters.
+            return trim($prelude) . '{' . $body . '}';
+        }
         $buttonPresentationPseudoPrelude = $this->buttonPresentationPseudoPrelude($prelude, $context);
         if ( '' !== $buttonPresentationPseudoPrelude ) {
             return $buttonPresentationPseudoPrelude . '{' . $body . '}';
@@ -1016,6 +1055,19 @@ final class AuthorStylesheetProjector
             }));
         };
         $projectedPrelude = $selectControls($this->rewriteSelectorPrelude($prelude, $context, false, null === $controls && $this->allowsSubjectArms($prelude, $body), true));
+        // A replacement carousel owns track motion, including attribute-projected
+        // capture rules. Partition mixed rules so static geometry still reaches
+        // the track and shared utilities still animate other source elements.
+        $motion = array_intersect_key(SourceDeclarations::parse($body), array_fill_keys(array('transform', 'translate', 'rotate', 'scale'), true));
+        if (array() !== $motion && str_contains($context->emittedMarkup, 'blocks-engine-authored-carousel__track')) {
+            $static = array_diff_key(SourceDeclarations::parse($body), $motion);
+            $motionSelectors = array_map(
+                static fn (string $selector): string => $selector . ':not(.blocks-engine-authored-carousel__track)',
+                CssStylesheetTransformer::splitSelectorList($projectedPrelude) ?? array()
+            );
+            return (array() === $static || '' === $projectedPrelude ? '' : $projectedPrelude . '{' . $this->styleResolver->cssDeclarationString($static) . '}')
+                . (array() === $motionSelectors ? '' : implode(',', $motionSelectors) . '{' . $this->styleResolver->cssDeclarationString($motion) . '}');
+        }
         // Centered source dropdown boxes are desktop presentation, not Core's
         // open-overlay stack. Keep the authored rule outside that stack rather
         // than relying on a later, higher-specificity alignment override.
@@ -1266,6 +1318,38 @@ final class AuthorStylesheetProjector
             }
         }
         return false;
+    }
+
+    /**
+     * Whether a rule only declares custom properties on bare universal
+     * subjects (`*`, `:before`, `::after`, `::backdrop`, ...), as preflight
+     * variable resets do. Such a rule matches every element of the emitted
+     * markup exactly as it matched every source element, and paints nothing.
+     */
+    private static function isUniversalCustomPropertyRule(string $prelude, string $body): bool
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors || array() === $selectors ) {
+            return false;
+        }
+        foreach ( $selectors as $selector ) {
+            if ( 1 !== preg_match('/^\*?(?:::?(?:before|after)|::backdrop)?$/i', trim($selector)) || '' === trim($selector) ) {
+                return false;
+            }
+        }
+        return self::declaresOnlyCustomProperties($body);
+    }
+
+    /** Whether a non-empty rule body declares custom properties only. */
+    private static function declaresOnlyCustomProperties(string $body): bool
+    {
+        $declarations = CssRuleAnalyzer::declarationList($body);
+        foreach ( $declarations as [ 'name' => $name ] ) {
+            if ( ! str_starts_with($name, '--') ) {
+                return false;
+            }
+        }
+        return array() !== $declarations;
     }
 
     private function preludeIsUniversalReset(string $prelude): bool

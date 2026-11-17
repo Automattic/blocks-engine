@@ -112,7 +112,7 @@ final class CustomBlockGenerator implements ElementConverter
         var content = props.attributes.content || '';
         return createElement(
             element.Fragment, null,
-            createElement( 'div', Object.assign( {}, blockEditor.useBlockProps(), { dangerouslySetInnerHTML: { __html: content } } ) ),
+            rawHtmlRoot( content, blockEditor.useBlockProps() ),
             createElement( blockEditor.InspectorControls, null,
                 createElement( components.PanelBody, { title: 'HTML' },
                     createElement( components.TextareaControl, {
@@ -133,7 +133,7 @@ final class CustomBlockGenerator implements ElementConverter
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
-        return array( 'index.js' => str_replace('__BLOCK_NAME__', $blockName, $script) );
+        return array( 'index.js' => str_replace('__BLOCK_NAME__', $blockName, RawHtmlEditorRoot::script($script)) );
     }
 
     /**
