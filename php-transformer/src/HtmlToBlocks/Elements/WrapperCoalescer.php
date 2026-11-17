@@ -85,30 +85,12 @@ final class WrapperCoalescer
 
     private bool $wrapperBudgetExceeded = false;
 
-    private int $nativeWrapperDepthBudget = self::MAX_NATIVE_WRAPPER_DEPTH;
-
     /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
     public function compressProjectedGroupChains(array $blocks, int $depth = 1): array
     {
         if (1 === $depth) {
             $metrics = (new EditabilityReport())->fromBlocks($blocks)['metrics'];
             $this->wrapperBudgetExceeded = $metrics['wrapper_to_content_ratio'] > EditabilityPolicy::THRESHOLDS['wrapper_to_content_ratio'];
-            // List View depth is independent of the wrapper-to-content ratio:
-            // branching wrappers still contribute an entry at every level.
-            // Apply its budget only when Groups dominate the document.
-            $groups = 0;
-            $count = 0;
-            $visit = static function (array $items) use (&$visit, &$groups, &$count): void {
-                foreach ($items as $item) {
-                    if ('core/freeform' !== ($item['blockName'] ?? null)) {
-                        ++$count;
-                        if ('core/group' === ($item['blockName'] ?? null)) ++$groups;
-                    }
-                    $visit($item['innerBlocks'] ?? array());
-                }
-            };
-            $visit($blocks);
-            $this->nativeWrapperDepthBudget = $groups > $count / 2 ? 8 : self::MAX_NATIVE_WRAPPER_DEPTH;
         }
         return array_values(array_map(fn (array $block): array => $this->normalizeWrapperChain($block, $depth), $blocks));
     }
@@ -123,22 +105,12 @@ final class WrapperCoalescer
             $ancestorChain[] = array('block' => $cursor, 'descriptor' => $descriptor);
             $cursor = $cursor['innerBlocks'][0];
         }
-        // Over budget, the branching wrapper is also transportable: its
-        // children become the shell's editable children. Do not manufacture
-        // a terminal for within-budget trees: that would activate the mixed
-        // semantic chain's stricter local cap on otherwise native ancestry.
-        if (1 === count($ancestorChain)
-            && $depth - 1 + $this->nativeBlockHeight($block) > $this->nativeWrapperDepthBudget
-            && null !== ($descriptor = $this->foldableWrapperDescriptor($cursor))) {
-            $ancestorChain[] = array('block' => $cursor, 'descriptor' => $descriptor);
-            $cursor = array('blockName' => 'core/freeform', 'innerBlocks' => ArrayField::array($cursor, 'innerBlocks'));
-        }
         // Native div/nav ancestry may retain its source boxes within the public
         // nesting budget; do not force it through generated shell transport.
         $nativeNavigationChain = 'div' === ($ancestorChain[0]['descriptor']['tagName'] ?? null)
             && array() !== array_filter($ancestorChain, static fn (array $entry): bool => 'nav' === $entry['descriptor']['tagName'])
             && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'], array('div', 'nav'), true))
-            && $depth - 1 + $this->nativeBlockHeight($block) <= $this->nativeWrapperDepthBudget;
+            && $depth - 1 + $this->nativeBlockHeight($block) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
         // Semantic-only ancestry is a local region, not a reason to lower
         // otherwise editable ancestors before its descendants normalize.
         $semanticRegion = 2 <= count($ancestorChain)
@@ -149,10 +121,10 @@ final class WrapperCoalescer
         $semanticTags = array('main', 'section', 'article', 'aside');
         $hasSemanticRegion = in_array($cursor['attrs']['tagName'] ?? null, $semanticTags, true)
             || array() !== array_filter($ancestorChain, static fn (array $entry): bool => in_array($entry['descriptor']['tagName'], $semanticTags, true));
-        $depthBudget = $hasSemanticRegion && ! $semanticRegion ? 8 : $this->nativeWrapperDepthBudget;
+        $depthBudget = $hasSemanticRegion && ! $semanticRegion ? 8 : self::MAX_NATIVE_WRAPPER_DEPTH;
         if (! $nativeNavigationChain && 2 <= count($ancestorChain)
             && ($wrapperHeight > $depthBudget
-                || count($ancestorChain) >= $this->nativeWrapperDepthBudget)) {
+                || count($ancestorChain) >= self::MAX_NATIVE_WRAPPER_DEPTH)) {
             return $this->foldWrapperChain($ancestorChain, $this->normalizeWrapperChain($cursor, $depth + 1));
         }
 
@@ -172,7 +144,7 @@ final class WrapperCoalescer
             && ('core/freeform' === $terminalName
                 || ('core/group' === $terminalName && array() === ($terminal['innerBlocks'] ?? array()))
                 || array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, ('div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div')), true)))
-            && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= $this->nativeWrapperDepthBudget;
+            && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
         // Native Group ancestors remain editable even when their terminal is a generated
         // block or an extraction slot. The terminal's transport does not require
         // transporting its native parent boxes in a generated shell too.
@@ -190,7 +162,7 @@ final class WrapperCoalescer
         }
         $nativeGroupTree = $nativeGroupTree || (('core/freeform' !== $terminalName || $hasSourceBox)
             && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, $nativeTags, true))
-            && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= $this->nativeWrapperDepthBudget);
+            && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth']);
         // The ratio budget belongs to the document, not each component. An
         // empty visual branch can have no content leaves while the complete
         // document is comfortably within budget; folding it buys no policy gain.
