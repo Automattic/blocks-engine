@@ -12,6 +12,15 @@ final class AssetMaterializationState
     /** Where inline SVG payloads are materialized, relative to the asset root. */
     public const INLINE_SVG_DIRECTORY = 'assets/materialized-svg';
 
+    /**
+     * The part of a materialized inline SVG reference that survives a host
+     * relocating the file (an importer sideloads it into its media library,
+     * keeping the content-addressed file name but not the directory). CSS
+     * that identifies these images by `src` must match on this, not on
+     * INLINE_SVG_DIRECTORY, or it stops matching once the site is imported.
+     */
+    public const INLINE_SVG_FILE_PREFIX = '/inline-svg-';
+
     /** @var array<string, array<string, mixed>> */
     private array $generated = array();
 

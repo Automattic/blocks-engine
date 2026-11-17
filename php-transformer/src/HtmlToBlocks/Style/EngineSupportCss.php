@@ -503,11 +503,6 @@ final class EngineSupportCss
             $parts[] = $menu . '>.wp-block-navigation__container,'
                 . $menu . ':not(.blocks-engine-list-navigation)>.wp-block-navigation__container>.wp-block-navigation-item{display:contents!important}';
         }
-        if ( str_contains($serializedBlocks, 'blocks-engine-anchor-items-navigation') ) {
-            // The synthetic LI is not a source box. Let the host's authored
-            // alignment place it, and stretch its anchor inside that box.
-            $parts[] = '.wp-block-navigation:where(.blocks-engine-anchor-items-navigation) .wp-block-navigation-item{align-items:normal}';
-        }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             // Keep the display baseline at Core's weight, not above authored rules.
             // A source <li> has `align-items:normal`; Core centers its items,

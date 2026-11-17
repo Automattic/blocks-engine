@@ -1924,17 +1924,6 @@ final class NavigationPatternContext
         }
     }
 
-    /** Restore bare-anchor flex alignment, including authored media variants. */
-    public function projectBareAnchorAlignment(DOMElement $element, array $classes): void
-    {
-        $alignment = $this->styleResolver->declaredPresentation($element, 'align-items');
-        $target = '.wp-block-navigation' . CssIdent::compoundClassSelector($classes);
-        $this->projectSourceToNativeTarget($element, $target, 'align-items:' . ($alignment->base() ?: 'normal'));
-        foreach ($alignment->conditional() as $queries => $value) {
-            $this->sourceTargetProjection?->record(SourceDom::elementSelector($element), $target, 'align-items:' . $value, explode('{', $queries));
-        }
-    }
-
     /**
      * Translate inherited inline-item packing without freezing media variants.
      *
