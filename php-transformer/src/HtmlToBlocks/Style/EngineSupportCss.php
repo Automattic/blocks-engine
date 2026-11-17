@@ -235,6 +235,10 @@ final class EngineSupportCss
                 // editor-only override must also outrank those source carriers.
                 . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '){height:auto!important;min-height:0!important}'
                 . $inlineFigure . ' img{display:inline}'
+                // Undo core's `.wp-block-image img{vertical-align:bottom}` so the
+                // image sits on the source baseline and keeps its line-box strut.
+                // At the author image bridge's weight, a source alignment still wins.
+                . 'figure.wp-block-image:where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . ') img{vertical-align:baseline}'
                 // A propagated card link adds another synthetic box. Core's
                 // inline-block anchor would make percentage images shrink to
                 // their intrinsic width instead of the retained source host.

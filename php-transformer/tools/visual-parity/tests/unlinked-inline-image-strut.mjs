@@ -7,6 +7,8 @@ const source = readFileSync(`${root}/tests/fixtures/unlinked-inline-image-strut.
 const code = 'require $argv[1] . "/vendor/autoload.php"; echo json_encode((new Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler())->compile(array("entrypoint" => "index.html", "files" => array("index.html" => file_get_contents($argv[1] . "/tests/fixtures/unlinked-inline-image-strut.html"))))->toArray());';
 const result = JSON.parse(execFileSync('php', ['-r', code, root], { encoding: 'utf8' }));
 const css = result.assets.filter(asset => asset.kind === 'css').map(asset => asset.content ?? '').join('\n');
+// Core's image block stylesheet, which WordPress always loads with the block.
+const core = '.wp-block-image img{max-width:100%;height:auto;box-sizing:border-box;vertical-align:bottom}.wp-block-image{margin:0}';
 const browser = await chromium.launch({ headless: true });
 try {
     const page = await browser.newPage();
@@ -27,7 +29,7 @@ try {
             }));
         };
         const before = await measure(source.replace('<head>', '<head><base href="https://fixture.test/">'));
-        const after = await measure(`<!doctype html><base href="https://fixture.test/"><style>${css}</style>${result.serialized_blocks}`);
+        const after = await measure(`<!doctype html><base href="https://fixture.test/"><style>${core}</style><style>${css}</style>${result.serialized_blocks}`);
         assert.deepEqual(before.heights, [684, 680], `${width}: source inline strut and block control`);
         assert.deepEqual(after, before, `${width}: wrapper heights, next section positions and image displays match source`);
         console.log(`${width}: ${JSON.stringify(after)}`);
