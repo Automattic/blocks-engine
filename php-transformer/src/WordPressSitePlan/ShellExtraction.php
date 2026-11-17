@@ -153,7 +153,6 @@ final class ShellExtraction
                 $key = $artifact['canonical_block_markup'];
                 $markup = $candidate['markup'];
                 $score = ($page['source_path'] === ($artifact['placement']['evidence_source_path'] ?? null)) ? 1 : 0;
-                file_put_contents("/home/chubes/.local/share/homeboy/controller-scratch/attempts/wf-import-findings-loop-48d8fb556ada-cook-i1-n0-a1-attempt-1-eedcd1e4/agent-task-dispatch-c09781b1-b34d-4e1c-8be5-91aea2b60e9a/cook-blocks-engine/attempt-1/177a33f0-3893-418e-8ef6-cb3cb40d47f0/scratch/dbg.log", "PRES {$page['source_path']} $area score=$score ev=" . ($artifact['placement']['evidence_source_path'] ?? '-') . "\n", FILE_APPEND);
                 if (!isset($presentations[$key]) || $score > $presentations[$key]['score']) {
                     $presentations[$key] = array('markup' => $markup, 'score' => $score);
                 }
@@ -205,7 +204,7 @@ final class ShellExtraction
                 if (!empty($candidate['device_document_bundle'])) continue;
                 // Already-equivalent compiled shells keep their existing
                 // context-sensitive support assets and presentation intact.
-                if (count($identities[$candidate['area']]) < 2) { file_put_contents("/home/chubes/.local/share/homeboy/controller-scratch/attempts/wf-import-findings-loop-48d8fb556ada-cook-i1-n0-a1-attempt-1-eedcd1e4/agent-task-dispatch-c09781b1-b34d-4e1c-8be5-91aea2b60e9a/cook-blocks-engine/attempt-1/177a33f0-3893-418e-8ef6-cb3cb40d47f0/scratch/dbg.log", "SKIP-equal {$page['source_path']}\n", FILE_APPEND); continue; }
+                if (count($identities[$candidate['area']]) < 2) continue;
                 // Runtime-bound source blocks must retain the exact compiled
                 // payload their bindings address; the hoister owns those shells.
                 // Source equality still proves their identity: route-compiled
@@ -223,14 +222,13 @@ final class ShellExtraction
                 // Area and position match an artifact to a candidate, not its
                 // extent: chrome detected around the landmark (an off-canvas
                 // drawer) is absent from a landmark-only artifact.
-                if (array() !== array_diff(self::textRuns($candidate['markup']), self::textRuns($markup))) { file_put_contents("/home/chubes/.local/share/homeboy/controller-scratch/attempts/wf-import-findings-loop-48d8fb556ada-cook-i1-n0-a1-attempt-1-eedcd1e4/agent-task-dispatch-c09781b1-b34d-4e1c-8be5-91aea2b60e9a/cook-blocks-engine/attempt-1/177a33f0-3893-418e-8ef6-cb3cb40d47f0/scratch/dbg.log", "SKIP-text {$page['source_path']}\n", FILE_APPEND); continue; }
+                if (array() !== array_diff(self::textRuns($candidate['markup']), self::textRuns($markup))) continue;
                 $candidate['identity_markup'] = ChromeIdentity::markup($markup);
-                if ($bound) { file_put_contents("/home/chubes/.local/share/homeboy/controller-scratch/attempts/wf-import-findings-loop-48d8fb556ada-cook-i1-n0-a1-attempt-1-eedcd1e4/agent-task-dispatch-c09781b1-b34d-4e1c-8be5-91aea2b60e9a/cook-blocks-engine/attempt-1/177a33f0-3893-418e-8ef6-cb3cb40d47f0/scratch/dbg.log", "SKIP-bound\n", FILE_APPEND); continue; }
+                if ($bound) continue;
                 // Source equality proves ownership, not presentation: isolated
                 // compilation lacks the route's complete selector context.
                 $presentation = ($presentations[$markup]['score'] ?? 0) > 0 ? $presentations[$markup]['markup'] : $candidate['markup'];
                 $candidate['template_part_markup'] = self::landmarkPartMarkup(RestingNavigation::markup($presentation), $candidate['area']);
-                file_put_contents("/home/chubes/.local/share/homeboy/controller-scratch/attempts/wf-import-findings-loop-48d8fb556ada-cook-i1-n0-a1-attempt-1-eedcd1e4/agent-task-dispatch-c09781b1-b34d-4e1c-8be5-91aea2b60e9a/cook-blocks-engine/attempt-1/177a33f0-3893-418e-8ef6-cb3cb40d47f0/scratch/dbg.log", "SET {$page['source_path']} " . substr($candidate['template_part_markup'], 0, 150) . "\n", FILE_APPEND);
             }
             unset($candidate);
         }
@@ -1813,7 +1811,6 @@ final class ShellExtraction
                 continue;
             }
             $first = $cluster['candidate'];
-            file_put_contents('/home/chubes/.local/share/homeboy/controller-scratch/attempts/wf-import-findings-loop-48d8fb556ada-cook-i1-n0-a1-attempt-1-eedcd1e4/agent-task-dispatch-c09781b1-b34d-4e1c-8be5-91aea2b60e9a/cook-blocks-engine/attempt-1/177a33f0-3893-418e-8ef6-cb3cb40d47f0/scratch/dbg.log', "FIRST $area " . ($first['source_path'] ?? '?') . ' ' . json_encode(array_map(static fn($i) => $pages[$i]['source_path'], $cluster['indexes'])) . ' TPM=' . substr((string) ($first['template_part_markup'] ?? 'NONE'), 0, 400) . "\n", FILE_APPEND);
             if (1 === count($applicable) && !empty($first['shared_only'])) continue;
             $inlineShell = $this->sharesInlineShell($pages, $applicable, $cluster['indexes'], $candidates, $area);
             foreach ($applicable as $index => $page) if (!in_array($index, $cluster['indexes'], true)) $excluded[$index] = isset($candidates[$index]) ? 'non_equivalent' : 'missing';
