@@ -160,11 +160,15 @@ final class EngineSupportCss
             // aspect-ratio-constrained, shrink-to-fit figure instead.
             $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '){width:100%}'
                 // Give Gutenberg a selectable block-root box over the same
-                // containing block the source image fills. Do not expand its
-                // ancestors or reset the image: those boxes own the authored
-                // flex/grid layout and percentage sizing on both surfaces.
+                // containing block the source image fills. Keep the image's
+                // authored flex/grid layout and percentage sizing intact.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{position:static}'
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block;height:100%}'
+                // A full-bleed source layer can sit underneath a later content
+                // group. A figure box alone cannot be clicked through that group.
+                // Put its immediate host in editor flow so both native blocks
+                // remain selectable, without changing front-end layer geometry.
+                . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::LAYER_FILL_IMAGE_FIGURE_CLASS . '){position:static!important;inset:auto!important}'
                 // A linked image adds core's inline-block anchor between the
                 // figure and the image. Shrink-to-fit, it sizes from the image
                 // whose percentages size from it, so the fill collapses. Let
