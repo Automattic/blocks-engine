@@ -1038,7 +1038,16 @@ final class SharedChromeStylesheets
             'detached_hooks' => $detachedHooks,
             'has_shared_navigation' => $hasSharedNavigation,
         ] = self::chromeEvidence($parts, $routeClasses);
+        // A template frame still surrounds route content. Its hooks are not
+        // detached chrome: keep their rules in the authored route cascade,
+        // just as before shell extraction moved the frame out of the page.
         $routeHooks = self::routeKeptHooks($assets, $pages, $authored, $hookRoutes, $chromeElements);
+        foreach ($parts as $part) {
+            if ('page-frame' !== ($part['slug'] ?? null)) continue;
+            foreach (self::authoredChromeElementHooks((string) ($part['canonical_block_markup'] ?? '')) as $element) {
+                foreach ($routeHooks as $kind => $names) $routeHooks[$kind] += $element[$kind];
+            }
+        }
         $classes = array_diff_key($classes, $routeHooks['marker']);
         unset($routeHooks['marker']);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
