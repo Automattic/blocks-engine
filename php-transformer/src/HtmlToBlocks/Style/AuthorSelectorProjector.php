@@ -1724,20 +1724,21 @@ final class AuthorSelectorProjector
      * A subject arm target, `:where(.blocks-engine-role-<kind>.<subject
      * classes>)`, for a selector that is one context-free compound, and the
      * routed markers it does not cover (which keep their own arms); null when
-     * the target would reach a carrier the per-element arms do not.
+     * the target would cover none of them.
      *
      * Control, semantic and RichText carriers carry their source element's
      * subject classes (tag and class tokens, EngineMarker::subjectTagClass()), which a
      * type, universal or class compound can test without any context. The
      * target therefore reaches every `$kind` carrier with subject classes whose
      * source the compound matches, on any page. It stands in for the
-     * per-element arms of `$routedMarkers` only when every such carrier on this
-     * page is among them: none is routed elsewhere (a table or navigation
-     * subject, or a control that is also a RichText run, say). A routed marker without such a carrier (a
-     * presentation child that shares its control's marker, a carrier that
-     * carries no subject classes) keeps its own arm. This page's cascade is
-     * unchanged, and the arm text no longer depends on which other elements
-     * the page has.
+     * per-element arms of the `$routedMarkers` it covers. A carrier this rule
+     * routes elsewhere (a table or navigation subject, or a control that is
+     * also a RichText run, say) is excluded by its own marker, so one such
+     * carrier does not return every other carrier to a per-element arm. A
+     * routed marker without such a carrier (a presentation child that shares
+     * its control's marker, a carrier that carries no subject classes) keeps
+     * its own arm. This page's cascade is unchanged, and a covered carrier's
+     * arms no longer depend on which other elements the page has.
      *
      * @param array<string, mixed> $parsed
      * @param list<string> $routedMarkers
@@ -1757,9 +1758,10 @@ final class AuthorSelectorProjector
             return null;
         }
         $routed = array_values(array_unique($routedMarkers));
-        if ( array() !== array_diff($carriers['reached'], $routed) ) {
+        if ( array() === array_intersect($carriers['covered'], $routed) ) {
             return null;
         }
+        $unrouted = array_values(array_diff($carriers['reached'], $routed));
         $classes = array( 'blocks-engine-role-' . $kind, EngineMarker::SUBJECT_BASE_CLASS );
         if ( is_string($compound['type'] ?? null) ) {
             $classes[] = EngineMarker::subjectTagClass($compound['type']);
@@ -1767,7 +1769,8 @@ final class AuthorSelectorProjector
         foreach ( array_values(array_unique(array_map('strval', $compound['classes'] ?? array()))) as $class ) {
             $classes[] = EngineMarker::subjectClassClass($class);
         }
-        return array( 'target' => ':where(.' . implode('.', $classes) . ')', 'rest' => array_values(array_diff($routed, $carriers['covered'])) );
+        $exclusion = array() === $unrouted ? '' : ':not(:where(.' . implode(',.', $unrouted) . '))';
+        return array( 'target' => ':where(.' . implode('.', $classes) . ')' . $exclusion, 'rest' => array_values(array_diff($routed, $carriers['covered'])) );
     }
 
     /**
