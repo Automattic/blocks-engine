@@ -636,7 +636,8 @@ final class ReadableFormBlockBuilder
         // including responsive navigation alternatives built from selects.
         for ( $form = $control->parentNode; $form instanceof DOMElement; $form = $form->parentNode ) {
             if ( 'form' === strtolower($form->tagName) ) {
-                $forceNative = $forceNative || FormRuntimeRequirementAnalyzer::collectsOnlyChoices($form);
+                $forceNative = $forceNative || FormRuntimeRequirementAnalyzer::collectsOnlyChoices($form)
+                    || FormRuntimeRequirementAnalyzer::collectsOnlyPurchaseChoices($form);
                 break;
             }
         }
