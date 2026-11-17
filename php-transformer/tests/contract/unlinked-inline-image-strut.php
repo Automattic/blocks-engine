@@ -26,4 +26,20 @@ if (str_contains($figures->item(1)->getAttribute('class'), $inlineClass)
     || !str_contains($css, ':where(.blocks-engine-image).wp-block-image > img,:where(.blocks-engine-image).wp-block-image > a > img{display:block;')) {
     throw new RuntimeException('The block source image must retain ordinary block image support.');
 }
+// Source positioning can live in a conditional stylesheet, not the current
+// viewport. No carousel markup is needed to exercise this sizing boundary.
+foreach (array('absolute', 'fixed') as $position) {
+    $source = '<style>@media(min-width:1280px){.shell{position:' . $position . ';left:50%;transform:translateX(-50%)}}</style>'
+        . '<div class="shell"><img src="logo.svg" width="100" height="60" alt="Positioned"></div>'
+        . '<div style="position:relative"><img src="photo.svg" width="100" height="60" alt="In flow"></div>';
+    $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $source)))->toArray();
+    $document = new DOMDocument();
+    @$document->loadHTML((string) $compiled['serialized_blocks']);
+    $figures = (new DOMXPath($document))->query('//figure[img]');
+    if (false === $figures || 2 !== $figures->length
+        || str_contains($figures->item(0)->getAttribute('class'), $inlineClass)
+        || !str_contains($figures->item(1)->getAttribute('class'), $inlineClass)) {
+        throw new RuntimeException('Conditional out-of-flow parents must keep figure boxes; relative parents must retain the inline strut.');
+    }
+}
 echo "Unlinked inline image strut contract passed.\n";

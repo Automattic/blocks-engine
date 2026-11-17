@@ -82,6 +82,15 @@ final class SyntheticImageFigureFlow
         // even without text-align or a link. Keep its baseline strut rather
         // than letting image support turn the replaced leaf into a block.
         // Blockified items and out-of-flow images have no such source strut.
+        // A positioned source parent may shrink-wrap its contents at another
+        // breakpoint. Keep a real figure box in that sizing chain; a static
+        // viewport sample alone does not describe the source's layout contract.
+        if ($parent instanceof DOMElement) {
+            $positions = $this->styleResolver->authorDeclaredValuesAtAnyViewport($parent, array( 'position' ))['position'] ?? array();
+            if (array() !== array_intersect($positions, array( 'absolute', 'fixed' ))) {
+                return false;
+            }
+        }
         $floats = $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array( 'float' ))['float'] ?? array();
         if ( array() !== array_diff($floats, array( '', 'none' )) ) {
             return false;
