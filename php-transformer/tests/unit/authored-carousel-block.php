@@ -230,7 +230,7 @@ $assert(
     str_contains($authoredTopologyMarkup, 'source-group') && str_contains($authoredTopologyMarkup, 'source-depth')
         && str_contains($authoredTopologyMarkup, 'data-wp-on--click="actions.previous"')
         && str_contains($authoredTopologyMarkup, 'data-wp-on--click="actions.next"')
-        && str_contains($authoredTopologyMarkup, '<svg viewbox="0 0 10 10">'),
+        && str_contains($authoredTopologyMarkup, '<svg viewBox="0 0 10 10">'),
     'the shell retains sanitized source wrapper depth and binds both native controls to carousel actions'
 );
 
@@ -565,5 +565,54 @@ $assert(
     str_contains($placementEditor, "label: 'Play control position'"),
     'the corner is handed back to the editor as an ordinary control'
 );
+
+// Issue #6376: the same authored topology, independent of framework names.
+foreach (array('uk-slider-item', 'data-uk-slider-item', 'data-carousel-index') as $indexAttribute) {
+    $fixture = '<style>.dotnav>*>*{width:10px;height:10px;border-radius:50%}.dotnav{margin-top:24px}.dotnav>.is-active>*{background:#6da170}[' . $indexAttribute . '="previous"]{color:#6da170}[data-blocks-engine-capture-glyph-color]{visibility:hidden}</style><div class="carousel">';
+    foreach (array('previous', 'next') as $direction) {
+        $fixture .= '<a class="slidenav-' . $direction . '" ' . $indexAttribute . '="' . $direction . '"><svg width="14" height="24" viewBox="0 0 14 24" data-blocks-engine-capture-glyph-color="#6da170"><polyline fill="none" stroke="#000" stroke-width="1.4" points="12.775,1 1.225,12 12.775,23 "></polyline><script>alert(1)</script></svg></a>';
+    }
+    $fixture .= '<ul>';
+    for ($i = 0; $i < 5; ++$i) {
+        $fixture .= '<li><img src="slide-' . $i . '.jpg"></li>';
+    }
+    $fixture .= '</ul><ul class="dotnav">';
+    for ($i = 0; $i < 5; ++$i) {
+        $fixture .= '<li ' . $indexAttribute . '="' . $i . '" data-blocks-engine-capture-frame="' . $i . '"><a href="#"></a></li>';
+    }
+    $fixture .= '</ul></div>';
+    $output = (new HtmlTransformer())->transform($fixture)->toArray();
+    $document = new DOMDocument();
+    @$document->loadHTML((string) $output['serialized_blocks']);
+    $xpath = new DOMXPath($document);
+    $arrows = $xpath->query('//button[@data-carousel-previous or @data-carousel-next]/svg');
+    $assert(2 === $arrows->length, $indexAttribute . ': both source arrows render');
+    foreach ($arrows as $svg) {
+        $assert('0 0 14 24' === $svg->getAttribute('viewbox') && '#6da170' === $svg->getAttribute('color'), $indexAttribute . ': glyph geometry and captured color survive');
+        $polyline = $svg->getElementsByTagName('polyline')->item(0);
+        $assert($polyline instanceof DOMElement && 'currentColor' === $polyline->getAttribute('stroke') && 'none' === $polyline->getAttribute('fill') && '1.4' === $polyline->getAttribute('stroke-width') && str_contains($polyline->getAttribute('points'), '12.775,23'), $indexAttribute . ': safe SVG children keep geometry and captured stroke paint');
+        $assert(0 === $svg->getElementsByTagName('script')->length, 'unsafe SVG children are removed');
+    }
+    $dots = $xpath->query('//ul[contains(@class,"blocks-engine-authored-carousel__dots")]/li/button[@data-wp-on--click="actions.goTo"]');
+    $assert(5 === $dots->length, $indexAttribute . ': indexed source list becomes working dot controls');
+    $css = implode("\n", array_column($output['source_reports']['author_stylesheet_projections'] ?? array(), 'content'));
+    $assert(1 === preg_match('/([^{}]+)\\{width:10px;height:10px;border-radius:50%\\}/', $css, $rule), 'source dot styling is emitted');
+    foreach ($dots as $index => $dot) {
+        $assert((string) $index === $dot->getAttribute('data-carousel-index') && CssSelectorMatcher::matches($dot, CssSelectorMatcher::parse(trim($rule[1])))['matches'], $indexAttribute . ': source child selector matches each rendered dot');
+    }
+    $assert(1 === preg_match('/([^{}]+)\\{background:#6da170\\}/', $css, $activeRule), 'source active styling is emitted');
+    foreach ($dots as $dot) {
+        $item = $dot->parentNode;
+        $assert('is-active' === $item->getAttribute('data-carousel-active-classes'), 'source active classes are bound to carousel state');
+        $item->setAttribute('class', $item->getAttribute('class') . ' is-active');
+        $assert(CssSelectorMatcher::matches($dot, CssSelectorMatcher::parse(trim($activeRule[1])))['matches'], 'emitted active rule matches selected dot');
+    }
+    preg_match_all('/([^{}]+)\\{[^{}]*visibility:hidden[^{}]*\\}/', $css, $hiddenRules);
+    foreach ($hiddenRules[1] as $selector) {
+        foreach ($arrows as $svg) {
+            $assert(!CssSelectorMatcher::matches($svg, CssSelectorMatcher::parse(trim($selector)))['matches'], 'capture glyph evidence cannot project hidden attribute rules onto arrows');
+        }
+    }
+}
 
 fwrite(STDOUT, "Authored carousel companion tests passed\n");
