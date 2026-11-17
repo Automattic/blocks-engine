@@ -1565,10 +1565,17 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ( ! $always ) {
             // The source menu's collapsed-panel rules land on this host, which
             // at these widths is the toggle-sized box around Core's open
-            // button. Its padding is already stripped above; its border would
-            // frame the button (or, once the button is placed out of flow,
-            // draw an empty bordered dot), and the source toggle had neither.
+            // button, not the hidden source panel. None of the panel's box
+            // paint belongs here: even a transparent opener otherwise shows
+            // the panel background behind it. The open overlay owns panel
+            // presentation; the leaf button owns the source control's paint.
+            // Reset the shorthand so background images/gradients cannot leak
+            // either. These repairs stay inside the source collapse range.
+            $host[] = 'background:transparent!important';
             $host[] = 'border:0!important';
+            $host[] = 'border-image:none!important';
+            $host[] = 'box-shadow:none!important';
+            $host[] = 'outline:0!important';
         }
 
         return $host;

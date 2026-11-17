@@ -46,6 +46,31 @@ $assert((bool) preg_match('/responsive-container-open\{[^}]*color:(?:white|#fff(
 $assert((bool) preg_match('/responsive-container-open\{[^}]*background:transparent!important/', $css), 'The opener does not inherit the overlay background.');
 $assert((bool) preg_match('/responsive-container-open\{min-width:0!important;min-height:0!important/', $css), 'Intrinsic text sizing replaces the synthetic 44px touch floor.');
 $assert(str_contains($css, 'font:revert!important;letter-spacing:normal!important'), 'Native button metrics replace inherited navigation typography before source font replay.');
+// Check the host, not just the transparent leaf button: the source panel's
+// class survives on this visible box even while the source panel was hidden.
+$dom = new DOMDocument();
+$host = $dom->createElement('nav');
+$host->setAttribute('class', 'wp-block-navigation ' . $glyph[0]['className']);
+$dom->appendChild($host);
+foreach (array(390, 768, 1440) as $width) {
+    $reset = false;
+    (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->visitStyleRules($css,
+        static function (string $selector, string $body, array $conditions) use ($host, $width, &$reset): void {
+            foreach ($conditions as $condition) {
+                if (preg_match('/max-width:\s*([\d.]+)px/', $condition, $m) && $width > (float) $m[1]) return;
+                if (preg_match('/min-width:\s*([\d.]+)px/', $condition, $m) && $width < (float) $m[1]) return;
+            }
+            $parsed = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::parse($selector);
+            if (!(\Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::matches($host, $parsed, true)['matches'] ?? false)) return;
+            if (str_contains($body, 'background:transparent!important')
+                && str_contains($body, 'box-shadow:none!important')
+                && str_contains($body, 'outline:0!important')) $reset = true;
+        }
+    );
+    $assert(($width < 850) === $reset, "$width: only the collapsed navigation root must lose panel box paint.");
+}
+$assert('#24201e' === ($glyph[0]['customOverlayBackgroundColor'] ?? ''), 'The open overlay retains the source panel background.');
+$assert((bool) preg_match('/responsive-container\.is-menu-open[^{}]*\{[^}]*background:#24201e!important/', $css), 'The source panel paint is applied to the open overlay, not its visible root.');
 foreach (array('≡', "☰\u{FE0F}") as $alternate) {
     $variant = $compile(str_replace('>☰</button>', '>' . $alternate . '</button>', $html));
     $assert(str_contains($variant['serialized_blocks'], '"text":"' . $alternate . '"'), 'Equivalent menu glyphs and variation selectors retain their content.');
