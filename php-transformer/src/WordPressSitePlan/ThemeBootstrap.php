@@ -82,15 +82,25 @@ PHP;
      * A lowered srcset family keeps its authored candidates, slot sizes and
      * loading in core/image metadata. They describe the source `src`; once
      * the image is replaced, the new attachment's own candidates apply.
+     *
+     * A src-only selection is one exact file: the source decoded it at every
+     * width. Renditions generated for its attachment later (by a plugin's
+     * image-size regeneration, say) are not candidates the source offered, so
+     * core's content filter adds no srcset to that image while it still shows
+     * the selected `src`.
      */
     public const IMAGE_SELECTION_RENDERER = <<<'PHP'
-add_filter( 'render_block_core/image', static function ( string $content, array $block ): string {
+$blocks_engine_src_only_images = new ArrayObject();
+add_filter( 'render_block_core/image', static function ( string $content, array $block ) use ( $blocks_engine_src_only_images ): string {
     $selection = $block['attrs']['metadata']['blocksEngineImageSelection'] ?? null;
     if ( ! is_array( $selection ) || ! is_string( $selection['src'] ?? null ) ) return $content;
     $picture = is_array( $selection['picture'] ?? null ) && is_array( $selection['sources'] ?? null );
-    if ( ! $picture && empty( $selection['srcset'] ) ) return $content;
     $tag = new WP_HTML_Tag_Processor( $content );
     if ( ! $tag->next_tag( 'IMG' ) || $tag->get_attribute( 'src' ) !== $selection['src'] ) return $content;
+    if ( ! $picture && empty( $selection['srcset'] ) ) {
+        if ( null === $tag->get_attribute( 'srcset' ) ) $blocks_engine_src_only_images[ $selection['src'] ] = true;
+        return $content;
+    }
     if ( is_string( $selection['srcset'] ?? null ) && '' !== $selection['srcset'] ) $tag->set_attribute( 'srcset', $selection['srcset'] );
     else $tag->remove_attribute( 'srcset' );
     if ( is_string( $selection['sizes'] ?? null ) && '' !== $selection['sizes'] ) $tag->set_attribute( 'sizes', $selection['sizes'] );
@@ -119,6 +129,11 @@ add_filter( 'render_block_core/image', static function ( string $content, array 
         if ( is_array( $source ) ) $open .= '<source' . $attributes( $source, true ) . '>';
     }
     return preg_replace_callback( '/<img\\b(?:[^>"\']|"[^"]*"|\'[^\']*\')*>/i', static fn ( array $match ): string => $open . $match[0] . '</picture>', $content, 1 ) ?? $content;
+}, 10, 2 );
+add_filter( 'wp_img_tag_add_srcset_and_sizes_attr', static function ( $add, $image ) use ( $blocks_engine_src_only_images ) {
+    if ( true !== $add || ! is_string( $image ) || 0 === count( $blocks_engine_src_only_images ) ) return $add;
+    $tag = new WP_HTML_Tag_Processor( $image );
+    return ! ( $tag->next_tag( 'IMG' ) && isset( $blocks_engine_src_only_images[ (string) $tag->get_attribute( 'src' ) ] ) );
 }, 10, 2 );
 PHP;
 

@@ -105,7 +105,7 @@ $assert('50vw' === ($autoSelection('auto, 50vw', 'eager')['sizes'] ?? null), 'an
 $assert(!array_key_exists('sizes', $autoSelection('AUTO', '')), 'the auto keyword is matched case-insensitively and dropped without a loading attribute');
 $assert('auto' === ($autoSelection('auto', 'lazy')['sizes'] ?? null), 'a lazy image keeps its authored sizes auto');
 $plainImage = ( new HtmlTransformer() )->transform('<img src="plain.jpg" alt="Plain">')->toArray();
-$assert(!isset($plainImage['blocks'][0]['attrs']['metadata']), 'an image without an authored family carries no selection');
+$assert(array( 'src' => 'plain.jpg' ) === ($plainImage['blocks'][0]['attrs']['metadata']['blocksEngineImageSelection'] ?? null), 'an image without an authored family selects its one src and no candidates');
 $densityWithoutWidth = ( new HtmlTransformer() )->transform('<img src="small.jpg" srcset="small.jpg 1x, large.jpg 2x" alt="Density">')->toArray();
 $assert('core/image' === ($densityWithoutWidth['blocks'][0]['blockName'] ?? null), 'an x-descriptor family whose src is its 1x candidate renders at the src size and lowers without a display width');
 $densityOtherSrc = ( new HtmlTransformer() )->transform('<img src="fallback.jpg" srcset="small.jpg 1x, large.jpg 2x" alt="Density">')->toArray();

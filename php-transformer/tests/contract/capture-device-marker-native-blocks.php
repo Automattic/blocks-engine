@@ -23,7 +23,8 @@ $assert(1 === substr_count($markup, '<!-- wp:custom/layout-shell'), 'Only the do
 $phoneOnly = '"metadata":{"blockVisibility":{"viewport":{"tablet":false,"desktop":false}}}';
 foreach (array(
     '/<!-- wp:heading \{[^\n]*?"level":2[^\n]*?' . preg_quote($phoneOnly, '/') . '/' => 'heading',
-    '/<!-- wp:image \{[^\n]*?' . preg_quote($phoneOnly, '/') . '/' => 'image',
+    // The image's metadata also carries its src-only selection.
+    '/<!-- wp:image \{[^\n]*?"metadata":\{"blocksEngineImageSelection":\{"src":"[^"]+"\},"blockVisibility":\{"viewport":\{"tablet":false,"desktop":false\}\}\}/' => 'image',
     '/<!-- wp:paragraph \{[^\n]*?"metadata":\{"blockVisibility":\{"viewport":\{"mobile":false\}\}\}/' => 'paragraph',
     '/<!-- wp:buttons \{[^\n]*?' . preg_quote($phoneOnly, '/') . '/' => 'buttons',
     '/<!-- wp:heading \{[^\n]*?"level":3[^\n]*?"metadata":\{"blockVisibility":\{"viewport":\{"mobile":false,"desktop":false\}\}\}/' => 'tablet heading',
