@@ -5,7 +5,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 
 /**
  * Projection restates an authored rule for every native carrier a source
@@ -20,12 +19,14 @@ final class AbsentCarrierSelectors
     /**
      * Carrier class => the markup that proves a carrier exists. Engine
      * classes are serialized in the block's className; core's featured image
-     * class is rendered only by its block.
+     * class is rendered only by its block. Materialization must not import
+     * conversion internals, so the engine carrier classes are spelled out
+     * here; the absent-carrier-selectors contract pins them to their owners.
      */
-    private const CARRIERS = array(
+    public const CARRIERS = array(
         'wp-block-post-featured-image' => '<!-- wp:post-featured-image',
-        SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS => SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS,
-        SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS => SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS,
+        'blocks-engine-synthetic-flex-image-figure' => 'blocks-engine-synthetic-flex-image-figure',
+        'blocks-engine-synthetic-image-figure-inline' => 'blocks-engine-synthetic-image-figure-inline',
         'blocks-engine-layout-table-cell' => 'blocks-engine-layout-table-cell',
     );
 
