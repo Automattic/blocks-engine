@@ -4,9 +4,9 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredLabelBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeLabelRendering;
 
 $assertions = 0;
 $assert = static function (bool $condition, string $message) use (&$assertions): void {
@@ -15,7 +15,7 @@ $assert = static function (bool $condition, string $message) use (&$assertions):
 };
 $minimal = (new HtmlTransformer())->transform('<style>label[data-role=caption]{color:red;font-size:20px}</style><input id="choice" type="checkbox"><label for="choice" data-role="caption">Choice</label>')->toArray();
 $minimalDom = new DOMDocument();
-$minimalDom->loadHTML(NativeLabelRendering::publish($minimal['serialized_blocks']), LIBXML_NOERROR | LIBXML_NOWARNING);
+$minimalDom->loadHTML($minimal['serialized_blocks'], LIBXML_NOERROR | LIBXML_NOWARNING);
 $assert('caption' === $minimalDom->getElementsByTagName('label')->item(0)->getAttribute('data-role'), 'reviewer reproduction preserves the actual data-role subject');
 $assert('choice' === $minimalDom->getElementsByTagName('label')->item(0)->getAttribute('for'), 'reviewer reproduction preserves the native association');
 $source = (string) file_get_contents(__DIR__ . '/../fixtures/associated-label-static-attributes.html');
@@ -25,7 +25,7 @@ $page = $plan['pages'][0];
 $original = new DOMDocument();
 $original->loadHTML($source, LIBXML_NOERROR | LIBXML_NOWARNING);
 $candidate = new DOMDocument();
-$candidate->loadHTML(NativeLabelRendering::publish($page['canonical_block_markup']), LIBXML_NOERROR | LIBXML_NOWARNING);
+$candidate->loadHTML($page['canonical_block_markup'], LIBXML_NOERROR | LIBXML_NOWARNING);
 $label = $candidate->getElementById('choice-caption');
 $sourceLabel = $original->getElementById('choice-caption');
 foreach (SourceDom::htmlAttributes($sourceLabel) as $name => $value) {
@@ -45,19 +45,16 @@ $assert(array() === $result['fallbacks'], 'static source attributes do not requi
 $assert(!str_contains($page['canonical_block_markup'], 'blocks-engine-attribute-'), 'actual label attributes need no synthetic selector compensation');
 
 $unsafe = array('onclick' => 'alert(1)', 'onpointerdown' => 'alert(2)', 'data-action' => 'run()', 'data-on' => '', 'data-event' => 'run()', 'jsaction' => 'click:run', 'data-wp-on--click' => 'actions.run', 'srcdoc' => '<script>run()</script>', 'href' => 'javascript:run()', 'is' => 'active-label', 'for' => 'wrong', 'id' => 'wrong', 'class' => 'wrong', 'style' => 'display:none');
-$metadata = array_merge(array('for' => 'choice', 'id' => 'safe-label'), $unsafe, array('for' => 'choice', 'id' => 'safe-label', 'data-role' => 'caption', 'title' => 'A "quoted" & title', 'aria-label' => 'Choice', 'hidden' => ''));
-// `style` is the host's own declaration list; `class` is owned by the paragraph.
-unset($metadata['style'], $unsafe['style']);
-$surface = NativeLabelRendering::publish('<!-- wp:paragraph ' . json_encode(array('metadata' => array('blocksEngineLabel' => $metadata))) . ' --><p>Choice</p><!-- /wp:paragraph -->');
+$attrs = array('htmlFor' => 'choice', 'id' => 'safe-label', 'content' => 'Choice', 'sourceAttributes' => $unsafe + array('data-role' => 'caption', 'title' => 'A "quoted" & title', 'aria-label' => 'Choice', 'hidden' => ''));
+$surface = (new AuthoredLabelBlockGenerator())->markup($attrs);
 $filtered = new DOMDocument();
 $filtered->loadHTML($surface, LIBXML_NOERROR | LIBXML_NOWARNING);
 $host = $filtered->getElementsByTagName('label')->item(0);
 foreach ($unsafe as $name => $value) {
-    $assert(in_array($name, array('for', 'id'), true) ? $value !== $host->getAttribute($name) : !$host->hasAttribute($name), 'front-end label renderer rejects unowned/executable attribute ' . $name);
+    $assert(in_array($name, array('for', 'id'), true) ? $value !== $host->getAttribute($name) : !$host->hasAttribute($name), 'PHP save filter rejects unowned/executable attribute ' . $name);
 }
 $assert('caption' === $host->getAttribute('data-role') && 'A "quoted" & title' === $host->getAttribute('title') && $host->hasAttribute('hidden'), 'passive strings and presence attributes survive escaping');
 $captured = (new HtmlTransformer())->transform('<input id="choice" type="checkbox"><label for="choice" data-role="caption" onclick="bad()" data-action="bad()" data-wp-on--click="bad()">Choice</label>')->toArray();
-$capturedLabel = NativeLabelRendering::publish($captured['serialized_blocks']);
-$assert(str_contains($capturedLabel, 'data-role="caption"') && !str_contains($captured['serialized_blocks'], 'onclick') && !str_contains($captured['serialized_blocks'], 'data-action') && !str_contains($captured['serialized_blocks'], 'data-wp-on--click'), 'source capture admits only the passive host attributes');
+$assert(str_contains($captured['serialized_blocks'], 'data-role="caption"') && !str_contains($captured['serialized_blocks'], 'onclick=') && !str_contains($captured['serialized_blocks'], 'data-action=') && !str_contains($captured['serialized_blocks'], 'data-wp-on--click='), 'source capture admits only the passive host attributes');
 
 echo "Associated label static attributes: $assertions passed\n";

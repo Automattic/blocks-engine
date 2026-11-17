@@ -1189,6 +1189,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $document = HtmlSerialization::parseFragment('<body>' . $normalizedHtml . '</body>');
         CommerceStructureRecognizer::registerSourceDocument($document, (string) ($options['declarative_state_html'] ?? $html));
+        if ( Support\SourceDocumentEnvelope::isDocument($html) ) {
+            Classification\FormControlClassifier::registerWholeDocument($document);
+        }
 
         $resultComposer = new HtmlResultComposer();
         $selectorCache = $this->session->sourceStyleResolutionState()->selectorMatchCache;

@@ -11,7 +11,6 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
-use Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeLabelRendering;
 
 $failures = 0;
 $passes = 0;
@@ -26,7 +25,7 @@ $assert = static function (bool $ok, string $message, string $detail = '') use (
 $carrier = '<mark style="background-color:transparent;color:inherit" role="none"> *</mark>';
 $labelBlock = static function (array $blocks): ?array {
     foreach ( $blocks as $block ) {
-        if ( isset($block['attrs']['metadata']['blocksEngineLabel']) ) {
+        if ( str_ends_with((string) ($block['blockName'] ?? ''), '/authored-label') ) {
             return $block;
         }
     }
@@ -40,10 +39,10 @@ foreach ( array(
     $result = ( new HtmlTransformer() )->transform($html)->toArray();
     $label = $labelBlock($result['blocks'] ?? array());
     $content = (string) ($label['attrs']['content'] ?? '');
-    $assert(null !== $label, "{$case}: the label is an associated label paragraph", (string) ($result['serialized_blocks'] ?? ''));
+    $assert(null !== $label, "{$case}: the label is an authored label", (string) ($result['serialized_blocks'] ?? ''));
     $assert(! str_contains($content, '<!--'), "{$case}: label RichText content carries no comment", $content);
     $assert('Adresse Email' . $carrier === $content, "{$case}: the text-run boundary survives as the neutral carrier", $content);
-    $assert(str_contains(NativeLabelRendering::publish((string) $result['serialized_blocks']), '<label for="' . ( 'associated' === $case ? 'email' : 'outside' ) . '">Adresse Email' . $carrier . '</label>'), "{$case}: saved label markup matches its content", (string) $result['serialized_blocks']);
+    $assert(str_contains((string) $result['serialized_blocks'], '<label for="' . ( 'associated' === $case ? 'email' : 'outside' ) . '">Adresse Email' . $carrier . '</label>'), "{$case}: saved label markup matches its content", (string) $result['serialized_blocks']);
 }
 
 $plain = ( new HtmlTransformer() )->transform('<label for="o">Rich <strong>bold</strong> text</label>')->toArray();

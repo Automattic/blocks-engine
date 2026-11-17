@@ -2526,7 +2526,7 @@ $standaloneControls = ( new HtmlTransformer() )->transform(
 $standaloneControlBlocks = $standaloneControls['blocks'][0]['innerBlocks'] ?? array();
 $assert(array() === ($standaloneControls['fallbacks'] ?? array()), 'standalone readable controls convert without unsupported-element fallback');
 $assert('core/paragraph' === ($standaloneControlBlocks[0]['blockName'] ?? ''), 'standalone non-runtime input converts to readable paragraph');
-$assert('core/paragraph' === ($standaloneControlBlocks[1]['blockName'] ?? '') && 'product-sort' === ($standaloneControlBlocks[1]['attrs']['metadata']['blocksEngineLabel']['for'] ?? ''), 'source select label remains a sibling editable associated label');
+$assert('custom/authored-label' === ($standaloneControlBlocks[1]['blockName'] ?? '') && 'product-sort' === ($standaloneControlBlocks[1]['attrs']['htmlFor'] ?? ''), 'source select label remains a sibling editable associated label');
 $assert('custom/authored-select' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'standalone static select is a native-control block without a synthetic wrapper');
 $authoredSelectBlocks = array_values(array_filter($standaloneControls['source_reports']['generated_blocks'] ?? array(), static fn (array $block): bool => 'authored-select' === ($block['name'] ?? '')));
 $authoredSelectCss = (string) ($authoredSelectBlocks[0]['assets']['style.css'] ?? '');
@@ -2534,8 +2534,7 @@ $assert(str_contains($authoredSelectCss, '.wp-block-group.blocks-engine-authored
 $assert('custom/authored-select' === ($standaloneControlBlocks[3]['blockName'] ?? ''), 'runtime-targeted select stays a native authored select without a synthetic wrapper');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<option value="" selected disabled>Choose an order</option>'), 'compact select preserves selected placeholder option state');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select id="product-sort" name="products" placeholder="Sort products" class="catalog-sort">'), 'compact select preserves native id, name, placeholder, and CSS selector identity');
-$standaloneControlsPublished = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeLabelRendering::publish((string) ($standaloneControls['serialized_blocks'] ?? ''));
-$assert(1 === substr_count($standaloneControlsPublished, '>Sort products</label>') && str_contains($standaloneControlsPublished, '<label for="product-sort"'), 'styled select emits its source associated label exactly once without a duplicate wrapping label');
+$assert(1 === substr_count((string) ($standaloneControls['serialized_blocks'] ?? ''), '>Sort products</label>') && str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<label for="product-sort"'), 'styled select emits its source associated label exactly once without a duplicate wrapping label');
 $assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<!-- wp:html') || str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'only the runtime-targeted select uses core/html');
 $assert(1 === preg_match('/<select[^>]*\\sclass="js-sort-select"/', (string) ($standaloneControls['serialized_blocks'] ?? '')), 'runtime-targeted select renders native markup from core options');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'id="donation"'), 'readable input output preserves source id as a block anchor');

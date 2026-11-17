@@ -15,11 +15,6 @@ const compileDocument = (html: string) => JSON.parse(execFileSync('php', ['-r',
   'require $argv[1] . "/vendor/autoload.php"; $r=(new Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler())->compile(array("entrypoint"=>"index.html","block_namespace"=>"custom","files"=>array("index.html"=>base64_decode($argv[2]))))->toArray(); $plan=$r["source_reports"]["wordpress_site_plan"]; $page=$plan["pages"][0]; echo json_encode(array("serialized_blocks"=>$page["canonical_block_markup"],"assets"=>$plan["assets"],"source_reports"=>array("generated_blocks"=>$r["source_reports"]["companion_plugin_payload"]["blocks"]),"document"=>$page,"bootstrap"=>Automattic\\BlocksEngine\\PhpTransformer\\WordPressSitePlan\\DocumentRootContext::bootstrap(array($page)),"canvas"=>Automattic\\BlocksEngine\\PhpTransformer\\WordPressSitePlan\\DocumentRootContext::canvas()));',
   phpRoot, Buffer.from(html).toString('base64')], { encoding: 'utf8' }));
 
-// The theme's label renderer publishes the paragraph as the source label.
-const publish = (markup: string): string => execFileSync('php', ['-r',
-  'require $argv[1] . "/vendor/autoload.php"; echo Automattic\\BlocksEngine\\PhpTransformer\\Tests\\Support\\NativeLabelRendering::publish(base64_decode($argv[2]));',
-  phpRoot, Buffer.from(markup).toString('base64')], { encoding: 'utf8' });
-
 const renderWordPress = (result: any, markup: string): string | undefined => {
   if (!process.env.BLOCKS_ENGINE_WP_CLI || !process.env.BLOCKS_ENGINE_WP_PATH) return undefined;
   const payload = Buffer.from(JSON.stringify({
@@ -63,43 +58,67 @@ describe('associated label save contract', () => {
     return nativeWp;
   };
 
-  it('reopens compiler output as valid core paragraphs whose RichText edits reach the published label', () => {
+  it('proves core paragraph and group cannot save an associated label', () => {
+    const paragraph = wp.serialize([wp.createBlock('core/paragraph', {
+      tagName: 'label', for: 'choice', content: 'Choice',
+    })]);
+    expect(paragraph).toContain('<p');
+    expect(paragraph).not.toContain('<label');
+    const group = wp.serialize([wp.createBlock('core/group', {
+      tagName: 'label', for: 'choice', htmlFor: 'choice',
+    })]);
+    // Group's tagName can change its host, but its save schema has no for.
+    expect(group).toContain('<label');
+    expect(group).not.toContain('for="choice"');
+  });
+
+  it('reopens compiler output with registered native Gutenberg saves and edits RichText', () => {
     const result = compile(source);
-    registerCompanions(result);
-    expect(result.source_reports.generated_blocks.find((item: any) => item.name === 'authored-label')).toBeUndefined();
+    const nativeWp = registerCompanions(result);
     const blocks = wp.parse(result.serialized_blocks);
     const flatten = (items: any[]): any[] => items.flatMap(block => [block, ...flatten(block.innerBlocks)]);
     for (const block of flatten(blocks)) expect(wp.validateBlock(block)[0]).toBe(true);
     const saved = wp.serialize(blocks);
     const reopened = wp.parse(saved);
     for (const block of flatten(reopened)) expect(wp.validateBlock(block)[0]).toBe(true);
-    const labels = flatten(reopened).filter(block => block.attributes.metadata?.blocksEngineLabel);
+    const labels = flatten(reopened).filter(block => block.name === 'custom/authored-label');
     expect(labels).toHaveLength(2);
-    expect(labels.every(block => block.name === 'core/paragraph')).toBe(true);
-    expect(labels[0].attributes.metadata.blocksEngineLabel.for).toBe('after');
-    expect(String(labels[1].attributes.content)).toContain('<strong>Science</strong> &amp; <mark class="caption-run"');
-    expect(String(labels[1].attributes.content)).toContain('role="none"><em>Health</em></mark>');
+    expect(labels[0].attributes.htmlFor).toBe('after');
+    expect(labels[1].attributes.content).toContain('<strong>Science</strong> &amp; <mark class="caption-run"');
+    expect(labels[1].attributes.content).toContain('role="none"><em>Health</em></mark>');
     const host = document.createElement('div');
-    host.innerHTML = publish(saved);
+    host.innerHTML = saved;
     expect(host.querySelector('#after + label')?.getAttribute('for')).toBe('after');
     expect(host.querySelector('label + #before')?.previousElementSibling?.id).toBe('before-caption');
 
-    // Core RichText owns the caption: an edited paragraph stays valid and the
-    // published label carries the edit with its association.
-    labels[1].attributes.content = '<strong>Edited</strong> &amp; <em>editable</em>';
+    // Construct the edit element using native RichText. This exercises the
+    // callback/save contract, not a mounted or persistent wp-admin editor.
+    // useBlockProps needs editor context; supply only that hook's neutral props.
+    const definition = result.source_reports.generated_blocks.find((item: any) => item.name === 'authored-label');
+    let settings: any;
+    new Function('window', definition.assets['index.js'])({ wp: {
+      ...nativeWp,
+      blocks: { registerBlockType: (_name: string, value: any) => { settings = value; } },
+      blockEditor: { ...nativeWp.blockEditor, useBlockProps: (props: any) => props },
+    } });
+    const label = labels[1];
+    const edit = settings.edit({ attributes: label.attributes, setAttributes: (next: any) => Object.assign(label.attributes, next) });
+    expect(edit.type).toBe(nativeWp.blockEditor.RichText);
+    expect(edit.props.tagName).toBe('label');
+    expect(edit.props.htmlFor).toBe('before');
+    edit.props.onChange('<strong>Edited</strong> &amp; <em>editable</em>');
     const edited = wp.parse(wp.serialize(reopened));
-    const editedLabel = flatten(edited).find(block => block.attributes.metadata?.blocksEngineLabel?.id === 'before-caption');
+    const editedLabel = flatten(edited).find(block => block.attributes.id === 'before-caption');
     expect(wp.validateBlock(editedLabel)[0]).toBe(true);
-    expect(String(editedLabel.attributes.content)).toBe('<strong>Edited</strong> &amp; <em>editable</em>');
-    host.innerHTML = publish(wp.serialize(edited));
-    expect(host.querySelector('#before-caption')?.outerHTML).toMatch(/^<label for="before" id="before-caption" class="caption[^"]*"><strong>Edited<\/strong> &amp; <em>editable<\/em><\/label>$/);
+    expect(editedLabel.attributes.content).toBe('<strong>Edited</strong> &amp; <em>editable</em>');
+    expect(editedLabel.attributes.htmlFor).toBe('before');
   });
 
   it('preserves exact browser geometry, checked selectors, and native label clicks', async () => {
     const { chromium } = require('playwright');
     const result = compile(source);
     registerCompanions(result);
-    const saved = publish(wp.serialize(wp.parse(result.serialized_blocks)));
+    const saved = wp.serialize(wp.parse(result.serialized_blocks));
     const css = result.assets.filter((asset: any) => asset.kind === 'css').map((asset: any) => asset.content || '').join('\n');
     const rendered = renderWordPress(result, saved);
     const browser = await chromium.launch({ headless: true });
@@ -160,29 +179,28 @@ describe('associated label save contract', () => {
     const saved = wp.serialize(parsed);
     const reopened = wp.parse(saved);
     for (const block of flatten(reopened)) expect(wp.validateBlock(block)[0]).toBe(true);
-    const label = flatten(reopened).find(block => block.attributes.metadata?.blocksEngineLabel?.id === 'choice-caption');
-    expect(label.name).toBe('core/paragraph');
-    expect(label.attributes.metadata.blocksEngineLabel).toMatchObject({
+    const label = flatten(reopened).find(block => block.attributes.id === 'choice-caption');
+    expect(label.attributes.sourceAttributes).toMatchObject({
       'data-role': 'caption', 'data-present': '', 'aria-label': 'Choice caption',
       lang: 'en-CA', dir: 'ltr', title: 'Choose "Arts" & Science', tabindex: '0',
     });
     expect(saved).not.toContain('blocks-engine-attribute-');
 
-    // The label renderer also filters caller-supplied metadata, not just
-    // compiler input: no executable or unowned attribute reaches the label.
-    const hostile = wp.createBlock('core/paragraph', {
-      content: '<strong>Choice</strong>',
-      metadata: { blocksEngineLabel: {
-        for: 'choice', id: 'hostile-probe', 'data-role': 'caption', title: 'A "quoted" & title', hidden: '',
+    // The registered save also filters caller-supplied attribute objects, not
+    // just compiler input. Owned fields cannot be overridden through this map.
+    const hostile = wp.createBlock('custom/authored-label', {
+      htmlFor: 'choice', id: 'hostile-probe', content: '<strong>Choice</strong>',
+      sourceAttributes: {
+        'data-role': 'caption', title: 'A "quoted" & title', hidden: '',
         onclick: 'alert(1)', 'data-action': 'run()', 'data-on': '', 'data-event': 'run()',
         'data-wp-on--click': 'actions.run', srcdoc: '<script>run()</script>', href: 'javascript:run()',
-        class: 'wrong', 'data-object': { nested: true },
-      } },
+        for: 'wrong', id: 'wrong', class: 'wrong', style: 'display:none', 'data-object': { nested: true },
+      },
     });
     const hostileSaved = wp.serialize([hostile]);
     expect(wp.validateBlock(wp.parse(hostileSaved)[0])[0]).toBe(true);
     const host = document.createElement('div');
-    host.innerHTML = publish(hostileSaved);
+    host.innerHTML = hostileSaved;
     const safeHost = host.querySelector('label')!;
     expect(Array.from(safeHost.attributes).map(attribute => attribute.name).sort()).toEqual(['data-role', 'for', 'hidden', 'id', 'title']);
     expect(safeHost.getAttribute('for')).toBe('choice');
@@ -192,7 +210,6 @@ describe('associated label save contract', () => {
     expect(css).toContain('label[data-role=caption]');
     expect(css).toContain('body[data-document=choices]');
     const native = renderWordPress(result, saved);
-    const published = publish(saved);
     const browser = await chromium.launch({ headless: true });
     try {
       for (const width of [390, 768, 1440]) {
@@ -213,8 +230,7 @@ describe('associated label save contract', () => {
             const inputBox = control.getBoundingClientRect(); const inputStyle = getComputedStyle(control);
             return {
               id: label.id, for: label.getAttribute('for'), control: control.id, checked: control.checked,
-              // Source-tag marker classes address rewritten `label` rules; they are not source subjects.
-              attributes: Array.from(label.attributes).filter(attribute => attribute.name !== 'style').map(attribute => [attribute.name, attribute.name === 'class' ? attribute.value.split(' ').filter(token => !token.startsWith('blocks-engine-source-label-')).join(' ') : attribute.value]).sort(),
+              attributes: Array.from(label.attributes).filter(attribute => attribute.name !== 'style').map(attribute => [attribute.name, attribute.value]).sort(),
               box: [box.x, box.y, box.width, box.height], text: [text.x, text.y, text.width, text.height],
               font: [style.fontFamily, style.fontSize, style.fontWeight, style.lineHeight, style.letterSpacing],
               paint: [style.color, style.backgroundColor, style.border, style.textDecorationLine, getComputedStyle(label, '::after').content],
@@ -238,7 +254,7 @@ describe('associated label save contract', () => {
           return { rest, changedPredicate, expanded, clicked, changedBody, otherClicked };
         };
         const original = await probe(documentSource);
-        expect(await probe(published, css, result.document.document_metadata)).toEqual(original);
+        expect(await probe(saved, css, result.document.document_metadata)).toEqual(original);
         if (native !== undefined) expect(await probe(native)).toEqual(original);
         expect(original.rest[0].font.slice(1, 4)).toEqual([width === 390 ? '20px' : width === 768 ? '22px' : '24px', '600', width === 390 ? '24px' : width === 768 ? '28px' : '30px']);
         expect(original.rest[0].paint[0]).toBe(width === 1440 ? 'rgb(0, 100, 50)' : 'rgb(255, 0, 0)');

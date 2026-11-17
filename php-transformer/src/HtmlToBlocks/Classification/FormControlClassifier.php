@@ -9,7 +9,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use DOMDocument;
 use DOMElement;
+use WeakMap;
 
 final class FormControlClassifier
 {
@@ -28,15 +30,51 @@ final class FormControlClassifier
      */
     public const DATA_ENTRY_TAGS = array( 'input', 'select', 'textarea' );
 
+    /** @var WeakMap<DOMDocument, true>|null */
+    private static ?WeakMap $wholeDocuments = null;
+
     /**
      * The external label host emitted independently from its control: a label
      * that names a control by `for`, or a group by its id in `aria-labelledby`.
+     * In a whole document, a `for` naming no element associates nothing: that
+     * label is plain caption text, lowered like a label without `for`. A
+     * fragment keeps it, since its control may live outside the fragment.
      */
     public static function isExternalAssociatedLabel(DOMElement $element): bool
     {
         return 'label' === strtolower($element->tagName)
-            && ('' !== $element->getAttribute('for') || self::namesLabelledElement($element))
+            && (self::namesForTarget($element) || self::namesLabelledElement($element))
             && array() === self::controlElements($element);
+    }
+
+    /** Record that a parsed source holds a whole document, not a fragment of one. */
+    public static function registerWholeDocument(DOMDocument $document): void
+    {
+        self::$wholeDocuments ??= new WeakMap();
+        self::$wholeDocuments[$document] = true;
+    }
+
+    /** Whether the label's `for` can name a control: one of its document, or one outside its fragment. */
+    private static function namesForTarget(DOMElement $element): bool
+    {
+        $for = $element->getAttribute('for');
+        if ( '' === $for ) {
+            return false;
+        }
+        $document = $element->ownerDocument;
+        if ( null === $document || !isset(self::$wholeDocuments[$document]) ) {
+            return true;
+        }
+        if ( $document->getElementById($for) instanceof DOMElement ) {
+            return true;
+        }
+        foreach ( (new \DOMXPath($document))->query('//*[@id]') ?: array() as $candidate ) {
+            if ( $candidate instanceof DOMElement && $candidate->getAttribute('id') === $for ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Whether another element in the document lists this element's id in `aria-labelledby`. */
