@@ -1,8 +1,19 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chromium } from '../../tools/visual-parity/node_modules/playwright/index.mjs';
+import { existsSync } from 'node:fs';
 
 const root = new URL('../..', import.meta.url).pathname;
+// Resolve Playwright from an explicit module, the ambient install, or the
+// visual-parity tool, installing that tool's locked dependencies when absent.
+const loadPlaywright = async () => {
+    if (process.env.PLAYWRIGHT_MODULE) return import(process.env.PLAYWRIGHT_MODULE);
+    try { return await import('playwright'); } catch {}
+    const tool = `${root}/tools/visual-parity`;
+    const entry = `${tool}/node_modules/playwright/index.mjs`;
+    if (!existsSync(entry)) execFileSync('npm', ['ci', '--prefer-offline', '--no-audit', '--no-fund', '--ignore-scripts'], { cwd: tool, stdio: 'inherit' });
+    return import(entry);
+};
+const { chromium } = await loadPlaywright();
 const runtime = execFileSync('php', ['-r', `require '${root}/vendor/autoload.php'; echo Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\Generators\\ViewportEntranceRuntime::script('{"mobile":"(width <= 750px)","desktop":"(width > 750px)"}');`], { encoding: 'utf8' });
 const state = (repeat, devices) => JSON.stringify({ ...(devices ? { devices } : {}), attributes: { class: { before: 'reveal', after: 'reveal in' }, style: { before: 'translate: 0 8px', after: null }, 'data-pose': { before: null, after: 'done' } }, threshold: [0.12], rootMargin: '0px 0px 0px 0px', repeat });
 const html = (devices) => `<style>.reveal{height:200px;opacity:0;transform:translateY(24px);transition:opacity .8s linear,transform .8s}.reveal.in{opacity:1;transform:none}</style><div style="height:1400px"></div>${[false, true].map((repeat, index) => `<section id="card${index}" class="wp-block-group reveal in" style="color: rgb(1, 2, 3)" data-blocks-engine-capture-viewport-entrance='${state(repeat, devices)}'>Card</section>`).join('')}<div style="height:1400px"></div>`;
@@ -42,5 +53,23 @@ try {
         if (mode !== 'no-js') await compiled('#card0');
         await page.close();
     }
+    // A below-only repeating entrance replays only when it leaves below the viewport.
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const belowOnly = JSON.stringify({ attributes: { class: { before: 'reveal', after: 'reveal in' } }, threshold: [0], rootMargin: '0px', repeat: true, repeatSides: ['below'] });
+    await page.setContent(`<div style="height:1400px"></div><section id="below" class="reveal in" style="height:200px" data-blocks-engine-capture-viewport-entrance='${belowOnly}'>Card</section><div style="height:2400px"></div>`);
+    await page.addScriptTag({ content: runtime });
+    const pose = () => page.locator('#below').getAttribute('class');
+    await page.waitForTimeout(300);
+    assert.equal(await pose(), 'reveal', 'below-only entrance starts pending');
+    await page.evaluate(() => scrollTo(0, 1200));
+    await page.waitForTimeout(300);
+    assert.equal(await pose(), 'reveal in', 'below-only entrance reveals on entry');
+    await page.evaluate(() => scrollTo(0, 3000));
+    await page.waitForTimeout(300);
+    assert.equal(await pose(), 'reveal in', 'below-only entrance stays revealed above the viewport');
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.waitForTimeout(300);
+    assert.equal(await pose(), 'reveal', 'below-only entrance reverts below the viewport');
+    await page.close();
 } finally { await browser.close(); }
 console.log('Viewport entrance browser contract passed.');
