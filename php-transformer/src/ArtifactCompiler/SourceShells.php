@@ -146,6 +146,7 @@ final class SourceShells
                 $node->removeAttribute(CaptureEvidence::VIEWPORT_ENTRANCE);
             }
         }
+        if ($ignoreViewportEntrance) self::neutralizeDialogInstanceIds($xpath);
         if ($ignoreViewportEntrance) {
             foreach ($xpath->query('//*') ?: array() as $node) {
                 if (!$node instanceof \DOMElement) continue;
@@ -241,5 +242,47 @@ final class SourceShells
         $root = $body instanceof \DOMElement ? $body->firstElementChild : null;
         $identity = $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $markup) : $markup;
         return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($identity);
+    }
+
+    /**
+     * A captured dialog panel is a snapshot of the opened state, and the
+     * runtime renders it with instance ids it mints on each visit
+     * (`comp-a1_r_menu` on one route, `comp-b2_r_menu` on another). An id
+     * nothing in the landmark names (no `aria-controls`, `for`, `#fragment`)
+     * is that instance name, not structure: it and the class tokens derived
+     * from it read as their position in the panel. Referenced ids stay.
+     */
+    private static function neutralizeDialogInstanceIds(\DOMXPath $xpath): void
+    {
+        $referenced = array();
+        foreach ($xpath->query('//@*') ?: array() as $attribute) {
+            $name = strtolower($attribute->nodeName);
+            if ('href' === $name && str_starts_with(trim($attribute->nodeValue ?? ''), '#')) $referenced[substr(trim($attribute->nodeValue ?? ''), 1)] = true;
+            elseif (in_array($name, array('for', 'list', 'form', 'popovertarget', CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL), true) || str_starts_with($name, 'aria-')) {
+                foreach (SourceDom::tokens((string) $attribute->nodeValue) as $token) $referenced[$token] = true;
+            }
+        }
+        foreach ($xpath->query('//*[@' . CaptureEvidence::DIALOG_PANEL . ']') ?: array() as $panel) {
+            if (!$panel instanceof \DOMElement) continue;
+            $names = array();
+            foreach ($xpath->query('.//*[@id]', $panel) ?: array() as $node) {
+                $id = $node instanceof \DOMElement ? $node->getAttribute('id') : '';
+                if ('' === $id || isset($referenced[$id]) || isset($names[$id])) continue;
+                $names[$id] = 'dialog-instance-' . count($names);
+            }
+            if (array() === $names) continue;
+            // Longest first, so an id that prefixes another does not claim it.
+            uksort($names, static fn(string $a, string $b): int => strlen($b) <=> strlen($a));
+            foreach ($xpath->query('descendant-or-self::*[@id or @class]', $panel) ?: array() as $node) {
+                if (!$node instanceof \DOMElement) continue;
+                if (isset($names[$node->getAttribute('id')])) $node->setAttribute('id', $names[$node->getAttribute('id')]);
+                if (!$node->hasAttribute('class')) continue;
+                $classes = array_map(static function (string $class) use ($names): string {
+                    foreach ($names as $id => $name) if ($class === $id || str_starts_with($class, $id . '-')) return $name . substr($class, strlen($id));
+                    return $class;
+                }, SourceDom::tokens($node->getAttribute('class')));
+                $node->setAttribute('class', implode(' ', $classes));
+            }
+        }
     }
 }
