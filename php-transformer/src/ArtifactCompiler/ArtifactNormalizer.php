@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+use Automattic\BlocksEngine\PhpTransformer\Css\UnreachableMediaPruner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle;
@@ -638,6 +639,14 @@ final class ArtifactNormalizer
                     continue;
                 }
                 $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
+                // The sheet is only ever active under its own media: nested
+                // @media blocks that condition excludes are dead weight. A
+                // capture that serialized a different activation state than
+                // the authored media keeps everything.
+                $sheetMedia = trim(HtmlTagScanner::attribute($attributes, 'media'));
+                if ( $sheetMedia === StyleTagScanner::authorMedia($attributes) ) {
+                    $css = UnreachableMediaPruner::prune($css, $sheetMedia);
+                }
                 $styles[] = array( 'content' => $css, 'media' => HtmlTagScanner::attribute($attributes, 'media'), 'source_media' => array_key_exists(CaptureEvidence::SOURCE_MEDIA, \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, CaptureEvidence::DEVICE_STYLE => HtmlTagScanner::attribute($attributes, CaptureEvidence::DEVICE_STYLE), 'type' => HtmlTagScanner::attribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
             // Spacing and custom properties inline on <body> are data the
