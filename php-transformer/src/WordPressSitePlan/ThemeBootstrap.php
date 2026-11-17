@@ -80,22 +80,32 @@ PHP;
 
     /**
      * A lowered srcset family keeps its authored candidates, slot sizes and
-     * loading in core/image metadata. They describe the source `src`; once
-     * the image is replaced, the new attachment's own candidates apply.
+     * loading in core/image metadata; a src-only image keeps only its authored
+     * loading and fetchpriority, and its srcset and sizes are left alone.
+     * They describe the source `src`; once the image is replaced, the new
+     * attachment's own candidates apply.
      */
     public const IMAGE_SELECTION_RENDERER = <<<'PHP'
 add_filter( 'render_block_core/image', static function ( string $content, array $block ): string {
     $selection = $block['attrs']['metadata']['blocksEngineImageSelection'] ?? null;
     if ( ! is_array( $selection ) || ! is_string( $selection['src'] ?? null ) ) return $content;
     $picture = is_array( $selection['picture'] ?? null ) && is_array( $selection['sources'] ?? null );
-    if ( ! $picture && empty( $selection['srcset'] ) ) return $content;
+    $family = $picture || ! empty( $selection['srcset'] );
+    $loading = in_array( $selection['loading'] ?? null, array( 'lazy', 'eager' ), true ) ? $selection['loading'] : null;
+    $priority = in_array( $selection['fetchpriority'] ?? null, array( 'high', 'low', 'auto' ), true ) ? $selection['fetchpriority'] : null;
+    if ( ! $family && null === $loading && null === $priority ) return $content;
     $tag = new WP_HTML_Tag_Processor( $content );
     if ( ! $tag->next_tag( 'IMG' ) || $tag->get_attribute( 'src' ) !== $selection['src'] ) return $content;
+    if ( null !== $priority ) $tag->set_attribute( 'fetchpriority', $priority );
+    if ( ! $family ) {
+        if ( null !== $loading ) $tag->set_attribute( 'loading', $loading );
+        return $tag->get_updated_html();
+    }
     if ( is_string( $selection['srcset'] ?? null ) && '' !== $selection['srcset'] ) $tag->set_attribute( 'srcset', $selection['srcset'] );
     else $tag->remove_attribute( 'srcset' );
     if ( is_string( $selection['sizes'] ?? null ) && '' !== $selection['sizes'] ) $tag->set_attribute( 'sizes', $selection['sizes'] );
     else $tag->remove_attribute( 'sizes' );
-    if ( in_array( $selection['loading'] ?? null, array( 'lazy', 'eager' ), true ) ) $tag->set_attribute( 'loading', $selection['loading'] );
+    if ( null !== $loading ) $tag->set_attribute( 'loading', $loading );
     if ( $picture && is_array( $selection['image'] ?? null ) ) {
         foreach ( array( 'class', 'style', 'id' ) as $name ) {
             if ( ! is_string( $selection['image'][$name] ?? null ) ) continue;
