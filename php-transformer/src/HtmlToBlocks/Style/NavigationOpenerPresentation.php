@@ -43,8 +43,10 @@ final class NavigationOpenerPresentation
             }
             $display = $this->styles->authorViewport->collapsed($child, array('display'));
             if ('none' === CssValueInspector::withoutImportant($display['display'] ?? '')) continue;
-            if ('svg' !== strtolower($child->tagName) || null !== $icon) return null;
-            $icon = $child;
+            $tag = strtolower($child->tagName);
+            $candidate = 'svg' === $tag ? $child : (in_array($tag, array('div', 'span', 'i'), true) ? $this->icon($child) : null);
+            if (null === $candidate || null !== $icon) return null;
+            $icon = $candidate;
         }
         return $icon;
     }
@@ -69,6 +71,20 @@ final class NavigationOpenerPresentation
         $paint = array('fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin');
         $icon = $this->styles->authoredControlPresentation($svg, array_merge($box, $paint));
         $icon[''] ??= array();
+        // A wrapped SVG's intrinsic attributes need not describe its painted
+        // box: its wrapper can size it through inherited tokens or percentages.
+        if (!$svg->parentNode->isSameNode($control)) {
+            for ($wrapper = $svg->parentNode; $wrapper instanceof DOMElement && !$wrapper->isSameNode($control); $wrapper = $wrapper->parentNode) {
+                $dimensions = $this->styles->authoredControlPresentation($wrapper, array('width', 'height'));
+                foreach ($dimensions as $condition => $values) {
+                    foreach ($values as $property => $value) {
+                        $value = $this->styles->customProperties->resolveAtViewport($value, $wrapper, StyleResolver::MOBILE_REFERENCE_WIDTH);
+                        $button[$condition][$property] ??= $value;
+                        $icon[$condition][$property] = '100%';
+                    }
+                }
+            }
+        }
         // An unsized SVG in a definite-width control fills the control's
         // content box and takes its height from the viewBox ratio.
         $declared = fn (string $property): bool => isset($icon[''][$property]) || '' !== trim($svg->getAttribute($property))

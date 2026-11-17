@@ -165,7 +165,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             : $this->ensureInlineSvgSizing($html, $element);
         $html = $this->bakeCascadedSvgTextLayout($this->resolveMaterializedSvgColors($html, $element), $element);
 
-        return $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($html, $element));
+        return $this->restoreSvgCasing($this->withReferencedDefinitions($html, $element));
     }
 
     /** Sanitized SVG markup that renders as an isolated image, author paint included. */
@@ -1272,11 +1272,11 @@ final class SvgMaterializer implements SvgElementMaterializer
     }
 
     /**
-     * SVG image assets are standalone documents. Copy local definitions used by
-     * the image into its payload so a document-level capture store is not needed
-     * at render time.
+     * Emitted SVG markup leaves its source document behind. Copy the local
+     * definitions it references (a sprite <symbol>, gradients, clip paths) into
+     * the markup so it does not depend on a page-level store that is not emitted.
      */
-    private function inlineSvgMaterializationMarkup(string $html, DOMElement $element): string
+    public function withReferencedDefinitions(string $html, DOMElement $element): string
     {
         if ( ! $element->ownerDocument instanceof \DOMDocument ) {
             return $html;
