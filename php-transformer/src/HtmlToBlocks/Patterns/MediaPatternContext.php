@@ -42,6 +42,29 @@ final class MediaPatternContext
                 : $this->session->authorSelectorProjectionState()->ensureMediaTextImageMarker($element->getNodePath() ?? '') )
         );
     }
+    /** Media-text cannot retain authored grid gutters or conditional tracks. */
+    public function hasSourceOwnedGridGeometry(DOMElement $element): bool
+    {
+        $values = $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array('display', 'grid-template-columns', 'gap', 'column-gap', 'row-gap'));
+        $isGrid = isset($values['grid-template-columns'])
+            || array() !== array_intersect(array('grid', 'inline-grid'), $values['display'] ?? array());
+        if (! $isGrid) {
+            return false;
+        }
+        // Leave breakpoint ownership with the source stylesheet rather than
+        // substituting core/media-text's fixed 600px stacking rule.
+        if (array() === $this->styleResolver->classOwnedResponsiveDeclarations($element, array('grid-template-columns' => 'none'))) {
+            return true;
+        }
+        foreach (array('gap', 'column-gap', 'row-gap') as $property) {
+            foreach ($values[$property] ?? array() as $value) {
+                if (! in_array(strtolower(trim($value)), array('0', '0px', 'normal'), true)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
     public function mediaTextStyle(DOMElement $element): string { return $this->styleResolver->mediaTextPresentationStyle($element); }
     /** Whether a media/container-conditional rule varies the element's min-height. */
     public function hasConditionalMinHeight(DOMElement $element): bool { return array() === $this->styleResolver->classOwnedResponsiveDeclarations($element, array( 'min-height' => '0' )); }

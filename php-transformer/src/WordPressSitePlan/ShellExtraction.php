@@ -997,17 +997,38 @@ final class ShellExtraction
             if (array() === $rows) continue;
             if (!empty($rows[0]['document_level']) && 1 < count($rows)) continue;
             $identities = array_column($rows, 'identity_markup');
-            if (1 !== count(array_unique($identities))) continue;
+            $scoped = array();
+            foreach ($rows as $variant) {
+                $scope = self::responsiveVariantClass($variant);
+                if (null === $scope) { $scoped = array(); break; }
+                $scoped[$scope][] = $variant;
+            }
+            // Footer variants need not agree across devices: compare the ordered
+            // device bundle across routes, preserving each variant's controls.
+            // Headers retain their leading-chrome/overlay absorption contract.
+            $bundle = 'footer' === $area && count($scoped) > 1 && 1 !== count(array_unique($identities)) && str_contains($markup, CaptureEvidence::DOCUMENT_SCOPE);
+            if (!$bundle && 1 !== count(array_unique($identities))) continue;
+            $pieces = array(); $scopeIdentities = array();
+            if ($bundle) {
+                ksort($scoped, SORT_STRING);
+                foreach ($scoped as $scope => $variants) {
+                    if (1 !== count(array_unique(array_column($variants, 'identity_markup')))) continue 2;
+                    $variant = $variants[0];
+                    $scopeIdentities[$scope] = $variant['identity_markup'];
+                    $classes = $variant['ancestor_context']['variant_classes'][$scope] ?? array($scope);
+                    $pieces[] = self::variantVisibilityGroup(implode(' ', $classes), self::landmarkPartMarkup(RestingNavigation::markup($variant['markup']), $area), $variant['ancestor_context']['variant_shells'][$scope] ?? null);
+                }
+            }
             $row = $rows[0];
             if ('header' === $area && 1 === count($rows)) $row = $this->withLeadingHeaderChrome($index, $row);
-            $identity = $row['identity_markup'];
+            $identity = $bundle ? json_encode($scopeIdentities, JSON_THROW_ON_ERROR) : $row['identity_markup'];
             if ('' === $identity) continue;
-            $partMarkup = self::landmarkPartMarkup(RestingNavigation::markup($row['markup']), $area);
+            $partMarkup = $bundle ? implode("\n", $pieces) : self::landmarkPartMarkup(RestingNavigation::markup($row['markup']), $area);
             $additional = array();
             foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
             // The candidate's own block-tree offset is carried forward so removal
             // never needs to re-derive its position by searching for its bytes.
-            $candidates[] = array('document_edge' => $row['document_edge'] ?? false, 'area' => $area, 'markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null) + (isset($row['shared_leading']) ? array('shared_leading' => $row['shared_leading']) : array());
+            $candidates[] = array('document_edge' => $row['document_edge'] ?? false, 'area' => $area, 'markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'device_document_bundle' => $bundle, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null) + (isset($row['shared_leading']) ? array('shared_leading' => $row['shared_leading']) : array());
         }
         return $candidates;
     }
@@ -1800,7 +1821,7 @@ final class ShellExtraction
             $absorbed = null;
             foreach ($withoutShells as $index => $withoutShell) {
                 $variants = $this->scopedVariantLandmarks($pages[$index]['canonical_block_markup'], $area);
-                if ($this->retainsResponsiveVariantLandmark($withoutShell, $area) || (!$inlineShell && is_array($variants) && count($variants) > 1)) {
+                if ($this->retainsResponsiveVariantLandmark($withoutShell, $area) || (!$inlineShell && empty($first['device_document_bundle']) && is_array($variants) && count($variants) > 1)) {
                     $absorbed = $this->absorbResponsiveVariantLandmarks($pages, $cluster['indexes'], $area, $candidates, $withoutShells, $runtimeDeclarations);
                     break;
                 }
@@ -3167,7 +3188,9 @@ final class ShellExtraction
     {
         $canonical = null;
         foreach ($indexes as $index) if (($pages[$index]['source_path'] ?? null) === ($first['source_path'] ?? null)) $canonical = $index;
-        if (null === $canonical || !isset($shellBindings[$canonical]) || !empty($first['nested_shell']) && array() !== ($first['additional_ranges'] ?? array())) return null;
+        // A complete device bundle retains every disjoint variant in the part;
+        // its positioned descendant bindings can move together with that bundle.
+        if (null === $canonical || !isset($shellBindings[$canonical]) || !empty($first['nested_shell']) && empty($first['device_document_bundle']) && array() !== ($first['additional_ranges'] ?? array())) return null;
         $partMarkup = (string) ($first['template_part_markup'] ?? '');
         $keys = null;
         foreach ($indexes as $index) {
@@ -4060,8 +4083,18 @@ final class ShellExtraction
             foreach ($page['shell_candidates'] as &$candidate) {
                 $markup = $candidate['markup'];
                 $rested = $markup;
-                foreach (array_reverse($items($markup, $design($candidate) . "\0" . $candidate['area'], $route)) as $row) {
-                    if (!$row['valid'] || !($row['current'] || ('submenu' === $row['kind'] && $row['holds']))) continue;
+                $rows = $items($markup, $design($candidate) . "\0" . $candidate['area'], $route);
+                // Without an item naming the route, the navigation runtime marks
+                // the item naming its longest ancestor current (the served
+                // section), so that item's captured state rests too.
+                $section = null;
+                if (!array_filter($rows, static fn (array $row): bool => $row['current'])) {
+                    foreach ($rows as $position => $row) {
+                        if ($row['valid'] && $namesAncestor($row['attrs'], $route) && (null === $section || strlen((string) $urlPath($row['attrs'])) > strlen((string) $urlPath($rows[$section]['attrs'])))) $section = $position;
+                    }
+                }
+                foreach (array_reverse($rows, true) as $position => $row) {
+                    if (!$row['valid'] || !($row['current'] || $position === $section || ('submenu' === $row['kind'] && $row['holds']))) continue;
                     // Only one resting look is evidence of the item's own presentation.
                     $rest = $resting[$row['key']] ?? array();
                     if (1 !== count($rest)) continue;

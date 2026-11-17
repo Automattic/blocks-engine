@@ -33,7 +33,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
  */
 final class SharedChromeStylesheets
 {
-    private const GENERATED_CLASS_PATTERN = '/blocks-engine-[a-z-]+-[0-9a-f]{12}-\d+/';
+    // Subject-class projections share the zero-weight marker carrier's cascade.
+    // Lift both together so the later-enqueued chrome sheet preserves source order.
+    private const GENERATED_CLASS_PATTERN = '/blocks-engine-(?:[a-z-]+-[0-9a-f]{12}-\d+|subject-class-[0-9a-f]{12})(?![\w-])/';
 
     private const BOX_PROPERTIES = '/(?:^|[;{\s])(?:(?:max-)?width|z-index|overflow(?:-[xy])?|inset|top|right|bottom|left)\s*:/i';
 

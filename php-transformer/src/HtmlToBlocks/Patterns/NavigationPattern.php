@@ -1802,7 +1802,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
                 continue;
             }
-            if ( ! in_array($navigationContext->resolvedDisplay($child), array( 'inline', 'inline-block' ), true) ) {
+            $display = $navigationContext->resolvedDisplay($child);
+            if ( 'none' === $display ) {
+                continue;
+            }
+            if ( ! in_array($display, array( 'inline', 'inline-block' ), true) ) {
                 return false;
             }
             ++$items;
