@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -232,6 +234,13 @@ final class ImageDimensionResolver
             return '';
         }
         $stylesheet = $this->imageStylesheetDimension($image, $property);
+        if ( $this->percentageRuleMovesToFigure($image, $property, $stylesheet) ) {
+            // The rule's class/id/attribute subject now matches the figure,
+            // which already takes the percentage of the source container.
+            // The image fills that figure; restating the percentage here
+            // would apply it a second time against the figure.
+            return '100%';
+        }
         if ( '' !== $stylesheet ) {
             return $this->imageDimensionValue($stylesheet);
         }
@@ -596,6 +605,27 @@ final class ImageDimensionResolver
         )));
 
         return in_array($value, array( 'auto', 'initial', 'unset' ), true);
+    }
+
+    /**
+     * Whether a winning stylesheet percentage on this axis belongs to a rule
+     * whose subject identity moves to the synthetic figure (see
+     * {@see CssSelectorCompoundInspector::isBareImageSubject()}).
+     */
+    private function percentageRuleMovesToFigure(DOMElement $image, string $property, string $value): bool
+    {
+        if ( 1 !== preg_match('/^(?:\d+|\d*\.\d+)%$/', $value) ) {
+            return false;
+        }
+        $declaration = $this->styles->imageShapeDeclarations($image)[$property] ?? array();
+        $selector = is_array($declaration) ? (string) ($declaration['selector'] ?? '') : '';
+        if ( '' === $selector || ! empty($declaration['inline']) ) {
+            return false;
+        }
+        $parsed = CssSelectorMatcher::parse($selector);
+
+        return (bool) ($parsed['supported'] ?? false)
+            && ! CssSelectorCompoundInspector::isBareImageSubject(CssSelectorCompoundInspector::rightmost($parsed['compounds'] ?? array()));
     }
 
     /** A viewport-invariant source dimension that native core/image can carry. */

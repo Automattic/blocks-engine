@@ -35,8 +35,16 @@ final class AuthoredMarqueeRecognizer
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly RichTextMaterializer $richTextMaterializer,
         private readonly Runtime $runtime,
-        private readonly HtmlTransformerSession $session
+        private readonly HtmlTransformerSession $session,
+        /** @var \Closure(DOMElement, string): string Projects a source element's class onto its emitted carrier. */
+        private readonly \Closure $projectedClassName
     ) {
+    }
+
+    /** Author selectors were rewritten to markers; the emitted element carries them as every block does. */
+    private function carriedClassName(DOMElement $element): string
+    {
+        return trim(($this->projectedClassName)($element, trim(SourceDom::attr($element, 'class'))));
     }
 
     /** @return array<string, mixed>|null */
@@ -96,7 +104,7 @@ final class AuthoredMarqueeRecognizer
             }
             $items[] = array(
                 'content' => $content,
-                'className' => trim(SourceDom::attr($item, 'class')),
+                'className' => $this->carriedClassName($item),
                 'marker' => trim(SourceDom::attr($item, 'data-blocks-engine-richtext-marker')),
             );
         }
@@ -109,8 +117,9 @@ final class AuthoredMarqueeRecognizer
             'duration' => $motion['duration'],
             'decorative' => SourceDom::hasAriaHiddenAncestor($element),
         );
-        if ( '' !== trim(SourceDom::attr($element, 'class')) ) {
-            $attributes['sourceClassName'] = trim(SourceDom::attr($element, 'class'));
+        $sourceClassName = $this->carriedClassName($element);
+        if ( '' !== $sourceClassName ) {
+            $attributes['sourceClassName'] = $sourceClassName;
         }
         $markup = $generator->markup($attributes);
 
@@ -343,8 +352,9 @@ final class AuthoredMarqueeRecognizer
             'direction' => SourceDom::attr($track, 'data-marquee-animation'),
             'duration' => min(600, max(1, $duration)),
         );
-        if ( '' !== trim(SourceDom::attr($element, 'class')) ) {
-            $attributes['sourceClassName'] = trim(SourceDom::attr($element, 'class'));
+        $sourceClassName = $this->carriedClassName($element);
+        if ( '' !== $sourceClassName ) {
+            $attributes['sourceClassName'] = $sourceClassName;
         }
         $markup = ( new AuthoredMarqueeBlockGenerator() )->markup($attributes);
 
@@ -402,7 +412,7 @@ final class AuthoredMarqueeRecognizer
             $items[] = array(
                 'content' => $this->runtime->escapeHtml($entry->text),
                 'tagName' => strtolower($measure->tagName),
-                'className' => trim(SourceDom::attr($measure, 'class')),
+                'className' => $this->carriedClassName($measure),
                 'marker' => trim(SourceDom::attr($measure, 'data-blocks-engine-richtext-marker')),
             );
         }
@@ -416,8 +426,9 @@ final class AuthoredMarqueeRecognizer
             'duration' => min(600, max(1, 40 / (float) $speed)),
             'decorative' => SourceDom::hasAriaHiddenAncestor($element),
         );
-        if ( '' !== trim(SourceDom::attr($element, 'class')) ) {
-            $attributes['sourceClassName'] = trim(SourceDom::attr($element, 'class'));
+        $sourceClassName = $this->carriedClassName($element);
+        if ( '' !== $sourceClassName ) {
+            $attributes['sourceClassName'] = $sourceClassName;
         }
         $markup = $generator->markup($attributes);
         return BlockFactory::leaf($this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME), $attributes, $markup);

@@ -58,7 +58,8 @@ foreach (array('signup', 'features') as $fragment) {
 
 // Each route's own layout places the shared footer: the same rule names the
 // footer on every route but declares that route's grid row. One global rule
-// cannot hold every placement, so each route keeps its own.
+// cannot hold every placement, so each route keeps its own: a page-scoped
+// sheet, or a rule gated to that route in the reconciled inline sheet.
 $placed = static fn (int $row, string $title): string => $page($css . '.page{display:grid}#site-bottom{grid-row:' . $row . ';background:#eee}', $header('', ''), '<h1>' . $title . '</h1>', $footer('signup-row', 'display:grid;width:100%'));
 $placement = $compile(array(
     'index.html' => $placed(9, 'Welcome'),
@@ -71,7 +72,11 @@ foreach (array('index.html' => 9, 'about/index.html' => 2, 'contact/index.html' 
     foreach ($placement['assets'] as $asset) {
         if ('css' !== ($asset['kind'] ?? null) || !preg_match('/grid-row:\s*' . $row . '\b/', (string) ($asset['content'] ?? ''))) continue;
         $scopes = array_column($asset['scopes'] ?? array(), 'source_path');
-        $assert(array($source) === $scopes, "Only {$source} applies its footer placement (row {$row}): " . json_encode($asset['scopes'] ?? null));
+        if (array($source) === $scopes) continue;
+        preg_match_all('/([^{}]*)\{[^{}]*grid-row:\s*' . $row . '\b[^{}]*\}/', (string) $asset['content'], $rules);
+        foreach ($rules[1] as $selector) {
+            $assert(1 === preg_match('/\.be-rs?-[0-9a-f]+/', $selector), "Only {$source} applies its footer placement (row {$row}): " . json_encode($asset['scopes'] ?? null) . ' ' . $selector);
+        }
     }
 }
 

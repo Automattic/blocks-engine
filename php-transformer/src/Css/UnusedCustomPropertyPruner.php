@@ -23,7 +23,7 @@ final class UnusedCustomPropertyPruner
         // Count even references in dead declarations. This deliberately avoids
         // changing fallback/cycle semantics and is conservative across sheets.
         foreach ($stylesheets as $css) {
-            if (preg_match_all('/var\(\s*(--[\w-]+)/', $css, $references)) $this->used += array_fill_keys($references[1], true);
+            if (preg_match_all('/var\(\s*(--[\w-]+)/', $css, $references)) foreach ($references[1] as $name) $this->used[$name] = true;
             (new CssStylesheetTransformer())->visitStyleRules($css, function (string $selector, string $body): void {
                 $this->remember($selector);
                 if (str_contains($body, '\\')) $this->uncertain = true;
@@ -46,7 +46,8 @@ final class UnusedCustomPropertyPruner
 
     private function remember(string $text): void
     {
-        if (preg_match_all('/--[\w-]+/', $text, $names)) $this->used += array_fill_keys($names[0], true);
+        // Set keys in place: a property union (`+=`) copies the whole set.
+        if (preg_match_all('/--[\w-]+/', $text, $names)) foreach ($names[0] as $name) $this->used[$name] = true;
     }
 
     private function isInventory(string $selector): bool
@@ -76,7 +77,9 @@ final class UnusedCustomPropertyPruner
             // captured reader. Only root and universal reset inventories are
             // eligible, never class-, state- or component-scoped declarations. Keep
             // WordPress presets (including isolated source presets) for editor
-            // consumers, and compound values whose binding must stay intact.
+            // consumers. A value's shape does not matter: a font stack, a
+            // gradient or an `r,g,b` triple nothing reads computes nothing,
+            // and every name a value references is itself counted as read.
             // An unread empty reset value is removable too; a read empty
             // value still suppresses var() fallbacks and must be retained.
             $inventory = $this->isInventory($selector);
@@ -84,7 +87,6 @@ final class UnusedCustomPropertyPruner
                 || !str_starts_with($declaration['name'], '--')
                 || str_starts_with($declaration['name'], '--wp--')
                 || str_starts_with($declaration['name'], '--be--source--preset--')
-                || !preg_match('/^[#a-zA-Z0-9.+%-]*$/D', trim($declaration['value']))
                 || isset($this->used[$declaration['name']]));
             if (count($kept) === count($declarations)) return $selector . '{' . $body . '}';
             if (array() === $kept) return '';

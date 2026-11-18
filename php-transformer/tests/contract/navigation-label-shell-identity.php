@@ -154,6 +154,7 @@ class WP_HTML_Tag_Processor
         while (isset($this->nodes[++$this->position])) if (null === $tag || strtolower($tag) === strtolower($this->nodes[$this->position]->tagName)) return true;
         return false;
     }
+    public function get_tag(): string { return strtoupper($this->nodes[$this->position]->tagName); }
     public function get_attribute(string $name): ?string { $node = $this->nodes[$this->position]; return $node->hasAttribute($name) ? $node->getAttribute($name) : null; }
     public function set_attribute(string $name, string $value): void { $this->nodes[$this->position]->setAttribute($name, $value); }
     public function remove_attribute(string $name): void { $this->nodes[$this->position]->removeAttribute($name); }

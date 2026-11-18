@@ -485,6 +485,20 @@ final class RuntimeEntityCollector
             unset($purchaseProduct);
             // A purchase form belongs to shop, not a competing form provider.
             unset($this->forms[$sourcePath . "\n" . $selector]);
+            // Different source-DOM selectors may finalize to the same canonical
+            // placement. Ownership follows that page anchor, not the recognizer's
+            // selector or role; repeated anchors elsewhere remain independent.
+            foreach ( $this->forms as $key => $form ) {
+                if ( $sourcePath !== $form['source_path'] ) continue;
+                foreach ( $form['bindings'] ?? array() as $formBinding ) {
+                    if ( $purchaseBinding['search_block_markup'] === ($formBinding['search_block_markup'] ?? null)
+                        && ($purchaseBinding['occurrence'] ?? 1) === ($formBinding['occurrence'] ?? 1)
+                        && ($purchaseBinding['position'] ?? null) === ($formBinding['position'] ?? null) ) {
+                        unset($this->forms[$key]);
+                        break;
+                    }
+                }
+            }
         }
     }
 
