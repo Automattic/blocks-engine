@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
 
 // Reduced single-page fixture from #6380, including the authored size attributes.
@@ -23,7 +24,7 @@ $assert(! str_contains($result['serialized_blocks'], '<!-- wp:html'), 'The sizer
 $assert(str_contains($result['serialized_blocks'], 'blocks-engine-empty-visual-group'), 'The geometry-bearing empty element survives as an editable group.');
 $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? ''), 'Saved blocks must remain editor-valid.');
 
-// Resolve the actual saved markup, not source styles or internal block attrs.
+// Resolve the actual rendered markup, not source styles or internal block attrs.
 // The cascade supplies declarations; this fixture's simple used-height equation
 // is padding percentage * containing width, with an absolute 100%-height frame.
 $measure = static function (string $html, string $css) use ($assert): float {
@@ -56,6 +57,6 @@ $measure = static function (string $html, string $css) use ($assert): float {
     return $height;
 };
 $before = $measure($source, '');
-$after = $measure($result['serialized_blocks'], implode("\n", array_column($result['assets'], 'content')));
+$after = $measure(IframeEmbedRendererFixture::render($result['serialized_blocks']), implode("\n", array_column($result['assets'], 'content')));
 $assert($after > 0 && abs($after - 464 * 0.740740740741) < 0.01 && abs($after - $before) < 0.01, 'The iframe must resolve to approximately 343.70px, not ' . $after . 'px.');
 echo "Iframe padding sizer: source={$before}px, converted={$after}px\n";
