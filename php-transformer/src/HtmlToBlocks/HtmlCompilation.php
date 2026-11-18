@@ -177,6 +177,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private readonly AuthorLayoutOwnership $authorLayoutOwnership;
     private readonly Elements\LayoutTableLowering $layoutTables;
 
+    private ?Style\BoxTreeScrollAnimationBinding $boxTreeScrollAnimationBinding = null;
+
     /** Author CSS visible to the document, captured once per transform for element-dispatch checks. */
     private string $documentAuthorCss = '';
 
@@ -2160,8 +2162,24 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $viewports = $this->session->boxTreeViewports();
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
-            $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name);
+            $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->session->boxTreeEvidence(...));
+            $scrollAnimation = ($this->boxTreeScrollAnimationBinding ??= new Style\BoxTreeScrollAnimationBinding($this->session))->binding($sourceElement, $observations, $viewports);
+            if (null !== $scrollAnimation) {
+                // The restored binding names the animation, and the transform
+                // it painted at capture is a frozen frame of it, not the
+                // carrier's to restate.
+                $frozen = array_merge(array('animation-name'), array_intersect($scrollAnimation['animated'], array('transform', 'translate', 'rotate', 'scale')));
+                foreach ($observations as &$observation) {
+                    foreach ($frozen as $property) {
+                        if (isset($observation['used_styles'][$property])) $observation['used_styles'][$property] = 'none';
+                    }
+                }
+                unset($observation);
+            }
             $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid);
+            if (null !== $scrollAnimation) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->boxTreeScrollAnimationBinding->carrier($sourceElement, $scrollAnimation, $this->session->layoutGeometryState()));
+            }
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,

@@ -15,6 +15,9 @@ final class LayoutGeometryState
     /** @var array<string, string> */
     private array $carrierSignatures = array();
 
+    /** @var array<string, array{css: string, classes: array<string, true>}> Keyframes by animation name, with the carriers reading them. */
+    private array $keyframes = array();
+
     private readonly GeometryCarrierClassAllocator $carrierClassAllocator;
 
     /** @param array<int, array<string, mixed>> $proofReductions */
@@ -51,6 +54,13 @@ final class LayoutGeometryState
     public function registerRule(string $className, string $rule): void
     {
         $this->rules[$className] = $rule;
+    }
+
+    /** Keyframes a carrier reads, emitted once for every carrier sharing them. */
+    public function registerKeyframes(string $className, string $name, string $css): void
+    {
+        $this->keyframes[$name] ??= array('css' => $css, 'classes' => array());
+        $this->keyframes[$name]['classes'][$className] = true;
     }
 
     public function appendRule(string $className, string $rule): void
@@ -96,6 +106,11 @@ final class LayoutGeometryState
         foreach ($this->rules as $className => $rule) {
             if (isset($tokens[$className])) {
                 $usedRules[] = $rule;
+            }
+        }
+        foreach ($this->keyframes as $keyframes) {
+            if (array() !== array_intersect_key($keyframes['classes'], $tokens)) {
+                $usedRules[] = $keyframes['css'];
             }
         }
 
