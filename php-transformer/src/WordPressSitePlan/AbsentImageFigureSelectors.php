@@ -7,20 +7,18 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 
 /**
- * Projection restates an authored image rule for every native image leaf
- * a source image could become: `.icon.wp-block-image > img` and
- * `.icon.wp-block-image > a > img`, each again for the inline and flex-item
- * figure carriers. Which of them a site has is known only once the plan's
- * markup is final, and core/image saves its figure, with its classes and
- * its link, in that markup.
+ * Projection restates an authored image rule for every native image figure
+ * a source image could become: the plain figure and the inline and flex-item
+ * figure carriers, each with its `> img` and `> a > img` leaves. Which
+ * carriers a site has is known only once the plan's markup is final, and
+ * core/image saves its figure, with its classes, in that markup.
  *
  * An arm is dropped when one of its compounds requires `wp-block-image`
- * with classes no emitted image figure carries together, or when it requires
- * that figure's link (`.wp-block-image > a`) and no figure carrying those
- * classes is linked. Classes a shipped script names, editor and WordPress
- * render classes and state tokens are never required: they may be added
- * where the markup does not show them. The unlinked `> img` leaf is never
- * judged: the editor canvas renders a linked image without its link.
+ * with classes no emitted image figure carries together. Classes a shipped
+ * script names, editor and WordPress render classes and state tokens are
+ * never required: they may be added where the markup does not show them.
+ * The figure's link is never judged: an editor can link any image, so the
+ * linked leaf of a carried figure stays.
  */
 final class AbsentImageFigureSelectors
 {
@@ -29,7 +27,7 @@ final class AbsentImageFigureSelectors
     private const SELECTOR_PSEUDO = array('is', 'where', 'matches', '-webkit-any', '-moz-any');
     private const MAX_ALTERNATIVES = 64;
 
-    /** @var list<array{classes:array<string,true>,linked:bool}> */
+    /** @var list<array<string,true>> */
     private array $figures = array();
     /** @var array<string,true> */
     private array $scriptTokens = array();
@@ -83,12 +81,12 @@ final class AbsentImageFigureSelectors
             $named = preg_match_all('/(?<![\w-])' . self::FIGURE . '(?![\w-])/', $text);
             if (0 === $named) continue;
             $placed = 0;
-            if (preg_match_all('/<[a-zA-Z][\w-]*\s[^<>]*?\bclass\s*=\s*(?:"([^"]*)"|\'([^\']*)\')[^<>]*>(\s*<a[\s>])?/', $text, $matches, PREG_SET_ORDER)) {
+            if (preg_match_all('/<[a-zA-Z][\w-]*\s[^<>]*?\bclass\s*=\s*(?:"([^"]*)"|\'([^\']*)\')[^<>]*>/', $text, $matches, PREG_SET_ORDER)) {
                 foreach ($matches as $match) {
                     $classes = preg_split('/\s+/', trim(($match[1] ?? '') . ($match[2] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: array();
                     if (!in_array(self::FIGURE, $classes, true)) continue;
                     ++$placed;
-                    $pruner->figures[] = array('classes' => array_fill_keys($classes, true), 'linked' => '' !== ($match[3] ?? ''));
+                    $pruner->figures[] = array_fill_keys($classes, true);
                 }
             }
             if ($placed !== $named) return null;
@@ -136,34 +134,31 @@ final class AbsentImageFigureSelectors
         $verdict = false;
         $split = self::split($selector);
         if (null !== $split) {
-            [$compounds, $combinators] = $split;
-            foreach ($compounds as $index => $compound) {
-                $linked = '>' === ($combinators[$index] ?? null) && 1 === preg_match('/^a(?![\w-])/i', $compounds[$index + 1] ?? '');
-                if ($this->deadCompound($compound, $linked)) { $verdict = true; break; }
+            foreach ($split[0] as $compound) {
+                if ($this->deadCompound($compound)) { $verdict = true; break; }
             }
         }
         return $this->verdicts[$selector] = $verdict;
     }
 
-    private function deadCompound(string $compound, bool $linked): bool
+    private function deadCompound(string $compound): bool
     {
         $alternatives = $this->alternatives($compound);
         if (null === $alternatives) return false;
         if (array() === $alternatives) return true;
         foreach ($alternatives as $classes) {
             // An alternative without the figure class is not judged here.
-            if (!isset($classes[self::FIGURE]) || $this->carried($classes, $linked)) return false;
+            if (!isset($classes[self::FIGURE]) || $this->carried($classes)) return false;
         }
         return true;
     }
 
     /** @param array<string,true> $classes */
-    private function carried(array $classes, bool $linked): bool
+    private function carried(array $classes): bool
     {
         $required = array_keys(array_filter($classes, fn (bool $value, string $class): bool => self::FIGURE === $class || !$this->exempt($class), ARRAY_FILTER_USE_BOTH));
         foreach ($this->figures as $figure) {
-            if ($linked && !$figure['linked']) continue;
-            foreach ($required as $class) if (!isset($figure['classes'][$class])) continue 2;
+            foreach ($required as $class) if (!isset($figure[$class])) continue 2;
             return true;
         }
         return false;
