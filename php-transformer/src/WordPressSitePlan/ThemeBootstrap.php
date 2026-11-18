@@ -699,6 +699,33 @@ PHP;
     }
 
     /**
+     * What the front-end bootstrap delivers, without the bytes: the documents
+     * its route table selects (a routed document loads only its own
+     * occurrences, any other falls back to the global resources) and each
+     * enqueue in order. Two asset sets with equal delivery render alike.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $rootDocuments
+     * @return array{routes:list<string>,enqueues:list<array{target_path:string,handle:string,route:?string,condition:string,media:string,fallback:bool}>}
+     */
+    public static function stylesheetDelivery(array $assets, array $pages, array $rootDocuments = array()): array
+    {
+        $routes = array();
+        foreach (array_merge($pages, $rootDocuments) as $page) if (!empty($page['document_metadata']['engine_owned_styles'])) $routes[(string) $page['source_path']] = true;
+        $importLoaded = self::importLoadedStylesheets($assets);
+        $enqueues = array();
+        foreach (self::stylesheetEnqueues($assets, $pages, $rootDocuments) as $enqueue) {
+            if ('editor' === ($enqueue['asset']['stylesheet_target'] ?? 'both') || isset($importLoaded[$enqueue['asset']['target_path']])) continue;
+            if (isset($enqueue['route'])) $routes[(string) $enqueue['route']] = true;
+            $enqueues[] = array('target_path' => (string) $enqueue['asset']['target_path'], 'handle' => (string) $enqueue['handle'], 'route' => isset($enqueue['route']) ? (string) $enqueue['route'] : null, 'condition' => (string) $enqueue['condition'], 'media' => (string) $enqueue['media'], 'fallback' => !empty($enqueue['fallback']));
+        }
+        $routes = array_keys($routes);
+        sort($routes, SORT_STRING);
+        return array('routes' => $routes, 'enqueues' => $enqueues);
+    }
+
+    /**
      * Resource identity owns bytes; a document occurrence owns an enqueue handle.
      * Keep generated support on its existing side of the authored sequence and
      * join projected slices at their source occurrence, including repeated links.
