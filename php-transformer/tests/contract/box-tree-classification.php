@@ -52,5 +52,5 @@ foreach ($cases as $case) {
     $assert($report['projection']['depth'] <= 10 && $report['projection']['groups_per_leaf'] <= 1.1, 'Fixture projection meets depth and wrapper budget');
     unset($artifact['files']['box-tree/index.json']);
     $baseline = $compiler->compile($artifact)->toArray();
-    $assert(count($baseline['blocks']) === count($result['blocks']), 'Restyling retains the classified top-level boxes; collapse is a later slice');
+    $assert(count($baseline['blocks']) === count($result['blocks']), 'Neutral collapse keeps the fixture top-level block count');
 }
