@@ -486,20 +486,40 @@ final class BoxTreeFluidIntent
         // A replaced or attribute-sized element's intrinsic size is not the
         // author's to restate; a pseudo-element is neither.
         if ('' !== $this->pseudo) return $value;
+        // An `auto` height whose every capture is the used width over the used
+        // ratio comes from the box's width and that ratio, not the element's
+        // intrinsic size: the copy derives it from the same width at every
+        // width, as the source did. The ratio is the author's `aspect-ratio`
+        // or the natural one the `width`/`height` attributes state; an author
+        // `height` declaration overrides the `height` attribute itself.
+        if ('height' === $property && 'auto' === $value && $this->ratioSized && $this->ratioDerivesHeight($declared, $width)) return $value;
         if (in_array($property, array('width', 'height'), true) && $this->element->hasAttribute($property)) return null;
-        // An `auto` height under an author ratio comes from the box's width
-        // and that ratio, not the element's intrinsic size: the copy derives
-        // it from the same width at every width, as the source did.
-        if (in_array(strtolower($this->element->tagName), self::REPLACED, true)) {
-            return 'height' === $property && 'auto' === $value && $this->ratioSized && null !== self::ratio((string) $this->declared('aspect-ratio', $width)) ? $value : null;
-        }
+        if (in_array(strtolower($this->element->tagName), self::REPLACED, true)) return null;
         return $value;
     }
 
-    /** A preferred aspect ratio (`4 / 3`, `1.5`) that overrides any natural one, as width over height, or null. */
+    /**
+     * Whether the copy derives an `auto` height from its width as the source
+     * did: through an author `aspect-ratio`, or through the natural ratio of
+     * an image whose `height` attribute an author `height` overrides.
+     */
+    private function ratioDerivesHeight(?string $declared, float $width): bool
+    {
+        if (!in_array(strtolower($this->element->tagName), self::REPLACED, true)) return false;
+        if ($this->element->hasAttribute('height') && null === $declared) return false;
+        if (null !== self::ratio((string) $this->declared('aspect-ratio', $width))) return true;
+        return 'img' === strtolower($this->element->tagName)
+            && null !== self::pixels($this->element->getAttribute('width') . 'px')
+            && null !== self::pixels($this->element->getAttribute('height') . 'px');
+    }
+
+    /**
+     * A used aspect ratio (`4 / 3`, `1.5`, or `auto 4 / 3` for a natural
+     * ratio the attributes state), as width over height, or null.
+     */
     private static function ratio(string $value): ?float
     {
-        if (!preg_match('/^\s*(\d*\.?\d+)\s*(?:\/\s*(\d*\.?\d+)\s*)?$/', $value, $match)) return null;
+        if (!preg_match('/^\s*(?:auto\s+)?(\d*\.?\d+)\s*(?:\/\s*(\d*\.?\d+)\s*)?$/', $value, $match)) return null;
         $height = isset($match[2]) ? (float) $match[2] : 1.0;
         return (float) $match[1] > 0 && $height > 0 ? (float) $match[1] / $height : null;
     }

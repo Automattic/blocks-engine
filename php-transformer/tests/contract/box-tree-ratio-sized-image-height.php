@@ -12,16 +12,20 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 // Its height is its width over that ratio, so the carrier restates `auto` and
 // the copy follows its width at every width, rather than freezing the widest
 // capture's 430.5px at the uncaptured 768px (702x431 for a 702x527 source).
+// The same holds when `width`/`height` attributes state the image's natural
+// ratio and the author's `height:auto` overrides the height attribute
+// (`<img width="1024" height="1024" class="aspect-square w-full">` copied at
+// 342x598 for a 342x342 source at 768px).
 $assert = static function (bool $condition, string $message, string $detail = ''): void {
     if (!$condition) throw new RuntimeException($message . ('' === $detail ? '' : "\n" . $detail));
     echo "PASS: $message\n";
 };
 
 /** The engine CSS the route delivers for one compiled image. */
-$compile = static function (string $class, string $inline, array $heights): string {
+$compile = static function (string $class, string $inline, array $heights, string $attributes = '', string $usedRatio = '4 / 3'): string {
     $author = 'img{display:block;max-width:100%;height:auto}.w-full{width:100%}.aspect-\[4\/3\]{aspect-ratio:4/3}.object-cover{object-fit:cover}';
     $markup = '<!doctype html><html><head><title>Ratio</title><style>' . $author . '</style></head><body><main><section><div class="col">'
-        . '<img src="https://example.com/a.jpg" alt="A" class="' . $class . '"' . ('' === $inline ? '' : ' style="' . $inline . '"') . '></div><p>Text</p></section></main></body></html>';
+        . '<img src="https://example.com/a.jpg" alt="A"' . $attributes . ' class="' . $class . '"' . ('' === $inline ? '' : ' style="' . $inline . '"') . '></div><p>Text</p></section></main></body></html>';
     $viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'mobile' => array('width' => 390, 'height' => 844));
     $widths = array('desktop' => 574, 'mobile' => 348);
     $fixture = json_decode((string) file_get_contents(__DIR__ . '/../fixtures/box-tree/index.json'), true, 32, JSON_THROW_ON_ERROR);
@@ -44,7 +48,7 @@ $compile = static function (string $class, string $inline, array $heights): stri
             if (in_array($element->tagName, array('head', 'title', 'style'), true)) $styles['display'] = 'none';
             if ('div' === $element->tagName) $styles['width'] = $widths[$name] . 'px';
             if ('img' === $element->tagName) $styles = array_replace($styles, array('display' => 'block', 'width' => $widths[$name] . 'px', 'height' => $heights[$name] . 'px',
-                'max-width' => '100%', 'object-fit' => 'cover', 'aspect-ratio' => str_contains($class, 'aspect-') ? '4 / 3' : 'auto'));
+                'max-width' => '100%', 'object-fit' => 'cover', 'aspect-ratio' => str_contains($class, 'aspect-') || '' !== $attributes ? $usedRatio : 'auto'));
             $captures[$name] = array('border_box' => array('x' => 0, 'y' => 0, 'width' => (float) $styles['width'], 'height' => (float) $styles['height']), 'used_styles' => $styles);
         }
         $nodes[$element->getAttribute(BoxTree::NODE_ATTRIBUTE)] = array('children' => $children, 'viewports' => $captures);
@@ -75,3 +79,14 @@ $assert(array('430.5px', '261px') === $heights($css), 'An image with no author r
 // A height its ratio does not explain is not restated as auto.
 $css = $compile('aspect-[4/3] w-full object-cover', 'aspect-ratio: 4 / 3', array('desktop' => 300, 'mobile' => 200));
 $assert(!in_array('auto', $heights($css), true), 'A height its ratio does not produce keeps its captured pixels.', $css);
+
+// The author's `height:auto` overrides the `height` attribute, so an
+// attribute-sized image whose captures obey its ratio follows its width too,
+// whether an author `aspect-ratio` or the attributes' natural ratio sizes it.
+$css = $compile('aspect-[4/3] w-full object-cover', 'aspect-ratio: 4 / 3', array('desktop' => 430.5, 'mobile' => 261), ' width="1024" height="768"');
+$assert(array('auto') === $heights($css), 'An attribute-sized image under an author ratio restates its auto height.', $css);
+$css = $compile('w-full object-cover', '', array('desktop' => 430.5, 'mobile' => 261), ' width="1600" height="1200"', 'auto 1600 / 1200');
+$assert(array('auto') === $heights($css), 'An attribute-sized image at its natural ratio restates its auto height.', $css);
+// Heights the attributes' ratio does not explain keep their captured pixels.
+$css = $compile('w-full object-cover', '', array('desktop' => 300, 'mobile' => 200), ' width="1600" height="1200"', 'auto 1600 / 1200');
+$assert(!in_array('auto', $heights($css), true), 'An attribute-sized image its natural ratio does not explain keeps its captured pixels.', $css);
