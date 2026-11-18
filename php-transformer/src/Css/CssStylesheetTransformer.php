@@ -31,7 +31,7 @@ final class CssStylesheetTransformer
      */
     public function transform(string $stylesheet, callable $transformSelectorPrelude): string
     {
-        if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
+        if ( ! $this->tree($stylesheet)->recoverable ) {
             return $stylesheet;
         }
         return $this->transformRules($stylesheet, $transformSelectorPrelude, null);
@@ -44,7 +44,7 @@ final class CssStylesheetTransformer
      */
     public function transformStyleRules(string $stylesheet, callable $transformStyleRule): string
     {
-        if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
+        if ( ! $this->tree($stylesheet)->recoverable ) {
             return $stylesheet;
         }
         return $this->transformRules($stylesheet, static fn (string $prelude): string => $prelude, $transformStyleRule);
@@ -1598,7 +1598,7 @@ final class CssStylesheetTransformer
         $output = '';
         foreach ($tree->rules($scope) as $rule) {
             ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
-            if (';' === $css[$boundary]) continue;
+            if (';' === $css[$boundary] || $tree->hasInvalidPrelude($start)) continue;
             $prelude = substr($css, $start, $boundary - $start);
             $body = substr($css, $boundary + 1, $end - $boundary - 1);
             $replacement = null;
@@ -1637,7 +1637,7 @@ final class CssStylesheetTransformer
     {
         foreach ($tree->rules($scope) as $rule) {
             ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
-            if (';' === $tree->source[$boundary]) continue;
+            if (';' === $tree->source[$boundary] || $tree->hasInvalidPrelude($start)) continue;
             $prelude = CssSyntaxScanner::withoutComments(substr($tree->source, $start, $boundary - $start));
             $body = substr($tree->source, $boundary + 1, $end - $boundary - 1);
             if ($this->isAtRule($prelude)) {
