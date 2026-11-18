@@ -188,20 +188,18 @@ final class QuotePattern implements PatternRecognizerInterface
         }
         $quoteChildren = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes);
         if ( array() !== $quoteChildren ) {
-            // The paragraph stands for the consumed blockquote, a block box in
-            // flow: its lines take the quotation's line height, not the strut
-            // of the quote block around it, so it is not an inline carrier,
-            // and its margins keep spacing the quotation from the caption.
-            // Its size and paint stay with the quote block.
-            $style = array('typography' => $quotes->figureQuotationTypography($blockquote));
-            $margin = $quotes->figureQuotationMargin($blockquote);
-            if ( array() !== $margin ) {
-                $style['spacing'] = array('margin' => $margin);
+            // An independently sized quotation needs its own line box instead
+            // of the surrounding quote's strut. Otherwise keep the existing
+            // inline synthetic carrier, including its margin-neutral contract.
+            $typography = $quotes->figureQuotationTypography($blockquote);
+            $className = SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS;
+            if ( isset($typography['fontSize']) || isset($typography['lineHeight']) ) {
+                $className .= ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS;
             }
             $quoteChildren[0] = $createBlock('core/paragraph', array(
                 'content' => $value,
-                'className' => SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS,
-                'style' => $style,
+                'className' => $className,
+                'style' => array('typography' => $typography),
             ));
         }
         $innerBlocks = array_merge($innerBlocks, $quoteChildren);

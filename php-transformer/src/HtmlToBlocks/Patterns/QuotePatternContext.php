@@ -35,29 +35,6 @@ final class QuotePatternContext
     }
 
     /**
-     * The blockquote's authored margins, which space the quotation from its
-     * caption inside the figure. The paragraph replacing it is that block box,
-     * so it keeps them; its size and paint stay with the quote.
-     *
-     * @return array<string, string>
-     */
-    public function figureQuotationMargin(DOMElement $blockquote): array
-    {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($blockquote);
-        $margin = array_intersect_key($declarations, array_flip(array(
-            'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-        )));
-        $mapped = $this->styleResolver->styleAttributeMapper()->map(
-            $margin,
-            fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $blockquote)
-        );
-        return array_filter(
-            $mapped['style']['spacing']['margin'] ?? array(),
-            static fn ($value): bool => is_string($value) && 1 !== preg_match('/^0(?:[a-z%]*)$/i', trim($value))
-        );
-    }
-
-    /**
      * The quotation's RichText. Under a clip that author motion carries it
      * across, the text runs the source split with empty comments
      * (`“<!---->{quote}<!---->”`) are painted one by one, so they keep
@@ -82,7 +59,7 @@ final class QuotePatternContext
                 $declarations[$property] = $value;
             }
         }
-        if ( array() !== $declarations ) {
+        if ( isset($declarations['font-size']) || isset($declarations['line-height']) ) {
             // The caption was its own block box; the citation is a <cite>
             // inside the quote. Lay the caption out as a block so its line
             // box takes its own font, not the quote's strut, and cancel the
