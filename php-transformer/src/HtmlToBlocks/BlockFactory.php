@@ -263,9 +263,6 @@ final class BlockFactory
     private function commentAttrs(string $name, array $attrs): array
     {
         unset($attrs['inlineGeometryStyle']);
-        if ( 'core/paragraph' === $name && preg_match('/^\s*<a\b/i', (string) ($attrs['content'] ?? '')) ) {
-            unset($attrs['content']);
-        }
         if ( 'core/cover' === $name && 'px' === ($attrs['minHeightUnit'] ?? null) ) {
             unset($attrs['minHeightUnit']);
         }
