@@ -637,7 +637,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime,
             $this->sourceTagProjectedClone(...),
             fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' )),
-            $this->richTextStylingHooks->inlineContent(...)
+            $this->richTextStylingHooks->inlineContent(...),
+            $this->wrapperCoalescer
         );
         $this->projectedNavigation = new ProjectedNavigationConverter(
             $this->navigationToggleSuppressor,
@@ -1220,6 +1221,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $timer->start('transform.source_normalization');
         SourceDom::removeIntegerKeyAttributes($body);
+        SourceDom::removeNonRenderingSvgAttributes($body);
         SourceDom::unwrapLineBreakOnlyLinks($body);
         SourceDom::normalizeHashbangPlaceholders($body);
         // Resolve before dispatch: controls, rich text, and preserved markup

@@ -760,9 +760,11 @@ final class ShellExtraction
         $lead = 0;
         while ($lead < count($ranges) - 1 && self::isEmptyVisualGroup(substr($markup, $ranges[$lead]['offset'], $ranges[$lead]['length']))) ++$lead;
         // A text-only announcement bar above the navigation is part of the
-        // masthead: the header runs from it through the navigation block.
+        // masthead: the header runs from it through the navigation block,
+        // whether it opens the main landmark or the document itself.
         $navAt = $lead;
-        while (self::leadsMainDocument($index, $ranges[$lead]['offset']) && $navAt < $lead + 2 && $navAt < count($ranges) - 1 && self::isLeadingAnnouncement(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) ++$navAt;
+        $leadsDocument = self::leadsMainDocument($index, $ranges[$lead]['offset']) || in_array($ranges[$lead], $index->topLevel(), true);
+        while ($leadsDocument && $navAt < $lead + 2 && $navAt < count($ranges) - 1 && self::isLeadingAnnouncement(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) ++$navAt;
         if (!self::containsNavigation(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) $navAt = $lead;
         if (2 <= count($ranges) - $navAt) {
             $head = $ranges[$navAt];
@@ -1035,6 +1037,42 @@ final class ShellExtraction
         return $main;
     }
 
+    /**
+     * A header nested in a body-level view that comes after a body-level
+     * <nav> sibling belongs to that view (an SPA page, a panel), not to the
+     * site chrome: the leading <nav> already is the masthead. Only a sibling
+     * whose own element is the nav landmark counts, so capture-variant
+     * documents and site wrappers never qualify as that earlier chrome, and a
+     * header that opens its own wrapper ahead of a main landmark never matches.
+     */
+    private static function followsDocumentNavigation(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $row): bool
+    {
+        if (!empty($row['document_level'])) return false;
+        $navBefore = false;
+        foreach ($index->topLevel() as $range) {
+            if ($range['offset'] + $range['length'] <= $row['offset']) {
+                $navBefore = $navBefore || self::isNavLandmarkBlock(substr($index->markup, $range['offset'], $range['length']));
+                continue;
+            }
+            if ($range['offset'] > $row['offset']) return false;
+            if (!$navBefore) return false;
+            // The view wrapping the header: a header followed by a main
+            // landmark in that wrapper is the wrapper's own masthead.
+            $after = substr($index->markup, $row['offset'] + $row['length'], $range['offset'] + $range['length'] - $row['offset'] - $row['length']);
+            return 1 !== preg_match('/<!--\s*wp:[a-z\/-]+\s+\{[^}]*"tagName":"main"/', $after) && !str_contains($after, '<main');
+        }
+        return false;
+    }
+
+    /** A body-level block whose own element is the navigation landmark. */
+    private static function isNavLandmarkBlock(string $block): bool
+    {
+        if (1 === preg_match('/^<!--\s*wp:navigation(?:\s|\{|\/)/', ltrim($block))) return true;
+        if (1 !== preg_match('/^<!--\s*wp:[a-z\/-]+\s+(\{.*?\})\s*\/?-->/s', ltrim($block), $match)) return false;
+        $attrs = json_decode($match[1], true);
+        return is_array($attrs) && 'nav' === ShellLandmarkPolicy::landmarkKind((string) ($attrs['tagName'] ?? ''), (string) ($attrs['role'] ?? ''));
+    }
+
     private static function isHeadingBlock(string $markup): bool
     {
         return 1 === preg_match('/^<!--\s*wp:heading(?:\s|\{)/', ltrim($markup));
@@ -1048,6 +1086,7 @@ final class ShellExtraction
         foreach (array('header', 'footer') as $area) {
             if (in_array($area, $occupiedAreas, true)) continue;
             $rows = $this->nestedLandmarkCandidates($index, $sourcePath, $area);
+            if ('header' === $area) $rows = array_values(array_filter($rows, static fn(array $row): bool => !self::followsDocumentNavigation($index, $row)));
             if (array() === $rows) continue;
             if (!empty($rows[0]['document_level']) && 1 < count($rows)) continue;
             $identities = array_column($rows, 'identity_markup');
