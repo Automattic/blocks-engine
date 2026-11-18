@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Closure;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -489,6 +490,28 @@ final class AuthorSelectorProjectionState
     public function controlMarker(string $path): string
     {
         return $this->controlMarkers[$path] ?? '';
+    }
+
+    /**
+     * Class tokens a captured viewport entrance replays on the control that
+     * owns `$marker`: the tokens its before and after class poses disagree on.
+     *
+     * @return list<string>
+     */
+    public function controlEntranceClasses(string $marker): array
+    {
+        $path = array_search($marker, $this->controlMarkers, true);
+        $element = false === $path ? null : $this->authorStyles?->sourceElementAtPath((string) $path);
+        if ( null === $element || ! $element->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) ) {
+            return array();
+        }
+        $pose = json_decode($element->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true)['attributes']['class'] ?? null;
+        if ( ! is_array($pose) ) {
+            return array();
+        }
+        $before = SourceDom::tokens((string) ($pose['before'] ?? ''));
+        $after = SourceDom::tokens((string) ($pose['after'] ?? ''));
+        return array_values(array_unique(array_merge(array_diff($before, $after), array_diff($after, $before))));
     }
 
     /**
