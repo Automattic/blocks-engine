@@ -21,8 +21,9 @@ final class BoxTreeStyleProjector
      * @param string $blockName The block carrying the rule, whose WordPress base styles a pruned declaration falls back to.
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid Lifted author values: property => bands, widest
      *        first, each [max-width (null for the base rule), value] ({@see BoxTreeFluidIntent::lift()}).
+     * @param string $sourceTagName The observed source element, whose user-agent defaults are not the carrier's.
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array()): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), string $sourceTagName = ''): array
     {
         if (array() === $observations) return $attrs;
         $keys = array_keys($observations);
@@ -32,7 +33,7 @@ final class BoxTreeStyleProjector
         $tagName = self::emittedTag($blockName, $attrs);
         foreach ($keys as $key) {
             $parent = $parents[$key]['used_styles'] ?? null;
-            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
+            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName, $sourceTagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, $fluid);
@@ -234,7 +235,7 @@ final class BoxTreeStyleProjector
     private function rule(string $selector, array $styles): string
     {
         $declarations = array();
-        foreach (self::withUniformBorder($styles) as $name => $value) {
+        foreach (self::withSideShorthands(self::withUniformBorder($styles)) as $name => $value) {
             // Evidence is external input, not trusted stylesheet syntax.
             if (preg_match('/[{};<>]/', $value) || str_contains($value, '/*')) continue;
             $declarations[] = $name . ':' . $value;
@@ -278,6 +279,93 @@ final class BoxTreeStyleProjector
             }
         }
         return $folded;
+    }
+
+    /**
+     * Longhand families evidence records per side or axis, and the shorthand
+     * that sets exactly that family: shorthand => [longhands in shorthand
+     * order, value form, pattern of properties whose order relative to the
+     * family matters].
+     */
+    private const SIDE_SHORTHANDS = array(
+        'margin' => array(array('margin-top', 'margin-right', 'margin-bottom', 'margin-left'), 'box', '/^margin/'),
+        'padding' => array(array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'), 'box', '/^padding/'),
+        'inset' => array(array('top', 'right', 'bottom', 'left'), 'box', '/^(?:inset|top|right|bottom|left)(?:-|$)/'),
+        'gap' => array(array('row-gap', 'column-gap'), 'pair', '/^(?:grid-)?(?:row-|column-)?gap$/'),
+        'overflow' => array(array('overflow-x', 'overflow-y'), 'pair', '/^overflow(?:-|$)/'),
+        'place-self' => array(array('align-self', 'justify-self'), 'pair', '/^(?:place|align|justify)-self$/'),
+        'grid-row' => array(array('grid-row-start', 'grid-row-end'), 'slash', '/^grid(?:-row|-area)?(?:-start|-end)?$/'),
+        'grid-column' => array(array('grid-column-start', 'grid-column-end'), 'slash', '/^grid(?:-column|-area)?(?:-start|-end)?$/'),
+    );
+
+    /**
+     * Evidence records every side and axis as its own longhand, so a carrier
+     * restates `margin-top`, `margin-right`, ... where one shorthand sets the
+     * same longhands. A family present in full folds into its shorthand at
+     * the first longhand's place; the declarations it sets are exactly the
+     * folded ones, so the cascade is unchanged. A family stays as longhands
+     * when it is partial, when the shorthand is already declared, when a
+     * property it overlaps sits between its longhands (its relative order
+     * would change), or when a value could not be a shorthand component: a
+     * CSS-wide keyword, a substitution that may expand to several tokens, a
+     * multi-token value, or an `!important`.
+     *
+     * @param array<string, string> $styles
+     * @return array<string, string>
+     */
+    private static function withSideShorthands(array $styles): array
+    {
+        foreach (self::SIDE_SHORTHANDS as $shorthand => [$longhands, $form, $overlap]) {
+            if (isset($styles[$shorthand])) continue;
+            $values = array();
+            foreach ($longhands as $longhand) {
+                $value = $styles[$longhand] ?? null;
+                if (null === $value || !self::isShorthandComponent($value, 'slash' !== $form)) continue 2;
+                $values[] = trim($value);
+            }
+            $names = array_keys($styles);
+            $positions = array_map(static fn(string $longhand): int => (int) array_search($longhand, $names, true), $longhands);
+            $first = min($positions);
+            foreach (array_slice($names, $first, max($positions) - $first + 1) as $name) {
+                if (!in_array($name, $longhands, true) && 1 === preg_match($overlap, $name)) continue 2;
+            }
+            $folded = array();
+            foreach ($styles as $name => $declared) {
+                if ($names[$first] === $name) $folded[$shorthand] = self::shorthandValue($values, $form);
+                elseif (!in_array($name, $longhands, true)) $folded[$name] = $declared;
+            }
+            $styles = $folded;
+        }
+        return $styles;
+    }
+
+    /** Whether a longhand value can stand as one component of its shorthand. */
+    private static function isShorthandComponent(string $value, bool $singleToken): bool
+    {
+        $value = trim($value);
+        if ('' === $value || str_contains($value, '!') || str_contains($value, '/')) return false;
+        if (in_array(strtolower($value), array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) return false;
+        if (1 === preg_match('/\b(?:var|env|attr)\(/i', $value)) return false;
+        // Outside parentheses a component is one token (a grid line like
+        // `span 2` is the exception the slash form keeps apart).
+        $depth = 0;
+        foreach (str_split($value) as $char) {
+            if ('(' === $char) ++$depth;
+            elseif (')' === $char) --$depth;
+            elseif (0 === $depth && ctype_space($char) && $singleToken) return false;
+        }
+        return 0 === $depth;
+    }
+
+    /** @param list<string> $values Longhand values in shorthand order. */
+    private static function shorthandValue(array $values, string $form): string
+    {
+        if ('slash' === $form) return $values[0] . ' / ' . $values[1];
+        if ('pair' === $form) return $values[0] === $values[1] ? $values[0] : $values[0] . ' ' . $values[1];
+        [$top, $right, $bottom, $left] = $values;
+        if ($right !== $left) return implode(' ', $values);
+        if ($top !== $bottom) return $top . ' ' . $right . ' ' . $bottom;
+        return $top === $right ? $top : $top . ' ' . $right;
     }
 
     /** @return array{0:string,1:string,2:string}|null Width, style and color of a side border value. */

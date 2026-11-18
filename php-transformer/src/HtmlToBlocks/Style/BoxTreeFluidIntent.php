@@ -112,6 +112,13 @@ final class BoxTreeFluidIntent
         'left' => array('auto', 'inset-inline', 'inset-inline-start'),
     );
 
+    /** Physical size => the logical size that sets it (horizontal writing mode). */
+    private const LOGICAL_SIZES = array(
+        'width' => 'inline-size', 'height' => 'block-size',
+        'min-width' => 'min-inline-size', 'min-height' => 'min-block-size',
+        'max-width' => 'max-inline-size', 'max-height' => 'max-block-size',
+    );
+
     private const GRID_TEMPLATES = array('grid-template-columns', 'grid-template-rows', 'grid-auto-columns', 'grid-auto-rows');
 
     /** Sizes whose `%` basis the rebuilt ancestor chain reproduces, so the author's `%` is restated as written. */
@@ -301,7 +308,8 @@ final class BoxTreeFluidIntent
     {
         [$initial] = self::INTRINSIC[$property];
         foreach (array_slice(self::INTRINSIC[$property], 1) as $alias) {
-            if (null !== $this->declared($alias, $width)) return null;
+            // declared() resolves the logical size itself.
+            if ($alias !== (self::LOGICAL_SIZES[$property] ?? null) && null !== $this->declared($alias, $width)) return null;
         }
         $grid = in_array($property, self::GRID_TEMPLATES, true);
         $offset = in_array($property, self::OFFSETS, true);
@@ -406,6 +414,10 @@ final class BoxTreeFluidIntent
     {
         $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width);
         $order = array_flip(array_keys($winners));
+        // A logical size (`inline-size:100%`) sets the physical one in a
+        // horizontal writing mode; the later of the two in the cascade wins.
+        $logical = self::LOGICAL_SIZES[$property] ?? null;
+        if (null !== $logical && isset($order[$logical]) && (!isset($order[$property]) || $order[$logical] > $order[$property])) $property = $logical;
         $shorthand = self::SHORTHANDS[$property] ?? null;
         $fromShorthand = null !== $shorthand && isset($order[$shorthand]) && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
         $name = $fromShorthand ? $shorthand : $property;

@@ -626,8 +626,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->emptyVisualRetention->shouldPreserveEmptyVisualElement(...),
             $emptyVisualSpacers->emptyVisualSpacerBlock(...),
             $this->session->rememberNativeDisclosure(...),
-            $this->runtimeIslands->retainsRuntimeTextLeafInRichText(...),
-            fn (DOMElement $element): array => $this->session->authorSelectorProjectionState()->semanticMarkersForElement($element)
+            $this->runtimeIslands->retainsRuntimeTextLeafInRichText(...)
         ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector);
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $formControlMetadataBuilder,
@@ -1903,6 +1902,55 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /** The nearest source ancestor that emits a block: neutral boxes are skipped. */
+    /** Container longhands that lay out a box's children. */
+    private const LIST_NAVIGATION_CONTAINER_PROPERTIES = array( 'display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-content', 'row-gap', 'column-gap', 'grid-template-columns', 'grid-template-rows', 'grid-auto-flow', 'grid-auto-columns', 'grid-auto-rows', 'justify-items' );
+
+    /**
+     * A list navigation's item container renders `display:contents`, so its
+     * host lays out the items the source list did. When the host lowers from
+     * a wrapper of that list (`nav > ul`), the wrapper's observed box (a
+     * block) would stack the items; the host takes the list's observed
+     * container layout instead. A hidden host keeps its own display.
+     *
+     * @param array<string, mixed> $attrs
+     * @param array<string, array<string, mixed>> $observations
+     * @return array<string, array<string, mixed>>
+     */
+    private function listNavigationHostObservations(string $name, array $attrs, DOMElement $sourceElement, array $observations): array
+    {
+        $classes = SourceDom::tokens((string) ($attrs['className'] ?? ''));
+        if ( 'core/navigation' !== $name || array() === $observations
+            || ! in_array('blocks-engine-list-navigation', $classes, true)
+            || in_array('blocks-engine-native-responsive-navigation', $classes, true)
+            || in_array(strtolower($sourceElement->tagName), array( 'ul', 'ol' ), true) ) {
+            return $observations;
+        }
+        $list = null;
+        foreach ( $sourceElement->getElementsByTagName('*') as $descendant ) {
+            if ( in_array(strtolower($descendant->tagName), array( 'ul', 'ol' ), true) ) {
+                $list = $descendant;
+                break;
+            }
+        }
+        if ( ! $list instanceof DOMElement ) {
+            return $observations;
+        }
+        $listObservations = $this->session->boxTreeEvidence($list);
+        foreach ( $observations as $key => $observation ) {
+            $host = $observation['used_styles'] ?? null;
+            $source = $listObservations[$key]['used_styles'] ?? null;
+            if ( ! is_array($host) || ! is_array($source) || 'none' === ($host['display'] ?? '') || 'none' === ($source['display'] ?? '') ) {
+                continue;
+            }
+            foreach ( self::LIST_NAVIGATION_CONTAINER_PROPERTIES as $property ) {
+                if ( isset($source[$property]) ) {
+                    $observations[$key]['used_styles'][$property] = $source[$property];
+                }
+            }
+        }
+        return $observations;
+    }
+
     private function blockParentElement(DOMElement $element): ?DOMElement
     {
         $parent = $element->parentNode;
@@ -2157,12 +2205,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
-            $observations = $this->session->boxTreeEvidence($sourceElement);
+            $observations = $this->listNavigationHostObservations($name, $attrs, $sourceElement, $this->session->boxTreeEvidence($sourceElement));
             $viewports = $this->session->boxTreeViewports();
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
             $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->session->boxTreeEvidence(...));
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid);
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $sourceTagName);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,

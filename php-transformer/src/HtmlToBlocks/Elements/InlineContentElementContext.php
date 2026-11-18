@@ -21,7 +21,6 @@ final class InlineContentElementContext
      * @param Closure(DOMElement): array<string, mixed> $emptyVisualSpacerBlock
      * @param (Closure(DOMElement): void)|null $rememberNativeDisclosureRoot
      * @param (Closure(DOMElement): bool)|null $retainsRuntimeTextLeafInRichText
-     * @param (Closure(DOMElement): list<string>)|null $semanticMarkerClasses
      */
     public function __construct(
         private readonly PatternTreeConverter $tree,
@@ -35,8 +34,7 @@ final class InlineContentElementContext
         private readonly Closure $shouldPreserveEmptyVisualElement,
         private readonly Closure $emptyVisualSpacerBlock,
         private readonly ?Closure $rememberNativeDisclosureRoot = null,
-        private readonly ?Closure $retainsRuntimeTextLeafInRichText = null,
-        private readonly ?Closure $semanticMarkerClasses = null
+        private readonly ?Closure $retainsRuntimeTextLeafInRichText = null
     ) {
     }
 
@@ -50,8 +48,6 @@ final class InlineContentElementContext
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
     public function positionedInlineCarrierBlock(DOMElement $element, array &$fallbacks): ?array { return ($this->positionedInlineCarrierBlock)($element, $fallbacks); }
     public function hasAuthorSemanticMarker(DOMElement $element): bool { return ($this->hasAuthorSemanticMarker)($element); }
-    /** @return list<string> Classes author rules projected onto this element's semantic carrier. */
-    public function semanticMarkerClasses(DOMElement $element): array { return null === $this->semanticMarkerClasses ? array() : ($this->semanticMarkerClasses)($element); }
 
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
     public function convertChildren(DOMElement $element, array &$fallbacks): array { return $this->tree->children($element, $fallbacks, true); }

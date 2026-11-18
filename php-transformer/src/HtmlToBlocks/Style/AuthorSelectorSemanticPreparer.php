@@ -259,7 +259,6 @@ final class AuthorSelectorSemanticPreparer
                 if ( '' !== $path
                     && $this->context->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($element)
                     && ! $this->isPhrasingWithinHeading($element)
-                    && ! $this->isPhrasingWithinQuotation($element)
                     && ! $this->isQuoteCitation($element)
                     && ! $projections->isControlPath($parentPath)
                     && ! ('' !== $projections->richTextMarker($path) && SourceDom::ancestorElement($element, 'label') instanceof DOMElement)
@@ -655,8 +654,6 @@ final class AuthorSelectorSemanticPreparer
      * shells, inline anchors) retain their attributes and the original
      * selector keeps matching them.
      */
-    /** Tags that send a blockquote through child lowering instead of one RichText paragraph ({@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern}). */
-    private const QUOTATION_STRUCTURAL_TAG = '/^(?:address|article|aside|blockquote|details|div|dl|figure|h[1-6]|hr|main|menu|nav|ol|p|pre|section|table|ul)$/i';
     private const GROUPED_CONTAINER_TAGS = array( 'div', 'section', 'article', 'aside', 'main', 'header', 'footer', 'nav', 'figure', 'form', 'ul', 'ol', 'li' );
 
     /**
@@ -936,33 +933,6 @@ final class AuthorSelectorSemanticPreparer
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
             $tag = strtolower($parent->tagName);
             if ( 1 === preg_match('/^h[1-6]$/', $tag) ) {
-                return true;
-            }
-            if ( ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
-                return false;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * A blockquote holding only phrasing content lowers to core/quote with
-     * that content as one paragraph's RichText (QuotePattern). A block-display
-     * span in it (a decorative opening quote mark) stays an inline element of
-     * that RichText, so its rules must keep its RichText hook rather than be
-     * scoped behind a carrier paragraph that is never emitted.
-     */
-    private function isPhrasingWithinQuotation(DOMElement $element): bool
-    {
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            $tag = strtolower($parent->tagName);
-            if ( 'blockquote' === $tag ) {
-                foreach ( $parent->getElementsByTagName('*') as $descendant ) {
-                    if ( 1 === preg_match(self::QUOTATION_STRUCTURAL_TAG, $descendant->tagName) ) {
-                        return false;
-                    }
-                }
                 return true;
             }
             if ( ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
