@@ -554,7 +554,9 @@ final class SitePlanRun
             // (`100 * 1vw * 1`, `- 0px`); each carrier and breakpoint repeats
             // that spelling, so it is written once at its smallest form.
             $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet($asset['content'])));
-            if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
+            // Inline source sheets are projected like linked ones: a motion
+            // or state rule restated per subject ships its block once.
+            if (in_array($asset['source'] ?? null, array('files', 'inline-style'), true)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
             // Fold independent support carriers, not structural roots or native
             // descendants whose standalone rules are consumed by other stages.
             if ('engine-support' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted, false, true);
