@@ -2053,7 +2053,10 @@ final class AuthorStylesheetProjector
                 $retained[] = $declaration;
             }
         }
-        $original = CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context)) ?? array();
+        // Semantic and RichText arms take one shape whatever the rule
+        // declares, so the placement arm names their subjects like the rule's
+        // own projection rather than listing every carrier on the page.
+        $original = CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context, false, false, true)) ?? array();
         // Only an arm whose subject can be the synthetic figure (a figure,
         // an untyped compound, or an image whose identity moved to it) needs
         // the guard; a typed `body`/`p` subject never matches that wrapper.
