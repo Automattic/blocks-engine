@@ -43,7 +43,11 @@ $assert(! str_contains(IframeEmbedRendererFixture::render($unsafe), '<iframe'), 
 
 // The editor previews the imported URL through the theme's embed handler.
 IframeEmbedRendererFixture::load($markup);
-$assert(str_contains((string) IframeEmbedRendererFixture::handlerHtml($url), '<iframe src="https://maps.google.com/maps?ll='), 'the embed handler answers the imported frame URL');
+// Its preview is the recorded source frame, not WordPress's default embed box.
+$assert(
+    '<iframe src="https://maps.google.com/maps?ll=40.720896%2C-74.001037&amp;z=12&amp;t=m&amp;hl=en&amp;output=embed" width="701" height="408" style="max-width:100%"></iframe>' === IframeEmbedRendererFixture::handlerHtml($url, array( 'width' => 500, 'height' => 750 )),
+    'the embed handler previews the imported URL as its recorded source frame'
+);
 $assert(null === IframeEmbedRendererFixture::handlerHtml('https://example.test/other'), 'the embed handler is limited to imported frame URLs');
 
 // The site plan bootstrap ships the runtime only for documents that carry a frame.

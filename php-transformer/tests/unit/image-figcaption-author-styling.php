@@ -125,7 +125,10 @@ $issueResult = ( new HtmlTransformer() )->transform($issuePage, array())->toArra
 $issueMarkup = (string) ($issueResult['serialized_blocks'] ?? '');
 $assert(2 === preg_match_all('/<!-- wp:image /', $issueMarkup), 'the issue reduction produces two native images', $issueMarkup);
 $assert(str_contains($issueMarkup, '<figcaption class="wp-element-caption">Weddings</figcaption>'), 'the issue caption matches core save exactly', $issueMarkup);
-$assert(2 === substr_count($issueMarkup, 'object-fit:cover;width:100%;height:auto'), 'both issue images emit core save width-only styles', $issueMarkup);
+// The first image's height attribute is the presentational hint for CSS
+// height beside the `w-full` width, so it is the used height (#6498).
+$assert(str_contains($issueMarkup, 'aspect-ratio:4/3;object-fit:cover;width:100%;height:600px'), 'the hinted issue image emits core save width and height styles', $issueMarkup);
+$assert(1 === substr_count($issueMarkup, 'object-fit:cover;width:100%;height:auto'), 'the width-only issue image emits core save width-only styles', $issueMarkup);
 $assert(! str_contains($issueMarkup, 'captionClassName'), 'the issue reduction never serializes captionClassName', $issueMarkup);
 $issueDocument = new DOMDocument();
 $issueDocument->loadHTML('<?xml encoding="utf-8" ?>' . $issueMarkup, LIBXML_NOERROR | LIBXML_NOWARNING);

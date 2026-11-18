@@ -848,6 +848,18 @@ final class PresetBinding
             $literal = $style->color->{$key} ?? null;
             if ($buttonLook && null === $literal && $this->matchesButtonElement($property, (string) ($observed[$observedProperty] ?? ''))) continue;
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
+            $blockSlug = is_string($literal) ? $this->system->blockColorSlug($this->resolve($literal)) : null;
+            if (null !== $blockSlug) {
+                // A block-only token names this literal where it stands: the
+                // inline declaration keeps its cascade slot, so state, media
+                // and class rules resolve exactly as before. A literal an
+                // author class on this block declares is that class's value,
+                // not block-only evidence, and stays as authored.
+                if ($this->classDeclaresColor($property, $tokens)) continue;
+                if ($this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $blockSlug, $d->declarations, $property, $literal)) ++$d->bound;
+                else $this->refuse($reason ?? 'inconsistent_source');
+                continue;
+            }
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $added = array($flagClass, sprintf($presetClass, '%s'));
             $observation = $observed[$observedProperty] ?? null;
@@ -1270,6 +1282,14 @@ final class PresetBinding
     }
 
     /** Compare complete stacks, not just the primary family. */
+    private function presetHoldsFamily(string $slug, string $family): bool
+    {
+        foreach ($this->system->fontFamilies as $preset) {
+            if ($preset['slug'] === $slug) return $this->sameFont($family, $preset['fontFamily']);
+        }
+        return false;
+    }
+
     private function sameFont(string $a, string $b): bool
     {
         return '' !== DesignSystem::familyKey($a) && DesignSystem::familyKey($a) === DesignSystem::familyKey($b)
@@ -1470,8 +1490,10 @@ final class PresetBinding
             foreach ($this->system->fontFamilies as $preset) {
                 if (null !== $slug && $preset['slug'] === $slug && $this->sameFont($family, $preset['fontFamily'])) {
                     ++$this->bound;
+                    // The stack is the preset's own value, which theme.json
+                    // always defines: a fallback would restate it.
                     return self::sourcePresets($parts[0]) . ':' . self::sourcePresets(substr($value, 0, $familyOffset))
-                        . 'var(--wp--preset--font-family--' . $slug . (0 === $familyOffset ? ',' . self::sourcePresets($family) : '') . ')' . $important;
+                        . 'var(--wp--preset--font-family--' . $slug . ')' . $important;
                 }
             }
         }
@@ -1512,7 +1534,11 @@ final class PresetBinding
         // font size, not the document's root, so such a preset would rescale it.
         if ($rootSelector && 'font-size' === $kind && self::rootRelativePreset($this->system->fontSizes, $slug)) return $declaration;
         ++$this->bound;
-        return self::sourcePresets($parts[0]) . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . ',' . self::sourcePresets($value) . ')' . $important;
+        // A font stack the preset already holds needs no fallback: theme.json
+        // defines every font-family preset, so the restated stack is dead
+        // weight repeated on every rule. A different stack stays the fallback.
+        $fallback = 'font-family' === $kind && $this->presetHoldsFamily($slug, $value) ? '' : ',' . self::sourcePresets($value);
+        return self::sourcePresets($parts[0]) . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . $fallback . ')' . $important;
     }
 
     /**
@@ -1881,6 +1907,23 @@ final class PresetBinding
      *
      * @param array<string,true> $tokens
      */
+    /**
+     * Whether an unconditional single-class rule for one of this block's
+     * author classes declares the colour property.
+     *
+     * @param array<string,true> $tokens
+     */
+    private function classDeclaresColor(string $property, array $tokens): bool
+    {
+        foreach ($this->classColors as $class => $properties) {
+            if (!isset($tokens['class:' . $class]) && !isset($tokens['class:' . EngineMarker::subjectClassClass($class)])) continue;
+            foreach ('background-color' === $property ? array('background-color', 'background') : array($property) as $candidate) {
+                if (array() !== ($properties[$candidate] ?? array())) return true;
+            }
+        }
+        return false;
+    }
+
     private function rendersThroughClass(string $name, string $property, string $literal, array $tokens): bool
     {
         if ('button' !== $name) return false;
