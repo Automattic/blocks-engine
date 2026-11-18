@@ -157,6 +157,12 @@ final class SourceShells
                 // only on routes where it observed that state. This transport
                 // payload is not authored shell structure. Keep it when this
                 // method is used to prepare emission (ignoreViewportEntrance=false).
+                $resting = json_decode($node->getAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE), true);
+                if (is_array($resting['rest']['class'] ?? null) && is_array($resting['current']['class'] ?? null)) {
+                    $tokens = SourceDom::tokens($node->getAttribute('class'));
+                    $tokens = array_values(array_unique(array_merge(array_diff($tokens, $resting['current']['class']), $resting['rest']['class'])));
+                    $node->setAttribute('class', implode(' ', $tokens));
+                }
                 $node->removeAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE);
                 // A selector-resolved dialog ancestor can sit at a different
                 // depth on each route. Its state is shared; the distance from
