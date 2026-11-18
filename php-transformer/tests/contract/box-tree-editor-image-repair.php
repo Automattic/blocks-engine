@@ -19,7 +19,7 @@ $assert = static function (bool $ok, string $message): void {
 $html = file_get_contents(__DIR__ . '/../fixtures/box-tree/index.html');
 $tree = json_decode(file_get_contents(__DIR__ . '/../fixtures/box-tree/index.json'), true, 32, JSON_THROW_ON_ERROR);
 $html = str_replace('</head>', '<link data-blocks-engine-node-id="styles" rel="stylesheet" href="author.css"></head>', $html);
-$html = str_replace('</main>', '<a data-blocks-engine-node-id="n8" class="button" href="/about/">Read more<div data-blocks-engine-node-id="n9" class="icon"><svg data-blocks-engine-node-id="n10" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="M0 8h16"/></svg></div></a></main>', $html);
+$html = str_replace('</main>', '<a data-blocks-engine-node-id="n8" class="button" href="/about/">Read more<div data-blocks-engine-node-id="n9" class="icon"><svg data-blocks-engine-node-id="n10" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path data-blocks-engine-node-id="n11" d="M0 8h16"/></svg></div></a></main>', $html);
 $tree['source_hash'] = hash('sha256', $html);
 $tree['nodes']['n2']['children'][] = 'styles';
 $tree['nodes']['styles'] = array('children' => array(), 'viewports' => $tree['nodes']['n3']['viewports']);
@@ -32,7 +32,8 @@ foreach ($hidden as &$viewport) {
 }
 unset($viewport);
 $tree['nodes']['n9'] = array('children' => array('n10'), 'viewports' => $hidden);
-$tree['nodes']['n10'] = array('children' => array(), 'viewports' => $hidden);
+$tree['nodes']['n10'] = array('children' => array('n11'), 'viewports' => $hidden);
+$tree['nodes']['n11'] = array('children' => array(), 'viewports' => $hidden);
 
 $files = array(
     'index.html' => $html,

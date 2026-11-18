@@ -132,6 +132,19 @@ final class BoxTreeReport
         return null;
     }
 
+    /** Partial observations cannot replace the stylesheet of unobserved boxes. */
+    public static function coversDocument(string $html, array $tree): bool
+    {
+        if (array() === $tree) return false;
+        $seen = array();
+        foreach (HtmlSerialization::parseDocument($html)->getElementsByTagName('*') as $element) {
+            $id = $element->getAttribute(BoxTree::NODE_ATTRIBUTE);
+            if ('' === $id || isset($seen[$id]) || !isset($tree['nodes'][$id])) return false;
+            $seen[$id] = true;
+        }
+        return count($seen) === count($tree['nodes']);
+    }
+
     public static function coverage(array $files): array
     {
         $reports = array();
