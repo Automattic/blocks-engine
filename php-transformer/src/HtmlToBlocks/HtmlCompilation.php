@@ -2332,7 +2332,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $observations = $this->session->boxTreeEvidence($sourceElement);
             $viewports = $this->session->boxTreeViewports();
             $blockParent = $this->blockParentElement($sourceElement);
-            $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
+            $parents = $this->session->boxTreeParentEvidence($sourceElement, $blockParent);
             $fluid = $this->liftedBands($sourceElement, $observations, $viewports, $parents, $name);
             $fluidIntent = new Style\BoxTreeFluidIntent();
             $pseudoFluid = array();
