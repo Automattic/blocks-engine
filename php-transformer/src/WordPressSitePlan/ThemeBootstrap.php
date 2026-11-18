@@ -133,6 +133,32 @@ add_filter( 'render_block_core/image', static function ( string $content, array 
 PHP;
 
     /**
+     * A lowered image without an authored srcset family decoded its one `src`
+     * at every source width. Core's content filter would offer the materialized
+     * attachment's generated renditions as srcset candidates, so a narrow
+     * viewport decodes resized bytes the source never served. Such an image
+     * keeps its single `src`; images the importer did not lower (no
+     * `blocks-engine-image` figure) and authored families keep core behavior.
+     */
+    public const SINGLE_SOURCE_IMAGE_RUNTIME = <<<'PHP'
+$blocks_engine_single_source_images = new ArrayObject();
+add_filter( 'render_block_core/image', static function ( string $content, array $block ) use ( $blocks_engine_single_source_images ): string {
+    if ( isset( $block['attrs']['metadata']['blocksEngineImageSelection'] ) ) return $content;
+    $tag = new WP_HTML_Tag_Processor( $content );
+    if ( ! $tag->next_tag( 'FIGURE' ) || ! $tag->has_class( 'blocks-engine-image' ) ) return $content;
+    if ( ! $tag->next_tag( 'IMG' ) || null !== $tag->get_attribute( 'srcset' ) ) return $content;
+    $src = $tag->get_attribute( 'src' );
+    if ( is_string( $src ) && '' !== $src ) $blocks_engine_single_source_images[ $src ] = true;
+    return $content;
+}, 10, 2 );
+add_filter( 'wp_img_tag_add_srcset_and_sizes_attr', static function ( $add, $image ) use ( $blocks_engine_single_source_images ) {
+    if ( true !== $add || ! is_string( $image ) || 0 === count( $blocks_engine_single_source_images ) ) return $add;
+    $tag = new WP_HTML_Tag_Processor( $image );
+    return ! ( $tag->next_tag( 'IMG' ) && isset( $blocks_engine_single_source_images[ (string) $tag->get_attribute( 'src' ) ] ) );
+}, 10, 2 );
+PHP;
+
+    /**
      * The post the current request renders as a document: the queried post on
      * a singular view. A provider that renders an imported page's design on
      * another view (an archive of its own content type, for instance) names
@@ -234,6 +260,9 @@ PHP;
         }
         if (self::markupContains($documents, 'blocksEngineImageSelection')) {
             $lines[] = self::IMAGE_SELECTION_RENDERER;
+        }
+        if (self::markupContains($documents, 'blocks-engine-image')) {
+            $lines[] = self::SINGLE_SOURCE_IMAGE_RUNTIME;
         }
         if (array_filter($pages, static fn(array $page): bool => str_contains($page['canonical_block_markup'], 'blocks-engine-listing-overlay'))) {
             $lines[] = "add_filter( 'render_block_core/read-more', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-listing-overlay', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) { \$tag->set_attribute( 'aria-hidden', 'true' ); \$tag->set_attribute( 'tabindex', '-1' ); } return \$tag->get_updated_html(); }, 10, 2 );";
