@@ -398,8 +398,15 @@ final class AnchorLowering implements ButtonLinkLeftovers
                 }
             }
         }
+        // A trailing phrasing label (for example a read-more arrow) does not
+        // change a heading-and-summary card into a control. Keep headingless
+        // media labels on their existing path, and reject interactive spans
+        // through the descendant role check below.
         foreach ( $anchor->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true) ) {
+            if ( $child instanceof DOMElement && 'span' === strtolower($child->tagName) && ! $hasHeading ) {
+                return false;
+            }
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture', 'span'), true) ) {
                 return false;
             }
         }
