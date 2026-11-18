@@ -18,7 +18,7 @@ $viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'mobile
 $carrier = static function (array $desktop, array $mobile, string $block) use ($viewports): string {
     $state = new LayoutGeometryState();
     $observations = array('desktop' => array('used_styles' => $desktop), 'mobile' => array('used_styles' => array_replace($desktop, $mobile)));
-    $attrs = (new BoxTreeStyleProjector())->project(array(), $observations, $viewports, $state, array(), $block, array(), true);
+    $attrs = (new BoxTreeStyleProjector())->project(array(), $observations, $viewports, $state, array(), $block, array(), hasSeparateTextItems: true);
     return $state->cssForSerializedBlocks((string) ($attrs['className'] ?? ''));
 };
 $flex = array('display' => 'flex', 'gap' => '10px', 'flex-direction' => 'row', 'align-items' => 'center', 'width' => '166px');

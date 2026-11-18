@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture;
 
 $assert = static function (bool $ok, string $message): void {
     if (!$ok) throw new RuntimeException($message);
@@ -18,18 +19,20 @@ foreach (array(
 ) as [$css, $width, $height]) {
     $result = (new HtmlTransformer())->transform('<style>' . $css . '</style><iframe class="frame" ' . $src . ' width="901" height="507"></iframe>')->toArray();
     $block = $result['blocks'][0];
-    $assert(str_ends_with($block['blockName'], '/visual-iframe'), 'CSS-sized provider frames retain their source selector surface in an editable iframe block.');
-    $assert(($block['attrs']['width'] ?? '') === $width && ($block['attrs']['height'] ?? '') === $height, 'Only dimensions replaced by CSS on that axis are omitted: ' . $css);
+    $frame = IframeEmbedRendererFixture::frame($block);
+    $assert(null !== $frame, 'CSS-sized provider frames retain their source selector surface in an editable core embed frame.');
+    $assert(($frame['width'] ?? '') === $width && ($frame['height'] ?? '') === $height, 'Only dimensions replaced by CSS on that axis are omitted: ' . $css);
     $sheet = implode("\n", array_column($result['assets'], 'content'));
     $assert(!str_contains($sheet, 'height:507') && !str_contains($sheet, '.wp-block-embed__wrapper{height:'), 'No reference-viewport wrapper height replaces the author cascade.');
 }
 // Width-only donation form regression: the source height must not become 150px.
 $form = (new HtmlTransformer())->transform('<!doctype html><html><head><meta charset="utf-8"><title>Iframe b</title><style>.embed-form iframe{width:100%}</style></head><body><main><h1>Form</h1><div class="embed-form"><iframe src="https://example.org/embed/form" width="1000" height="1208"></iframe></div></main></body></html>')->toArray();
-$assert(str_contains($form['serialized_blocks'], 'height="1208"'), 'Width-only author sizing preserves the form height in saved markup.');
-$assert(!str_contains($form['serialized_blocks'], 'width="1000"'), 'Author CSS continues to own the form width.');
+$formFrame = IframeEmbedRendererFixture::render($form['serialized_blocks']);
+$assert(str_contains($formFrame, 'height="1208"'), 'Width-only author sizing preserves the form height in the rendered frame.');
+$assert(!str_contains($formFrame, 'width="1000"'), 'Author CSS continues to own the form width.');
 $inline = (new HtmlTransformer())->transform('<iframe ' . $src . ' style="width:100%;aspect-ratio:1.6"></iframe>')->toArray();
 $sheet = implode("\n", array_column($inline['assets'], 'content'));
-$assert(str_ends_with($inline['blocks'][0]['blockName'], '/visual-iframe') && !preg_match('/(?:width|aspect-ratio):[^;}]*!important/', $sheet), 'Inline ratio keeps normal priority and is not approximated to a core preset.');
+$assert(null !== IframeEmbedRendererFixture::frame($inline['blocks'][0]) && !preg_match('/(?:width|aspect-ratio):[^;}]*!important/', $sheet), 'Inline ratio keeps normal priority and is not approximated to a core preset.');
 // An inline fill at a core embed ratio is the box a responsive core/embed draws,
 // even when capture also measured one viewport's width and height attributes.
 foreach (array('style="width:100%;aspect-ratio:16/9"', 'style="display:block;border:0;width:100%;height:auto;aspect-ratio:1.77778 / 1" width="1035" height="582"') as $sizing) {

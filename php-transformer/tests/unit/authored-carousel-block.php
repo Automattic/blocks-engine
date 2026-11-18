@@ -740,4 +740,41 @@ foreach ((new DOMXPath($document))->query('//span[contains(concat(" ",@class," "
     $assert(in_array('bullet-active', $toggled, true) && 1 < count($toggled) && array() === array_intersect($toggled, explode(' ', $dot->getAttribute('class'))), 'selected-bullet markers follow carousel selection on every dot');
 }
 
+// #6541: an empty control whose arrow the author paints as ::before content is
+// source artwork; the engine adds no glyph or disc chrome over it. A control
+// with child artwork keeps the engine chrome.
+$output = (new HtmlTransformer())->transform('<style>.prev{position:absolute;bottom:0;color:#123}.fas:before{font-family:sans-serif}.arrow-left:before{content:"\2190"}</style><div class="slider" id="pg" data-blocks-engine-capture-gallery data-blocks-engine-capture-gallery-source="#pg" data-blocks-engine-capture-gallery-index="0"><div class="track" data-blocks-engine-capture-gallery-stage data-blocks-engine-capture-gallery-initial="0">' . $slides . '</div><div class="prev fas arrow-left" role="button" tabindex="0" aria-label="Previous slide" data-blocks-engine-capture-gallery-direction="-1"></div><div class="next" role="button" tabindex="0" aria-label="Next slide" data-blocks-engine-capture-gallery-direction="1"><span>Next</span></div></div>')->toArray();
+$assert('pass' === ($output['source_reports']['wp_block_validity']['status'] ?? null), 'pseudo-painted control carousel serialization is editor-valid');
+$document = new DOMDocument();
+@$document->loadHTML((string) $output['serialized_blocks']);
+$xpath = new DOMXPath($document);
+$painted = $xpath->query('//button[@data-carousel-previous]')->item(0);
+$childArtwork = $xpath->query('//button[@data-carousel-next]')->item(0);
+$assert($painted instanceof DOMElement && $childArtwork instanceof DOMElement && str_contains($painted->getAttribute('class'), 'arrow-left'), 'pseudo-painted control keeps its source classes');
+$chrome = static function (DOMElement $button, string $css): array {
+    $hits = array();
+    preg_match_all('/([^{}]+)\{([^{}]*)\}/', $css, $rules, PREG_SET_ORDER);
+    foreach ($rules as [, $prelude, $body]) {
+        if (1 !== preg_match('/content:"\\\\2039"|rgba\(0,0,0,\.32\)|font-size:0(?:;|$)/', $body, $hit)) continue;
+        foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {
+            if (str_contains($selector, 'blocks-engine-authored-carousel__') && CssSelectorMatcher::matches($button, CssSelectorMatcher::parse(trim(str_replace('::before', '', $selector))))['matches']) $hits[] = $hit[0];
+        }
+    }
+    return $hits;
+};
+$carouselCss = (string) ($output['source_reports']['generated_blocks'][0]['assets']['style.css'] ?? '');
+$assert(array() === $chrome($painted, $carouselCss), 'a pseudo-painted control gets no engine glyph, disc background or font-size:0 chrome');
+$assert(array() !== $chrome($childArtwork, $carouselCss), 'a control with child artwork keeps the engine slideshow chrome');
+
+// #5860: a captured gallery whose source paints no counter gets no visible
+// "Slide 1 of 4"; one whose chrome reads "1 / 3" keeps it. The active slide
+// fills a sized stage, as the source's absolute full-height slide did, so its
+// positioned caption is not pushed above the clipping viewport.
+$gallery = static fn (string $chrome): array => (new HtmlTransformer())->transform('<div class="slider" id="c" data-blocks-engine-capture-gallery data-blocks-engine-capture-gallery-source="#c" data-blocks-engine-capture-gallery-index="0"><div class="track" data-blocks-engine-capture-gallery-stage data-blocks-engine-capture-gallery-initial="0">' . $slides . '</div>' . $chrome . '<div class="prev" role="button" tabindex="0" aria-label="Previous slide" data-blocks-engine-capture-gallery-direction="-1"></div><div class="next" role="button" tabindex="0" aria-label="Next slide" data-blocks-engine-capture-gallery-direction="1"></div></div>')->toArray();
+$statusShown = static fn (array $result): bool => str_contains((string) $result['serialized_blocks'], 'blocks-engine-authored-carousel--show-status');
+$plain = $gallery('');
+$assert(!$statusShown($plain), 'a captured gallery without a source counter paints no slide status');
+$assert($statusShown($gallery('<div class="count">1 / 3</div>')), 'a captured gallery whose source paints a counter keeps the slide status');
+$assert(str_contains((string) ($plain['source_reports']['generated_blocks'][0]['assets']['style.css'] ?? ''), '__slide--active{position:relative!important;inset:auto!important;height:auto!important;min-height:100%;'), 'the active slide fills the sized stage');
+
 fwrite(STDOUT, "Authored carousel companion tests passed\n");

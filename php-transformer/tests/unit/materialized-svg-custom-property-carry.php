@@ -167,7 +167,9 @@ foreach ( array(
                         $box = 'photo' === $name && $element->parentNode instanceof DOMElement && 'figure' === $element->parentNode->tagName ? $element->parentNode : $element;
                         if ( CssSelectorMatcher::matches($box, $parsed, true)['matches'] && str_contains($body, 'position:absolute!important') && str_contains($body, 'width:100%!important') ) $matches[$name . '-fill'] = true;
                     }
-                    if ( $carrier instanceof DOMElement && str_contains($body, 'transform:scale(1.1)') && CssSelectorMatcher::matches($carrier, $parsed, true)['matches'] ) $matches['class-paint'] = true;
+                    // The materialized image leaf owns placement once; its
+                    // synthetic figure must not scale the whole row again.
+                    if ( str_contains($body, 'transform:scale(1.1)') && CssSelectorMatcher::matches($icon, $parsed, true)['matches'] ) $matches['class-paint'] = true;
                 }
                 return $selector . '{' . $body . '}';
             });

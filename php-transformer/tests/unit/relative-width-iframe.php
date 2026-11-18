@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture;
 
 $assertions = 0;
 $assert = static function (bool $condition, string $message) use (&$assertions): void {
@@ -26,10 +27,10 @@ foreach ( array(
 ) as $label => $html ) {
     $result = (new HtmlTransformer())->transform($html)->toArray();
     $markup = (string) ($result['serialized_blocks'] ?? '');
-    $assert(str_contains($markup, 'wp:custom/visual-iframe'), $label . ': container-relative width and positive height use visual-iframe');
+    $assert(str_contains($markup, '"blocksEngineIframe"'), $label . ': container-relative width and positive height use a core embed frame');
     if ( 'attributes' === $label ) {
-        $assert(str_contains($markup, 'width="100%" height="470"'), 'saved iframe preserves the explicit relative width and positive height');
-        $assert(str_contains($markup, '"width":"100%"') && str_contains($markup, '"height":"470"'), 'visual-iframe attributes preserve the reduced page dimensions');
+        $assert(str_contains(IframeEmbedRendererFixture::render($markup), 'width="100%" height="470"'), 'rendered iframe preserves the explicit relative width and positive height');
+        $assert(str_contains($markup, '"width":"100%"') && str_contains($markup, '"height":"470"'), 'frame attributes preserve the reduced page dimensions');
     } else {
         $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
         $assert(str_contains($css . $markup, 'height:470px'), $label . ': source CSS continues to own the explicit height');
@@ -44,7 +45,7 @@ foreach ( array(
 ) as $label => $dimensions ) {
     $result = (new HtmlTransformer())->transform(str_replace('width="100%" height="470"', $dimensions, $source))->toArray();
     $markup = (string) ($result['serialized_blocks'] ?? '');
-    $assert(! str_contains($markup, 'wp:custom/visual-iframe'), $label . ': unbounded iframe does not use visual-iframe');
+    $assert(! str_contains($markup, '"blocksEngineIframe"'), $label . ': unbounded iframe does not use a core embed frame');
     $assert(array() !== ($result['fallbacks'] ?? array()), $label . ': unbounded iframe keeps its fallback');
 }
 
