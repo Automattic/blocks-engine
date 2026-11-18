@@ -38,6 +38,16 @@ $cases = array(
         'expect' => array('background-color' => 'rgb(255, 0, 0)', 'box-shadow' => 'rgb(0, 0, 0) 0px 2px 4px 0px')),
     array('rule' => 'paint', 'refuse' => true, 'box' => array('background-color' => 'rgb(255, 0, 0)'),
         'child' => array('background-color' => 'rgb(0, 0, 255)')),
+    // A font size the box owns for its subtree moves with the fold.
+    array('rule' => 'paint', 'box' => array('background-color' => 'rgb(255, 0, 0)', 'font-size' => '18px', 'line-height' => '27px'),
+        'child' => array('font-size' => '18px', 'line-height' => '27px'),
+        'expect' => array('background-color' => 'rgb(255, 0, 0)', 'font-size' => '18px')),
+    // A child's own colour does not depend on the box's.
+    array('rule' => 'paint', 'box' => array('background-color' => 'rgb(255, 0, 0)', 'color' => 'rgb(0, 128, 0)'),
+        'child' => array('color' => 'rgb(0, 0, 255)'), 'expect' => array('background-color' => 'rgb(255, 0, 0)')),
+    // A child font size that differs from the box's may be an em of it.
+    array('rule' => 'paint', 'refuse' => true, 'box' => array('background-color' => 'rgb(255, 0, 0)', 'font-size' => '18px'),
+        'child' => array('font-size' => '27px')),
     // The badge inside the child is placed against the box's padding box.
     array('rule' => 'containing-block', 'box' => array('position' => 'relative'), 'badge' => array('position' => 'absolute', 'top' => '0px', 'right' => '0px'),
         'expect' => array('position' => 'relative')),
@@ -45,7 +55,7 @@ $cases = array(
     array('rule' => 'containing-block', 'refuse' => true, 'box' => array('position' => 'relative'), 'child' => array('position' => 'absolute')),
     array('rule' => 'own-placement', 'parent' => array('display' => 'grid', 'grid-template-columns' => '400px'),
         'box' => array('grid-row-start' => '1', 'grid-row-end' => '2', 'grid-column-start' => '1', 'grid-column-end' => '2', 'justify-self' => 'start'),
-        'expect' => array('grid-row-start' => '1', 'justify-self' => 'start')),
+        'expect' => array('grid-row' => '1 / 2', 'justify-self' => 'start')),
     array('rule' => 'own-placement', 'refuse' => true, 'parent' => array('display' => 'grid', 'grid-template-columns' => '400px'),
         'box' => array('grid-row-start' => '1', 'justify-self' => 'start'), 'child' => array('justify-self' => 'end')),
 );

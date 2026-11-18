@@ -183,6 +183,17 @@ node keeps its deciding `criterion` and lists the applied rules in `fold`;
   factors, `float`/`clear` and margins move when the child's own values are
   initial and its margin box then equals the box's margin box.
 
+Inherited values move with every fold. When the box's inherited value
+(`color`, `font-*`, `line-height`, `letter-spacing`, `word-spacing`, `text-*`,
+`white-space`, word breaking, list style, `visibility`, `cursor`) differs from
+its block parent's at any capture, and the child repeats the box's value at every
+capture, the value moves to the child with the box's author bands. This keeps
+the subtree from re-basing on the new parent. If the child's value differs
+anywhere, the fold is refused when the property can be derived from the box's
+value (`font-size`, `line-height`, `text-indent`: an `em` or `%` of it). It is
+also refused when the child inherits the box's value at some captures but not
+others. Otherwise the child's own value stands.
+
 Never folded: rendering pseudo-elements, clipping overflow, transforms (even
 identity), filters, backdrop filters, opacity, blending, isolation, clip paths,
 masks, z-index, non-static/relative boxes or children, inline or `contents`
