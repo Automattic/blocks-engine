@@ -61,8 +61,29 @@ final class RenderNeutralElements
     /**
      * Whether a wrapper instance carries no identity, behavior, or presentation
      * of its own, and can therefore be replaced by its children.
+     *
+     * `$allowInertPositioning` lets an offsetless `position: relative` pass
+     * for callers that have proven the wrapper is neither a containing block
+     * nor a paint layer anything depends on.
      */
-    public function isRenderNeutralWrapper(DOMElement $element, bool $stylesPrepared = true, bool $ignoreEmptyHostResets = false): bool
+    public function isRenderNeutralWrapper(DOMElement $element, bool $stylesPrepared = true, bool $ignoreEmptyHostResets = false, bool $allowInertPositioning = false): bool
+    {
+        return $this->renderNeutralWrapper($element, $stylesPrepared, $ignoreEmptyHostResets, $allowInertPositioning, true);
+    }
+
+    /**
+     * Whether a wrapper generates no box and carries nothing a descendant
+     * inherits: every matched author declaration is `display: contents` or a
+     * zero box-model reset, and no pseudo-element rule can render on it.
+     * Unlike a render-neutral wrapper, inherited text declarations count as
+     * presentation, because they live on the wrapper's own rule.
+     */
+    public function isBoxlessWrapper(DOMElement $element): bool
+    {
+        return $this->renderNeutralWrapper($element, true, true, false, false);
+    }
+
+    private function renderNeutralWrapper(DOMElement $element, bool $stylesPrepared, bool $ignoreEmptyHostResets, bool $allowInertPositioning, bool $allowInheritedText): bool
     {
         // Custom-element convention removal precedes selector preparation.
         // Keep its original conservative contract; effect-based checks belong
@@ -125,7 +146,8 @@ final class RenderNeutralElements
         }
         $inheritedText = array('white-space', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent');
         foreach ($declarations as $property => $value) {
-            if (!in_array($property, $inheritedText, true) && !('display' === $property && 'contents' === trim($value))) {
+            if (!($allowInheritedText && in_array($property, $inheritedText, true)) && !('display' === $property && 'contents' === trim($value))
+                && !($allowInertPositioning && 'position' === $property && in_array(trim(CssValueInspector::comparable($value)), array('relative', 'static'), true))) {
                 return false;
             }
         }

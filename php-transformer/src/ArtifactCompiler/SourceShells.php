@@ -120,7 +120,8 @@ final class SourceShells
         $count = 0;
         foreach ($dom->getElementsByTagName('*') as $node) {
             foreach (array(CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::GLYPH_COLOR) as $attribute) if ($node->hasAttribute($attribute)) ++$count;
-            foreach (SourceDom::tokens($node->getAttribute('class')) as $class) if (str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX)) ++$count;
+            // Responsive samples describe this route's viewport, not shared
+            // entrance state. They must not elect a donor for every route.
         }
         return $count;
     }
@@ -223,6 +224,14 @@ final class SourceShells
             if (array() !== array_filter(SourceDom::tokens($node->getAttribute('class')), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...))) $currentNodes[] = $node;
         }
         foreach ($currentNodes as $node) {
+            // A navigation toggle may be an anchor without href, with no
+            // same-tag sibling to establish its resting classes. Known current
+            // tokens are route state independently of its computed link colour.
+            if ('a' === strtolower($node->tagName) && 0 < ($xpath->query('ancestor::nav | ancestor::*[@role="navigation"]', $node)?->length ?? 0)) {
+                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !\Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken($class)));
+                if (array() === $classes) $node->removeAttribute('class');
+                else $node->setAttribute('class', implode(' ', $classes));
+            }
             for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
                 if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
                 $classes = SourceDom::tokens($cursor->getAttribute('class'));

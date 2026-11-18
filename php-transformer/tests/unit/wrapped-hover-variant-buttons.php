@@ -8,6 +8,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 $plan = (new ArtifactCompiler())->compile(require dirname(__DIR__) . '/fixtures/design-system/wrapped-hover-variant-buttons.php')->toArray()['source_reports']['wordpress_site_plan'];
 $markup = implode('', array_column($plan['pages'], 'canonical_block_markup')) . implode('', array_column($plan['template_parts'], 'canonical_block_markup'));
+$css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === $asset['kind']), 'content'));
 $errors = array();
 preg_match_all('/<!-- wp:button (\{.*?\}) -->/', $markup, $buttons);
 if (2 !== count($buttons[1])) $errors[] = 'Expected two buttons';
@@ -15,7 +16,8 @@ foreach ($buttons[1] as $json) {
     $attributes = json_decode($json, true);
     foreach (array('btn', 'bg-blue-600', 'hover:bg-blue-700', 'text-white') as $class) {
         $marker = \Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker::subjectClassClass($class);
-        if (!in_array($marker, explode(' ', $attributes['className'] ?? ''), true)) $errors[] = 'Missing source class carrier: ' . $class;
+        // A subject class is written exactly when an emitted rule names it.
+        if (str_contains($css, $marker) !== in_array($marker, explode(' ', $attributes['className'] ?? ''), true)) $errors[] = 'Source class carrier does not follow its rules: ' . $class;
     }
     if (isset($attributes['style']['color']['background']) || isset($attributes['backgroundColor'])) $errors[] = 'Button must render its background through the class stylesheet';
 }

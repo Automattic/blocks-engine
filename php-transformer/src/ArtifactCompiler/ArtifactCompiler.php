@@ -2858,7 +2858,7 @@ final class ArtifactCompiler
                     'source_paths' => array_keys($members),
                     'source_hash' => hash('sha256', $canonicalMarkup),
                     'variant' => $variant + 1,
-                    'placement' => array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => array_keys($members), 'variant' => $variant + 1, 'equal_source_identity' => true, 'evidence_source_path' => $evidenceSourcePath),
+                    'placement' => array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => array_keys($members), 'variant' => $variant + 1, 'equal_source_identity' => true, 'evidence_source_path' => SourceShells::evidenceCount($canonicalSource) > 0 ? $evidenceSourcePath : null),
                 ));
                 foreach ($compiled['assets'] as $asset) {
                     if (!is_array($asset)) continue;

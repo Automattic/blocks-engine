@@ -35,8 +35,11 @@ $classes = static fn (DOMElement $element): array => preg_split('/\s+/', trim($e
 $buttonClasses = $classes($button);
 $paragraphClasses = $classes($paragraph);
 $assert(in_array('blocks-engine-role-richtext', $buttonClasses, true), 'The button container is a RichText marker.');
-$expected = array('blocks-engine-role-richtext', ...EngineMarker::subjectClasses('span', array('cta__container')));
-$assert(array() === array_diff($expected, $paragraphClasses), 'The paragraph marker keeps its role, span subject and authored-class subject identity.');
+// Only the identity classes an emitted rule names are written: no rule tests
+// the span subject, so neither carrier keeps it.
+$expected = array_values(array_diff(array('blocks-engine-role-richtext', ...EngineMarker::subjectClasses('span', array('cta__container'))), array(EngineMarker::subjectTagClass('span'))));
+$assert(array() === array_diff($expected, $paragraphClasses), 'The paragraph marker keeps its role, subject and authored-class subject identity.');
+$assert(!in_array(EngineMarker::subjectTagClass('span'), array_merge($buttonClasses, $paragraphClasses), true), 'No carrier keeps a subject tag class no rule names.');
 
 $matched = false;
 $foundRule = false;

@@ -73,6 +73,14 @@ if ( $photo instanceof DOMElement ) {
     $style = ( new StaticCssCascade($rendered, $frontendCss) )->resolve($photo, array( 'transform', 'animation-timeline', 'view-timeline' ), array());
     $assert('translateY(40px)' === ($style['transform'] ?? ''), 'the attribute-keyed author rule still reaches the photo in the emitted markup', json_encode($style) ?: '');
     $assert('--trigger-photo' === ($style['view-timeline'] ?? '') && '--trigger-photo' === ($style['animation-timeline'] ?? ''), 'the photo keeps its scroll-driven timeline binding', json_encode($style) ?: '');
+
+    // The hook only keeps the source selector matching; the rule binds through
+    // the photo itself. A boxless hook around one element emits no Group of
+    // its own, so it adds no nesting level above the photo or the title.
+    $section = $photo->parentNode;
+    $title = $rendered->getElementById('title');
+    $assert($section instanceof DOMElement && 'section' === strtolower($section->tagName), 'the photo frame sits directly in its section, without a Group for the hook', $section instanceof DOMElement ? $section->tagName . '.' . $section->getAttribute('class') : '');
+    $assert($title instanceof DOMElement && $title->parentNode === $section, 'the title sits directly in its section, without a Group for the hook');
 }
 
 // The plain instance that no author rule addresses is still a wrapping

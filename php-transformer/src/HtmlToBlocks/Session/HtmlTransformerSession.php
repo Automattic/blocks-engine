@@ -316,6 +316,23 @@ final class HtmlTransformerSession
         return \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::forElement($this->boxTree, $element);
     }
 
+    /**
+     * Replace observed nodes' viewport observations: a child that received a
+     * folded box's declarations (ADR 0005 slice 5) is restyled with them.
+     *
+     * @param array<string, array<string, array<string, mixed>>> $observations Viewport observations by node id.
+     */
+    public function overrideBoxTreeObservations(array $observations): void
+    {
+        foreach ($observations as $id => $viewports) {
+            if (isset($this->boxTree['nodes'][$id])) {
+                foreach ($viewports as &$observation) $observation['preserve_folded_longhands'] = true;
+                unset($observation);
+                $this->boxTree['nodes'][$id]['viewports'] = $viewports;
+            }
+        }
+    }
+
     public function installTransformOptions(array $options): void
     {
         $this->boxTree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
