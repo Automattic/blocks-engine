@@ -156,6 +156,31 @@ $cases = array(
         ),
         array('font-size:270px', 'font-size:40px'), array('font-size:inherit'),
     ),
+    // sdnunca home: an `auto` height and content/flexible tracks are what the
+    // layout resolved at each capture. Frozen, the 402px capture's height held
+    // every narrower width and the 1440px one every width above 402px.
+    'an auto height and content-sized grid tracks lift' => array(
+        'main{display:grid;height:auto;grid-template-rows:min-content minmax(0px, 1fr)}',
+        array('n5.display' => array('grid', 'grid'), 'n5.height' => array('3441px', '4257px'), 'n5.grid-template-rows' => array('40px 3401px', '60px 4197px')),
+        array('height:auto', 'grid-template-rows:min-content minmax(0px, 1fr)'), array('height:3441px', 'height:4257px', '3401px', '4197px'),
+    ),
+    'an authored pixel height and pixel tracks stay in pixels' => array(
+        'main{display:grid;height:3441px;grid-template-rows:40px 1fr}',
+        array('n5.display' => array('grid', 'grid'), 'n5.height' => array('3441px', '4257px'), 'n5.grid-template-rows' => array('40px 3401px', '40px 4217px')),
+        array('height:3441px', 'height:4257px', 'grid-template-rows:40px 3401px'), array('grid-template-rows:40px 1fr'),
+    ),
+    'a margin percentage resolves against the container width' => array(
+        'h1{margin-left:10%}', array('n5.width' => array('1000px', '400px'), 'n6.margin-left' => array('100px', '40px')),
+        array('margin-left:10%'), array('margin-left:100px', 'margin-left:40px'),
+    ),
+    // sdnunca home at 768px: the author serves the 402px capture's layout
+    // below its own 1023px breakpoint. Bounded at the capture's width, its
+    // frozen pixels left 403-1023px with the 1440px layout.
+    'a capture delta holds up to the author breakpoint that switches it' => array(
+        'h1{margin-left:40px}@media screen and (max-width:1023px){h1{margin-left:16px}}',
+        array('n6.margin-left' => array('40px', '16px')),
+        array('margin-left:40px', '@media (max-width:1023px){.be-inline-geometry-'), array('@media (max-width:402px)'),
+    ),
     'an authored heading size is not replaced by inherit' => array(
         $wixFont . 'main{font:var(--wst-heading-1-font)}h1{font-size:270px}@media (max-width:500px){h1{font-size:75.375px}}',
         array('n5.font-size' => array('270px', '75.375px'), 'n6.font-size' => array('270px', '75.375px')),

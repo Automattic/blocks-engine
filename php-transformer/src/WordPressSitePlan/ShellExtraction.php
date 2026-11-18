@@ -1887,9 +1887,14 @@ final class ShellExtraction
             // Entry shells can own bindings too. Anchor the hoist on the
             // actual part source, which differs from shared shells on one-page sites.
             $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $partSlug;
+            $partMarkup = is_array($absorbed) ? self::landmarkPartMarkup($absorbed['markup'], $area) : $first['template_part_markup'];
             foreach ($withoutShells as $index => $withoutShell) {
                 $pages[$index]['canonical_block_markup'] = $withoutShell;
                 $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($withoutShell);
+                // The part keeps one capture's carriers; the route's own say where its copy sat.
+                $routeChrome = is_array($absorbed) ? null : ($candidates[$index][0]['markup'] ?? null);
+                $aliases = is_string($routeChrome) ? ExtractedChromeCarriers::aliases($routeChrome, $partMarkup) : array();
+                if (array() !== $aliases) $pages[$index][ExtractedChromeCarriers::KEY] = $aliases + ($pages[$index][ExtractedChromeCarriers::KEY] ?? array());
             }
             if (null !== $bindingHoist) $runtimeDeclarations = self::applySharedShellBindingHoist($runtimeDeclarations, $bindingHoist, $sourcePath . '#' . $area);
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
@@ -1897,7 +1902,6 @@ final class ShellExtraction
             $placement = $inlineShell ? 'inline_shared_shell' : ($singlePage ? 'entry_shell' : 'shared_shell');
             if ($inlineShell) { $templateSlugs = array(); $excludedTemplateSlugs = array(); }
             elseif ($singlePage) $templateSlugs = WordPressSitePlan::NATIVE_TEMPLATE_SLUGS;
-            $partMarkup = is_array($absorbed) ? self::landmarkPartMarkup($absorbed['markup'], $area) : $first['template_part_markup'];
             // An entry shell renders on every route, but its in-page sections exist only on the entry page.
             if ($singlePage && !$inlineShell) $partMarkup = $this->links->qualifyShellFragments($partMarkup, $pages[array_key_first($applicable)]['source_path']);
             $ancestorContext = is_array($absorbed) ? ($absorbed['ancestor_context'] ?? null) : ($first['ancestor_context'] ?? null);

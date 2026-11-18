@@ -61,6 +61,29 @@ final class CaptureEvidence
         return self::DESKTOP_ONLY_CLASS === $class || self::MOBILE_ONLY_CLASS === $class;
     }
 
+    /**
+     * Whether a stylesheet is the capture's island visibility sheet: rules,
+     * bare or in `@media`, that only hide an island (`display:none
+     * !important` on a selector naming an island class). It is capture
+     * plumbing, not author CSS: the capture writes it so each island shows
+     * only at its own device's widths. Route scoping may have rewritten its
+     * selectors around the island class.
+     */
+    public static function isDeviceIslandSheet(string $css): bool
+    {
+        $css = (string) preg_replace('~/\*.*?\*/~s', '', $css);
+        // `@media` preludes and their closing braces: the rules inside remain.
+        $rules = (string) preg_replace('~@media[^{};]*\{~i', '', $css);
+        if (!preg_match_all('~([^{}]+)\{([^{}]*)\}~', $rules, $matches, PREG_SET_ORDER)) return false;
+        $island = '~\.(?:' . preg_quote(self::DESKTOP_ONLY_CLASS, '~') . '|' . preg_quote(self::MOBILE_ONLY_CLASS, '~') . ')(?![\w-])~';
+        foreach ($matches as [, $selector, $declarations]) {
+            if (1 !== preg_match($island, $selector)) return false;
+            if ('display:none!important' !== strtolower((string) preg_replace('~[\s;]+~', '', $declarations))) return false;
+        }
+        // Nothing but those rules and the braces that closed their `@media`.
+        return '' === trim((string) preg_replace('~([^{}]+)\{([^{}]*)\}~', '', $rules), " \t\n\r}");
+    }
+
     /** Device profile named by a capture document class (`data-blocks-engine-capture-<profile>-document`), or null. */
     public static function deviceDocumentProfile(string $class): ?string
     {

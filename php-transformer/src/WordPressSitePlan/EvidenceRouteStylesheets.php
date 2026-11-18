@@ -3,7 +3,13 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
-/** Author selectors are analysis input, never delivery for captured routes. */
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+
+/**
+ * Author selectors are analysis input, never delivery for captured routes.
+ * The capture's island visibility sheet is not author CSS: no carrier
+ * restates it, so it stays delivered.
+ */
 final class EvidenceRouteStylesheets
 {
     public static function retire(array $assets, array $pages): array
@@ -14,6 +20,7 @@ final class EvidenceRouteStylesheets
         $legacy = array_values(array_filter($pages, static fn(array $page): bool => !isset($evidence[$page['source_path']])));
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || in_array($asset['source'] ?? '', array('engine-support', 'wordpress-compat'), true)) continue;
+            if (CaptureEvidence::isDeviceIslandSheet((string) ($asset['content'] ?? ''))) continue;
             $scopes = array();
             foreach ($asset['scopes'] as $scope) {
                 if ('global' === $scope['kind']) foreach ($legacy as $page) $scopes[] = PageStylesheets::documentScope($page);

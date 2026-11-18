@@ -21,8 +21,10 @@ final class BoxTreeStyleProjector
      * @param string $blockName The block carrying the rule, whose WordPress base styles a pruned declaration falls back to.
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid Lifted author values: property => bands, widest
      *        first, each [max-width (null for the base rule), value] ({@see BoxTreeFluidIntent::lift()}).
+     * @param array<string, float> $bounds Max-width each narrower capture's delta holds for, by viewport key
+     *        ({@see BoxTreeFluidIntent::captureBounds()}); a capture without one holds for its own width.
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array()): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $bounds = array()): array
     {
         if (array() === $observations) return $attrs;
         $keys = array_keys($observations);
@@ -60,7 +62,7 @@ final class BoxTreeStyleProjector
         $consumed = SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
-        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true);
+        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $bounds);
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
@@ -132,7 +134,7 @@ final class BoxTreeStyleProjector
     }
 
     /** The base rule, then each narrower capture's delta, then the lifted bands. */
-    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos): string
+    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $bounds = array()): string
     {
         $baseKey = $keys[0];
         $css = $this->rule(self::SELECTOR, $base);
@@ -144,7 +146,7 @@ final class BoxTreeStyleProjector
             $effective = array_replace($effective, $delta);
             $pseudo = $pseudos ? $this->pseudoRules($observations[$key], $pseudoEffective) : '';
             if (array() === $delta && '' === $pseudo) continue;
-            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule(self::SELECTOR, $delta) . $pseudo . '}';
+            $css .= '@media (max-width:' . (int) ($bounds[$key] ?? $viewports[$key]['width']) . 'px){' . $this->rule(self::SELECTOR, $delta) . $pseudo . '}';
         }
         // Numeric keys become ints: compare them as widths, narrowest last.
         uksort($bands, static fn(int|string $a, int|string $b): int => (float) $b <=> (float) $a);

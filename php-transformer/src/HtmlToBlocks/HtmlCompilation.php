@@ -1902,6 +1902,29 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /** The nearest source ancestor that emits a block: neutral boxes are skipped. */
+    /**
+     * The observed box each viewport resolves the element's percentages
+     * against: its nearest ancestor that generates a box there. A
+     * `display: contents` ancestor generates none and is passed over.
+     *
+     * @param array<string, array<string, mixed>> $observations
+     * @return array<string, array<string, mixed>>
+     */
+    private function boxTreeContainers(DOMElement $element, array $observations): array
+    {
+        $containers = array();
+        foreach (array_keys($observations) as $key) {
+            for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+                $evidence = $this->session->boxTreeEvidence($ancestor)[$key] ?? null;
+                if (null === $evidence) break;
+                if ('contents' === ($evidence['used_styles']['display'] ?? '')) continue;
+                $containers[$key] = $evidence;
+                break;
+            }
+        }
+        return $containers;
+    }
+
     private function blockParentElement(DOMElement $element): ?DOMElement
     {
         $parent = $element->parentNode;
@@ -2160,8 +2183,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $viewports = $this->session->boxTreeViewports();
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
-            $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name);
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid);
+            $intent = new Style\BoxTreeFluidIntent();
+            $fluid = $intent->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->boxTreeContainers($sourceElement, $observations));
+            $bounds = $intent->captureBounds($sourceElement, $this->styleResolver, $observations, $viewports);
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $bounds);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,

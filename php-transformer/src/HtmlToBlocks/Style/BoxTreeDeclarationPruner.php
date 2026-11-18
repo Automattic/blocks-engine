@@ -147,6 +147,16 @@ final class BoxTreeDeclarationPruner
         'core/image' => array('vertical-align'),
     );
 
+    /**
+     * Values the user agent gives the replaced element a block emits for its
+     * observed source element: an image's `img` clips its own overflow. The
+     * carrier lands on the block's wrapper, where restating it would clip a
+     * box the source never clipped.
+     */
+    private const BLOCK_REPLACED_DEFAULTS = array(
+        'core/image' => array('overflow-x' => 'clip', 'overflow-y' => 'clip'),
+    );
+
     /** Inherited longhands theme.json `elements` (heading, link, button, caption) and core control styles may set. */
     private const ELEMENT_TYPOGRAPHY = array('color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
     private const CONTROL_TYPOGRAPHY = array('color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'word-spacing', 'text-transform', 'text-indent', 'text-shadow', 'text-align', 'cursor');
@@ -213,6 +223,10 @@ final class BoxTreeDeclarationPruner
         $ownDefaults = array_fill_keys(array_merge(self::TAG_INHERITED_DEFAULTS[strtolower($tagName)] ?? array(), self::BLOCK_INHERITED_DEFAULTS[$blockName] ?? array()), true);
         $result = array();
         foreach ($styles as $property => $value) {
+            if (strtolower(trim((string) $value)) === (self::BLOCK_REPLACED_DEFAULTS[$blockName][$property] ?? null)) {
+                $result[$property] = self::INITIAL;
+                continue;
+            }
             $result[$property] = $this->classifyOne($property, (string) $value, $styles, $parent, $display, $parentDisplay, isset($protected[$property]), isset($ownDefaults[$property]));
         }
         return $result;
