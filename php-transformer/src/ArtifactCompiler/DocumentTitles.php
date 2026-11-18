@@ -384,13 +384,14 @@ final class DocumentTitles
         return ArtifactPath::title($path);
     }
 
-    /** Remove heading candidates in comments/complementary regions or after the entry body. */
+    /** Remove heading candidates in comments/complementary/page-footer regions, forms, or after the entry body. */
     private static function withoutTitleHeadingChrome(string $html): string
     {
         $dom = HtmlSerialization::parseDocument($html);
         $xpath = new \DOMXPath($dom);
         $entryBody = 'contains(concat(" ", normalize-space(@class), " "), " entry-content ") or contains(concat(" ", normalize-space(@class), " "), " wp-block-post-content ")';
-        $chrome = 'self::aside or @id="comments" or contains(@class, "comments") or @role="complementary"';
+        $chrome = 'self::aside or @id="comments" or contains(@class, "comments") or @role="complementary" or @role="contentinfo" or self::form'
+            . ' or (self::footer and not(ancestor::main or ancestor::article or ancestor::section))';
         $headings = $xpath->query('//*[self::h1 or self::h2 or self::h3 or self::h4 or self::h5 or self::h6][ancestor-or-self::*[' . $chrome . '] or preceding::*[' . $entryBody . ']]');
         $nodes = array();
         foreach ($headings ?: array() as $node) $nodes[] = $node;

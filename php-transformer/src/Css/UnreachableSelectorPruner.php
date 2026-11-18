@@ -35,6 +35,8 @@ final class UnreachableSelectorPruner
     private string $evidenceText;
     /** @var array<string, bool> */
     private array $typeNamed = array();
+    /** @var array<string, bool> */
+    private array $evidenceContains = array();
     private ?UnusedCustomPropertyPruner $propertyPruner = null;
 
     /**
@@ -158,7 +160,7 @@ final class UnreachableSelectorPruner
                         // reflected ARIA properties spell aria-hidden as ariaHidden.
                         $data = str_starts_with($name, 'data-');
                         $key = preg_replace_callback('/-([a-z])/', static fn(array $match): string => strtoupper($match[1]), $data ? substr($name, 5) : $name);
-                        if (str_contains($this->evidenceText, (string) $key) || ($data && str_contains($this->evidenceText, 'dataset['))) continue;
+                        if ($this->evidenceContains((string) $key) || ($data && $this->evidenceContains('dataset['))) continue;
                         return false;
                     }
                 }
@@ -187,13 +189,22 @@ final class UnreachableSelectorPruner
         return $this->typeNamed[$type = strtolower($type)] ??= 1 === preg_match('/(?<![\w-])' . preg_quote($type, '/') . '(?![\w-])/i', $this->evidenceText);
     }
 
+    /**
+     * Whether any evidence contains a substring. Memoized: evidence can be
+     * many megabytes and the same keys recur across thousands of arms.
+     */
+    private function evidenceContains(string $needle): bool
+    {
+        return $this->evidenceContains[$needle] ??= str_contains($this->evidenceText, $needle);
+    }
+
     private function sourceNamed(string $token): bool
     {
         if (str_contains($token, 'BEESC')) {
             $decoded = (string) preg_replace_callback('/BEESC([0-9a-f]+)X/', static fn (array $match): string => (string) hex2bin($match[1]), $token);
             // Substring evidence is deliberately conservative: scripts may
             // construct these names without literal class attributes.
-            if (str_contains($this->evidenceText, $decoded)) return true;
+            if ($this->evidenceContains($decoded)) return true;
             // Escaped utility identities are complete class names, not state
             // markers. A word inside an arbitrary variant (aria-selected,
             // for example) does not make that absent utility reachable.

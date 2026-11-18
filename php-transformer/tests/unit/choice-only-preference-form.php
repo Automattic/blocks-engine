@@ -55,7 +55,7 @@ $cases = array(
     'GET' => array('get', $select, 'filter_sort', false),
     'text unchanged' => array('post', $select . '<input type="text" name="name">', 'unknown', true),
     'implicit text unchanged' => array('post', $select . '<input name="name">', 'unknown', true),
-    'email unchanged' => array('post', $select . '<input type="email" name="email">', 'unknown', true),
+    'email signup' => array('post', $select . '<input type="email" name="email">', 'newsletter', true),
     'textarea unchanged' => array('post', $select . '<textarea name="message"></textarea>', 'unknown', true),
     'number unchanged' => array('post', $select . '<input type="number" name="amount">', 'unknown', true),
     'file unchanged' => array('post', $select . '<input type="file" name="upload">', 'unknown', true),

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\FontPresetReads;
 
 $page = static fn(string $title): string => '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><main><h1>' . $title . '</h1><h2>Section</h2><p>Body copy for ' . $title . '</p></main></body></html>';
 $css = "body{font-family:poppins,sans-serif}h1{font-family:'Open Sans',sans-serif;font-size:48px;font-family:Libre Caslon Display;font-weight:400}h2{font-family:Libre Caslon Display;font-size:32px}";
@@ -20,7 +21,7 @@ foreach (array(true, false) as $shared) {
         if ('css' === ($asset['kind'] ?? null)) $deliveredCss .= $asset['content'] ?? '';
     }
     preg_match_all('/(?<![\w.#:-])h1\{([^}]*)\}/', $deliveredCss, $rules);
-    $rule = implode(';', $rules[1]);
+    $rule = FontPresetReads::resolve(implode(';', $rules[1]), $plan);
     $family = $theme['styles']['elements']['h1']['typography']['fontFamily'] ?? $theme['styles']['elements']['heading']['typography']['fontFamily'] ?? null;
     if ($shared) {
         if (null === $family) throw new RuntimeException('A universally loaded element font is owned by Global Styles.');
