@@ -213,6 +213,26 @@ final class PostBlocks
         return array('asset_token' => $match[1], 'alt' => html_entity_decode((string) ($attributes['alt'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
     }
 
+    /**
+     * The box ratio an image block's source img stated with width/height,
+     * reduced to lowest terms (510x286 is "255/143").
+     */
+    public static function intrinsicRatio(string $slice): ?string
+    {
+        if ('image' !== self::sourceBlockName($slice)) return null;
+        $size = self::sourceAttributes($slice)['metadata']['blocksEngineIntrinsicSize'] ?? null;
+        $width = is_array($size) && is_int($size['width'] ?? null) ? $size['width'] : 0;
+        $height = is_array($size) && is_int($size['height'] ?? null) ? $size['height'] : 0;
+        if ($width <= 0 || $height <= 0) return null;
+        $divisor = $width;
+        for ($rest = $height; 0 !== $rest;) {
+            $next = $divisor % $rest;
+            $divisor = $rest;
+            $rest = $next;
+        }
+        return intdiv($width, $divisor) . '/' . intdiv($height, $divisor);
+    }
+
     /** @return array<string,mixed> */
     public static function sourceAttributes(string $slice): array
     {
