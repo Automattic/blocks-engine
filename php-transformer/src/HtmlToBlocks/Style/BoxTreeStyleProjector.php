@@ -35,6 +35,12 @@ final class BoxTreeStyleProjector
             $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
+        // An explicit alignment can equal the parent's at one capture yet
+        // differ at an intermediate width. Keep the proven author bands rather
+        // than pruning that capture to inheritance at the capture breakpoint.
+        if (isset($fluid['text-align'])) {
+            foreach ($keys as $key) $declarations[$key]['text-align'] = $observations[$key]['used_styles']['text-align'];
+        }
         $bands = $this->liftFluid($declarations, $keys, $fluid);
         $baseKey = $keys[0];
         $base = $declarations[$baseKey];

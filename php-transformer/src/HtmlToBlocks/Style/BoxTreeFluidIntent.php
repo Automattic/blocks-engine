@@ -31,8 +31,9 @@ use DOMElement;
  *   `var()`) that equals the observed value at every capture and differs
  *   between captures is lifted, so a box the author hides below a breakpoint
  *   (a menu bar that becomes a hamburger) stops rendering at that
- *   breakpoint rather than at the narrower capture's width. Other keyword
- *   switches only move layout between captures and keep their pixels.
+ *   breakpoint rather than at the narrower capture's width. Explicit
+ *   `text-align` keywords proven at every capture likewise follow the author
+ *   breakpoint, including when a capture equals the parent's alignment.
  * - On a heading, an inherited property with no author winner whose observed
  *   value equals the parent's at every capture, and varies between captures,
  *   is lifted as `inherit`. That overrides the heading's user-agent default
@@ -219,7 +220,8 @@ final class BoxTreeFluidIntent
         $inheriting = in_array($blockName, self::INHERITING_BLOCKS, true);
         $lifted = array();
         foreach ($properties as $property) {
-            $bands = ('display' === $property ? $this->liftedDisplay($widths, $samples, $observations) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
+            $bands = ('text-align' === $property ? $this->liftedTextAlignment($widths, $samples, $observations) : null)
+                ?? ('display' === $property ? $this->liftedDisplay($widths, $samples, $observations) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
                 ?? $this->liftedIntrinsic($property, $widths, $samples)
                 ?? $this->liftedAutoMargin($property, $widths, $samples)
                 ?? $this->liftedMixed($property, $widths, $samples, $observations, $viewports, $parents)
@@ -234,6 +236,19 @@ final class BoxTreeFluidIntent
      * @param array<string, float> $samples Widths between captures where the cascade can switch.
      * @return list<array{0: float|null, 1: string}>|null
      */
+    private function liftedTextAlignment(array $widths, array $samples, array $observations): ?array
+    {
+        $values = array();
+        foreach ($widths as $key => $width) {
+            $value = $this->declared('text-align', $width);
+            if (!in_array($value, array('start', 'end', 'left', 'right', 'center', 'justify'), true)
+                || $value !== ($observations[$key]['used_styles']['text-align'] ?? null)) return null;
+            $values[$key] = $value;
+        }
+        return $this->bands($widths, $samples, $values, fn(float $width): ?string => $this->declared('text-align', $width));
+    }
+
+    /** Lift a fluid expression only when it reproduces every observed value. */
     private function liftedExpression(string $property, array $widths, array $samples, array $observations, array $viewports, array $parents): ?array
     {
         $proven = array();
