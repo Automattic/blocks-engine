@@ -124,13 +124,6 @@ final class BoxTreeFluidIntent
         'left' => array('auto', 'inset-inline', 'inset-inline-start'),
     );
 
-    /**
-     * Horizontal size => its logical longhand (horizontal writing mode),
-     * which the cascade resolves together: an `inline-size:100%` box follows
-     * its container exactly as `width:100%` does.
-     */
-    private const LOGICAL_SIZES = array('width' => 'inline-size', 'min-width' => 'min-inline-size', 'max-width' => 'max-inline-size');
-
     private const GRID_TEMPLATES = array('grid-template-columns', 'grid-template-rows', 'grid-auto-columns', 'grid-auto-rows');
 
     /** Sizes whose `%` basis the rebuilt ancestor chain reproduces, so the author's `%` is restated as written. */
@@ -392,7 +385,6 @@ final class BoxTreeFluidIntent
     {
         [$initial] = self::INTRINSIC[$property];
         foreach (array_slice(self::INTRINSIC[$property], 1) as $alias) {
-            if ($alias === (self::LOGICAL_SIZES[$property] ?? null)) continue;
             if (null !== $this->declared($alias, $width)) return null;
         }
         $grid = in_array($property, self::GRID_TEMPLATES, true);
@@ -531,10 +523,6 @@ final class BoxTreeFluidIntent
     {
         $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width);
         $order = array_flip(array_keys($winners));
-        // A logical size (`inline-size:100%`) sets the same box as its physical
-        // longhand in horizontal writing mode: the later winner is the author's.
-        $logical = self::LOGICAL_SIZES[$property] ?? null;
-        if (null !== $logical && isset($order[$logical]) && (!isset($order[$property]) || $order[$logical] > $order[$property])) $property = $logical;
         $shorthand = self::SHORTHANDS[$property] ?? null;
         $fromShorthand = null !== $shorthand && isset($order[$shorthand]) && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
         $name = $fromShorthand ? $shorthand : $property;

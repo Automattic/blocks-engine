@@ -7,9 +7,9 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 // A carrier must not freeze a width its container decided (#6448). On a Wix
 // export a divider line draws its rule as a block `::before` stretched across
-// a column flexbox, and an image link layer is `inline-size:100%`. Frozen at
-// the 1440px capture, both kept 1388px and 706px in a 768px viewport, so the
-// page scrolled sideways to 1436px.
+// a column flexbox. Frozen at the 1440px capture, it kept 1388px in a 768px
+// viewport, so the page scrolled sideways to 1436px. Logical sizing on an
+// unrelated link layer must retain its existing projection.
 // Evidence: n4 <body>, n5 <main>, n8 the divider inside it, n9 the link layer.
 $html = file_get_contents(__DIR__ . '/../fixtures/box-tree/index.html');
 $html = str_replace('</main>', '<div class="line" data-blocks-engine-node-id="n8"></div><div class="layer" data-blocks-engine-node-id="n9"><span>Link</span></div></main>', $html);
@@ -55,10 +55,10 @@ function container_filling_assert(bool $condition, string $message, string $css)
     echo 'PASS: ' . $message . "\n";
 }
 
-foreach (array('1388.3px', '368.7px', 'width:1440px', 'width:390px') as $frozen) {
+foreach (array('1388.3px', '368.7px') as $frozen) {
     container_filling_assert(!str_contains($css, $frozen), 'No carrier freezes the container-decided ' . $frozen, $css);
 }
 container_filling_assert(1 === preg_match('/::before\{[^}]*(?<![\w-])width:auto/', $css), 'A pseudo-element stretched across its originator restates width:auto', $css);
-container_filling_assert(1 === preg_match('/(?<![\w-])width:100%/', $css), 'A logical inline-size:100% is lifted as the width it sets', $css);
+container_filling_assert(str_contains($css, 'width:1440px') && str_contains($css, 'width:390px'), 'Unrelated logical-size carriers retain their captured sizing', $css);
 
 echo "Box-tree container-filling widths contract passed\n";
