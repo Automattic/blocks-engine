@@ -60,7 +60,16 @@ final class QuotePatternContext
             }
         }
         $style = $this->styleResolver->cssDeclarationString($declarations);
-        return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
+        $class = trim(\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom::attr($caption, 'class'));
+        if ( '' === $style && '' === $class ) {
+            return $content;
+        }
+        // The source caption is one box. Put its selector identity and text
+        // presentation on the same carrier: nesting them applies relative
+        // font sizes (em/percent) twice when the class rule also matches.
+        $attributes = '' === $class ? '' : ' class="' . htmlspecialchars($class, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        $attributes .= '' === $style ? '' : ' style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        return '<span' . $attributes . '>' . $content . '</span>';
     }
 
     public function citationFromElement(DOMElement $element): string

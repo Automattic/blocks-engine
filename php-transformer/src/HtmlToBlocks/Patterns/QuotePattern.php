@@ -155,10 +155,6 @@ final class QuotePattern implements PatternRecognizerInterface
         }
         if ( '' === $citation && $caption instanceof DOMElement ) {
             $citation = $quotes->figureCaptionContent($caption);
-            $captionClass = trim(SourceDom::attr($caption, 'class'));
-            if ( '' !== $captionClass ) {
-                $citation = '<span class="' . htmlspecialchars($captionClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $citation . '</span>';
-            }
         }
 
         $value = $quotes->quotationContent($blockquote, SourceDom::innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' )));
