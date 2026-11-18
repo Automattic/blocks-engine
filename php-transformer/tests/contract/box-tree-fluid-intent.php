@@ -190,6 +190,11 @@ $cases = array(
         array('n5.width' => array('1000px', '402px'), 'n6.width' => array('855.7px', '30.92px')),
         array('width:855.7px', 'width:30.92px'), array('width:85.57%', 'width:max-content'),
     ),
+    'a proven fluid logical width lifts' => array(
+        'h1{inline-size:100%}',
+        array('n5.width' => array('1440px', '402px'), 'n6.width' => array('1440px', '402px')),
+        array('h1 ;width:100%'), array('h1 ;width:1440px', 'h1 ;width:402px'),
+    ),
     'a logical size alias keeps its pixels' => array(
         'h1{inline-size:300px}', array('n6.width' => array('300px', '300px')), array('h1 ;width:300px'), array('h1 ;width:auto'),
     ),
@@ -241,18 +246,6 @@ $cases = array(
         'h1{width:50%}',
         array('n8.display' => array('contents', 'contents'), 'n5.width' => array('300px', '100px'), 'n6.width' => array('100px', '50px')),
         array('width:100px', 'width:50px'), array('width:50%'), true,
-    ),
-    // imb-culinary-craft (#5870): `.container-imb{width:100%;max-width:80rem}`
-    // uses 1280px in a 1440px viewport. Frozen, that 1280px overflowed 768px.
-    'a % width its own max-width clamps at a capture lifts' => array(
-        'h1{width:100%;max-width:1280px}',
-        array('n5.width' => array('1440px', '402px'), 'n6.width' => array('1280px', '402px'), 'n6.max-width' => array('1280px', '1280px')),
-        array('h1 ;width:100%', 'h1 ;max-width:1280px'), array('h1 ;width:1280px', 'width:402px'),
-    ),
-    'a % width its max-width does not explain keeps pixels' => array(
-        'h1{width:100%;max-width:1280px}',
-        array('n5.width' => array('1440px', '402px'), 'n6.width' => array('1200px', '402px'), 'n6.max-width' => array('1280px', '1280px')),
-        array('width:1200px', 'width:402px'), array('width:100%'),
     ),
     'a % width against a border-box parent uses its content box' => array(
         'h1{width:50%}',
@@ -327,6 +320,15 @@ $wrappedTree = $tree;
 $wrappedTree['nodes']['n8'] = $tree['nodes']['n6'];
 $wrappedTree['nodes']['n8']['children'] = array('n6');
 $wrappedTree['nodes']['n5']['children'] = array('n8', 'n7');
+
+// A producer-reduced wrapper remains in the HTML but not the canonical
+// evidence topology. Its absence must not freeze a proven descendant width.
+$reducedHtml = str_replace(array('<h1 ', '</h1>'), array('<div data-blocks-engine-node-id="n8"><h1 ', '</h1></div>'), $html);
+$reducedOutput = fluid_carrier_output($reducedHtml, $tree, 'h1{width:50%}', array(
+    'n5.width' => array('1440px', '402px'),
+    'n6.width' => array('720px', '201px'),
+));
+fluid_assert(str_contains(fluid_heading_carrier($reducedOutput), 'width:50%'), 'canonical captured ancestry proves width through a reduced wrapper', $reducedOutput);
 foreach ($cases as $name => $case) {
     [$author, $observed, $present, $absent] = $case;
     $wrapped = $case[4] ?? false;

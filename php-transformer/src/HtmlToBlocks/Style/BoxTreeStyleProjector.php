@@ -46,11 +46,7 @@ final class BoxTreeStyleProjector
         // Block attributes serialize inline and beat every @media carrier rule,
         // so only a value observed identically in every viewport may become one.
         // A varying property stays entirely in the carrier: base rule plus deltas.
-        // `max-width` maps to `dimensions.maxWidth`, which no core block save
-        // reproduces ({@see BlockFactory}): it stays in the carrier, where it
-        // keeps bounding a lifted `width:100%` between captures.
         $invariant = array_filter($base, static function (string $value, string $property) use ($keys, $observations): bool {
-            if ('max-width' === $property) return false;
             foreach ($keys as $key) {
                 if (($observations[$key]['used_styles'][$property] ?? null) !== $value) return false;
             }

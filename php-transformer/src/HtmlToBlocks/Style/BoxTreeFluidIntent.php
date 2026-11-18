@@ -185,7 +185,7 @@ final class BoxTreeFluidIntent
      * @return array<string, list<array{0: float|null, 1: string}>> Property => bands, widest first:
      *         [max-width or null for the base rule, value].
      */
-    public function lift(DOMElement $element, StyleResolver $resolver, array $observations, array $viewports, array $parents, string $blockName = '', ?\Closure $evidence = null): array
+    public function lift(DOMElement $element, StyleResolver $resolver, array $observations, array $viewports, array $parents, string $blockName = '', ?\Closure $evidence = null, array $ancestors = array()): array
     {
         if (array() === $observations) return array();
         $widths = array();
@@ -194,6 +194,7 @@ final class BoxTreeFluidIntent
             $widths[$key] = (float) $viewports[$key]['width'];
         }
         arsort($widths);
+        $this->ancestors = $ancestors;
         $this->element = $element;
         $this->resolver = $resolver;
         $this->winners = array();
@@ -526,6 +527,19 @@ final class BoxTreeFluidIntent
         $shorthand = self::SHORTHANDS[$property] ?? null;
         $fromShorthand = null !== $shorthand && isset($order[$shorthand]) && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
         $name = $fromShorthand ? $shorthand : $property;
+        // In horizontal writing, inline-size and width share a used axis.
+        // Preserve a fluid logical size only after the same pixel proof as
+        // a physical one; an unproved alias still keeps captured pixels.
+        $alias = 'width' === $property ? 'inline-size' : null;
+        if (null !== $alias && isset($order[$alias]) && (!isset($order[$name]) || $order[$alias] > $order[$name])) {
+            $writingMode = '';
+            for ($node = $this->element; $node instanceof DOMElement; $node = $node->parentNode) {
+                $writing = $this->resolver->authorViewport->atViewport($node, array('writing-mode'), $width);
+                $writingMode = strtolower((string) ($writing['writing-mode'] ?? ''));
+                if ('' !== $writingMode && 'inherit' !== $writingMode) break;
+            }
+            if (in_array($writingMode, array('', 'horizontal-tb', 'initial'), true)) $name = $alias;
+        }
         if (!isset($winners[$name])) return null;
         $value = trim(CssValueInspector::withoutImportant((string) $winners[$name]));
         if ('' === $value) return null;
@@ -611,7 +625,7 @@ final class BoxTreeFluidIntent
         // An in-flow percentage height or vertical offset needs a definite
         // containing block height the carriers no longer freeze.
         if (!$horizontal && !$outOfFlow) return array(null, $own);
-        $block = $this->containingBlock($key, $position);
+        $block = $this->containingBlock($key, $position, 'width' === $property);
         return array(null === $block ? null : $block[$horizontal ? 0 : 1], $own);
     }
 
@@ -621,7 +635,10 @@ final class BoxTreeFluidIntent
      *
      * @return array{0: float, 1: float}|null
      */
-    private function containingBlock(string $key, string $position): ?array
+    /** @var list<array> Canonical captured ancestor observations, nearest first. */
+    private array $ancestors = array();
+
+    private function containingBlock(string $key, string $position, bool $canonicalWidth = false): ?array
     {
         if ('fixed' === $position) {
             $viewport = $this->viewports[$key] ?? array();
@@ -634,6 +651,16 @@ final class BoxTreeFluidIntent
                 // The document root boxes are rarely captured; an absolute
                 // box proves the initial containing block below instead.
                 if ($absolute && in_array(strtolower($node->tagName), array('body', 'html'), true)) continue;
+                // Producer reduction can remove a wrapper from the evidence
+                // while retaining it in the source DOM. Use the canonical
+                // captured ancestry rather than freezing the descendant size.
+                foreach ($canonicalWidth ? $this->ancestors : array() as $ancestor) {
+                    $captured = $ancestor[$key]['used_styles'] ?? array();
+                    $display = strtolower((string) ($captured['display'] ?? ''));
+                    if (in_array($display, array('', 'inline', 'contents'), true)) continue;
+                    if ($absolute && !self::containsPositioned($captured)) continue;
+                    return self::box($captured, !$absolute);
+                }
                 return null;
             }
             $display = strtolower((string) ($styles['display'] ?? ''));

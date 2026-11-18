@@ -316,9 +316,31 @@ final class HtmlTransformerSession
         return \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::forElement($this->boxTree, $element);
     }
 
+    /** @var array<string, string> Captured layout parents after producer wrapper reduction. */
+    private array $boxTreeParents = array();
+
+    /** @return list<array> Observed ancestors, nearest first, in the canonical evidence topology. */
+    public function boxTreeAncestors(\DOMElement $element): array
+    {
+        $id = $element->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE);
+        $ancestors = array();
+        $seen = array($id => true);
+        while (isset($this->boxTreeParents[$id])) {
+            $id = $this->boxTreeParents[$id];
+            if (isset($seen[$id])) break;
+            $seen[$id] = true;
+            $ancestors[] = $this->boxTree['nodes'][$id]['viewports'] ?? array();
+        }
+        return $ancestors;
+    }
+
     public function installTransformOptions(array $options): void
     {
         $this->boxTree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
+        $this->boxTreeParents = array();
+        foreach ($this->boxTree['nodes'] ?? array() as $id => $node) {
+            foreach ($node['children'] ?? array() as $child) $this->boxTreeParents[$child] = (string) $id;
+        }
         $this->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
         $this->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));
         $this->installAssetMaterializationState(new AssetMaterializationState(

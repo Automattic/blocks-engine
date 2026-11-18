@@ -2214,32 +2214,6 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * {@see imageAxisVariesByViewport()} for screen rendering only: a rule
-     * scoped to another output medium (`@media print`) never varies the
-     * axis across the viewports a browser window renders.
-     */
-    private function imageAxisVariesOnScreen(DOMElement $image, string $property): bool
-    {
-        foreach ($this->session->sourceStyleResolutionState()->matchingRules($image, 'image-shape') as $rule) {
-            if ($property !== ($rule['property'] ?? '')) continue;
-            $conditions = array_filter($rule['conditions'] ?? array(), static fn ($condition): bool => ! preg_match('/^@layer\b/i', trim((string) $condition)));
-            if (array() === $conditions) continue;
-            $offScreen = false;
-            foreach ($conditions as $condition) {
-                if (preg_match('/^@media\s+(?:only\s+)?(?:print|speech)\b[^,]*$/i', trim((string) $condition))) {
-                    $offScreen = true;
-                    break;
-                }
-            }
-            if (! $offScreen) return true;
-        }
-        $desktop = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->authorViewport->reference($image, array( $property ))[$property] ?? ''));
-        $mobile = CssValueInspector::comparable(CssValueInspector::withoutImportant($this->authorViewport->collapsed($image, array( $property ))[$property] ?? ''));
-
-        return $desktop !== $mobile;
-    }
-
-    /**
      * Whether the source image's width is `auto` only because nothing sized it,
      * while its height is limited.
      *
@@ -2383,22 +2357,16 @@ final class StyleResolver implements ElementPresentationResolver
         // `width:100%`) keeps core's responsive default untouched. Percentage
         // heights depend on the containing block and may become auto when
         // positioning moves to a wrapper; they must not lift the clamp.
-        //
         // An inline definite width the source does not clamp (a focal-point
         // crop sized `width:1440px` or `width:max(674px, 100vw)` inside a
-        // narrower clipping frame) overflowed its container the same way. A
-        // clamp scoped to another output medium (`@media print`) does not
-        // constrain it on screen.
-        $derivesWidth = '' === $nativeWidth
-            && (1 === preg_match('/^(?:\d+|\d*\.\d+)(?:px|em|rem|ch|ex|cap|ic|lh|rlh|cm|mm|q|in|pt|pc|[sld]?v[whib]|[sld]?vmin|[sld]?vmax)?$/i', $nativeHeight)
-                || $this->imageHasViewportDerivedWidth($image))
-            && ! $this->imageAxisVariesByViewport($image, 'max-width');
-        $overflowsContainer = ! $derivesWidth
-            && $this->imageInlineWidthIsDefinite($declarations)
-            && ! $this->imageAxisVariesOnScreen($image, 'max-width');
+        // narrower clipping frame) overflowed its container the same way.
         if (
-            ($derivesWidth || $overflowsContainer)
+            (('' === $nativeWidth
+                && (1 === preg_match('/^(?:\d+|\d*\.\d+)(?:px|em|rem|ch|ex|cap|ic|lh|rlh|cm|mm|q|in|pt|pc|[sld]?v[whib]|[sld]?vmin|[sld]?vmax)?$/i', $nativeHeight)
+                    || $this->imageHasViewportDerivedWidth($image)))
+                || $this->imageInlineWidthIsDefinite($declarations))
             && ! isset($box['max-width'])
+            && ! $this->imageAxisVariesByViewport($image, 'max-width')
             && $this->imageComputedMaxWidthIsNone($declarations)
         ) {
             $box['max-width'] = 'none';
