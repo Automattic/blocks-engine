@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -133,7 +134,92 @@ final class SearchBlockConverter implements ElementConverter
 
         $attrs['className'] = trim($attrs['className'] . ' ' . $this->registerDecorativeSearchIcon($form));
 
-        return $this->createBlock->createBlock('core/search', $attrs, array(), $form);
+        $search = $this->createBlock->createBlock('core/search', $attrs, array(), $form);
+        $headings = $this->visuallyHiddenFormHeadings($form);
+        if ( array() === $headings ) {
+            return $search;
+        }
+
+        // core/search has no slot for the form's own (visually hidden)
+        // heading, which names the search region for assistive technology.
+        // Emit it beside the search block, still visually hidden, inside a
+        // layout-transparent wrapper. The headings follow the search block so
+        // flow block-gap never lands on the search control.
+        $blocks = array( $search );
+        foreach ( $headings as $heading ) {
+            $blocks[] = $this->createBlock->createBlock('core/heading', array(
+                'level'     => (int) substr(strtolower($heading->tagName), 1),
+                'content'   => htmlspecialchars(trim((string) preg_replace('/\s+/', ' ', $heading->textContent)), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                'className' => 'screen-reader-text ' . self::HIDDEN_FORM_HEADING_CLASS,
+            ), array(), $heading);
+        }
+        $this->session->generatedSupportStylesheetState()->registerNativeSearchTrigger(
+            self::HIDDEN_FORM_HEADING_WRAPPER_CLASS,
+            '.' . self::HIDDEN_FORM_HEADING_WRAPPER_CLASS . '{display:contents}'
+            . '.' . self::HIDDEN_FORM_HEADING_CLASS . '{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}'
+        );
+
+        return $this->createBlock->createBlock('core/group', array(
+            'className' => self::HIDDEN_FORM_HEADING_WRAPPER_CLASS,
+        ), $blocks);
+    }
+
+    private const HIDDEN_CLASS_PATTERN = '/(?:^|\s)(?:sr-only|screen-reader-text|screen-reader-only|visually-hidden|element-invisible)(?:\s|$)/i';
+
+    private const HIDDEN_FORM_HEADING_CLASS = 'blocks-engine-search-form-heading';
+
+    private const HIDDEN_FORM_HEADING_WRAPPER_CLASS = 'blocks-engine-search-form-landmark';
+
+    /**
+     * Headings inside a search form that are read but not painted (Drupal's
+     * `<h2 class="element-invisible">Search form</h2>`).
+     *
+     * @return list<DOMElement>
+     */
+    private function visuallyHiddenFormHeadings(DOMElement $form): array
+    {
+        $headings = array();
+        foreach ( SourceDom::subtreeElements($form) as $element ) {
+            if ( $element->isSameNode($form) || 1 !== preg_match('/^h[1-6]$/i', $element->tagName)
+                || '' === trim($element->textContent) || $this->isHiddenFromEveryone($element, $form) ) {
+                continue;
+            }
+            if ( $this->isVisuallyHidden($element, $form) ) {
+                $headings[] = $element;
+            }
+        }
+
+        return $headings;
+    }
+
+    private function isHiddenFromEveryone(DOMElement $element, DOMElement $boundary): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $display = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $this->context->presentationDeclarations($node)['display'] ?? '') ?? ''));
+            if ( $node->hasAttribute('hidden') || 'true' === strtolower(SourceDom::attr($node, 'aria-hidden')) || 'none' === $display ) {
+                return true;
+            }
+            if ( $node->isSameNode($boundary) ) {
+                break;
+            }
+        }
+
+        return false;
+    }
+
+    private function isVisuallyHidden(DOMElement $element, DOMElement $boundary): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 1 === preg_match(self::HIDDEN_CLASS_PATTERN, SourceDom::attr($node, 'class'))
+                || CssValueInspector::isVisuallyClippedBox($this->context->presentationDeclarations($node)) ) {
+                return true;
+            }
+            if ( $node->isSameNode($boundary) ) {
+                break;
+            }
+        }
+
+        return false;
     }
 
     /** Accessible names and rendered label boxes are independent source facts. */
@@ -146,7 +232,7 @@ final class SearchBlockConverter implements ElementConverter
 
         for ( $node = $label; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( $node->hasAttribute('hidden')
-                || 1 === preg_match('/(?:^|\s)(?:sr-only|screen-reader-text|screen-reader-only|visually-hidden)(?:\s|$)/i', SourceDom::attr($node, 'class')) ) {
+                || 1 === preg_match(self::HIDDEN_CLASS_PATTERN, SourceDom::attr($node, 'class')) ) {
                 return false;
             }
             $declarations = $this->context->presentationDeclarations($node);
@@ -169,7 +255,7 @@ final class SearchBlockConverter implements ElementConverter
         $inputCss = 'padding:1px 2px;';
         $buttonCss = '';
         if ( $button instanceof DOMElement ) {
-            $buttonCss = $this->sourceControlPadding($button, '1px 6px');
+            $buttonCss = $this->sourceControlPadding($button, '1px 6px') . $this->uaButtonPaint($button);
             if ( $this->isIconOnlySearchControl($button) ) {
                 // Core replaces the source glyph with an SVG using currentColor.
                 // Resolve on the glyph first, then its ancestors (including the
@@ -231,6 +317,57 @@ final class SearchBlockConverter implements ElementConverter
             return $marker;
         }
         return '';
+    }
+
+    /**
+     * UA button paint for a source submit whose background, border or text
+     * color no author rule sets. core/search renders a `.wp-element-button`,
+     * which otherwise takes core's dark button default (`#32373c` on `#fff`)
+     * while author text rules such as `*{color:#444}` still reach it. Authored
+     * properties are left to the projected author cascade.
+     */
+    private function uaButtonPaint(DOMElement $control): string
+    {
+        $tagName = strtolower($control->tagName);
+        if ( 'button' !== $tagName && 'input' !== $tagName ) {
+            return '';
+        }
+
+        $css = '';
+        foreach ( self::UA_BUTTON_PAINT as $declaration => $properties ) {
+            if ( ! $this->declaresAnyProperty($control, $properties) ) {
+                $css .= $declaration . ';';
+            }
+        }
+
+        return $css;
+    }
+
+    /** Chromium's resolved light-scheme paint for an unstyled submit button. */
+    private const UA_BUTTON_PAINT = array(
+        'background-color:#efefef' => array( 'background', 'background-color', 'background-image' ),
+        'border:2px outset #767676' => array(
+            'border', 'border-width', 'border-style', 'border-color',
+            'border-top', 'border-right', 'border-bottom', 'border-left',
+            'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+            'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
+            'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
+        ),
+        'color:#000' => array( 'color' ),
+    );
+
+    /** @param list<string> $properties */
+    private function declaresAnyProperty(DOMElement $control, array $properties): bool
+    {
+        $inline = SourceDeclarations::inline($control);
+        foreach ( $properties as $property ) {
+            if ( isset($inline[$property]) || isset($inline['all'])
+                || ! $this->presentationResolver->declaredPresentation($control, $property)->isEmpty() ) {
+                return true;
+            }
+        }
+
+        return ! $this->presentationResolver->declaredPresentation($control, 'all')->isEmpty();
     }
 
     private function sourceControlPadding(DOMElement $control, string $uaPadding): string

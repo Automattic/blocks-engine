@@ -46,7 +46,8 @@ final class LayoutParticipation
         public readonly bool $positioned,
         public readonly bool $sourceIsNativeControl = false,
         public readonly bool $sourceWrappersAreNative = false,
-        public readonly bool $intrinsicRatioItem = false
+        public readonly bool $intrinsicRatioItem = false,
+        public readonly bool $ownsAlignedLine = false
     ) {}
 
     public static function resolve(DOMElement $element, StyleResolver $styleResolver): self
@@ -112,7 +113,11 @@ final class LayoutParticipation
             $positioned,
             in_array(strtolower($element->tagName), array( 'button', 'input' ), true),
             self::hasNativeButtonSaveWrappers($element),
-            self::isIntrinsicRatioColumnItem($element, $styleResolver, $context)
+            self::isIntrinsicRatioColumnItem($element, $styleResolver, $context),
+            // An inline control alone on a line its wrapper aligns: the
+            // synthesized core/buttons wrapper restates that alignment as
+            // justifyContent, which needs the wrapper's flex box.
+            self::INLINE === $context && ! $positioned && $styleResolver->inheritedTextAlignmentNeedsLineBox($element)
         );
     }
 
@@ -175,11 +180,13 @@ final class LayoutParticipation
     /**
      * Synthesized core/buttons must not generate a box when it would change
      * the source element's participation (inline / flattened flex item) or
-     * steal a positioned child's containing block.
+     * steal a positioned child's containing block. An inline control that
+     * fills an aligned line alone keeps the wrapper's flex box: it is the
+     * only box left to hold the restated justifyContent.
      */
     public function neutralizeButtonsWrapper(): bool
     {
-        return $this->positioned || $this->isInline() || $this->flattensInnerSaveWrapper();
+        return $this->positioned || ( $this->isInline() && ! $this->ownsAlignedLine ) || $this->flattensInnerSaveWrapper();
     }
 
     /**

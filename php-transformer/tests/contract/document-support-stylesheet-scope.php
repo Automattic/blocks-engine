@@ -10,6 +10,8 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
+// A support rule may share its declaration block with other carriers' arms.
+$supports = static fn(string $css, string $class): bool => 1 === preg_match('/(?:^|[},\s])\.' . preg_quote($class, '/') . '(?=[,{])[^{}]*\{box-sizing:content-box\}/', $css);
 
 // Non-landmark shared chrome, colliding terminal slugs, and content-box
 // support CSS. The two about documents share declarations, not ownership
@@ -26,7 +28,7 @@ $assert($pages['en/about.html']['route_template'] !== $pages['fr/about.html']['r
 $bootstrap = '';
 foreach ($plan['writes'] as $write) if ('functions.php' === $write['target_path']) $bootstrap = $write['payload']['data'];
 foreach (array('home-copy' => array('index.html'), 'about-copy' => array('en/about.html', 'fr/about.html')) as $class => $owners) {
-    $support = array_values(array_filter($plan['assets'], static fn(array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && str_contains((string) ($asset['content'] ?? ''), '.' . $class . '{box-sizing:content-box}')));
+    $support = array_values(array_filter($plan['assets'], static fn(array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && $supports((string) ($asset['content'] ?? ''), $class)));
     $assert(1 === count($support), 'Identical support payloads share one resource.');
     $asset = $support[0];
     foreach (array_keys($files) as $other) {
@@ -37,7 +39,7 @@ foreach (array('home-copy' => array('index.html'), 'about-copy' => array('en/abo
     }
 }
 foreach (array('masthead', 'colophon') as $class) {
-    $sheets = array_filter($plan['assets'], static fn(array $asset): bool => str_contains((string) ($asset['content'] ?? ''), '.' . $class . '{box-sizing:content-box}'));
+    $sheets = array_filter($plan['assets'], static fn(array $asset): bool => $supports((string) ($asset['content'] ?? ''), $class));
     $assert(1 === count($sheets), 'Shared chrome support rules are emitted once.');
     $assert(array(array('kind' => 'global')) === current($sheets)['scopes'], 'Shared chrome stays global.');
 }

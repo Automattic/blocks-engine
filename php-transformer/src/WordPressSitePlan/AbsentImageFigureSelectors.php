@@ -13,16 +13,25 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
  * carriers a site has is known only once the plan's markup is final, and
  * core/image saves its figure, with its classes, in that markup.
  *
- * An arm is dropped when one of its compounds requires `wp-block-image`
- * with classes no emitted image figure carries together. Classes a shipped
- * script names, editor and WordPress render classes and state tokens are
- * never required: they may be added where the markup does not show them.
- * The figure's link is never judged: an editor can link any image, so the
+ * An arm is dropped only when one of its compounds restates a carried
+ * figure on an engine carrier it never becomes: the compound's source
+ * classes sit together on an emitted image figure, but none of those
+ * figures also carries the compound's engine (`blocks-engine-`) classes.
+ * A compound whose source classes no emitted figure shows is not judged:
+ * the markup is not proof of where they live. Classes a shipped script
+ * names, editor and WordPress render classes and state tokens are never
+ * required: they may be added where the markup does not show them. The
+ * figure's link is never judged: an editor can link any image, so the
  * linked leaf of a carried figure stays.
+ *
+ * Only sheets the front end loads are pruned. An editor-only sheet is
+ * written against the editor canvas, whose block wrappers saved markup does
+ * not describe, and adds no weight to any route.
  */
 final class AbsentImageFigureSelectors
 {
     private const FIGURE = 'wp-block-image';
+    private const ENGINE = 'blocks-engine-';
     private const EXEMPT = '/^(?:wp-|is-|has-|editor-|block-editor-|components-)/';
     private const SELECTOR_PSEUDO = array('is', 'where', 'matches', '-webkit-any', '-moz-any');
     private const MAX_ALTERNATIVES = 64;
@@ -58,7 +67,7 @@ final class AbsentImageFigureSelectors
         $pruner = self::read($texts, $scripts);
         if (null === $pruner) return $assets;
         foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference']) || !str_contains($asset['content'], '.' . self::FIGURE)) continue;
+            if ('css' !== ($asset['kind'] ?? null) || 'editor' === ($asset['stylesheet_target'] ?? 'both') || !is_string($asset['content'] ?? null) || isset($asset['payload_reference']) || !str_contains($asset['content'], '.' . self::FIGURE)) continue;
             $content = $pruner->pruneStylesheet($asset['content']);
             if ($content === $asset['content']) continue;
             $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
@@ -148,15 +157,20 @@ final class AbsentImageFigureSelectors
         if (array() === $alternatives) return true;
         foreach ($alternatives as $classes) {
             // An alternative without the figure class is not judged here.
-            if (!isset($classes[self::FIGURE]) || $this->carried($classes)) return false;
+            if (!isset($classes[self::FIGURE])) return false;
+            $required = array_keys(array_filter($classes, fn (bool $value, string $class): bool => self::FIGURE === $class || !$this->exempt($class), ARRAY_FILTER_USE_BOTH));
+            if ($this->carried($required)) return false;
+            // Only a carrier restatement of a figure the markup shows is
+            // provably absent: its source classes must sit on some figure.
+            $source = array_values(array_filter($required, static fn (string $class): bool => !str_starts_with($class, self::ENGINE)));
+            if (count($source) === count($required) || !$this->carried($source)) return false;
         }
         return true;
     }
 
-    /** @param array<string,true> $classes */
-    private function carried(array $classes): bool
+    /** @param list<string> $required */
+    private function carried(array $required): bool
     {
-        $required = array_keys(array_filter($classes, fn (bool $value, string $class): bool => self::FIGURE === $class || !$this->exempt($class), ARRAY_FILTER_USE_BOTH));
         foreach ($this->figures as $figure) {
             foreach ($required as $class) if (!isset($figure[$class])) continue 2;
             return true;
