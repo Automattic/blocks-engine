@@ -1429,7 +1429,7 @@ final class CssStylesheetTransformer
     }
 
     /** Byte offset of a top-level pseudo-element in a compound, if any. */
-    private static function pseudoElementOffset(string $compound): ?int
+    public static function pseudoElementOffset(string $compound): ?int
     {
         $state = CssSyntaxScanner::state();
         $length = strlen($compound);

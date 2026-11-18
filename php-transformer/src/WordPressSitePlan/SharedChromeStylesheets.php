@@ -1110,7 +1110,15 @@ final class SharedChromeStylesheets
                 }
             }
         }
+        // A route-kept marker's rules stay in the route's stylesheets, which
+        // suffices for author sheets every chrome route applies. An element
+        // marker's engine support sheet applies only to the routes whose own
+        // capture generated it, while the part carrying the marker renders on
+        // every route adopting the part (a deduplicated menu control whose
+        // breakpoint visibility lives there), so such sheets still lift it.
+        $supportClasses = array_filter($classes, static fn (string|int $class): bool => 1 === preg_match('/^blocks-engine-[a-z-]+-[0-9a-f]{12}-\d+$/', (string) $class), ARRAY_FILTER_USE_KEY);
         $classes = array_diff_key($classes, $routeHooks['marker']);
+        $supportClasses += $classes;
         unset($routeHooks['marker']);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
         // A route-kept hook that a detached part also carries still styles that
@@ -1123,7 +1131,7 @@ final class SharedChromeStylesheets
             'class' => array_intersect_key($detachedHooks['class'], $routeHooks['class']),
             'id' => array_intersect_key($detachedHooks['id'], $routeHooks['id']),
         );
-        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id'] && array() === $detachedRouteHooks['class'] && array() === $detachedRouteHooks['id']) return $assets;
+        if (!$hasSharedNavigation && array() === $supportClasses && array() === $authored['class'] && array() === $authored['id'] && array() === $detachedRouteHooks['class'] && array() === $detachedRouteHooks['id']) return $assets;
         $classMatcher = self::generatedClassMatcher($classes);
         // Current state is assigned by core on the served route, not saved in
         // the shared part. Projected selectors using only native navigation
@@ -1135,6 +1143,9 @@ final class SharedChromeStylesheets
         $reachesDetachedPart = static fn (string $selector): bool => self::selectorTargetsAuthoredChrome($selector, $detachedRouteHooks, $context)
             && self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots)) !== trim($selector);
         $liftsToChrome = static fn (string $selector): bool => $targetsChrome($selector) || $reachesDetachedPart($selector);
+        $supportMatcher = self::generatedClassMatcher($supportClasses);
+        $supportTargetsChrome = static fn (string $selector): bool => $targetsChrome($selector) || self::selectorTargetsGeneratedClass($selector, $supportMatcher);
+        $supportLiftsToChrome = static fn (string $selector): bool => $supportTargetsChrome($selector) || $reachesDetachedPart($selector);
         $reanchor = static function (string $selector) use ($context, $detachedRoots, $controlRoutes): string {
             $routes = array();
             foreach ($controlRoutes as $control => $classes) {
@@ -1175,12 +1186,15 @@ final class SharedChromeStylesheets
                 $keep($asset);
                 continue;
             }
-            $shared = self::sharedChromeRules($asset['content'], $liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher);
+            $routeSupport = 'engine-support' === ($asset['source'] ?? null) && array() === array_filter($asset['scopes'] ?? array(), static fn (array $scope): bool => 'global' === ($scope['kind'] ?? null));
+            $shared = $routeSupport
+                ? self::sharedChromeRules($asset['content'], $supportLiftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $supportMatcher)
+                : self::sharedChromeRules($asset['content'], $liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher);
             if (null === $shared) {
                 $keep($asset);
                 continue;
             }
-            $route = self::withoutSharedKeyframes(self::routeRules($asset['content'], $targetsChrome, $classMatcher), $shared);
+            $route = self::withoutSharedKeyframes($routeSupport ? self::routeRules($asset['content'], $supportTargetsChrome, $supportMatcher) : self::routeRules($asset['content'], $targetsChrome, $classMatcher), $shared);
             $contract = self::sharedChromeContract($asset);
             $sharedAsset = self::sharedChromeAsset($asset, $shared, $contract, $routeClasses);
             $shared = (string) $sharedAsset['content'];
