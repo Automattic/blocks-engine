@@ -67,9 +67,10 @@ $assert(! str_contains($aboutPart, 'is-on') && ! str_contains($booksPart, 'is-on
 
 // Exercise the emitted runtime, including the importer seam for non-page
 // documents. The native page route deliberately disagrees with the filter.
+// The source has a submenu, so the submenu item pass is emitted too.
 $artifact = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array(
     'entrypoint' => 'index.html',
-    'files' => array('index.html' => '<header><nav><a href="/">Home</a><a href="/accessories/">Accessories</a></nav></header><main>Home</main>'),
+    'files' => array('index.html' => '<header><nav><ul><li><a href="/">Home</a></li><li><a href="/accessories/">Accessories</a><ul><li><a href="/accessories/hats/">Hats</a></li></ul></li></ul></nav></header><main>Home</main>'),
 ))->toArray();
 $bootstrap = '';
 foreach ($artifact['source_reports']['wordpress_site_plan']['writes'] as $write) {
