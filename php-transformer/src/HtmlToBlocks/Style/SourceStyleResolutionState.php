@@ -84,9 +84,9 @@ final class SourceStyleResolutionState
 
     /**
      * Each source element's matching rules per collection, keyed by collection
-     * and node path.
+     * and node path, with values derived from exactly those rules.
      *
-     * @var array<string, array{node: DOMElement, rules: list<array<string, mixed>>}>
+     * @var array<string, array{node: DOMElement, rules: list<array<string, mixed>>, derived?: array<string, array<string, string>>}>
      */
     private array $matchedRules = array();
 
@@ -215,6 +215,26 @@ final class SourceStyleResolutionState
             }
             return $rules;
         });
+    }
+
+    /**
+     * A value derived only from the element's matching rules in a collection
+     * and `$derivation` (which must name every other input), remembered with
+     * those matched rules: it is recomputed whenever they are, so it is
+     * exactly what `$derive` would return from a fresh read.
+     *
+     * @param Closure(list<array<string, mixed>>): array<string, string> $derive
+     * @return array<string, string>
+     */
+    public function derivedFromMatchingRules(DOMElement $element, string $collection, string $derivation, Closure $derive): array
+    {
+        $rules = $this->matchingRules($element, $collection);
+        if ( ! self::isInDocument($element) ) {
+            return $derive($rules);
+        }
+        // matchingRules() just left this element's entry under this key.
+        $key = $collection . "\0" . $element->getNodePath();
+        return $this->matchedRules[$key]['derived'][$derivation] ??= $derive($rules);
     }
 
     /**
@@ -518,6 +538,11 @@ final class SourceStyleResolutionState
     {
         $this->formLayoutCss = $css;
         $this->containerStyleQueries = null;
+        // Derived cascades evaluated `@container` style queries against the
+        // previous stylesheet; the matched rules themselves still hold.
+        foreach ( $this->matchedRules as $key => $entry ) {
+            unset($this->matchedRules[$key]['derived']);
+        }
     }
 
     /** Viewport truth of the combined author stylesheet's container style queries. */
