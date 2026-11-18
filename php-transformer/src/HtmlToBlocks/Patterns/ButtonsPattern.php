@@ -124,6 +124,19 @@ final class ButtonsPattern
             return $this->createBlock->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button) ), array(), $button);
         }
 
+        // The control is resolved before its wrapper, as it always has been.
+        $control = $this->nativeButtonBlock($button, $context, $buttons);
+        return $this->createBlock->createBlock('core/buttons', $this->buttonWrapperAttributes($button, $context, $buttons), array( $control ), $button);
+    }
+
+    /**
+     * A native `<button>` the guards in {@see self::matchButton()} let through,
+     * as the core/button its synthesized core/buttons wrapper holds.
+     *
+     * @return array<string, mixed>
+     */
+    private function nativeButtonBlock(DOMElement $button, PatternContext $context, ButtonPatternContext $buttons): array
+    {
         $createBlock = $this->createBlock->createBlock(...);
         $resolvedButtonStyle = trim($buttons->resolvedStyle($button));
         $attrs = $this->buttonPresentationAttributes($button, $context, $buttons);
@@ -145,17 +158,15 @@ final class ButtonsPattern
             $text = SourceDom::visuallyHiddenLabel($accessibleTitle);
         }
 
-        return $createBlock('core/buttons', $this->buttonWrapperAttributes($button, $context, $buttons), array(
-            $createBlock('core/button', array_filter(array_merge(
-                $attrs,
-                $this->buttonRuntimeAttributes($button),
-                array(
-                    'tagName' => 'button',
-                    'text'    => $text,
-                    'title'   => $accessibleTitle,
-                )
-            ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $button),
-        ), $button);
+        return $createBlock('core/button', array_filter(array_merge(
+            $attrs,
+            $this->buttonRuntimeAttributes($button),
+            array(
+                'tagName' => 'button',
+                'text'    => $text,
+                'title'   => $accessibleTitle,
+            )
+        ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $button);
     }
 
     /** @return array<string, mixed>|null */
@@ -186,6 +197,16 @@ final class ButtonsPattern
         }
         if ( $preservedAnchor instanceof DOMElement ) {
             return $this->createBlock->createBlock('core/html', array( 'content' => SourceDom::outerHtml($preservedAnchor) ), array(), $preservedAnchor);
+        }
+
+        $rowButton = $this->soleNativeButtonOfFlexRow($element, $buttons);
+        if ( $rowButton instanceof DOMElement ) {
+            // The row is a real flex box (its margin, gap and alignment) and
+            // core/buttons is itself a flex container: it takes the row's box
+            // instead of nesting a synthesized display:contents core/buttons
+            // inside a Group for the same element.
+            $control = $this->nativeButtonBlock($rowButton, $context, $buttons);
+            return $this->createBlock->createBlock('core/buttons', $context->presentationAttributes($element), array( $control ), $element);
         }
 
         $wrappedAnchor = $this->singleSimpleAnchorChild($element);
@@ -251,6 +272,45 @@ final class ButtonsPattern
             $attrs['style']['spacing']['blockGap'] = '0';
         }
         return $this->createBlock->createBlock('core/buttons', $attrs, $buttonBlocks, $element);
+    }
+
+    /**
+     * The only content of a source flex row, when it is a plain native
+     * `<button>` ({@see self::matchButton()} would lower it to core/button).
+     * The row must be a generic `div` with no identity, behavior or capture
+     * marker of its own, and display:flex at every breakpoint, so the
+     * core/buttons flex root reproduces its box and formatting context.
+     */
+    private function soleNativeButtonOfFlexRow(DOMElement $element, ButtonPatternContext $buttons): ?DOMElement
+    {
+        if ( 'div' !== strtolower($element->tagName) || SourceDom::hasClass($element, 'wp-block-buttons') || SourceDom::isDeviceVisibilityCarrier($element) ) {
+            return null;
+        }
+        foreach ( $element->attributes as $attribute ) {
+            if ( ! in_array(strtolower($attribute->nodeName), array( 'class', 'style', 'data-blocks-engine-node-id' ), true) ) {
+                return null;
+            }
+        }
+        $button = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( null !== $button || 'button' !== strtolower($child->tagName) ) {
+                    return null;
+                }
+                $button = $child;
+            } elseif ( XML_COMMENT_NODE !== $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return null;
+            }
+        }
+        if ( ! $button instanceof DOMElement
+            || $buttons->isRuntimeDomTarget($button) || $buttons->isRuntimeDomTarget($element)
+            || null !== $this->guardedWrappedButtonAnchor($button)
+            || $this->hasUnportedRuntimeHandler($button)
+            || ! $buttons->isUnconditionalFlexRow($element) ) {
+            return null;
+        }
+
+        return $button;
     }
 
     /** @return array<string, mixed> */

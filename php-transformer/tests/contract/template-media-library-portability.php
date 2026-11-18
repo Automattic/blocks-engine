@@ -49,4 +49,36 @@ eval(substr($writes['functions.php']['payload']['data'], 5));
 $rendered = $blocks_engine_resolve_template_assets($template);
 $assert(str_contains($rendered, 'https://moved.example.test/wp-content/uploads/logo.png') && !str_contains($rendered, $token), 'Generated runtime resolves the portable token to the current attachment URL.');
 WordPressSitePlan::assertValid($resolved);
+
+// A Media Library image that only a synced pattern holds is not a template asset (#6523).
+$svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>';
+$canvas = '<div class="canvas"><img src="map.svg" alt="Map"><p>Region</p></div>';
+$tabsPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<!doctype html><html><body><main><img src="logo.svg" alt="Logo"><div class="tabs"><div role="tablist"><button role="tab" aria-controls="p1" aria-selected="true">One</button><button role="tab" aria-controls="p2" aria-selected="false">Two</button></div><div id="p1" role="tabpanel">' . $canvas . '<p>First panel</p></div><div id="p2" role="tabpanel" hidden>' . $canvas . '<p>Second panel</p></div></div></main></body></html>',
+    'logo.svg' => array('content' => $svg, 'mime_type' => 'image/svg+xml'),
+    'map.svg' => array('content' => $svg, 'mime_type' => 'image/svg+xml'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$tabTokens = array_column(array_filter($tabsPlan['assets'], static fn(array $asset): bool => 'media_library' === $asset['destination']), 'token', 'source_path');
+$assert(isset($tabTokens['logo.svg'], $tabTokens['map.svg']), 'Both images become Media Library assets.');
+$logoToken = WordPressSitePlan::TOKEN_PREFIX . $tabTokens['logo.svg'] . '}}';
+$mapToken = WordPressSitePlan::TOKEN_PREFIX . $tabTokens['map.svg'] . '}}';
+$tabsResolved = (new WordPressSitePlanResolver())->resolve($tabsPlan, array(
+    'theme_uri' => 'https://build.example.test/wp-content/themes/site',
+    'attachment_resolutions' => array(
+        $tabTokens['logo.svg'] => array('id' => 61, 'url' => 'https://build.example.test/wp-content/uploads/logo.svg'),
+        $tabTokens['map.svg'] => array('id' => 62, 'url' => 'https://build.example.test/wp-content/uploads/map.svg'),
+    ),
+));
+$mapPatterns = array_values(array_filter($tabsResolved['synced_patterns'] ?? array(), static fn(array $pattern): bool => str_contains($pattern['canonical_block_markup'], $mapToken)));
+$assert(1 === count($mapPatterns), 'The repeated tab canvas is projected as a synced pattern holding the map token.');
+$functions = array_column($tabsResolved['writes'], null, 'target_path')['functions.php']['payload']['data'];
+$assert(1 === preg_match('~\$blocks_engine_template_asset_tokens = (array \(.*?\));\n~s', $functions, $tokenTable) && 1 === preg_match('~\$blocks_engine_template_attachment_ids = (array \(.*?\));\n~s', $functions, $idTable), 'functions.php declares the template token and attachment-ID tables.');
+$templateTokens = eval('return ' . $tokenTable[1] . ';');
+$attachmentIds = eval('return ' . $idTable[1] . ';');
+preg_match_all('~\{\{wordpress-site-plan:asset:[^}]+\}\}~', $idTable[1], $idTokens);
+$assert(array() === array_diff($idTokens[0], array_keys($templateTokens)), 'functions.php publishes attachment IDs only for tokens its template asset table lists.');
+$assert(!isset($attachmentIds[$mapToken]), 'The synced-pattern-only map token gets no template attachment ID.');
+$assert(61 === ($attachmentIds[$logoToken] ?? null), 'The template logo token keeps its attachment ID.');
+$assert(str_contains($mapPatterns[0]['resolved_block_markup'], 'https://build.example.test/wp-content/uploads/map.svg') && str_contains($mapPatterns[0]['resolved_block_markup'], 'wp-image-62'), 'The synced pattern still resolves the map image to its attachment.');
+WordPressSitePlan::assertValid($tabsResolved);
 echo "template-media-library-portability contract passed\n";
