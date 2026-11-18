@@ -389,6 +389,17 @@ final class RichTextMaterializer implements RichTextMaterialization
         }
 
         $declarations = array_intersect_key($declarations, $allowed);
+        // With box-tree evidence the author stylesheet that defines a family
+        // token is not shipped (ADR 0005), and the carrier's inline
+        // declaration outranks the engine's typography carrier, so a raw
+        // `var(--font-heading)` computes invalid and falls back to the
+        // inherited family. Carry the family the token stands for instead.
+        if ( isset($declarations['font-family']) && str_contains($declarations['font-family'], 'var(') && array() !== $this->session->boxTreeViewports() ) {
+            $family = trim($this->styleResolver->resolvedPresentationDeclarations($element, array( 'font-family' => $declarations['font-family'] ))['font-family'] ?? '');
+            if ( '' !== $family && ! str_contains($family, 'var(') ) {
+                $declarations['font-family'] = $family;
+            }
+        }
         // The source inline's custom properties feed the author rules and
         // carried values that style it (`font-family: var(--font)`); the
         // carrier replaces its inline style, so it must define them too.

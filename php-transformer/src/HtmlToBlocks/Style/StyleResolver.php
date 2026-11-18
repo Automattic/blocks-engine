@@ -811,12 +811,12 @@ final class StyleResolver implements ElementPresentationResolver
      * @param list<DOMElement> $sources Source elements, the RichText root first.
      * @param list<DOMElement> $targets Their serialization clones, in the same order.
      */
-    private function restyleRichTextInlines(array $sources, array $targets): void
+    private function restyleRichTextInlines(array $sources, array $targets, int $from = 1): void
     {
         $viewports = $this->session->boxTreeViewports();
         if (array() === $viewports) return;
         $projector = null;
-        foreach (array_slice($sources, 1, null, true) as $index => $source) {
+        foreach (array_slice($sources, $from, null, true) as $index => $source) {
             $target = $targets[$index] ?? null;
             $parent = $source->parentNode;
             if (!$target instanceof DOMElement || !$parent instanceof DOMElement) continue;
@@ -827,6 +827,19 @@ final class StyleResolver implements ElementPresentationResolver
             $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
             if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
         }
+    }
+
+    /**
+     * A leaf saved whole inside boxless RichText is an inline, not the block
+     * root. Project only its typography; its layout already has an owner.
+     */
+    public function inlineLayoutLeafMarkup(DOMElement $element): string
+    {
+        if (array() === $this->session->boxTreeViewports()) return SourceDom::outerHtml($element);
+        $clone = $element->cloneNode(true);
+        if (!$clone instanceof DOMElement) return SourceDom::outerHtml($element);
+        $this->restyleRichTextInlines(array($element), array($clone), 0);
+        return SourceDom::outerHtml($clone);
     }
 
     /** Preserve authored inline CSS except typography already supplied by the parent. */
@@ -5395,9 +5408,35 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function resolvedCascadeStyle(DOMElement $element, string $collection, float $viewportWidth = self::DESKTOP_REFERENCE_WIDTH, ?callable $excludeSelector = null, bool $inline = true): string
     {
+        $state = $this->session->sourceStyleResolutionState();
+        $style = $inline ? SourceDom::attr($element, 'style') : '';
+        // The winners depend only on the matched rules, the viewport and the
+        // inline style, so they are remembered with the matched rules. An
+        // exclusion callback is opaque and always resolves afresh.
+        $declarations = null === $excludeSelector
+            ? $state->derivedFromMatchingRules(
+                $element,
+                $collection,
+                'cascade-style' . "\0" . $viewportWidth . "\0" . $style,
+                fn (array $rules): array => $this->cascadeWinners($rules, $viewportWidth, null, $style)
+            )
+            : $this->cascadeWinners($state->matchingRules($element, $collection), $viewportWidth, $excludeSelector, $style);
+
+        return $this->cssDeclarationString(array_replace(SourceCascade::presentationalHints($element), $declarations));
+    }
+
+    /**
+     * Serialized cascade winners of matched rules at one viewport, with the
+     * inline style applied over them.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @return array<string, string>
+     */
+    private function cascadeWinners(array $rules, float $viewportWidth, ?callable $excludeSelector, string $inlineStyle): array
+    {
         $cascade = array();
         $sequence = 0;
-        foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, $collection) as $rule ) {
+        foreach ( $rules as $rule ) {
             if ( ( ! empty($rule['conditions']) && ! $this->cascade->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) )
                 || ( null !== $excludeSelector && $excludeSelector((string) $rule['selector']) )
             ) {
@@ -5410,7 +5449,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        foreach ( SourceDeclarations::parse($inline ? SourceDom::attr($element, 'style') : '') as $property => $value ) {
+        foreach ( SourceDeclarations::parse($inlineStyle) as $property => $value ) {
             $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), ++$sequence);
         }
 
@@ -5427,7 +5466,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        return $this->cssDeclarationString(array_replace(SourceCascade::presentationalHints($element), $declarations));
+        return $declarations;
     }
 
     /**
