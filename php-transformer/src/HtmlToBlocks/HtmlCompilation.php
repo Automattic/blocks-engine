@@ -2161,7 +2161,19 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
             $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->session->boxTreeEvidence(...));
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $sourceTagName);
+            // An authored figure keeps its own box; the image it paints is styled from its own evidence.
+            $image = array();
+            $paintedImage = 'core/image' === $name && 'figure' === $sourceTagName ? $sourceElement->getElementsByTagName('img')->item(0) : null;
+            if ($paintedImage instanceof DOMElement && $paintedImage->parentNode instanceof DOMElement) {
+                $imageObservations = $this->session->boxTreeEvidence($paintedImage);
+                $imageParents = $this->session->boxTreeEvidence($paintedImage->parentNode);
+                $image = array(
+                    'observations' => $imageObservations,
+                    'parents' => $imageParents,
+                    'fluid' => (new Style\BoxTreeFluidIntent())->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->session->boxTreeEvidence(...)),
+                );
+            }
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $sourceTagName, $image);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,

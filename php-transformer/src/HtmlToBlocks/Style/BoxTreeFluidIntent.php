@@ -14,12 +14,16 @@ use DOMElement;
  * (ADR 0005 §4), so widths between captures follow the author rather than
  * the nearest frozen capture.
  *
- * - A resting cascade winner that is a fluid expression (viewport units,
- *   `%`, `em`, CSS math, `var()`) or a pixel length, reached directly or through the `font`,
- *   `margin` or `padding` shorthand, is lifted when it evaluates to the
- *   observed used value (±0.5px) at every capture. Every `var()` is expanded
- *   at the element's scope and width, so the carrier references no custom
- *   property.
+ * - A resting cascade winner, whatever CSS value it is (a pixel length,
+ *   viewport units including `sv*`/`lv*`/`dv*`, `%`, `em`/`rem`, CSS math,
+ *   `var()`), reached directly or through the `font`, `margin` or `padding`
+ *   shorthand, is lifted verbatim when it evaluates to the observed used
+ *   value (±0.5px) at every capture. Viewport units resolve against each
+ *   capture's own viewport width and height, and a `width` or `height` is
+ *   first clamped by the observed `min-*`/`max-*` on its axis, as layout
+ *   does. Every `var()` is expanded at the element's scope and width, so the
+ *   carrier references no custom property. Only a value nothing reproduces
+ *   keeps the captured pixels.
  * - `rem` lengths in a lifted expression are restated in pixels against
  *   the root font size the author's cascade gives the document at that
  *   width (the user-agent 16px when undeclared), so the carrier does not
@@ -112,6 +116,9 @@ final class BoxTreeFluidIntent
         'bottom' => array('auto', 'inset-block', 'inset-block-end'),
         'left' => array('auto', 'inset-inline', 'inset-inline-start'),
     );
+
+    /** Sizes => the observed minimum and maximum that clamp their used value. */
+    private const CLAMPS = array('width' => array('min-width', 'max-width'), 'height' => array('min-height', 'max-height'));
 
     private const GRID_TEMPLATES = array('grid-template-columns', 'grid-template-rows', 'grid-auto-columns', 'grid-auto-rows');
 
@@ -227,7 +234,6 @@ final class BoxTreeFluidIntent
             $value = $this->declared($property, $width);
             if (null === $value || '' === $value) return null;
             $factor = 'line-height' === $property && preg_match('/^\d*\.?\d+$/', $value);
-            if (!$factor && !preg_match('/%|\d(?:vw|vh|vmin|vmax|em)\b|\b(?:calc|clamp|min|max)\(|^-?(?:\d*\.)?\d+px$/i', $value)) return null;
             $styles = $observations[$key]['used_styles'] ?? array();
             $parent = $parents[$key]['used_styles'] ?? array();
             [$percent, $em] = $this->bases($property, (string) $key, $styles, $parent);
@@ -235,6 +241,7 @@ final class BoxTreeFluidIntent
             $predicted = $factor
                 ? (null === $em ? null : (float) $value * $em)
                 : CssFluidLength::evaluate($value, $width, (float) ($viewports[$key]['height'] ?? 0), $percent, $em);
+            if (null !== $predicted) $predicted = self::clamped($property, $predicted, $styles);
             if (null === $actual || null === $predicted || abs($actual - $predicted) > self::TOLERANCE) return null;
             $proven[$key] = $value;
             $observed[(string) ($styles[$property] ?? '')] = true;
@@ -246,6 +253,20 @@ final class BoxTreeFluidIntent
             $value = $this->declared($property, $width);
             return '' === $value ? null : $value;
         });
+    }
+
+    /**
+     * The used size a specified one becomes under the box's observed minimum
+     * and maximum on the same axis, which the carrier restates too. Other
+     * properties use their specified value as is.
+     */
+    private static function clamped(string $property, float $specified, array $styles): float
+    {
+        if (!isset(self::CLAMPS[$property])) return $specified;
+        [$minimum, $maximum] = self::CLAMPS[$property];
+        $floor = self::pixels((string) ($styles[$minimum] ?? '')) ?? 0.0;
+        $ceiling = self::pixels((string) ($styles[$maximum] ?? '')) ?? INF;
+        return max($floor, min($ceiling, $specified));
     }
 
     /**

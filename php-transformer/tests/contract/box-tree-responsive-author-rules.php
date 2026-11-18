@@ -6,6 +6,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\PayloadReader;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFluidLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 
@@ -14,32 +15,52 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 // reproduce the author's breakpoint rules at every captured viewport. The
 // source sizes images with breakpoint rules; the evidence captures it at
 // three widths. The delivered CSS is cascaded against the compiled markup at
-// each width.
+// each width, and sizes are resolved at viewports whose heights differ from
+// the captures'.
 $assert = static function (bool $condition, string $message, string $detail = ''): void {
     if (!$condition) throw new RuntimeException($message . ('' === $detail ? '' : "\n" . $detail));
     echo "PASS: $message\n";
 };
 
-$author = '.intro img{display:block;width:100%;max-height:650px;object-fit:cover}'
+$author = '.hero{height:min(880px,100svh);min-height:680px}'
+    . '@media (max-width:520px){.hero{min-height:650px}}'
+    . '.story figure{margin:0}.story img{display:block;width:100%;max-height:650px;object-fit:cover}'
+    . '.intro img{display:block;width:100%;max-height:650px;object-fit:cover}'
     . '.approach{display:grid;grid-template-columns:1fr 1fr;column-gap:40px}'
     . '.approach-image img{display:block;width:100%;height:680px;object-fit:cover}'
     . '@media (max-width:900px){.approach{grid-template-columns:1fr}.approach-image img{height:450px}}';
 $markup = '<!doctype html><html><head><title>Responsive</title><style>' . $author . '</style></head><body><main>'
+    . '<section class="hero"><h1>Hero</h1></section>'
+    . '<section class="story"><figure><img src="https://example.com/story.jpg" alt="Story"></figure></section>'
     . '<section class="intro"><h1>Intro</h1><img src="https://example.com/intro.jpg" alt="Intro"></section>'
     . '<section class="approach"><div class="approach-text"><h2>Approach</h2><p>How we work.</p></div>'
     . '<div class="approach-image"><img src="https://example.com/approach.jpg" alt="Approach"></div></section>'
     . '</main></body></html>';
-$viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'tablet' => array('width' => 768, 'height' => 1024), 'mobile' => array('width' => 390, 'height' => 844));
+$viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'tablet' => array('width' => 768, 'height' => 1024), 'mobile' => array('width' => 390, 'height' => 640));
 
 // Used values the browser reports for the boxes the author rules size. Every
-// other box fills the viewport width; the intro image is 2:3, clamped to 650px.
+// other box fills the viewport width; the intro and story images are 2:3,
+// clamped to 650px. The hero is min(880px, 100svh) tall, at least 680px (650px
+// at 520px and below): at the 640px-tall mobile capture its min-height wins.
 $column = array('desktop' => array('width' => '700px'), 'tablet' => array('width' => '768px'), 'mobile' => array('width' => '390px'));
+$clampedImage = array(
+    'desktop' => array('display' => 'block', 'width' => '1440px', 'height' => '650px', 'max-height' => '650px', 'object-fit' => 'cover'),
+    'tablet' => array('display' => 'block', 'width' => '768px', 'height' => '650px', 'max-height' => '650px', 'object-fit' => 'cover'),
+    'mobile' => array('display' => 'block', 'width' => '390px', 'height' => '585px', 'max-height' => '650px', 'object-fit' => 'cover'),
+);
 $observed = array(
-    '//section[@class="intro"]/img' => array(
-        'desktop' => array('display' => 'block', 'width' => '1440px', 'height' => '650px', 'max-height' => '650px', 'object-fit' => 'cover'),
-        'tablet' => array('display' => 'block', 'width' => '768px', 'height' => '650px', 'max-height' => '650px', 'object-fit' => 'cover'),
-        'mobile' => array('display' => 'block', 'width' => '390px', 'height' => '585px', 'max-height' => '650px', 'object-fit' => 'cover'),
+    '//section[@class="hero"]' => array(
+        'desktop' => array('display' => 'block', 'height' => '880px', 'min-height' => '680px'),
+        'tablet' => array('display' => 'block', 'height' => '880px', 'min-height' => '680px'),
+        'mobile' => array('display' => 'block', 'height' => '650px', 'min-height' => '650px'),
     ),
+    '//section[@class="story"]/figure' => array(
+        'desktop' => array('display' => 'block', 'height' => '650px'),
+        'tablet' => array('display' => 'block', 'height' => '650px'),
+        'mobile' => array('display' => 'block', 'height' => '585px'),
+    ),
+    '//section[@class="story"]/figure/img' => $clampedImage,
+    '//section[@class="intro"]/img' => $clampedImage,
     '//section[@class="approach"]' => array(
         'desktop' => array('display' => 'grid', 'grid-template-columns' => '700px 700px', 'column-gap' => '40px'),
         'tablet' => array('display' => 'grid', 'grid-template-columns' => '768px', 'column-gap' => '40px'),
@@ -133,6 +154,8 @@ $element = static fn(string $query): DOMElement => $compiledPath->query($query)-
 $introImage = $element('//img[@src="https://example.com/intro.jpg"]');
 $approachImage = $element('//img[@src="https://example.com/approach.jpg"]');
 $approach = $element('//*[contains(concat(" ", @class, " "), " approach ")]');
+$hero = $element('//*[contains(concat(" ", @class, " "), " hero ")]');
+$storyImage = $element('//img[@src="https://example.com/story.jpg"]');
 
 /** @return list<array{0: string, 1: string}> [media condition, rule] in source order. */
 $rules = static function (string $css, string $media = '') use (&$rules): array {
@@ -241,3 +264,39 @@ foreach (array('intro image' => $introImage, 'approach image' => $approachImage)
     $figure = $image->parentNode;
     $assert($figure instanceof DOMElement && 'contents' === $cascaded($figure, 'display', 1440), "The core/image figure around the $label generates no box.");
 }
+
+// An authored figure keeps its own box, but the image it wraps is sized by the
+// image's own declarations, not core/image's `height:auto;max-width:100%`.
+$storyFigure = $storyImage->parentNode;
+$assert($storyFigure instanceof DOMElement && 'figure' === $storyFigure->tagName, 'The authored story figure is kept.');
+$assert('contents' !== $cascaded($storyFigure, 'display', 1440), 'The authored story figure keeps its own box.');
+$expect($storyImage, 'story image', 'max-height', array_fill_keys($widths, '650px'));
+$expect($storyImage, 'story image', 'object-fit', array_fill_keys($widths, 'cover'));
+$expect($storyImage, 'story image', 'width', array_fill_keys($widths, '100%'));
+
+/**
+ * The used block size of an element in a viewport: its specified height
+ * clamped by its max-height, then its min-height.
+ */
+$usedHeight = static function (DOMElement $target, int $width, int $height) use ($cascaded): ?float {
+    $resolve = static function (string $property, float $fallback) use ($cascaded, $target, $width, $height): ?float {
+        $value = $cascaded($target, $property, $width);
+        if (null === $value || in_array($value, array('auto', 'none'), true)) return $fallback;
+        return CssFluidLength::evaluate($value, $width, $height);
+    };
+    [$specified, $minimum, $maximum] = array($resolve('height', 0.0), $resolve('min-height', 0.0), $resolve('max-height', INF));
+    return null === $specified || null === $minimum || null === $maximum ? null : max($minimum, min($maximum, $specified));
+};
+$expectHeight = static function (DOMElement $target, string $label, array $cases) use ($usedHeight, $assert, $css, $result): void {
+    foreach ($cases as [$width, $height, $expected]) {
+        $actual = $usedHeight($target, $width, $height);
+        $assert(null !== $actual && abs($actual - $expected) < 0.5, "In a {$width}x{$height} viewport the $label is {$expected}px tall.", 'Got ' . var_export($actual, true) . "\n" . $result['serialized_blocks'] . "\n" . $css);
+    }
+};
+// Viewport heights the captures (900, 1024, 640) never saw.
+$expectHeight($hero, 'hero', array(
+    array(1440, 1000, 880), array(1440, 760, 760), array(1440, 600, 680),
+    array(768, 700, 700), array(600, 660, 680), array(500, 660, 660),
+    array(390, 844, 844), array(390, 600, 650),
+));
+$expectHeight($storyImage, 'story image', array(array(1440, 700, 650), array(768, 600, 650), array(390, 844, 585)));
