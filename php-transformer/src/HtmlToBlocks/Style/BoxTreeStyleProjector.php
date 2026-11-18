@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
-use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
@@ -83,57 +82,11 @@ final class BoxTreeStyleProjector
         $consumed = SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
-        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs), $pseudoFluid, self::SELECTOR, 'core/button' === $blockName);
+        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs), $pseudoFluid);
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
-    }
-
-    /** Formatting-context longhands of an observed box, which lay out its content. */
-    private const FORMATTING_CONTEXT = array(
-        'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-content', 'row-gap', 'column-gap',
-        'grid-template-columns', 'grid-template-rows', 'grid-auto-columns', 'grid-auto-rows', 'grid-auto-flow', 'justify-items',
-    );
-
-    /**
-     * core/button saves the source control as `.wp-block-button` around its
-     * `.wp-block-button__link`, and the carrier lands on that wrapper. The
-     * link holds the control's content, so a flex or grid control lays its
-     * icon and label out only when the link establishes the observed
-     * formatting context: the wrapper's would hold just the link. Any other
-     * display returns the link to core's inline-block; hiding stays with the
-     * wrapper.
-     *
-     * @param array<string, string> $declared One carrier rule's declarations.
-     * @return array<string, string>
-     */
-    private static function buttonLinkFormatting(array $declared): array
-    {
-        $link = array_intersect_key($declared, array_flip(self::FORMATTING_CONTEXT));
-        $display = strtolower(trim((string) ($declared['display'] ?? '')));
-        if (in_array($display, array('flex', 'inline-flex'), true)) $link = array('display' => 'flex') + $link;
-        elseif (in_array($display, array('grid', 'inline-grid'), true)) $link = array('display' => 'grid') + $link;
-        elseif (!in_array($display, array('', 'none', 'contents'), true)) $link = array('display' => 'inline-block') + $link;
-        return $link;
-    }
-
-    /**
-     * Whether an inline element generates a box other than an inline run at
-     * some capture. A flex or grid item's used `block` is the parent's
-     * blockification, not a box the element asked for.
-     */
-    private static function ownsBox(array $observations, array $viewports, array $parents): bool
-    {
-        foreach ($observations as $key => $observation) {
-            if (!isset($viewports[$key]['width'])) continue;
-            $display = strtolower(trim((string) ($observation['used_styles']['display'] ?? 'inline')));
-            if (in_array($display, array('inline', 'contents', 'none', ''), true)) continue;
-            $parent = strtolower((string) ($parents[$key]['used_styles']['display'] ?? ''));
-            if ('block' === $display && 1 === preg_match('/(?:^|-)(?:flex|grid)$/', $parent)) continue;
-            return true;
-        }
-        return false;
     }
 
     private static function runtime(): Runtime
@@ -204,23 +157,12 @@ final class BoxTreeStyleProjector
      * parent's is left to inheritance, so a lifted fluid block value keeps
      * reaching it between captures.
      *
-     * An element observed with a box of its own (a `flex` icon badge, an
-     * `inline-block` chip) is no longer only a run of text: without the
-     * author stylesheet nothing else gives it that display, size, spacing or
-     * border, so its non-inherited box declarations go to the carrier too.
-     *
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
      * @return string The carrier class, or '' when the inline inherits everything observed.
      */
     public function inlineCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, array $fluid = array()): string
     {
         $properties = array_flip(self::INLINE_TYPOGRAPHY);
-        if (self::ownsBox($observations, $viewports, $parents)) {
-            foreach (BoxTree::PROPERTIES as $property) {
-                // Text decoration stays with the link and state styles that own color.
-                if (!in_array($property, BoxTree::INHERITED_PROPERTIES, true) && !str_starts_with($property, 'text-decoration-')) $properties[$property] = true;
-            }
-        }
         $typography = array();
         foreach ($observations as $key => $observation) {
             if (!isset($viewports[$key]['width']) || !is_array($observation['used_styles'] ?? null)) continue;
@@ -315,12 +257,11 @@ final class BoxTreeStyleProjector
      * @param array<string, array<string, mixed>> $parents The block parent's observations, by viewport key.
      * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid Lifted pseudo-element values, by name.
      */
-    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), bool $syntheticAnchor = false, array $pseudoFluid = array(), string $selector = self::SELECTOR, bool $buttonLink = false): string
+    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), bool $syntheticAnchor = false, array $pseudoFluid = array(), string $selector = self::SELECTOR): string
     {
         $baseKey = $keys[0];
-        $rule = function (array $declared) use ($syntheticAnchor, $selector, $buttonLink): string {
+        $rule = function (array $declared) use ($syntheticAnchor, $selector): string {
             $css = $this->rule($selector, $declared);
-            if ($buttonLink) $css .= $this->rule($selector . '>.wp-block-button__link', self::buttonLinkFormatting($declared));
             if ($syntheticAnchor && isset($declared['display'])) {
                 // A real carrier box owns the margin. Only a transparent
                 // carrier passes it to the link, including at breakpoints.
