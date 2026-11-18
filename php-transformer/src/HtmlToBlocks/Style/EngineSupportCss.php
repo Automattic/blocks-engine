@@ -124,6 +124,13 @@ final class EngineSupportCss
                 // toggles the attribute after compilation.
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS . ')>a:not([hidden]){display:block}';
         }
+        if (str_contains($serializedBlocks, SourceBlockAttributeProjector::RETAINED_ITEM_CARRIER_CLASS)) {
+            // The carrier and the item it keeps share the source classes, so
+            // an author `::before` label for the item matches both and paints
+            // twice. The retained item draws it; the carrier adds none.
+            $carrier = '.' . SourceBlockAttributeProjector::RETAINED_ITEM_CARRIER_CLASS;
+            $parts[] = $carrier . '::before,' . $carrier . '::after{content:none!important}';
+        }
         if (str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS)) {
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
         }

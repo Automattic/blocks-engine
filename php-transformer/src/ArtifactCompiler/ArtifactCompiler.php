@@ -2021,6 +2021,8 @@ final class ArtifactCompiler
         $this->authorStylesheetProjectionCount = 0;
         // Asset identity is its path, not the number of partition occurrences.
         $files = array_values(array_column($files, null, 'path'));
+        // Per-route bodies of one <style> element reconcile as one stylesheet.
+        [$files, $projections, $primaryProjections] = InlineStylesheetFamilies::fold($files, $projections, $primaryProjections);
         $attributeStateMarkers = array();
         foreach ($projections as $projection) {
             $markers = $projection['attribute_state_markers'] ?? null;

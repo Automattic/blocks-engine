@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\CssFon
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\StepTimer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Closure;
 use DOMElement;
 
 /**
@@ -27,11 +28,17 @@ final class CompilationValidation
     private readonly ContentRoundTripReporter $contentRoundTrip;
     private readonly SourceMediaRetentionReporter $sourceMediaRetention;
     private readonly DeadProjectedSelectorReporter $deadProjectedSelectors;
+    private readonly SourceContentConservationReporter $sourceContentConservation;
 
+    /**
+     * @param (Closure(DOMElement): bool)|null $isDisplayNoneAtEveryViewport Stylesheet
+     *        cascade evidence that an element never renders at any viewport.
+     */
     public function __construct(
         private readonly Runtime $runtime,
         private readonly HtmlTransformerSession $session,
-        CssFontAnalysisCache $cssFontAnalysis
+        CssFontAnalysisCache $cssFontAnalysis,
+        private readonly ?Closure $isDisplayNoneAtEveryViewport = null
     ) {
         $this->diagnosticsCollector = new DiagnosticsCollector();
         $this->semanticParity = new SemanticParityReporter(
@@ -41,6 +48,7 @@ final class CompilationValidation
         $this->contentRoundTrip = new ContentRoundTripReporter();
         $this->sourceMediaRetention = new SourceMediaRetentionReporter();
         $this->deadProjectedSelectors = new DeadProjectedSelectorReporter();
+        $this->sourceContentConservation = new SourceContentConservationReporter();
     }
 
     /**
@@ -88,6 +96,19 @@ final class CompilationValidation
             array($sourcePath => $html)
         );
         $deadProjectedSelectorsReport = $deadProjectedSelectorEvaluation->report();
+        // Output ⊆ source catches invented copy; this runs source → blocks so a
+        // converter that silently drops a subtree is reported as content loss.
+        $timer->start('transform.validation.content_conservation');
+        $droppedContentFindings = $this->sourceContentConservation->evaluate(
+            $body,
+            array_merge(array($serializedBlocks), array_map(static fn (array $artifact): string => (string) ( $artifact['block_markup'] ?? '' ), $shellArtifacts)),
+            $sourceProvenance,
+            $fallbacks,
+            $sourcePath,
+            fn (DOMElement $element): bool => $this->session->navigationProjectionState()->isSuppressed($element)
+                || $this->session->authorSelectorProjectionState()->isSupersededControlPath((string) $element->getNodePath())
+                || ( null !== $this->isDisplayNoneAtEveryViewport && ($this->isDisplayNoneAtEveryViewport)($element) )
+        );
         $timer->start('transform.diagnostics');
         $validationOutcome = HtmlValidationOutcome::fromValidationFacts(
             $blockValidityEvaluation->status,
@@ -112,6 +133,8 @@ final class CompilationValidation
                 'message' => (string) ($finding['summary'] ?? ''),
             )));
         }
+
+        array_push($diagnostics, ...$droppedContentFindings);
 
         return new CompilationValidationResult(
             $blockValidityReport,

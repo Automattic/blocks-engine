@@ -58,6 +58,7 @@ final class FallbackFindingNormalizer
             'html_checkout_view_fallback' => 'commerce_checkout',
             'html_script_fallback' => 'runtime_script',
             'interactive_control_behavior_lost' => 'interactive_control',
+            'html_content_dropped' => 'content_conservation',
             'html_iframe_embed_fallback' => 'external_embed',
             'html_iframe_surface_capability_gap' => 'iframe_surface',
             'html_canvas_runtime_fallback' => 'runtime_canvas',
