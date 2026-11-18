@@ -30,8 +30,12 @@ function replayViewportEntrances() {
         ? matchMedia(viewportQueries[device]).matches : selected === null || selected === device);
     // Engines enumerate a keyframe's properties in different orders (Chromium
     // changed it between releases), so the binding compares values, not order.
+    // Lengths serialize at engine precision (177.140625px reads back as 177.141px,
+    // a compiled 177.14px as 177.14px), so numbers compare at two decimals.
+    const precise = (number) => Math.round(number * 100) / 100;
     const signature = (value) => JSON.stringify(value, (_key, field) => field && typeof field === 'object' && !Array.isArray(field)
-        ? Object.fromEntries(Object.entries(field).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) : field);
+        ? Object.fromEntries(Object.entries(field).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))
+        : typeof field === 'number' ? precise(field) : typeof field === 'string' ? field.replace(/\d*\.\d+/g, number => String(precise(Number(number)))) : field);
     for (const element of document.querySelectorAll('[__ENTRANCE__]')) {
         let state;
         try { state = JSON.parse(element.getAttribute('__ENTRANCE__'));
@@ -87,6 +91,15 @@ function replayViewportEntrances() {
                 inline.removeProperty('transition');
         }
         let running = false, complete = false;
+        // A lost lifecycle settles on the after pose: the before pose is a
+        // hidden pending state, and nothing will ever play it to completion.
+        const lose = (reason) => {
+            element.setAttribute('__ENTRANCE_LOSS__', reason);
+            observer.disconnect();
+            running = false;
+            complete = true;
+            apply('after');
+        };
         const start = () => {
             if (running || complete)
                 return;
@@ -95,7 +108,7 @@ function replayViewportEntrances() {
             const signatures = effects.map(effect => signature({ name: effect.animationName, timing: effect.effect?.getTiming(), frames: effect.effect.getKeyframes() })).sort();
             if (JSON.stringify(signatures) !== JSON.stringify(state.cssAnimations.map(binding => signature(binding)).sort()) ||
                 effects.some(effect => effect.playState !== 'paused' || effect.currentTime !== 0)) {
-                element.setAttribute('__ENTRANCE_LOSS__', 'authored paused CSS animation binding changed');
+                lose('authored paused CSS animation binding changed');
                 return;
             }
             running = true;
@@ -106,7 +119,7 @@ function replayViewportEntrances() {
                 running = false;
                 if (!state.repeat)
                     observer.unobserve(element);
-            }, () => { running = false; element.setAttribute('__ENTRANCE_LOSS__', 'CSS entrance completion was interrupted'); });
+            }, () => lose('CSS entrance completion was interrupted'));
         };
         const observer = new IntersectionObserver(entries => {
             for (const entry of entries) {

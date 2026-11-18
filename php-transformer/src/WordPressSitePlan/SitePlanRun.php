@@ -114,7 +114,7 @@ final class SitePlanRun
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
         $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
-        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups, self::providerSubmitButtons($runtimeDeclarations))->withBlockTypography($markups);
+        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups)->withBlockTypography($markups);
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
@@ -294,7 +294,7 @@ final class SitePlanRun
         $assets = PageStylesheets::place($assets, $pages, array_merge($pages, $parts, $frameParts));
         $assets = EditorStaticStateAssets::share($assets, $this->references);
         $assets = StylesheetScopes::foldSupport($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments), StylesheetScopes::canonicalDocuments(StylesheetScopes::documentsBySource($assetPages, $rootDocuments)), implode("\n", array_column(array_merge($parts, $frameParts), 'canonical_block_markup')));
-        $assets = EvidenceRouteStylesheets::retire($assets, $pages);
+        $assets = EvidenceRouteStylesheets::retire($assets, $pages, array_merge($parts, $frameParts));
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shellDeclarations;
@@ -327,7 +327,7 @@ final class SitePlanRun
         $templates = ThemeTemplates::build($this->links, $pages, $parts, $this->surfaces, $tokens, $this->references, $singleContent, $taxonomyProjection['entities'], $shellFrames['frames'], $documentChrome, $blockThemeChrome['templates']);
         $templates = ThemeTemplates::withBlockThemeShellFrames($templates, $blockThemeChrome);
         $sharedTemplateTitles = ThemeTemplates::shareOverrides($pages, $parts, $templates);
-        $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates);
+        $articleChrome = $this->postChrome->extractArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords, $templates, $taxonomyProjection['entities']);
         $pages = $articleChrome['pages'];
         $templates = $articleChrome['templates'];
         $parts = $articleChrome['parts'];
@@ -346,6 +346,9 @@ final class SitePlanRun
         $navigationMarkup = $emittedMarkup . "\n" . implode("\n", self::markups($menus));
         // Markup is final: an arm requiring a carrier no route has is dead.
         $assets = AbsentCarrierSelectors::prune($assets, $navigationMarkup . "\n" . json_encode(array($runtimeDeclarations, $runtimeEntityRecords), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        // Delivery is final too: an arm requiring a root class no document
+        // loading its sheet carries is dead in that sheet.
+        $assets = AbsentRouteSelectors::prune($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments));
         // A source arm guarded against role carriers is dead once every
         // element naming its class is one of them.
         $assets = ConvertedSourceClassSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
@@ -487,29 +490,6 @@ final class SitePlanRun
         }
         return array('pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources);
     }
-    /**
-     * The `core/button` a form provider renders for each declared submit,
-     * which no page markup contains. Its stated presentation is the only
-     * style it carries; the theme button element reaches everything else.
-     *
-     * @param array<int,mixed> $runtimeDeclarations
-     * @return list<array<string,mixed>> Block attributes, one per submit.
-     */
-    private static function providerSubmitButtons(array $runtimeDeclarations): array
-    {
-        $buttons = array();
-        foreach ($runtimeDeclarations as $declaration) {
-            if (!is_array($declaration) || 'entity_collection' !== ($declaration['kind'] ?? null) || 'forms' !== ($declaration['type'] ?? null)) continue;
-            foreach (ArrayField::array(ArrayField::array($declaration, 'payload'), 'entities') as $form) {
-                foreach (is_array($form) ? ArrayField::array($form, 'controls') : array() as $control) {
-                    if (!is_array($control) || 'submit' !== ($control['type'] ?? null)) continue;
-                    $buttons[] = array('style' => ArrayField::array(ArrayField::array($control, 'presentation'), 'style'));
-                }
-            }
-        }
-        return $buttons;
-    }
-
     /**
      * Stylesheets take their final form: variant-scoped id selectors, no
      * rules for navigation instances the emitted markup never renders, preset

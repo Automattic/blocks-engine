@@ -4,10 +4,15 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMElement;
 
-/** Report-only ADR 0005 classification. Never authorizes a conversion rewrite. */
+/**
+ * ADR 0005 box classification. A `neutral` disposition is the sole authority
+ * for collapsing a source box during conversion; every other disposition keeps
+ * the box. The projection estimates the resulting block tree for reporting.
+ */
 final class BoxTreeClassifier
 {
     public static function report(string $html, array $tree): array
@@ -21,7 +26,7 @@ final class BoxTreeClassifier
             $elements[$id] = $element;
             $parent = $element->parentNode;
             while ($parent instanceof DOMElement && !$parent->hasAttribute(BoxTree::NODE_ATTRIBUTE)) $parent = $parent->parentNode;
-            $parents[$id] = $parent instanceof DOMElement ? $parent->getAttribute(BoxTree::NODE_ATTRIBUTE) : null;
+            $parents[$id] = $parent instanceof DOMElement ? $parent->getAttribute(BoxTree::NODE_ATTRIBUTE) : '';
         }
         $references = array();
         foreach ($dom->getElementsByTagName('*') as $element) {
@@ -94,6 +99,7 @@ final class BoxTreeClassifier
             if (str_starts_with($attribute->name, 'on') || str_starts_with($attribute->name, 'aria-') || in_array($attribute->name, array('tabindex', 'contenteditable', 'draggable', 'hidden', 'inert'), true)) return 'interaction/state';
         }
         if (!empty($node['interaction_states'])) return 'interaction/state';
+        if (self::carriesCaptureMarker($element)) return 'capture-marker';
         foreach ($node['viewports'] as $observation) {
             $s = $observation['used_styles'];
             if (isset($s['animation-name']) && 'none' !== $s['animation-name']) return 'motion';
@@ -104,6 +110,8 @@ final class BoxTreeClassifier
             if ($child instanceof DOMElement && !isset($tree['nodes'][$child->getAttribute(BoxTree::NODE_ATTRIBUTE)])) return 'unobserved-child';
         }
         if (1 !== count($node['children'])) return 'own-sizing';
+        $placement = self::placement($node, $tree['nodes'][$node['children'][0]] ?? array());
+        if (null !== $placement) return $placement;
         foreach ($element->childNodes as $child) {
             if ($child instanceof \DOMText && '' !== trim($child->textContent)) return 'own-sizing';
         }
@@ -115,6 +123,52 @@ final class BoxTreeClassifier
         }
         return 'equal-child-geometry';
     }
+
+    /**
+     * A box that hides its subtree or places it within its own parent's layout
+     * renders something of its own: without it, the child would take the
+     * parent's layout with its own placement values. Equal geometry at the
+     * captured viewports does not prove that placement is redundant.
+     */
+    private static function placement(array $node, array $child): ?string
+    {
+        foreach ($node['viewports'] as $viewport => $observation) {
+            $s = $observation['used_styles'];
+            if ('none' === $s['display']) return 'hidden';
+            $c = $child['viewports'][$viewport]['used_styles'] ?? array();
+            // An inline-level child sits on this box's line box; its parent's
+            // layout would blockify or re-flow it.
+            if (str_starts_with($c['display'] ?? '', 'inline')) return 'line-box';
+            foreach (self::PLACEMENT as $property) {
+                if (($s[$property] ?? null) !== ($c[$property] ?? null)) return 'own-placement';
+            }
+            if ('static' !== $s['position']) {
+                foreach (array('top', 'right', 'bottom', 'left') as $offset) {
+                    if (!in_array($s[$offset] ?? 'auto', array('auto', '0px'), true)) return 'own-placement';
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Capture markers gate device visibility or interaction; the box carrying one is the engine's handle. */
+    private static function carriesCaptureMarker(DOMElement $element): bool
+    {
+        foreach ($element->attributes as $attribute) {
+            if (str_starts_with($attribute->name, CaptureEvidence::ATTRIBUTE_PREFIX)) return true;
+        }
+        foreach (preg_split('/\s+/', $element->getAttribute('class'), -1, PREG_SPLIT_NO_EMPTY) as $class) {
+            if (str_starts_with($class, CaptureEvidence::ATTRIBUTE_PREFIX)) return true;
+        }
+        return false;
+    }
+
+    /** Properties that place a box within its parent's flow, flex, or grid layout. */
+    private const PLACEMENT = array(
+        'order', 'align-self', 'justify-self', 'flex-grow', 'flex-shrink', 'flex-basis',
+        'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
+        'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'float', 'clear',
+    );
 
     /** Geometry is checked independently on each clipped axis at every captured viewport. */
     private static function clips(array $node, array $tree): bool

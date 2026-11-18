@@ -1722,7 +1722,11 @@ final class AuthorSelectorProjector
         if (null !== $universal) {
             return $universal['prefix'] . $this->projectControlTarget(':where(.blocks-engine-role-control)', $universal['selector'], $universal['parsed'], $context, $wrapper);
         }
-        return $this->projectControlTarget(':where(.' . $marker . ')', $selector, $parsed, $context, $wrapper);
+        // A token the control's entrance replays stays a live predicate; the
+        // marker alone would freeze its captured after pose.
+        $rightmost = CssSelectorCompoundInspector::rightmost($parsed['compounds'] ?? array());
+        $live = array_intersect(array_map('strval', $rightmost['classes'] ?? array()), $context->selectorProjections->controlEntranceClasses($marker));
+        return $this->projectControlTarget(':where(.' . $marker . CssIdent::compoundClassSelector(array_values($live)) . ')', $selector, $parsed, $context, $wrapper);
     }
 
     /**

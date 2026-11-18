@@ -33,11 +33,11 @@ foreach (array('all-copy' => $owners, 'subset-copy' => array_slice($owners, 0, 3
     $assert(1 === count($sheets), 'Each generated rule is written exactly once: ' . $class);
     foreach ($owners as $owner) {
         $loads = in_array($sheets[0]['target_path'], array_column(ThemeBootstrap::documentStylesheets($plan, $owner), 'target_path'), true);
-        // Folded support reaches other routes only where it matches nothing.
-        $assert(in_array($owner, $consumers, true) ? $loads : (!$loads || !str_contains($markup[$owner], $class)), 'Support loads on its consumers and is inert elsewhere: ' . $class);
+        // Support never reaches a route outside its consumers (#6458).
+        $assert(in_array($owner, $consumers, true) === $loads, 'Support loads on exactly its consumers: ' . $class);
     }
 }
-$assert(1 === count($support), 'Adjacent support sheets with one delivery fold into one resource.');
+$assert(4 === count($support), 'Adjacent support sheets with one delivery fold into one resource per owner set.');
 $assert(str_contains($bootstrap, "if ( true )"), 'Global support also loads on WordPress-native routes.');
 $seen = array();
 foreach ($support as $asset) {
@@ -96,19 +96,27 @@ foreach ($realistic['assets'] as $asset) {
     $assert('' !== trim($writes[$asset['target_path']]['payload']['data'] ?? ''), 'Realistic support and repair writes are never empty.');
 }
 $assert($repairs > 0, 'The realistic fixture exercises editor repair sharing.');
-// A rule whose selector also matches a route outside its owners folds in
-// behind a zero-weight gate on its owners' route classes.
+// A route's support folds only with its own owner set, never into a resource
+// other routes load, even where its selectors match there too.
 $fold = new ReflectionMethod(StylesheetScopes::class, 'foldSupport');
 $documents = array();
-foreach (array('index.html' => 'be-r-aaaa1111', 'page-1.html' => 'be-r-bbbb2222') as $source => $class) {
-    $documents[$source] = array('source_path' => $source, 'canonical_block_markup' => '<div class="shared-x"></div>', 'document_metadata' => array('root_attributes' => array('class' => 'be-r ' . $class)));
+foreach (array('index.html', 'page-1.html') as $source) {
+    $documents[$source] = array('source_path' => $source, 'canonical_block_markup' => '<div class="shared-x"></div><div class="y"></div>');
 }
 $sheet = static fn(string $content, array $scopes): array => array('source' => 'engine-support', 'kind' => 'css', 'content' => $content, 'scopes' => $scopes, 'stylesheet_placement' => 'after-author', 'source_path' => 'assets/css/engine-support-a.css', 'target_path' => 'assets/assets/css/engine-support-a.css');
-$folded = $fold->invoke(null, array($sheet('.shared-x{color:red}', array(array('kind' => 'page', 'source_path' => 'index.html'))), $sheet('.y{color:blue}', array(array('kind' => 'global')))), $documents, array_keys($documents));
-$assert(1 === count($folded) && str_starts_with($folded[0]['content'], ':where(:root:is(.be-r-aaaa1111)) .shared-x') && array(array('kind' => 'global')) === $folded[0]['scopes'], 'A rule live outside its owners is gated to them: ' . json_encode($folded));
+$home = array(array('kind' => 'page', 'source_path' => 'index.html'));
+$global = array(array('kind' => 'global'));
+$folded = $fold->invoke(null, array($sheet('.shared-x{color:red}', $home), $sheet('.y{color:blue}', $global)), $documents, array_keys($documents));
+$assert(2 === count($folded) && '.shared-x{color:red}' === $folded[0]['content'] && $home === $folded[0]['scopes'] && $global === $folded[1]['scopes'], 'A rule live outside its owners stays on its owners: ' . json_encode($folded));
+// A later owner rule joins its owner set's fold ahead of an intervening
+// global sheet only when no element both style shares a property family.
+$folded = $fold->invoke(null, array($sheet('.shared-x{color:red}', $home), $sheet('.y{color:blue}', $global), $sheet('.shared-x{margin:0}', $home)), $documents, array_keys($documents));
+$assert(2 === count($folded) && '.shared-x{color:red}.shared-x{margin:0}' === $folded[0]['content'] && $home === $folded[0]['scopes'] && '.y{color:blue}' === $folded[1]['content'], 'Commuting owner rules fold into one owner resource: ' . json_encode($folded));
+$folded = $fold->invoke(null, array($sheet('.shared-x{color:red}', $home), $sheet('.shared-x{color:blue}', $global), $sheet('.shared-x{color:green}', $home)), $documents, array_keys($documents));
+$assert(3 === count($folded) && array('.shared-x{color:red}', '.shared-x{color:blue}', '.shared-x{color:green}') === array_column($folded, 'content'), 'An owner rule competing with an intervening global rule keeps its place.');
 // Template-part markup renders on every route, so it is evidence too.
 foreach ($documents as &$document) $document['canonical_block_markup'] = '<p>Body</p>';
 unset($document);
-$folded = $fold->invoke(null, array($sheet('.shared-x{color:red}', array(array('kind' => 'page', 'source_path' => 'index.html'))), $sheet('.y{color:blue}', array(array('kind' => 'global')))), $documents, array_keys($documents), '<header class="shared-x"></header>');
-$assert(str_starts_with($folded[0]['content'], ':where(:root:is(.be-r-aaaa1111)) .shared-x'), 'A rule live in template parts is gated to its owners.');
+$folded = $fold->invoke(null, array($sheet('.shared-x{color:red}', $home), $sheet('.shared-x{color:blue}', $global), $sheet('.shared-x{color:green}', $home)), $documents, array_keys($documents), '<header class="shared-x"></header>');
+$assert(3 === count($folded), 'A rule live in template parts competes on every route.');
 echo "Support owner-set allocation passed\n";

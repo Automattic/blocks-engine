@@ -183,7 +183,8 @@ final class FormControlClassifier
     public static function isNonAuthoredControl(DOMElement $control): bool
     {
         if ( false === ( NativeControlState::payload($control)['rendered'] ?? null )
-            && self::hasRenderedFormPeer($control) ) {
+            && self::hasRenderedFormPeer($control)
+            && ! self::isConditionallyRevealedField($control) ) {
             return true;
         }
         if ( 'hidden' === self::controlType($control) ) {
@@ -240,6 +241,34 @@ final class FormControlClassifier
         }
 
         return true;
+    }
+
+    /**
+     * A captioned field under a wrapper the HTML `hidden` attribute marks as
+     * not yet relevant is a conditional reveal (an "Other" amount shown by a
+     * choice): capture saw it unrendered because of that authored state, not
+     * because it is a decoy. An uncaptioned input under the same wrapper keeps
+     * the decoy reading.
+     */
+    private static function isConditionallyRevealedField(DOMElement $control): bool
+    {
+        $hidden = false;
+        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'form' === strtolower($parent->tagName) ) {
+                break;
+            }
+            $hidden = $hidden || $parent->hasAttribute('hidden');
+        }
+        if ( ! $hidden || ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        foreach ( SourceDom::associatedLabels($control) as $label ) {
+            if ( '' !== trim($label->textContent ?? '') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
