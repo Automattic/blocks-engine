@@ -21,4 +21,14 @@ foreach (array('' => 'inline', 'display:block;' => 'block', 'display:flex;' => '
         throw new RuntimeException('Label typography must remain independent of its display.');
     }
 }
-echo "Inline form label presentation: 3 passed\n";
+// Flex/grid captions generate block boxes, not inline line boxes. Resolve
+// variables too: utility stylesheets commonly select layout through var().
+foreach (array('flex', 'inline-flex', 'grid', 'inline-grid') as $layout) {
+    $result = (new HtmlTransformer())->transform(
+        '<form method="post"><div style="--layout:' . $layout . ';display:var(--layout)"><label for="name">Name</label><input id="name" name="name"></div><button type="submit">Send</button></form>'
+    )->toArray();
+    if ('block' !== ($result['fallbacks'][0]['presentation_graph']['controls'][0]['label']['styles']['display'] ?? null)) {
+        throw new RuntimeException('Provider caption must retain source item blockification: ' . $layout);
+    }
+}
+echo "Inline form label presentation: 7 passed\n";
