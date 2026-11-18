@@ -3,11 +3,11 @@ declare(strict_types=1);
 
 /**
  * A form control matched by one complex selector longer than the provenance
- * selector bound — a long `:is(...)` list, say — cannot be evidenced without
- * rewriting the selector. The builder omits that declaration's style and
- * provenance together, reports `provenance_selector_limit`, and keeps the graph
- * valid instead of aborting the import. Short-selector rules on the same
- * control keep their styles and provenance.
+ * selector bound — a long `:is(...)` list, say — keeps that rule's styles,
+ * precedence and provenance. Only the provenance selector is bounded: it is
+ * recorded as a token-boundary prefix plus `selector_sha256` of the full
+ * selector, `provenance_selector_limit` is reported, and the graph stays valid
+ * instead of aborting the import. Short-selector rules are unaffected.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -56,12 +56,21 @@ if ( is_array($graph) ) {
         if ( 'selector' === $key && is_string($value) ) $selectors[] = $value;
     });
     $assert(array() !== $selectors && array() === array_filter($selectors, static fn (string $selector): bool => strlen($selector) > 1024), 'every provenance selector is within the bound', json_encode(array_map('strlen', $selectors)));
-    $assert(! in_array($longSelector, $selectors, true), 'the over-long selector is not emitted as provenance');
-    $assert(in_array('provenance_selector_limit', $graph['diagnostics'] ?? array(), true), 'the omitted declaration is reported as a provenance selector bound', json_encode($graph['diagnostics'] ?? null));
+    $assert(! in_array($longSelector, $selectors, true), 'the over-long selector is not emitted verbatim as provenance');
+    $assert(in_array('provenance_selector_limit', $graph['diagnostics'] ?? array(), true), 'the bounded selector is reported as a provenance selector bound', json_encode($graph['diagnostics'] ?? null));
 
+    $digest = hash('sha256', $longSelector);
+    $bounded = array();
+    array_walk_recursive($graph, static function (mixed $value, int|string $key) use (&$bounded, $digest): void {
+        if ( 'selector_sha256' === $key && $digest === $value ) $bounded[] = $value;
+    });
+    $assert(array() !== $bounded, 'the over-long rule keeps provenance attributable through the full selector digest');
     $encoded = json_encode($graph);
+    $prefixes = array_filter($selectors, static fn (string $selector): bool => 'button' !== $selector);
+    $assert(array() !== $prefixes && array() === array_filter($prefixes, static fn (string $selector): bool => ! str_starts_with($longSelector, $selector) || str_ends_with($selector, ',')), 'the bounded selector is a token-boundary prefix of the source selector', json_encode($prefixes));
+
     $assert(str_contains($encoded, '#123456') && str_contains($encoded, '"selector":"button"'), 'the short-selector rule on the same button keeps its styles and provenance', $encoded);
-    $assert(! str_contains($encoded, '"12px"') && ! str_contains($encoded, '.2em'), 'the over-long selector declarations are omitted rather than kept without evidence', $encoded);
+    $assert(str_contains($encoded, '"12px"') && str_contains($encoded, '.2em') && str_contains($encoded, 'uppercase'), 'the over-long selector declarations survive in styles', $encoded);
 }
 
 if ( 0 < $failures ) {
