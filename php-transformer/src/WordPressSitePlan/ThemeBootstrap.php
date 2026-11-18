@@ -717,9 +717,6 @@ PHP;
         if (self::markupContains($documentsWithMenus, 'blocksEngineRuntimeAttributes') || self::markupContains($documentsWithMenus, 'blocksEngineControlBox')) {
             $lines[] = RuntimeAttributesRuntime::source();
         }
-        if (self::markupContains($documentsWithMenus, '"blocksEngineControlTagName":"button"')) {
-            $lines[] = RuntimeAttributesRuntime::nativeControlStyleSource();
-        }
         self::serve($lines, $served, $units, 'runtime_attributes');
         foreach (EditorRestingStateRuntime::MARKERS as $marker) {
             if (!self::markupContains($documentsWithMenus, $marker)) continue;
