@@ -426,6 +426,10 @@ final class WrapperCoalescer
             }
         }
         $attrs = ArrayField::array($childBlock, 'attrs');
+        // Serialized comment attrs omit a link-leading paragraph's content (see
+        // BlockFactory::commentAttrs()); restore it from the saved markup so the
+        // coalesced paragraph keeps its link.
+        if ('core/paragraph' === ($childBlock['blockName'] ?? '') && ! array_key_exists('content', $attrs) && preg_match('/^\s*<p\b[^>]*>(.*)<\/p>\s*$/is', (string) ($childBlock['innerHTML'] ?? ''), $m)) $attrs['content'] = $m[1];
         $textAlign = $attrs['style']['typography']['textAlign'] ?? $attrs['align'] ?? null;
         if (isset($textAlign, $values['text-align']) && $textAlign === CssValueInspector::comparable($values['text-align'])) unset($values['text-align']);
         if (array() === $values) return null;
