@@ -353,6 +353,9 @@ final class SitePlanRun
         // A source arm guarded against role carriers is dead once every
         // element naming its class is one of them.
         $assets = ConvertedSourceClassSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
+        // An image arm requiring classes, or a link, no emitted image figure
+        // carries together matches nothing on any route.
+        $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
