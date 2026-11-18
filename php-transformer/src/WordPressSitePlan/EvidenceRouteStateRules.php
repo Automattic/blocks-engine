@@ -5,7 +5,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
@@ -27,26 +26,12 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * reach is kept. Rules whose subject names an id no emitted element carries
  * are dropped. Everything else is dropped, except `@font-face` and `@layer`
  * order statements.
- *
- * Shared template parts carry no carriers: the capture observes a route,
- * not the part every route renders. Resting rules whose selectors can only
- * reach the parts' elements keep styling them, scoped to the parts so they
- * never restyle the route content its carriers own. Custom properties that
- * delivered CSS or emitted markup read (an engine rule's `var(--text-4xl)`,
- * a block's inline `var(--background)`) are closed over like those kept
- * rules read: their definitions are what the carriers' resting pose was
- * computed against.
  */
 final class EvidenceRouteStateRules
 {
     private const INTERACTION = '/:(?:hover|focus|focus-visible|focus-within|active|checked|target)(?![\w-])/i';
     private const ATTRIBUTE = '\[(?:[^\]"\']|"[^"]*"|\'[^\']*\')*\]';
     private const MOTION = '/^(?:animation|view-timeline|scroll-timeline|timeline-scope)(?:-|$)/i';
-    /** Shared template parts as WordPress renders them, outside the route content they surround. */
-    private const CHROME_SCOPE = '@scope (.wp-block-template-part) to (.wp-block-post-content)';
-
-    /** @var array{classes: array<string, true>, ids: array<string, true>, tags: array<string, true>}|null */
-    private ?array $chromeHooks = null;
 
     /** @var array<string, true> Custom properties a kept state rule defines. */
     private array $stateProperties = array();
@@ -66,38 +51,9 @@ final class EvidenceRouteStateRules
      * @param string $markup Emitted route markup; an ancestor compound of attributes it never carries is dropped.
      * @param string|null $reach Every markup the route renders (route and template parts); a rule
      *                           whose subject names an id it never carries matches nothing. Defaults to `$markup`.
-     * @param string $chrome Shared template part markup every route renders around its content.
      */
-    public function __construct(private readonly array $stateAttributes, private readonly string $markup = '', private readonly ?string $reach = null, string $chrome = '')
+    public function __construct(private readonly array $stateAttributes, private readonly string $markup = '', private readonly ?string $reach = null)
     {
-        if ('' !== $chrome) $this->chromeHooks = self::chromeHooks($chrome);
-    }
-
-    /**
-     * Classes, ids and element names the parts render. A dynamic block saves
-     * only its comment, so its `className` and the elements core renders for
-     * it count too.
-     *
-     * @return array{classes: array<string, true>, ids: array<string, true>, tags: array<string, true>}
-     */
-    private static function chromeHooks(string $markup): array
-    {
-        $hooks = array('classes' => array(), 'ids' => array(), 'tags' => array('div' => true));
-        preg_match_all('/<([a-zA-Z][\w-]*)\b[^>]*>/', $markup, $elements, PREG_SET_ORDER);
-        foreach ($elements as [$element, $tag]) {
-            $hooks['tags'][strtolower($tag)] = true;
-            if (preg_match('/\sclass\s*=\s*(?:"([^"]*)"|\'([^\']*)\')/i', $element, $class)) foreach (preg_split('/\s+/', html_entity_decode($class[1] . ($class[2] ?? ''), ENT_QUOTES | ENT_HTML5)) ?: array() as $name) if ('' !== $name) $hooks['classes'][$name] = true;
-            if (preg_match('/\sid\s*=\s*(?:"([^"]*)"|\'([^\']*)\')/i', $element, $id)) $hooks['ids'][html_entity_decode($id[1] . ($id[2] ?? ''), ENT_QUOTES | ENT_HTML5)] = true;
-        }
-        preg_match_all('/<!--\s*wp:([a-z][a-z0-9_\/-]*)\s+(\{.*?\})\s*\/?-->/s', $markup, $blocks, PREG_SET_ORDER);
-        foreach ($blocks as [, $name, $json]) {
-            $attributes = json_decode($json, true);
-            if (!is_array($attributes)) continue;
-            foreach (preg_split('/\s+/', (string) ($attributes['className'] ?? '')) ?: array() as $class) if ('' !== $class) $hooks['classes'][$class] = true;
-            if ('' !== (string) ($attributes['anchor'] ?? '')) $hooks['ids'][(string) $attributes['anchor']] = true;
-            if ('navigation' === $name || 'core/navigation' === $name) foreach (array('nav', 'ul', 'li', 'a', 'span', 'button', 'svg') as $tag) $hooks['tags'][$tag] = true;
-        }
-        return $hooks;
     }
 
     /**
@@ -144,14 +100,7 @@ final class EvidenceRouteStateRules
         $this->motionProperties += $this->stateProperties;
         foreach ($trees as &$tree) $this->markConsumers($tree);
         unset($tree);
-        if (null !== $this->chromeHooks) {
-            foreach ($trees as &$tree) $this->markChrome($tree);
-            unset($tree);
-        }
         if (preg_match_all('/(?<![\w-])animation(?:-name)?\s*:([^;{}]*)/i', $context, $bound)) foreach ($bound[1] as $value) $this->bindNames($value);
-        // Delivered CSS and emitted markup still read the author's custom
-        // properties; carriers were observed with them defined.
-        if (preg_match_all('/var\(\s*(--[\w-]+)/', $context . ($this->reach ?? $this->markup), $reads)) foreach ($reads[1] as $var) $this->referenced[$var] = $this->customProperties[$var] = true;
         // Close over the custom properties kept rules and kept keyframes read.
         do {
             $before = count($this->referenced) + count($this->names);
@@ -206,7 +155,7 @@ final class EvidenceRouteStateRules
     {
         foreach ($nodes as &$node) {
             if ('group' === $node['type']) $this->markDefinitions($node['children']);
-            if ('style' !== $node['type'] || isset($node['keep']['body'])) continue;
+            if ('style' !== $node['type'] || true === ($node['keep']['state'] ?? false)) continue;
             $added = array();
             foreach ($this->declarations($node['body']) as [$property, $value]) {
                 $declaration = $property . ':' . $value;
@@ -283,37 +232,6 @@ final class EvidenceRouteStateRules
         }
     }
 
-    /**
-     * Resting rules that can reach only what the shared parts render: every
-     * compound names classes, ids and elements the parts carry.
-     *
-     * @param list<array<string, mixed>> $nodes
-     */
-    private function markChrome(array &$nodes): void
-    {
-        foreach ($nodes as &$node) {
-            if ('group' === $node['type']) $this->markChrome($node['children']);
-            if ('style' !== $node['type'] || null !== $node['keep']) continue;
-            $selectors = array_values(array_filter(CssStylesheetTransformer::splitSelectorList($node['prelude']) ?? array(), fn(string $selector): bool => $this->reachesChrome(trim($selector))));
-            if (array() === $selectors) continue;
-            $node['keep'] = array('selectors' => $selectors, 'body' => $node['body'], 'state' => false, 'chrome' => true);
-            $this->bind($node['body']);
-        }
-    }
-
-    private function reachesChrome(string $selector): bool
-    {
-        $host = CssSelectorMatcher::pseudoElementHost($selector);
-        $parsed = null !== $host ? $host['parsed'] : CssSelectorMatcher::parse($selector);
-        if (!($parsed['supported'] ?? false) || null !== ($parsed['pseudo_state_suffix_span'] ?? null)) return false;
-        foreach ($parsed['compounds'] as $compound) {
-            if ($compound['root'] || (null !== $compound['type'] && !isset($this->chromeHooks['tags'][strtolower((string) $compound['type'])]))) return false;
-            foreach ($compound['classes'] as $class) if (!isset($this->chromeHooks['classes'][$class])) return false;
-            foreach ($compound['ids'] as $id) if (!isset($this->chromeHooks['ids'][$id])) return false;
-        }
-        return true;
-    }
-
     private function isState(string $selector): bool
     {
         // Attribute values and strings never name a state.
@@ -370,15 +288,7 @@ final class EvidenceRouteStateRules
     private function emit(array $nodes): string
     {
         $css = '';
-        // Adjacent part-scoped rules share one scope block.
-        $chrome = '';
         foreach ($nodes as $node) {
-            if ('style' === $node['type'] && true === ($node['keep']['chrome'] ?? false)) {
-                if ('' !== ($body = $this->keptBody($node))) $chrome .= implode(',', array_map(fn(string $selector): string => $this->matchable(trim($selector)), $node['keep']['selectors'])) . '{' . $body . '}';
-                continue;
-            }
-            if ('' !== $chrome) $css .= self::CHROME_SCOPE . '{' . $chrome . '}';
-            $chrome = '';
             $css .= match ($node['type']) {
                 'verbatim', 'statement' => $node['text'],
                 'keyframes' => isset($this->names[$node['name']]) ? $node['text'] : '',
@@ -388,7 +298,7 @@ final class EvidenceRouteStateRules
                 default => '',
             };
         }
-        return '' !== $chrome ? $css . self::CHROME_SCOPE . '{' . $chrome . '}' : $css;
+        return $css;
     }
 
     /** @param array<string, mixed> $node */
