@@ -1295,6 +1295,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     $this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional')
                 )
             ) )->lower($body);
+            // A layer's empty colour fill becomes the layer's own paint.
+            $this->session->overrideBoxTreeObservations(( new Elements\FilledPaintLayerLowering(
+                fn (DOMElement $element): array => $this->session->boxTreeEvidence($element),
+                fn (DOMElement $element): array => array_map(
+                    static fn (array $rule): string => (string) ( $rule['selector'] ?? '' ),
+                    $this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional')
+                )
+            ) )->lower($body));
             $this->session->sourceStyleResolutionState()->invalidateSelectorMatches();
         }
         $timer->start('transform.author_selector_preparation');

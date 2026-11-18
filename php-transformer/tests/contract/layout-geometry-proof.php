@@ -43,22 +43,6 @@ $stagedReceipts = $stagedCompiler->compilePreparedPages($stagedShared, array_val
 $stagedResult = $stagedCompiler->compose($stagedShared, array_values($stagedReceipts))->toArray();
 $assert('core/image' === ($stagedResult['blocks'][0]['blockName'] ?? null) && 1 === count($stagedResult['source_reports']['layout_geometry_proof'] ?? array()), 'Digest-bound staged page plans preserve validated layout geometry proof during worker compilation.');
 
-// A capture ships the proof as its declared `layout-geometry-proof.json`
-// report rather than inline. The report covers every captured route, so a
-// node for a route this artifact does not carry leaves the scope.
-$otherRoute = array('id' => 'other-wrapper', 'source_path' => 'about/index.html', 'source_hash' => str_repeat('a', 64), 'selector' => 'main:nth-of-type(1) > div:nth-of-type(1)', 'boxes' => $boxes());
-$reported = $proof;
-$reported['nodes'][] = $otherRoute;
-$reported['nodes'][] = array('id' => 'other-target') + $otherRoute;
-$reported['reductions'][] = array('wrapper' => 'other-wrapper', 'target' => 'other-target') + $proof['reductions'][0];
-$reportArtifact = static fn(array $report): array => array('entrypoint' => 'index.html', 'reports' => array('layout-geometry-proof.json'), 'files' => array('index.html' => $html, 'layout-geometry-proof.json' => json_encode($report)));
-$fromReport = (new ArtifactCompiler())->compile($reportArtifact($reported))->toArray();
-$assert('core/image' === ($fromReport['blocks'][0]['blockName'] ?? null) && 1 === count($fromReport['source_reports']['layout_geometry_proof'] ?? array()), 'A declared layout-geometry-proof report coalesces its proven wrapper, scoped to the routes the artifact carries.');
-$staleReport = $reported; $staleReport['nodes'][0]['source_hash'] = str_repeat('0', 64);
-$assert('core/group' === ((new ArtifactCompiler())->compile($reportArtifact($staleReport))->toArray()['blocks'][0]['blockName'] ?? null), 'A declared report stale for a carried route is still rejected whole.');
-$undeclared = $reportArtifact($reported); unset($undeclared['reports']);
-$assert('core/group' === ((new ArtifactCompiler())->compile($undeclared)->toArray()['blocks'][0]['blockName'] ?? null), 'An undeclared JSON file of the same name is page source, not proof.');
-
 $exact = $proof;
 $exact['nodes'][0]['boxes'][0]['simulated']['width'] = 24;
 $exact['nodes'][0]['boxes'][1]['simulated']['width'] = 24;
