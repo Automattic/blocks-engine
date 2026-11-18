@@ -287,6 +287,18 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private array $neutralBoxChildren = array();
 
+    /**
+     * Folded boxes' moves, keyed by the receiving child's node id: the box id
+     * (`from`), child property => box property (`moves`), and whether the
+     * child's border box equals the box's (`equal_box`).
+     *
+     * @var array<string, array{from: string, moves: array<string, string>, equal_box: bool}>
+     */
+    private array $foldedInto = array();
+
+    /** @var array<string, array<string, list<array{0: float|null, 1: string}>>> Lifted author bands by node id. */
+    private array $foldFluid = array();
+
 
 
 
@@ -1184,6 +1196,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
         $this->session->installTransformOptions($options);
+        $this->foldedInto = $this->foldFluid = array();
         $this->neutralBoxChildren = $this->neutralBoxChildren($html, $options);
         $this->documentAuthorCss = '';
         $sharedStylesheetPaths = TransformOptions::sharedStylesheetPaths($options);
@@ -1882,14 +1895,98 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( array() === ($tree['nodes'] ?? array()) ) {
             return array();
         }
+        $classification = BoxTreeClassifier::classify($html, $tree);
         $children = array();
-        foreach ( BoxTreeClassifier::report($html, $tree)['nodes'] as $id => $classification ) {
-            if ( 'neutral' === $classification['disposition'] ) {
+        foreach ( $classification['nodes'] as $id => $node ) {
+            if ( 'neutral' === $node['disposition'] || 'folded' === $node['disposition'] ) {
                 $children[(string) $id] = (string) $tree['nodes'][$id]['children'][0];
             }
         }
+        // ADR 0005 slice 5: a folded box's declarations now belong to its child.
+        foreach ( $classification['folds'] as $id => $fold ) {
+            $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box']);
+        }
+        $this->session->overrideBoxTreeObservations($classification['observations']);
         return $children;
     }
+
+    /**
+     * Captured observations for lifting author intent, where a collapsed box
+     * reads as `display: contents`: it generates no box in the output, so it
+     * cannot be the containing block a percentage resolves against.
+     */
+    private function liftEvidence(): \Closure
+    {
+        return function (DOMElement $node): array {
+            $observations = $this->session->boxTreeEvidence($node);
+            if ( !isset($this->neutralBoxChildren[$node->getAttribute(BoxTree::NODE_ATTRIBUTE)]) ) {
+                return $observations;
+            }
+            return array_map(static fn(): array => array('used_styles' => array('display' => 'contents')), $observations);
+        };
+    }
+
+    /**
+     * Author bands lifted for a source element. A child that received a
+     * folded box's declarations takes the box's bands for them (lifted in the
+     * box's own context), never its own; sizing keeps the child's captured
+     * pixels unless the box's intent is an intrinsic keyword that holds for
+     * the child too.
+     *
+     * @return array<string, list<array{0: float|null, 1: string}>>
+     */
+    private function liftedBands(DOMElement $element, array $observations, array $viewports, array $parents, string $blockName): array
+    {
+        $fluid = (new Style\BoxTreeFluidIntent())->lift($element, $this->styleResolver, $observations, $viewports, $parents, $blockName, $this->liftEvidence());
+        $fold = $this->foldedInto[$element->getAttribute(BoxTree::NODE_ATTRIBUTE)] ?? null;
+        if ( null === $fold ) {
+            return $fluid;
+        }
+        $box = $element->parentNode;
+        while ( $box instanceof DOMElement && $fold['from'] !== $box->getAttribute(BoxTree::NODE_ATTRIBUTE) ) {
+            $box = $box->parentNode;
+        }
+        if ( !$box instanceof DOMElement ) {
+            return array_diff_key($fluid, $fold['moves'], array_flip(self::FOLD_SIZING));
+        }
+        $boxObservations = $this->session->boxTreeEvidence($box);
+        if ( !isset($this->foldFluid[$fold['from']]) ) {
+            $boxParent = $this->blockParentElement($box);
+            $this->foldFluid[$fold['from']] = $this->liftedBands($box, $boxObservations, $viewports, null !== $boxParent ? $this->session->boxTreeEvidence($boxParent) : array(), '');
+        }
+        $boxFluid = $this->foldFluid[$fold['from']];
+        $sameFont = true;
+        foreach ( $observations as $key => $observation ) {
+            $sameFont = $sameFont && ($observation['used_styles']['font-size'] ?? null) === ($boxObservations[$key]['used_styles']['font-size'] ?? null);
+        }
+        foreach ( $fold['moves'] as $to => $from ) {
+            $bands = $boxFluid[$from] ?? null;
+            // An em length resolves against the font size of the box that declares it.
+            if ( null !== $bands && !$sameFont && preg_grep('/\d(?:\.\d+)?em\b/i', array_column($bands, 1)) ) {
+                $bands = null;
+            }
+            if ( null === $bands ) {
+                unset($fluid[$to]);
+            } else {
+                $fluid[$to] = $bands;
+            }
+        }
+        foreach ( self::FOLD_SIZING as $property ) {
+            $bands = $boxFluid[$property] ?? null;
+            $keywords = null !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => !in_array($value, self::INTRINSIC_SIZES, true));
+            if ( $keywords && ($fold['equal_box'] || ($fluid[$property] ?? null) === $bands) ) {
+                $fluid[$property] = $bands;
+            } else {
+                unset($fluid[$property]);
+            }
+        }
+        return $fluid;
+    }
+
+    /** Sizes a folded box's intent decides for its child. */
+    private const FOLD_SIZING = array('width', 'height');
+
+    private const INTRINSIC_SIZES = array('auto', 'none', 'fit-content', 'min-content', 'max-content', 'stretch');
 
     /** The source child that replaces a neutral box, or null when the box is kept. */
     private function neutralBoxChild(DOMElement $element): ?DOMElement
@@ -2207,7 +2304,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $viewports = $this->session->boxTreeViewports();
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
-            $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->session->boxTreeEvidence(...));
+            $fluid = $this->liftedBands($sourceElement, $observations, $viewports, $parents, $name);
             $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,

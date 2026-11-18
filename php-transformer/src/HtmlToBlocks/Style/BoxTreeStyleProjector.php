@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 /** Restyle an exact source-node carrier before provenance is discarded. */
 final class BoxTreeStyleProjector
@@ -35,12 +36,6 @@ final class BoxTreeStyleProjector
             $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
-        // An explicit alignment can equal the parent's at one capture yet
-        // differ at an intermediate width. Keep the proven author bands rather
-        // than pruning that capture to inheritance at the capture breakpoint.
-        if (isset($fluid['text-align'])) {
-            foreach ($keys as $key) $declarations[$key]['text-align'] = $observations[$key]['used_styles']['text-align'];
-        }
         $bands = $this->liftFluid($declarations, $keys, $fluid);
         $baseKey = $keys[0];
         $base = $declarations[$baseKey];
@@ -59,6 +54,11 @@ final class BoxTreeStyleProjector
             return true;
         }, ARRAY_FILTER_USE_BOTH);
         $mapped = $mapper->map(array_replace($unobserved, $invariant));
+        // A style group the block cannot serialize (a paragraph's shadow) would
+        // be dropped from its attributes: it stays in the carrier instead.
+        if ('' !== $blockName) {
+            $mapped['style'] = self::runtime()->normalizeBlockSupportAttributes($blockName, array('style' => $mapped['style']))['attrs']['style'] ?? array();
+        }
         $attrs['style'] = $mapped['style'];
         $attrs = array_replace($attrs, $mapped['attrs']);
         // Layout declarations are deliberately excluded by StyleAttributeMapper;
@@ -71,6 +71,12 @@ final class BoxTreeStyleProjector
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
+    }
+
+    private static function runtime(): Runtime
+    {
+        static $runtime = null;
+        return $runtime ??= new Runtime();
     }
 
     /**
@@ -109,13 +115,19 @@ final class BoxTreeStyleProjector
      * Inherited typography an inline can set apart from its block. Color
      * stays with the link and state styles that already own it.
      */
+    /** Keyword properties BoxTreeFluidIntent lifts only when they explain every capture, pruned or not. */
+    private const SWITCHED_KEYWORDS = array('display' => true, 'visibility' => true);
+
     private const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
 
     /**
      * Author intent proven at every capture (BoxTreeFluidIntent) replaces
      * the frozen pixels in every capture, so it needs no capture delta;
      * where the author switches it, its bands follow the author's own
-     * breakpoints. Do not resurrect properties pruned at any viewport.
+     * breakpoints. Do not resurrect properties pruned at any viewport, except
+     * a switched keyword (`visibility`) whose lift explains every capture,
+     * pruned ones included: without its base value a narrower band could
+     * not switch it back.
      *
      * @param array<string, array<string, string>> $declarations Kept declarations by viewport key, updated in place.
      * @param list<string> $keys Viewport keys, widest first.
@@ -127,7 +139,7 @@ final class BoxTreeStyleProjector
         foreach ($fluid as $property => $propertyBands) {
             if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
             foreach ($keys as $key) {
-                if (!isset($declarations[$key][$property])) continue 2;
+                if (!isset($declarations[$key][$property]) && !isset(self::SWITCHED_KEYWORDS[$property])) continue 2;
             }
             foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
             foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {

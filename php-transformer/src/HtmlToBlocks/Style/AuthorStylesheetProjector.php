@@ -2938,12 +2938,11 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $matches = $this->selectors->matchingSourceElements($selector, $parsed, $context);
-            if ( ! $this->selectors->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ITEM, $context) ) {
-                continue;
-            }
             $item = $this->selectors->projectNavigationListItemSelector($selector, $parsed, $context);
+            $projected = trim($this->selectors->rewriteSelectorPreludeOnce($selector, $context));
             // Only where the authored rule itself landed on the rendered item.
-            if ( null === $item || trim($this->selectors->rewriteSelectorPreludeOnce($selector, $context)) !== $item ) {
+            if ( null === $item || $projected !== $item || ! $this->selectors->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ITEM, $context) ) {
+                array_push($carriers, ...$this->navigationInstanceItemSpaceCarriers($matches, $parsed, $projected, $context));
                 continue;
             }
             if ( $this->sourceItemsAreSpaceSeparated($matches, $context) && ! $this->authorsItemAfterContent($matches, $context) ) {
@@ -2956,6 +2955,64 @@ final class AuthorStylesheetProjector
 
         return implode(',', $carriers) . '{display:inline-flex' . ( CssValueInspector::isImportant($display) ? '!important' : '' ) . '}'
             . implode(',', array_map(static fn (string $carrier): string => $carrier . '::after', $carriers)) . '{content:"\\a0"' . ( CssValueInspector::isImportant($display) ? '!important' : '' ) . '}';
+    }
+
+    /**
+     * Space carriers for items the `li` projection cannot address: a menu of
+     * `nav>div` items (`<nav><div class="collection"><a>…</a></div> <div …>`)
+     * renders each div as core's item too, but the authored selector keeps its
+     * source type, and it may also match a sibling menu that never became a
+     * navigation (a mobile copy). Each source list whose children all render as
+     * the top-level items of one navigation instance, and that the source
+     * spaced, gets its carrier through that instance's item row. The carrier
+     * keeps the authored selector's specificity shims, like every other native
+     * subject projection, so it meets the projected item display at equal
+     * specificity and follows it.
+     *
+     * @param list<DOMElement> $matches
+     * @param array<string, mixed> $parsed
+     * @return list<string>
+     */
+    private function navigationInstanceItemSpaceCarriers(array $matches, array $parsed, string $projected, AuthorStylesheetProjectionContext $context): array
+    {
+        $lists = array();
+        foreach ( $matches as $match ) {
+            $path = $match->getNodePath() ?? '';
+            if ( $match->parentNode instanceof DOMElement && $context->selectorProjections->isNavigationSourcePath($path, AuthorSelectorProjectionState::NAVIGATION_ITEM) ) {
+                $lists[$match->parentNode->getNodePath() ?? ''][] = $match;
+            }
+        }
+        $carriers = array();
+        foreach ( $lists as $items ) {
+            $scopes = array();
+            foreach ( $items as $item ) {
+                $subject = $context->selectorProjections->navigationSubject($item->getNodePath() ?? '');
+                if ( '' === $subject ) {
+                    continue;
+                }
+                // Only top-level items: a submenu subject sits in another row.
+                $found = array();
+                if ( str_contains($subject, 'wp-block-navigation__submenu-container') || str_contains($subject, 'wp-block-navigation-item__content')
+                    || ! str_contains($subject, ' .wp-block-navigation__container>.wp-block-navigation-item')
+                    || ! preg_match_all('/\.wp-block-navigation\.(blocks-engine-navigation-instance-[a-f0-9]{12}-[0-9]+)(?=[ ,)])/', $subject, $found)
+                    || 1 !== count(array_unique($found[1])) ) {
+                    $scopes = array();
+                    break;
+                }
+                $scopes[$found[1][0]] = true;
+            }
+            // The authored rule itself has to reach that instance's items.
+            if ( 1 !== count($scopes)
+                || 1 !== preg_match('/\.wp-block-navigation\.' . preg_quote((string) array_key_first($scopes), '/') . '(?![\w-])/', $projected)
+                || ! $this->sourceItemsAreSpaceSeparated($items, $context)
+                || $this->authorsItemAfterContent($items, $context) ) {
+                continue;
+            }
+            $carriers[] = ':root .wp-block-navigation.' . array_key_first($scopes) . ' .wp-block-navigation__container>.wp-block-navigation-item:not(:last-child)'
+                . $this->selectors->selectorSpecificityShims($parsed, $context);
+        }
+
+        return $carriers;
     }
 
     /**
