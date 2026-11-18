@@ -11,7 +11,7 @@ final class EvidenceRouteStylesheets
     /**
      * @param list<array<string, mixed>> $parts Template parts every route renders; their markup counts as emitted.
      */
-    public static function retire(array $assets, array $pages, array $parts = array()): array
+    public static function retire(array $assets, array &$pages, array &$parts = array()): array
     {
         $evidence = array();
         foreach ($pages as $page) if (!empty($page['document_metadata']['engine_owned_styles'])) $evidence[$page['source_path']] = true;
@@ -39,9 +39,8 @@ final class EvidenceRouteStylesheets
         }
         unset($asset);
         if (array() === $retired) return $assets;
-        // Preserve resource identities referenced by document metadata (font
-        // faces have already been projected into theme.json at this point),
-        // and the state rules carriers cannot replace.
+        // Font faces have already been projected into theme.json. Only keep
+        // rules carriers cannot replace, never an empty resource identity.
         $context = '';
         foreach ($assets as $key => $asset) if ('css' === ($asset['kind'] ?? null) && !in_array($key, $retired, true)) $context .= (string) ($asset['content'] ?? '');
         // Editor static state sheets are editor projections of author rules
@@ -53,11 +52,17 @@ final class EvidenceRouteStylesheets
             preg_match_all('/@font-face\s*\{[^{}]*\}/i', (string) ($assets[$key]['content'] ?? ''), $faces);
             $assets[$key] = CompiledAssets::withRewrittenTextContent($assets[$key], implode("\n", $faces[0]));
         }
-        if (array() === $author) return $assets;
         $reach = $markup . (string) json_encode(array_column($parts, 'canonical_block_markup'), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $rules = new EvidenceRouteStateRules(EvidenceRouteStateRules::stateAttributes($markup), $markup, $reach);
         $kept = $rules->retain(array_map(static fn(int|string $key): string => (string) ($assets[$key]['content'] ?? ''), $author), $context);
         foreach ($author as $index => $key) $assets[$key] = CompiledAssets::withRewrittenTextContent($assets[$key], $kept[$index]);
-        return $assets;
+        $empty = array_intersect_key($assets, array_fill_keys($retired, true));
+        $empty = array_filter($empty, EmptyStylesheets::isEmpty(...));
+        $assets = array_diff_key($assets, $empty);
+        $references = array();
+        foreach ($empty as $asset) if (isset($asset['token'])) $references[WordPressSitePlan::TOKEN_PREFIX . $asset['token'] . '}}'] = true;
+        $pages = EmptyStylesheets::withoutLinks($pages, $references);
+        $parts = EmptyStylesheets::withoutLinks($parts, $references);
+        return array_values($assets);
     }
 }

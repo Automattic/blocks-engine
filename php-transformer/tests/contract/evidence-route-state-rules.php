@@ -22,7 +22,8 @@ $page = array(
 );
 $retire = static function (string $css) use (&$page): string {
     $asset = array('kind' => 'css', 'source' => 'author', 'content' => $css, 'scopes' => array(array('kind' => 'page', 'source_path' => 'index.html')));
-    return EvidenceRouteStylesheets::retire(array($asset), array($page))[0]['content'];
+    $pages = array($page);
+    return (EvidenceRouteStylesheets::retire(array($asset), $pages)[0]['content'] ?? '');
 };
 
 $kept = $retire('@font-face{font-family:F;src:url(f.woff2)}.x{color:blue}@keyframes fade{from{opacity:0}to{opacity:1}}@keyframes unused{to{opacity:0}}.x:hover{color:red}.x[data-interact-enter="done"]{animation:fade 1s}');
@@ -73,5 +74,6 @@ $assert(!str_contains($kept, 'comp-gone') && str_contains($kept, '#comp-q:hover{
 // Editor static state sheets project the author rules for the editor; the
 // author sheet already delivers the kept rules.
 $editor = array('kind' => 'css', 'source' => 'editor-static-state', 'content' => '@font-face{font-family:G;src:url(g.woff2)}#comp-q:hover{color:green}', 'scopes' => array(array('kind' => 'page', 'source_path' => 'index.html')));
-$kept = EvidenceRouteStylesheets::retire(array($editor), array($page))[0]['content'];
+$pages = array($page);
+$kept = EvidenceRouteStylesheets::retire(array($editor), $pages)[0]['content'];
 $assert('@font-face{font-family:G;src:url(g.woff2)}' === $kept, 'editor static state sheets keep only font faces on evidence routes', $kept);

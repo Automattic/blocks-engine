@@ -298,7 +298,10 @@ final class SitePlanRun
         $assets = PageStylesheets::place($assets, $pages, array_merge($pages, $parts, $frameParts));
         $assets = EditorStaticStateAssets::share($assets, $this->references);
         $assets = StylesheetScopes::foldSupport($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments), StylesheetScopes::canonicalDocuments(StylesheetScopes::documentsBySource($assetPages, $rootDocuments)), implode("\n", array_column(array_merge($parts, $frameParts), 'canonical_block_markup')));
-        $assets = EvidenceRouteStylesheets::retire($assets, $pages, array_merge($parts, $frameParts));
+        $retirementParts = array_merge($parts, $frameParts);
+        $assets = EvidenceRouteStylesheets::retire($assets, $pages, $retirementParts);
+        $parts = array_slice($retirementParts, 0, count($parts));
+        $frameParts = array_slice($retirementParts, count($parts));
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shellDeclarations;
@@ -365,11 +368,6 @@ final class SitePlanRun
         // in `block_markup`: their figures are emitted too.
         $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
-        // Bytes and delivery are final: a sheet left empty is neither written
-        // nor enqueued, unless it still carries route selection or a reference.
-        $emptyStylesheets = EmptyStylesheets::elide($assets, array('pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'patterns' => $syncedPatterns, 'menus' => $menus), $pages, $rootDocuments, (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme']), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
-        ['assets' => $assets, 'document_sets' => ['pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'patterns' => $syncedPatterns, 'menus' => $menus]] = $emptyStylesheets;
-        $tokens = array_values(array_filter($tokens, static fn(array $token): bool => !isset($emptyStylesheets['tokens'][$token['token']])));
         // Layout findings name the engine classes of the part they occurred in.
         $data['diagnostics'] = self::withTemplatePartAttribution($data['diagnostics'], $parts);
         // Stylesheets are final: a selector hook that no stylesheet or script
