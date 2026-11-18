@@ -75,7 +75,7 @@ final class StructuredInlineItemLowering
             }
 
             $attrs = $this->styleResolver->presentationAttributes($child);
-            if ( 'span' !== strtolower($child->tagName) && self::contentRetainsItemClasses($child, $content) ) {
+            if ( 'a' === strtolower($child->tagName) && self::contentRetainsItemClasses($child, $content) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::RETAINED_ITEM_CARRIER_CLASS);
             }
             $blocks[] = $this->blocks->createBlock('core/paragraph', array_merge($attrs, array( 'content' => $content )), array(), $child);
@@ -85,10 +85,11 @@ final class StructuredInlineItemLowering
     }
 
     /**
-     * Whether the RichText content keeps the item itself, with every one of
-     * its classes. The paragraph then carries those classes only so sibling
+     * Whether the RichText content keeps the item link itself, with every one
+     * of its classes. The paragraph then carries those classes only so sibling
      * selectors (`.phone + .email`) still find the item among its source
-     * siblings; the retained element is the item's one box.
+     * siblings; the retained link is the item's one box. Other semantic items
+     * (time, emphasis) keep their existing paragraph carrier unchanged.
      */
     private static function contentRetainsItemClasses(DOMElement $item, string $content): bool
     {

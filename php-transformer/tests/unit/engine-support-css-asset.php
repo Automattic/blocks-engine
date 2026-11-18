@@ -87,7 +87,7 @@ $richText = ( new HtmlTransformer() )->transform(
         . '<ul class="maintenance-loop"><li><span>Build</span></li></ul>'
 )->toArray();
 $synthetic = ( new HtmlTransformer() )->transform(
-    '<style>p{margin:0}.site-header{display:flex;align-items:center}.brand{font-size:18px;font-weight:700;text-decoration:none}</style>'
+    '<style>p{margin:0}.site-header{display:flex;align-items:center}.brand{font-size:18px;font-weight:700}</style>'
         . '<header class="site-header"><a class="brand" href="/">Verified Artifact</a></header><footer><span>Portable input.</span></footer><p>Source paragraph.</p>'
 )->toArray();
 $colouredSyntheticLink = ( new HtmlTransformer() )->transform(
@@ -174,7 +174,7 @@ $beforeFamilies = array(
     'be-inline-geometry' => '.be-inline-geometry-',
     'richtext-marker reset' => 'html mark:where([style*="--blocks-engine-richtext-marker:"]){background-color:transparent;color:inherit}',
     'synthetic-paragraph' => ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}',
-    'synthetic-anchor-undecorated' => ':root :where(.blocks-engine-synthetic-anchor-undecorated)>a{text-decoration:none}',
+    'synthetic-anchor-undecorated' => 'blocks-engine-synthetic-anchor-undecorated',
     'synthetic-image-figure' => '.blocks-engine-synthetic-image-figure{margin:0}',
     'inline-layout-carrier' => ':where(p.blocks-engine-inline-layout-carrier){display:contents;margin:0!important;padding:0!important;border:0!important}',
     'css-owned editor wrappers' => ':root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks,:root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks>.block-editor-block-list__layout{display:contents}',
