@@ -187,13 +187,15 @@ final class QuotePattern implements PatternRecognizerInterface
         }
         $quoteChildren = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes);
         if ( array() !== $quoteChildren ) {
-            // Only transfer text presentation: the consumed blockquote's box
-            // (especially margins) must not become the synthetic paragraph's box.
-            $quoteChildren[0] = $createBlock('core/paragraph', array(
+            // The paragraph stands in for the consumed blockquote, a block
+            // box: keep it a block (an inline carrier would set its lines on
+            // the quote's strut) with the blockquote's text styles and margins.
+            $quoteChildren[0] = $createBlock('core/paragraph', array_filter(array(
                 'content' => $value,
-                'className' => 'blocks-engine-synthetic-paragraph',
-                'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
-            ));
+                'className' => \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS
+                    . ' ' . \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS,
+                'style' => $quotes->figureQuotationStyle($blockquote),
+            ), static fn ($value): bool => array() !== $value));
         }
         $innerBlocks = array_merge($innerBlocks, $quoteChildren);
         if ( array() === $innerBlocks ) {

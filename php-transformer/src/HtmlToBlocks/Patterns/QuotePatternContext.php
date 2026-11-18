@@ -15,23 +15,33 @@ final class QuotePatternContext
     }
 
     /**
-     * Resolve only text styles for the paragraph replacing a consumed blockquote.
-     * Do not resolve box presentation: that can register generated geometry even
-     * when the caller subsequently discards the box attributes.
+     * Resolve the presentation of the paragraph replacing a consumed
+     * blockquote: its text styles and the margins of the block box it stands
+     * in for. Read the authored declarations only: resolving full box
+     * presentation can register generated geometry even when the caller
+     * discards the box attributes, and the blockquote's size stays with the
+     * quote that replaces the figure.
      *
      * @return array<string, mixed>
      */
-    public function figureQuotationTypography(DOMElement $blockquote): array
+    public function figureQuotationStyle(DOMElement $blockquote): array
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($blockquote);
-        $typography = array_intersect_key($declarations, array_flip(array(
-            'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform',
-        )));
+        $kept = array_filter(
+            $declarations,
+            static fn (string $property): bool => in_array($property, array(
+                'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform',
+            ), true) || 1 === preg_match('/^margin(?:-(?:top|right|bottom|left))?$/', $property),
+            ARRAY_FILTER_USE_KEY
+        );
         $mapped = $this->styleResolver->styleAttributeMapper()->map(
-            $typography,
+            $kept,
             fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $blockquote)
         );
-        return $mapped['style']['typography'] ?? array();
+        return array_filter(array(
+            'typography' => $mapped['style']['typography'] ?? array(),
+            'spacing' => isset($mapped['style']['spacing']['margin']) ? array('margin' => $mapped['style']['spacing']['margin']) : array(),
+        ), static fn (array $value): bool => array() !== $value);
     }
 
     /**
@@ -58,6 +68,12 @@ final class QuotePatternContext
             if ('' !== $value) {
                 $declarations[$property] = $value;
             }
+        }
+        // The caption is a block box. As an inline run inside the citation,
+        // its smaller line would sit on the citation's inherited strut and
+        // grow the line box past the caption's own line height.
+        if (array() !== $declarations) {
+            $declarations['display'] = 'block';
         }
         $style = $this->styleResolver->cssDeclarationString($declarations);
         return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
