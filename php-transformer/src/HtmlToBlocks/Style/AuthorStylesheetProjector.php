@@ -1487,6 +1487,7 @@ final class AuthorStylesheetProjector
                 }
                 $carriers[$selector][] = array(
                     'marker' => $marker,
+                    'element' => $element,
                     'flattened' => LayoutParticipation::resolve($element, $this->styleResolver)->neutralizeButtonWrapper(),
                     'outranked' => array_filter(
                         $this->styleResolver->outrankedAuthorLonghands($element, $selector, $body),
@@ -1508,6 +1509,7 @@ final class AuthorStylesheetProjector
             $exclusion = $this->nativeButtonEditedPropertyExclusion($name);
             $declarations[$exclusion][ButtonDeclarationRouting::isWrapperOwnedProperty($name) ? 1 : 0][] = array(
                 'declaration' => $name . ':' . $value,
+                'value' => $value,
                 'longhands' => array_map('strtolower', array_keys(SourceDeclarations::parse($name . ':' . CssValueInspector::withoutImportant($value)))),
             );
         }
@@ -1525,7 +1527,8 @@ final class AuthorStylesheetProjector
                     foreach ( $entries as $entry ) {
                         $markers = array_values(array_filter(
                             $matched,
-                            static fn (array $carrier): bool => array() === array_intersect_key($carrier['outranked'], array_flip($entry['longhands']))
+                            fn (array $carrier): bool => array() === array_intersect_key($carrier['outranked'], array_flip($entry['longhands']))
+                                && ! ( $wrapperOwned && $this->resolvesAgainstKeptButtonWrapper($entry['value'], $carrier) )
                         ));
                         if ( array() !== $markers ) {
                             $key = implode(' ', array_column($markers, 'marker'));
@@ -1546,6 +1549,20 @@ final class AuthorStylesheetProjector
             }
         }
         return implode('', $rules);
+    }
+
+    /**
+     * A kept (not flattened) save wrapper already carries the source's wrapper
+     * geometry and is the link's containing block. Restating a percentage on
+     * the link would resolve it a second time against that wrapper and shrink
+     * the painted control to a fraction of its source size.
+     *
+     * @param array{element: DOMElement, flattened: bool} $carrier
+     */
+    private function resolvesAgainstKeptButtonWrapper(string $value, array $carrier): bool
+    {
+        return ! $carrier['flattened']
+            && str_contains($this->styleResolver->customProperties->resolve($value, $carrier['element']), '%');
     }
 
     /**
