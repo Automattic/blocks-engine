@@ -124,6 +124,13 @@ establish containing blocks. Overflow is `clips` only when a descendant extends
 past the observed box on a clipped axis. IDs alone do not preserve wrappers:
 fragment hrefs, ARIA ID references, and label `for` references do. Captured
 interaction targets are preserved through their node's `interaction_states`.
+Autonomous custom elements (hyphenated tag names such as `<interact-element>`,
+excluding the spec-reserved names) have no implicit role, so the semantics check
+treats them like `div`/`span`. A custom element is kept as `interaction/state`
+when a document `<style>` rule that applies only in a non-resting state
+(`:hover`, `:focus`, `:focus-visible`, `:focus-within`, `:active`, `:checked`,
+`:target`, or a replayed `data-interact-*` state attribute) matches it in any
+compound of its selector, so the box that rule hangs on survives.
 
 The v2 evidence shape additionally accepts optional used-style strings
 `animation-name`, `transition-property`, and `transition-duration`. Producers

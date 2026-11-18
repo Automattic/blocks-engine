@@ -35,7 +35,7 @@ final class EvidenceRouteStylesheets
     /**
      * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $pages
-     * @param array<int,array<string,mixed>> $parts Template parts every route renders.
+     * @param array<int,array<string,mixed>> $parts Template parts every route renders; their markup counts as emitted.
      * @return array<int,array<string,mixed>>
      */
     public static function retire(array $assets, array $pages, array $parts = array()): array
@@ -43,15 +43,17 @@ final class EvidenceRouteStylesheets
         $evidence = array();
         foreach ($pages as $page) if (!empty($page['document_metadata']['engine_owned_styles'])) $evidence[$page['source_path']] = $page;
         if (array() === $evidence) return $assets;
+        $markup = (string) json_encode(array_values(array_map(static fn(array $page): array => array($page['canonical_block_markup'] ?? null, $page['resolved_block_markup'] ?? null), array_filter($pages, static fn(array $page): bool => isset($evidence[$page['source_path']])))), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $retired = array();
         $legacy = array_values(array_filter($pages, static fn(array $page): bool => !isset($evidence[$page['source_path']])));
         $partMarkup = array_values(array_filter(array_map(static fn(array $part): string => (string) ($part['canonical_block_markup'] ?? ''), $parts), static fn(string $markup): bool => '' !== trim($markup)));
         $partNames = self::partNames($partMarkup);
         // Only names the parts carry are evidence: engine names on route content prove nothing here.
         $partScope = self::PART_SCOPE . (array() !== array_filter($partMarkup, static fn(string $markup): bool => 1 === preg_match('/<!--\s*wp:post-content\b/', $markup)) ? self::SLOT_EXCLUSION : '');
-        $parts = array() !== $partNames ? new UnreachableSelectorPruner(array(implode("\n", array_keys($partNames))), false, null, self::RENDER_MINTED) : null;
-        $retired = array();
-        foreach ($assets as $asset) {
-            if ('css' !== ($asset['kind'] ?? null) || in_array($asset['source'] ?? '', array('engine-support', 'wordpress-compat'), true)) { $retired[] = $asset; continue; }
+        $pruner = array() !== $partNames ? new UnreachableSelectorPruner(array(implode("\n", array_keys($partNames))), false, null, self::RENDER_MINTED) : null;
+        $chromeAssets = array();
+        foreach ($assets as $key => &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || in_array($asset['source'] ?? '', array('engine-support', 'wordpress-compat'), true)) continue;
             $scopes = $evidenceScopes = array();
             foreach ($asset['scopes'] as $scope) {
                 if ('global' === $scope['kind']) {
@@ -60,24 +62,58 @@ final class EvidenceRouteStylesheets
                 } elseif (!isset($evidence[$scope['source_path'] ?? ''])) $scopes[] = $scope;
                 else $evidenceScopes[] = $scope;
             }
-            $chrome = null !== $parts && array() !== $evidenceScopes && is_string($asset['content'] ?? null) ? self::chromeRules($asset['content'], $parts, $partScope) : '';
-            $source = $asset;
+            // Editor static state sheets project rules the author sheets already carry.
+            $chrome = null !== $pruner && array() !== $evidenceScopes && 'editor-static-state' !== ($asset['source'] ?? null) && is_string($asset['content'] ?? null) ? self::chromeRules($asset['content'], $pruner, $partScope) : '';
+            if ('' !== $chrome) $chromeAssets[$key] = self::chromeAsset($asset, $chrome, $evidenceScopes);
             $asset['stylesheet_instances'] = array_values(array_filter($asset['stylesheet_instances'] ?? array(), static fn(array $instance): bool => !isset($evidence[$instance['source_path']])));
             unset($asset['frame_fallback'], $asset['stylesheet_replays']);
             if (array() !== $scopes) {
                 $asset['scopes'] = $scopes;
-            } else {
-                // Preserve resource identities referenced by document metadata. Font
-                // faces have already been projected into theme.json at this point.
-                preg_match_all('/@font-face\s*\{[^{}]*\}/i', (string) ($asset['content'] ?? ''), $faces);
-                $asset = CompiledAssets::withRewrittenTextContent($asset, implode("\n", $faces[0]));
+                continue;
             }
-            $retired[] = $asset;
-            if ('' !== $chrome) $retired[] = self::chromeAsset($source, $chrome, $evidenceScopes);
+            $retired[] = $key;
         }
-        return $retired;
+        unset($asset);
+        $assets = self::retainStateRules($assets, $retired, $markup, $parts);
+        if (array() === $chromeAssets) return $assets;
+        $delivered = array();
+        foreach ($assets as $key => $asset) {
+            $delivered[] = $asset;
+            if (isset($chromeAssets[$key])) $delivered[] = $chromeAssets[$key];
+        }
+        return $delivered;
     }
 
+    /**
+     * Retired author sheets keep their font faces and the state rules
+     * carriers cannot replace.
+     *
+     * @param array<int|string,array<string,mixed>> $assets
+     * @param list<int|string> $retired
+     * @param array<int,array<string,mixed>> $parts
+     * @return array<int|string,array<string,mixed>>
+     */
+    private static function retainStateRules(array $assets, array $retired, string $markup, array $parts): array
+    {
+        if (array() === $retired) return $assets;
+        $context = '';
+        foreach ($assets as $key => $asset) if ('css' === ($asset['kind'] ?? null) && !in_array($key, $retired, true)) $context .= (string) ($asset['content'] ?? '');
+        // Editor static state sheets are editor projections of author rules
+        // the author sheets themselves still carry: keeping their state rules
+        // would deliver every kept rule twice.
+        $editor = array_values(array_filter($retired, static fn(int|string $key): bool => 'editor-static-state' === ($assets[$key]['source'] ?? null)));
+        $author = array_values(array_diff($retired, $editor));
+        foreach ($editor as $key) {
+            preg_match_all('/@font-face\s*\{[^{}]*\}/i', (string) ($assets[$key]['content'] ?? ''), $faces);
+            $assets[$key] = CompiledAssets::withRewrittenTextContent($assets[$key], implode("\n", $faces[0]));
+        }
+        if (array() === $author) return $assets;
+        $reach = $markup . (string) json_encode(array_column($parts, 'canonical_block_markup'), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $rules = new EvidenceRouteStateRules(EvidenceRouteStateRules::stateAttributes($markup), $markup, $reach);
+        $kept = $rules->retain(array_map(static fn(int|string $key): string => (string) ($assets[$key]['content'] ?? ''), $author), $context);
+        foreach ($author as $index => $key) $assets[$key] = CompiledAssets::withRewrittenTextContent($assets[$key], $kept[$index]);
+        return $assets;
+    }
     /**
      * Class and id names the template-part markup carries, from rendered
      * attributes and from block comments (a dynamic block keeps its classes

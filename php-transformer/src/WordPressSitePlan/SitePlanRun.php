@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
+use Automattic\BlocksEngine\PhpTransformer\Css\ShadowedDeclarationPruner;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use InvalidArgumentException;
@@ -114,7 +115,7 @@ final class SitePlanRun
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
         $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
-        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups)->withBlockTypography($markups);
+        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups, self::providerSubmitStyles($runtimeDeclarations))->withBlockTypography($markups)->withBlockColors($markups);
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
@@ -436,6 +437,31 @@ final class SitePlanRun
         return $plan;
     }
     /**
+     * Declared presentation style of every submit control in the declared
+     * forms. A form provider materializes each as a `core/button` that the
+     * theme's button element style reaches wherever that style is silent.
+     *
+     * @param array<int,mixed> $declarations Materialized runtime declarations.
+     * @return list<array<string,mixed>>
+     */
+    private static function providerSubmitStyles(array $declarations): array
+    {
+        $styles = array();
+        foreach ($declarations as $declaration) {
+            if (!is_array($declaration) || 'forms' !== ($declaration['type'] ?? null)) continue;
+            foreach (ArrayField::array(ArrayField::array($declaration, 'payload'), 'entities') as $entity) {
+                if (!is_array($entity)) continue;
+                foreach (ArrayField::array($entity, 'controls') as $control) {
+                    if (!is_array($control) || 'submit' !== strtolower(trim((string) ($control['type'] ?? '')))) continue;
+                    $presentation = ArrayField::array($control, 'presentation');
+                    $styles[] = ArrayField::array($presentation, 'style');
+                }
+            }
+        }
+        return $styles;
+    }
+
+    /**
      * Archive documents and unused synthetic parents were working inputs to
      * shell extraction and presentation. Only documents that materialize in
      * WordPress remain pages; the assets they owned and the taxonomy
@@ -520,7 +546,9 @@ final class SitePlanRun
         $compactor = new CssStylesheetTransformer();
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $compacted = $compactor->compactStylesheet($asset['content']);
+            // A declaration a later one in its block always overrides never
+            // decides a value; dropping it first also lets identical blocks fold.
+            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune($asset['content']));
             if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
             // Compatibility replays use :root only as a specificity shim,
             // not as a document reset. Their repeated native-host arms can

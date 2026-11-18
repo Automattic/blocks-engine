@@ -107,6 +107,8 @@ final class DesignSystem
     // Additional exact colours are editable block values, not new evidence
     // for site-wide defaults or a reason to rewrite every utility rule.
     public const PRIMARY_COLORS = 12;
+    /** Role of the exact tokens withBlockColors() adds for block-only colours. */
+    public const BLOCK_COLOR_ROLE = 'block';
     public const MAX_FONT_SIZES = 8;
     public const MAX_SPACING = 10;
     public const COLOR_TOLERANCE = CssColor::JUST_NOTICEABLE_DIFFERENCE;
@@ -184,17 +186,33 @@ final class DesignSystem
     /** @var array<string,?string> */
     private array $colorSlugs = array();
 
-    /** @return array{hex:array<string,string>,slug:array<string,int>} */
+    /** @return array{hex:array<string,string>,slug:array<string,int>,block:array<string,string>} */
     private function colorIndex(): array
     {
         if (null !== $this->colorIndex) return $this->colorIndex;
-        $hex = $slug = array();
+        $hex = $slug = $block = array();
         foreach ($this->colors as $index => $color) {
             $value = CssColor::hex($color['color']);
-            if (null !== $value && !isset($hex[$value])) $hex[$value] = $color['slug'];
             if (!isset($slug[$color['slug']])) $slug[$color['slug']] = $index;
+            if (null === $value) continue;
+            // Block-only colours bind only the literal they came from
+            // (blockColorSlug()), never stylesheets, classes or elements.
+            if (self::BLOCK_COLOR_ROLE === $color['role']) {
+                if (!isset($block[$value])) $block[$value] = $color['slug'];
+            } elseif (!isset($hex[$value])) $hex[$value] = $color['slug'];
         }
-        return $this->colorIndex = array('hex' => $hex, 'slug' => $slug);
+        return $this->colorIndex = array('hex' => $hex, 'slug' => $slug, 'block' => $block);
+    }
+
+    /**
+     * Slug of the block-only token (withBlockColors()) that paints exactly
+     * this opaque colour, or null.
+     */
+    public function blockColorSlug(string $value): ?string
+    {
+        if (!CssColor::opaque($value)) return null;
+        $hex = CssColor::hex($value);
+        return null === $hex ? null : ($this->colorIndex()['block'][$hex] ?? null);
     }
 
     /**
@@ -428,39 +446,49 @@ final class DesignSystem
      * fields are checked independently, including shape and spacing; matching
      * inherited typography and core's outline fill also establish ownership.
      *
+     * A declared form's submit control is a button block too: the form
+     * provider materializes it as a `core/button` carrying the control's
+     * declared presentation style and nothing else, so the element style
+     * reaches every field that presentation leaves out.
+     *
      * @param list<string> $markups Every page's block markup.
+     * @param list<array<string,mixed>> $providerButtonStyles Declared presentation style of each submit control a form provider materializes.
      */
-    public function withButtonElementsOwnedBy(array $markups): self
+    public function withButtonElementsOwnedBy(array $markups, array $providerButtonStyles = array()): self
     {
         if (!isset($this->elements['button'])) return $this;
         $dominant = isset($this->elements['button']['padding']) || isset($this->elements['button']['radius']);
         $owned = array('color' => true, 'background' => true, 'font_family' => true, 'font_size' => true, 'font_weight' => true);
+        $buttons = array();
         foreach ($markups as $markup) {
             if (!preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $matches)) continue;
             foreach ($matches[1] as $json) {
                 $attributes = '' === $json ? array() : json_decode($json, true);
-                if (!is_array($attributes)) $attributes = array();
-                $style = ArrayField::array($attributes, 'style');
-                $carried = array(
-                    'color' => isset($attributes['textColor']) || isset($style['color']['text']),
-                    'background' => isset($attributes['backgroundColor']) || isset($attributes['gradient']) || isset($style['color']['background']) || isset($style['color']['gradient']),
-                    'font_family' => isset($attributes['fontFamily']) || isset($style['typography']['fontFamily']),
-                    'font_size' => isset($attributes['fontSize']) || isset($style['typography']['fontSize']),
-                    'font_weight' => isset($style['typography']['fontWeight']),
-                );
-                if ($dominant) {
-                    // Missing ownership vetoes only this field, not the rest of
-                    // the dominant look. Matching inherited defaults are safe.
-                    $carried['font_family'] = $carried['font_family'] || self::familyKey((string) ($this->root['font_family'] ?? '')) === self::familyKey($this->elements['button']['font_family'] ?? '');
-                    $carried['font_weight'] = $carried['font_weight'] || '400' === ($this->elements['button']['font_weight'] ?? null);
-                    $carried['background'] = $carried['background'] || str_contains((string) ($attributes['className'] ?? ''), 'is-style-outline');
-                    $carried['radius'] = isset($style['border']['radius']);
-                    $carried['padding'] = isset($style['spacing']['padding']);
-                    $carried['text_transform'] = isset($style['typography']['textTransform']);
-                    $carried['letter_spacing'] = isset($style['typography']['letterSpacing']);
-                }
-                foreach ($carried as $field => $present) if (!$present) $owned[$field] = false;
+                $buttons[] = is_array($attributes) ? $attributes : array();
             }
+        }
+        foreach ($providerButtonStyles as $style) $buttons[] = array('style' => $style);
+        foreach ($buttons as $attributes) {
+            $style = ArrayField::array($attributes, 'style');
+            $carried = array(
+                'color' => isset($attributes['textColor']) || isset($style['color']['text']),
+                'background' => isset($attributes['backgroundColor']) || isset($attributes['gradient']) || isset($style['color']['background']) || isset($style['color']['gradient']),
+                'font_family' => isset($attributes['fontFamily']) || isset($style['typography']['fontFamily']),
+                'font_size' => isset($attributes['fontSize']) || isset($style['typography']['fontSize']),
+                'font_weight' => isset($style['typography']['fontWeight']),
+            );
+            if ($dominant) {
+                // Missing ownership vetoes only this field, not the rest of
+                // the dominant look. Matching inherited defaults are safe.
+                $carried['font_family'] = $carried['font_family'] || self::familyKey((string) ($this->root['font_family'] ?? '')) === self::familyKey($this->elements['button']['font_family'] ?? '');
+                $carried['font_weight'] = $carried['font_weight'] || '400' === ($this->elements['button']['font_weight'] ?? null);
+                $carried['background'] = $carried['background'] || str_contains((string) ($attributes['className'] ?? ''), 'is-style-outline');
+                $carried['radius'] = isset($style['border']['radius']);
+                $carried['padding'] = isset($style['spacing']['padding']);
+                $carried['text_transform'] = isset($style['typography']['textTransform']);
+                $carried['letter_spacing'] = isset($style['typography']['letterSpacing']);
+            }
+            foreach ($carried as $field => $present) if (!$present) $owned[$field] = false;
         }
         $button = $this->elements['button'];
         foreach ($owned as $field => $isOwned) if (!$isOwned) unset($button[$field]);
@@ -542,6 +570,54 @@ final class DesignSystem
             $fontFamilies[] = array('slug' => $slug, 'name' => $name, 'fontFamily' => $stack, 'key' => (string) $key, 'role' => 'family', 'weight' => 0);
         }
         return new self($this->colors, $fontSizes, $fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+    }
+
+    /**
+     * The system with an exact token for every opaque literal colour a block
+     * carries as its `style.color` text or background that no palette token
+     * paints.
+     *
+     * Like withBlockTypography(), this covers the colour the browser rendered
+     * for a block's source node (box-tree evidence: a computed `rgb(0, 0, 0)`
+     * or `color(srgb …)` the static cascade cannot resolve). Those colours are
+     * painted all the same, and without a token they stay literals outside the
+     * editable palette. Each new token (`accent-N` after the usage-ranked
+     * ones, most used first) is the exact 8-bit colour, so binding never
+     * changes what renders. It carries BLOCK_COLOR_ROLE: it binds only that
+     * block literal, inline and in place (blockColorSlug()), never a
+     * stylesheet, a class-driven value or an element style, which keep the
+     * cascade the usage-ranked palette established.
+     *
+     * @param list<string> $markups Every page's block markup.
+     */
+    public function withBlockColors(array $markups): self
+    {
+        $counts = array();
+        foreach ($markups as $markup) {
+            if (!preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) continue;
+            foreach ($matches[1] as $json) {
+                $attributes = json_decode($json, true);
+                $style = is_array($attributes) && is_array($attributes['style'] ?? null) ? $attributes['style'] : array();
+                foreach (array($style['color']['text'] ?? null, $style['color']['background'] ?? null) as $value) {
+                    if (!is_string($value) || str_contains($value, 'var') || !CssColor::opaque($value) || null !== $this->colorSlug($value)) continue;
+                    $hex = (string) CssColor::hex($value);
+                    $counts[$hex] = ($counts[$hex] ?? 0) + 1;
+                }
+            }
+        }
+        $known = array_flip(array_keys($this->colorIndex()['block']));
+        $counts = array_diff_key($counts, $known);
+        if (array() === $counts) return $this;
+        uksort($counts, static fn(string $a, string $b): int => ($counts[$b] <=> $counts[$a]) ?: strcmp($a, $b));
+        $used = array_fill_keys(array_column($this->colors, 'slug'), true);
+        $accent = 0;
+        $colors = $this->colors;
+        foreach (array_keys($counts) as $hex) {
+            do $slug = 'accent-' . (++$accent); while (isset($used[$slug]));
+            $used[$slug] = true;
+            $colors[] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', $slug)), 'color' => $hex, 'role' => self::BLOCK_COLOR_ROLE, 'weight' => 0);
+        }
+        return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
     }
 
     /**
