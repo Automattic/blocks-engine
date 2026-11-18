@@ -145,6 +145,7 @@ final class NavigationPatternContext
         }
         if ('' !== $boxMarker && $list instanceof DOMElement) {
             $this->projectListSeparators($list, $boxMarker);
+            $this->session->authorSelectorProjectionState()->recordNavigationListBoxHost($element, $list);
         }
         $identity = $this->sourceListHostIdentity($element);
 

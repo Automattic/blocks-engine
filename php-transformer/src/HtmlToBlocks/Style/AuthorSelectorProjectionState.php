@@ -182,6 +182,25 @@ final class AuthorSelectorProjectionState
     /** @var array<string, string> Source list path => native display of the list when shown. */
     private array $navigationListShownDisplays = array();
 
+    /** @var array<string, DOMElement> Navigation host path => the source list whose box the host renders. */
+    private array $navigationListBoxHosts = array();
+
+    /**
+     * Record that the native navigation created from `$host` renders source
+     * list `$list`'s box: Core's own list is `display:contents`, so the list's
+     * items are laid out by the host.
+     */
+    public function recordNavigationListBoxHost(DOMElement $host, DOMElement $list): void
+    {
+        $this->navigationListBoxHosts[$host->getNodePath() ?? ''] = $list;
+    }
+
+    /** The source list whose box the navigation created from `$host` renders, if any. */
+    public function navigationListBoxOf(DOMElement $host): ?DOMElement
+    {
+        return $this->navigationListBoxHosts[$host->getNodePath() ?? ''] ?? null;
+    }
+
     /** Source list box properties that the native root renders after the list becomes display:contents. */
     public const NAVIGATION_LIST_BOX_PROPERTIES = array('display', 'flex-direction', 'flex-wrap', 'flex-flow', 'justify-content', 'align-items', 'align-content', 'gap', 'row-gap', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'margin-block', 'margin-block-start', 'margin-block-end', 'margin-inline', 'margin-inline-start', 'margin-inline-end', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block', 'padding-block-start', 'padding-block-end', 'padding-inline', 'padding-inline-start', 'padding-inline-end', 'overflow', 'overflow-x', 'overflow-y', 'columns', 'column-count', 'column-width', 'column-gap', 'column-fill', 'column-rule', 'column-rule-color', 'column-rule-style', 'column-rule-width');
 

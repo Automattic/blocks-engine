@@ -77,7 +77,9 @@ final class UnusedCustomPropertyPruner
             // captured reader. Only root and universal reset inventories are
             // eligible, never class-, state- or component-scoped declarations. Keep
             // WordPress presets (including isolated source presets) for editor
-            // consumers, and compound values whose binding must stay intact.
+            // consumers. A value's shape does not matter: a font stack, a
+            // gradient or an `r,g,b` triple nothing reads computes nothing,
+            // and every name a value references is itself counted as read.
             // An unread empty reset value is removable too; a read empty
             // value still suppresses var() fallbacks and must be retained.
             $inventory = $this->isInventory($selector);
@@ -85,7 +87,6 @@ final class UnusedCustomPropertyPruner
                 || !str_starts_with($declaration['name'], '--')
                 || str_starts_with($declaration['name'], '--wp--')
                 || str_starts_with($declaration['name'], '--be--source--preset--')
-                || !preg_match('/^[#a-zA-Z0-9.+%-]*$/D', trim($declaration['value']))
                 || isset($this->used[$declaration['name']]));
             if (count($kept) === count($declarations)) return $selector . '{' . $body . '}';
             if (array() === $kept) return '';

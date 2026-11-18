@@ -1901,30 +1901,73 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return null;
     }
 
-    /** The nearest source ancestor that emits a block: neutral boxes are skipped. */
+    /** Properties an author animation's keyframes move: a capture reports the frame it sampled. */
+    private const ANIMATED_PLACEMENT = array('transform', 'translate', 'rotate', 'scale');
+
     /**
-     * The observed box each viewport resolves the element's percentages
-     * against: its nearest ancestor that generates a box there. A
-     * `display: contents` ancestor generates none and is passed over.
+     * A capture taken while an author animation runs on the element (a
+     * scroll-driven parallax, an entrance still in flight) reports the frame
+     * it sampled as the used transform. That frame depends on scroll position
+     * and timing, not on the author's resting styles, so a carrier must not
+     * freeze it: where the author's cascade at that capture's width declares
+     * none of these properties, the observation is restated as their initial
+     * `none`, which is what the element rests at without the animation.
+     *
+     * @param array<string, array<string, mixed>> $observations
+     * @param array<string, array<string, mixed>> $viewports
+     * @return array<string, array<string, mixed>>
+     */
+    private function withoutAnimationSamples(DOMElement $element, array $observations, array $viewports): array
+    {
+        foreach ($observations as $key => $observation) {
+            $styles = is_array($observation['used_styles'] ?? null) ? $observation['used_styles'] : null;
+            if (null === $styles || in_array(strtolower(trim((string) ($styles['animation-name'] ?? 'none'))), array('', 'none'), true)) continue;
+            if (!isset($viewports[$key]['width'])) continue;
+            $declared = $this->styleResolver->authorViewport->atViewport($element, self::ANIMATED_PLACEMENT, (float) $viewports[$key]['width']);
+            if (array() !== $declared) continue;
+            foreach (self::ANIMATED_PLACEMENT as $property) {
+                if (isset($styles[$property])) $styles[$property] = 'none';
+            }
+            $observations[$key]['used_styles'] = $styles;
+        }
+        return $observations;
+    }
+
+    /** Container longhands of a source list whose box a navigation host renders. */
+    private const NAVIGATION_LIST_BOX_LAYOUT = array(
+        'display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-content', 'row-gap', 'column-gap',
+        'grid-template-columns', 'grid-template-rows', 'grid-auto-columns', 'grid-auto-rows', 'grid-auto-flow', 'justify-items',
+    );
+
+    /**
+     * A navigation host that renders its source list's box (Core's own list
+     * is `display:contents`) lays out the list's items: at each capture the
+     * host's carrier takes the list's observed container layout, so its items
+     * pack as the source list packed them rather than as the landmark around
+     * it did. A host the capture hid or left boxless keeps its own display.
      *
      * @param array<string, array<string, mixed>> $observations
      * @return array<string, array<string, mixed>>
      */
-    private function boxTreeContainers(DOMElement $element, array $observations): array
+    private function withNavigationListBox(DOMElement $host, array $observations): array
     {
-        $containers = array();
-        foreach (array_keys($observations) as $key) {
-            for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
-                $evidence = $this->session->boxTreeEvidence($ancestor)[$key] ?? null;
-                if (null === $evidence) break;
-                if ('contents' === ($evidence['used_styles']['display'] ?? '')) continue;
-                $containers[$key] = $evidence;
-                break;
+        $list = $this->session->authorSelectorProjectionState()->navigationListBoxOf($host);
+        if (!$list instanceof DOMElement || array() === $observations) return $observations;
+        $listObservations = $this->session->boxTreeEvidence($list);
+        foreach ($observations as $key => $observation) {
+            $own = is_array($observation['used_styles'] ?? null) ? $observation['used_styles'] : null;
+            $box = $listObservations[$key]['used_styles'] ?? null;
+            if (null === $own || !is_array($box)) continue;
+            if (in_array($own['display'] ?? '', array('none', 'contents'), true) || in_array($box['display'] ?? '', array('none', 'contents'), true)) continue;
+            foreach (self::NAVIGATION_LIST_BOX_LAYOUT as $property) {
+                if (isset($box[$property])) $own[$property] = $box[$property];
             }
+            $observations[$key]['used_styles'] = $own;
         }
-        return $containers;
+        return $observations;
     }
 
+    /** The nearest source ancestor that emits a block: neutral boxes are skipped. */
     private function blockParentElement(DOMElement $element): ?DOMElement
     {
         $parent = $element->parentNode;
@@ -2180,11 +2223,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->sourceBlockAttributeProjectionContext()
             );
             $observations = $this->session->boxTreeEvidence($sourceElement);
+            if ('core/navigation' === $name) $observations = $this->withNavigationListBox($sourceElement, $observations);
             $viewports = $this->session->boxTreeViewports();
+            $observations = $this->withoutAnimationSamples($sourceElement, $observations, $viewports);
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
             $intent = new Style\BoxTreeFluidIntent();
-            $fluid = $intent->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->boxTreeContainers($sourceElement, $observations));
+            $fluid = $intent->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->session->boxTreeEvidence(...));
             $bounds = $intent->captureBounds($sourceElement, $this->styleResolver, $observations, $viewports);
             $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $bounds);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
