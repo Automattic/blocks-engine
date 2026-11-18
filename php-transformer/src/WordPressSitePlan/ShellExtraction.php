@@ -757,9 +757,11 @@ final class ShellExtraction
         $lead = 0;
         while ($lead < count($ranges) - 1 && self::isEmptyVisualGroup(substr($markup, $ranges[$lead]['offset'], $ranges[$lead]['length']))) ++$lead;
         // A text-only announcement bar above the navigation is part of the
-        // masthead: the header runs from it through the navigation block.
+        // masthead: the header runs from it through the navigation block,
+        // whether it opens the main landmark or the document itself.
         $navAt = $lead;
-        while (self::leadsMainDocument($index, $ranges[$lead]['offset']) && $navAt < $lead + 2 && $navAt < count($ranges) - 1 && self::isLeadingAnnouncement(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) ++$navAt;
+        $leadsDocument = self::leadsMainDocument($index, $ranges[$lead]['offset']) || in_array($ranges[$lead], $index->topLevel(), true);
+        while ($leadsDocument && $navAt < $lead + 2 && $navAt < count($ranges) - 1 && self::isLeadingAnnouncement(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) ++$navAt;
         if (!self::containsNavigation(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) $navAt = $lead;
         if (2 <= count($ranges) - $navAt) {
             $head = $ranges[$navAt];
@@ -1021,6 +1023,23 @@ final class ShellExtraction
         return $main;
     }
 
+    /**
+     * A header nested in a document-level block that follows a document-level
+     * navigation block belongs to a view (an SPA page, a panel), not to the
+     * site chrome: the document's leading navigation already is that chrome.
+     * Capture-document scopes are detection roots, not preceding chrome.
+     */
+    private static function followsDocumentNavigation(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $row): bool
+    {
+        if (!empty($row['document_level'])) return false;
+        foreach ($index->topLevel() as $range) {
+            if ($range['offset'] + $range['length'] > $row['offset']) return false;
+            $block = substr($index->markup, $range['offset'], $range['length']);
+            if (!str_contains($block, CaptureEvidence::DOCUMENT_SCOPE) && self::containsNavigation($block)) return true;
+        }
+        return false;
+    }
+
     private static function isHeadingBlock(string $markup): bool
     {
         return 1 === preg_match('/^<!--\s*wp:heading(?:\s|\{)/', ltrim($markup));
@@ -1034,6 +1053,7 @@ final class ShellExtraction
         foreach (array('header', 'footer') as $area) {
             if (in_array($area, $occupiedAreas, true)) continue;
             $rows = $this->nestedLandmarkCandidates($index, $sourcePath, $area);
+            if ('header' === $area) $rows = array_values(array_filter($rows, static fn(array $row): bool => !self::followsDocumentNavigation($index, $row)));
             if (array() === $rows) continue;
             if (!empty($rows[0]['document_level']) && 1 < count($rows)) continue;
             $identities = array_column($rows, 'identity_markup');
