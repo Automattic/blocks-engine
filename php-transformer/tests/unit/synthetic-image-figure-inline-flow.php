@@ -48,7 +48,7 @@ $assert(
     $right
 );
 $assert(
-    str_contains($rightCss, '.' . $inlineClass . '{display:contents}'),
+    str_contains($rightCss, '.' . $inlineClass . '{display:contents;overflow:visible}'),
     'the inline-level synthetic figure ships its display rule',
     $rightCss
 );
@@ -90,7 +90,7 @@ foreach (require dirname(__DIR__) . '/fixtures/synthetic-inline-image-percentage
     list($blocks, $css) = $transform('<style>' . $fixture['css'] . '</style>' . $fixture['html']);
     if (in_array($fixture['name'], array('clamped percentage width', 'percentage max-width'), true)) {
         $assert(str_contains($blocks, $inlineClass), $fixture['name'] . ' uses the transparent inline figure', $blocks);
-        $assert(str_contains($css, '.' . $inlineClass . '{display:contents}'), $fixture['name'] . ' ships transparent sizing', $css);
+        $assert(str_contains($css, '.' . $inlineClass . '{display:contents;overflow:visible}'), $fixture['name'] . ' ships transparent sizing', $css);
         $assert(str_contains($css, '.' . $inlineClass . ' img{display:inline}'), $fixture['name'] . ' retains an inline image', $css);
     }
 }

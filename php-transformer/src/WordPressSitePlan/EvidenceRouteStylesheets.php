@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+
 /** Author selectors are analysis input, never delivery for captured routes. */
 final class EvidenceRouteStylesheets
 {
@@ -27,10 +30,34 @@ final class EvidenceRouteStylesheets
             }
             // Preserve resource identities referenced by document metadata. Font
             // faces have already been projected into theme.json at this point.
-            preg_match_all('/@font-face\s*\{[^{}]*\}/i', (string) ($asset['content'] ?? ''), $faces);
-            $asset = CompiledAssets::withRewrittenTextContent($asset, implode("\n", $faces[0]));
+            $content = (string) ($asset['content'] ?? '');
+            preg_match_all('/@font-face\s*\{[^{}]*\}/i', $content, $faces);
+            $asset = CompiledAssets::withRewrittenTextContent($asset, implode("\n", array_filter(array_merge($faces[0], array(self::deviceIslandRules($content))))));
         }
         unset($asset);
         return $assets;
+    }
+
+    /**
+     * The capture's device-island visibility rules, with their media
+     * conditions. A responsive capture folds each route's desktop and phone
+     * frames into sibling islands and ships the rules choosing one per
+     * viewport. They are capture runtime, not author presentation: box-tree
+     * evidence observed each island only at its own capture width, so no
+     * projected rule reproduces the switch, and retiring them would show both
+     * islands at every width.
+     */
+    private static function deviceIslandRules(string $css): string
+    {
+        if (!str_contains($css, CaptureEvidence::DESKTOP_ONLY_CLASS) && !str_contains($css, CaptureEvidence::MOBILE_ONLY_CLASS)) return '';
+        $island = '/\.(?:' . preg_quote(CaptureEvidence::DESKTOP_ONLY_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_ONLY_CLASS, '/') . ')(?![\w-])/';
+        $kept = '';
+        (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $prelude, string $body, array $ancestors) use ($island, &$kept): void {
+            if (1 !== preg_match($island, $prelude)) return;
+            $rule = trim($prelude) . '{' . $body . '}';
+            foreach (array_reverse($ancestors) as $condition) $rule = $condition . '{' . $rule . '}';
+            $kept .= $rule;
+        });
+        return $kept;
     }
 }

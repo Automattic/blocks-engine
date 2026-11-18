@@ -144,7 +144,8 @@ final class BoxTreeStyleProjector
             $effective = array_replace($effective, $delta);
             $pseudo = $pseudos ? $this->pseudoRules($observations[$key], $pseudoEffective) : '';
             if (array() === $delta && '' === $pseudo) continue;
-            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule(self::SELECTOR, $delta) . $pseudo . '}';
+            // A capture governs the band up to its device switch when the capture declares one.
+            $css .= '@media (max-width:' . (isset($viewports[$key]['max_width']) ? self::width((float) $viewports[$key]['max_width']) : (string) (int) $viewports[$key]['width']) . 'px){' . $this->rule(self::SELECTOR, $delta) . $pseudo . '}';
         }
         // Numeric keys become ints: compare them as widths, narrowest last.
         uksort($bands, static fn(int|string $a, int|string $b): int => (float) $b <=> (float) $a);
