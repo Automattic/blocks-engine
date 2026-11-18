@@ -2723,6 +2723,22 @@ final class ArtifactCompiler
     }
 
     /**
+     * The shared shell is compiled from source markup without box-tree
+     * evidence, so the author stylesheet shapes it. A box-tree route does not
+     * ship that stylesheet (ADR 0005): sharing the shell would render its
+     * landmark unstyled. When the group also holds routes that load the author
+     * stylesheet, the evidence routes keep their own carrier-styled copy.
+     *
+     * @param array<string,array{content:string,rows:array<string,mixed>,engine_owned_styles?:bool}> $members
+     * @return array<string,array{content:string,rows:array<string,mixed>,engine_owned_styles?:bool}>
+     */
+    private static function membersRenderingAuthorStyles(array $members): array
+    {
+        $authorStyled = array_filter($members, static fn(array $member): bool => empty($member['engine_owned_styles']));
+        return array() === $authorStyled ? $members : $authorStyled;
+    }
+
+    /**
      * Keep the members that load every landmark stylesheet most members load.
      * A landmark stylesheet is a style source that names one of the landmark's
      * ids; route-only stylesheets still drop out of the shell head.
@@ -2791,7 +2807,7 @@ final class ArtifactCompiler
             }
             unset($areaRows, $row);
             // Shared stylesheet comparison must not see route-specific capture IDs.
-            $documents[(string) $file['path']] = array('content' => $dom->documentElement instanceof DOMElement ? SourceDom::outerHtml($dom->documentElement) : (string) $file['content'], 'rows' => $rows);
+            $documents[(string) $file['path']] = array('content' => $dom->documentElement instanceof DOMElement ? SourceDom::outerHtml($dom->documentElement) : (string) $file['content'], 'rows' => $rows, 'engine_owned_styles' => array() !== ($file['box_tree'] ?? array()));
         }
         if (count($documents) < 2) return array('artifacts' => array(), 'assets' => array(), 'author_stylesheet_projections' => array(), 'runtime_script_projections' => array());
 
@@ -2812,6 +2828,7 @@ final class ArtifactCompiler
                 // renders it under other rules. It keeps its own copy, so the
                 // stylesheets most members load still shape the shared shell.
                 $members = $this->membersSharingLandmarkStyles($members, $area, $variant, $files, $entryPath);
+                $members = self::membersRenderingAuthorStyles($members);
                 if (count($members) < 2) continue;
                 $sourcePath = isset($members[$entryPath]) ? $entryPath : (string) array_key_first($members);
                 // Identity excludes capture-only entrance state, but the emitted
