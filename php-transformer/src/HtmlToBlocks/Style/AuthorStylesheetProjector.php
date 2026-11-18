@@ -686,12 +686,18 @@ final class AuthorStylesheetProjector
      * Project host display here, never in an after-author reference-value replay.
      * The host's cross-axis alignment rides along: the list-navigation baseline
      * outranks a bare class, and Core's toggle is a direct child of the host.
+     *
+     * A list wrapper that lowers onto the host keeps only a table-cell display:
+     * Core's flex layout (`body .is-layout-flex`) would otherwise take the
+     * host out of the source table row, so its percentage width resolves
+     * against an anonymous cell and the items wrap.
      */
     private function directNavigationHostRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
         $lifted = array_intersect_key($declarations, array('display' => true, 'align-items' => true));
         if (array() === $lifted) return '';
-        $targets = array();
+        $tableCell = 'table-cell' === CssValueInspector::declared($declarations, 'display');
+        $targets = $cellTargets = array();
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
             // Class compounds only (`.menus`, `.menus.res`): every lifted rule
             // gains the same prefix, so their relative specificity holds.
@@ -705,9 +711,31 @@ final class AuthorStylesheetProjector
                     $targets[] = ':root .wp-block-navigation' . $match[0];
                     break;
                 }
+                if ($tableCell && $this->navigationRootCarriesClasses($match[0], $context->emittedMarkup)) {
+                    $cellTargets[] = ':root .wp-block-navigation' . $match[0];
+                }
             }
         }
-        return array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($lifted) . '}';
+        $cellTargets = array_diff(array_unique($cellTargets), $targets);
+        return (array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($lifted) . '}')
+            . (array() === $cellTargets ? '' : implode(',', $cellTargets) . '{' . $this->styleResolver->cssDeclarationString(array('display' => $declarations['display'])) . '}');
+    }
+
+    /** Whether an emitted core/navigation root carries every class of a class compound (`.a.b`). */
+    private function navigationRootCarriesClasses(string $compound, string $markup): bool
+    {
+        $classes = array_map(static fn (string $class): string => stripslashes($class), array_values(array_filter(explode('.', $compound), static fn (string $class): bool => '' !== $class)));
+        if ( array() === $classes || ! preg_match_all('/<!-- wp:navigation (\{.*?\}) \/?-->/', $markup, $matches) ) {
+            return false;
+        }
+        foreach ( $matches[1] as $json ) {
+            $attributes = json_decode($json, true);
+            $tokens = SourceDom::tokens(is_array($attributes) ? (string) ($attributes['className'] ?? '') : '');
+            if ( array() === array_diff($classes, $tokens) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function withEditorProjectionRules(string $css, string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
