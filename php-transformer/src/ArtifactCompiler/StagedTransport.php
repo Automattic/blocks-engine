@@ -1001,9 +1001,9 @@ trait StagedTransport
         $droppedSidecars = array();
         $normalizer = new ArtifactNormalizer();
         $files = array_filter(ArrayField::array($artifact, 'files'), 'is_array');
-        foreach (ArtifactNormalizer::reportsBeforeSidecars($files, $reports) as $key => $file) {
+        foreach (ArtifactNormalizer::reportsBeforeSidecars($files) as $key => $file) {
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
-            $sidecar = !isset($reports[$path]) && \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isSidecarPath($path);
+            $sidecar = \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isSidecarPath($path);
             if (!isset($file['payload_reference'])) {
                 if (isset($reports[$path]) || $sidecar) {
                     $payload = $normalizer->payload($file, $path);

@@ -116,7 +116,7 @@ final class ArtifactNormalizer
             $this->contentAddressInlineFiles($this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles))),
             $limits['max_files']
         );
-        $rawFiles = array_values(self::reportsBeforeSidecars($rawFiles, $declaredReports));
+        $rawFiles = array_values(self::reportsBeforeSidecars($rawFiles));
         $safeEntrypoints = array();
         foreach ( array_unique($entrypoints) as $entrypoint ) {
             $path = ArtifactPath::safeRelativePath($entrypoint);
@@ -403,21 +403,21 @@ final class ArtifactNormalizer
     }
 
     /**
-     * Optional sidecars come last, smallest first, so budget pressure drops
-     * the largest before it can displace a declared report or smaller sidecar.
-     * Preserve source order for all other inputs and for equal-sized sidecars.
+     * Box-tree sidecars are optional evidence, declared or not. They come
+     * last, smallest first, so budget pressure drops the largest before it can
+     * displace a declared report or a smaller sidecar. Preserve source order
+     * for all other inputs and for equal-sized sidecars.
      *
      * @param array<array-key,array<string,mixed>> $files
-     * @param array<string,true> $declaredReports
      * @return array<array-key,array<string,mixed>>
      */
-    public static function reportsBeforeSidecars(array $files, array $declaredReports): array
+    public static function reportsBeforeSidecars(array $files): array
     {
         $normalizer = new self();
         $sizes = array();
         foreach ($files as $key => $file) {
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
-            if (!isset($declaredReports[$path]) && \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isSidecarPath($path)) {
+            if (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isSidecarPath($path)) {
                 $sizes[$key] = $normalizer->payload($file, $path)['bytes'];
             }
         }

@@ -13,7 +13,7 @@ $assert = static function (bool $condition, string $message): void {
 $receipt = '{"schema":"blocks-engine-capture/capture-receipt/v1","websiteRoot":"website"}';
 $artifact = array(
     'entrypoint' => 'website/index.html',
-    'reports' => array('capture-receipt.json'),
+    'reports' => array('box-tree/large.json', 'capture-receipt.json'),
     'compiler_limits' => array('max_report_total_bytes' => strlen($receipt)),
     'files' => array(
         array('path' => 'box-tree/large.json', 'content' => str_repeat(' ', 100) . '{}'),
