@@ -6326,6 +6326,7 @@ final class StyleResolver implements ElementPresentationResolver
             'border-left-width',
             'border-right-width',
             'border-spacing',
+            'caption-side',
             'border-top',
             'border-top-color',
             'border-top-left-radius',
