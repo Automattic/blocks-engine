@@ -133,7 +133,92 @@ final class SearchBlockConverter implements ElementConverter
 
         $attrs['className'] = trim($attrs['className'] . ' ' . $this->registerDecorativeSearchIcon($form));
 
-        return $this->createBlock->createBlock('core/search', $attrs, array(), $form);
+        $search = $this->createBlock->createBlock('core/search', $attrs, array(), $form);
+        $headings = $this->visuallyHiddenFormHeadings($form);
+        if ( array() === $headings ) {
+            return $search;
+        }
+
+        // core/search has no slot for the form's own (visually hidden)
+        // heading, which names the search region for assistive technology.
+        // Emit it beside the search block, still visually hidden, inside a
+        // layout-transparent wrapper. The headings follow the search block so
+        // flow block-gap never lands on the search control.
+        $blocks = array( $search );
+        foreach ( $headings as $heading ) {
+            $blocks[] = $this->createBlock->createBlock('core/heading', array(
+                'level'     => (int) substr(strtolower($heading->tagName), 1),
+                'content'   => htmlspecialchars(trim((string) preg_replace('/\s+/', ' ', $heading->textContent)), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                'className' => 'screen-reader-text ' . self::HIDDEN_FORM_HEADING_CLASS,
+            ), array(), $heading);
+        }
+        $this->session->generatedSupportStylesheetState()->registerNativeSearchTrigger(
+            self::HIDDEN_FORM_HEADING_WRAPPER_CLASS,
+            '.' . self::HIDDEN_FORM_HEADING_WRAPPER_CLASS . '{display:contents}'
+            . '.' . self::HIDDEN_FORM_HEADING_CLASS . '{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}'
+        );
+
+        return $this->createBlock->createBlock('core/group', array(
+            'className' => self::HIDDEN_FORM_HEADING_WRAPPER_CLASS,
+        ), $blocks);
+    }
+
+    private const HIDDEN_CLASS_PATTERN = '/(?:^|\s)(?:sr-only|screen-reader-text|screen-reader-only|visually-hidden|element-invisible)(?:\s|$)/i';
+
+    private const HIDDEN_FORM_HEADING_CLASS = 'blocks-engine-search-form-heading';
+
+    private const HIDDEN_FORM_HEADING_WRAPPER_CLASS = 'blocks-engine-search-form-landmark';
+
+    /**
+     * Headings inside a search form that are read but not painted (Drupal's
+     * `<h2 class="element-invisible">Search form</h2>`).
+     *
+     * @return list<DOMElement>
+     */
+    private function visuallyHiddenFormHeadings(DOMElement $form): array
+    {
+        $headings = array();
+        foreach ( SourceDom::subtreeElements($form) as $element ) {
+            if ( $element->isSameNode($form) || 1 !== preg_match('/^h[1-6]$/i', $element->tagName)
+                || '' === trim($element->textContent) || $this->isHiddenFromEveryone($element, $form) ) {
+                continue;
+            }
+            if ( $this->isVisuallyHidden($element, $form) ) {
+                $headings[] = $element;
+            }
+        }
+
+        return $headings;
+    }
+
+    private function isHiddenFromEveryone(DOMElement $element, DOMElement $boundary): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $display = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $this->context->presentationDeclarations($node)['display'] ?? '') ?? ''));
+            if ( $node->hasAttribute('hidden') || 'true' === strtolower(SourceDom::attr($node, 'aria-hidden')) || 'none' === $display ) {
+                return true;
+            }
+            if ( $node->isSameNode($boundary) ) {
+                break;
+            }
+        }
+
+        return false;
+    }
+
+    private function isVisuallyHidden(DOMElement $element, DOMElement $boundary): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 1 === preg_match(self::HIDDEN_CLASS_PATTERN, SourceDom::attr($node, 'class'))
+                || CssValueInspector::isVisuallyClippedBox($this->context->presentationDeclarations($node)) ) {
+                return true;
+            }
+            if ( $node->isSameNode($boundary) ) {
+                break;
+            }
+        }
+
+        return false;
     }
 
     /** Accessible names and rendered label boxes are independent source facts. */
@@ -146,7 +231,7 @@ final class SearchBlockConverter implements ElementConverter
 
         for ( $node = $label; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( $node->hasAttribute('hidden')
-                || 1 === preg_match('/(?:^|\s)(?:sr-only|screen-reader-text|screen-reader-only|visually-hidden)(?:\s|$)/i', SourceDom::attr($node, 'class')) ) {
+                || 1 === preg_match(self::HIDDEN_CLASS_PATTERN, SourceDom::attr($node, 'class')) ) {
                 return false;
             }
             $declarations = $this->context->presentationDeclarations($node);
