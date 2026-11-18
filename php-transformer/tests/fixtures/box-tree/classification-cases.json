@@ -39,6 +39,9 @@
   {"name":"custom-element", "tag":"x-wrap", "criterion":"equal-child-geometry"},
   {"name":"custom-element-role", "tag":"x-wrap", "attributes":"role=\"region\"", "criterion":"semantics/id/anchor"},
   {"name":"custom-element-state-rule", "tag":"x-wrap", "attributes":"data-state=\"open\"", "style":"x-wrap[data-state]:hover img{opacity:.5}", "criterion":"interaction/state"},
+  {"name":"custom-element-resting-interact-key", "tag":"x-wrap", "attributes":"data-interact-key=\"k1\"", "style":"[data-interact-key=\"k1\"] img{transform:none}", "criterion":"equal-child-geometry"},
+  {"name":"custom-element-resting-interact-key-presence", "tag":"x-wrap", "attributes":"data-interact-key=\"k1\"", "style":"[data-interact-key] img{transform:none}", "criterion":"equal-child-geometry"},
+  {"name":"custom-element-interact-key-hover", "tag":"x-wrap", "attributes":"data-interact-key=\"k1\"", "style":"[data-interact-key=\"k1\"]:hover img{opacity:.5}", "criterion":"interaction/state"},
   {"name":"custom-element-interact-rule", "tag":"x-wrap", "attributes":"data-interact-key=\"k1\"", "style":"@media (min-width: 1px){[data-interact-key=\"k1\"] [data-interact-enter=\"done\"]{opacity:1}}", "criterion":"interaction/state"},
   {"name":"custom-element-unrelated-state-rule", "tag":"x-wrap", "attributes":"data-state=\"open\"", "style":".other:hover img{opacity:.5}", "criterion":"equal-child-geometry"},
   {"name":"reserved-hyphenated-name", "tag":"font-face", "criterion":"semantics/id/anchor"}

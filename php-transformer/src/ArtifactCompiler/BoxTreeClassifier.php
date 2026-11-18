@@ -203,7 +203,10 @@ final class BoxTreeClassifier
 
     /** Non-resting states: interaction pseudo-classes and runtime state attributes the capture replays. */
     private const STATE_PSEUDO_CLASS = '/(?<!:):(?:hover|focus-visible|focus-within|focus|active|checked|target)(?![\w(-])/i';
-    private const STATE_ATTRIBUTE = '/\[\s*data-interact-/i';
+    // data-interact-key is a stable selector identity, not a runtime state.
+    // It can scope resting rules too; a pseudo-class or another interaction
+    // attribute in the selector still protects the host as a state handle.
+    private const STATE_ATTRIBUTE = '/\[\s*data-interact-(?!key\s*(?:[~|^$*]?=|\]))/i';
 
     private static function isAutonomousCustomElement(DOMElement $element): bool
     {
