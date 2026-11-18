@@ -58,9 +58,12 @@ $assert(!str_contains($button[2], 'has-' . $primary . '-background-color'), 'No 
 $family = $families['Georgia, serif'] ?? null;
 $assert(is_string($family), 'The body font is a font-family preset.');
 $assert('var:preset|font-family|' . $family === ($attributes['style']['typography']['fontFamily'] ?? null) && str_contains($button[2], 'font-family:var(--wp--preset--font-family--' . $family . ')'), 'A button font family equal to a preset stack reads the preset inline.');
-// Without a resting rule that paints the same colour, a state-guarded inline
-// literal stays literal and remains a reported refusal.
-$assert(str_contains($buttons[1][2], 'background-color:rgb(255, 255, 255)'), 'A state-guarded literal without a matching resting rule stays literal.');
-$assert(1 === $plan['theme']['design_system']['metrics']['refusal_reasons']['state_variant'], 'Only the literal without a matching resting rule is a state_variant refusal.');
+// The inline declaration wins over the state rule whatever the resting
+// rules paint, so a state-guarded literal equal to a preset reads it inline
+// too, without a matching resting rule (#6551).
+$white = $colors['#ffffff'] ?? null;
+$assert(is_string($white) && str_contains($buttons[1][2], 'background-color:var(--wp--preset--color--' . $white . ')') && !str_contains($buttons[1][2], 'rgb(255, 255, 255)'), 'A state-guarded literal without a matching resting rule reads its preset inline.');
+$assert(0 === $plan['theme']['design_system']['metrics']['refusal_reasons']['state_variant'], 'No state-guarded preset colour is a state_variant refusal.');
+$assert(0 === $plan['theme']['design_system']['metrics']['literal_preset_color_count'], 'No colour attribute stores a literal equal to a preset.');
 
 echo "Restyle state and reference heading presets contract passed.\n";
