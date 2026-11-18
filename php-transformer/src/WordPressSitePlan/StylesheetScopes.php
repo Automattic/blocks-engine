@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+use Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use InvalidArgumentException;
@@ -14,18 +17,10 @@ use InvalidArgumentException;
  * A stylesheet's scopes come from its compilation owner, its inline or link
  * references, or the whole site when every canonical document links it.
  * Generated support rules are then split by their exact consumers and folded
- * back together where a rule provably matches nothing elsewhere.
+ * back together per consumer set, so no route loads another route's support.
  */
 final class StylesheetScopes
 {
-    /**
-     * The largest document-owned support sheet a fold may deliver to routes
-     * outside its owners. Folding exists to avoid many tiny files; a larger
-     * sheet folded into a site-wide resource ships its owners' rules to every
-     * other route.
-     */
-    public const FOLD_MEMBER_MAX_BYTES = 2048;
-
     /**
      * A page-scoped stylesheet compiled from a captured surface is shared:
      * the surface renders on more than one route.
@@ -172,12 +167,18 @@ final class StylesheetScopes
     }
 
     /**
-     * Fold each run of adjacent allocated support sheets with one delivery
-     * into a single resource, in their existing rule order. A rule reaches
-     * routes outside its owners only where it provably matches nothing in
-     * their documents; otherwise a zero-weight route gate keeps it on its
-     * owners. Rules that can be neither proven nor gated keep their sheet, as
-     * does a document-owned sheet larger than FOLD_MEMBER_MAX_BYTES.
+     * Fold each run of adjacent support sheets with one delivery into one
+     * resource per owner set, keeping each owner's rule order. A sheet's
+     * rules reach only its own owners: a route's support never folds into a
+     * resource another route loads, however inert it would be there (#6458).
+     *
+     * Each owner set's fold takes the position of its first member, so a
+     * member that joins its owner set's fold moves ahead of the run's sheets
+     * for owner sets placed after it. It joins only when, on every route
+     * that loads both, the two state the same leading layer order and set no
+     * common property family on one element; otherwise the run ends before
+     * it. Sheets whose meaning depends on their file position (a url(), an
+     * import) keep their own resource.
      *
      * Each document is proven with every template part's markup, since any
      * of them may render on it.
@@ -189,56 +190,43 @@ final class StylesheetScopes
      */
     public static function foldSupport(array $assets, array $documentsBySource, array $canonicalSources, string $sharedMarkup = ''): array
     {
-        $routeClasses = array();
-        foreach ($canonicalSources as $source) {
-            $class = DocumentRootContext::stampedRouteClass($documentsBySource[$source] ?? array());
-            if (null !== $class) $routeClasses[$source] = $class;
-        }
         $index = null;
-        $transformer = new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer();
-        // The rules a member contributes to a fold, or null when one of them
-        // can be neither proven inert outside its owners nor gated to them.
-        $foldable = static function (array $asset) use (&$index, $documentsBySource, $canonicalSources, $routeClasses, $transformer, $sharedMarkup): ?string {
-            $owners = array_column($asset['scopes'], 'source_path');
-            if (in_array('global', array_column($asset['scopes'], 'kind'), true)) return (string) $asset['content'];
-            // Folding trades a request on the owners for bytes on every other
-            // route. Past a small sheet that trade is a loss: the rules stay
-            // on their owners' own sheet.
-            if (strlen((string) $asset['content']) > self::FOLD_MEMBER_MAX_BYTES) return null;
-            $outside = array_fill_keys(array_diff($canonicalSources, $owners), true);
-            $gate = array();
-            foreach ($owners as $owner) {
-                if (!isset($routeClasses[$owner])) return null;
-                $gate[] = '.' . $routeClasses[$owner];
-            }
-            sort($gate);
-            $scope = ':where(:root:is(' . implode(',', $gate) . '))';
-            if (null === $index) {
-                $documents = array();
-                foreach ($canonicalSources as $source) {
-                    // A document without emitted markup (a WordPress-rendered
-                    // archive) is never evidence that a rule is inert there.
-                    if (!is_string($documentsBySource[$source]['canonical_block_markup'] ?? null) || '' === trim($documentsBySource[$source]['canonical_block_markup'])) continue;
-                    $dom = HtmlSerialization::parseDocument('<html><body>' . $documentsBySource[$source]['canonical_block_markup'] . "\n" . $sharedMarkup . '</body></html>');
-                    foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
-                        $element = $dom->getElementsByTagName($tag)->item(0);
-                        foreach ($documentsBySource[$source]['document_metadata'][$key] ?? array() as $name => $value) $element?->setAttribute((string) $name, (string) $value);
-                    }
-                    $documents[$source] = $dom;
+        $matchIndex = static function () use (&$index, $documentsBySource, $canonicalSources, $sharedMarkup): RouteSelectorMatchIndex {
+            if (null !== $index) return $index;
+            $documents = array();
+            foreach ($canonicalSources as $source) {
+                // A document without emitted markup (a WordPress-rendered
+                // archive) is never evidence about its cascade.
+                if (!is_string($documentsBySource[$source]['canonical_block_markup'] ?? null) || '' === trim($documentsBySource[$source]['canonical_block_markup'])) continue;
+                $dom = HtmlSerialization::parseDocument('<html><body>' . $documentsBySource[$source]['canonical_block_markup'] . "\n" . $sharedMarkup . '</body></html>');
+                foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
+                    $element = $dom->getElementsByTagName($tag)->item(0);
+                    foreach ($documentsBySource[$source]['document_metadata'][$key] ?? array() as $name => $value) $element?->setAttribute((string) $name, (string) $value);
                 }
-                $index = new \Automattic\BlocksEngine\PhpTransformer\Css\RouteSelectorMatchIndex($documents);
+                $documents[$source] = $dom;
             }
-            $failed = false;
-            $content = $transformer->transformStyleRules((string) $asset['content'], static function (string $prelude, string $body) use ($index, $outside, $scope, &$failed): string {
-                $arms = \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer::splitSelectorList($prelude);
-                if (null === $arms) { $failed = true; return ''; }
-                $arms = array_map('trim', $arms);
-                if (array() === array_filter($arms, static fn(string $arm): bool => !$index->inertOutside($arm, $outside))) return $prelude . '{' . $body . '}';
-                $scoped = \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer::routeScopedArms($arms, $scope);
-                if (null === $scoped) { $failed = true; return ''; }
-                return implode(',', $scoped) . '{' . $body . '}';
-            });
-            return $failed ? null : $content;
+            return $index = new RouteSelectorMatchIndex($documents);
+        };
+        $transformer = new CssStylesheetTransformer();
+        $footprints = array();
+        $footprint = static function (array $member, string $owner) use (&$footprints, $matchIndex, $transformer): ?array {
+            if (!array_key_exists($owner, $footprints[$member['id']] ?? array())) $footprints[$member['id']][$owner] = $transformer->cascadeFootprint((string) $member['asset']['content'], $matchIndex(), $owner);
+            return $footprints[$member['id']][$owner];
+        };
+        $layerOrder = static fn(string $css): string => 1 === preg_match('/^(?:\s*@layer\s+[\w-]+(?:\s*,\s*[\w-]+)*\s*;)+/', $css, $match) ? (string) preg_replace('/\s+/', '', $match[0]) : '';
+        // Whether two members can trade places without changing the cascade
+        // of any route that loads both.
+        $commute = static function (array $first, array $second) use ($canonicalSources, $footprint, $layerOrder): bool {
+            $owners = static fn(array $member): array => null === $member['owners'] ? $canonicalSources : $member['owners'];
+            $shared = array_intersect($owners($first), $owners($second));
+            if (array() === $shared) return true;
+            if ($layerOrder((string) $first['asset']['content']) !== $layerOrder((string) $second['asset']['content'])) return false;
+            foreach ($shared as $owner) {
+                $a = $footprint($first, $owner);
+                $b = null === $a ? null : $footprint($second, $owner);
+                if (null === $b || CssStylesheetTransformer::cascadeFootprintsOverlap($a, $b)) return false;
+            }
+            return true;
         };
         // A member is still its own support sheet (sheets projected from
         // support, such as shared chrome, carry their own target) and has no
@@ -246,20 +234,11 @@ final class StylesheetScopes
         $delivery = static fn(array $asset): ?string => 'engine-support' === ($asset['source'] ?? '') && 'css' === ($asset['kind'] ?? null) && str_starts_with(basename((string) ($asset['target_path'] ?? '')), 'engine-support-')
             && is_string($asset['content'] ?? null) && 1 !== preg_match('/url\(|@import|@charset|@namespace/i', $asset['content'])
             ? serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? '')) : null;
-        // A fold takes the position of its first member, so other assets keep
-        // their order.
-        $result = $run = array();
-        $slot = 0;
-        $flush = static function () use (&$run, &$result, &$slot, $canonicalSources): void {
-            if (count($run) < 2) {
-                if (array() !== $run) $result[$slot] = $run[0]['asset'];
-                $run = array();
-                return;
-            }
-            $asset = $run[0]['asset'];
+        $fold = static function (array $members): array {
+            if (1 === count($members)) return $members[0]['asset'];
+            $asset = $members[0]['asset'];
             $scopes = array();
-            foreach ($run as $member) foreach ($member['asset']['scopes'] as $scope) $scopes['global' === $scope['kind'] ? '' : $scope['source_path']] = $scope;
-            $sources = array_diff(array_keys($scopes), array(''));
+            foreach ($members as $member) foreach ($member['asset']['scopes'] as $scope) $scopes['global' === $scope['kind'] ? '' : $scope['source_path']] = $scope;
             // Members allocated under one layer order each restate it; the
             // fold states each leading order once, ahead of its first use.
             $stated = array();
@@ -269,35 +248,55 @@ final class StylesheetScopes
                     $kept = '';
                     foreach ($orders[0] as $order) if (!isset($stated[$order])) { $stated[$order] = true; $kept .= $order; }
                     return $kept;
-                }, $member['content']);
-            }, $run);
+                }, (string) $member['asset']['content']);
+            }, $members);
             // Folding adds formatting between contributions, not CSS tokens.
             // Compact at this final boundary, before deriving the resource's
             // identity, without changing selectors, values or cascade order.
-            $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace(implode("\n", $contents));
+            $content = CssSyntaxScanner::withoutRedundantWhitespace(implode("\n", $contents));
             $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
+            ksort($scopes);
             $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', serialize(array_keys($scopes)) . $asset['content']), 0, 16) . '.css';
             $asset['source_path'] = $path;
             $asset['target_path'] = 'assets/' . $path;
             $asset['token'] = 'asset-' . substr(hash('sha256', $asset['target_path']), 0, 16);
             $asset['reconciliation_identity'] = WordPressSitePlan::identity('asset', $path, $asset['target_path']);
-            ksort($scopes);
-            $asset['scopes'] = isset($scopes['']) || (count($sources) === count($canonicalSources) && array() === array_diff($canonicalSources, $sources))
-                ? array(array('kind' => 'global')) : array_values($scopes);
-            $result[$slot] = $asset;
-            $run = array();
+            $asset['scopes'] = isset($scopes['']) ? array(array('kind' => 'global')) : array_values($scopes);
+            return $asset;
         };
-        foreach ($assets as $asset) {
+        // Each run reserves the slot of its first member, so other assets
+        // keep their order; its owner sets' folds fill it in placement order.
+        $result = array();
+        $run = array('delivery' => null, 'slot' => 0, 'groups' => array());
+        $flush = static function () use (&$run, &$result, $fold): void {
+            if (array() !== $run['groups']) $result[$run['slot']] = array_map($fold, array_values($run['groups']));
+            $run['groups'] = array();
+        };
+        foreach ($assets as $id => $asset) {
+            if ('css' !== ($asset['kind'] ?? null)) { $result[] = array($asset); continue; }
             $key = $delivery($asset);
-            if ('css' !== ($asset['kind'] ?? null)) { $result[] = $asset; continue; }
-            $content = null === $key ? null : $foldable($asset);
-            if (null === $content || (array() !== $run && $run[0]['key'] !== $key)) $flush();
-            if (null === $content) { $result[] = $asset; continue; }
-            if (array() === $run) $result[$slot = count($result)] = null;
-            $run[] = array('key' => $key, 'asset' => $asset, 'content' => $content);
+            if (null === $key) { $flush(); $result[] = array($asset); continue; }
+            $global = in_array('global', array_column($asset['scopes'], 'kind'), true);
+            $owners = $global ? null : array_values(array_unique(array_column($asset['scopes'], 'source_path')));
+            if (null !== $owners) sort($owners);
+            $member = array('id' => $id, 'asset' => $asset, 'owners' => $owners);
+            $group = null === $owners ? '' : implode("\0", $owners);
+            if (array() !== $run['groups'] && $run['delivery'] !== $key) $flush();
+            if (isset($run['groups'][$group])) {
+                $later = false;
+                foreach ($run['groups'] as $other => $members) {
+                    if ($later) foreach ($members as $placed) if (!$commute($member, $placed)) { $flush(); break 2; }
+                    if ($other === $group) $later = true;
+                }
+            }
+            if (array() === $run['groups']) {
+                $run['delivery'] = $key;
+                $result[$run['slot'] = count($result)] = array();
+            }
+            $run['groups'][$group][] = $member;
         }
         $flush();
-        return array_values($result);
+        return array_merge(...array_values($result));
     }
 
     /**

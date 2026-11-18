@@ -47,6 +47,28 @@ final class AuthoredCarouselBlockGenerator
         ' .blocks-engine-authored-carousel__previous' => 'left:1rem',
         ' .blocks-engine-authored-carousel__next' => 'right:1rem',
     );
+    /**
+     * The slideshow controls host overlays the slides. It carries the root's
+     * classes only to scope source control selectors, so it resets the box
+     * paint those classes give the root. PHP renders this style and the
+     * registered save function rebuilds it: both read this one list, so the
+     * block Gutenberg parses from the import validates against its own save.
+     */
+    private const SLIDESHOW_CONTROLS_STYLE = array(
+        'position' => 'absolute', 'inset' => '0', 'z-index' => '4', 'pointer-events' => 'none', 'box-sizing' => 'border-box',
+        'width' => 'auto', 'height' => 'auto', 'min-height' => '0', 'max-height' => 'none', 'margin' => '0', 'padding' => '0',
+        'border' => '0', 'background' => 'none', 'box-shadow' => 'none',
+    );
+    /**
+     * The editor lists a slideshow's slides one after another. Source CSS
+     * stacks them in one absolutely positioned stage; in the editor no stage
+     * clips them, so the stacked slides would cover each other and the blocks
+     * around the carousel, and nothing under them could be selected. Each
+     * slide keeps the captured stage height and contains its own positioned
+     * content.
+     */
+    private const SLIDESHOW_EDITOR_STYLE = '.blocks-engine-authored-carousel-editor--slideshow{position:relative;isolation:isolate}'
+        . '.blocks-engine-authored-carousel-editor--slideshow>.block-editor-inner-blocks>.block-editor-block-list__layout>.wp-block{position:relative!important;inset:auto!important;z-index:auto!important;transform:none!important;opacity:1!important;visibility:visible!important;height:var(--blocks-engine-carousel-height,auto)!important;overflow:hidden;contain:paint}';
     private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right', 'position');
     private const SLIDE_INDEX_ATTRIBUTES = array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item');
     private const GEOMETRY_VALUE_PATTERN = '^[0-9a-zA-Z.%()+*/,_ -]+(?:\\s*!important)?$';
@@ -154,6 +176,7 @@ final class AuthoredCarouselBlockGenerator
     // aria-label supplies its name even when its source artwork is CSS-only.
     function controlVisual( value ) { return 'string' === typeof value && ! /^[\t\n\f\r ]*$/.test( value ) ? value : ''; }
     var rootGeometryProperties = __ROOT_GEOMETRY_PROPERTIES__;
+    var slideshowControlsStyle = __SLIDESHOW_CONTROLS_STYLE__;
     var geometryValuePattern = new RegExp( __GEOMETRY_VALUE_PATTERN__ );
     function rootProps( attributes ) {
         var items = normalizedItems( attributes.itemsPerView );
@@ -244,7 +267,7 @@ final class AuthoredCarouselBlockGenerator
                         )
                         : null
                 ),
-                createElement( 'div', { className: 'blocks-engine-authored-carousel-editor' }, createElement( 'strong', null, props.attributes.ariaLabel || 'Carousel' ), createElement( InnerBlocks, { allowedBlocks: [ 'core/image', 'core/group' ], renderAppender: InnerBlocks.ButtonBlockAppender } ) )
+                createElement( 'div', { className: 'blocks-engine-authored-carousel-editor' + ( 'slideshow' === props.attributes.presentation ? ' blocks-engine-authored-carousel-editor--slideshow' : '' ), style: 'slideshow' === props.attributes.presentation && props.attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( props.attributes.viewportHeight ) + 'px' } : undefined }, createElement( 'strong', null, props.attributes.ariaLabel || 'Carousel' ), createElement( InnerBlocks, { allowedBlocks: [ 'core/image', 'core/group' ], renderAppender: InnerBlocks.ButtonBlockAppender } ) )
             );
         },
         save: function( props ) {
@@ -255,7 +278,7 @@ final class AuthoredCarouselBlockGenerator
             var next = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__next ' + ( props.attributes.nextControlClasses || '' ) + orientationClasses( props.attributes.nextControlOrientation ), style: orientedControlStyle( props.attributes.nextControlPresentation, props.attributes.nextControlOrientation ), 'data-carousel-next': 'true', 'data-wp-on--click': 'actions.next', 'data-wp-bind--disabled': 'state.atEnd', 'aria-label': 'Next slide', dangerouslySetInnerHTML: { __html: controlVisual( props.attributes.nextControlVisual ) } } );
             var controlIdentityProps = {};
             Object.keys( props.attributes.sourceControlAttributes || {} ).forEach( function( name ) { controlIdentityProps[ name ] = props.attributes.sourceControlAttributes[ name ]; } );
-            var controlsProps = Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), style: 'slideshow' === props.attributes.presentation ? { position: 'absolute', inset: 0, zIndex: 4, pointerEvents: 'none', boxSizing: 'border-box', width: 'auto', height: 'auto', minHeight: 0, maxHeight: 'none', margin: 0, padding: 0, border: 0, background: 'none', boxShadow: 'none' } : undefined }, controlIdentityProps );
+            var controlsProps = Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), style: 'slideshow' === props.attributes.presentation ? Object.assign( {}, slideshowControlsStyle ) : undefined }, controlIdentityProps );
             var controls = props.attributes.sourceControlTopology
                 ? createElement( 'div', Object.assign( { dangerouslySetInnerHTML: { __html: props.attributes.sourceControlTopology } }, controlsProps ) )
                 : createElement( 'div', controlsProps, previous, next );
@@ -710,12 +733,14 @@ JS;
                 'editorScript' => 'file:./index.js',
                 'viewScriptModule' => 'file:./view.js',
                 'style' => 'file:./style.css',
+                'editorStyle' => 'file:./editor.css',
                 'attributes' => $attributes,
                 'supports' => array('html' => false, 'customClassName' => false, 'interactivity' => true),
             ),
             'assets' => array(
-                'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__', '__ROOT_GEOMETRY_PROPERTIES__', '__GEOMETRY_VALUE_PATTERN__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), json_encode(self::ROOT_GEOMETRY_PROPERTIES, JSON_THROW_ON_ERROR), json_encode(self::GEOMETRY_VALUE_PATTERN, JSON_THROW_ON_ERROR)), $editor),
+                'index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__', '__ROOT_GEOMETRY_PROPERTIES__', '__GEOMETRY_VALUE_PATTERN__', '__SLIDESHOW_CONTROLS_STYLE__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), json_encode(self::ROOT_GEOMETRY_PROPERTIES, JSON_THROW_ON_ERROR), json_encode(self::GEOMETRY_VALUE_PATTERN, JSON_THROW_ON_ERROR), json_encode(self::slideshowControlsStyleProperties(), JSON_THROW_ON_ERROR)), $editor),
                 'style.css' => $style,
+                'editor.css' => self::SLIDESHOW_EDITOR_STYLE,
             ),
             'view_js' => str_replace('__GALLERY_SLOT__', CaptureEvidence::GALLERY_SLOT, $view),
             'script_dependencies' => array(
@@ -890,12 +915,31 @@ JS;
         // selectors; it overlays the slides, so it must not repeat the root's
         // own box paint above them.
         $controlsPositionStyle = 'slideshow' === $presentation
-            ? ' style="position:absolute;inset:0;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;min-height:0;max-height:none;margin:0;padding:0;border:0;background:none;box-shadow:none"'
+            ? ' style="' . self::slideshowControlsDeclarations() . '"'
             : '';
         return array(
             'opening' => '<div class="' . $classes . '"' . $identityAttributes . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><div class="blocks-engine-authored-carousel__controls ' . htmlspecialchars(implode(' ', SourceDom::boundedClassTokens((string) ($attributes['sourceControlClasses'] ?? ''))), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' . $controlsPositionStyle . $controlIdentityAttributes . '>' . $controlsMarkup . '</div>' . $stageWrapperOpen,
             'closing' => $stageWrapperClose . $dots . $playback . $rail . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
         );
+    }
+
+    private static function slideshowControlsDeclarations(): string
+    {
+        $declarations = array();
+        foreach (self::SLIDESHOW_CONTROLS_STYLE as $property => $value) $declarations[] = $property . ':' . $value;
+
+        return implode(';', $declarations);
+    }
+
+    /** @return array<string, string> React style keys, in declaration order. */
+    private static function slideshowControlsStyleProperties(): array
+    {
+        $style = array();
+        foreach (self::SLIDESHOW_CONTROLS_STYLE as $property => $value) {
+            $style[(string) preg_replace_callback('/-([a-z])/', static fn(array $match): string => strtoupper($match[1]), $property)] = $value;
+        }
+
+        return $style;
     }
 
     private function navigationButtonMarkup(bool $next, string $classes, string $visual, array $presentation, ?DOMElement $source = null, array $orientation = array()): string

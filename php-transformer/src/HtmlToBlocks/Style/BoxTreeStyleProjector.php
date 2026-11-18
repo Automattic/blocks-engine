@@ -35,21 +35,7 @@ final class BoxTreeStyleProjector
             $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
-        // Author intent proven at every capture (BoxTreeFluidIntent) replaces
-        // the frozen pixels in every capture, so it needs no capture delta;
-        // where the author switches it, its bands follow the author's own
-        // breakpoints. Do not resurrect properties pruned at any viewport.
-        $bands = array();
-        foreach ($fluid as $property => $propertyBands) {
-            if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
-            foreach ($keys as $key) {
-                if (!isset($declarations[$key][$property])) continue 2;
-            }
-            foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
-            foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
-                $bands[self::width((float) $maxWidth)][$property] = $value;
-            }
-        }
+        $bands = $this->liftFluid($declarations, $keys, $fluid);
         $baseKey = $keys[0];
         $base = $declarations[$baseKey];
         $mapper = new StyleAttributeMapper();
@@ -74,14 +60,102 @@ final class BoxTreeStyleProjector
         $consumed = SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
-        $css = $this->rule(self::SELECTOR, array_diff_key($base, $consumed));
-        $effective = $base;
+        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents);
+        $class = $this->carrier($css, $state);
+        if ('' === $class) return $attrs;
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
+        return $attrs;
+    }
+
+    /**
+     * Restyle an inline element inside RichText, which has no block
+     * attributes: its observed typography that differs from its source
+     * parent's goes entirely to a carrier class. A value equal to the
+     * parent's is left to inheritance, so a lifted fluid block value keeps
+     * reaching it between captures.
+     *
+     * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
+     * @return string The carrier class, or '' when the inline inherits everything observed.
+     */
+    public function inlineCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, array $fluid = array()): string
+    {
+        $properties = array_flip(self::INLINE_TYPOGRAPHY);
+        $typography = array();
+        foreach ($observations as $key => $observation) {
+            if (!isset($viewports[$key]['width']) || !is_array($observation['used_styles'] ?? null)) continue;
+            $typography[$key] = array('used_styles' => array_intersect_key($observation['used_styles'], $properties));
+        }
+        if (array() === $typography) return '';
+        $keys = array_keys($typography);
+        usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
+        $status = array();
+        $declarations = array();
+        foreach ($keys as $key) {
+            $parent = $parents[$key]['used_styles'] ?? null;
+            $status[$key] = $this->pruner->classify($typography[$key]['used_styles'], is_array($parent) ? $parent : null);
+            $declarations[$key] = $this->kept($typography[$key]['used_styles'], $status[$key]);
+        }
+        $bands = $this->liftFluid($declarations, $keys, array_intersect_key($fluid, $properties));
+        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $typography, $viewports, $bands, false, $parents), $state);
+    }
+
+    /**
+     * Inherited typography an inline can set apart from its block. Color
+     * stays with the link and state styles that already own it.
+     */
+    private const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
+
+    /**
+     * Author intent proven at every capture (BoxTreeFluidIntent) replaces
+     * the frozen pixels in every capture, so it needs no capture delta;
+     * where the author switches it, its bands follow the author's own
+     * breakpoints. Do not resurrect properties pruned at any viewport.
+     *
+     * @param array<string, array<string, string>> $declarations Kept declarations by viewport key, updated in place.
+     * @param list<string> $keys Viewport keys, widest first.
+     * @return array<string, array<string, string>> Band declarations by max-width.
+     */
+    private function liftFluid(array &$declarations, array $keys, array $fluid): array
+    {
+        $bands = array();
+        foreach ($fluid as $property => $propertyBands) {
+            if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
+            foreach ($keys as $key) {
+                if (!isset($declarations[$key][$property])) continue 2;
+            }
+            foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
+            foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
+                $bands[self::width((float) $maxWidth)][$property] = $value;
+            }
+        }
+        return $bands;
+    }
+
+    /**
+     * The base rule, then each narrower capture's delta, then the lifted bands.
+     *
+     * @param array<string, array<string, mixed>> $parents The block parent's observations, by viewport key.
+     */
+    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array()): string
+    {
+        $baseKey = $keys[0];
+        $css = $this->rule(self::SELECTOR, $base);
+        $effective = $declarations[$baseKey];
         $pseudoEffective = array();
-        $css .= $this->pseudoRules($observations[$baseKey], $pseudoEffective);
-        foreach (array_slice($keys, 1) as $key) {
+        if ($pseudos) $css .= $this->pseudoRules($observations[$baseKey], $pseudoEffective);
+        foreach (array_slice($keys, 1) as $index => $key) {
             $delta = $this->delta($effective, $declarations[$key], $status[$key], $observations[$key]['used_styles']);
+            // A box hidden across this rule's whole range renders none of the
+            // rest, and one inside a parent hidden at this capture is not
+            // rendered there, so its captured values are no layout evidence:
+            // only its display is restated, and narrower captures restate
+            // against the rules that still apply.
+            $narrower = $keys[$index + 2] ?? null;
+            if ('none' === ($parents[$key]['used_styles']['display'] ?? null) || $this->hiddenThroughout(array_replace($effective, $delta)['display'] ?? null, $observations[$key]['used_styles']['display'] ?? null, (float) $viewports[$key]['width'], null === $narrower ? 0.0 : (float) $viewports[$narrower]['width'], $bands)) {
+                $delta = array_intersect_key($delta, array('display' => true));
+            }
             $effective = array_replace($effective, $delta);
-            $pseudo = $this->pseudoRules($observations[$key], $pseudoEffective);
+            $pseudo = $pseudos ? $this->pseudoRules($observations[$key], $pseudoEffective) : '';
             if (array() === $delta && '' === $pseudo) continue;
             $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule(self::SELECTOR, $delta) . $pseudo . '}';
         }
@@ -90,14 +164,49 @@ final class BoxTreeStyleProjector
         foreach ($bands as $maxWidth => $declared) {
             $css .= '@media (max-width:' . $maxWidth . 'px){' . $this->rule(self::SELECTOR, $declared) . '}';
         }
-        if ('core/button' === $blockName) $css .= $this->buttonLinkFormattingRules($keys, $declarations, $status, $observations, $viewports);
-        if ('' === $css) return $attrs;
-        // One carrier per distinct declaration set, not per source node.
+        return $css;
+    }
+
+    /**
+     * Whether a capture's rule, which applies from its own width down to the
+     * next narrower capture's, only ever lands on a `display:none` box. The
+     * lifted bands come after the capture rules, so a band that declares
+     * display wins wherever it applies.
+     *
+     * @param array<int|string, array<string, string>> $bands Band declarations by max-width.
+     */
+    private function hiddenThroughout(?string $display, ?string $observed, float $width, float $narrower, array $bands): bool
+    {
+        if ('none' !== $observed) return false;
+        $switches = array_filter($bands, static fn(array $declared): bool => isset($declared['display']));
+        if (array() === $switches) return 'none' === $display;
+        // The cascade only changes at a band's own max-width.
+        $points = array($width);
+        foreach (array_keys($switches) as $maxWidth) {
+            if ((float) $maxWidth > $narrower && (float) $maxWidth < $width) $points[] = (float) $maxWidth;
+        }
+        foreach ($points as $point) {
+            $winner = $display;
+            $narrowest = INF;
+            foreach ($switches as $maxWidth => $declared) {
+                if ((float) $maxWidth >= $point && (float) $maxWidth < $narrowest) {
+                    $narrowest = (float) $maxWidth;
+                    $winner = $declared['display'];
+                }
+            }
+            if ('none' !== $winner) return false;
+        }
+        return true;
+    }
+
+    /** Register one carrier per distinct declaration set, not per source node. */
+    private function carrier(string $css, LayoutGeometryState $state): string
+    {
+        if ('' === $css) return '';
         $class = $state->allocateCarrier('box-tree:' . $css);
         // Outrank core block/layout selectors without defeating editor inline styles.
         $state->registerRule($class, str_replace(self::SELECTOR, '.' . $class . '.' . $class, $css));
-        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
-        return $attrs;
+        return $class;
     }
 
     /**
@@ -119,51 +228,6 @@ final class BoxTreeStyleProjector
         }
         return $delta;
     }
-
-    /**
-     * core/button saves the source control as a `.wp-block-button` wrapper
-     * around the `.wp-block-button__link` that holds the label, so the
-     * carrier lands one box outside the element whose children the source
-     * laid out. A source flex or grid control blockifies its children (a logo
-     * mark beside a wordmark is two boxes, not one run of inline text); left
-     * as core's inline-block, the link would flow them as one line of text.
-     * The link restates the observed formatting context for its children.
-     * Only a control that is a flex or grid container at every viewport it
-     * renders at qualifies: core's link display is the fallback otherwise.
-     *
-     * @param list<string> $keys Viewport keys, widest first.
-     * @param array<string, array<string, string>> $declarations Kept declarations by viewport.
-     * @param array<string, array<string, string>> $status Pruner status by viewport.
-     */
-    private function buttonLinkFormattingRules(array $keys, array $declarations, array $status, array $observations, array $viewports): string
-    {
-        $rendered = array_values(array_filter($keys, static fn(string $key): bool => 'none' !== ($observations[$key]['used_styles']['display'] ?? null)));
-        if (array() === $rendered) return '';
-        $link = array();
-        foreach ($rendered as $key) {
-            if (!in_array($declarations[$key]['display'] ?? null, self::FORMATTING_CONTAINER_DISPLAYS, true)) return '';
-            $link[$key] = array_intersect_key($declarations[$key], array_flip(self::FORMATTING_CONTAINER_PROPERTIES));
-        }
-        $selector = self::SELECTOR . '>.wp-block-button__link';
-        $effective = $link[$rendered[0]];
-        $css = $this->rule($selector, $effective);
-        foreach (array_slice($rendered, 1) as $key) {
-            $observed = array_intersect_key($observations[$key]['used_styles'], array_flip(self::FORMATTING_CONTAINER_PROPERTIES));
-            $delta = $this->delta($effective, $link[$key], $status[$key], $observed);
-            $effective = array_replace($effective, $delta);
-            if (array() === $delta) continue;
-            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule($selector, $delta) . '}';
-        }
-        return $css;
-    }
-
-    private const FORMATTING_CONTAINER_DISPLAYS = array('flex', 'inline-flex', 'grid', 'inline-grid');
-
-    /** Longhands that shape how a flex or grid container lays out its children. */
-    private const FORMATTING_CONTAINER_PROPERTIES = array(
-        'display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-content', 'justify-items', 'row-gap', 'column-gap',
-        'grid-template-columns', 'grid-template-rows', 'grid-auto-columns', 'grid-auto-rows', 'grid-auto-flow',
-    );
 
     private static function width(float $width): string
     {
