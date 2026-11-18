@@ -14,9 +14,28 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  */
 final class RuntimeAttributesRuntime
 {
+    /**
+     * Marks a published native button that the editor shows as a Core group.
+     * The editor's div inherits the page's font and colour and has no UA
+     * button chrome; the published button must start from the same place.
+     * An attribute, not a class: captured choice states rewrite the class.
+     */
+    public const NATIVE_CONTROL_ATTRIBUTE = 'data-blocks-engine-native-control';
+
+    /**
+     * A native button inherits nothing from its parent by default (UA font,
+     * colour, padding and border). The editor's group div does, so the theme
+     * neutralises the UA chrome at zero specificity: any author or block
+     * style still wins.
+     */
+    public static function nativeControlStyleSource(): string
+    {
+        return "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-native-control', false ); wp_enqueue_style( 'blocks-engine-native-control' ); wp_add_inline_style( 'blocks-engine-native-control', ':where(button[" . self::NATIVE_CONTROL_ATTRIBUTE . "]){font:inherit;color:inherit;letter-spacing:inherit;text-align:inherit;text-transform:inherit;background-color:transparent;padding:0;border:0 solid;border-radius:0}' ); } );";
+    }
+
     public static function source(): string
     {
-        return str_replace(array('__DEVICE_INLINE__', '__DEVICE_CLASS__', '__VIEWPORT_ENTRANCE__', '__RESPONSIVE_FRAGMENT__', '__SUBJECT_BASE__', '__SUBJECT_CLASS_PREFIX__'), array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::DEVICE_CLASS, CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::RESPONSIVE_FRAGMENT, EngineMarker::SUBJECT_BASE_CLASS, EngineMarker::SUBJECT_CLASS_PREFIX), <<<'PHP'
+        return str_replace(array('__DEVICE_INLINE__', '__DEVICE_CLASS__', '__VIEWPORT_ENTRANCE__', '__RESPONSIVE_FRAGMENT__', '__SUBJECT_BASE__', '__SUBJECT_CLASS_PREFIX__', '__NATIVE_CONTROL__'), array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::DEVICE_CLASS, CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::RESPONSIVE_FRAGMENT, EngineMarker::SUBJECT_BASE_CLASS, EngineMarker::SUBJECT_CLASS_PREFIX, self::NATIVE_CONTROL_ATTRIBUTE), <<<'PHP'
 add_filter( 'render_block', static function ( string $content, array $block ): string {
     // RichText stays editable without introducing a published label box.
     if ( 'core/paragraph' === ( $block['blockName'] ?? '' ) && ! empty( $block['attrs']['metadata']['blocksEngineControlLabel'] ) ) {
@@ -32,7 +51,20 @@ add_filter( 'render_block', static function ( string $content, array $block ): s
             // even though the published box sheds Core's group chrome.
             $classes = preg_split( '/\s+/', (string) $processor->get_attribute( 'class' ) );
             $markers = array_filter( $classes, static fn ( string $class ): bool => str_starts_with( $class, 'blocks-engine-' ) );
-            $box['class'] = trim( ( $box['class'] ?? '' ) . ' ' . implode( ' ', $markers ) );
+            $native = 'button' === ( $block['attrs']['metadata']['blocksEngineControlTagName'] ?? null ) && empty( $block['attrs']['metadata']['blocksEngineControlLabel'] );
+            $style = null;
+            if ( $native ) {
+                // A content button (a photo thumbnail, say) has no source class
+                // CSS of its own on the front end: its box, colour and type were
+                // projected onto the group as block supports. Keep those (the
+                // style attribute and Core's has-* preset classes), not the
+                // group's layout chrome, so it paints as the editor does.
+                $markers = array_merge( $markers, array_filter( $classes, static fn ( string $class ): bool => str_starts_with( $class, 'has-' ) ) );
+                $style = $processor->get_attribute( 'style' );
+                $box['__NATIVE_CONTROL__'] = '';
+            }
+            $box['class'] = implode( ' ', array_unique( preg_split( '/\s+/', trim( ( $box['class'] ?? '' ) . ' ' . implode( ' ', $markers ) ), -1, PREG_SPLIT_NO_EMPTY ) ) );
+            if ( is_string( $style ) && '' !== trim( $style ) ) $box['style'] = trim( ( is_string( $box['style'] ?? null ) ? rtrim( trim( $box['style'] ), ';' ) . ';' : '' ) . $style );
             $processor->remove_attribute( 'class' );
             $processor->remove_attribute( 'style' );
             foreach ( $box as $name => $value ) {
