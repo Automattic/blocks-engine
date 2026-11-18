@@ -30,10 +30,11 @@ $styles = static function (string $display, string $position, array $overrides =
     return array_merge($used, $overrides);
 };
 
-$compile = static function (int $imageInset, bool $ratioFrame = true) use ($styles): string {
+$compile = static function (int $imageInset, bool $ratioFrame = true, bool $blockFrame = false) use ($styles): string {
+    $frameTag = $blockFrame ? 'div' : 'span';
     $html = '<!doctype html><html data-blocks-engine-node-id="n1"><head data-blocks-engine-node-id="n2"><title data-blocks-engine-node-id="n3">Gallery</title></head>'
         . '<body data-blocks-engine-node-id="n4"><main data-blocks-engine-node-id="n5"><div class="tile" data-blocks-engine-node-id="tile">'
-        . '<span class="frame" data-blocks-engine-node-id="frame"><img src="https://example.com/dish.jpg" alt="Catering dishes" class="fill" data-blocks-engine-node-id="image"></span>'
+        . '<' . $frameTag . ' class="frame" data-blocks-engine-node-id="frame"><img src="https://example.com/dish.jpg" alt="Catering dishes" class="fill" data-blocks-engine-node-id="image"></' . $frameTag . '>'
         . '</div><p data-blocks-engine-node-id="caption">Catering dishes ready for service</p></main></body></html>';
     $observe = static fn (array $box, array $used): array => array(
         'desktop' => array('border_box' => $box, 'used_styles' => $used),
@@ -45,12 +46,12 @@ $compile = static function (int $imageInset, bool $ratioFrame = true) use ($styl
         'n4' => array('children' => array('n5'), 'viewports' => $observe(array('x' => 0, 'y' => 0, 'width' => 400, 'height' => 340), $styles('block', 'static'))),
         'n5' => array('children' => array('tile', 'caption'), 'viewports' => $observe(array('x' => 0, 'y' => 0, 'width' => 400, 'height' => 340), $styles('block', 'static'))),
         'tile' => array('children' => array('frame'), 'viewports' => $observe(array('x' => 0, 'y' => 0, 'width' => 400, 'height' => 292), $styles('block', 'static', array('overflow-x' => 'hidden', 'overflow-y' => 'hidden', 'border-radius' => '12px')))),
-        'frame' => array('children' => array('image'), 'viewports' => $observe($box(), $styles('inline-block', 'relative', array('aspect-ratio' => $ratioFrame ? '1 / 1' : 'auto', 'height' => $ratioFrame ? '286px' : '100%')))),
+        'frame' => array('children' => array('image'), 'viewports' => $observe($box(), $styles($blockFrame ? 'block' : 'inline-block', 'relative', array('aspect-ratio' => $ratioFrame ? '1 / 1' : 'auto', 'height' => $ratioFrame ? '286px' : '100%')))),
         'image' => array('children' => array(), 'viewports' => $observe($box($imageInset), $styles('block', 'absolute', array('top' => $imageInset . 'px', 'right' => $imageInset . 'px', 'bottom' => $imageInset . 'px', 'left' => $imageInset . 'px')))),
         'caption' => array('children' => array(), 'viewports' => $observe(array('x' => 0, 'y' => 300, 'width' => 400, 'height' => 24), $styles('block', 'static'))),
     );
     $tree = array('schema' => BoxTree::SCHEMA, 'viewports' => array('desktop' => array('width' => 1440, 'height' => 900), 'mobile' => array('width' => 390, 'height' => 844)), 'nodes' => $nodes, 'source_path' => 'index.html', 'source_hash' => hash('sha256', $html));
-    $css = '.tile{overflow:hidden;border-radius:12px}.frame{display:inline-block;position:relative;' . ($ratioFrame ? 'aspect-ratio:1/1;' : 'height:100%;') . 'width:100%;object-fit:cover}.fill{position:absolute;inset:' . $imageInset . 'px;width:100%;height:100%;object-fit:cover}';
+    $css = '.tile{overflow:hidden;border-radius:12px}.frame{' . ($blockFrame ? '' : 'display:inline-block;') . 'position:relative;' . ($ratioFrame ? 'aspect-ratio:1/1;' : 'height:100%;') . 'width:100%;object-fit:cover}.fill{position:absolute;inset:' . $imageInset . 'px;width:100%;height:100%;object-fit:cover}';
     $html = str_replace('</title>', '</title><style>' . $css . '</style>', $html);
     $tree['source_hash'] = hash('sha256', $html);
     return (string) (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html, 'box-tree/index.json' => json_encode($tree))))->toArray()['serialized_blocks'];
@@ -75,3 +76,10 @@ $assert(0 === preg_match('/<!-- wp:image \{[^}]*"className":"[^"]*\bframe\b/', $
 
 $inset = $compile(8);
 $assert(3 === count(array_keys($blockNames($inset), 'group', true)) && str_contains($inset, '"className":"frame'), 'An image inset within its frame keeps the frame as its own box.');
+
+// A `div` frame is a block box by its tag alone. Once the image takes its
+// place it keeps that box: an inline image would sit on a line box and gain
+// a baseline strut below it that the frame never had.
+$block = $compile(0, true, true);
+$assert(1 === preg_match('/<!-- wp:image \{[^}]*"className":"[^"]*\bframe\b/', $block) && 2 === count(array_keys($blockNames($block), 'group', true)), 'A block frame merges into its image.');
+$assert(!str_contains($block, 'blocks-engine-synthetic-image-figure-strut') && !str_contains($block, 'blocks-engine-synthetic-image-figure-inline'), 'The merged image of a block frame keeps a block box, not an inline image on a line box.');

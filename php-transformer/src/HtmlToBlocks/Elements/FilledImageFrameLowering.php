@@ -61,11 +61,24 @@ final class FilledImageFrameLowering
             if (null === $image) {
                 continue;
             }
+            $display = $this->frameDisplay($frame);
             foreach (array('class', 'style', BoxTree::NODE_ATTRIBUTE) as $name) {
                 $image->removeAttribute($name);
                 if ($frame->hasAttribute($name)) {
                     $image->setAttribute($name, $frame->getAttribute($name));
                 }
+            }
+            // The frame's box is block-level by its tag's default (a `div`) or
+            // a rule the image now carries. An `<img>` is inline by default,
+            // so a frame whose display came from its tag would become an
+            // inline image sitting on a line box, gaining a baseline strut
+            // below it the frame never had. The capture proves the frame's
+            // display is the same at every viewport, so stating it on the
+            // image keeps the frame's box; the frame's own inline style still
+            // wins over it.
+            if (!in_array($display, array('inline', 'inline-block'), true)) {
+                $style = trim((string) $image->getAttribute('style'));
+                $image->setAttribute('style', 'display:' . $display . ('' === $style ? '' : ';' . $style));
             }
             $frame->parentNode?->replaceChild($image, $frame);
         }
@@ -112,6 +125,11 @@ final class FilledImageFrameLowering
         if (array() === $frameObservations || array_keys($frameObservations) !== array_keys($imageObservations)) {
             return null;
         }
+        // The image restates one display for the frame's box, so the frame
+        // must have that one box at every viewport.
+        if (null === $this->frameDisplay($frame)) {
+            return null;
+        }
         foreach ($frameObservations as $viewport => $observation) {
             $own = $imageObservations[$viewport];
             $frameStyle = $observation['used_styles'] ?? array();
@@ -119,7 +137,6 @@ final class FilledImageFrameLowering
             if (!empty($observation['pseudo']) || !empty($own['pseudo'])
                 || 'absolute' !== ($style['position'] ?? null)
                 || 'static' === ($frameStyle['position'] ?? 'static')
-                || 'none' === ($frameStyle['display'] ?? 'none')
                 || !$this->hasAspectRatio($frameStyle)) {
                 return null;
             }
@@ -161,6 +178,25 @@ final class FilledImageFrameLowering
         }
 
         return $image;
+    }
+
+    /**
+     * The frame's captured display when it is one box-generating value at
+     * every viewport; null when it varies, is absent, or generates no box.
+     */
+    private function frameDisplay(DOMElement $frame): ?string
+    {
+        $displays = array();
+        foreach (($this->evidence)($frame) as $observation) {
+            $displays[] = strtolower(trim((string) ($observation['used_styles']['display'] ?? '')));
+        }
+        $displays = array_values(array_unique($displays));
+        if (1 !== count($displays) || 1 !== preg_match('/^[a-z-]+(?: [a-z-]+)*$/', $displays[0])
+            || in_array($displays[0], array('none', 'contents'), true)) {
+            return null;
+        }
+
+        return $displays[0];
     }
 
     /**
