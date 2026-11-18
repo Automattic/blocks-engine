@@ -38,20 +38,6 @@ final class EngineSupportCss
         return ':root .' . $marker . ':has(.wp-block-navigation__responsive-container.is-menu-open){' . implode(';', $declarations) . '}';
     }
 
-    /** @return list<string> Editor repairs must not change shared front-end asset identity or order. */
-    public static function stackedImageEditorCss(string $serializedBlocks): array
-    {
-        if (!str_contains($serializedBlocks, 'be-stacking-order-') || !str_contains($serializedBlocks, 'wp-block-image')) {
-            return array();
-        }
-        // Only image-bearing paint-order owners need separate editable boxes.
-        $owner = ':root .editor-styles-wrapper .wp-block-group[class*="be-stacking-order-"]:has(figure.wp-block-image)';
-        return array($owner . '{position:relative!important;inset:auto!important;z-index:auto!important;height:auto!important;min-height:0!important;opacity:1!important;visibility:visible!important}'
-            . $owner . '>.wp-block-group:not(:has(figure.wp-block-image)){position:relative!important;inset:auto!important;transform:none!important;z-index:auto!important}'
-            . $owner . ' figure.wp-block-image{position:relative!important;z-index:1!important}'
-            . ':root .editor-styles-wrapper .wp-block-group:has(>.wp-block-group[class*="be-stacking-order-"] figure.wp-block-image){height:auto!important;min-height:0!important}');
-    }
-
     private const EMPTY_FLEX_ITEM_CLASS = EmptyVisualSpacerLowering::EMPTY_FLEX_ITEM_CLASS;
 
     private const EMPTY_FLEX_ITEM_COLUMN_CLASS = EmptyVisualSpacerLowering::EMPTY_FLEX_ITEM_COLUMN_CLASS;

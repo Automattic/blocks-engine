@@ -300,7 +300,7 @@ final class CssStylesheetTransformer
      * other too, so joining them never discards a rule that used to apply.
      * Malformed input is returned unchanged.
      */
-    public function mergeRepeatedDeclarationRules(string $css, bool $includeDocumentRules = false): string
+    public function mergeRepeatedDeclarationRules(string $css, bool $includeDocumentRules = false, bool $classCarriersOnly = false): string
     {
         if ( ! str_contains($css, '{') || ! $this->isWellFormedStylesheet($css) ) {
             return $css;
@@ -316,6 +316,12 @@ final class CssStylesheetTransformer
                 continue;
             }
             [$lead, $prelude, $body] = $parts;
+            // Support rules also own structural roots and native descendants.
+            // Only independent class carriers may share a declaration body;
+            // keep those structural rules standalone for later consumers.
+            if ($classCarriersOnly && 1 !== preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?:\s*,\s*\.[a-zA-Z_][a-zA-Z0-9_-]*)*$/D', $prelude)) {
+                continue;
+            }
             $key = implode("\0", array_map(self::normalizedCss(...), $unit['context'])) . "\0" . self::normalizedCss($body) . "\0" . implode(',', self::uncommonPseudoNames($prelude));
             if ( isset($anchors[ $key ]) ) {
                 $anchor = $anchors[ $key ];

@@ -18,6 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\RenderEquivalentMarkup;
 use Automattic\BlocksEngine\PhpTransformer\Support\StylesheetActivation;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 
 /**
  * Projects the author CSS that shared chrome needs into the stylesheets that
@@ -35,6 +36,9 @@ final class SharedChromeStylesheets
 {
     // Subject-class projections share the zero-weight marker carrier's cascade.
     // Lift both together so the later-enqueued chrome sheet preserves source order.
+    /** A compiler route gate compound: `:where(:root:is(.be-r-…))`, `:where(:root:not(.be-r-…))` or `:where(:root.be-r)`. */
+    private const ROUTE_GATE = '/^:where\(:root(?::(?:is|not)\((?:\.be-r-[a-f0-9]+,?)+\)|\.be-r(?::not\((?:\.be-r-[a-f0-9]+,?)+\))?)\)$/';
+
     private const GENERATED_CLASS_PATTERN = '/blocks-engine-(?:[a-z-]+-[0-9a-f]{12}-\d+|subject-class-[0-9a-f]{12})(?![\w-])/';
 
     private const BOX_PROPERTIES = '/(?:^|[;{\s])(?:(?:max-)?width|z-index|overflow(?:-[xy])?|inset|top|right|bottom|left)\s*:/i';
@@ -160,34 +164,47 @@ final class SharedChromeStylesheets
         // part carries its own variant group. Keep the scope in front of the
         // run being re-anchored, and require it on the wrapper arm, so the
         // rule keeps reaching only that variant's copy of the chrome.
+        // A compiler route gate (`:where(:root:is(.be-r-…))`) leads a rule a
+        // route stylesheet kept for its own routes. It tests the document
+        // root, an ancestor of the part as much as of the route content, so it
+        // stays in front of the re-anchored run and still gates both arms.
+        $gates = 0;
+        foreach ($compounds as $index => $compound) {
+            if (!isset($compounds[$index + 1]) || in_array($compounds[$index + 1], array('>', '+', '~'), true) || !preg_match(self::ROUTE_GATE, $compound)) break;
+            $gates = $index + 1;
+        }
         $scope = array();
         foreach ($compounds as $index => $compound) {
+            if ($index < $gates) continue;
             if (!isset($compounds[$index + 1]) || in_array($compounds[$index + 1], array('>', '+', '~'), true)) break;
             $variantClasses = self::responsiveVariantScopeClasses($compound);
             if (null === $variantClasses) break;
             $scope[] = $variantClasses;
         }
-        $first = count($scope);
+        $first = $gates + count($scope);
         $run = $first;
         foreach ($compounds as $index => $compound) {
             if ($index < $first) continue;
             if (!isset($compounds[$index + 1]) || in_array($compounds[$index + 1], array('>', '+', '~'), true)) break;
             // The compound's positive hooks, including those the engine moved
-            // into `:where()`/`:is()` when it rewrote an id for editor parity.
+            // into `:where()`/`:is()` when it rewrote an id for editor parity,
+            // and each document's copy of an ancestor in a device-document
+            // capture (`:is(#frame,#frame--data-blocks-engine-capture-mobile)`).
             $hooks = str_replace(array(':where(', ':is(', ')'), '', CssSelectorCompoundInspector::positiveSelector($compound));
-            if (!preg_match('/^(?:[#.][_a-zA-Z][\w-]*)+$/', $hooks)) break;
+            foreach (explode(',', $hooks) as $alternative) if (!preg_match('/^(?:[#.][_a-zA-Z][\w-]*)+$/', $alternative)) break 2;
             preg_match_all('/([#.])([\w-]+)/', $hooks, $tokens, PREG_SET_ORDER);
             $named = false;
             foreach ($tokens as $token) {
                 $hook = self::selectorHook($token[1], $token[2]);
                 if (null === $hook) continue;
-                if (!isset($context[$hook[0]][$hook[1]])) break 2;
+                if (!self::inContext($context, $hook)) break 2;
                 $named = true;
             }
             if (!$named) break;
             $run = $index + 1;
         }
         if ($first === $run) return $inheritedSubject ? '' : $selector;
+        $gate = $gates > 0 ? implode(' ', array_slice($compounds, 0, $gates)) . ' ' : '';
         $wrappers = array_values(array_unique(array_map(static fn (string $root): string => ':has(> ' . (in_array($root[0], array('#', '.'), true) ? $root : '#' . CssIdent::escape($root)) . ')', $roots)));
         if (array() !== $scope) {
             // The variant group is the part's own child wrapper (`.data-blocks-engine-capture-mobile-document > #footer`),
@@ -200,9 +217,26 @@ final class SharedChromeStylesheets
         }
         if ($inheritedSubject) {
             if ($run !== count($compounds) - 1) return '';
-            return ':is(' . implode(' ', array_slice($compounds, 0, $run)) . ',:where(' . implode(',', $wrappers) . '))';
+            return $gate . ':is(' . implode(' ', array_slice($compounds, $gates, $run - $gates)) . ',:where(' . implode(',', $wrappers) . '))';
         }
-        return ':is(' . implode(' ', array_slice($compounds, 0, $run)) . ',:where(' . implode(',', $wrappers) . ')) ' . implode(' ', array_slice($compounds, $run));
+        return $gate . ':is(' . implode(' ', array_slice($compounds, $gates, $run - $gates)) . ',:where(' . implode(',', $wrappers) . ')) ' . implode(' ', array_slice($compounds, $run));
+    }
+
+    /**
+     * Whether a hook names an ancestor the chrome was hoisted out of. A
+     * device-document capture suffixes the mobile document's copy of each id
+     * (`#frame--data-blocks-engine-capture-mobile`); that copy enclosed the
+     * part's mobile variant just as the bare id enclosed its desktop one.
+     *
+     * @param array{class:array<string,true>,id:array<string,true>} $context
+     * @param array{0:'class'|'id',1:string} $hook
+     */
+    private static function inContext(array $context, array $hook): bool
+    {
+        if (isset($context[$hook[0]][$hook[1]])) return true;
+        if ('id' !== $hook[0]) return false;
+        $base = preg_replace('/' . preg_quote(CaptureEvidence::VARIANT_ID_SUFFIX_PREFIX, '/') . '[a-z][a-z0-9_-]*$/', '', $hook[1]) ?? $hook[1];
+        return $base !== $hook[1] && isset($context['id'][$base]);
     }
 
     private static function responsiveVariantScopeClasses(string $compound): ?array
@@ -290,7 +324,7 @@ final class SharedChromeStylesheets
                 $owned = true;
                 continue;
             }
-            if (!isset($context[$hook[0]][$hook[1]])) return false;
+            if (!self::inContext($context, $hook)) return false;
         }
         return $owned;
     }
@@ -1378,6 +1412,7 @@ final class SharedChromeStylesheets
                     $unparseable = true;
                     return '';
                 }
+                $selectors = self::chromeArms($selectors, $liftsToChrome);
                 $inherited = '';
                 $declarations = \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($body, array(
                     '--*', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'font-stretch',
@@ -1411,6 +1446,28 @@ final class SharedChromeStylesheets
             }
         );
         return $matched && !$unparseable ? $shared : null;
+    }
+
+    /**
+     * A selector list with each factored `:is()` arm list split back out where
+     * it groups chrome with route content (`#frame :is(.page-root,.footer-row)`,
+     * as compaction writes a per-page theme rule naming both). The lists hold
+     * equal-weight compounds, so each arm keeps its specificity, and the chrome
+     * arm can follow the part the way an unfactored arm would.
+     *
+     * @param list<string> $selectors
+     * @param callable(string):bool $targets
+     * @return list<string>
+     */
+    private static function chromeArms(array $selectors, callable $targets): array
+    {
+        $result = array();
+        foreach ($selectors as $selector) {
+            $arms = $targets($selector) ? array() : CssSelectorListCompactor::factoredArms($selector);
+            if (count($arms) > 1 && array() !== array_filter($arms, $targets)) array_push($result, ...$arms);
+            else $result[] = $selector;
+        }
+        return $result;
     }
 
     /**
@@ -1450,6 +1507,7 @@ final class SharedChromeStylesheets
             static function (string $prelude, string $body) use ($targetsChrome, $classMatcher): string {
                 $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                 if (null === $selectors) return $prelude . '{' . $body . '}';
+                $selectors = self::chromeArms($selectors, $targetsChrome);
                 // Alternatives naming only route content stay in source order on the route.
                 $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => ! $targetsChrome($selector) ? $selector : self::generatedAlternatives($selector, $classMatcher, false), $selectors), 'is_string'));
                 return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';

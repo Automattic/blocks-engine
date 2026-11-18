@@ -1039,7 +1039,9 @@ final class SourceElementClassifier
             SourceDom::attr($element, 'data-testid'),
         ))));
 
-        return 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $identity);
+        // `flexslider` is the jQuery FlexSlider root; its `slides` list and
+        // `flex-*` parts carry no identity of their own.
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow|flexslider)(?:[^a-z0-9]|$)/', $identity);
     }
 
     public function isCarouselList(DOMElement $element): bool

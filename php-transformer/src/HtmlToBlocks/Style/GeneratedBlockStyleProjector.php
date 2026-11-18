@@ -336,11 +336,12 @@ final class GeneratedBlockStyleProjector
                     && '' === CssValueInspector::declared($sourceDeclarations, 'max-width')
                     && array() === $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'max-width' ));
                 $fitCap = $unwrappable ? array() : array( 'max-width:100%' );
-                if ( 'center' === $inheritedTextAlignment ) {
+                if ( in_array($inheritedTextAlignment, array( 'center', 'right' ), true) ) {
                     // A flex or grid item shrinks to its content unless told to
                     // fill. In block flow the wrapper already spans its line,
                     // inside the margins the control's rules may give it; a
-                    // 100% width would push it past them and off center.
+                    // 100% width would push it past them and off center. A
+                    // right justification needs the same room to act.
                     if ( ! $this->sourceParentIsBlockContainer($sourceControl) ) {
                         $outerWrapperDeclarations[] = 'width:100%';
                         $outerWrapperDeclarations[] = 'max-width:100%';
