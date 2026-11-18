@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Tests\Support {
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\EmbedFrameMetadata;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\IframeEmbedRuntime;
 
@@ -63,7 +63,7 @@ final class IframeEmbedRendererFixture
     /** The frame attributes a core/embed block carries for the theme renderer. */
     public static function frame(array $block): ?array
     {
-        $frame = $block['attrs']['metadata'][VisualIframeBlockGenerator::FRAME_METADATA] ?? null;
+        $frame = $block['attrs']['metadata'][EmbedFrameMetadata::KEY] ?? null;
         return 'core/embed' === ($block['blockName'] ?? null) && is_array($frame) ? $frame : null;
     }
 }

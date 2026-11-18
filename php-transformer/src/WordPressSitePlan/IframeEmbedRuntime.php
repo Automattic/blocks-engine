@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\EmbedFrameMetadata;
 
 /**
  * Frontend frame for a core/embed whose URL no oEmbed provider serves.
@@ -22,7 +22,7 @@ final class IframeEmbedRuntime
         $urls = self::frameUrls($documents);
         if (array() === $urls) return '';
         $pattern = '#^(?:' . implode('|', array_map(static fn(string $url): string => preg_quote($url, '#'), $urls)) . ')$#';
-        $key = VisualIframeBlockGenerator::FRAME_METADATA;
+        $key = EmbedFrameMetadata::KEY;
 
         return str_replace(array('__PATTERN__', '__KEY__'), array(var_export($pattern, true), var_export($key, true)), <<<'PHP'
 $blocks_engine_safe_frame_url = static function ( $url ): bool {
@@ -69,11 +69,11 @@ PHP);
         $urls = array();
         foreach ($documents as $document) {
             $markup = (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? '');
-            if (!str_contains($markup, VisualIframeBlockGenerator::FRAME_METADATA)) continue;
+            if (!str_contains($markup, EmbedFrameMetadata::KEY)) continue;
             preg_match_all('/<!--\s+wp:embed\s+(\{.*?\})\s+\/?-->/s', $markup, $matches);
             foreach ($matches[1] as $json) {
                 $attrs = json_decode($json, true);
-                if (is_array($attrs) && is_array($attrs['metadata'][VisualIframeBlockGenerator::FRAME_METADATA] ?? null) && is_string($attrs['url'] ?? null) && '' !== $attrs['url']) $urls[$attrs['url']] = true;
+                if (is_array($attrs) && is_array($attrs['metadata'][EmbedFrameMetadata::KEY] ?? null) && is_string($attrs['url'] ?? null) && '' !== $attrs['url']) $urls[$attrs['url']] = true;
             }
         }
         $urls = array_keys($urls);

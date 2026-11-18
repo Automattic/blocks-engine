@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttribu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\EmbedFrameMetadata;
 use Closure;
 use DOMElement;
 use LogicException;
@@ -26,9 +27,6 @@ use LogicException;
  */
 final class VisualIframeBlockGenerator
 {
-    /** core/embed metadata key holding the source frame's bounded attributes. */
-    public const FRAME_METADATA = 'blocksEngineIframe';
-
     /**
      * Mirrors core's `@wordpress/block-library` embed block aspect-ratio
      * table (`ASPECT_RATIOS` in `embed/constants.js`) so a source iframe's
@@ -146,7 +144,7 @@ final class VisualIframeBlockGenerator
             ));
             // A frame no oEmbed provider serves stays a core/embed of its URL.
             // Its frame attributes ride in block metadata and the theme renders
-            // the source's bare iframe from them (ThemeBootstrap::IFRAME_EMBED_RENDERER),
+            // the source's bare iframe from them (WordPressSitePlan\IframeEmbedRuntime),
             // so author rules keep sizing the frame itself, not a wrapper.
             $frame = $visualIframeAttributes;
             unset($frame['src'], $frame['className']);
@@ -156,7 +154,7 @@ final class VisualIframeBlockGenerator
                     'url' => $url,
                     'type' => 'rich',
                     'className' => $visualIframeAttributes['className'] ?? '',
-                    'metadata' => array( self::FRAME_METADATA => $frame ),
+                    'metadata' => array( EmbedFrameMetadata::KEY => $frame ),
                 ), static fn (mixed $value): bool => '' !== $value),
                 array(),
                 $surface
