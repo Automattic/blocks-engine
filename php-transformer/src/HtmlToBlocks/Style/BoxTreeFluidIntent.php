@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFluidLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use DOMElement;
 
 /**
@@ -611,7 +612,9 @@ final class BoxTreeFluidIntent
         // An in-flow percentage height or vertical offset needs a definite
         // containing block height the carriers no longer freeze.
         if (!$horizontal && !$outOfFlow) return array(null, $own);
-        $block = $this->containingBlock($key, $position);
+        $block = $horizontal && !$outOfFlow && in_array(strtolower((string) ($parent['display'] ?? '')), array('grid', 'inline-grid'), true)
+            ? $this->equalGridArea($styles, $parent)
+            : $this->containingBlock($key, $position);
         return array(null === $block ? null : $block[$horizontal ? 0 : 1], $own);
     }
 
@@ -649,6 +652,31 @@ final class BoxTreeFluidIntent
         // An absolute box with no positioned ancestor uses the initial containing block.
         $viewport = $this->viewports[$key] ?? array();
         return $absolute && isset($viewport['width'], $viewport['height']) ? array((float) $viewport['width'], (float) $viewport['height']) : null;
+    }
+
+    /**
+     * A normal, single-span item in an equal-column grid resolves percentages
+     * against one track, not the entire grid. Unequal tracks or explicit
+     * placement need a placement solver; keep their captured pixels instead.
+     *
+     * @return array{0: float, 1: float}|null
+     */
+    private function equalGridArea(array $styles, array $parent): ?array
+    {
+        foreach (array('grid-area', 'grid-column', 'grid-column-start', 'grid-column-end') as $property) {
+            $value = strtolower(trim((string) ($styles[$property] ?? 'auto')));
+            if (!in_array($value, array('auto', 'auto / auto', 'auto / auto / auto / auto'), true)) return null;
+        }
+        $tracks = CssValueSplitter::splitTopLevelWhitespace((string) ($parent['grid-template-columns'] ?? ''));
+        if (array() === $tracks) return null;
+        $width = self::pixels($tracks[0]);
+        if (null === $width) return null;
+        foreach ($tracks as $track) {
+            $other = self::pixels($track);
+            if (null === $other || abs($width - $other) > self::TOLERANCE) return null;
+        }
+        $box = self::box($parent, true);
+        return null === $box ? null : array($width, $box[1]);
     }
 
     /** Whether a box is the containing block of its absolutely positioned descendants. */
