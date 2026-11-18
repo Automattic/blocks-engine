@@ -13,8 +13,7 @@ final class BoxTreeStyleProjector
 
     private readonly BoxTreeDeclarationPruner $pruner;
 
-    /** @param list<string> $preservedLonghands Declarations transferred from a folded source box. */
-    public function __construct(private readonly array $preservedLonghands = array())
+    public function __construct()
     {
         $this->pruner = new BoxTreeDeclarationPruner();
     }
@@ -466,7 +465,7 @@ final class BoxTreeStyleProjector
     private function rule(string $selector, array $styles): string
     {
         $declarations = array();
-        foreach ($this->withSideShorthands(self::withUniformBorder($styles)) as $name => $value) {
+        foreach (self::withSideShorthands(self::withUniformBorder($styles)) as $name => $value) {
             // Evidence is external input, not trusted stylesheet syntax.
             if (preg_match('/[{};<>]/', $value) || str_contains($value, '/*')) continue;
             $declarations[] = $name . ':' . $value;
@@ -544,13 +543,10 @@ final class BoxTreeStyleProjector
      * @param array<string, string> $styles
      * @return array<string, string>
      */
-    private function withSideShorthands(array $styles): array
+    private static function withSideShorthands(array $styles): array
     {
         foreach (self::SIDE_SHORTHANDS as $shorthand => [$longhands, $form, $overlap]) {
-            // Folded declarations retain their source property identity on the
-            // receiving child. Ordinary captured carriers can still compact
-            // complete families, but must not rewrite an explicit fold move.
-            if (isset($styles[$shorthand]) || array_intersect($longhands, $this->preservedLonghands)) continue;
+            if (isset($styles[$shorthand])) continue;
             $values = array();
             foreach ($longhands as $longhand) {
                 $value = $styles[$longhand] ?? null;

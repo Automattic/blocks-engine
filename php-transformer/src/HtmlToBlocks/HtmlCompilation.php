@@ -2315,7 +2315,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
             $fluid = $this->liftedBands($sourceElement, $observations, $viewports, $parents, $name);
-            $foldMoves = $this->foldedInto[$sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE)]['moves'] ?? array();
             $fluidIntent = new Style\BoxTreeFluidIntent();
             $pseudoFluid = array();
             foreach ( array( 'before', 'after' ) as $pseudo ) {
@@ -2333,7 +2332,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     'fluid' => $fluidIntent->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
                 );
             }
-            $attrs = (new Style\BoxTreeStyleProjector(array_keys($foldMoves)))->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image);
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,
