@@ -526,8 +526,8 @@ $assert(':root{--body-font:var(--wp--preset--font-family--body)!important;--head
 $compoundSystem = (new \ReflectionClass(DesignSystem::class))->newInstanceWithoutConstructor();
 $compoundConstructor = new \ReflectionMethod(DesignSystem::class, '__construct');
 $compoundConstructor->invoke($compoundSystem, array(
-    array('slug' => 'primary', 'color' => '#2563eb', 'role' => 'primary'),
-    array('slug' => 'accent', 'color' => '#1d4ed8', 'role' => 'accent'),
+    array('slug' => 'primary', 'name' => 'Primary', 'color' => '#2563eb', 'role' => 'primary', 'weight' => 1),
+    array('slug' => 'accent', 'name' => 'Accent', 'color' => '#1d4ed8', 'role' => 'accent', 'weight' => 1),
 ), array(), array(), array(), array(), array(), array(), 16.0, 1);
 $compoundBinding = new PresetBinding($compoundSystem, array());
 $compoundCss = '.a{--x:#1d4ed8 var(--pos);--stops:var(--a), #2563eb var(--b), var(--c);background-image:linear-gradient(135deg,#1d4ed8,#2563eb 60%,#000);--fade:#1d4ed800 var(--pos);background:url("#1d4ed8") #abcdef;--other:var(--missing,#1d4ed8) #abcdef}';
