@@ -47,8 +47,7 @@ trait StagedTransport
         $entryPath = (string) ($partition['entrypoints'][0] ?? '');
         $sharedArtifact = $this->artifactEnvelope($partition, $partition['shared']);
         $normalized = (new ArtifactNormalizer())->normalize($sharedArtifact);
-        foreach ($normalized['files'] as &$file) if (isset($partition['canonical_provenance_hashes'][$file['path']])) $file['provenance']['hash'] = $partition['canonical_provenance_hashes'][$file['path']];
-        unset($file);
+        $normalized = self::withCanonicalIdentity($normalized, $partition);
         $sharedArtifact['files'] = $normalized['files'];
         $this->retainSharedCssRuleTrees($normalized['files']);
 
@@ -147,8 +146,7 @@ trait StagedTransport
     {
         $pageArtifact = $this->artifactEnvelope($partition, $partition['pages'][$pageId]);
         $normalized = (new ArtifactNormalizer())->normalize($pageArtifact);
-        foreach ($normalized['files'] as &$file) if (isset($partition['canonical_provenance_hashes'][$file['path']])) $file['provenance']['hash'] = $partition['canonical_provenance_hashes'][$file['path']];
-        unset($file);
+        $normalized = self::withCanonicalIdentity($normalized, $partition);
         $pageArtifact['files'] = $normalized['files'];
 
         $plan = array(
@@ -671,6 +669,12 @@ trait StagedTransport
             $capturedDialogs['projected_choice_group_count'] = $choiceGroupsProjection['projected_count'];
         }
         $rawFiles = (new RouteStateProjector())->project($scrollStatesProjection['files'])['files'];
+        // Box-tree identity is proven against the captured source bytes, which
+        // the projections above rewrite; keep what this normalization accepted.
+        $canonicalBoxTrees = array();
+        foreach ($normalized['files'] as $file) {
+            if ('html' === $file['kind'] && array() !== ($file['box_tree'] ?? array())) $canonicalBoxTrees[$file['path']] = $file['box_tree'];
+        }
         // A later partition-envelope normalization must not lose the implicit
         // page ownership of already-expanded inline assets.
         foreach ($rawFiles as &$file) {
@@ -736,6 +740,7 @@ trait StagedTransport
             'canonical_source_hash' => $normalized['source_hash'],
             'canonical_bytes' => $normalized['bytes'],
             'canonical_provenance_hashes' => $canonicalProvenanceHashes,
+            'canonical_box_trees' => $canonicalBoxTrees,
             'canonical_diagnostics' => array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics']),
             'canonical_rejected_count' => $normalized['rejected_count'],
             'captured_dialogs' => array(
@@ -744,6 +749,33 @@ trait StagedTransport
                 'native_runtime_replacements' => $capturedDialogs['native_runtime_replacements'] ?? array(),
             ),
         );
+    }
+
+    /**
+     * Re-apply the whole-artifact normalization's identity to a stage
+     * envelope's normalization. Stage files are already projected, so their
+     * provenance hashes and box-tree intake would otherwise describe the
+     * projected bytes: projected route state no longer matches a sidecar's
+     * captured source hash, and the empty result would silently replace the
+     * accepted evidence. Box-tree intake and its diagnostics stay owned by the
+     * canonical normalization, exactly as in inline compilation.
+     *
+     * @param array<string,mixed> $normalized
+     * @param array<string,mixed> $partition
+     * @return array<string,mixed>
+     */
+    private static function withCanonicalIdentity(array $normalized, array $partition): array
+    {
+        foreach ($normalized['files'] as &$file) {
+            if (isset($partition['canonical_provenance_hashes'][$file['path']])) $file['provenance']['hash'] = $partition['canonical_provenance_hashes'][$file['path']];
+            if ('html' === $file['kind']) $file['box_tree'] = $partition['canonical_box_trees'][$file['path']] ?? array();
+        }
+        unset($file);
+        $normalized['diagnostics'] = array_values(array_filter(
+            $normalized['diagnostics'],
+            static fn(array $diagnostic): bool => !str_starts_with((string) ($diagnostic['code'] ?? ''), 'box_tree_')
+        ));
+        return $normalized;
     }
 
     /**
@@ -867,8 +899,7 @@ trait StagedTransport
         $stageFiles = 'shared' === $scope ? $partition['shared'] : ($partition['pages'][$pageId] ?? array());
         $planArtifact = $this->artifactEnvelope($partition, $stageFiles);
         $normalized = (new ArtifactNormalizer())->normalize($planArtifact);
-        foreach ($normalized['files'] as &$file) if (isset($partition['canonical_provenance_hashes'][$file['path']])) $file['provenance']['hash'] = $partition['canonical_provenance_hashes'][$file['path']];
-        unset($file);
+        $normalized = self::withCanonicalIdentity($normalized, $partition);
         $planArtifact['files'] = $normalized['files'];
         $plan = array(
             'schema' => 'shared' === $scope ? self::SHARED_PLAN_SCHEMA : self::PAGE_PLAN_SCHEMA,

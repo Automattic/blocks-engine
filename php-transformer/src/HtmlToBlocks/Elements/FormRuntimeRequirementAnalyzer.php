@@ -223,6 +223,16 @@ final class FormRuntimeRequirementAnalyzer
             return 'commerce_add_to_cart';
         }
         if ( $password ) return 'login';
+        // A form meeting the native search contract with an explicit submit is
+        // search whatever its method or self-posting action path: core/search
+        // replaces the source handler. A contribution submit is real donation
+        // evidence; amount choices already break the contract. A local result
+        // workflow stays a client-side tool.
+        $searchControls = SearchBlockConversionContext::searchControls($form);
+        if ( null !== $searchControls && $searchControls['submit'] instanceof DOMElement
+            && ! self::hasDonationSubmitSemantics($searchControls['submit']) && ! self::isClientSideTool($form) ) {
+            return 'search';
+        }
         // A contribution submit (donate / give / contribute) or donation action
         // path outranks the GET filter rule: amount and frequency choices are
         // what the visitor gives, not a catalog filter.
@@ -231,7 +241,11 @@ final class FormRuntimeRequirementAnalyzer
         // and omit `method`, but a search or filter form never collects an email.
         if ( $email && ($subscribe || preg_match('~(?:^|/)(?:newsletter|subscribe)(?:/|$)~', $path)) ) return 'newsletter';
         if ( $email && $message ) return 'contact';
-        if ( self::isClientSideTool($form) ) return 'client_side_tool';
+        // An email address is collected for the site owner: a form that asks
+        // for one submits it (a signup or lead form, whatever its submit label's
+        // language), so its status region announces that submission rather than
+        // a result computed in the page.
+        if ( ! $email && self::isClientSideTool($form) ) return 'client_side_tool';
         $method = strtolower(trim(SourceDom::attr($form, 'method')));
         if ( '' === $method || 'get' === $method ) {
             if ( $search || preg_match('~(?:^|/)search(?:/|$)~', $path) ) return 'search';

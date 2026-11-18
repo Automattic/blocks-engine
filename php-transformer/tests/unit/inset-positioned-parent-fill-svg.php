@@ -86,6 +86,23 @@ $assert(! str_contains($static['css'], 'object-fit:contain'), '5: a static wrapp
 $autoSize = $transform(str_replace('100%)', 'auto)', $wixCss), $logo($svg));
 $assert(! str_contains($autoSize['css'], 'object-fit:contain'), '6: an auto-sized SVG is not a parent fill', $autoSize['fill']);
 
+// 7. Wix's SVG root defines the fill as `calc(100% - var(--stroke-width,0px))`.
+// With no stroke the SVG still fills a box taller than its viewBox and centers
+// the artwork (xMidYMid meet), so the image must fill and contain, not sit
+// shrink-wrapped at the top of the box (#6445).
+$strokeRoot = '.iL7Pq5{--svg-calculated-width:calc(100% - var(--stroke-width,0px));--svg-calculated-height:calc(100% - var(--stroke-width,0px))}';
+$arrow = $transform($wixCss . $strokeRoot . '#comp-logo{height:48px}', $logo($svg));
+$assert(
+    str_contains($arrow['fill'], '>a>img{width:100%;height:100%;-o-object-fit:contain;object-fit:contain}'),
+    '7a: a zero-stroke calc() fill is a parent fill',
+    $arrow['css']
+);
+$assert(! str_contains($arrow['fill'], 'vertical-align:baseline'), '7b: no shrink-to-fit inline geometry', $arrow['fill']);
+
+// 8. A stroke that insets the SVG is not a full-axis fill.
+$stroked = $transform($wixCss . str_replace('var(--stroke-width,0px)', '4px', $strokeRoot), $logo($svg));
+$assert(! str_contains($stroked['css'], 'object-fit:contain'), '8: an inset stroke keeps its own geometry', $stroked['fill']);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, sprintf('%d failure(s), %d pass(es)' . PHP_EOL, $failures, $passes));
     exit(1);
