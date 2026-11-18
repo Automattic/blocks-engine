@@ -204,6 +204,10 @@ $blocks_engine_document_attributes = static function ( string $element ) use ( &
     }
     return $blocks_engine_document_fallback[ 'body' === $element ? 'body_attributes' : 'attributes' ];
 };
+$blocks_engine_document_hooks = array();
+PHP;
+        $hooks = array();
+        $hooks['language_attributes'] = <<<'PHP'
 add_filter( 'language_attributes', static function ( string $output ) use ( $blocks_engine_document_attributes ): string {
     $attributes = $blocks_engine_document_attributes( 'html' );
     if ( array() === $attributes ) return $output;
@@ -215,10 +219,14 @@ add_filter( 'language_attributes', static function ( string $output ) use ( $blo
     }
     return substr( $tag->get_updated_html(), 6, -1 );
 } );
+PHP;
+        $hooks['body_class'] = <<<'PHP'
 add_filter( 'body_class', static function ( array $classes ) use ( $blocks_engine_document_attributes ): array {
     $source_classes = preg_split( '/\s+/', trim( $blocks_engine_document_attributes( 'body' )['class'] ?? '' ), -1, PREG_SPLIT_NO_EMPTY ) ?: array();
     return array_values( array_unique( array_merge( $classes, $source_classes ) ) );
 } );
+PHP;
+        $hooks['template_include'] = <<<'PHP'
 add_filter( 'template_include', static function ( string $template ) use ( $blocks_engine_document_attributes ): string {
     // Core's canvas exposes body_class(), but has no body-attribute hook.
     // Use the same native block rendering lifecycle when selector attributes
@@ -226,6 +234,8 @@ add_filter( 'template_include', static function ( string $template ) use ( $bloc
     if ( wp_normalize_path( $template ) === wp_normalize_path( ABSPATH . WPINC . '/template-canvas.php' ) && array_diff_key( $blocks_engine_document_attributes( 'body' ), array( 'class' => true ) ) ) return get_theme_file_path( 'document-canvas.php' );
     return $template;
 } );
+PHP;
+        $hooks['editor_context'] = <<<'PHP'
 add_filter( 'block_editor_settings_all', static function ( array $settings, $context ) use ( &$blocks_engine_document_roots, &$blocks_engine_document_fallback ): array {
     // Template parts, templates, and the Site Editor have no captured route.
     // Their canvas shows shared chrome, so it gets the root state every
@@ -244,11 +254,23 @@ add_filter( 'block_editor_settings_all', static function ( array $settings, $con
     return $settings;
 }, 20, 2 );
 PHP;
-        $code .= "\nadd_action( 'enqueue_block_editor_assets', static function (): void { wp_add_inline_script( 'wp-block-editor', " . var_export(self::editorScript(), true) . ", 'after' ); } );\n";
+        $hooks['editor_context'] .= "\nadd_action( 'enqueue_block_editor_assets', static function (): void { wp_add_inline_script( 'wp-block-editor', " . var_export(self::editorScript(), true) . ", 'after' ); } );\n";
+        // Each hook is registered only when a document carries the state it
+        // applies: html attributes, body classes, body attributes that need
+        // the document canvas, or any root state for the editor canvas.
+        $needs = array(
+            'language_attributes' => array() !== array_filter(array_column($rows, 'attributes')),
+            'body_class' => array() !== array_filter(array_column($rows, 'body_attributes'), static fn(array $attributes): bool => '' !== trim($attributes['class'] ?? '')),
+            'template_include' => self::needsCanvas($pages),
+            'editor_context' => array() !== array_filter(array_merge(array_column($rows, 'attributes'), array_column($rows, 'body_attributes'))),
+        );
         // Incremental imports append bootstrap files. One runtime owner reads
         // their combined route registry. Each authoritative identity replaces
         // its earlier record, including empty state, without dropping other
-        // routes or replacing the canvas resolver.
+        // routes or replacing the canvas resolver. A hook registers once, from
+        // the first batch whose documents need it.
+        $registered = '';
+        foreach ($hooks as $hook => $source) if ($needs[$hook]) $registered .= "if ( ! isset( \$blocks_engine_document_hooks['{$hook}'] ) ) {\n\$blocks_engine_document_hooks['{$hook}'] = true;\n" . rtrim($source, "\n") . "\n}\n";
         $fallback = array('attributes' => self::sharedAttributes(array_column($rows, 'attributes')), 'body_attributes' => self::sharedAttributes(array_column($rows, 'body_attributes')));
         $bodies = $indices = array();
         foreach ($rows as &$row) foreach (array('attributes', 'body_attributes') as $field) {
@@ -257,13 +279,13 @@ PHP;
             $row[$field] = $indices[$key];
         }
         unset($row);
-        return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes, \$blocks_engine_document_fallback;\n"
+        return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes, \$blocks_engine_document_fallback, \$blocks_engine_document_hooks;\n"
             . BootstrapData::table('blocks_engine_document_attribute_bodies', $bodies) . "\n"
             . '$blocks_engine_document_rows = ' . var_export($rows, true) . ";\n"
             . 'foreach ( $blocks_engine_document_rows as &$row ) foreach ( array( \'attributes\', \'body_attributes\' ) as $field ) $row[ $field ] = $blocks_engine_document_attribute_bodies[ $row[ $field ] ]; unset( $row );' . "\n"
             . '$blocks_engine_document_fallback = ' . var_export($fallback, true) . ";\n"
             . '$blocks_engine_document_roots = array_replace( array_column( $blocks_engine_document_roots ?? array(), null, \'identity\' ), array_column( $blocks_engine_document_rows, null, \'identity\' ) );' . "\n"
-            . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n" . $links;
+            . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n" . $registered . $links;
     }
 
     /**

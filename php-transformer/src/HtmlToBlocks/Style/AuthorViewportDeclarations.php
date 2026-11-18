@@ -78,19 +78,24 @@ final class AuthorViewportDeclarations
     }
 
     /**
+     * `$pseudoElement` (`before` or `after`) resolves that generated box of
+     * the element instead: only rules whose subject is that pseudo-element
+     * apply, and the element's inline style and presentational hints do not.
+     *
      * @param list<string> $properties
      * @param list<string> $stateClasses
      * @return array<string, string>
      */
-    public function atViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false, array $stateClasses = array()): array
+    public function atViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false, array $stateClasses = array(), string $pseudoElement = ''): array
     {
+        $pseudoElement = strtolower($pseudoElement);
         $authorStyles = $this->session->authorStyleAnalysis();
         $styleRules = $authorStyles->styleRules();
         if ( $excludeCaptureDisclosure ) {
             $styleRules = array_values(array_filter($styleRules, static fn (array $rule): bool => empty($rule['capture_only'])));
         }
         ['parsed' => $parsedBySelector] = $this->rules($styleRules, $viewportWidth);
-        $rules = $this->rulesDeclaring($viewportWidth, $properties);
+        $rules = $this->rulesDeclaring($viewportWidth, $properties, $pseudoElement);
         $selectorCache = $authorStyles->selectorMatchCache();
         if ( array() !== $stateClasses ) {
             $selectorCache = new CssSelectorMatchCache();
@@ -102,7 +107,7 @@ final class AuthorViewportDeclarations
             return ( $match['supported'] ?? false ) && ( $match['matches'] ?? false );
         };
 
-        return $this->cascade->declarationsAtViewport($element, $properties, $rules, $matches, $viewportWidth);
+        return $this->cascade->declarationsAtViewport($element, $properties, $rules, $matches, $viewportWidth, '' === $pseudoElement);
     }
 
     /**
@@ -161,14 +166,29 @@ final class AuthorViewportDeclarations
         }
 
         $rules = array();
+        $pseudoRules = array( 'before' => array(), 'after' => array() );
         $parsedBySelector = array();
         foreach ( $styleRules as $rule ) {
             $selectors = array();
+            $pseudoSelectors = array( 'before' => array(), 'after' => array() );
             foreach ( ArrayField::array($rule, 'selectors') as $record ) {
                 $selector = (string) ( $record['selector'] ?? '' );
                 // Interaction states and generated content are not the
                 // resting element, as in the source-style collections.
-                if ( '' === $selector || StyleResolver::selectorCarriesPseudoState($selector) ) {
+                if ( '' === $selector ) {
+                    continue;
+                }
+                if ( StyleResolver::selectorCarriesPseudoState($selector) ) {
+                    // A resting `::before`/`::after` rule styles that generated
+                    // box: it is kept apart, matched through its host. All its
+                    // competitors carry the same pseudo-element, so the host's
+                    // specificity orders them the same.
+                    $host = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::pseudoElementHost($selector);
+                    if ( null !== $host && ! StyleResolver::selectorCarriesPseudoState($host['selector']) ) {
+                        $name = strtolower(ltrim($host['suffix'], ':'));
+                        $pseudoSelectors[ $name ][] = $host['selector'];
+                        $parsedBySelector[ $host['selector'] ] ??= $host['parsed'];
+                    }
                     continue;
                 }
                 $selectors[] = $selector;
@@ -194,9 +214,20 @@ final class AuthorViewportDeclarations
                 'conditions' => array(),
                 'layer' => $rule['layer'] ?? null,
             );
+            foreach ( $pseudoSelectors as $name => $hosts ) {
+                if ( array() === $hosts ) {
+                    continue;
+                }
+                $pseudoRules[ $name ][] = array(
+                    'selectors' => $hosts,
+                    'declarations' => ArrayField::array($rule, 'declarations'),
+                    'conditions' => array(),
+                    'layer' => $rule['layer'] ?? null,
+                );
+            }
         }
 
-        return $this->rulesByViewport[ $key ] = array( 'rules' => $rules, 'parsed' => $parsedBySelector, 'declaring' => array() );
+        return $this->rulesByViewport[ $key ] = array( 'rules' => $rules, 'pseudo' => $pseudoRules, 'parsed' => $parsedBySelector, 'declaring' => array() );
     }
 
     /**
@@ -210,16 +241,16 @@ final class AuthorViewportDeclarations
      * @param list<string> $properties
      * @return list<array<string, mixed>>
      */
-    private function rulesDeclaring(float $viewportWidth, array $properties): array
+    private function rulesDeclaring(float $viewportWidth, array $properties, string $pseudoElement = ''): array
     {
         $key = (string) $viewportWidth;
-        $set = implode("\0", $properties);
+        $set = $pseudoElement . "\1" . implode("\0", $properties);
         if ( isset($this->rulesByViewport[ $key ]['declaring'][ $set ]) ) {
             return $this->rulesByViewport[ $key ]['declaring'][ $set ];
         }
         $requested = array_flip($properties);
         $rules = array_values(array_filter(
-            $this->rulesByViewport[ $key ]['rules'],
+            '' === $pseudoElement ? $this->rulesByViewport[ $key ]['rules'] : ( $this->rulesByViewport[ $key ]['pseudo'][ $pseudoElement ] ?? array() ),
             static fn(array $rule): bool => array() !== array_intersect_key($rule['declarations'], $requested)
         ));
 

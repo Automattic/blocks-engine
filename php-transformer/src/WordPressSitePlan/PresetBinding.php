@@ -1500,7 +1500,10 @@ final class PresetBinding
             $bound = $this->bindColorTokens($value);
             return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
         }
-        if ((str_starts_with($property, '--') || in_array($property, array('background', 'background-image'), true)) && null === CssColor::parse($this->resolve($value))) {
+        // A light-dark() pair binds each scheme's colour on its own, so the
+        // dark argument keeps rendering under a dark preference.
+        $schemeColor = null !== CssColor::lightDark($this->resolve($value)) && in_array($property, array('color', 'background-color', 'background'), true);
+        if ($schemeColor || ((str_starts_with($property, '--') || in_array($property, array('background', 'background-image'), true)) && null === CssColor::parse($this->resolve($value)))) {
             $bound = $this->bindColorTokens($value);
             return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
         }
@@ -1555,7 +1558,9 @@ final class PresetBinding
                 // Resolve for membership just as whole-colour declarations do,
                 // but retain the authored token as the rendering fallback.
                 $resolved = $this->resolve($token);
-                if (null !== CssColor::parse($resolved)) {
+                if (1 === preg_match('/^light-dark\((.*)\)$/is', $token, $match) && null !== CssColor::lightDark($token)) {
+                    $replacement = 'light-dark(' . $this->bindColorTokens($match[1]) . ')';
+                } elseif (null !== CssColor::parse($resolved)) {
                     $slug = $this->system->stylesheetColorSlug($resolved);
                     $replacement = null !== $slug ? 'var(--wp--preset--color--' . $slug . ',' . self::sourcePresets($token) . ')' : $this->translucentMix($token, true);
                     if (null !== $replacement) ++$this->bound;

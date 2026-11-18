@@ -824,7 +824,7 @@ final class StyleResolver implements ElementPresentationResolver
             $parents = $this->session->boxTreeEvidence($parent);
             if (array() === $observations || array() === $parents) continue;
             $fluid = (new BoxTreeFluidIntent())->lift($source, $this, $observations, $viewports, $parents);
-            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
+            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid, strtolower($source->tagName));
             if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
         }
     }
@@ -5395,9 +5395,35 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function resolvedCascadeStyle(DOMElement $element, string $collection, float $viewportWidth = self::DESKTOP_REFERENCE_WIDTH, ?callable $excludeSelector = null, bool $inline = true): string
     {
+        $state = $this->session->sourceStyleResolutionState();
+        $style = $inline ? SourceDom::attr($element, 'style') : '';
+        // The winners depend only on the matched rules, the viewport and the
+        // inline style, so they are remembered with the matched rules. An
+        // exclusion callback is opaque and always resolves afresh.
+        $declarations = null === $excludeSelector
+            ? $state->derivedFromMatchingRules(
+                $element,
+                $collection,
+                'cascade-style' . "\0" . $viewportWidth . "\0" . $style,
+                fn (array $rules): array => $this->cascadeWinners($rules, $viewportWidth, null, $style)
+            )
+            : $this->cascadeWinners($state->matchingRules($element, $collection), $viewportWidth, $excludeSelector, $style);
+
+        return $this->cssDeclarationString(array_replace(SourceCascade::presentationalHints($element), $declarations));
+    }
+
+    /**
+     * Serialized cascade winners of matched rules at one viewport, with the
+     * inline style applied over them.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @return array<string, string>
+     */
+    private function cascadeWinners(array $rules, float $viewportWidth, ?callable $excludeSelector, string $inlineStyle): array
+    {
         $cascade = array();
         $sequence = 0;
-        foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, $collection) as $rule ) {
+        foreach ( $rules as $rule ) {
             if ( ( ! empty($rule['conditions']) && ! $this->cascade->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) )
                 || ( null !== $excludeSelector && $excludeSelector((string) $rule['selector']) )
             ) {
@@ -5410,7 +5436,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        foreach ( SourceDeclarations::parse($inline ? SourceDom::attr($element, 'style') : '') as $property => $value ) {
+        foreach ( SourceDeclarations::parse($inlineStyle) as $property => $value ) {
             $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), ++$sequence);
         }
 
@@ -5427,7 +5453,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        return $this->cssDeclarationString(array_replace(SourceCascade::presentationalHints($element), $declarations));
+        return $declarations;
     }
 
     /**

@@ -621,19 +621,6 @@ final class FormPresentationGraphBuilder
                     continue;
                 }
                 $matched = $this->matched($element, $analysis['rules']);
-                if ('label' === $role && !isset($matched['base']['display'])) {
-                    // Only provider captions need an explicit UA fallback. A
-                    // flex/grid item is blockified even without author display.
-                    $display = 'inline';
-                    if ($element->parentNode instanceof DOMElement) {
-                        $parent = $this->matched($element->parentNode, $analysis['rules']);
-                        $parentStyles = $this->styles($parent['base'], $element->parentNode, null, $customPropertyAnalysis['rules']);
-                        if (in_array($parentStyles['display'] ?? '', array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) {
-                            $display = 'block';
-                        }
-                    }
-                    $matched['base']['display'] = array('value' => $display, 'path' => 'user-agent', 'hash' => hash('sha256', 'native-label-display'), 'selector' => 'label', 'order' => PHP_INT_MIN, 'declaration_order' => 0, 'specificity' => -1, 'important' => false);
-                }
                 if ('control' === $role && $element->parentNode instanceof DOMElement
                     && count(array_filter($formControls, static fn (DOMElement $sibling): bool => $sibling->parentNode?->isSameNode($element->parentNode) ?? false)) > 1) {
                     $parent = $this->matched($element->parentNode, $analysis['rules']);
