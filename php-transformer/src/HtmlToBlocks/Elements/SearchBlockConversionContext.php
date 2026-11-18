@@ -16,7 +16,62 @@ final class SearchBlockConversionContext
     ) {
     }
 
-    public function hasSearchFormSignal(DOMElement $form, DOMElement $input): bool
+    /**
+     * The native search contract shared by core/search lowering and form
+     * intent: one text/search input, at most one submit, no other authored
+     * controls (hidden server tokens are not authored), no scripts or event
+     * handlers, and search evidence on the form or input. core/search replaces
+     * the source handler, so a non-GET method only needs an explicit submit.
+     *
+     * @return array{input: DOMElement, submit: ?DOMElement}|null
+     */
+    public static function searchControls(DOMElement $form): ?array
+    {
+        if ( 0 < $form->getElementsByTagName('script')->length || array() !== SourceDom::eventMetadata($form) ) {
+            return null;
+        }
+
+        $textInput = null;
+        $submitControl = null;
+        foreach ( FormControlClassifier::controlElements($form) as $control ) {
+            if ( array() !== SourceDom::eventMetadata($control) ) {
+                return null;
+            }
+
+            $tagName = strtolower($control->tagName);
+            $type = FormControlClassifier::controlType($control);
+            if ( 'input' === $tagName && in_array($type, array( 'text', 'search' ), true) ) {
+                if ( null !== $textInput ) {
+                    return null;
+                }
+                $textInput = $control;
+                continue;
+            }
+
+            if ( ( 'button' === $tagName || 'input' === $tagName ) && 'submit' === $type ) {
+                if ( null !== $submitControl ) {
+                    return null;
+                }
+                $submitControl = $control;
+                continue;
+            }
+
+            return null;
+        }
+
+        if ( ! $textInput instanceof DOMElement || ! self::hasSearchFormSignal($form, $textInput) ) {
+            return null;
+        }
+
+        $method = strtolower(trim(SourceDom::attr($form, 'method')));
+        if ( '' !== $method && 'get' !== $method && null === $submitControl ) {
+            return null;
+        }
+
+        return array( 'input' => $textInput, 'submit' => $submitControl );
+    }
+
+    public static function hasSearchFormSignal(DOMElement $form, DOMElement $input): bool
     {
         if ( 'search' === FormControlClassifier::controlType($input) || 'search' === SourceDom::role($form) ) {
             return true;
@@ -39,7 +94,7 @@ final class SearchBlockConversionContext
         }
 
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( 'submit' === FormControlClassifier::controlType($control) && $this->hasSearchIconSignal($control) ) {
+            if ( 'submit' === FormControlClassifier::controlType($control) && self::hasSearchIconSignal($control) ) {
                 return true;
             }
         }
@@ -48,7 +103,7 @@ final class SearchBlockConversionContext
     }
 
     /** Shared glyph evidence for form recognition and native icon-button rendering. */
-    public function hasSearchIconSignal(DOMElement $control): bool
+    public static function hasSearchIconSignal(DOMElement $control): bool
     {
         $signals = array(
             SourceDom::attr($control, 'class'),

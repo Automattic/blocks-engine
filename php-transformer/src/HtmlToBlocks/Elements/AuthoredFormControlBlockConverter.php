@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredLabel
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
@@ -79,8 +80,6 @@ final class AuthoredFormControlBlockConverter
             return null;
         }
         $generator = new AuthoredLabelBlockGenerator();
-        $registry = $this->session->requireGeneratedBlockRegistry();
-        $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
         $projected = ($this->projectSourceTags)($label) ?? $label;
         $attrs = array_filter(array(
             'htmlFor' => SourceDom::attr($label, 'for'),
@@ -91,6 +90,16 @@ final class AuthoredFormControlBlockConverter
             'sourceAttributes' => SourceAttribute::staticAttributes(SourceDom::htmlAttributes($label), array_values(AuthoredLabelBlockGenerator::HOST_ATTRIBUTES)),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
         $markup = $generator->markup($attrs);
+        if (FormControlClassifier::isDanglingCaptionLabel($label)) {
+            // Caption text, not an association: the label rides as inline
+            // content of a core paragraph, so it renders as the same element.
+            return $this->createBlock->createBlock('core/paragraph', array(
+                'className' => SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS,
+                'content' => $markup,
+            ), array(), $label);
+        }
+        $registry = $this->session->requireGeneratedBlockRegistry();
+        $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
         return BlockFactory::leaf($registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 

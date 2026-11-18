@@ -2,8 +2,10 @@
 declare(strict_types=1);
 
 // Issue #6453: in a whole document, a label whose `for` names no element
-// associates nothing. It is caption text and lowers to a core paragraph, not
-// the generated authored-label host kept for real external associations.
+// associates nothing. Beside the value it captions it is caption text: a core
+// paragraph carries the label as inline content, so it renders as the same
+// element. An empty one carries nothing. A dangling label alone in its box
+// stays authored copy, and real associations keep the authored-label host.
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
@@ -30,14 +32,17 @@ $assert(!in_array('custom/authored-label', $names($empty['blocks']), true), 'an 
 $assert(array() === $empty['source_reports']['generated_blocks'], 'an empty dangling label registers no companion block');
 
 $caption = $transform($document('<form><div class="field"><label class="caption" for="service">Service</label><div class="value">School Catering</div></div></form>'));
-$assert(!in_array('custom/authored-label', $names($caption['blocks']), true), 'a dangling label in a whole document is not an authored-label');
-$assert(!in_array('authored-label', array_column($caption['source_reports']['generated_blocks'], 'name'), true), 'a dangling label registers no authored-label definition');
-$assert(1 === preg_match('/<!-- wp:paragraph [^>]*--><p class="caption blocks-engine-synthetic-paragraph">Service<\/p>/', $caption['serialized_blocks']), 'the dangling caption stays editable text in a core paragraph with its source class');
+$assert(!in_array('custom/authored-label', $names($caption['blocks']), true), 'a dangling caption beside its value is not an authored-label');
+$assert(!in_array('authored-label', array_column($caption['source_reports']['generated_blocks'], 'name'), true), 'a dangling caption registers no authored-label definition');
+$assert(1 === preg_match('/<!-- wp:paragraph [^>]*--><p class="blocks-engine-synthetic-paragraph"><label for="service" class="caption">Service<\/label><\/p>/', $caption['serialized_blocks']), 'the dangling caption stays the same label element inside an editable core paragraph');
+
+$alone = $transform($document('<form><input id="f"><label for="f">First</label><div><label for="nowhere">Fields marked * are required</label></div></form>'));
+$assert(1 === preg_match('/authored-label \{"htmlFor":"nowhere"/', $alone['serialized_blocks']), 'a dangling label alone in its box stays authored copy');
 
 $associated = $transform($document('<input id="choice" type="checkbox"><label for="choice">Choice</label>'));
 $assert(in_array('custom/authored-label', $names($associated['blocks']), true), 'a label naming a control in its document keeps its association host');
 
-$fragment = $transform('<label for="outside">Outside</label>');
-$assert('custom/authored-label' === $fragment['blocks'][0]['blockName'], 'a fragment keeps a for whose control may live outside it');
+$fragment = $transform('<div><label for="outside">Outside</label><span>value</span></div>');
+$assert(in_array('custom/authored-label', $names($fragment['blocks']), true), 'a fragment keeps a for whose control may live outside it');
 
 echo "Dangling label for regression: {$count} passed\n";

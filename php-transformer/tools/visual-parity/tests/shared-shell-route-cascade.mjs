@@ -25,6 +25,7 @@ $plan = (new WordPressSitePlan())->fromResult($result);
 $parts = array_column($plan['template_parts'] ?? array(), null, 'slug');
 echo json_encode(array(
     'pages' => array_column($plan['pages'] ?? array(), 'canonical_block_markup', 'source_path'),
+    'rootClasses' => array_combine(array_column($plan['pages'] ?? array(), 'source_path'), array_map(static fn(array $page): string => (string) ($page['document_metadata']['root_attributes']['class'] ?? ''), $plan['pages'] ?? array())),
     'parts' => array_column($plan['template_parts'] ?? array(), 'canonical_block_markup', 'slug'),
     'assets' => $plan['assets'] ?? array(),
 ), JSON_THROW_ON_ERROR);
@@ -48,7 +49,9 @@ try {
     for (const route of ['index.html', 'about.html']) {
       const page = await browser.newPage({ viewport });
       const css = applicableCss(route);
-      await page.setContent(`<style>body{margin:0}${css}</style>${pageMarkup(route)}`);
+      // The theme stamps each page's root attributes on <html> (language_attributes),
+      // which is where route-scoped arms of a reconciled stylesheet read the route class.
+      await page.setContent(`<!doctype html><html class="${generated.rootClasses[route] || ''}"><body><style>body{margin:0}${css}</style>${pageMarkup(route)}`);
       const grid = page.locator('[class*="route-grid"]').first();
       const style = await grid.evaluate((element) => getComputedStyle(element));
       const expectedTracks = viewport.name === 'desktop' ? (route === 'index.html' ? 2 : 3) : 1;
