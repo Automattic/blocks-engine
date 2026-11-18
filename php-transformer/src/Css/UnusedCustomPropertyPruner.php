@@ -23,7 +23,7 @@ final class UnusedCustomPropertyPruner
         // Count even references in dead declarations. This deliberately avoids
         // changing fallback/cycle semantics and is conservative across sheets.
         foreach ($stylesheets as $css) {
-            if (preg_match_all('/var\(\s*(--[\w-]+)/', $css, $references)) $this->used += array_fill_keys($references[1], true);
+            if (preg_match_all('/var\(\s*(--[\w-]+)/', $css, $references)) foreach ($references[1] as $name) $this->used[$name] = true;
             (new CssStylesheetTransformer())->visitStyleRules($css, function (string $selector, string $body): void {
                 $this->remember($selector);
                 if (str_contains($body, '\\')) $this->uncertain = true;
@@ -46,7 +46,8 @@ final class UnusedCustomPropertyPruner
 
     private function remember(string $text): void
     {
-        if (preg_match_all('/--[\w-]+/', $text, $names)) $this->used += array_fill_keys($names[0], true);
+        // Set keys in place: a property union (`+=`) copies the whole set.
+        if (preg_match_all('/--[\w-]+/', $text, $names)) foreach ($names[0] as $name) $this->used[$name] = true;
     }
 
     private function isInventory(string $selector): bool

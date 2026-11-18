@@ -654,6 +654,13 @@ final class ImageLowering
                     }
                 }
             }
+        } elseif ($link instanceof DOMElement && $this->isBlockImageInInlineLink($image, $link)) {
+            // The source's block-level image broke out of its inline link and
+            // sized and aligned (e.g. `mx-auto`) against the link's container,
+            // which the synthetic figure now stands in for. Core's inline-block
+            // anchor would shrink-wrap the image and pin it to the line start;
+            // keep the source link inline so the image lays out on the figure.
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::INLINE_IMAGE_LINK_CLASS);
         }
         $block = $this->blocks->createBlock('core/image', $attrs, array(), $figure ?? $image);
         // core/image saves the class list and anchor on the <figure>; an author
@@ -791,6 +798,18 @@ final class ImageLowering
         }
 
         return $attrs;
+    }
+
+    private function isBlockImageInInlineLink(DOMElement $image, DOMElement $link): bool
+    {
+        return 'block' === $this->sourceDisplay($image) && 'inline' === $this->sourceDisplay($link);
+    }
+
+    private function sourceDisplay(DOMElement $element): string
+    {
+        $value = SourceDeclarations::inline($element)['display'] ?? $this->styleResolver->declaredPresentation($element, 'display')->resolvedValue();
+
+        return CssValueInspector::comparable('' !== $value ? $value : $this->styleResolver->defaultTagDisplay($element));
     }
 
     /** Keep independently styled source boxes distinct without changing inert class transport. */

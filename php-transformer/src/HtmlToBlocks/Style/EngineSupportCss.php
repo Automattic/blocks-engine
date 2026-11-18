@@ -564,6 +564,14 @@ final class EngineSupportCss
             $parts[] = $item . '>.wp-block-navigation__submenu-container:not(.wp-block-navigation-submenu__toggle[aria-expanded="true"]~*)'
                 . '{padding-top:0!important;padding-bottom:0!important;border-top-width:0!important;border-bottom-width:0!important}';
         }
+        if (str_contains($serializedBlocks, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::LABEL_TOGGLE_SUBMENUS_CLASS)) {
+            // The source label is the toggle and paints no indicator: drop core's
+            // icon and the room its toggle keeps for it, and open on hover as the source does.
+            $item = '.wp-block-navigation.' . \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::LABEL_TOGGLE_SUBMENUS_CLASS . ' .wp-block-navigation-item.open-on-click';
+            $parts[] = $item . '>.wp-block-navigation__submenu-icon{display:none}'
+                . "\n" . $item . '>.wp-block-navigation-submenu__toggle{padding-right:0}'
+                . "\n" . '@media (hover:hover){' . $item . ':not(.is-menu-open *):hover>.wp-block-navigation__submenu-container{visibility:visible;overflow:visible;opacity:1;width:auto;height:auto;min-width:200px}}';
+        }
         if (str_contains($serializedBlocks, 'blocks-engine-social-source-non-list')) {
             // Lowering a div/span to ul must not introduce UA list margins.
             // Zero specificity leaves every authored margin (including type
