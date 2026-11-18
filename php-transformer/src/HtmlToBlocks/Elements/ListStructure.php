@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
-use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
-use Closure;
 use DOMElement;
 
 /**
@@ -15,14 +13,8 @@ use DOMElement;
  */
 final class ListStructure
 {
-    /**
-     * @param (Closure(DOMElement): array<string, array<string, mixed>>)|null $boxTreeEvidence
-     *        Captured per-viewport observations of a source element, when the
-     *        route carries box-tree evidence.
-     */
     public function __construct(
-        private readonly SourceElementClassifier $sourceElementClassifier,
-        private readonly ?Closure $boxTreeEvidence = null
+        private readonly SourceElementClassifier $sourceElementClassifier
     ) {
     }
 
@@ -130,10 +122,7 @@ final class ListStructure
                 continue;
             }
 
-            // A paragraph the capture proves renders as its list item's own
-            // text is the item's content, not structure inside it.
-            $paragraph = $this->neutralItemParagraph($child);
-            $content   = null !== $paragraph ? $paragraph->cloneNode(true) : $child->cloneNode(true);
+            $content = $child->cloneNode(true);
             if ( ! $content instanceof DOMElement ) {
                 continue;
             }
@@ -155,80 +144,6 @@ final class ListStructure
         }
 
         return false;
-    }
-
-    /**
-     * The sole paragraph of a list item when captured evidence proves it is
-     * render-neutral there: it carries no authored attributes, no box of its
-     * own (zero margins and padding, nothing painted) and the item's
-     * geometry and text styles at every captured viewport. Such an item is
-     * `<li>text</li>` to a reader, so core/list-item holds it. Without
-     * box-tree evidence the paragraph's margins are unproven and it stays.
-     */
-    public function neutralItemParagraph(DOMElement $item): ?DOMElement
-    {
-        if ( null === $this->boxTreeEvidence || 'li' !== strtolower($item->tagName) ) {
-            return null;
-        }
-        $paragraph = null;
-        foreach ( $item->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                if ( null !== $paragraph || 'p' !== strtolower($child->tagName) ) {
-                    return null;
-                }
-                $paragraph = $child;
-                continue;
-            }
-            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
-                return null;
-            }
-        }
-        if ( null === $paragraph || array() !== BoxTree::authoredAttributes($paragraph) ) {
-            return null;
-        }
-
-        $itemObservations      = ($this->boxTreeEvidence)($item);
-        $paragraphObservations = ($this->boxTreeEvidence)($paragraph);
-        if ( array() === $itemObservations || array_keys($itemObservations) !== array_keys($paragraphObservations) ) {
-            return null;
-        }
-        foreach ( $itemObservations as $viewport => $observation ) {
-            $own       = $paragraphObservations[$viewport];
-            $itemStyle = $observation['used_styles'] ?? array();
-            $style     = $own['used_styles'] ?? array();
-            if ( ! empty($own['pseudo']) || 'block' !== ($style['display'] ?? null) || 'static' !== ($style['position'] ?? null) ) {
-                return null;
-            }
-            foreach ( array( 'margin', 'padding' ) as $box ) {
-                foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
-                    if ( '0px' !== ($style[$box . '-' . $side] ?? null) ) {
-                        return null;
-                    }
-                }
-            }
-            foreach ( array( 'border-top', 'border-right', 'border-bottom', 'border-left' ) as $border ) {
-                if ( ! str_starts_with((string) ($style[$border] ?? ''), '0px') ) {
-                    return null;
-                }
-            }
-            foreach ( array( 'background-color' => 'rgba(0, 0, 0, 0)', 'background-image' => 'none', 'box-shadow' => 'none', 'transform' => 'none', 'filter' => 'none', 'opacity' => '1' ) as $property => $neutral ) {
-                if ( $neutral !== ($style[$property] ?? null) ) {
-                    return null;
-                }
-            }
-            foreach ( array_merge(BoxTree::INHERITED_PROPERTIES, array( 'text-decoration-line', 'text-decoration-color', 'text-decoration-style', 'vertical-align' )) as $property ) {
-                if ( ($style[$property] ?? null) !== ($itemStyle[$property] ?? null) ) {
-                    return null;
-                }
-            }
-            foreach ( array( 'x', 'y', 'width', 'height' ) as $axis ) {
-                if ( ! isset($own['border_box'][$axis], $observation['border_box'][$axis]) || abs((float) $own['border_box'][$axis] - (float) $observation['border_box'][$axis]) > 0.01 ) {
-                    return null;
-                }
-            }
-        }
-
-        return $paragraph;
     }
 
     public function isStructuralListItem(DOMElement $item): bool

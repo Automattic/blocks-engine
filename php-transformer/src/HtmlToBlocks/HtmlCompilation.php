@@ -359,7 +359,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     )
     {
         $this->sourceElementClassifier = new SourceElementClassifier();
-        $listStructure = new ListStructure($this->sourceElementClassifier, fn (DOMElement $element): array => $this->session->boxTreeEvidence($element));
+        $listStructure = new ListStructure($this->sourceElementClassifier);
         $commercePattern = $this->createCommercePattern();
         $this->sourceElementDescription = new SourceElementDescription($this->sourceElementClassifier, $commercePattern);
         $this->session = new HtmlTransformerSession($this->runtime, $this->sourceElementDescription);
@@ -1267,6 +1267,18 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // content rather than the source's wrapping convention.
         $this->documentAuthorCss = $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss);
         $this->retainedCustomWrapperHooks = $this->wrapperConventions->unwrapConventionWrappers($body, $this->documentAuthorCss);
+        // Evidence-proven image frames merge into their image before any
+        // selector projection or conversion observes the frame as a box.
+        if ( array() !== $this->session->boxTreeViewports() ) {
+            ( new Elements\FilledImageFrameLowering(
+                fn (DOMElement $element): array => $this->session->boxTreeEvidence($element),
+                fn (DOMElement $element): array => array_map(
+                    static fn (array $rule): string => (string) ( $rule['selector'] ?? '' ),
+                    $this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional')
+                )
+            ) )->lower($body);
+            $this->session->sourceStyleResolutionState()->invalidateSelectorMatches();
+        }
         $timer->start('transform.author_selector_preparation');
         $this->authorSelectorSemanticPreparer->prepare($html, $staticCss, $body, $options, $this->session);
         $this->session->fallbackEmitter()->configure($this->session->transformationProvenanceState()->fallback(), $this->session->runtimeBehaviorState()->runtimeScriptMetadata(), $this->session->runtimeSelectorState(), $this->session->authorSelectorProjectionState()->tagMarkers());
