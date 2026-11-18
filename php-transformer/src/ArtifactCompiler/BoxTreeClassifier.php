@@ -55,8 +55,8 @@ final class BoxTreeClassifier
         $counts = array('load-bearing' => 0, 'neutral' => 0);
         foreach ($elements as $id => $element) {
             $node = $tree['nodes'][$id];
-            $criterion = self::criterion($element, $node, $tree, isset($containing[$id]), isset($references[$element->getAttribute('id')]));
-            $disposition = 'equal-child-geometry' === $criterion ? 'neutral' : 'load-bearing';
+            $criterion = self::criterion($element, $node, $tree, isset($containing[$id]), isset($references[$element->getAttribute('id')]), $tree['nodes'][$parents[$id]] ?? null);
+            $disposition = in_array($criterion, self::NEUTRAL_CRITERIA, true) ? 'neutral' : 'load-bearing';
             $nodes[$id] = array('disposition' => $disposition, 'criterion' => $criterion);
             ++$counts[$disposition];
         }
@@ -83,7 +83,17 @@ final class BoxTreeClassifier
         ) : null);
     }
 
-    private static function criterion(DOMElement $element, array $node, array $tree, bool $containing, bool $referenced): string
+    /** Criteria that prove a box renders nothing its sole child does not. */
+    private const NEUTRAL_CRITERIA = array('equal-child-geometry', 'no-box');
+
+    /** Inherited properties a boxless element can still pass to its child. */
+    private const INHERITED = array(
+        'color', 'cursor', 'font-family', 'font-size', 'font-style', 'font-weight', 'letter-spacing', 'line-height',
+        'list-style-position', 'list-style-type', 'overflow-wrap', 'pointer-events', 'text-align', 'text-indent',
+        'text-shadow', 'text-transform', 'visibility', 'white-space', 'word-break', 'word-spacing',
+    );
+
+    private static function criterion(DOMElement $element, array $node, array $tree, bool $containing, bool $referenced, ?array $parent = null): string
     {
         foreach ($node['viewports'] as $observation) {
             $s = $observation['used_styles'];
@@ -94,7 +104,11 @@ final class BoxTreeClassifier
             if (count($node['children']) > 1 && in_array($observation['used_styles']['display'], array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) return 'multi-child-layout';
         }
         if ($containing) return 'containing-block';
-        if (!in_array(strtolower($element->tagName), array('div', 'span'), true) || $referenced || $element->hasAttribute('role') || $element->hasAttribute('name')) return 'semantics/id/anchor';
+        $boxless = self::boxless($node);
+        // An autonomous custom element has no native semantics; a boxless one
+        // is as neutral as a div once the checks below hold.
+        $tag = strtolower($element->tagName);
+        if ((!in_array($tag, array('div', 'span'), true) && !($boxless && str_contains($tag, '-'))) || $referenced || $element->hasAttribute('role') || $element->hasAttribute('name')) return 'semantics/id/anchor';
         foreach ($element->attributes as $attribute) {
             if (str_starts_with($attribute->name, 'on') || str_starts_with($attribute->name, 'aria-') || in_array($attribute->name, array('tabindex', 'contenteditable', 'draggable', 'hidden', 'inert'), true)) return 'interaction/state';
         }
@@ -110,6 +124,18 @@ final class BoxTreeClassifier
             if ($child instanceof DOMElement && !isset($tree['nodes'][$child->getAttribute(BoxTree::NODE_ATTRIBUTE)])) return 'unobserved-child';
         }
         if (1 !== count($node['children'])) return 'own-sizing';
+        // `display: contents` generates no box at any captured viewport: its
+        // child already takes the parent's layout, so neither placement nor
+        // geometry can differ without it. Only inherited values pass through.
+        if ($boxless) {
+            if (null === $parent) return 'inherits';
+            foreach ($node['viewports'] as $viewport => $observation) {
+                foreach (self::INHERITED as $property) {
+                    if (($observation['used_styles'][$property] ?? null) !== ($parent['viewports'][$viewport]['used_styles'][$property] ?? null)) return 'inherits';
+                }
+            }
+            return 'no-box';
+        }
         $placement = self::placement($node, $tree['nodes'][$node['children'][0]] ?? array());
         if (null !== $placement) return $placement;
         foreach ($element->childNodes as $child) {
@@ -149,6 +175,16 @@ final class BoxTreeClassifier
             }
         }
         return null;
+    }
+
+    /** Whether the element generates no box at every captured viewport. */
+    private static function boxless(array $node): bool
+    {
+        if (array() === ($node['viewports'] ?? array())) return false;
+        foreach ($node['viewports'] as $observation) {
+            if ('contents' !== ($observation['used_styles']['display'] ?? null)) return false;
+        }
+        return true;
     }
 
     /** Capture markers gate device visibility or interaction; the box carrying one is the engine's handle. */

@@ -21,8 +21,9 @@ final class BoxTreeStyleProjector
      * @param string $blockName The block carrying the rule, whose WordPress base styles a pruned declaration falls back to.
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid Lifted author values: property => bands, widest
      *        first, each [max-width (null for the base rule), value] ({@see BoxTreeFluidIntent::lift()}).
+     * @param array<string, array<string, mixed>>|null $domParents Observations of the DOM parent when it is not the block parent.
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array()): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), ?array $domParents = null): array
     {
         if (array() === $observations) return $attrs;
         $keys = array_keys($observations);
@@ -32,7 +33,8 @@ final class BoxTreeStyleProjector
         $tagName = self::emittedTag($blockName, $attrs);
         foreach ($keys as $key) {
             $parent = $parents[$key]['used_styles'] ?? null;
-            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
+            $domParent = null === $domParents ? null : ($domParents[$key]['used_styles'] ?? null);
+            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName, is_array($domParent) ? $domParent : null);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, $fluid);
