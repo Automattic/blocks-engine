@@ -18,10 +18,20 @@ function fluid_carrier_output(string $html, array $tree, string $author, array $
     $source = str_replace('</head>', '<style>' . $author . '</style></head>', $html);
     $tree['source_hash'] = hash('sha256', $source);
     $tree['viewports']['mobile']['width'] = 402;
+    $captured = $tree['nodes'];
     foreach ($observed as $target => [$desktop, $mobile]) {
         [$node, $property] = explode('.', $target, 2);
-        $tree['nodes'][$node]['viewports']['desktop']['used_styles'][$property] = $desktop;
-        $tree['nodes'][$node]['viewports']['mobile']['used_styles'][$property] = $mobile;
+        // `n6::before.width` observes the node's generated box.
+        [$node, $pseudo] = array_pad(explode('::', $node, 2), 2, null);
+        foreach (array('desktop' => $desktop, 'mobile' => $mobile) as $viewport => $value) {
+            $styles = &$tree['nodes'][$node]['viewports'][$viewport];
+            if (null !== $pseudo) {
+                $styles['pseudo'][$pseudo] ??= array('content' => '""') + array_intersect_key($captured[$node]['viewports'][$viewport], array('border_box' => true, 'used_styles' => true));
+                $styles = &$styles['pseudo'][$pseudo];
+            }
+            $styles['used_styles'][$property] = $value;
+            unset($styles);
+        }
     }
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $source, 'box-tree/index.json' => json_encode($tree))))->toArray();
     $css = implode("\n", array_column($result['assets'], 'content'));
@@ -298,6 +308,33 @@ $cases = array(
     'an absent margin keeps its pixels' => array(
         'h1{color:red}', array('n6.margin-left' => array('20px', '10px')), array('margin-left:20px', 'margin-left:10px'), array('margin-left:auto'),
     ),
+    // sdnunca divider: a pseudo sized relative to its host follows the host between captures (#6628).
+    'a 100% pseudo width lifts against the host content box' => array(
+        'h1::before{content:"";display:block;width:100%}',
+        array('n6.width' => array('704.4px', '368.7px'), 'n6::before.display' => array('block', 'block'), 'n6::before.width' => array('704.4px', '368.7px')),
+        array('::before ;width:100%'), array('width:704.4px', 'width:368.7px'),
+    ),
+    'an auto pseudo width in a stretched column lifts as auto' => array(
+        'h1{display:flex;flex-direction:column}h1::before{content:"";display:block;width:auto}',
+        array('n6.display' => array('flex', 'flex'), 'n6.flex-direction' => array('column', 'column'), 'n6.width' => array('704.4px', '368.7px'),
+            'n6::before.display' => array('block', 'block'), 'n6::before.width' => array('704.4px', '368.7px')),
+        array('::before ;width:auto'), array('width:704.4px', 'width:368.7px'),
+    ),
+    'a pseudo width an author query switches lifts per author band' => array(
+        'h1::before{content:"";display:block;width:100%}@media (max-width:1023px){h1::before{width:max-content}}',
+        array('n6.width' => array('704.4px', '368.7px'), 'n6::before.display' => array('block', 'block'), 'n6::before.width' => array('704.4px', '30px')),
+        array('::before ;width:100%', '@media (max-width:1023px){', '::before ;width:max-content'), array('width:704.4px', ';width:30px'),
+    ),
+    'a fixed pixel pseudo width keeps its pixels' => array(
+        'h1::before{content:"";display:block;width:50px}',
+        array('n6.width' => array('704.4px', '368.7px'), 'n6::before.display' => array('block', 'block'), 'n6::before.width' => array('50px', '50px')),
+        array('::before width:50px'), array('::before ;width:auto', '::before ;width:100%'),
+    ),
+    'a pseudo % width not matching the host keeps its pixels' => array(
+        'h1::before{content:"";display:block;width:100%}',
+        array('n6.width' => array('704.4px', '368.7px'), 'n6::before.display' => array('block', 'block'), 'n6::before.width' => array('1388.3px', '368.7px')),
+        array('::before ;width:1388.3px'), array('::before ;width:100%'),
+    ),
     'a % column gap through the gap shorthand lifts against the own content box' => array(
         'main{display:flex;gap:0 10%}',
         array('n5.display' => array('flex', 'flex'), 'n5.width' => array('1000px', '400px'), 'n5.column-gap' => array('100px', '40px')),
@@ -320,13 +357,19 @@ foreach ($cases as $name => $case) {
     $wrapped = $case[4] ?? false;
     $output = fluid_carrier_output($wrapped ? $wrappedHtml : $html, $wrapped ? $wrappedTree : $tree, $author, $observed);
     $heading = fluid_heading_carrier($output);
+    // Needles prefixed `::before ` are matched in the heading's ::before rules only.
+    preg_match_all('/::before\{[^{}]*\}/', $heading, $pseudoRules);
+    // Every declaration follows `;`, the first one too.
+    $pseudoCss = str_replace('{', '{;', implode("\n", $pseudoRules[0]));
+    $scope = static fn(string $needle): array => str_starts_with($needle, 'h1 ') ? array($heading, substr($needle, 3))
+        : (str_starts_with($needle, '::before ') ? array($pseudoCss, substr($needle, 9)) : array($output, $needle));
     foreach ($present as $needle) {
-        $haystack = str_starts_with($needle, 'h1 ') ? $heading : $output;
-        if (!str_contains($haystack, preg_replace('/^h1 /', '', $needle))) throw new RuntimeException($name . ': missing ' . $needle . "\n" . $output);
+        [$haystack, $text] = $scope($needle);
+        if (!str_contains($haystack, $text)) throw new RuntimeException($name . ': missing ' . $needle . "\n" . $output);
     }
     foreach ($absent as $needle) {
-        $haystack = str_starts_with($needle, 'h1 ') ? $heading : $output;
-        if (str_contains($haystack, preg_replace('/^h1 /', '', $needle))) throw new RuntimeException($name . ': unexpected ' . $needle . "\n" . $output);
+        [$haystack, $text] = $scope($needle);
+        if (str_contains($haystack, $text)) throw new RuntimeException($name . ': unexpected ' . $needle . "\n" . $output);
     }
     echo 'PASS: ' . $name . "\n";
 }
