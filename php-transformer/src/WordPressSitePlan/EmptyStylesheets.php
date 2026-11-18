@@ -41,9 +41,13 @@ final class EmptyStylesheets
     {
         $unchanged = array('assets' => $assets, 'document_sets' => $documentSets, 'tokens' => array());
         $delivering = array();
-        foreach ($assets as $asset) {
+        // Replays own delivery references just like top-level assets.
+        $owners = array_values($assets);
+        while (array() !== $owners) {
+            $asset = array_pop($owners);
             if (is_string($asset['stylesheet_parent'] ?? null)) $delivering['source:' . $asset['stylesheet_parent']] = true;
             foreach ($asset['stylesheet_parts'] ?? array() as $path) $delivering['target:' . $path] = true;
+            foreach ($asset['stylesheet_replays'] ?? array() as $replay) $owners[] = $replay;
         }
         $candidates = array();
         foreach ($assets as $index => $asset) {
