@@ -287,16 +287,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private array $neutralBoxChildren = array();
 
-    /**
-     * Carrier class each restyled source node's observed box went to, keyed by
-     * {@see self::boxTreeCarrierKey()}. A wrapper block made from the same
-     * source node as its inner block (core/buttons around core/button) finds
-     * the box already carried and registers no carrier rule of its own.
-     *
-     * @var array<string, string>
-     */
-    private array $boxTreeCarriers = array();
-
 
 
 
@@ -1912,23 +1902,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /** The nearest source ancestor that emits a block: neutral boxes are skipped. */
-    /** @param array<int, array<string, mixed>> $innerBlocks */
-    private function innerBlocksCarryBoxOf(DOMElement $sourceElement, array $innerBlocks): bool
-    {
-        $carrier = $this->boxTreeCarriers[self::boxTreeCarrierKey($sourceElement)] ?? null;
-        if ( null === $carrier ) return false;
-        foreach ( $innerBlocks as $block ) {
-            $classes = preg_split('/\s+/', (string) ($block['attrs']['className'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: array();
-            if ( in_array($carrier, $classes, true) ) return true;
-        }
-        return false;
-    }
-
-    private static function boxTreeCarrierKey(DOMElement $element): string
-    {
-        return spl_object_id($element->ownerDocument) . ':' . ($element->getNodePath() ?? '');
-    }
-
     private function blockParentElement(DOMElement $element): ?DOMElement
     {
         $parent = $element->parentNode;
@@ -2188,19 +2161,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
             $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->session->boxTreeEvidence(...));
-            $flow = (new Style\BoxTreeFlowSizing())->lift($sourceTagName, $name, $observations, $this->session->boxTreeContainerEvidence($sourceElement));
-            // One captured box is one rendered box. A wrapper made from the same
-            // source node as its inner block keeps the block attributes, but
-            // the carrier rule restating the box goes to the inner block only:
-            // on both, positioned offsets and margins apply twice and the inner
-            // box lands past its container's edge.
-            $ownsBox = ! $this->innerBlocksCarryBoxOf($sourceElement, $innerBlocks);
-            $classesBefore = (string) ($attrs['className'] ?? '');
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $flow, $ownsBox);
-            $carrier = array_values(array_diff(preg_split('/\s+/', (string) ($attrs['className'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: array(), preg_split('/\s+/', $classesBefore, -1, PREG_SPLIT_NO_EMPTY) ?: array()));
-            if ( $ownsBox && array() !== $carrier ) {
-                $this->boxTreeCarriers[self::boxTreeCarrierKey($sourceElement)] = $carrier[0];
-            }
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,

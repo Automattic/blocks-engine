@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\FontPresetReads;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -23,7 +24,7 @@ foreach (array('reduction' => $desktop, 'paired' => $desktop . $mobile) as $name
     preg_match_all('/blocks-engine-root-child-[a-zA-Z0-9_-]+/', $style, $matches);
     $carriers = array_unique($matches[0]);
     $assert(count($carriers) === ('paired' === $name ? 2 : 1), $name . ': projected root-child carriers exist.');
-    $assert(str_contains($style, 'Optima,Arial,sans-serif'), $name . ': source font stack remains projected.');
+    $assert(str_contains(FontPresetReads::resolve($style, $plan), 'Optima,Arial,sans-serif'), $name . ': source font stack remains projected.');
     // The SSI runtime renders saved HTML, not the block comment attributes.
     $html = preg_replace('/<!--.*?-->/s', '', $markup);
     $document = new DOMDocument();

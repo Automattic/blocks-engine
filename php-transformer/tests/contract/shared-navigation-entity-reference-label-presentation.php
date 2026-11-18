@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\FontPresetReads;
 
 $assert = static function (bool $condition, string $message): void { if (! $condition) throw new RuntimeException($message); };
 
@@ -38,7 +39,7 @@ foreach (array_merge($plan['template_parts'], $plan['pages']) as $document) {
 }
 $assert(isset($rendered['header'], $rendered['page']), 'The header and the page menu each reference the entity.');
 
-$css = implode("\n", array_map(static fn (array $write): string => (string) $write['payload']['data'], array_filter($plan['writes'], static fn (array $write): bool => str_ends_with($write['target_path'], '.css'))));
+$css = FontPresetReads::resolve(implode("\n", array_map(static fn (array $write): string => (string) $write['payload']['data'], array_filter($plan['writes'], static fn (array $write): bool => str_ends_with($write['target_path'], '.css')))), $plan);
 $markers = static function (string $family) use ($css): array {
     preg_match_all('/[^{}]*\{[^}]*' . preg_quote($family, '/') . '[^}]*\}/', $css, $rules);
     preg_match_all('/blocks-engine-(?:richtext|attribute)-[a-f0-9]{12}-\d+/', implode("\n", $rules[0]), $found);

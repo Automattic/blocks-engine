@@ -316,32 +316,9 @@ final class HtmlTransformerSession
         return \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::forElement($this->boxTree, $element);
     }
 
-    /** @var array<string, string>|null Captured parent node id by child node id. */
-    private ?array $boxTreeParents = null;
-
-    /**
-     * Observations of the captured box the element's box sat in: the nearest
-     * observed ancestor in the capture, even where conversion no longer holds
-     * that ancestor (a top-level element converts without its source body).
-     */
-    public function boxTreeContainerEvidence(\DOMElement $element): array
-    {
-        if (null === $this->boxTreeParents) {
-            $this->boxTreeParents = array();
-            foreach ($this->boxTree['nodes'] ?? array() as $id => $node) {
-                foreach (is_array($node['children'] ?? null) ? $node['children'] : array() as $child) {
-                    if (is_string($child)) $this->boxTreeParents[$child] = (string) $id;
-                }
-            }
-        }
-        $parent = $this->boxTreeParents[$element->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)] ?? null;
-        return null === $parent ? array() : ($this->boxTree['nodes'][$parent]['viewports'] ?? array());
-    }
-
     public function installTransformOptions(array $options): void
     {
         $this->boxTree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
-        $this->boxTreeParents = null;
         $this->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
         $this->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));
         $this->installAssetMaterializationState(new AssetMaterializationState(
