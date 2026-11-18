@@ -29,6 +29,18 @@ final class ThemeBootstrap
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
 
     /**
+     * The editor canvas renders imported blocks before Gutenberg injects the
+     * theme's styles into its iframe, so every block is restyled once after it
+     * first paints. A captured transition (a `transition-colors` hover effect
+     * kept in instance CSS) animates that restyle: for its duration the canvas
+     * paints an interpolated colour the front end never shows.
+     * The canvas has no hover or interaction state to animate (links are
+     * inert, above), so it renders the resting style at once. Front-end
+     * transitions stay as captured.
+     */
+    public const EDITOR_TRANSITION_CSS = ':root .editor-styles-wrapper *{transition:none!important}';
+
+    /**
      * The shell transport is boxless on the frontend (display:contents), but
      * the editor keeps its box for selection, and Gutenberg gives every block
      * pointer-events:auto. As a grid or flex item that box stretches across
@@ -39,6 +51,15 @@ final class ThemeBootstrap
      * so clicking the part's content still selects the part.
      */
     public const EDITOR_SHELL_TRANSPORT_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-template-part.blocks-engine-shell-transport{pointer-events:none}:root .block-editor-block-list__block.wp-block-template-part.blocks-engine-shell-transport>.block-editor-block-list__block{pointer-events:auto}';
+
+    /** Keeps the shell transport and synthetic landmarks boxless on the frontend only. */
+    public const FRONTEND_SHELL_TRANSPORT_CSS = ':where(body:not(.editor-styles-wrapper):not(.wp-admin)) :where(.blocks-engine-shell-transport){display:contents}:where(body:not(.editor-styles-wrapper):not(.wp-admin)) :where(.blocks-engine-shell-landmark){display:contents}';
+
+    /**
+     * Gutenberg's query-template editor can expose a core/post-meta key
+     * before its post context resolves; the frontend binding remains live.
+     */
+    public const EDITOR_LISTING_QUERY_CSS = ':root .editor-styles-wrapper .blocks-engine-listing-overlay{display:none}:root .editor-styles-wrapper .blocks-engine-listing-bound-meta{display:none}';
 
     public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}.blocks-engine-listing-card{position:relative}.blocks-engine-listing-card>.blocks-engine-listing-overlay{position:absolute;inset:0;z-index:2}.blocks-engine-listing-card>.blocks-engine-listing-background{position:absolute;inset:0;margin:0;pointer-events:none;z-index:0}.blocks-engine-listing-background img{width:100%;height:100%;object-fit:cover}.blocks-engine-listing-card>:not(.blocks-engine-listing-background):not(.blocks-engine-listing-overlay){position:relative;z-index:1}';
 
@@ -181,6 +202,24 @@ PHP;
     public const DOCUMENT_ID_EXPRESSION = "(int) apply_filters( 'blocks_engine_document_id', is_singular() ? get_queried_object_id() : 0 )";
 
     /**
+     * Every stylesheet functionsPhp() can inline for the frontend or the
+     * editor canvas, whichever of them a given theme ends up enqueuing.
+     */
+    public static function inlineStylesheets(): string
+    {
+        return implode("\n", array(
+            self::EDITOR_CORE_IMAGE_INTERACTION_CSS,
+            self::EDITOR_POST_TITLE_INTERACTION_CSS,
+            self::EDITOR_LINK_INTERACTION_CSS,
+            self::EDITOR_SHELL_TRANSPORT_INTERACTION_CSS,
+            self::FRONTEND_SHELL_TRANSPORT_CSS,
+            self::LISTING_QUERY_CSS,
+            self::EDITOR_LISTING_QUERY_CSS,
+            SyncedPatternProjection::EDITOR_CONTAINER_CSS,
+        ));
+    }
+
+    /**
      * Served route of each source document a navigation item records as
      * marking it current.
      *
@@ -273,6 +312,8 @@ PHP;
         if (self::markupContains($documents, 'blocksEngineImageSelection')) {
             $lines[] = self::IMAGE_SELECTION_RENDERER;
         }
+        $iframeEmbeds = IframeEmbedRuntime::source($documents);
+        if ('' !== $iframeEmbeds) $lines[] = $iframeEmbeds;
         if (self::markupContains($documents, 'blocks-engine-image')) {
             $lines[] = self::SINGLE_SOURCE_IMAGE_RUNTIME;
         }
@@ -464,8 +505,7 @@ PHP;
         // Synthetic landmarks likewise must not replace source flex/grid items.
         // Authored landmark boxes remain intact.
         if (array() !== $parts) {
-            $transportCss = ':where(body:not(.editor-styles-wrapper):not(.wp-admin)) :where(.blocks-engine-shell-transport){display:contents}:where(body:not(.editor-styles-wrapper):not(.wp-admin)) :where(.blocks-engine-shell-landmark){display:contents}';
-            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-shell-transport', false, array(), null ); wp_enqueue_style( 'blocks-engine-shell-transport' ); wp_add_inline_style( 'blocks-engine-shell-transport', " . var_export($transportCss, true) . " ); } );";
+            $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-shell-transport', false, array(), null ); wp_enqueue_style( 'blocks-engine-shell-transport' ); wp_add_inline_style( 'blocks-engine-shell-transport', " . var_export(self::FRONTEND_SHELL_TRANSPORT_CSS, true) . " ); } );";
         }
         // A page's layout frame sits in its template around post-content. Core's
         // post-content element would be an extra box in that layout, so the
@@ -651,18 +691,14 @@ PHP;
         $lines[] = "    \$block['innerContent'] = \$content; return \$block;";
         $lines[] = "}, 10, 1 );";
         $hasListingQuery = self::markupContains(array_merge($pages, $templates, $parts), WordPressSitePlan::LISTING_QUERY_CLASS);
-        $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS;
+        $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS . self::EDITOR_TRANSITION_CSS;
         if (array() !== $parts) $editorCss .= self::EDITOR_SHELL_TRANSPORT_INTERACTION_CSS;
         foreach ($pages as $page) if (str_contains((string) ($page['canonical_block_markup'] ?? ''), WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX)) {
             $editorCss .= SyncedPatternProjection::EDITOR_CONTAINER_CSS;
             break;
         }
         if ($hasListingQuery) {
-            // Gutenberg's query-template editor can expose a core/post-meta key
-            // before its post context resolves; the frontend binding remains live.
-            $editorCss .= self::LISTING_QUERY_CSS
-                . ':root .editor-styles-wrapper .blocks-engine-listing-overlay{display:none}'
-                . ':root .editor-styles-wrapper .blocks-engine-listing-bound-meta{display:none}';
+            $editorCss .= self::LISTING_QUERY_CSS . self::EDITOR_LISTING_QUERY_CSS;
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-listing-query', false, array(), null ); wp_enqueue_style( 'blocks-engine-listing-query' ); wp_add_inline_style( 'blocks-engine-listing-query', " . var_export(self::LISTING_QUERY_CSS, true) . " ); } );";
         }
         $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export($editorCss, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";

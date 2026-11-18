@@ -6,6 +6,12 @@ const root = new URL('../..', import.meta.url).pathname;
 const source = `<style>.unrelated{position:absolute;top:13px;left:300px;width:80px;height:45px;z-index:7}.stage{position:relative;height:160px}.slide{position:absolute;inset:0;height:160px}.caption{position:absolute;inset:0;z-index:1000}img{display:block;width:240px;height:160px}</style><div class="stage">${[1, 2].map(i => `<div class="slide be-stacking-order-${i}" style="z-index:${i}"><div class="caption"><h2>Slide ${i}</h2></div><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='160'/%3E" alt="Slide ${i}"></div>`).join('')}</div><div class="unrelated be-stacking-order-9"><h2>Not an image stack</h2></div>`;
 const code = 'require $argv[1]."/vendor/autoload.php"; echo json_encode((new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform(stream_get_contents(STDIN))->toArray());';
 const result = JSON.parse(execFileSync('php', ['-r', code, root], { input: source, encoding: 'utf8' }));
+const baseline = JSON.parse(execFileSync('php', ['-r', code, root], { input: source.replaceAll('be-stacking-order-', 'unranked-'), encoding: 'utf8' }));
+const sharedSupport = output => output.assets.filter(a => a.source === 'engine-support' && a.stylesheet_target !== 'editor');
+assert.deepEqual(sharedSupport(result), sharedSupport(baseline), 'editor repair leaves shared support asset bytes, hashes and ordering unchanged');
+const repairs = result.assets.filter(a => a.kind === 'css' && a.content.includes('be-stacking-order-'));
+assert.ok(repairs.length > 0);
+assert.ok(repairs.every(a => a.stylesheet_target === 'editor'), 'stack repairs ship exclusively in editor assets');
 const css = result.assets.filter(a => a.kind === 'css').map(a => a.content).join('\n');
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
 try {

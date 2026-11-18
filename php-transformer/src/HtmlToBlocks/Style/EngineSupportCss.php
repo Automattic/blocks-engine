@@ -38,6 +38,20 @@ final class EngineSupportCss
         return ':root .' . $marker . ':has(.wp-block-navigation__responsive-container.is-menu-open){' . implode(';', $declarations) . '}';
     }
 
+    /** @return list<string> Editor repairs must not change shared front-end asset identity or order. */
+    public static function stackedImageEditorCss(string $serializedBlocks): array
+    {
+        if (!str_contains($serializedBlocks, 'be-stacking-order-') || !str_contains($serializedBlocks, 'wp-block-image')) {
+            return array();
+        }
+        // Only image-bearing paint-order owners need separate editable boxes.
+        $owner = ':root .editor-styles-wrapper .wp-block-group[class*="be-stacking-order-"]:has(figure.wp-block-image)';
+        return array($owner . '{position:relative!important;inset:auto!important;z-index:auto!important;height:auto!important;min-height:0!important;opacity:1!important;visibility:visible!important}'
+            . $owner . '>.wp-block-group:not(:has(figure.wp-block-image)){position:relative!important;inset:auto!important;transform:none!important;z-index:auto!important}'
+            . $owner . ' figure.wp-block-image{position:relative!important;z-index:1!important}'
+            . ':root .editor-styles-wrapper .wp-block-group:has(>.wp-block-group[class*="be-stacking-order-"] figure.wp-block-image){height:auto!important;min-height:0!important}');
+    }
+
     private const EMPTY_FLEX_ITEM_CLASS = EmptyVisualSpacerLowering::EMPTY_FLEX_ITEM_CLASS;
 
     private const EMPTY_FLEX_ITEM_COLUMN_CLASS = EmptyVisualSpacerLowering::EMPTY_FLEX_ITEM_COLUMN_CLASS;
@@ -78,17 +92,6 @@ final class EngineSupportCss
             // Keep the responsive fallback below every authored constraint,
             // including when core/image inserts an anchor around the image.
             $parts[] = ':where(figure.blocks-engine-image > img,figure.blocks-engine-image > a > img){max-width:100%}';
-        }
-        if (str_contains($serializedBlocks, 'be-stacking-order-') && str_contains($serializedBlocks, 'wp-block-image')) {
-            // Captured stacked slides retain their paint order on the front end.
-            // In the editor every slide is editable: absolute siblings must not
-            // cover one another, and a caption overlay must not take the image's
-            // selection hit target. Only image-bearing stacking owners change.
-            $owner = ':root .editor-styles-wrapper .wp-block-group[class*="be-stacking-order-"]:has(figure.wp-block-image)';
-            $parts[] = $owner . '{position:relative!important;inset:auto!important;z-index:auto!important;height:auto!important;min-height:0!important;opacity:1!important;visibility:visible!important}'
-                . $owner . '>.wp-block-group:not(:has(figure.wp-block-image)){position:relative!important;inset:auto!important;transform:none!important;z-index:auto!important}'
-                . $owner . ' figure.wp-block-image{position:relative!important;z-index:1!important}'
-                . ':root .editor-styles-wrapper .wp-block-group:has(>.wp-block-group[class*="be-stacking-order-"] figure.wp-block-image){height:auto!important;min-height:0!important}';
         }
         if (str_contains($serializedBlocks, 'blocks-engine-stacked-buttons')) {
             // Preserve normal block flow even when the authored bar is inline-block.
@@ -158,8 +161,9 @@ final class EngineSupportCss
             // core/image inserts a figure between a source flex/grid item and
             // the image. Keep the wrapper in the DOM for Gutenberg, but remove
             // its layout box so the source image retains its native replaced-
-            // element min-content and flex-shrink behavior.
-            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}'
+            // element min-content and flex-shrink behavior. A `hidden` figure
+            // keeps the UA `display:none`, also when script toggles it later.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ':not([hidden])){display:contents}'
                 // Gutenberg selects the block root, not its img. A transparent
                 // root has no hit-test box and cannot expose the image toolbar.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block}';
@@ -243,8 +247,9 @@ final class EngineSupportCss
             // This figure has no source box. Remove its layout box so image
             // percentages keep the source containing block, rather than a
             // cyclic shrink-to-fit basis. Keep the image itself inline too.
+            // A `hidden` figure keeps the UA `display:none` at the same weight.
             $inlineFigure = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS;
-            $parts[] = $inlineFigure . '{display:contents}'
+            $parts[] = $inlineFigure . ':where(:not([hidden])){display:contents}'
                 // Keep a selectable, shrink-wrapped root in Gutenberg only.
                 // Source positioning belongs to the image's transparent front-end
                 // carrier. Applying it to an editor box can stack block roots on
@@ -277,9 +282,10 @@ final class EngineSupportCss
             // parent was image + strut tall. Keep that line box: the figure has
             // no source box and the image stays inline on the source baseline.
             // This figure owns no source positioning, so unlike the inline
-            // carrier its image never inherits the figure's placement.
+            // carrier its image never inherits the figure's placement. A
+            // `hidden` figure keeps the UA `display:none` at the same weight.
             $strutFigure = SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS;
-            $parts[] = ':root .' . $strutFigure . '{display:contents}'
+            $parts[] = ':root .' . $strutFigure . ':where(:not([hidden])){display:contents}'
                 // Gutenberg still needs a selectable, shrink-wrapped block root.
                 . ':root .editor-styles-wrapper figure.' . $strutFigure . '.wp-block-image{display:inline-block}'
                 . ':root .' . $strutFigure . ' img{display:inline}'

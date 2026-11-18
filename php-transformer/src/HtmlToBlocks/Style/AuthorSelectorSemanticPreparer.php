@@ -259,6 +259,7 @@ final class AuthorSelectorSemanticPreparer
                 if ( '' !== $path
                     && $this->context->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($element)
                     && ! $this->isPhrasingWithinHeading($element)
+                    && ! $this->isPhrasingWithinPhrasingQuote($element)
                     && ! $this->isQuoteCitation($element)
                     && ! $projections->isControlPath($parentPath)
                     && ! ('' !== $projections->richTextMarker($path) && SourceDom::ancestorElement($element, 'label') instanceof DOMElement)
@@ -267,6 +268,34 @@ final class AuthorSelectorSemanticPreparer
                 }
             }
         }
+    }
+
+    /**
+     * A blockquote whose children are all phrasing content lowers to one
+     * paragraph holding that content as RichText, like a heading. A
+     * block-display span in it stays a RichText run, so its rules must reach
+     * that run's hook instead of a carrier paragraph that is never emitted.
+     */
+    private function isPhrasingWithinPhrasingQuote(DOMElement $element): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            $tag = strtolower($parent->tagName);
+            if ( 'blockquote' === $tag ) {
+                foreach ( $parent->childNodes as $child ) {
+                    if ( $child instanceof DOMElement
+                        && ! in_array(strtolower($child->tagName), array( 'cite', 'footer', 'br' ), true)
+                        && ! $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) ) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            if ( ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     /**
