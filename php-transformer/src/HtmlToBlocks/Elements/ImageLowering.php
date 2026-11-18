@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ImageDimensionResolver;
@@ -49,7 +50,7 @@ final class ImageLowering
         $declarations = $this->styleResolver->presentationDeclarations($element);
         // The inline URL can be sized and positioned by author stylesheets,
         // including link/import media conditions active at the reference viewport.
-        $author = $this->styleResolver->referenceViewportAuthorDeclarations($element, array('background-size', 'background-position'));
+        $author = $this->styleResolver->authorViewport->reference($element, array('background-size', 'background-position'));
         foreach (array('background-size', 'background-position') as $property) {
             $value = $this->styleResolver->declaredPresentation($element, $property)->resolvedValue();
             if ('' !== $value) {
@@ -58,7 +59,7 @@ final class ImageLowering
                 $declarations[$property] = $author[$property];
             }
         }
-        $declarations = array_replace($declarations, array_intersect_key($this->styleResolver->inlineDeclarations($element), array_flip(array('background-size', 'background-position'))));
+        $declarations = array_replace($declarations, array_intersect_key(SourceDeclarations::inline($element), array_flip(array('background-size', 'background-position'))));
         $url = $this->backgroundImageExtractor->urlFromStyle($this->styleResolver->mergedPresentationStyle($element));
         if ( '' === $url ) {
             return null;
@@ -75,6 +76,27 @@ final class ImageLowering
             ), static fn ($value): bool => '' !== $value);
 
             return $this->blocks->createBlock('core/group', $attrs, array(), $element);
+        }
+
+        $background = (string) ($declarations['background-image'] ?? $declarations['background'] ?? 'url(' . $url . ')');
+        $background = preg_replace('/\s*!\s*important\s*$/i', '', $background) ?? $background;
+        $layers = $this->backgroundImageLayers($background);
+        $urlLayer = null;
+        foreach ( $layers as $index => $layer ) {
+            if ( $url === $this->backgroundImageExtractor->urlFromStyle('background-image:' . $layer) ) {
+                $urlLayer = $index;
+                break;
+            }
+        }
+        // Layered backgrounds list one size and position per layer; the image
+        // takes its own layer's values (the list repeats when it is shorter).
+        if ( null !== $urlLayer ) {
+            foreach ( array('background-size', 'background-position') as $property ) {
+                $values = CssValueSplitter::splitTopLevel((string) ($declarations[$property] ?? ''), array( ',' ));
+                if ( 1 < count($values) ) {
+                    $declarations[$property] = trim($values[$urlLayer % count($values)]);
+                }
+            }
         }
 
         $width = trim((string) ($declarations['width'] ?? ''));
@@ -121,35 +143,37 @@ final class ImageLowering
         // The image is now a child of the original painted box. Keep its
         // colour and other layers, but replace only the handed-off URL layer
         // with none (rather than shifting the remaining layers' geometry).
-        $background = (string) ($declarations['background-image'] ?? $declarations['background'] ?? 'url(' . $url . ')');
-        $background = preg_replace('/\s*!\s*important\s*$/i', '', $background) ?? $background;
-        $layers = CssValueSplitter::splitTopLevel($background, array( ',' ));
-        // Shorthand layers also contain position, repeat and colour tokens;
-        // only their image token belongs in the background-image override.
-        foreach ( $layers as &$layer ) {
-            $tokens = CssValueSplitter::splitTopLevelWhitespace($layer);
-            $layer = 'none';
-            foreach ( $tokens as $token ) {
-                if ( preg_match('/^(?:url|[a-z-]*gradient|image|image-set|cross-fade|var)\(/i', $token) ) {
-                    $layer = $token;
-                    break;
-                }
-            }
+        if ( null !== $urlLayer ) {
+            $layers[$urlLayer] = 'none';
         }
-        unset($layer);
-        foreach ( $layers as &$layer ) {
-            if ( $url === $this->backgroundImageExtractor->urlFromStyle('background-image:' . $layer) ) {
-                $layer = 'none';
-                break;
-            }
-        }
-        unset($layer);
         $rule = '{background-image:' . implode(',', $layers) . ' !important}';
         $carrier = $this->session->layoutGeometryState()->allocateCarrier('materialized-background' . "\n" . $rule);
         $this->session->layoutGeometryState()->registerRule($carrier, ':root .' . $carrier . $rule);
         $attrs = $this->styleResolver->presentationAttributes($element);
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
         return $this->blocks->createBlock('core/group', $attrs, array( $image ), $element);
+    }
+
+    /**
+     * The image token of each background layer ('none' when a layer has
+     * none). Shorthand layers also contain position, repeat and colour tokens.
+     *
+     * @return list<string>
+     */
+    private function backgroundImageLayers(string $background): array
+    {
+        $layers = array();
+        foreach ( CssValueSplitter::splitTopLevel($background, array( ',' )) as $layer ) {
+            $image = 'none';
+            foreach ( CssValueSplitter::splitTopLevelWhitespace($layer) as $token ) {
+                if ( preg_match('/^(?:url|[a-z-]*gradient|image|image-set|cross-fade|var)\(/i', $token) ) {
+                    $image = $token;
+                    break;
+                }
+            }
+            $layers[] = $image;
+        }
+        return $layers;
     }
 
     /** @return array<string, mixed> */
@@ -394,9 +418,6 @@ final class ImageLowering
                 $this->styleResolver->inlineGeometryClassName($logo, array(), array_keys($radius), $radius)
             );
         }
-        if ( null !== $picture && ! $figure instanceof DOMElement ) {
-            $attrs = array_merge($this->styleResolver->presentationAttributes($picture), $attrs);
-        }
         // Boxes flattened between the figure and the image take their inline
         // custom properties with them, yet the image's `var()` readers inherit
         // them (`<div style="--width:118px"><img>` under `.logo img{width:
@@ -463,8 +484,19 @@ final class ImageLowering
         if (isset($shape['aspectRatio'])
             && ! $this->imageDimensions->statesAspectRatio((string) ($attrs['width'] ?? ''), (string) ($attrs['height'] ?? ''), (string) $shape['aspectRatio'])
         ) {
+            $intrinsic = array();
             foreach (array( 'width', 'height' ) as $property) {
-                if ($this->imageDimensions->imageDimensionIsIntrinsicAttribute($image, $property)) {
+                $intrinsic[$property] = $this->imageDimensions->imageDimensionIsIntrinsicAttribute($image, $property);
+            }
+            foreach (array( 'width', 'height' ) as $property) {
+                $other = 'width' === $property ? 'height' : 'width';
+                // An HTML dimension is a presentational hint for the CSS
+                // property of the same name. When author CSS states the other
+                // axis and leaves this one alone, the hint is this axis' used
+                // size and aspect-ratio no longer applies (both axes are
+                // definite), so it stays. Only a pair the CSS leaves wholly
+                // to the attributes describes the file rather than the box.
+                if ($intrinsic[$property] && ($intrinsic[$other] || '' === (string) ($attrs[$other] ?? ''))) {
                     // HTML dimensions describe the file, not a stylesheet-owned
                     // crop. Keeping either as a core/image style overrides it.
                     unset($attrs[$property]);
@@ -501,6 +533,11 @@ final class ImageLowering
         );
         if ( '' !== $boxCarrier ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $boxCarrier);
+        }
+
+        $frameOverflow = $this->styleResolver->flattenedImageFrameOverflowClassName($image, $figure);
+        if ( '' !== $frameOverflow ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $frameOverflow);
         }
 
         if ( $figure instanceof DOMElement ) {
@@ -574,13 +611,43 @@ final class ImageLowering
             }
         }
 
-        $selection = $this->authoredImageSelection($image, (string) $attrs['url']);
+        // A hidden layout placeholder does not paint the card thumbnail. Keep
+        // the wrapper's painted image on the leaf before wrappers are flattened.
+        // The normal URL resolver and site-plan tokenization own this URL too.
+        $presentation = $this->styleResolver->authorViewport->collapsed($image, array('opacity', 'visibility'))
+            + $this->styleResolver->resolvedSourceStateDeclarations($image);
+        $opacity = CssValueInspector::comparable((string) ($presentation['opacity'] ?? ''));
+        $visibility = CssValueInspector::comparable((string) ($presentation['visibility'] ?? ''));
+        if (('' !== $opacity && is_numeric($opacity) && 0.0 === (float) $opacity)
+            || 'hidden' === $visibility
+        ) {
+            $wrapper = $image->parentNode;
+            if ($wrapper instanceof DOMElement) {
+                $background = $this->backgroundImageExtractor->urlFromStyle($this->styleResolver->mergedPresentationStyle($wrapper));
+                if (null !== $background && '' !== $background) {
+                    $attrs['metadata']['blocksEngineVisibleImage'] = array('url' => $this->imageUrls->resolvedAssetUrl($background));
+                }
+            }
+        }
+
+        // A linked image may become a listing card's per-post featured image.
+        // Its authored width/height state the box the card reserved, which the
+        // lowered figure no longer carries once author CSS makes it fluid.
+        if ( $link instanceof DOMElement ) {
+            $intrinsicWidth = trim(SourceDom::attr($image, 'width'));
+            $intrinsicHeight = trim(SourceDom::attr($image, 'height'));
+            if ( 1 === preg_match('/^[1-9]\d{0,5}$/', $intrinsicWidth) && 1 === preg_match('/^[1-9]\d{0,5}$/', $intrinsicHeight) ) {
+                $attrs['metadata'] = array_merge(ArrayField::array($attrs, 'metadata'), array( 'blocksEngineIntrinsicSize' => array( 'width' => (int) $intrinsicWidth, 'height' => (int) $intrinsicHeight ) ));
+            }
+        }
+
+        $selection = $this->authoredImageSelection($image, (string) $attrs['url'], $picture);
         if ( array() !== $selection ) {
             $attrs['metadata'] = array_merge(ArrayField::array($attrs, 'metadata'), array( 'blocksEngineImageSelection' => $selection ));
         }
 
         if ($figure instanceof DOMElement && $link instanceof DOMElement) {
-            $imagePresentation = $this->styleResolver->inlineDeclarations($image);
+            $imagePresentation = SourceDeclarations::inline($image);
             foreach (array('display', 'vertical-align') as $property) {
                 if (! isset($imagePresentation[$property])) {
                     $value = $this->styleResolver->declaredPresentation($image, $property)->resolvedValue();
@@ -595,7 +662,7 @@ final class ImageLowering
                     // Core's bottom alignment would remove the source line-box strut.
                     $attrs['className'] = SourceDom::mergeClassNames((string) $attrs['className'], SourceBlockAttributeProjector::BASELINE_IMAGE_LEAF_CLASS);
                     if ($link instanceof DOMElement) {
-                        $linkPresentation = $this->styleResolver->inlineDeclarations($link);
+                        $linkPresentation = SourceDeclarations::inline($link);
                         foreach (array('display', 'vertical-align') as $property) {
                             if (! isset($linkPresentation[$property])) {
                                 $value = $this->styleResolver->declaredPresentation($link, $property)->resolvedValue();
@@ -609,6 +676,13 @@ final class ImageLowering
                     }
                 }
             }
+        } elseif ($link instanceof DOMElement && $this->isBlockImageInInlineLink($image, $link)) {
+            // The source's block-level image broke out of its inline link and
+            // sized and aligned (e.g. `mx-auto`) against the link's container,
+            // which the synthetic figure now stands in for. Core's inline-block
+            // anchor would shrink-wrap the image and pin it to the line start;
+            // keep the source link inline so the image lays out on the figure.
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::INLINE_IMAGE_LINK_CLASS);
         }
         $block = $this->blocks->createBlock('core/image', $attrs, array(), $figure ?? $image);
         // core/image saves the class list and anchor on the <figure>; an author
@@ -643,14 +717,32 @@ final class ImageLowering
      * Authored `loading` belongs to it: when candidates share a URL, the first
      * fetch fixes the image's density, so eager and lazy copies render apart.
      *
-     * @return array{src?:string,srcset?:string,sizes?:string,loading?:string}
+     * A src-only image keeps just its authored `loading` and `fetchpriority`:
+     * core/image saves neither, and core's default would load the first
+     * content images eagerly although the source deferred them. An image
+     * without authored values records nothing, so core's defaults apply.
+     *
+     * @return array<string, mixed>
      */
-    private function authoredImageSelection(DOMElement $image, string $src): array
+    private function authoredImageSelection(DOMElement $image, string $src, ?DOMElement $picture = null): array
     {
-        if ( array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset')) || $this->hasUnsafeResponsiveImageSources($image) ) {
+        $loading       = strtolower(trim(SourceDom::attr($image, 'loading')));
+        $loading       = in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '';
+        $fetchpriority = strtolower(trim(SourceDom::attr($image, 'fetchpriority')));
+        $fetchpriority = in_array($fetchpriority, array( 'high', 'low', 'auto' ), true) ? $fetchpriority : '';
+        if ( null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset')) ) {
+            if ( '' === $loading && '' === $fetchpriority ) {
+                return array();
+            }
+            return array_filter(array(
+                'src'           => $src,
+                'loading'       => $loading,
+                'fetchpriority' => $fetchpriority,
+            ), static fn (string $value): bool => '' !== $value);
+        }
+        if ( $this->hasUnsafeResponsiveImageSources($picture ?? $image) ) {
             return array();
         }
-        $loading = strtolower(trim(SourceDom::attr($image, 'loading')));
         $sizes   = trim(SourceDom::attr($image, 'sizes'));
 
         // The HTML spec applies the `auto` keyword only to lazy-loaded images;
@@ -660,12 +752,39 @@ final class ImageLowering
             $sizes = (string) preg_replace('/^auto(?:\s*,\s*|$)/i', '', $sizes, 1);
         }
 
-        return array_filter(array(
+        $selection = array_filter(array(
             'src'     => $src,
             'srcset'  => SrcsetParser::rewrite(SourceDom::attr($image, 'srcset'), fn (string $url): string => $this->imageUrls->resolvedAssetUrl($url)),
             'sizes'   => $sizes,
-            'loading' => in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '',
+            'loading' => $loading,
         ), static fn (string $value): bool => '' !== $value);
+        if ( $picture instanceof DOMElement ) {
+            $selection['image'] = array();
+            foreach ( array('class', 'style', 'id') as $name ) {
+                if ( $image->hasAttribute($name) ) {
+                    $selection['image'][$name] = SourceDom::attr($image, $name);
+                }
+            }
+            $selection['picture'] = array();
+            foreach ( $picture->attributes as $attribute ) {
+                if ( in_array($attribute->name, array('class', 'style', 'id', 'title', 'dir', 'lang', 'hidden', 'role'), true) || str_starts_with($attribute->name, 'aria-') || str_starts_with($attribute->name, 'data-') ) {
+                    $selection['picture'][$attribute->name] = $attribute->value;
+                }
+            }
+            $selection['sources'] = array();
+            foreach ( $picture->getElementsByTagName('source') as $source ) {
+                $attributes = array();
+                foreach ( array('media', 'type', 'srcset', 'sizes') as $name ) {
+                    if ( $source->hasAttribute($name) ) {
+                        $attributes[$name] = 'srcset' === $name
+                            ? SrcsetParser::rewrite(SourceDom::attr($source, $name), fn (string $url): string => $this->imageUrls->resolvedAssetUrl($url))
+                            : SourceDom::attr($source, $name);
+                    }
+                }
+                $selection['sources'][] = $attributes;
+            }
+        }
+        return $selection;
     }
 
     /**
@@ -673,6 +792,10 @@ final class ImageLowering
      */
     private function imageLinkAttributes(DOMElement $link): array
     {
+        // The synthetic figure is display:contents; the link still owns its
+        // source box, including spacing that core/image cannot serialize.
+        $inline = SourceDeclarations::inline($link);
+        $boxProperties = array_keys(array_filter($inline, NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY));
         $attrs = array(
             'href'            => LinkUrlSanitizer::sanitize(SourceDom::attr($link, 'href')),
             'linkDestination' => 'custom',
@@ -682,9 +805,9 @@ final class ImageLowering
                 SourceDom::attr($link, 'class'),
                 $this->styleResolver->inlineCustomPropertyCarrierClassName($link),
                 $this->styleResolver->inlineGeometryClassName($link, array_values(array_diff(
-                    array_keys($this->styleResolver->inlineDeclarations($link)),
-                    array('display')
-                ))),
+                    array_keys($inline),
+                    array_merge(array('display'), $boxProperties)
+                )), $boxProperties),
                 ...$this->session->authorSelectorProjectionState()->semanticMarkersForPath($link->getNodePath() ?? '')
             ),
         );
@@ -717,6 +840,18 @@ final class ImageLowering
         return $attrs;
     }
 
+    private function isBlockImageInInlineLink(DOMElement $image, DOMElement $link): bool
+    {
+        return 'block' === $this->sourceDisplay($image) && 'inline' === $this->sourceDisplay($link);
+    }
+
+    private function sourceDisplay(DOMElement $element): string
+    {
+        $value = SourceDeclarations::inline($element)['display'] ?? $this->styleResolver->declaredPresentation($element, 'display')->resolvedValue();
+
+        return CssValueInspector::comparable('' !== $value ? $value : $this->styleResolver->defaultTagDisplay($element));
+    }
+
     /** Keep independently styled source boxes distinct without changing inert class transport. */
     private function imageNeedsSeparateFigureBox(DOMElement $image, ?DOMElement $figure): bool
     {
@@ -729,11 +864,11 @@ final class ImageLowering
     /** @return array<string, string> */
     private function imagePresentationAttributes(DOMElement $image, ?DOMElement $figure): array
     {
-        $inlineImagePlacement = array_keys(array_filter($this->styleResolver->inlineDeclarations($image), NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
+        $inlineImagePlacement = array_keys(array_filter(SourceDeclarations::inline($image), NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
         $link = $image->parentNode;
         $syntheticLinkedFigure = ! $figure instanceof DOMElement && $link instanceof DOMElement && 'a' === strtolower($link->tagName);
         $imageBoxProperties = $syntheticLinkedFigure
-            ? array_keys(array_filter($this->styleResolver->inlineDeclarations($image), NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY))
+            ? array_keys(array_filter(SourceDeclarations::inline($image), NativeImageLeafPresentation::isBoxProperty(...), ARRAY_FILTER_USE_KEY))
             : array();
         // A synthetic figure must not inherit the image's preferred ratio:
         // imageBoxConstraintClassName() carries it on the painting leaf instead.
@@ -752,7 +887,7 @@ final class ImageLowering
                 $this->styleResolver->syntheticFlexImageBoxClassName($image)
             );
         }
-        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->imageLeafPlacementClassName($image));
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->imageLeafPlacementClassName($image, $figure instanceof DOMElement));
         if ( $figure instanceof DOMElement ) {
             // Separate source boxes must keep separate selector ownership. Only
             // inert identities retain the historical class transport.
@@ -821,7 +956,7 @@ final class ImageLowering
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture);
         }
 
-        return $this->convertImage($image, $figure ?? $picture, $picture, $link);
+        return $this->convertImage($image, $figure, $picture, $link);
     }
 
     public function figureLinkedMediaAnchor(DOMElement $figure): ?DOMElement

@@ -36,7 +36,7 @@ foreach ( array( 'id="root"', 'class="article-body"' ) as $rootAttrs ) {
     $assert('success' === ( $result['status'] ?? '' ) || 'success_with_warnings' === ( $result['status'] ?? '' ), "content embed wrapper {$rootAttrs} compiles");
     $assert(! str_starts_with($markup, '<!-- wp:html'), "content embed wrapper {$rootAttrs} is not preserved whole as core/html");
     $assert(str_contains($markup, '<!-- wp:paragraph --><p>Intro copy.</p>'), "content outside the runtime targets stays a native block for {$rootAttrs}");
-    $assert(str_contains($markup, '<iframe') && str_contains($markup, 'Intro copy.') && str_contains($markup, 'More copy'), "content and embed survive for {$rootAttrs}");
+    $assert(str_contains(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture::render($markup), '<iframe') && str_contains($markup, 'Intro copy.') && str_contains($markup, 'More copy'), "content and embed survive for {$rootAttrs}");
 }
 
 // An iframe with inline document content or no external destination is an app-like surface.

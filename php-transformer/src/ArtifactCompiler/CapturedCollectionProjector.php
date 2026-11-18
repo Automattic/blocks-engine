@@ -1022,21 +1022,32 @@ final class CapturedCollectionProjector
         }
         if (!$root instanceof DOMElement || in_array(strtolower($root->tagName), array('html', 'body'), true)) return false;
         $category = 1;
+        $initialCategory = 0;
+        $initialMembers = null;
+        foreach ($evidence['states'] ?? array() as $state) {
+            if (($state['id'] ?? null) === ($component['initial'] ?? 'initial')) $initialMembers = $state['members'];
+        }
         foreach ($controls as $control) {
             $node = $control['node'];
             $node->removeAttribute(CaptureEvidence::UNSUPPORTED);
             if ($control['search'] ?? false) { $node->setAttribute('data-blocks-engine-collection-field', 'true'); continue; }
+            $isSelect = 'select' === strtolower($node->tagName);
+            $selectedValue = $isSelect ? $this->capturedSelectValue($node, $control['values'], $initialMembers) : null;
+            $group = $isSelect ? $this->selectChoiceGroup($document, $node) : null;
             foreach ($control['values'] as $value) {
                 $button = $node;
                 if ('select' === strtolower($node->tagName)) {
                     $button = $document->createElement('button');
                     foreach ($node->getElementsByTagName('option') as $option) if ($option->getAttribute('value') === $value['value']) $button->textContent = $option->textContent;
-                    $node->parentNode->insertBefore($button, $node);
+                    $button->setAttribute('type', 'button');
+                    $group->appendChild($button);
                 }
                 if ($button !== $node && '' === $button->textContent) return false;
                 $index = $category++;
                 $state = array('class' => $button->getAttribute('class'), 'style' => $button->getAttribute('style'));
-                $button->setAttribute('data-blocks-engine-collection-choice', json_encode(array('index' => $index, 'initial' => false, 'active' => $state, 'inactive' => $state)));
+                $initial = 0 === $initialCategory && $isSelect && $selectedValue === $value['value'];
+                if ($initial) $initialCategory = $index;
+                $button->setAttribute('data-blocks-engine-collection-choice', json_encode(array('index' => $index, 'initial' => $initial, 'active' => $state, 'inactive' => $state)));
                 // An observed empty/reset value restores the complete captured union.
                 $memberships[$index] = '' === $value['value'] ? $keys : $value['keys'];
             }
@@ -1068,13 +1079,63 @@ final class CapturedCollectionProjector
             foreach ($memberships as $index => $set) if (in_array($member['key'], $set, true)) $categories[] = $index;
             $items[] = array('marker' => $marker, 'categories' => $categories);
         }
-        $root->setAttribute('data-blocks-engine-collection-root', json_encode(array('items' => $items, 'initialCategory' => 0, 'mode' => 'captured-union')));
+        $root->setAttribute('data-blocks-engine-collection-root', json_encode(array('items' => $items, 'initialCategory' => $initialCategory, 'mode' => 'captured-union')));
         $target->setAttribute('data-blocks-engine-collection-target', $identity);
         $empty = $document->createElement('div');
         $empty->setAttribute('data-blocks-engine-collection-empty', 'true');
         $empty->appendChild($document->createElement('p', 'No matching captured records.'));
         $target->parentNode->insertBefore($empty, $target->nextSibling);
         return true;
+    }
+
+    /** Prefer captured native selection; an explicitly unselected control keeps the union. */
+    private function capturedSelectValue(DOMElement $node, array $values, ?array $initialMembers): ?string
+    {
+        if ($node->hasAttribute(CaptureEvidence::NATIVE_CONTROL_STATE)) {
+            $state = json_decode($node->getAttribute(CaptureEvidence::NATIVE_CONTROL_STATE), true);
+            foreach ($node->getElementsByTagName('option') as $index => $option) {
+                if (true === ($state['options'][$index]['selected'] ?? false)) return $option->getAttribute('value');
+            }
+            return null;
+        }
+        if (null === $initialMembers) return null;
+        sort($initialMembers);
+        foreach ($values as $value) {
+            $members = $value['keys'];
+            sort($members);
+            if ($members === $initialMembers) return $value['value'];
+        }
+        return null;
+    }
+
+    /** A native label cannot own multiple independently named choice buttons. */
+    private function selectChoiceGroup(DOMDocument $document, DOMElement $select): DOMElement
+    {
+        $label = $select->parentNode;
+        while ($label instanceof DOMElement && 'label' !== strtolower($label->tagName)) $label = $label->parentNode;
+        $group = $document->createElement('div');
+        $group->setAttribute('role', 'group');
+        $group->setAttribute('data-blocks-engine-collection-choices', 'true');
+        if ($label instanceof DOMElement) {
+            $name = $label->cloneNode(true);
+            foreach (iterator_to_array($name->getElementsByTagName('select')) as $control) $control->parentNode->removeChild($control);
+            foreach ($label->attributes as $attribute) {
+                if ('for' !== $attribute->name) $group->setAttribute($attribute->name, $attribute->value);
+            }
+            $group->setAttribute('role', 'group');
+            $group->setAttribute('aria-label', $this->text($name));
+            $label->parentNode->replaceChild($group, $label);
+            while ($label->firstChild) $group->appendChild($label->firstChild);
+        } else {
+            $select->parentNode->insertBefore($group, $select);
+            foreach ($document->getElementsByTagName('label') as $externalLabel) {
+                if ('' !== $select->getAttribute('id') && $externalLabel->getAttribute('for') === $select->getAttribute('id')) {
+                    $group->setAttribute('aria-label', $this->text($externalLabel));
+                    break;
+                }
+            }
+        }
+        return $group;
     }
 
     private function one(DOMDocument $document, string $selector): ?DOMElement

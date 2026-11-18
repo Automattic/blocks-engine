@@ -17,7 +17,7 @@ $bare = (string) ($plan($iframe)['pages'][0]['canonical_block_markup'] ?? '');
 $wrapped = $plan("<p>{$iframe}</p>");
 $markup = (string) ($wrapped['pages'][0]['canonical_block_markup'] ?? '');
 
-if ( ! str_contains($bare, '"src":"https://www.google.com/maps/embed?pb=!1m18"') || $markup !== $bare ) {
+if ( ! str_contains($bare, '"url":"https://www.google.com/maps/embed?pb=!1m18"') || $markup !== $bare ) {
     fwrite(STDERR, "FAIL: an iframe-only paragraph does not lower like a bare iframe.\nbare: {$bare}\nwrapped: {$markup}\n");
     exit(1);
 }

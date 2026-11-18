@@ -373,7 +373,7 @@ final class SubtreeClassifier
     {
         foreach ( $elements as $element ) {
             foreach ( $element->attributes ?? array() as $attribute ) {
-                if ( str_starts_with(strtolower($attribute->nodeName), $prefix) ) {
+                if ( ! \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($attribute->nodeName) && str_starts_with(strtolower($attribute->nodeName), $prefix) ) {
                     return true;
                 }
             }

@@ -47,19 +47,29 @@ foreach (array_keys($labels) as $index) {
 $result = $compile($page(array(array('transitions' => $transitions))));
 $markup = (string) ($result['serialized_blocks'] ?? '');
 $companion = array_values(array_filter($result['source_reports']['companion_plugin_payload']['blocks'] ?? array(), static fn(array $block): bool => 'captured-choice-group' === ($block['name'] ?? null)));
-$viewJs = (string) ($companion[0]['view_js'] ?? '');
+$writes = array_column($result['source_reports']['wordpress_site_plan']['writes'] ?? array(), null, 'target_path');
+$viewJs = (string) ($writes['functions.php']['payload']['data'] ?? '');
 $config = array();
-if (1 === preg_match('/data-blocks-engine-choice-config="([^"]*)"/', $markup, $match)) {
-    $config = json_decode(html_entity_decode($match[1], ENT_QUOTES), true) ?: array();
+$shell = null;
+preg_match_all('/<!-- wp:group (.*?) -->/', $markup, $groups);
+foreach ($groups[1] as $json) {
+    $attrs = json_decode($json, true);
+    if (isset($attrs['metadata']['blocksEngineChoiceGroup'])) {
+        $shell = $attrs['metadata']['blocksEngineChoiceGroup'];
+        $config = json_decode($shell['attributes']['data-blocks-engine-choice-config'], true);
+    }
 }
 $diagnostics = (string) json_encode($result['source_reports'] ?? array());
 $assert(1 === ($result['source_reports']['captured_interactions']['projected_choice_group_count'] ?? null), 'the inline choice group is projected');
-$assert(str_contains($markup, 'inline-choice-site/captured-choice-group'), 'the inline choice group materializes as the captured choice-group companion');
+$assert(! str_contains($markup, 'inline-choice-site/captured-choice-group') && null !== $shell && array() === $companion, 'the inline choice group is a core Group with captured behavior, not a companion block');
+$assert(str_contains($markup, 'class="wp-block-group sizes"'), 'the saved container uses canonical core Group markup');
+$assert('Size' === ($shell['attributes']['aria-label'] ?? null), 'the core Group retains the authored accessible label in its runtime shell');
+$assert(1 === substr_count($viewJs, "add_filter( 'render_block_core/group'"), 'the public site plan installs one shared choice shell renderer');
 $assert(! str_contains($markup, 'wp:html') && ! str_contains($markup, 'core/html'), 'the inline choice group is not frozen as raw HTML');
 $assert(4 === substr_count($markup, '<!-- wp:button ') && str_contains($markup, '>Extra large</button>'), 'the four choices stay editable button blocks');
 $assert(! str_contains($markup, 'data-blocks-engine-capture-choice') && ! str_contains($markup, 'configFor'), 'capture markers and the producer runtime do not ship');
 $assert(! str_contains($diagnostics, 'runtime_dom_contract_fallback'), 'the consumed producer runtime is not a runtime-island fallback');
-$assert(str_contains($viewJs, 'click') && str_contains($viewJs, 'keydown') && str_contains($viewJs, 'bindings'), 'click and keyboard selection replay the bounded state bindings');
+$assert(str_contains($viewJs, 'blocks-engine-choice-groups') && str_contains($viewJs, 'click') && str_contains($viewJs, 'keydown') && str_contains($viewJs, 'bindings'), 'the public site plan enqueues click and keyboard selection with bounded state bindings');
 $assert(array(0, 1, 2, 3) === array_column($config['states'] ?? array(), 'selectedIndex'), 'every observed selection is carried to the companion behavior');
 $pressed = array_map(static fn(array $state): array => array_map(static fn(array $binding): ?string => $binding['nodes'][0]['attributes']['aria-pressed'] ?? null, $state['bindings'] ?? array()), $config['states'] ?? array());
 $assert(array(array('true', 'false', 'false', 'false'), array('false', 'true', 'false', 'false'), array('false', 'false', 'true', 'false'), array('false', 'false', 'false', 'true')) === $pressed, 'selecting a choice presses only that choice');

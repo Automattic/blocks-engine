@@ -156,10 +156,27 @@ final class InlineTextWrapperLowering
             if ( $child instanceof DOMElement && $this->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($child) ) {
                 return null;
             }
+            if ( $child instanceof DOMElement && 'svg' === strtolower($child->tagName)
+                && ! in_array($this->styleResolver->resolvedDeclaration($child, 'display'), array( '', 'inline', 'inline-block', 'none' ), true) ) {
+                return null;
+            }
         }
 
-        if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) ) {
+        if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren(
+            $element,
+            fn (DOMElement $child): bool => 'none' !== $this->styleResolver->resolvedDeclaration($child, 'display')
+        ) ) {
             return null;
+        }
+
+        // RichText cannot carry a data-entry control. A label beside an input
+        // lowers child by child, as it does inside a block wrapper, so the
+        // control reaches its readable block instead of forcing the whole run
+        // to a core/html fallback.
+        foreach ( FormControlClassifier::controlElements($element) as $control ) {
+            if ( FormControlClassifier::isDataEntryControl($control) ) {
+                return null;
+            }
         }
 
         if ( $this->emptyVisualRetention->hasEmptyVisualInlineChild($element) ) {

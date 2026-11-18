@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
@@ -148,6 +151,23 @@ final class WordPressCompatCss
      * stylesheet shared by many sites carries rules for markup this site never
      * renders. Arms the matcher cannot evaluate are replayed as before.
      */
+    /** Whether a rule body shows its box: visible, fully opaque or displayed. */
+    private static function revealsBox(string $body): bool
+    {
+        foreach ( CssRuleAnalyzer::declarations($body, array( 'visibility', 'opacity', 'display' )) as [ 'name' => $name, 'value' => $value ] ) {
+            $value = CssValueInspector::comparable($value);
+            if ( match ( $name ) {
+                'visibility' => 'visible' === $value,
+                'opacity' => 1 === preg_match('/^1(?:\.0+)?$/D', $value),
+                default => 'none' !== $value,
+            } ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function mayMatchSource(string $selector): bool
     {
         if (null === $this->sourceDocuments || array() === $this->sourceDocuments) return true;
@@ -327,7 +347,7 @@ final class WordPressCompatCss
         foreach ($this->splitSelectorList($selectorList) as $selector) {
             if (!$this->mayMatchSource($selector)) continue;
             $targets = array();
-            if (preg_match('/(?:^|;)\s*display\s*:/i', $body)) {
+            if (array() !== CssRuleAnalyzer::declarations($body, array('display'))) {
                 $container = $this->mapNavigationContainerSelector($selector);
                 if (null !== $container) $targets[] = $container;
             }
@@ -489,7 +509,7 @@ final class WordPressCompatCss
             }
             if ( str_contains($rule['selector'], '.search-icon')
                 && ! str_contains($rule['selector'], '.wp-block-search')
-                && preg_match('/(?:^|;)\s*display\s*:\s*none\b/i', $rule['body']) ) {
+                && 'none' === CssValueInspector::declared(SourceDeclarations::parse($rule['body']), 'display') ) {
                 $rules['search-icon'] = '.wp-block-search.wp-block-search__icon-button .wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }';
                 break;
             }
@@ -592,7 +612,7 @@ final class WordPressCompatCss
         $separator = (string) ($anchorMatch[1][0] ?? '');
         $anchorStart = (int) $anchorMatch[0][1] + strlen($separator);
         $prefix = substr($selector, 0, $anchorStart);
-        if ( 1 !== preg_match('/[.#\[]/', $prefix) ) {
+        if ( 1 !== preg_match('/[.#\[]/', $prefix) || $this->anchorOwnedByNativeLeaf($prefix) ) {
             return array();
         }
 
@@ -618,6 +638,36 @@ final class WordPressCompatCss
         }
 
         return array_keys($selectors);
+    }
+
+    /**
+     * Whether the anchor after `$prefix` can only be a native leaf block's own
+     * link, never a core/navigation item. Projection lowers subjects onto
+     * paragraph and image carriers (`p.carrier > a > *`, `.wp-block-image >
+     * a > img`); replaying those as navigation emits arms no element matches:
+     * the HTML parser closes a `<p>` before any `<nav>`, so no navigation
+     * lies inside one, and a navigation link's parent is its item, never a
+     * core/image wrapper, which holds no inner blocks. Alternatives (a comma
+     * outside negations) and negations require nothing, so they decide nothing.
+     */
+    private function anchorOwnedByNativeLeaf(string $prefix): bool
+    {
+        $required = (string) preg_replace('/:not\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/i', '', $prefix);
+        // Sibling combinators and relational pseudos do not establish
+        // ancestry: `p + .menu a` and `.menu:has(p) a` can own navigation.
+        if ( str_contains($required, ',') || str_contains($required, '.wp-block-navigation')
+            || str_contains($required, '+') || str_contains($required, '~')
+            || str_contains($required, ':has(')
+        ) {
+            return false;
+        }
+        if ( 1 === preg_match('/(?:^|[\s>+~(])p(?=$|[\s>+~.#:\[)])/i', $required) ) {
+            return true;
+        }
+        if ( 1 !== preg_match('/([^\s>+~]+)\s*>\s*$/', $required, $parent) ) {
+            return false;
+        }
+        return 1 === preg_match('/\.wp-block-image(?![\w-])/', $parent[1]);
     }
 
     /**
@@ -666,7 +716,7 @@ final class WordPressCompatCss
         $prefix = rtrim(substr($selector, 0, $matchStart));
         $tail = substr($selector, $matchStart + $matchLength);
         if ( '' === trim($tail) ) {
-            if ( ! preg_match('/(?:^|;)\s*(?:visibility\s*:\s*visible\b|opacity\s*:\s*1(?:\.0+)?\b|display\s*:\s*(?!none\b)[^;}]+)/i', $body)
+            if ( ! self::revealsBox($body)
                 || ! preg_match('/\.' . SourceClassIdentity::REVEAL_STATE . '\b/i', $listClasses) ) {
                 return array();
             }
@@ -821,7 +871,25 @@ final class WordPressCompatCss
                 return false;
             }
         }
-        return true;
+        // One element is one block: another core block's root class is never
+        // also core/navigation's root.
+        return 1 !== preg_match('/\.wp-block-(?!navigation(?![A-Za-z0-9_]))[A-Za-z]/', $required);
+    }
+
+    /**
+     * Whether the prefix requires an ancestor core/navigation's `<nav>` can
+     * never sit inside: a phrasing element (`p`, a heading) or a leaf block
+     * (core/image) that has no inner blocks.
+     */
+    private function hostsNoNavigation(string $prefix): bool
+    {
+        $required = (string) preg_replace('/:not\((?:[^()]|\([^()]*\))*\)/i', '', $prefix);
+        if ( 1 === preg_match('/\.wp-block-(?:image|post-featured-image|heading|button|paragraph)(?![A-Za-z0-9_-])/', $required) ) {
+            return true;
+        }
+        preg_match_all('/(?:^|[\s>+~(,])\s*(p|h[1-6]|label|button|img)(?=$|[\s>+~.#:\[)])/i', $required, $types);
+
+        return array() !== $types[1];
     }
 
     /**
@@ -848,7 +916,7 @@ final class WordPressCompatCss
     private function insertNavigationDescendantWrapper(string $selector, string $prefix): ?string
     {
         $parentPrefix = rtrim((string) preg_replace('/[\s>+~]+$/', '', $prefix));
-        if ( '' === $parentPrefix || str_contains($parentPrefix, '.wp-block-navigation') ) {
+        if ( '' === $parentPrefix || str_contains($parentPrefix, '.wp-block-navigation') || $this->hostsNoNavigation($parentPrefix) ) {
             return null;
         }
 

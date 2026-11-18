@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -56,7 +58,7 @@ final class ImageDimensionResolver
         // normalizedAspectRatio, or the keyword never matches the allowlist below
         // and the whole promotion silently declines.
         $scale        = strtolower(CssValueInspector::withoutImportant(
-            $this->styles->resolveCssVariablesInValue(
+            $this->styles->customProperties->resolve(
                 (string) ($declarations['object-fit']['value'] ?? ''),
                 $image
             )
@@ -174,7 +176,7 @@ final class ImageDimensionResolver
     /** Whether the emitted dimensions came only from the image file metadata. */
     private function imageDimensionsAreIntrinsicAttributes(DOMElement $image): bool
     {
-        $declarations = $this->styles->inlineDeclarations($image);
+        $declarations = SourceDeclarations::inline($image);
         foreach (array( 'width', 'height' ) as $property) {
             $value = trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
             if ('' !== $value && !in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
@@ -186,7 +188,7 @@ final class ImageDimensionResolver
 
     public function imageDimensionIsIntrinsicAttribute(DOMElement $image, string $property): bool
     {
-        $declarations = $this->styles->inlineDeclarations($image);
+        $declarations = SourceDeclarations::inline($image);
         $inline = trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
         return ('' === $inline || in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true))
             && '' === $this->imageStylesheetDimension($image, $property)
@@ -195,7 +197,7 @@ final class ImageDimensionResolver
 
     private function imageHasNonPositiveDimension(DOMElement $image, string $property): bool
     {
-        $inline = trim(CssValueInspector::withoutImportant((string) ($this->styles->inlineDeclarations($image)[ $property ] ?? '')));
+        $inline = trim(CssValueInspector::withoutImportant((string) (SourceDeclarations::inline($image)[ $property ] ?? '')));
         $value = $inline;
         if ('' === $value || in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
             $value = trim(CssValueInspector::withoutImportant((string) ($this->styles->presentationDeclarations($image)[ $property ] ?? '')));
@@ -214,7 +216,7 @@ final class ImageDimensionResolver
 
     public function imageDisplayDimension(DOMElement $image, string $property): string
     {
-        $declarations = $this->styles->inlineDeclarations($image);
+        $declarations = SourceDeclarations::inline($image);
         $inline = trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? '')));
         $other = 'width' === $property ? 'height' : 'width';
         $otherInline = trim(CssValueInspector::withoutImportant((string) ($declarations[ $other ] ?? '')));
@@ -224,13 +226,21 @@ final class ImageDimensionResolver
         if ( '' !== $inline && ! in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
             return $this->imageDimensionValue($inline);
         }
-        if ( $this->styles->imageAxisVariesByViewport($image, $property) ) {
-            // A responsive rule resizes this axis: the projected stylesheet
-            // resolves it per viewport, and neither the desktop value nor the
-            // HTML attribute may be pinned inline over it.
+        if ( $this->styles->imageAxisVariesByViewport($image, $property)
+            || $this->styles->imageAxisVariesByViewport($image, $other) ) {
+            // Core saves a missing opposite axis as auto when one dimension
+            // is present. Leave both axes to projection when either varies,
+            // so that auto cannot override responsive stylesheet sizing.
             return '';
         }
         $stylesheet = $this->imageStylesheetDimension($image, $property);
+        if ( $this->percentageRuleMovesToFigure($image, $property, $stylesheet) ) {
+            // The rule's class/id/attribute subject now matches the figure,
+            // which already takes the percentage of the source container.
+            // The image fills that figure; restating the percentage here
+            // would apply it a second time against the figure.
+            return '100%';
+        }
         if ( '' !== $stylesheet ) {
             return $this->imageDimensionValue($stylesheet);
         }
@@ -433,7 +443,7 @@ final class ImageDimensionResolver
                 || $this->styles->imageAxisVariesByViewport($wrapper, $property) ) {
                 return null;
             }
-            $declarations = $this->styles->referenceViewportAuthorDeclarations(
+            $declarations = $this->styles->authorViewport->reference(
                 $wrapper,
                 array_merge(array( $property, 'display', 'position', 'float' ), $paddingProperties)
             );
@@ -487,7 +497,7 @@ final class ImageDimensionResolver
         if ( ! $container instanceof DOMElement ) {
             return false;
         }
-        $containerDisplay = CssValueInspector::comparable((string) ($this->styles->referenceViewportAuthorDeclarations($container, array( 'display' ))['display'] ?? ''));
+        $containerDisplay = CssValueInspector::comparable((string) ($this->styles->authorViewport->reference($container, array( 'display' ))['display'] ?? ''));
 
         return ! in_array($containerDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
     }
@@ -558,12 +568,12 @@ final class ImageDimensionResolver
             $document = $document->parentNode;
         }
         $displayed = false;
-        foreach ( array( 'referenceViewportAuthorDeclarations', 'collapsedViewportAuthorDeclarations' ) as $atViewport ) {
-            if ( $document instanceof DOMElement && 'none' === CssValueInspector::comparable(CssValueInspector::withoutImportant($this->styles->$atViewport($document, array( 'display' ))['display'] ?? '')) ) {
+        foreach ( array( 'reference', 'collapsed' ) as $atViewport ) {
+            if ( $document instanceof DOMElement && 'none' === CssValueInspector::comparable(CssValueInspector::withoutImportant($this->styles->authorViewport->$atViewport($document, array( 'display' ))['display'] ?? '')) ) {
                 continue;
             }
             $displayed = true;
-            if ( '' === $this->imageDimensionValue(CssValueInspector::withoutImportant($this->styles->$atViewport($image, array( 'width' ))['width'] ?? '')) ) {
+            if ( '' === $this->imageDimensionValue(CssValueInspector::withoutImportant($this->styles->authorViewport->$atViewport($image, array( 'width' ))['width'] ?? '')) ) {
                 return false;
             }
         }
@@ -595,6 +605,27 @@ final class ImageDimensionResolver
         )));
 
         return in_array($value, array( 'auto', 'initial', 'unset' ), true);
+    }
+
+    /**
+     * Whether a winning stylesheet percentage on this axis belongs to a rule
+     * whose subject identity moves to the synthetic figure (see
+     * {@see CssSelectorCompoundInspector::isBareImageSubject()}).
+     */
+    private function percentageRuleMovesToFigure(DOMElement $image, string $property, string $value): bool
+    {
+        if ( 1 !== preg_match('/^(?:\d+|\d*\.\d+)%$/', $value) ) {
+            return false;
+        }
+        $declaration = $this->styles->imageShapeDeclarations($image)[$property] ?? array();
+        $selector = is_array($declaration) ? (string) ($declaration['selector'] ?? '') : '';
+        if ( '' === $selector || ! empty($declaration['inline']) ) {
+            return false;
+        }
+        $parsed = CssSelectorMatcher::parse($selector);
+
+        return (bool) ($parsed['supported'] ?? false)
+            && ! CssSelectorCompoundInspector::isBareImageSubject(CssSelectorCompoundInspector::rightmost($parsed['compounds'] ?? array()));
     }
 
     /** A viewport-invariant source dimension that native core/image can carry. */
@@ -652,7 +683,7 @@ final class ImageDimensionResolver
 
     public function fillParentImageViewportPair(DOMElement $image): void
     {
-        $declarations = $this->styles->inlineDeclarations($image);
+        $declarations = SourceDeclarations::inline($image);
         $width = trim(CssValueInspector::withoutImportant((string) ($declarations['width'] ?? '')));
         $height = trim(CssValueInspector::withoutImportant((string) ($declarations['height'] ?? '')));
         if ( ! $this->imageViewportPairFillsParent($width, $height) ) {

@@ -51,14 +51,52 @@ final class AnchorElementConverter implements ElementConverter
         // the empty `<span>` a widget usually leaves beside it, so it
         // follows the empty-inline disposition: carried only when authored
         // styles give its box something to show, never counted as an
-        // unsupported-element fallback.
-        if ( SourceDom::isEmptyNonNavigatingAnchor($element) ) {
+        // unsupported-element fallback. Descendants that render nothing
+        // either (a srcless `<img>`, an unstyled empty `<div>`, as an
+        // unpopulated listing template leaves them) keep it that shape.
+        if ( SourceDom::isEmptyNonNavigatingAnchor($element) || $this->isNonRenderingNonNavigatingAnchor($element) ) {
             return ConversionOutcome::handled($this->emptyVisualRetention->shouldPreserveEmptyVisualElement($element)
                 ? $this->emptyVisualSpacers->emptyVisualSpacerBlock($element)
                 : null);
         }
 
         return ConversionOutcome::handled($captureUnsupported ? $this->unsupportedRecorder->record($element, $tagName, $fallbacks) : null);
+    }
+
+    /**
+     * A non-navigating anchor whose children all render nothing: no text, and
+     * every descendant is a srcless `<img>` or a `<div>`/`<span>` box that
+     * authored styles leave empty. Each such child converts to nothing on its own.
+     */
+    private function isNonRenderingNonNavigatingAnchor(DOMElement $element): bool
+    {
+        if ( 0 === SourceDom::childElementCount($element) ) {
+            return false;
+        }
+        $clone = $element->cloneNode(false);
+        if ( ! $clone instanceof DOMElement || ! SourceDom::isEmptyNonNavigatingAnchor($clone) || '' !== trim($element->textContent ?? '') ) {
+            return false;
+        }
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            $tag = strtolower($descendant->tagName);
+            // A srcless `<img>` converts to nothing on its own, whatever box
+            // authored styles give it (an agent-photo circle awaiting data),
+            // so the anchor around it follows that same disposition.
+            if ( 'img' === $tag ) {
+                if ( '' !== trim(SourceDom::attr($descendant, 'src')) || '' !== trim(SourceDom::attr($descendant, 'srcset')) ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($descendant) ) {
+                return false;
+            }
+            if ( ! in_array($tag, array('div', 'span'), true) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

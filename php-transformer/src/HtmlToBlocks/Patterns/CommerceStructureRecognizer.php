@@ -3,12 +3,18 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
+use DOMDocument;
 use DOMElement;
+use WeakMap;
 use SplObjectStorage;
 
 /**
@@ -35,12 +41,23 @@ final class CommerceStructureRecognizer
     /** @var SplObjectStorage<DOMElement, array<string, mixed>|null> Retains wrappers for stable native identity during this compilation. */
     private SplObjectStorage $singleProductCards;
 
+    /** @var WeakMap<DOMDocument, bool> Schema evidence is shared by all candidates in a document. */
+    private static ?WeakMap $singleProductDocuments = null;
+
+    /** Retain full-page schema evidence when conversion parses only the body. */
+    public static function registerSourceDocument(DOMDocument $document, string $sourceHtml): void
+    {
+        self::$singleProductDocuments ??= new WeakMap();
+        self::$singleProductDocuments[$document] = SchemaProductEvidence::hasSingleProduct($sourceHtml);
+    }
+
     public function __construct(
         private readonly SourceElementClassifier $classifier = new SourceElementClassifier(),
         /** @var \Closure(DOMElement): ?array|null */
         private readonly ?\Closure $svgImageReference = null
     ) {
         $this->singleProductCards = new SplObjectStorage();
+        self::$singleProductDocuments ??= new WeakMap();
     }
 
     public function looksLikePriceText(string $text): bool
@@ -59,16 +76,39 @@ final class CommerceStructureRecognizer
 
     /**
      * Whether an element is a plausible product-grid container: a list (ul/ol) or
-     * an element the structure classifier already flags as grid_like.
+     * an element the structure classifier already flags as grid_like. A lone
+     * purchase-form card on a single-schema-product page is a detail layout,
+     * not a listing (blocks-engine#6351).
      */
     public function isProductGridContainer(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'ul', 'ol' ), true) ) {
-            return true;
+        if ( ! in_array($tagName, array( 'ul', 'ol' ), true) && ! $this->isGridLike($element) ) {
+            return false;
         }
 
-        return $this->isGridLike($element);
+        return ! $this->isSingleProductDetailContainer($element);
+    }
+
+    /** A lone card containing the schema product's purchase form is a detail layout. */
+    private function isSingleProductDetailContainer(DOMElement $container): bool
+    {
+        $cards = array();
+        foreach ( $container->childNodes as $child ) {
+            if ( $child instanceof DOMElement && null !== $this->productCardData($child) ) {
+                $cards[] = $child;
+                if ( count($cards) > 1 ) return false;
+            }
+        }
+        if ( 1 !== count($cards) ) return false;
+
+        foreach ( $cards[0]->getElementsByTagName('form') as $form ) {
+            if ( 'commerce_add_to_cart' !== FormRuntimeRequirementAnalyzer::formIntent($form) ) continue;
+            $document = $container->ownerDocument;
+            if ( ! $document instanceof DOMDocument ) return false;
+            return self::$singleProductDocuments[$document] ??= SchemaProductEvidence::hasSingleProduct(HtmlSerialization::documentHtml($document) ?? '');
+        }
+        return false;
     }
 
     public function isPriceElement(DOMElement $element): bool
@@ -360,6 +400,11 @@ final class CommerceStructureRecognizer
             if ( ! $includeNavigation && $this->isInCardNavigation($descendant, $card) ) {
                 continue;
             }
+            // A link into a category or tag archive names a taxonomy term, such
+            // as a post filed under "Buy"; it never performs a purchase.
+            if ( 'a' === $tagName && self::isTermArchiveLink($descendant) ) {
+                continue;
+            }
 
             // Whole-card prose and identity attributes are not action labels.
             if ( $includeNavigation && 'a' === $tagName && $this->navigatesAway(SourceDom::attr($descendant, 'href')) ) {
@@ -407,6 +452,20 @@ final class CommerceStructureRecognizer
         }
 
         return null;
+    }
+
+    private static function isTermArchiveLink(DOMElement $link): bool
+    {
+        if ( array() !== array_intersect(array( 'tag', 'category' ), preg_split('/\s+/', strtolower(SourceDom::attr($link, 'rel'))) ?: array()) ) {
+            return true;
+        }
+        $segments = array_values(array_filter(explode('/', strtolower(rawurldecode((string) parse_url(SourceDom::attr($link, 'href'), PHP_URL_PATH)))), 'strlen'));
+        // A captured mirror addresses the same archive as its directory index file.
+        if ( array() !== $segments && preg_match('/^index\.html?$/', end($segments)) ) {
+            array_pop($segments);
+        }
+
+        return count($segments) >= 2 && in_array($segments[count($segments) - 2], array( 'category', 'categories', 'tag', 'tags' ), true);
     }
 
     /** A document link needs an action label or an explicit cart/checkout target. */
@@ -538,10 +597,11 @@ final class CommerceStructureRecognizer
         }
 
         $className = strtolower(trim(SourceDom::attr($element, 'class')));
-        $style = strtolower(trim(SourceDom::attr($element, 'style')));
+        $declarations = SourceDeclarations::inline($element);
 
         return (bool) preg_match('/(?:^|[\s_-])(?:cards|features|services|providers|testimonials|resources|posts|projects|stats|badges|grid|grid-[0-9]+|tiles|columns|collection|gallery)(?:$|[\s_-])/', $className)
-            || (bool) preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style);
+            || 'grid' === CssValueInspector::declared($declarations, 'display')
+            || isset($declarations['grid-template-columns']);
     }
 
     /**

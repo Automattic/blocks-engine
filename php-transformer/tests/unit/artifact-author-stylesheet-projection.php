@@ -88,7 +88,9 @@ $runtimeRevealJs = implode("\n", array_column(array_filter($runtimeRevealAssets,
 preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $runtimeRevealMarkup, $runtimeRevealMarkerMatches);
 $runtimeRevealMarkers = array_keys(array_fill_keys($runtimeRevealMarkerMatches[0] ?? array(), true));
 $assert(2 === count($runtimeRevealMarkers) && ! str_contains($runtimeRevealMarkup, 'wp:html'), 'inline presentation runtime targets remain separate editable native blocks with deterministic identities');
-$assert(! str_contains($runtimeRevealCss, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealCss, ':where(.' . $marker . ')') || ! str_contains($runtimeRevealCss, ':where(.' . $marker . '):not(.be-c-') || ! str_contains($runtimeRevealCss, '.in-view')), 'initial and runtime-mutated author selectors project onto every editable runtime target');
+// Expand serialization-only marker lists before checking each target's arms.
+$runtimeRevealExpandedCss = (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->transform($runtimeRevealCss, static fn(string $selector): string => \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::expand($selector));
+$assert(! str_contains($runtimeRevealCss, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealExpandedCss, ':where(.' . $marker . ')') || ! str_contains($runtimeRevealExpandedCss, ':where(.' . $marker . '):not(.be-c-') || ! str_contains($runtimeRevealExpandedCss, '.in-view')), 'initial and runtime-mutated author selectors project onto every editable runtime target');
 $assert(array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => str_contains($runtimeRevealCss, ':root .' . $marker . '{opacity:1!important')), 'retained presentation runtimes keep their authored closed state instead of receiving inert-content visibility repairs');
 $assert(! str_contains($runtimeRevealJs, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealJs, '.' . $marker)), 'materialized inline script queries the same projected identities as author CSS');
 
@@ -321,7 +323,7 @@ foreach ( $blockifiedAnchorProbes as $probe ) {
     }
 }
 $blockifiedAnchorValidity = ( new HtmlTransformer() )->transform('<style>.social-row{display:flex;gap:1rem}.grid-row{display:grid}</style><div class="social-row"><a href="/spotify">Open in Spotify</a><a href="/apple">Apple Music</a></div><div class="grid-row"><a href="/grid">Grid child</a></div><div class="prose-row"><a href="/plain">Plain link</a></div>')->toArray();
-$assert(str_contains($blockifiedAnchorCss, ':where(p.blocks-engine-synthetic-paragraph.blocks-engine-synthetic-anchor-block-display)>a{display:block}')
+$assert(str_contains($blockifiedAnchorCss, ':where(p.blocks-engine-synthetic-paragraph.blocks-engine-synthetic-anchor-block-display)>a:not([hidden]){display:block}')
     && 6 === substr_count($blockifiedAnchorMarkup, 'blocks-engine-synthetic-anchor-block-display')
     && str_contains($blockifiedAnchorMarkup, '<p class="blocks-engine-synthetic-paragraph"><a href="/plain">Plain link</a></p>')
     && 'block' === ($blockifiedAnchorDisplays['Open in Spotify'] ?? '')
@@ -537,7 +539,7 @@ $imageCss = (string) ($imageStylesheet['content'] ?? '');
 $assert(str_contains($imageCss, '.photo{position:absolute;width:123px;height:106px;object-fit:cover}') && str_contains($imageCss, '.relative-photo{width:86.356%;height:auto;aspect-ratio:727.431 / 593.583}'), 'source image geometry remains on the canonical core/image wrapper');
 $assert(str_contains($imageCss, '{display:block;width:100%;height:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}') && ! str_contains($imageCss, '> img{width:123px') && ! str_contains($imageCss, '> img{width:86.356%'), 'canonical nested images fill explicitly owned wrapper geometry instead of applying source dimensions twice');
 $assert(str_contains($imageCss, '{display:block;object-fit:inherit;object-position:inherit;border-radius:inherit}') && ! preg_match('/source-tag-img[^,{]*\.wp-block-image > img\{[^}]*width:100%/', $imageCss), 'generic image presentation selectors do not impose nested image geometry');
-$assert(preg_match('/where\(figure\).*\.photo\.wp-block-image > img,[^{]*\.wp-block-image > a > img\{display:block;object-fit:inherit/', $imageCss) && preg_match('/blocks-engine-root-child-.*\.wp-block-image > img,[^{]*\.wp-block-image > a > img\{display:block;object-fit:inherit/', $imageCss), 'type and root-child image selectors project the canonical nested-image bridge without inventing dimensions');
+$assert(preg_match('/where\(figure\).*\.photo\.wp-block-image > img,[^{]*\.wp-block-image > a > img\{display:block;object-fit:inherit/', $imageCss) && preg_match('/blocks-engine-root-child-.*\.wp-block-image > img,[^{]*\.wp-block-image > a > img\{display:block;height:inherit;object-fit:inherit/', $imageCss), 'type selectors avoid invented dimensions while the root-child image inherits its authored single-axis height');
 $assert('text' === ($imageStylesheet['content_encoding'] ?? '') && ! isset($imageStylesheet['content_base64']) && '' !== $imageCss, 'stylesheet projection drops the stale base64 twin and keeps the rewritten text as the sole payload representation');
 $assert(1 === preg_match('/<!-- wp:image [\s\S]*<figure[^>]*photo[^>]*><img/', (string) ($image['serialized_blocks'] ?? '')), 'image projection preserves canonical core/image figure markup');
 
@@ -561,6 +563,8 @@ foreach (array(
     'descendant img subject' => array('<div class="avatar"><img src="p.jpg" alt="a"></div>', '.avatar img{width:120px;height:120px;border-radius:50%}'),
     'later radius-less breakpoint rule' => array('<div class="avatar"><img src="p.jpg" alt="a"></div>', '.avatar img{width:120px;height:120px;border-radius:50%}@media (min-width:1px){.avatar img{width:100px;height:100px}}'),
     'mixed selector list' => array('<img class="photo" src="p.jpg" alt="a"><div class="avatar"><img src="p.jpg" alt="b"></div>', '.photo,.avatar img{width:120px;height:120px;border-radius:50%}'),
+    'universal rule over a linked logo' => array('<a class="brand" href="/"><img src="p.jpg" alt="a"></a>', '*{box-sizing:border-box}.brand img{height:58px;width:auto;border-radius:50%}'),
+    'universal rule over a linked logo beside an inline svg' => array('<a class="brand" href="/"><img src="p.jpg" alt="a"></a><a class="cart" href="/cart"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M0 0h24v24H0z"/></svg></a>', '*{box-sizing:border-box}.brand img{height:58px;width:auto;border-radius:50%}'),
 ) as $case => [$radiusHtml, $radiusCss]) {
     $radius = ( new ArtifactCompiler() )->compile(array(
         'files' => array(
@@ -574,6 +578,7 @@ foreach (array(
     $radiusCascade = new StaticCssCascade($radiusDocument, implode("\n", array_column($radius['assets'] ?? array(), 'content')));
     $radii = array();
     foreach ( $radiusDocument->getElementsByTagName('img') as $radiusImage ) {
+        if ( str_contains($radiusImage->getAttribute('src'), 'materialized-svg') ) continue;
         $value = $radiusCascade->resolve($radiusImage, array( 'border-radius' ), array())['border-radius'] ?? '';
         $radii[] = 'inherit' === $value && $radiusImage->parentNode instanceof DOMElement
             ? ($radiusCascade->resolve($radiusImage->parentNode, array( 'border-radius' ), array())['border-radius'] ?? '')
@@ -628,6 +633,22 @@ $adoptedSpanCss = array_values(array_filter($adoptedSpan['assets'] ?? array(), s
 $adoptedSpanPages = array_column($adoptedSpan['source_reports']['compiled_site']['pages'] ?? array(), 'block_markup', 'source_path');
 $adoptedSpanCarriers = preg_match_all('/<p class="[^"]*blocks-engine-synthetic-paragraph[^"]*blocks-engine-role-semantic blocks-engine-subject [^"]*">(?:construction|campaign)</', implode('', $adoptedSpanPages));
 $assert(2 === $adoptedSpanCarriers && 1 === count($adoptedSpanCss) && 'icons.css' === ($adoptedSpanCss[0]['path'] ?? '') && 0 === preg_match('/blocks-engine-semantic-[a-f0-9]{12}-\d+/', (string) ($adoptedSpanCss[0]['content'] ?? '')) && str_contains((string) ($adoptedSpanCss[0]['content'] ?? ''), 'font-size:2.25rem'), 'a text-only span adopted as its own paragraph is covered by the subject arm, so its stylesheet stays one shared asset with no per-element arm');
+
+// A universal rule reaches a linked logo, which its figure owns, and the
+// same icon on every page. The icon's projection must not depend on whether
+// the page also has the logo, so it keeps one class on both pages.
+$logoPage = static fn (string $logo): string => '<link rel="stylesheet" href="site.css">' . $logo . '<main><section><div class="row"><span class="icon">i</span><h2>Title</h2></div></section></main>';
+$logoSite = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => $logoPage('<section><figure class="logo"><div><div><a class="home" href="/"><img src="logo.png" width="40" height="40" alt="Home"></a></div></div></figure></section>') ),
+        array( 'path' => 'b.html', 'kind' => 'html', 'content' => $logoPage('') ),
+        array( 'path' => 'site.css', 'kind' => 'css', 'content' => '*,::before,::after{box-sizing:border-box}.icon{display:inline-block;line-height:1}.row{display:flex;gap:12px}.home{display:block;width:40px}' ),
+        array( 'path' => 'logo.png', 'kind' => 'image', 'content' => 'image-bytes' ),
+    ),
+) )->toArray();
+$iconClasses = array_map(static fn (string $markup): string => 1 === preg_match('/<p class="icon [^"]*?(blocks-engine-semantic-[a-f0-9]{12}-\d+)/', $markup, $icon) ? $icon[1] : '', array_column($logoSite['source_reports']['compiled_site']['pages'] ?? array(), 'block_markup', 'source_path'));
+$assert(2 === count($iconClasses) && '' !== ($iconClasses['b.html'] ?? '') && ($iconClasses['index.html'] ?? '') === $iconClasses['b.html'], 'a page-wide rule projects a content carrier the same way whether or not the page has a linked logo: ' . json_encode($iconClasses));
 
 // A source grid's attribute-specific desktop winner must remain later than a
 // shared fallback that still matches the attribute-free editable Group.

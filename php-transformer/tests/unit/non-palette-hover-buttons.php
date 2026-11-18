@@ -25,9 +25,10 @@ if (2 !== count($links[0])) $errors[] = 'Expected two links';
 foreach ($links[0] as $link) {
     if (preg_match('/background(?:-color)?\s*:/', $link)) $errors[] = 'Link retains an inline background';
 }
-foreach (array('.bg-transparent', '.hover\\:bg-white\\/10') as $selector) {
-    if (!str_contains($css, $selector)) $errors[] = 'Missing carried rule: ' . $selector;
-}
+// Both carriers are controls, so the resting rule reaches them through their
+// control arms; its guarded source arm matches nothing and is not shipped.
+if (1 !== preg_match('/wp-block-button__link[^{}]*\{background-color:transparent\}/', $css)) $errors[] = 'Missing carried rule: .bg-transparent';
+if (!str_contains($css, '.hover\\:bg-white\\/10')) $errors[] = 'Missing carried rule: .hover\\:bg-white\\/10';
 if (!str_contains($css, ':hover') || !str_contains($css, 'transparent')) $errors[] = 'Missing resting or hover paint';
 // Exercise the generic proof independently of fixture conversion and palette extraction.
 $system = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DesignSystem::fromUsage(array('index.html' => array(

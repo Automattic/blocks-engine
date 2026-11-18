@@ -5,7 +5,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedChoiceGroupBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredControlState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
@@ -15,9 +14,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 use DOMDocument;
 use DOMXPath;
-use LogicException;
 
-/** Materializes captured choice evidence as an editable companion container. */
+/** Materializes captured choice evidence as an editable core container. */
 final class CapturedChoiceGroupConverter implements ElementConverter
 {
     /** Mirrors the runtime's `choices()` query so source and rendered indexes agree. */
@@ -52,11 +50,6 @@ final class CapturedChoiceGroupConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
     private function block(DOMElement $element, array &$fallbacks): array
     {
-        $registry = $this->session->requireGeneratedBlockRegistry()
-            ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
-        $blockName = $registry->blockName(CapturedChoiceGroupBlockGenerator::LOCAL_NAME);
-        $registry->register(CapturedChoiceGroupBlockGenerator::class, (new CapturedChoiceGroupBlockGenerator())->definition($blockName));
-
         $config = trim(SourceDom::attr($element, 'data-blocks-engine-choice-config'));
         $decoded = json_decode($config, true);
         if (! is_array($decoded) || ! is_array($decoded['states'] ?? null) || array() === $decoded['states']) {
@@ -104,20 +97,31 @@ final class CapturedChoiceGroupConverter implements ElementConverter
             $children = $this->withoutStateClassTokens($children, $statePresentation['tokens']);
         }
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $opening = '<' . $tagName;
-        if ('' !== ($attrs['anchor'] ?? '')) $opening .= ' id="' . $escape((string) $attrs['anchor']) . '"';
-        if ('' !== ($attrs['className'] ?? '')) $opening .= ' class="' . $escape((string) $attrs['className']) . '"';
-        if ('' !== ($attrs['ariaLabel'] ?? '')) $opening .= ' aria-label="' . $escape((string) $attrs['ariaLabel']) . '"';
-        $opening .= ' data-blocks-engine-choice-group="true" data-blocks-engine-choice-config="' . $escape($config) . '">';
-        $innerContent = array($opening);
+        // Save canonical Group markup. The source shell is front-end behavior,
+        // not a new block type: core owns the container and its editable children.
+        $groupAttrs = array('metadata' => array('blocksEngineChoiceGroup' => array(
+            'tagName' => $tagName,
+            'attributes' => array_filter(array(
+                'id' => $attrs['anchor'] ?? '',
+                'class' => $attrs['className'] ?? '',
+                'aria-label' => $attrs['ariaLabel'] ?? '',
+                'data-blocks-engine-choice-group' => 'true',
+                'data-blocks-engine-choice-config' => $config,
+            ), static fn(string $value): bool => '' !== $value),
+        )));
+        if (isset($attrs['anchor'])) $groupAttrs['anchor'] = $attrs['anchor'];
+        if (isset($attrs['className'])) $groupAttrs['className'] = $attrs['className'];
+        $groupOpening = '<div' . (isset($attrs['anchor']) ? ' id="' . $escape($attrs['anchor']) . '"' : '')
+            . ' class="wp-block-group' . (isset($attrs['className']) ? ' ' . $escape($attrs['className']) : '') . '">';
+        $innerContent = array($groupOpening);
         foreach ($children as $_) $innerContent[] = null;
-        $innerContent[] = '</' . $tagName . '>';
+        $innerContent[] = '</div>';
 
         return array(
-            'blockName' => $blockName,
-            'attrs' => $attrs,
+            'blockName' => 'core/group',
+            'attrs' => $groupAttrs,
             'innerBlocks' => $children,
-            'innerHTML' => $opening . '</' . $tagName . '>',
+            'innerHTML' => $groupOpening . '</div>',
             'innerContent' => $innerContent,
         );
     }

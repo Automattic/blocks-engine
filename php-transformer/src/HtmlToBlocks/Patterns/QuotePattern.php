@@ -34,8 +34,60 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
 
+        // A structured attribution is a layout subtree, not citation RichText.
+        // Flattening its footer drops decorative rules, flex geometry and margins.
+        $footer = SourceDom::firstChildElement($element, 'footer');
+        $attribution = '';
+        if ($footer instanceof DOMElement) {
+            foreach ($footer->childNodes as $child) {
+                // Decorative rules alone do not make a phrasing citation structural.
+                if ($child instanceof DOMElement && !SourceDom::isAriaHidden($child)) {
+                    $attribution .= $child->ownerDocument->saveHTML($child);
+                }
+            }
+        }
+        if ($footer instanceof DOMElement && preg_match(self::STRUCTURAL_CONTENT_PATTERN, $attribution)) {
+            $fallbacks = array();
+            $children = $converter->children($element, $fallbacks, true);
+            foreach ($children as &$child) {
+                if ('footer' === ($child['attrs']['tagName'] ?? '')) {
+                    // Attribution is not a site landmark. Keep its layout but
+                    // do not let shell extraction mistake it for the site footer.
+                    $attributes = $child['attrs'];
+                    $attributes['tagName'] = 'div';
+                    $child = $this->createBlock->createBlock('core/group', $attributes, $child['innerBlocks'], $footer);
+                }
+            }
+            unset($child);
+            return new PatternRecognitionResult(
+                $this->createBlock->createBlock('core/quote', $context->presentationAttributes($element), $children, $element),
+                $fallbacks
+            );
+        }
+
+        // RichText citations cannot represent a layout container. Keep such
+        // footers in generic lowering so their spacing and children survive.
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement
+                && in_array(strtolower($child->tagName), array('cite'), true)
+                && $this->hasStructuredCitationContent($child) ) {
+                $fallbacks = array();
+                $innerBlocks = $converter->childrenWithoutTags($element, $fallbacks, array('cite', 'footer'));
+                $innerBlocks[] = $this->createBlock->createBlock(
+                    'core/group',
+                    array_merge($context->presentationAttributes($child), array('tagName' => 'div')),
+                    $converter->children($child, $fallbacks, false),
+                    $child
+                );
+                return new PatternRecognitionResult(
+                    $this->createBlock->createBlock('core/quote', $context->presentationAttributes($element), $innerBlocks, $element),
+                    $fallbacks
+                );
+            }
+        }
+
         $citation = $quotes->citationFromElement($element);
-        $value = SourceDom::innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
+        $value = $quotes->quotationContent($element, SourceDom::innerHtmlWithoutTags($element, array( 'cite', 'footer' )));
         if ( ! $this->runtime->hasVisibleText($value) ) {
             return null;
         }
@@ -61,6 +113,17 @@ final class QuotePattern implements PatternRecognizerInterface
             $createBlock('core/quote', array_filter(array_merge($context->presentationAttributes($element), array( 'citation' => $citation )), static fn ($value): bool => '' !== $value), $innerBlocks, $element),
             $fallbacks
         );
+    }
+
+    private function hasStructuredCitationContent(DOMElement $element): bool
+    {
+        foreach ($element->getElementsByTagName('*') as $descendant) {
+            if (preg_match('/^(?:div|p|h[1-6]|ul|ol|table)$/', strtolower($descendant->tagName))
+                && '' !== trim($descendant->textContent)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function matchFigureBlockquote(DOMElement $figure, DOMElement $blockquote, PatternContext $context): ?PatternRecognitionResult
@@ -91,14 +154,14 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
         if ( '' === $citation && $caption instanceof DOMElement ) {
-            $citation = SourceDom::innerHtml($caption);
+            $citation = $quotes->figureCaptionContent($caption);
             $captionClass = trim(SourceDom::attr($caption, 'class'));
             if ( '' !== $captionClass ) {
                 $citation = '<span class="' . htmlspecialchars($captionClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $citation . '</span>';
             }
         }
 
-        $value = SourceDom::innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' ));
+        $value = $quotes->quotationContent($blockquote, SourceDom::innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' )));
         if ( ! $this->runtime->hasVisibleText($value) ) {
             return null;
         }
@@ -122,7 +185,17 @@ final class QuotePattern implements PatternRecognizerInterface
             }
             $innerBlocks[] = $createBlock('core/paragraph', array_merge($context->presentationAttributes($child), array( 'content' => $content )), array(), $child);
         }
-        $innerBlocks = array_merge($innerBlocks, $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes));
+        $quoteChildren = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes);
+        if ( array() !== $quoteChildren ) {
+            // Only transfer text presentation: the consumed blockquote's box
+            // (especially margins) must not become the synthetic paragraph's box.
+            $quoteChildren[0] = $createBlock('core/paragraph', array(
+                'content' => $value,
+                'className' => 'blocks-engine-synthetic-paragraph',
+                'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
+            ));
+        }
+        $innerBlocks = array_merge($innerBlocks, $quoteChildren);
         if ( array() === $innerBlocks ) {
             $innerBlocks = $converter->childrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' ));
         }

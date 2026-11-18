@@ -312,9 +312,15 @@ final class AssetReferenceCanonicalizer
         $copied = 0;
         $chunks = array();
         foreach (self::attributes($tag, $cursor) as [$name, $start, $size]) {
-            if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style', CaptureEvidence::GALLERY_SEQUENCE), true)) continue;
             $original = substr($tag, $start, $size);
-            if (CaptureEvidence::GALLERY_SEQUENCE === $name) {
+            if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style', CaptureEvidence::GALLERY_SEQUENCE), true)) {
+                // A saved attribute can mirror serialized JSON from a block
+                // comment. Rewrite in the same decoded space as that comment,
+                // independent of how its producer escaped JSON quotes.
+                $decoded = html_entity_decode($original, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $rewritten = self::escapedTags($decoded, $replace);
+                $value = $rewritten === $decoded ? $original : htmlspecialchars($rewritten, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            } elseif (CaptureEvidence::GALLERY_SEQUENCE === $name) {
                 $value = self::gallerySequence($original, static fn(string $reference): string => $replace($reference, $element, $name));
             } else {
                 $value = 'style' === $name ? self::css($original, $replace, $element) : ('srcset' === $name ? SrcsetParser::rewrite($original, static fn(string $reference): string => $replace($reference, $element, $name)) : $replace($original, $element, $name));
@@ -387,6 +393,10 @@ final class AssetReferenceCanonicalizer
                     // marker is the exact `/-->` closer; `} / -->` stops parsing.
                     if ( '' !== $encoded ) return '<!-- wp:' . $opener[1] . ' ' . $encoded . ( ! empty($opener[3]) ? ' /-->' : ' -->' );
                 }
+                // The decoded model is authoritative. Scanning its raw text
+                // would reach `url`-shaped keys serialized inside an opaque
+                // string (a data-* attribute value) that save() mirrors verbatim.
+                if ( $rewritten === $attributes ) return $comment;
             }
         }
         // Route-bearing blocks keep their own resolve-or-neutralize recovery, so

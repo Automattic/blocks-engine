@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocab
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use DOMElement;
@@ -77,12 +78,45 @@ final class NavigationStyleProjector
         return '' === $css ? array() : array( new CascadeRule(CascadeLayer::DIRECT_NAVIGATION_REPAIR, $css) );
     }
 
-    public function materializeEditorStaticStateStylesheet(string $projectedAuthorCss = ''): void
+    public function materializeEditorStaticStateStylesheet(string $projectedAuthorCss = '', string $serializedBlocks = ''): void
     {
         $rules = array_merge(
             $this->session->generatedSupportStylesheetState()->navigationEditorTypographyRules(),
             $this->session->generatedSupportStylesheetState()->navigationEditorItemStyleRules()
         );
+        // Repairs that name only engine markup ship in their own engine-owned
+        // sheet: a route that retires author selectors (box-tree evidence)
+        // must still deliver them, or Gutenberg loses the selectable boxes
+        // and placeholders they restore (issue #5920).
+        $engineRules = array();
+        // Source runtimes can hide an icon carrier until hover or animation.
+        // They do not run in Gutenberg: expose the native image and its direct
+        // group carrier there, so the image has a selectable box. Keep this in
+        // the editor-only asset, not in the site's shared support stylesheet.
+        // Ordinary image documents need no static-state override. In particular,
+        // do not allocate an additional compiled-site asset just because an image
+        // exists: this repair is for hidden author states, not image layout.
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS)
+            && preg_match('/(?:^|[;{])\s*(?:visibility\s*:\s*hidden|display\s*:\s*none)\s*(?:!important\s*)?(?:[;}])/i', $this->session->authorStyleAnalysis()->combinedCss())
+        ) {
+            $image = 'figure.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '.wp-block-image';
+            $engineRules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
+                . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){display:block!important;visibility:visible!important}';
+        }
+        // An inline layout carrier is `display:contents` so its inline content
+        // lays out in the source's own box. In the editor that paragraph is
+        // the RichText root, and a boxless element cannot take focus: putting
+        // the caret in it to replace its text (a `<time>` date line) left focus
+        // outside, and the typed text never reached the block (issue #5797).
+        // Give the carrier an inline box only while it is being edited: at
+        // rest the canvas keeps the front end's boxless layout, and the front
+        // end never matches this editor-only rule.
+        if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
+            $rules[] = ':root .editor-styles-wrapper p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '[contenteditable="true"]:is(.is-selected,:focus){display:inline}';
+        }
+        foreach ( self::focusedEmptyRichTextRepairRules($projectedAuthorCss) as $repairRule ) {
+            $rules[] = $repairRule;
+        }
         $anchorProjectionCss = $this->editorAnchorProjectionCss($projectedAuthorCss);
         if ( '' !== $anchorProjectionCss ) {
             $rules[] = $anchorProjectionCss;
@@ -101,10 +135,53 @@ final class NavigationStyleProjector
             // negative delay lands on an animation that never advances, and the
             // element stays on whatever keyframe its fill mode paints.
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important}';
+            // A looping animation has no settled end state. Retaining its last
+            // keyframe can translate a marquee's editable children off canvas.
+            // Remove motion only for loops carrying image blocks: those children
+            // need selectable resting boxes. Do not disable keyframe fill: loops
+            // can also own text color or opacity, which must remain settled.
+            ( new CssStylesheetTransformer() )->visitStyleRules(
+                $this->session->authorStyleAnalysis()->combinedCss() . "\n" . $anchorProjectionCss,
+                static function (string $selector, string $body, array $ancestors) use (&$rules): void {
+                    $declarations = array_intersect_key(SourceDeclarations::parse($body), array_flip(
+                        array( 'animation', 'animation-iteration-count', '-webkit-animation', '-webkit-animation-iteration-count' )
+                    ));
+                    $looping = false;
+                    foreach ( $declarations as $value ) {
+                        foreach ( CssValueSplitter::splitTopLevel(strtolower($value), array( ',' )) as $animation ) {
+                            if ( in_array('infinite', CssValueSplitter::splitTopLevelWhitespace($animation), true) ) {
+                                $looping = true;
+                            }
+                        }
+                    }
+                    if ( ! $looping ) {
+                        return;
+                    }
+                    // Also guard the rule in CSS: saved/editor styles may be
+                    // present during a front-end preview, where the live loop
+                    // must retain its authored fill behavior.
+                    $rule = ':root .editor-styles-wrapper :is(' . trim($selector) . '):has(figure.wp-block-image){transform:none!important}';
+                    foreach ( array_reverse($ancestors) as $ancestor ) {
+                        $rule = $ancestor . '{' . $rule . '}';
+                    }
+                    $rules[] = $rule;
+                }
+            );
+            // Editable roots do not carry render-time capture attributes.
+            // Address only replay owners through their editor identity, and
+            // leave their authored resting geometry intact.
+            $body = $this->session->authorStyleAnalysis()->sourceBody();
+            $xpath = new \DOMXPath($body->ownerDocument);
+            foreach ($xpath->query('//*[@' . \Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE . ']') ?: array() as $owner) {
+                $id = $owner->getAttribute('id');
+                if ('' === $id) continue;
+                $selector = $this->projectAnchorIds('#' . \Automattic\BlocksEngine\PhpTransformer\Css\CssIdent::escape($id), array($id => true));
+                $rules[] = ':root ' . $selector . '{animation:none!important;visibility:visible!important}';
+            }
         }
         if ( $this->session->runtimeBehaviorState()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
-            $rules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
+            $engineRules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
                 . $selector . '>*{display:none!important}'
                 . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
         }
@@ -116,7 +193,7 @@ final class NavigationStyleProjector
             // reserve no height for it: the source layer is painted out of
             // normal flow, so any reserved height displaces every block after
             // it and moves the composition down the canvas.
-            $rules[] = $selector . '{min-height:0!important;overflow:hidden!important}'
+            $engineRules[] = $selector . '{min-height:0!important;overflow:hidden!important}'
                 . $selector . '>*{display:none!important}'
                 // Core's large empty-group placeholder has a more specific
                 // display declaration than the generic child selector.
@@ -138,6 +215,71 @@ final class NavigationStyleProjector
         }
 
         $this->context->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
+        $this->context->materializeStylesheetAsset($engineRules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor', EngineMarker::ENGINE_OWNED_STYLESHEET_ROLE);
+    }
+
+    /**
+     * Saved markup is never contenteditable, but a RichText is, and while an
+     * author replaces its text its DOM is briefly `:empty` (then
+     * `data-empty`). An authored `p:empty{display:none}` then hides the
+     * element being edited: typed text never lands, and its block toolbar
+     * anchors to a zero box over the canvas, covering the blocks beneath it
+     * (issue #5920). Keep the focused editable subject of such a rule shown.
+     * This is editor-only: the front end and saved-empty paragraphs keep the
+     * authored rule exactly as written.
+     *
+     * @return list<string>
+     */
+    private static function focusedEmptyRichTextRepairRules(string $projectedAuthorCss): array
+    {
+        if ( ! str_contains($projectedAuthorCss, ':empty') ) {
+            return array();
+        }
+        $rules = array();
+        ( new CssStylesheetTransformer() )->visitStyleRules(
+            $projectedAuthorCss,
+            static function (string $prelude, string $body, array $ancestors) use (&$rules): void {
+                if ( ! str_contains($prelude, ':empty') ) {
+                    return;
+                }
+                $display = strtolower(trim((string) (SourceDeclarations::parse($body)['display'] ?? '')));
+                if ( 'none' !== trim((string) preg_replace('/\s*!\s*important$/', '', $display)) ) {
+                    return;
+                }
+                $selectors = array();
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $selector = trim($selector);
+                    if ( str_contains($selector, '::') || str_contains($selector, '.editor-styles-wrapper') || 1 === preg_match('/:(?:before|after|first-line|first-letter)(?![\w-])/i', $selector) ) {
+                        continue;
+                    }
+                    $offset = null;
+                    if ( preg_match_all('/:empty(?![\w-])/', $selector, $matches, PREG_OFFSET_CAPTURE) ) {
+                        $offset = (int) end($matches[0])[1];
+                    }
+                    if ( null === $offset ) {
+                        continue;
+                    }
+                    // The empty compound must be the rule's subject, outside any
+                    // functional pseudo-class (`:not(:empty)`, `:has(:empty)`).
+                    $before = substr($selector, 0, $offset);
+                    $after = (string) preg_replace('/\([^()]*\)/', '', (string) preg_replace('/\([^()]*\)/', '', substr($selector, $offset + 6)));
+                    if ( substr_count($before, '(') !== substr_count($before, ')') || 1 === preg_match('/[\s>+~]/', $after) ) {
+                        continue;
+                    }
+                    $selectors[] = $before . ':focus:is(:empty,[data-empty="true"])[contenteditable="true"]' . substr($selector, $offset + 6);
+                }
+                if ( array() === $selectors ) {
+                    return;
+                }
+                $rule = ':root .editor-styles-wrapper :is(' . implode(',', $selectors) . '){display:revert!important}';
+                foreach ( array_reverse($ancestors) as $ancestor ) {
+                    $rule = $ancestor . '{' . $rule . '}';
+                }
+                $rules[$rule] = $rule;
+            }
+        );
+
+        return array_values($rules);
     }
 
     private function editorAnchorProjectionCss(string $projectedAuthorCss = ''): string
@@ -337,7 +479,7 @@ final class NavigationStyleProjector
 
     private function templatePartGridItemDeclarations(string $body): string
     {
-        $declarations = $this->styleResolver->cssDeclarations($body);
+        $declarations = SourceDeclarations::parse($body);
         $placement = array_filter(
             $declarations,
             static fn (string $name): bool => 'order' === $name
@@ -464,7 +606,7 @@ final class NavigationStyleProjector
             foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
                 $property = 'padding-' . $side;
                 $value = trim((string) ($padding[$side] ?? ''));
-                $safe = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations($property . ':' . $value));
+                $safe = $this->styleResolver->safeVisualDeclarations(SourceDeclarations::parse($property . ':' . $value));
                 if ( '' !== $value
                     && ($safe[$property] ?? null) === $value
                     && ! $this->navigationDeclarationIsImportant($value)
@@ -620,7 +762,7 @@ final class NavigationStyleProjector
                 // same-class links in another menu cannot affect its winners.
                 $sourceAnchors = array_values(array_filter(
                     $sourceAnchors,
-                    fn (DOMElement $anchor): bool => $this->styleResolver->matchesCssSelector($anchor, $selector)
+                    fn (DOMElement $anchor): bool => $this->session->sourceStyleResolutionState()->matches($anchor, $selector)
                 ));
             }
             if ( array() === $sourceAnchors ) {
@@ -998,32 +1140,7 @@ final class NavigationStyleProjector
      */
     private function navigationSelectorSpecificity(array $parsed, string $pseudo): array
     {
-        $specificity = array( 0, 0, 0 );
-        $addCompound = function (array $compound) use (&$addCompound, &$specificity): void {
-            $specificity[0] += count($compound['ids'] ?? array());
-            $specificity[1] += count($compound['classes'] ?? array()) + count($compound['attributes'] ?? array());
-            if ( null !== ($compound['nth_child'] ?? null) || ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false) ) {
-                ++$specificity[1];
-            }
-            if ( null !== ($compound['type'] ?? null) ) {
-                ++$specificity[2];
-            }
-            foreach ( $compound['not'] ?? array() as $negated ) {
-                foreach ( $negated['compounds'] ?? array() as $negatedCompound ) {
-                    $addCompound($negatedCompound);
-                }
-            }
-            foreach ( $compound['has'] ?? array() as $group ) {
-                foreach ( $group['alternatives'] ?? array() as $alternative ) {
-                    foreach ( $alternative['compounds'] ?? array() as $hasCompound ) {
-                        $addCompound($hasCompound);
-                    }
-                }
-            }
-        };
-        foreach ( $parsed['compounds'] ?? array() as $compound ) {
-            $addCompound($compound);
-        }
+        $specificity = array_values(CssSelectorMatcher::specificityCounts($parsed, false));
         $specificity[1] += preg_match_all('/:[a-z-]+/i', $pseudo);
         return $specificity;
     }
@@ -1129,7 +1246,7 @@ final class NavigationStyleProjector
             }
 
             if ( array() === ($candidate['conditions'] ?? array()) && '' === ($candidate['pseudo'] ?? '') ) {
-                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->inlineDeclarations($anchor));
+                $inline = $this->styleResolver->safeVisualDeclarations(SourceDeclarations::inline($anchor));
                 if ( array_key_exists($property, $inline) ) {
                     $entry = array(
                         'id' => -1,
@@ -1295,7 +1412,11 @@ final class NavigationStyleProjector
                 if ( $this->navigationPropertyIsItemLayout($property) ) {
                     return null;
                 }
-                $values['revert'] = true;
+                // A line width reverts to the user-agent `medium`, which an
+                // author's universal `border-style:solid` (Tailwind preflight)
+                // paints as a 3px frame the source never had: the item had no
+                // edge at all, so its width is zero.
+                $values[$this->navigationPropertyIsLineWidth($property) ? '0' : 'revert'] = true;
                 continue;
             }
 
@@ -1312,7 +1433,7 @@ final class NavigationStyleProjector
             }
 
             $itemDeclarations = $this->styleResolver->safeVisualDeclarations(
-                $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($item))
+                SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($item))
             );
             foreach ( $itemDeclarations as $itemProperty => $_itemValue ) {
                 if ( $itemProperty !== $property && $this->navigationPropertiesOverlap($property, $itemProperty) ) {
@@ -1367,7 +1488,7 @@ final class NavigationStyleProjector
             }
 
             $wrapperDeclarations = $this->styleResolver->safeVisualDeclarations(
-                $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($node))
+                SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($node))
             );
             foreach ( $wrapperDeclarations as $wrapperProperty => $wrapperValue ) {
                 if ( $this->navigationPropertiesOverlap($property, (string) $wrapperProperty)
@@ -1410,6 +1531,11 @@ final class NavigationStyleProjector
         }
 
         return $siblingAnchors > 1;
+    }
+
+    private function navigationPropertyIsLineWidth(string $property): bool
+    {
+        return 1 === preg_match('/^(?:border(?:-(?:top|right|bottom|left|block|inline|block-start|block-end|inline-start|inline-end))?|outline)-width$/', $property);
     }
 
     private function navigationPropertyIsItemLayout(string $property): bool
@@ -1468,7 +1594,7 @@ final class NavigationStyleProjector
         if ( $candidate['important'] !== $current['important'] ) {
             return $candidate['important'];
         }
-        $specificity = $this->styleResolver->compareMediaTextSpecificity($candidate['specificity'], $current['specificity']);
+        $specificity = $candidate['specificity'] <=> $current['specificity'];
         return 0 < $specificity || (0 === $specificity && $candidate['order'] >= $current['order']);
     }
 
@@ -1506,7 +1632,7 @@ final class NavigationStyleProjector
             $conditions = ArrayField::array($rule, 'conditions');
             if ( (array() !== $conditions && ! $this->navigationConditionsAreProjectable($conditions))
                 || ! isset($rule['declarations']['color'])
-                || ! $this->styleResolver->matchesCssSelector($element, $rule['base_selector'])
+                || ! $this->session->sourceStyleResolutionState()->matches($element, $rule['base_selector'])
             ) {
                 continue;
             }
@@ -1755,7 +1881,7 @@ final class NavigationStyleProjector
             }
             if ( '' === $color
                 || preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $color)
-                || array() === $this->styleResolver->cssDeclarations('color:' . $color)
+                || array() === SourceDeclarations::parse('color:' . $color)
             ) {
                 continue;
             }
@@ -1910,7 +2036,7 @@ final class NavigationStyleProjector
     {
         foreach ( $anchors as $anchor ) {
             $item = $anchor->parentNode;
-            if ( ! $item instanceof DOMElement || ! $this->styleResolver->matchesCssSelector($item, $itemSelector) ) {
+            if ( ! $item instanceof DOMElement || ! $this->session->sourceStyleResolutionState()->matches($item, $itemSelector) ) {
                 return false;
             }
         }

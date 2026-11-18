@@ -37,9 +37,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   weight, heaviest first, whatever family it ranks in (on a tie a
  *   family's own colour first, then the heavier family). So a near shade
  *   painted on many large surfaces keeps a token ahead of a distinct colour
- *   painted on one tiny element. At most 12 colours are kept: the lightest
- *   painted colours past the bound keep their literal everywhere and are
- *   reported under `literal_colors`, never bound to a near token.
+ *   painted on one tiny element. Every painted colour keeps an exact token:
+ *   a palette-size bound would leave source paint outside the editable design
+ *   system. Unpainted stylesheet colours do not create palette entries.
  *
  *   Clustering, slot ranking and `accent-N` order use each colour's
  *   prominence: the mean of its share of the document's area (text mass
@@ -104,7 +104,11 @@ final class DesignSystem
 {
     public const SCHEMA = 'blocks-engine/design-system/v1';
     public const USAGE_SCHEMA = 'blocks-engine/design-usage/v1';
-    public const MAX_COLORS = 12;
+    // Additional exact colours are editable block values, not new evidence
+    // for site-wide defaults or a reason to rewrite every utility rule.
+    public const PRIMARY_COLORS = 12;
+    /** Role of the exact tokens withBlockColors() adds for block-only colours. */
+    public const BLOCK_COLOR_ROLE = 'block';
     public const MAX_FONT_SIZES = 8;
     public const MAX_SPACING = 10;
     public const COLOR_TOLERANCE = CssColor::JUST_NOTICEABLE_DIFFERENCE;
@@ -117,6 +121,10 @@ final class DesignSystem
      * ranking (see the class comment). It never decides what binds.
      */
     public const COLOR_CONSOLIDATION_DISTANCE = 5.0;
+
+    /** Bound on memoized colorSlug() answers per instance. */
+    private const COLOR_SLUG_MEMO_LIMIT = 8192;
+
     /** Weight of one heading by level, before its size: a page title above section and entry titles. */
     public const HEADING_LEVEL_FACTOR = array(1 => 3, 2 => 2);
     /** Share of heading text a family other than the body's needs to be `heading`. */
@@ -145,7 +153,7 @@ final class DesignSystem
      * @param array{content?:array{value:string,px:float},wide?:array{value:string,px:float}} $layout
      * @param array<string,mixed> $root Root values every document agrees on.
      * @param array<string,mixed> $elements Shared element values and proven no-op per-level heading typography.
-     * @param list<string> $literalColors Painted opaque colours the palette bound left without a token, heaviest first.
+     * @param list<string> $literalColors Painted opaque colours without a token (retained for report compatibility).
      * @param array<string,string> $buttonVariation Dominant look scoped to matching button blocks when an element would reach unowned values.
      */
     private function __construct(
@@ -161,6 +169,50 @@ final class DesignSystem
         public readonly array $literalColors = array(),
         public readonly array $buttonVariation = array(),
     ) {
+    }
+
+    /**
+     * Palette lookups built once per instance: the first token per painted
+     * hex, the first index per slug, and memoized colorSlug() answers. Every
+     * binding asks colorSlug() for each painted value, so a scan of the whole
+     * palette per question grows with palette size × values (both grow with
+     * the site); the index answers each in constant time with the same
+     * first-match result.
+     *
+     * @var array{hex:array<string,string>,slug:array<string,int>}|null
+     */
+    private ?array $colorIndex = null;
+
+    /** @var array<string,?string> */
+    private array $colorSlugs = array();
+
+    /** @return array{hex:array<string,string>,slug:array<string,int>,block:array<string,string>} */
+    private function colorIndex(): array
+    {
+        if (null !== $this->colorIndex) return $this->colorIndex;
+        $hex = $slug = $block = array();
+        foreach ($this->colors as $index => $color) {
+            $value = CssColor::hex($color['color']);
+            if (!isset($slug[$color['slug']])) $slug[$color['slug']] = $index;
+            if (null === $value) continue;
+            // Block-only colours bind only the literal they came from
+            // (blockColorSlug()), never stylesheets, classes or elements.
+            if (self::BLOCK_COLOR_ROLE === $color['role']) {
+                if (!isset($block[$value])) $block[$value] = $color['slug'];
+            } elseif (!isset($hex[$value])) $hex[$value] = $color['slug'];
+        }
+        return $this->colorIndex = array('hex' => $hex, 'slug' => $slug, 'block' => $block);
+    }
+
+    /**
+     * Slug of the block-only token (withBlockColors()) that paints exactly
+     * this opaque colour, or null.
+     */
+    public function blockColorSlug(string $value): ?string
+    {
+        if (!CssColor::opaque($value)) return null;
+        $hex = CssColor::hex($value);
+        return null === $hex ? null : ($this->colorIndex()['block'][$hex] ?? null);
     }
 
     /**
@@ -282,10 +334,11 @@ final class DesignSystem
         $spacing = self::spacing($spacingRows);
         $layout = self::layout($widthRows);
 
-        $system = new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors);
-        // Only observed tints of exact palette colours become additional presets.
-        // Keeping color-mix in the palette (rather than inline style) lets core
-        // serialize ordinary preset classes and the editor display a named value.
+        $system = new self(array_slice($colors, 0, self::PRIMARY_COLORS), $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors);
+        // Observed translucent paint gets a preset even when its opaque RGB
+        // is not painted anywhere. Prefer a derived tint when an exact base
+        // exists; otherwise retain the source value, including its alpha.
+        // Core can then serialize preset classes and show an editable value.
         $tints = array();
         foreach ($usageBySource as $usage) {
             $values = array_column($usage['text'] ?? array(), 'color');
@@ -299,7 +352,18 @@ final class DesignSystem
             }
             foreach ($values as $value) {
                 $tint = $system->translucentColor($value);
-                if (null === $tint) continue;
+                if (null === $tint) {
+                    $parsed = CssColor::parse($value);
+                    $hex = CssColor::hex($value);
+                    if (null !== $parsed && $parsed[3] > 0 && $parsed[3] < 1 && null !== $hex) {
+                        // Gutenberg kebab-cases preset slugs, splitting digit/letter
+                        // boundaries. Encode the RGBA bytes with letters only so
+                        // its save() class agrees with the compiler's class.
+                        $slug = 'alpha-' . strtr(ltrim($hex, '#'), '0123456789abcdef', 'abcdefghijklmnop');
+                        $tints[$slug] = array('slug' => $slug, 'name' => 'Alpha ' . ltrim($hex, '#'), 'color' => $value, 'role' => $slug, 'weight' => 0);
+                    }
+                    continue;
+                }
                 $slug = $tint['slug'] . '-alpha-' . $tint['percent'];
                 $tints[$slug] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', $tint['slug'])) . ' ' . $tint['percent'] . '%', 'color' => 'color-mix(in srgb, var(--wp--preset--color--' . $tint['slug'] . ') ' . $tint['percent'] . '%, transparent)', 'role' => $slug, 'weight' => 0);
             }
@@ -312,26 +376,44 @@ final class DesignSystem
         return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, array_replace(self::unanimousElements($usageBySource, $system), array() === $buttonLook ? array() : array('button' => $buttonLook)), $system->rootPx, $system->documentCount, $literalColors);
     }
 
+    /** Preserve the primary palette's stylesheet scope when adding block-only tokens. */
+    public function stylesheetColorSlug(string $value): ?string
+    {
+        $slug = $this->colorSlug($value);
+        $index = null === $slug ? null : ($this->colorIndex()['slug'][$slug] ?? null);
+        if (null === $index) return null;
+        return $index < self::PRIMARY_COLORS || 0 === $this->colors[$index]['weight'] ? $slug : null;
+    }
+
     /**
      * Slug of the token whose value is exactly this colour, or null. The
      * one colour binding rule: block attributes, stylesheet bindings and
      * element styles all bind through this method, and only to a token
      * that paints the same 8-bit colour, so binding never changes what
-     * renders. Observed translucent colours bind to derived tint presets;
-     * see translucentColor().
+     * renders. Observed translucent colours bind to derived tint presets
+     * when possible, otherwise to exact standalone alpha presets.
      */
     public function colorSlug(string $value): ?string
     {
+        if (array_key_exists($value, $this->colorSlugs)) return $this->colorSlugs[$value];
+        if (count($this->colorSlugs) >= self::COLOR_SLUG_MEMO_LIMIT) $this->colorSlugs = array();
+        return $this->colorSlugs[$value] = $this->resolveColorSlug($value);
+    }
+
+    private function resolveColorSlug(string $value): ?string
+    {
+        $index = $this->colorIndex();
         if (!CssColor::opaque($value)) {
             $tint = $this->translucentColor($value);
-            if (null === $tint) return null;
+            if (null === $tint) {
+                $hex = CssColor::hex($value);
+                return null === $hex ? null : ($index['hex'][$hex] ?? null);
+            }
             $slug = $tint['slug'] . '-alpha-' . $tint['percent'];
-            return in_array($slug, array_column($this->colors, 'slug'), true) ? $slug : null;
+            return isset($index['slug'][$slug]) ? $slug : null;
         }
         $hex = CssColor::hex($value);
-        if (null === $hex) return null;
-        foreach ($this->colors as $color) if ($hex === CssColor::hex($color['color'])) return $color['slug'];
-        return null;
+        return null === $hex ? null : ($index['hex'][$hex] ?? null);
     }
 
     /**
@@ -410,6 +492,125 @@ final class DesignSystem
     }
 
     /**
+     * The system with an exact preset for every literal font size and font
+     * family a block carries in `style.typography` that no preset renders.
+     *
+     * Usage reads the static author cascade, but a block can also carry the
+     * typography the browser rendered for its source node (box-tree evidence
+     * of a font the static cascade cannot resolve, such as a size computed
+     * from a viewport scaling factor). Those values are rendered text all
+     * the same, and without a token they stay literals outside the editable
+     * design system. Like heading sizes, they are additive: the established
+     * scale, its names and its roles are unchanged, and each new token is the
+     * exact value, so binding never changes a rendered font.
+     *
+     * @param list<string> $markups Every page's block markup.
+     */
+    public function withBlockTypography(array $markups): self
+    {
+        $sizes = $families = array();
+        foreach ($markups as $markup) {
+            if (!preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) continue;
+            foreach ($matches[1] as $json) {
+                $attributes = json_decode($json, true);
+                $typography = is_array($attributes) && is_array($attributes['style']['typography'] ?? null) ? $attributes['style']['typography'] : array();
+                $size = is_string($typography['fontSize'] ?? null) ? trim($typography['fontSize']) : '';
+                // Only absolute lengths: a relative size renders differently
+                // under each parent, so it has no single exact token.
+                if (1 === preg_match('/^\d*\.?\d+(?:px|rem)$/i', $size) && null === $this->fontSizeSlug($size)) {
+                    $px = CssLength::toPx($size, $this->rootPx);
+                    if (null !== $px && $px > 0) {
+                        $pixel = CssLength::format($px);
+                        if (!isset($sizes[$pixel]) || strcmp($size, $sizes[$pixel]) < 0) $sizes[$pixel] = $size;
+                    }
+                }
+                $stack = is_string($typography['fontFamily'] ?? null) ? trim($typography['fontFamily']) : '';
+                $key = self::familyKey($stack);
+                if ('' === $key || str_contains($stack, 'var(') || in_array($key, self::CSS_WIDE_KEYWORDS, true) || in_array($key, self::GENERIC_FAMILIES, true) || null !== $this->fontFamilySlug($stack)) continue;
+                $families[$key][$stack] = ($families[$key][$stack] ?? 0) + 1;
+            }
+        }
+        if (array() === $sizes && array() === $families) return $this;
+        $fontSizes = $this->fontSizes;
+        $used = array_fill_keys(array_column($fontSizes, 'slug'), true);
+        uksort($sizes, static fn(string $a, string $b): int => (float) $a <=> (float) $b);
+        foreach ($sizes as $px => $value) {
+            // Kebab-case splits letters from digits (see fontSizes()).
+            $base = self::presetSlug('size-' . rtrim((string) $px, 'px'));
+            $slug = $base;
+            for ($suffix = 2; isset($used[$slug]); $suffix++) $slug = $base . '-' . $suffix;
+            $used[$slug] = true;
+            $fontSizes[] = array('slug' => $slug, 'name' => 'Size ' . $px, 'size' => $value, 'px' => (float) $px, 'weight' => 0);
+        }
+        $fontFamilies = $this->fontFamilies;
+        $used = array_fill_keys(array_merge(array('body', 'heading'), array_column($fontFamilies, 'slug')), true);
+        ksort($families, SORT_STRING);
+        foreach ($families as $key => $choices) {
+            // The binder identifies a family by its primary name. Different
+            // fallback stacks cannot share an exact supplemental token.
+            if (count($choices) > 1) continue;
+            uksort($choices, static fn(string $a, string $b): int => ($choices[$b] <=> $choices[$a]) ?: strcmp($a, $b));
+            $stack = (string) array_key_first($choices);
+            $name = self::familyName($stack);
+            $base = self::presetSlug($name);
+            if ('' === $base) $base = 'family';
+            $slug = $base;
+            for ($suffix = 2; isset($used[$slug]); $suffix++) $slug = $base . '-' . $suffix;
+            $used[$slug] = true;
+            $fontFamilies[] = array('slug' => $slug, 'name' => $name, 'fontFamily' => $stack, 'key' => (string) $key, 'role' => 'family', 'weight' => 0);
+        }
+        return new self($this->colors, $fontSizes, $fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+    }
+
+    /**
+     * The system with an exact token for every opaque literal colour a block
+     * carries as its `style.color` text or background that no palette token
+     * paints.
+     *
+     * Like withBlockTypography(), this covers the colour the browser rendered
+     * for a block's source node (box-tree evidence: a computed `rgb(0, 0, 0)`
+     * or `color(srgb …)` the static cascade cannot resolve). Those colours are
+     * painted all the same, and without a token they stay literals outside the
+     * editable palette. Each new token (`accent-N` after the usage-ranked
+     * ones, most used first) is the exact 8-bit colour, so binding never
+     * changes what renders. It carries BLOCK_COLOR_ROLE: it binds only that
+     * block literal, inline and in place (blockColorSlug()), never a
+     * stylesheet, a class-driven value or an element style, which keep the
+     * cascade the usage-ranked palette established.
+     *
+     * @param list<string> $markups Every page's block markup.
+     */
+    public function withBlockColors(array $markups): self
+    {
+        $counts = array();
+        foreach ($markups as $markup) {
+            if (!preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) continue;
+            foreach ($matches[1] as $json) {
+                $attributes = json_decode($json, true);
+                $style = is_array($attributes) && is_array($attributes['style'] ?? null) ? $attributes['style'] : array();
+                foreach (array($style['color']['text'] ?? null, $style['color']['background'] ?? null) as $value) {
+                    if (!is_string($value) || str_contains($value, 'var') || !CssColor::opaque($value) || null !== $this->colorSlug($value)) continue;
+                    $hex = (string) CssColor::hex($value);
+                    $counts[$hex] = ($counts[$hex] ?? 0) + 1;
+                }
+            }
+        }
+        $known = array_flip(array_keys($this->colorIndex()['block']));
+        $counts = array_diff_key($counts, $known);
+        if (array() === $counts) return $this;
+        uksort($counts, static fn(string $a, string $b): int => ($counts[$b] <=> $counts[$a]) ?: strcmp($a, $b));
+        $used = array_fill_keys(array_column($this->colors, 'slug'), true);
+        $accent = 0;
+        $colors = $this->colors;
+        foreach (array_keys($counts) as $hex) {
+            do $slug = 'accent-' . (++$accent); while (isset($used[$slug]));
+            $used[$slug] = true;
+            $colors[] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', $slug)), 'color' => $hex, 'role' => self::BLOCK_COLOR_ROLE, 'weight' => 0);
+        }
+        return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+    }
+
+    /**
      * The system without the link and heading text colours (`color`,
      * `hover_color` of `link`, `heading`, `h1`–`h6`) that do not read on
      * the theme's root background: below the large-text WCAG ratio
@@ -454,8 +655,8 @@ final class DesignSystem
     /** A palette colour's value by slug, or null. */
     public function color(string $slug): ?string
     {
-        foreach ($this->colors as $color) if ($slug === $color['slug']) return $color['color'];
-        return null;
+        $index = $this->colorIndex()['slug'][$slug] ?? null;
+        return null === $index ? null : $this->colors[$index]['color'];
     }
 
     /** Slug of the font size that renders an absolute length exactly, or null. */
@@ -521,7 +722,7 @@ final class DesignSystem
      *   (`textColor`, `fontSize`, `var:preset|…`) rather than literals. 1.0
      *   when blocks carry no such values. Zero lengths, `auto` and CSS-wide
      *   keywords (`inherit`, …) are not design values and are not counted.
-     * - `restyle_coverage`: of the text and background colours rendered on
+     * - `restyle_coverage`: of the text, background and border colours rendered on
      *   block-level content, the share that come from a preset reference,
      *   through the block's attributes, its classes' stylesheet rules, an
      *   ancestor, or the root styles; see RestyleCoverage. These follow a
@@ -529,7 +730,8 @@ final class DesignSystem
      *   per page, as a reader meets it on every route; engine templates count
      *   once. `restyle_text_elements`,
      *   `restyle_text_preset`, `restyle_backgrounds` and
-     *   `restyle_backgrounds_preset` are the counts behind it.
+     *   `restyle_backgrounds_preset`, `restyle_borders` and
+     *   `restyle_borders_preset` are the counts behind it.
      * - `refusal_reasons`: text and background colour values binding left
      *   as literals, by reason (see PresetBinding::REFUSAL_REASONS), and
      *   `refused_value_count` their total. Content that should not follow
@@ -538,8 +740,12 @@ final class DesignSystem
      *   here can still follow the palette through a bound stylesheet rule,
      *   which `restyle_coverage` measures.
      * - `palette_size`: colours in the palette.
-     * - `literal_color_count`: painted opaque colours past the palette
-     *   bound, which keep their literal (report `literal_colors`).
+     * - `literal_color_count`: painted opaque colours without a palette token
+     *   (report `literal_colors`); zero when every usage colour is registered.
+     * - `literal_preset_color_count`: block colour attributes (text,
+     *   background, border and its sides, link) that store a literal equal
+     *   to a palette preset, so a palette edit skips them; zero when every
+     *   such colour is bound (see PresetBinding).
      * - `unused_font_families`: primary families (the first name of a
      *   `font-family` stack, unquoted) the source stylesheets declare that no
      *   rendered text uses as its primary, so the theme does not offer them.
@@ -568,7 +774,7 @@ final class DesignSystem
      */
     public function metrics(array $markups, array $assets, array $routeMarkups = array(), array $refusals = array(), ?int $uniqueSourceBytes = null): array
     {
-        $preset = $literal = 0;
+        $preset = $literal = $literalPreset = 0;
         $inline = $engine = $shipped = 0;
         foreach ($markups as $markup) {
             if (preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) {
@@ -580,6 +786,10 @@ final class DesignSystem
                     $values = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $style['typography']['fontSize'] ?? null, $style['typography']['fontFamily'] ?? null);
                     foreach (array('padding', 'margin') as $box) foreach ((array) ($style['spacing'][$box] ?? array()) as $value) $values[] = $value;
                     foreach ((array) ($style['spacing']['blockGap'] ?? array()) as $value) $values[] = $value;
+                    $border = ArrayField::array($style, 'border');
+                    $colors = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $border['color'] ?? null, $style['elements']['link']['color']['text'] ?? null);
+                    foreach (array('top', 'right', 'bottom', 'left') as $side) $colors[] = $border[$side]['color'] ?? null;
+                    foreach ($colors as $color) if (is_string($color) && !str_starts_with($color, 'var:') && null !== $this->colorSlug($color)) $literalPreset++;
                     foreach ($values as $value) {
                         if (!is_string($value) || 1 === preg_match('/^(?:0[a-z%]*|auto|inherit|initial|unset|revert|revert-layer|)$/i', trim($value))) continue;
                         if (str_starts_with($value, 'var:preset|')) $preset++;
@@ -625,12 +835,15 @@ final class DesignSystem
             'restyle_text_preset' => $restyle['text_preset'],
             'restyle_backgrounds' => $restyle['backgrounds'],
             'restyle_backgrounds_preset' => $restyle['backgrounds_preset'],
+            'restyle_borders' => $restyle['borders'],
+            'restyle_borders_preset' => $restyle['borders_preset'],
             'preset_value_count' => $preset,
             'literal_value_count' => $literal,
             'refused_value_count' => array_sum($refusals),
             'refusal_reasons' => $refusals,
             'palette_size' => count($this->colors),
             'literal_color_count' => count($this->literalColors),
+            'literal_preset_color_count' => $literalPreset,
             'font_size_count' => count($this->fontSizes),
             'spacing_size_count' => count($this->spacing),
             'font_family_count' => count($this->fontFamilies),
@@ -728,10 +941,10 @@ final class DesignSystem
             $palette[] = $token($role, $color, $prominence[$color]);
             $taken[$color] = $role;
         }
-        // Every other painted colour competes for the remaining slots on its
+        // Every other painted colour receives an exact token ordered by its
         // own painted weight, heaviest first, whatever family it ranks in:
-        // a heavy near shade outranks a barely used distinct colour, and the
-        // lightest painted colours are the ones left literal. Grouping only
+        // a heavy near shade precedes a barely used distinct colour without
+        // excluding that colour from the editable palette. Grouping only
         // breaks ties: a family's own colour before a near shade of another,
         // then the heavier family, then the value.
         $taken = array_flip(array_column($palette, 'color'));
@@ -740,7 +953,6 @@ final class DesignSystem
         usort($rest, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: ($isLead($b) <=> $isLead($a)) ?: ($clusters[$memberOf[$b]]['weight'] <=> $clusters[$memberOf[$a]]['weight']) ?: strcmp($a, $b));
         $accent = 0;
         foreach ($rest as $color) {
-            if (count($palette) >= self::MAX_COLORS) break;
             $palette[] = $token('accent-' . (++$accent), $color, $prominence[$color]);
         }
         return $palette;
@@ -791,17 +1003,32 @@ final class DesignSystem
     {
         $colors = array_keys($weights);
         usort($colors, static fn(string $a, string $b): int => ($weights[$b] <=> $weights[$a]) ?: strcmp($a, $b));
-        $clusters = array();
+        // Each colour joins the first cluster (in creation order) whose lead
+        // is within COLOR_TOLERANCE. Leads are bucketed on a Lab grid of that
+        // cell size, so only the neighbouring cells can hold one: the first
+        // match is the lowest matching index among them, not a scan of every
+        // cluster.
+        $clusters = $labs = array();
+        $grid = new ColorGrid(self::COLOR_TOLERANCE);
         foreach ($colors as $color) {
-            foreach ($clusters as &$cluster) {
-                if ((CssColor::distance($color, $cluster['color']) ?? INF) <= self::COLOR_TOLERANCE) {
-                    $cluster['weight'] += $weights[$color];
-                    $cluster['members'][] = $color;
-                    continue 2;
+            $lab = CssColor::lab($color);
+            $first = null;
+            if (null !== $lab) {
+                foreach ($grid->near($lab) as $index) {
+                    if ((null === $first || $index < $first) && CssColor::labDistance($lab, $labs[$index]) <= self::COLOR_TOLERANCE) $first = $index;
                 }
             }
-            unset($cluster);
+            if (null !== $first) {
+                $clusters[$first]['weight'] += $weights[$color];
+                $clusters[$first]['members'][] = $color;
+                continue;
+            }
+            $index = count($clusters);
             $clusters[] = array('color' => $color, 'weight' => $weights[$color], 'members' => array($color));
+            if (null !== $lab) {
+                $labs[$index] = $lab;
+                $grid->add($index, $lab);
+            }
         }
         return $clusters;
     }
@@ -821,20 +1048,33 @@ final class DesignSystem
      */
     public static function consolidateColors(array $clusters): array
     {
-        $kept = array();
+        // Kept colours never change, so they are bucketed on a Lab grid of
+        // COLOR_CONSOLIDATION_DISTANCE cells: only neighbouring cells can hold
+        // a candidate. Candidates are visited in kept order, so ties still
+        // go to the earliest kept cluster.
+        $kept = $labs = array();
+        $grid = new ColorGrid(self::COLOR_CONSOLIDATION_DISTANCE);
         foreach ($clusters as $cluster) {
             $nearest = null;
             $nearestDistance = INF;
-            foreach ($kept as $index => $candidate) {
-                if ($candidate['weight'] < $cluster['weight']) continue;
-                $distance = CssColor::distance($cluster['color'], $candidate['color']) ?? INF;
+            $lab = CssColor::lab($cluster['color']);
+            $candidates = null === $lab ? array() : $grid->near($lab);
+            sort($candidates);
+            foreach ($candidates as $index) {
+                if ($kept[$index]['weight'] < $cluster['weight']) continue;
+                $distance = CssColor::labDistance($lab, $labs[$index]);
                 if ($distance <= self::COLOR_CONSOLIDATION_DISTANCE && $distance < $nearestDistance) {
                     $nearest = $index;
                     $nearestDistance = $distance;
                 }
             }
             if (null === $nearest) {
+                $index = count($kept);
                 $kept[] = $cluster;
+                if (null !== $lab) {
+                    $labs[$index] = $lab;
+                    $grid->add($index, $lab);
+                }
                 continue;
             }
             $kept[$nearest]['weight'] += $cluster['weight'];
@@ -1092,9 +1332,10 @@ final class DesignSystem
      * and their `:hover` colours; heading colour, family and weight; and,
      * per heading level, colour, family, size and weight where that level
      * differs from the heading values. Element styles reach every element of
-     * the kind, so only a unanimous value cannot restyle text that renders
-     * something else today. Colours, families and sizes must be tokens (a
-     * colour within the JND of the token's own value). A `:hover` colour
+     * the kind. Heading families use a strict rendered majority only when
+     * every minority heading has its own authored family declaration. Other elements and
+     * per-level typography require unanimity. Colours, families and sizes
+     * must be tokens (a colour within the JND of the token's own value). A `:hover` colour
      * counts only when every element of the kind has one hover rule giving
      * the same token. A property a media-conditional rule can change for any
      * element of the kind (a breakpoint size, a dark-mode colour) is left to
@@ -1108,7 +1349,14 @@ final class DesignSystem
      */
     private static function unanimousElements(array $usageBySource, self $system): array
     {
-        $values = $headingTypography = array();
+        $values = $headingTypography = $inheritedHeadingFamilies = array();
+        foreach ($usageBySource as $usage) foreach ($usage['heading_typography'] ?? array() as $row) {
+            if (true === ($row['font_family_authored'] ?? false)) continue;
+            $stack = (string) ($row['font_family'] ?? '');
+            $slug = $system->fontFamilySlug($stack);
+            foreach ($system->fontFamilies as $family) if ($family['slug'] === $slug) $stack = $family['fontFamily'];
+            $inheritedHeadingFamilies[self::familyKey($stack) . "\n" . $stack] = true;
+        }
         $conditional = array();
         foreach ($usageBySource as $usage) foreach ($usage['root']['conditional'] ?? array() as $family) $conditional[(string) $family] = true;
         // A media-conditional variant of the property makes the element render
@@ -1117,7 +1365,8 @@ final class DesignSystem
         $families = array('color' => 'color', 'hover_color' => 'color', 'font_family' => 'font-family', 'font_size' => 'font-size', 'font_weight' => 'font-weight', 'background' => 'background', 'hover_background' => 'background');
         $observe = static function (string $element, string $field, mixed $value, array $row) use (&$values, $families): void {
             $varies = in_array($families[$field], (array) ($row['conditional'] ?? array()), true);
-            $values[$element][$field][$varies || null === $value ? '' : (string) $value] = true;
+            $key = $varies || null === $value ? '' : (string) $value;
+            $values[$element][$field][$key] = ($values[$element][$field][$key] ?? 0) + max(1, (int) ($row['count'] ?? 1));
         };
         foreach ($usageBySource as $usage) {
             foreach ($usage['text'] ?? array() as $row) {
@@ -1164,7 +1413,19 @@ final class DesignSystem
         $elements = array();
         foreach ($values as $element => $fields) {
             foreach ($fields as $field => $observed) {
-                if (1 !== count($observed) || !empty($varied[$field])) continue;
+                if (!empty($varied[$field])) continue;
+                if ('heading' === $element && 'font_family' === $field) {
+                    // Count rendered instances, not text length: a long title
+                    // must not outweigh several headings in the site shell.
+                    // Missing source families cannot preserve a minority
+                    // look against a concrete theme default.
+                    if (isset($observed["\n"]) || isset($observed[''])) continue;
+                    arsort($observed, SORT_NUMERIC);
+                    if (reset($observed) * 2 <= array_sum($observed)) continue;
+                    // An inherited minority has no source-owned binding to
+                    // protect it from the theme's heading family default.
+                    if (array_diff_key($inheritedHeadingFamilies, array((string) array_key_first($observed) => true))) continue;
+                } elseif (1 !== count($observed)) continue;
                 $value = $token($field, (string) array_key_first($observed));
                 if (null === $value) continue;
                 // A heading level states only what differs from `heading`.

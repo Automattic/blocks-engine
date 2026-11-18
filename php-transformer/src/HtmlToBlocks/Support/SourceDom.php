@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
@@ -275,6 +276,12 @@ final class SourceDom
         }
         self::canonicalizeLinkUrls($clone);
         if (null !== $inlineStyleFor) self::projectInlineStyles($element, $clone, $inlineStyleFor);
+        // Capture node identity binds evidence to the source document, not the output.
+        foreach ( self::subtreeElements($clone) as $node ) {
+            foreach ( iterator_to_array($node->attributes) as $attribute ) {
+                if ( BoxTree::isEvidenceAttribute($attribute->nodeName) ) $node->removeAttributeNode($attribute);
+            }
+        }
         return $clone;
     }
 
@@ -799,7 +806,7 @@ final class SourceDom
     {
         $attributes = array();
         foreach ( $element->attributes ?? array() as $attribute ) {
-            if ( HtmlAttributeName::isIntegerKey($attribute->nodeName) ) {
+            if ( HtmlAttributeName::isIntegerKey($attribute->nodeName) || BoxTree::isEvidenceAttribute($attribute->nodeName) ) {
                 continue;
             }
             $attributes[$attribute->nodeName] = $attribute->nodeValue ?? '';
@@ -959,9 +966,9 @@ final class SourceDom
     /**
      * Whitespace-delimited class tokens that a receipt may retain.
      *
-     * `.` and `:` are legal inside a token; they are not selector delimiters.
-     * Tokens that need CSS escaping are still tokens. Length and count stay
-     * bounded so metadata stays finite.
+     * Tokens that need CSS escaping are still tokens. Callers must escape
+     * identifiers in selectors and attribute values in HTML. Length and count
+     * stay bounded so metadata stays finite.
      *
      * @return list<string>
      */
@@ -985,7 +992,7 @@ final class SourceDom
     {
         return '' !== $token
             && strlen($token) <= $maxLength
-            && 1 === preg_match('/^[A-Za-z0-9_-][A-Za-z0-9_.:-]*$/D', $token);
+            && 0 === preg_match('/[\x09-\x0D\x20"\'<>\x5C]/', $token);
     }
 
     /**
@@ -1679,11 +1686,12 @@ final class SourceDom
         $inline = self::attr($element, 'style');
         $hasZeroBox = false;
         foreach (array('width', 'height') as $axis) {
-            $styled = preg_match('/(?:^|;)\s*' . $axis . '\s*:\s*([^;!]+)/i', $inline, $match) ? $match[1] : null;
+            $declaration = CssRuleAnalyzer::declarations($inline, array($axis))[0] ?? null;
+            $styled = null !== $declaration ? (string) preg_replace('/\s*!\s*important\s*$/i', '', $declaration['value']) : null;
             $hasZeroBox = $hasZeroBox || (null !== $styled ? $zero($styled) : $zero(self::attr($element, $axis)));
         }
         $hasNoLayoutFootprint = $hasZeroBox
-            || 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\s*(?:!\s*important\s*)?(?:;|$)/i', $inline);
+            || array() !== array_filter(CssRuleAnalyzer::declarations($inline, array('position')), static fn (array $declaration): bool => in_array(strtolower((string) preg_replace('/\s*!\s*important\s*$/i', '', $declaration['value'])), array('absolute', 'fixed'), true));
         if (! $hasNoLayoutFootprint) {
             return false;
         }
@@ -2080,6 +2088,8 @@ final class SourceDom
      * Whether a textless custom host contains only nonempty graphics. Its SVG
      * passes the same safety boundary as a standalone SVG, because the host is
      * transparent and the SVG converter materializes that SVG either way.
+     * Plain span/div chains may wrap a single graphic; branching or
+     * configuration-bearing wrappers are not evidence of passive content.
      */
     public static function staticGraphicOnlyCustomElement(DOMElement $element): bool
     {
@@ -2091,6 +2101,17 @@ final class SourceDom
         foreach ( $element->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) {
                 continue;
+            }
+            while ( in_array(strtolower($child->tagName), array( 'span', 'div' ), true) ) {
+                foreach ( $child->attributes as $attribute ) {
+                    if ( ! BoxTree::isEvidenceAttribute($attribute->nodeName) && ! in_array(strtolower($attribute->nodeName), array( 'class', 'id', 'style' ), true) ) {
+                        return false;
+                    }
+                }
+                if ( 1 !== $child->childElementCount || ! $child->firstElementChild instanceof DOMElement ) {
+                    return false;
+                }
+                $child = $child->firstElementChild;
             }
             $tag = strtolower($child->tagName);
             if ( 'svg' === $tag ) {

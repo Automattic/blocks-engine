@@ -14,17 +14,30 @@ final class NavigationAnchorRuntime
     {
         return <<<'PHP'
 add_filter( 'render_block', static function ( string $content, array $block ): string {
-    if ( ! isset( $block['attrs']['labelMarkup'] ) && ! isset( $block['attrs']['label'] ) && 'core/list-item' !== ( $block['blockName'] ?? null ) ) return $content;
+    // A generated component keeps a whole menu as markup: each bound item
+    // resolves against its own link rather than the block's first link.
+    $component = is_string( $block['attrs']['content'] ?? null );
+    if ( ! $component && ! isset( $block['attrs']['labelMarkup'] ) && ! isset( $block['attrs']['label'] ) && 'core/list-item' !== ( $block['blockName'] ?? null ) ) return $content;
     if ( ! str_contains( $content, 'data-blocks-engine-route-state' ) ) return $content;
-    $links = new WP_HTML_Tag_Processor( $content ); $url = '';
-    while ( $links->next_tag( 'A' ) ) { $url = (string) $links->get_attribute( 'href' ); break; }
+    // Pass one reads where each tag sits relative to the links.
+    $links = new WP_HTML_Tag_Processor( $content ); $tags = array(); $first = null;
+    while ( $links->next_tag() ) {
+        $href = 'A' === $links->get_tag() ? (string) $links->get_attribute( 'href' ) : null;
+        $tags[] = $href;
+        if ( null === $first && null !== $href ) $first = $href;
+    }
     $document = get_queried_object_id();
     $served = is_front_page() ? '/' : ( $document ? ( 'page' === get_post_type( $document ) ? '/' . trim( (string) get_page_uri( $document ), '/' ) : '/' . trim( (string) parse_url( (string) get_permalink( $document ), PHP_URL_PATH ), '/' ) ) : null );
-    $current = '' !== $url && '/' === $url[0] && ! str_starts_with( $url, '//' ) && ! str_contains( $url, '#' ) && null !== $served && '/' . trim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) === $served;
-    $processor = new WP_HTML_Tag_Processor( $content );
+    $is_current = static fn ( ?string $url ): bool => null !== $url && '' !== $url && '/' === $url[0] && ! str_starts_with( $url, '//' ) && ! str_contains( $url, '#' ) && null !== $served && '/' . trim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) === $served;
+    $processor = new WP_HTML_Tag_Processor( $content ); $position = -1;
     while ( $processor->next_tag() ) {
+        ++$position;
         $binding = json_decode( (string) $processor->get_attribute( 'data-blocks-engine-route-state' ), true );
         if ( ! is_array( $binding ) ) continue;
+        $url = $component ? ( $tags[ $position ] ?? null ) : $first;
+        if ( $component && 'next' === ( $binding['link'] ?? null ) ) for ( $url = null, $next = $position + 1; $next < count( $tags ) && null === $url; ++$next ) $url = $tags[ $next ];
+        if ( $component && 'previous' === ( $binding['link'] ?? null ) ) for ( $url = null, $previous = $position - 1; $previous >= 0 && null === $url; --$previous ) $url = $tags[ $previous ];
+        $current = $is_current( $url );
         foreach ( array_replace( $binding[ $current ? 'current' : 'rest' ] ?? array(), $binding['routes'][ $served ?? '' ] ?? array() ) as $name => $value ) {
             if ( ! in_array( $name, array( 'class', 'style', 'aria-current' ), true ) && ! preg_match( '/^data-[a-z0-9_.:-]+$/D', $name ) ) continue;
             if ( null === $value ) $processor->remove_attribute( $name ); else $processor->set_attribute( $name, $value );

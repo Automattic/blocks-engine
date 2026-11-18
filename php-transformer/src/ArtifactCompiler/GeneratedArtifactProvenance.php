@@ -36,7 +36,7 @@ final class GeneratedArtifactProvenance
      * produce the same record whichever path compiled it. Any input change
      * changes the hash.
      *
-     * @param array<int, array<string, mixed>> $blockTypes      Block-type artifacts from detectBlockTypes().
+     * @param array<int, array<string, mixed>> $blockTypes      Block-type artifacts from BlockTypes::detect().
      * @param array<int, array<string, mixed>> $files           Normalized artifact files (carry content).
      * @param array<string, mixed>             $artifact        Raw artifact envelope (for site identity).
      * @param array<int, array<string, mixed>> $generatedBlocks Static-render blocks generated at core/html fallbacks.

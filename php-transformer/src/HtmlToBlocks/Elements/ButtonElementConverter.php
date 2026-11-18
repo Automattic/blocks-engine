@@ -49,6 +49,23 @@ final class ButtonElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->context->convertButton($element));
         }
 
+        // A photo control is a native container around editable core images,
+        // not an opaque authored-button contentParts tree. Keep the button's
+        // containing block so percentage-sized thumbnails retain their geometry.
+        if ( ( $this->hasFluidContentImage($element) || $this->hasContentScaleImage($element) ) && '' === trim($element->textContent) ) {
+            $container = $this->context->convertButtonWrapperGroup($element, $fallbacks);
+            if ( null !== $container ) return ConversionOutcome::handled($container);
+        }
+
+        // An image that fills the control's inline size is the control's
+        // content (a photo tile, its caption beside or over it), never an icon
+        // beside a label: core/button's phrasing label would replace it with
+        // its alt text. Keep one real button around the editable core/image.
+        if ( $this->hasControlFillingImage($element) ) {
+            $container = $this->context->convertButtonWrapperGroup($element, $fallbacks);
+            if ( null !== $container ) return ConversionOutcome::handled($container);
+        }
+
         if ( $this->context->isRuntimeDomTarget($element) && ( array() !== AuthoredButtonBlockGenerator::sourceSafeAttributes($element) || ! $this->sourceElementClassifier->isRichTextButtonLabel($element) ) ) {
             $runtimeButton = $this->context->runtimeButton($element);
             if ( null !== $runtimeButton ) {
@@ -123,6 +140,38 @@ final class ButtonElementConverter implements ElementConverter
             }
         }
 
+        return false;
+    }
+
+    /**
+     * Whether a direct image child spans the control's whole inline size at
+     * every viewport. Only a direct child's percentage resolves against the
+     * control; an image filling a small icon wrapper is still an icon.
+     */
+    private function hasControlFillingImage(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $image ) {
+            if ( $image instanceof DOMElement
+                && 'img' === strtolower($image->tagName)
+                && $this->presentationResolver->hasPropertyValueAtEveryViewport($image, 'width', '100%') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasFluidContentImage(DOMElement $element): bool
+    {
+        foreach ($element->getElementsByTagName('img') as $image) {
+            $size = $this->context->imageMinimumPixelSize($image);
+            if (null === $size || (null === $size['width'] && null === $size['height'])) {
+                foreach (array('width', 'height') as $axis) {
+                    $intrinsic = SourceDom::attr($image, $axis);
+                    if (is_numeric($intrinsic) && (float) $intrinsic > self::ICON_SCALE_MAX_PX) return true;
+                }
+            }
+        }
         return false;
     }
 

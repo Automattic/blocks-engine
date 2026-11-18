@@ -102,11 +102,12 @@ final class EngineSupportCss
             // lays out as that content did (in flow it shares the line; a
             // flex or grid parent blockifies it into the same item), and,
             // unlike display:contents, it can take focus, so the editor can
-            // select and edit it. A paragraph that only carries a source
-            // anchor stays transparent: the anchor is the layout participant.
+            // select and edit it. Layout-owning anchors keep their transparent
+            // carrier; inline-flow anchors need a focusable RichText box.
             // A lowered block-level source wrapper keeps its block box.
             $parts[] = ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:inline}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'
+                . "\n" . ':where(p.blocks-engine-inline-anchor-carrier){display:inline}'
                 // A parent's sibling-spacing rule (`.stack > * + *`) now matches the
                 // carrier, whose margins do nothing as display:contents. The
                 // anchor it stands for takes them instead, as in the source.
@@ -119,7 +120,16 @@ final class EngineSupportCss
                 // that onto the carrier's <a> -- the UA default `inline` would
                 // otherwise win and shrink its line height (see
                 // SourceBlockAttributeProjector::sourceAnchorResolvesToBlockDisplay()).
-                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS . ')>a{display:block}';
+                // Leave hidden links to the UA stylesheet, including when script
+                // toggles the attribute after compilation.
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS . ')>a:not([hidden]){display:block}';
+        }
+        if (str_contains($serializedBlocks, SourceBlockAttributeProjector::RETAINED_ITEM_CARRIER_CLASS)) {
+            // The carrier and the item it keeps share the source classes, so
+            // an author `::before` label for the item matches both and paints
+            // twice. The retained item draws it; the carrier adds none.
+            $carrier = '.' . SourceBlockAttributeProjector::RETAINED_ITEM_CARRIER_CLASS;
+            $parts[] = $carrier . '::before,' . $carrier . '::after{content:none!important}';
         }
         if (str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS)) {
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
@@ -138,7 +148,10 @@ final class EngineSupportCss
             // the image. Keep the wrapper in the DOM for Gutenberg, but remove
             // its layout box so the source image retains its native replaced-
             // element min-content and flex-shrink behavior.
-            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}';
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}'
+                // Gutenberg selects the block root, not its img. A transparent
+                // root has no hit-test box and cannot expose the image toolbar.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block}';
             // With no figure box there is nothing for the image to fit, so the
             // `max-width:100%` that core and the base support rule put on
             // a core/image <img> is not the source's: its percentage zeroes the
@@ -153,12 +166,16 @@ final class EngineSupportCss
             // extent so the image's percentage width does not size from an
             // aspect-ratio-constrained, shrink-to-fit figure instead.
             $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '){width:100%}'
-                // The figure has no source element, so the absolutely placed
-                // image fills the source parent, not the figure. The editor
-                // makes every block root `position:relative`; keep the figure
-                // static there so the image resolves against the same
-                // containing block as on the front end.
+                // Give Gutenberg a selectable block-root box over the same
+                // containing block the source image fills. Keep the image's
+                // authored flex/grid layout and percentage sizing intact.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{position:static}'
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block;height:100%}'
+                // A full-bleed source layer can sit underneath a later content
+                // group. A figure box alone cannot be clicked through that group.
+                // Put its immediate host in editor flow so both native blocks
+                // remain selectable, without changing front-end layer geometry.
+                . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::LAYER_FILL_IMAGE_FIGURE_CLASS . '){position:static!important;inset:auto!important}'
                 // A linked image adds core's inline-block anchor between the
                 // figure and the image. Shrink-to-fit, it sizes from the image
                 // whose percentages size from it, so the fill collapses. Let
@@ -217,11 +234,48 @@ final class EngineSupportCss
             // cyclic shrink-to-fit basis. Keep the image itself inline too.
             $inlineFigure = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS;
             $parts[] = $inlineFigure . '{display:contents}'
+                // Keep a selectable, shrink-wrapped root in Gutenberg only.
+                // Source positioning belongs to the image's transparent front-end
+                // carrier. Applying it to an editor box can stack block roots on
+                // top of each other, making the lower image impossible to select.
+                // In editor flow each image instead has its own hit-test box.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '.wp-block-image{display:inline-block;position:static}'
+                // Editor figures keep real selection boxes. Their leaves must
+                // not escape those boxes when source icons are stacked.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '.wp-block-image img{position:static!important}'
+                // A fixed-height source stack must expand around the editor's
+                // now in-flow images, rather than covering them with later blocks.
+                // Captured geometry can emit important fixed heights; this
+                // editor-only override must also outrank those source carriers.
+                . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '){height:auto!important;min-height:0!important}'
                 . $inlineFigure . ' img{display:inline}'
+                // A box-less figure positions nothing, so the image is the box
+                // that its source offsets (e.g. stacked icon layers pinned by
+                // `position:absolute;inset:0`) must move. Inherit them at zero
+                // weight; a carousel slide figure keeps its box and its offsets.
+                . ':where(.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS
+                . ( str_contains($serializedBlocks, 'authored-carousel') ? ':not(.blocks-engine-authored-carousel__track>*)' : '' )
+                . ')>img{position:inherit;inset:inherit;z-index:inherit}'
                 // A propagated card link adds another synthetic box. Core's
                 // inline-block anchor would make percentage images shrink to
                 // their intrinsic width instead of the retained source host.
                 . $inlineFigure . '.blocks-engine-custom-host-image.blocks-engine-linked-image-figure>a{display:contents}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS) ) {
+            // An ordinary inline source image sat on its parent's line, so the
+            // parent was image + strut tall. Keep that line box: the figure has
+            // no source box and the image stays inline on the source baseline.
+            // This figure owns no source positioning, so unlike the inline
+            // carrier its image never inherits the figure's placement.
+            $strutFigure = SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS;
+            $parts[] = ':root .' . $strutFigure . '{display:contents}'
+                // Gutenberg still needs a selectable, shrink-wrapped block root.
+                . ':root .editor-styles-wrapper figure.' . $strutFigure . '.wp-block-image{display:inline-block}'
+                . ':root .' . $strutFigure . ' img{display:inline}'
+                // Undo core's `.wp-block-image img{vertical-align:bottom}` so the
+                // image sits on the source baseline and keeps its line-box strut.
+                // At the author image bridge's weight, a source alignment still wins.
+                . 'figure.wp-block-image:where(.' . $strutFigure . ') img{vertical-align:baseline}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS) ) {
             // The figure stands in for the paragraph that wrapped this image.
@@ -321,22 +375,29 @@ final class EngineSupportCss
                 . LayoutParticipation::transferredFlexContainerPaddingRule($flexContainers);
             foreach ( $rules as $selector => $declarations ) {
                 $axisRules = '';
+                // Engine support CSS is shared by every page of a site, so the
+                // shrink-to-fit reset must not depend on which modifiers this
+                // page happens to use: one page's narrower `:not()` would
+                // override another page's author-sized buttons.
                 foreach ( array( 'width' => 'fit-content', 'height' => 'auto' ) as $property => $default ) {
-                    $modifier = $neutralButton . '-author-' . $property;
-                    if ( ! str_contains($serializedBlocks, $modifier) ) {
-                        continue;
-                    }
-                    $declarations = str_replace($property . ':' . $default . '!important;', '', $declarations);
-                    $axisSelectors = implode(',', array_map(static fn (string $item): string => $item . ':not(.' . $modifier . ')', explode(',', $selector)));
+                    $author = $neutralButton . '-author-' . $property;
+                    $conditional = $neutralButton . '-conditional-' . $property;
+                    $axisSelectors = implode(',', array_map(static fn (string $item): string => $item . ':not(.' . $author . '):not(.' . $conditional . ')', explode(',', $selector)));
                     $axisRules .= ':where(' . $axisSelectors . ')>.wp-block-button__link{' . $property . ':' . $default . '!important}';
+                    // Equal to core's `.wp-block-buttons .wp-block-button__link`
+                    // and later, so it beats core; the author projection (one
+                    // type selector more) still wins under its condition.
+                    $conditionalSelectors = implode(',', array_map(static fn (string $item): string => $item . '.' . $conditional, explode(',', $selector)));
+                    $axisRules .= ':where(' . $conditionalSelectors . ')>.wp-block-button__link.wp-block-button__link{' . $property . ':' . $default . '}';
                 }
                 $buttonCss .= ':where(' . $selector . ')>.wp-block-button__link{' . $declarations . '}' . $axisRules;
             }
             foreach ( array( 'inline-block', 'block', 'flex', 'inline-flex', 'inline-grid', 'inline-table' ) as $display ) {
                 $modifier = $neutralButton . '-display-' . $display;
-                if ( str_contains($serializedBlocks, $modifier) ) {
-                    $buttonCss .= ':where(.' . $neutralButton . '.' . $modifier . ')>.wp-block-button__link{display:' . $display . '!important}';
-                }
+                // Support sheets from multiple routes can coexist. Always emit
+                // every modifier, or a later route's generic inline reset can
+                // override an earlier route's source display restoration.
+                $buttonCss .= ':where(.' . $neutralButton . '.' . $modifier . ')>.wp-block-button__link{display:' . $display . '!important}';
             }
             $parts[] = $buttonCss;
         }
@@ -365,29 +426,7 @@ final class EngineSupportCss
             // carried grid geometry (gap) owns the spacing between items. Native
             // headings retain their source browser-default margins unless the
             // author stylesheet overrides them.
-            $parts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}'
-                // A grid item's automatic minimum size defaults to its content's
-                // min-content size, not zero (CSS Grid section 6.6). A source
-                // track that collapses to an unauthored, implicit single column
-                // at a narrow viewport (e.g. a Tailwind `grid` base with a
-                // `sm:`/`md:` column count) relies on the *item* being safely
-                // shrinkable so that implicit `auto` track can size to the
-                // container instead of the item's intrinsic content. The source
-                // usually gets that for free from an `overflow` other than
-                // `visible` somewhere in the item's own subtree (CSS Sizing
-                // section 4.1's "automatic minimum size" carve-out), commonly on
-                // a wrapper around a large or aspect-ratio'd
-                // image. Coalescing that wrapper into its parent block (an
-                // accepted, already-diagnosed topology change — see
-                // WrapperCoalescer) can carry the wrapper's visual properties
-                // without carrying this load-bearing sizing side effect, and the
-                // grid item is then free to force its track — and so itself —
-                // wider than the container. A zero-specificity `min-width:0`
-                // restores the same safe default the source had, without a
-                // viewport check: the item still sizes to its full authored track
-                // whenever that track has room, and only stops forcing the track
-                // wider than the container when it does not.
-                . "\n" . ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>*{min-width:0}';
+            $parts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}';
         }
         if ( str_contains($serializedBlocks, '<!-- wp:code') ) {
             // Core makes the inner code element a full-width break-spaces block.
@@ -465,6 +504,11 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, HtmlCompilation::LOWERED_PARAGRAPH_CLASS) ) {
             $parts[] = ':root :where(p.' . HtmlCompilation::LOWERED_PARAGRAPH_CLASS . '){margin-block-start:0;margin-block-end:0}';
         }
+        // A stylesheet-painted source box has no padding of its own: Core's
+        // 1em cover padding must not fill the sides the author left unset.
+        if ( str_contains($serializedBlocks, CoverPattern::CONSUMED_BACKGROUND_CLASS) ) {
+            $parts[] = ':root :where(.wp-block-cover.' . CoverPattern::CONSUMED_BACKGROUND_CLASS . '){padding:0}';
+        }
         return $parts;
     }
 
@@ -527,6 +571,14 @@ final class EngineSupportCss
             $parts[] = $item . '>.wp-block-navigation__submenu-container:not(.wp-block-navigation-submenu__toggle[aria-expanded="true"]~*)'
                 . '{padding-top:0!important;padding-bottom:0!important;border-top-width:0!important;border-bottom-width:0!important}';
         }
+        if (str_contains($serializedBlocks, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::LABEL_TOGGLE_SUBMENUS_CLASS)) {
+            // The source label is the toggle and paints no indicator: drop core's
+            // icon and the room its toggle keeps for it, and open on hover as the source does.
+            $item = '.wp-block-navigation.' . \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::LABEL_TOGGLE_SUBMENUS_CLASS . ' .wp-block-navigation-item.open-on-click';
+            $parts[] = $item . '>.wp-block-navigation__submenu-icon{display:none}'
+                . "\n" . $item . '>.wp-block-navigation-submenu__toggle{padding-right:0}'
+                . "\n" . '@media (hover:hover){' . $item . ':not(.is-menu-open *):hover>.wp-block-navigation__submenu-container{visibility:visible;overflow:visible;opacity:1;width:auto;height:auto;min-width:200px}}';
+        }
         if (str_contains($serializedBlocks, 'blocks-engine-social-source-non-list')) {
             // Lowering a div/span to ul must not introduce UA list margins.
             // Zero specificity leaves every authored margin (including type
@@ -568,6 +620,17 @@ final class EngineSupportCss
                 . "\n" . ':root .blocks-engine-layout-table-cell .blocks-engine-synthetic-image-figure-inline{display:contents;margin:0}'
                 . "\n" . '.blocks-engine-layout-table-cell :where(.blocks-engine-synthetic-image-figure-inline) img{display:inline;max-width:none;vertical-align:baseline}';
         }
+        if ( str_contains($serializedBlocks, LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS) ) {
+            // One shared rule per site, independent of the number of cards.
+            // The card's own author position wins (zero specificity), and the
+            // hitbox exists only on the front end so the editor keeps every
+            // inner block selectable.
+            $frontEnd = ':where(body:not(.editor-styles-wrapper):not(.wp-admin)) ';
+            $link = '.' . LinkWrapperPropagator::STRETCHED_LINK_CARRIER_CLASS . '>a';
+            $parts[] = ':where(.' . LinkWrapperPropagator::STRETCHED_LINK_GROUP_CLASS . '){position:relative}'
+                . $link . '{color:inherit;text-decoration:inherit}'
+                . $frontEnd . $link . '::after{content:"";position:absolute;inset:0}';
+        }
         if ( str_contains($serializedBlocks, LinkWrapperPropagator::PROPAGATED_LINK_CARRIER_CLASS) ) {
             // A propagated card link wraps all of the block's source children.
             // Layout-transparent, so the source element's flex/grid row still
@@ -603,9 +666,44 @@ final class EngineSupportCss
      */
     public function deviceVisibilityCss(string $serializedBlocks): array
     {
+        $editorVariants = array();
+        foreach (array(CaptureEvidence::DESKTOP_ONLY_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS) as $class) {
+            if (str_contains($serializedBlocks, $class)) {
+                $editorVariants[$class] = ':root .editor-styles-wrapper .' . $class;
+            }
+        }
+        // Captured device islands remain separate editable content. Their
+        // viewport visibility sheet belongs to the front end: hiding an island
+        // in the editor makes its native blocks impossible to select or replace.
+        $editorCss = '';
+        if (array() !== $editorVariants) {
+            // Device copies often share absolute source coordinates. Once both
+            // are exposed, they must occupy separate editor flow boxes, rather
+            // than covering each other's block selection targets. Ancestor
+            // tracks and out-of-flow media wrappers must expand too; otherwise
+            // the second variant overflows underneath the next editable group.
+            // Use normal block flow for those editor ancestors: retained grid
+            // placement and flex tracks can still overlap the expanded copies,
+            // even with auto heights. The front-end layout stays source-owned.
+            // A source size container (`container-type:size`) ignores its
+            // contents when sizing, so its auto height stays 0 and the
+            // expanded copies overflow beneath the following content: drop
+            // the containment in the editor so those heights take effect.
+            // Both variants share one rule per target: this sheet ships on
+            // every route, so a repeated declaration block is page weight.
+            $list = static fn (string $suffix): string => implode(',', array_map(static fn (string $selector): string => $selector . $suffix, $editorVariants));
+            $ancestors = implode(',', array_map(static fn (string $class): string => ':root .editor-styles-wrapper .wp-block-group:has(.' . $class . ')', array_keys($editorVariants)));
+            $editorCss = $list('') . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important;min-height:0!important;transform:none!important;container-type:normal!important}'
+                . $list(' figure.wp-block-image') . '{display:block!important;position:relative!important;inset:auto!important;height:auto!important}'
+                . $list(' img') . '{position:static!important;width:auto!important;height:auto!important;max-width:100%!important}'
+                . $ancestors . '{display:block!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;grid-template-rows:none!important;grid-auto-rows:auto!important;position:relative!important;inset:auto!important;overflow:visible!important;container-type:normal!important}';
+        }
+        $editorRules = '' !== $editorCss
+            ? array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, $editorCss))
+            : array();
         $prefixes = preg_quote(EngineMarker::DEVICE_ONLY_CLASS_PREFIX, '/') . '|' . preg_quote(EngineMarker::DEVICE_HIDE_CLASS_PREFIX, '/');
         if (! preg_match_all('/(?<![\\w-])(' . $prefixes . ')([a-z][a-z0-9_-]{0,63})(?![\\w-])/', $serializedBlocks, $matches, PREG_SET_ORDER)) {
-            return array();
+            return $editorRules;
         }
         $selected = CaptureEvidence::SELECTED_DOCUMENT;
         $selectors = array();
@@ -626,7 +724,7 @@ final class EngineSupportCss
         }
         $selectors = array_values(array_unique($selectors));
         sort($selectors);
-        return array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, implode(',', $selectors) . '{display:none!important}'));
+        return array_merge($editorRules, array(new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, implode(',', $selectors) . '{display:none!important}')));
     }
 
     public function socialLinkCss(string $serializedBlocks): array

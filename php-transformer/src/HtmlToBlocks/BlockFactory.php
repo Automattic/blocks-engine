@@ -92,6 +92,13 @@ final class BlockFactory
         $name = (string) ($block['blockName'] ?? '');
         $innerBlocks = ArrayField::array($block, 'innerBlocks');
         $rebuilt = $this->create($name, $attrs, $innerBlocks);
+        // Generated/custom blocks own their save implementation. The core
+        // factory cannot regenerate it from attributes; retain its literal
+        // fragments and child slots rather than replacing them with ''.
+        if ( ! str_starts_with($name, 'core/') ) {
+            $rebuilt['innerHTML'] = $block['innerHTML'] ?? '';
+            $rebuilt['innerContent'] = $block['innerContent'] ?? array();
+        }
         foreach ( $block as $key => $value ) {
             if ( is_string($key) && str_starts_with($key, '_') ) {
                 $rebuilt[$key] = $value;
@@ -114,6 +121,17 @@ final class BlockFactory
             if ( 'attribute' === ($schema['source'] ?? null) && is_string($attrs[$attribute] ?? null) ) {
                 $attrs[$attribute] = $this->runtime()->normalizeAttributeValue($attrs[$attribute]);
             }
+        }
+
+        if ( 'core/social-links' === $name ) {
+            // Core saves size verbatim as a class, not as a preset slug.
+            if ( in_array($attrs['size'] ?? '', array('small', 'normal', 'large', 'huge'), true) ) {
+                $attrs['size'] = 'has-' . $attrs['size'] . '-icon-size';
+            }
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-cluster');
+            // Social Links has no typography support. Source glyph sizing lives
+            // in the projected stylesheet, never in unregistered inline HTML.
+            unset($attrs['inlineGeometryStyle']);
         }
 
         $attrs = $this->normalizeClassNameAttr($attrs, $name);
@@ -505,18 +523,15 @@ final class BlockFactory
         // social-link child renders dynamically and therefore saves no HTML.
         if ( 'core/social-links' === $name ) {
             $size = $this->safeSlug((string) ($attrs['size'] ?? ''));
-            $sizeClass = in_array($size, array( 'small', 'normal', 'large', 'huge' ), true)
-                ? $size . ' has-' . $size . '-icon-size'
-                : '';
+            $sizeClass = $size;
             $labelsClass = ! empty($attrs['showLabels']) ? 'has-visible-labels' : '';
             $justification = $this->safeSlug((string) ($attrs['justifyContent'] ?? ''));
             $justificationClass = in_array($justification, array( 'left', 'center', 'right', 'space-between' ), true) ? 'is-content-justification-' . $justification : '';
             $iconColorClass = '' !== trim((string) ($attrs['iconColorValue'] ?? '')) ? 'has-icon-color' : '';
             $iconBackgroundClass = '' !== trim((string) ($attrs['iconBackgroundColorValue'] ?? '')) ? 'has-icon-background-color' : '';
-            // The importer class keys the social-links support rules in
-            // EngineSupportCss so they do not stand on the bare core list class
-            // alone; every social-links list the importer emits carries it.
-            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links blocks-engine-social-source-cluster ' . $labelsClass . ' ' . $sizeClass . ' ' . $justificationClass . ' ' . $iconColorClass . ' ' . $iconBackgroundClass)) . '>', 'closing' => '</ul>' );
+            // Importer selectors ride in className (normalized above), so
+            // core save() can reproduce them rather than seeing extra classes.
+            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $sizeClass . ' ' . $labelsClass . ' ' . $justificationClass . ' ' . $iconColorClass . ' ' . $iconBackgroundClass)) . '>', 'closing' => '</ul>' );
         }
 
         if ( 'core/social-link' === $name ) {
@@ -1130,12 +1145,18 @@ final class BlockFactory
         $typographyMap = array(
             // A raw authored family is a custom value, so core's style engine
             // serializes it inline rather than as a has-*-font-family class.
-            'fontFamily'    => 'font-family',
-            'fontSize'      => 'font-size',
-            'fontWeight'    => 'font-weight',
-            'letterSpacing' => 'letter-spacing',
-            'lineHeight'    => 'line-height',
-            'textTransform' => 'text-transform',
+            'fontFamily'     => 'font-family',
+            'fontSize'       => 'font-size',
+            // core/button supports every typography key below, and save()
+            // inlines each one: a key the attributes carry but the markup
+            // omits fails block validation in the editor.
+            'fontStyle'      => 'font-style',
+            'fontWeight'     => 'font-weight',
+            'letterSpacing'  => 'letter-spacing',
+            'lineHeight'     => 'line-height',
+            'textDecoration' => 'text-decoration',
+            'textTransform'  => 'text-transform',
+            'writingMode'    => 'writing-mode',
         );
         foreach ( $typographyMap as $attrName => $cssName ) {
             if ( isset($typography[$attrName]) && '' !== (string) $typography[$attrName] ) {
@@ -1207,7 +1228,7 @@ final class BlockFactory
     private function styleSupport(mixed $style): array
     {
         if ( is_array($style) ) {
-            return $this->styleMapper()->serialize($style);
+            return $this->styleMapper()->serialize($style, true);
         }
 
         return array(

@@ -3,13 +3,16 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RouteStateProjector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\ClassificationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SubtreeClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\ReusableComponentState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
@@ -95,7 +98,8 @@ final class FallbackEmitter
 
     public function __construct(
         private readonly Runtime $runtime,
-        private readonly SourceElementDescription $sourceElementDescription
+        private readonly SourceElementDescription $sourceElementDescription,
+        private readonly ?ReusableComponentState $reusableComponents = null
     ) {
         $this->classifier     = new SubtreeClassifier();
         $this->blockGenerator = new CustomBlockGenerator();
@@ -132,7 +136,7 @@ final class FallbackEmitter
      */
     public function maybeGenerateCustomBlock(DOMElement $element, GeneratedBlockRegistry $registry, bool $preserveRoot = false, bool $confirmedComponent = false): ?array
     {
-        if ($this->containsProjectedCollectionControl($element) || $this->containsProductGrid($element)) return null;
+        if ($this->containsProjectedCollectionControl($element) || $this->containsProductGrid($element) || $this->containsPurchaseForm($element)) return null;
         $result = $this->classifier->classify($element, $this->classificationContext($element));
         if ( ! $confirmedComponent && ! $result->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK) ) {
             return null;
@@ -156,6 +160,12 @@ final class FallbackEmitter
             }
         }
         $projected = $this->sourceTagProjectedClone($element);
+        // One component serves every route, so its navigation is saved at
+        // rest and the served route restores its current item.
+        if ($projected instanceof DOMElement && null !== $this->reusableComponents) {
+            $this->reusableComponents->withRestingNavigationEvidence($element, $projected);
+            RouteStateProjector::withRestingNavigation($projected);
+        }
         $content = SourceDom::safeFallbackHtmlString(
             $projected instanceof DOMElement
                 ? ($preserveRoot ? SourceDom::outerHtml($projected) : SourceDom::innerHtml($projected))
@@ -262,6 +272,20 @@ final class FallbackEmitter
                 && 2 <= (int) ($childSignals['repeatable_children'] ?? 0)
                 && empty($childSignals['inline_event_handlers'])
             ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Keep purchase forms available for native lowering and commerce bindings (#6379). */
+    private function containsPurchaseForm(DOMElement $element): bool
+    {
+        if ('form' === strtolower($element->tagName) && 'commerce_add_to_cart' === FormRuntimeRequirementAnalyzer::formIntent($element)) {
+            return true;
+        }
+        foreach ($element->getElementsByTagName('form') as $form) {
+            if ('commerce_add_to_cart' === FormRuntimeRequirementAnalyzer::formIntent($form)) {
                 return true;
             }
         }

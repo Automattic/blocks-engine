@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ImageDimensionResolver;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
@@ -17,7 +17,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\HtmlDimensionAttribute;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
-use DOMDocument;
 use DOMElement;
 
 /**
@@ -182,7 +181,7 @@ final class CustomImageHostLowering implements ElementConverter
             }
             if ( ! str_starts_with($name, 'data-')
                 || $this->runtimeIslands->isRuntimeDomTarget($host)
-                || $this->imageHostDataAttributeIsReferenced($host, $name) ) {
+                || DataAttributeReferences::isReferenced($this->session, $host, $name) ) {
                 return false;
             }
         }
@@ -190,31 +189,6 @@ final class CustomImageHostLowering implements ElementConverter
         return ! $this->runtimeIslands->isRuntimeDomTarget($host)
             && array() === $this->sourceElementDescription->interactiveAttributes($host)
             && ! (array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($host));
-    }
-
-    private function imageHostDataAttributeIsReferenced(DOMElement $host, string $attribute): bool
-    {
-        foreach ( CssValueSplitter::ruleBlocks($this->session->authorStyleAnalysis()->combinedCss()) as $rule ) {
-            foreach ( \Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary::dataAttributeSelectorsFromCssSelector($rule['selector']) as $selector ) {
-                if ( preg_match('/\\[' . preg_quote($attribute, '/') . '(?:\\]|[\\s*=~|^$*])/', $selector) ) {
-                    return true;
-                }
-            }
-        }
-
-        $document = $host->ownerDocument;
-        if ( ! $document instanceof DOMDocument ) {
-            return false;
-        }
-        $datasetName = preg_replace_callback('/-([a-z])/', static fn (array $match): string => strtoupper($match[1]), substr($attribute, 5));
-        $references = '/\\b' . preg_quote($attribute, '/') . '\\b|\\bdataset\\s*\.\\s*' . preg_quote((string) $datasetName, '/') . '\\b/i';
-        foreach ( $document->getElementsByTagName('script') as $script ) {
-            if ( $script instanceof DOMElement && preg_match($references, (string) $script->textContent) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function hasBlockFigureDisplay(DOMElement $host): bool
@@ -278,7 +252,7 @@ final class CustomImageHostLowering implements ElementConverter
     private function imageHasDefinitePixelBox(DOMElement $image): bool
     {
         foreach ( array( 'width', 'height' ) as $property ) {
-            $inline = $this->styleResolver->inlineDeclarations($image)[$property] ?? '';
+            $inline = SourceDeclarations::inline($image)[$property] ?? '';
             $value = trim(CssValueInspector::withoutImportant((string) $inline));
             if ( '' === $value ) {
                 $pixels = HtmlDimensionAttribute::pixels(SourceDom::attr($image, $property));

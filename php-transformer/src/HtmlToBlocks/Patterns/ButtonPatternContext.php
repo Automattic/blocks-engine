@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
@@ -91,7 +92,7 @@ final class ButtonPatternContext
     /** @return array<string, string> */
     public function resolvedDeclarations(DOMElement $element): array
     {
-        return $this->styleResolver?->cssDeclarations($this->resolvedStyle($element)) ?? array();
+        return SourceDeclarations::parse($this->resolvedStyle($element));
     }
 
     public function controlSurfaceStyle(DOMElement $element): string
@@ -100,7 +101,7 @@ final class ButtonPatternContext
             return '';
         }
 
-        return $this->styleResolver->resolveCssVariablesInValue(
+        return $this->styleResolver->customProperties->resolve(
             $this->styleResolver->controlSurfaceResolvedStyle($element),
             $element
         );
@@ -113,12 +114,20 @@ final class ButtonPatternContext
             return '';
         }
 
-        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        $declarations = SourceDeclarations::parse($this->styleResolver->specificityResolvedPresentationStyle($element));
         // Read before conditional/class-owned declarations are filtered: an
         // authored line-height must stay owned by its projected selector.
         $uaLineHeight = $this->styleResolver->buttonUserAgentLineHeight($element, $declarations);
         if ( null !== $uaLineHeight ) {
             $declarations['line-height'] = $uaLineHeight;
+        }
+        // Anchors have no UA padding. Promoting one to core/button must not
+        // introduce theme button padding when the source owns no padding at all.
+        if ('a' === strtolower($element->tagName)
+            && array() === array_intersect_key($declarations, array_flip(array(
+                'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+            )))) {
+            $declarations['padding'] = '0px';
         }
         // Source buttons without authored corners are square. Core/button instead
         // supplies a pill radius, so materialize the source default as native style.
@@ -184,7 +193,7 @@ final class ButtonPatternContext
             }
         }
         foreach ( $this->session?->sourceStyleResolutionState()->pseudoElementRules() ?? array() as $rule ) {
-            if ( $this->styleResolver?->matchesCssSelector($element, $rule['selector']) ) {
+            if ( $this->session?->sourceStyleResolutionState()->matches($element, $rule['selector']) ) {
                 return true;
             }
         }
@@ -306,14 +315,17 @@ final class ButtonPatternContext
         return $marker;
     }
 
-    /** A text-free, childless element, painted only by author CSS, that the label no longer renders. */
+    /**
+     * A text-free, childless element (source formatting whitespace aside),
+     * painted only by author CSS, that the label no longer renders.
+     */
     private static function isDroppedEdgeDecoration(?DOMElement $element, string $labelHtml): bool
     {
         $class = trim($element?->getAttribute('class') ?? '');
 
         return $element instanceof DOMElement
             && in_array(strtolower($element->tagName), array( 'div', 'span', 'i' ), true)
-            && ! $element->hasChildNodes()
+            && SourceDom::isEmptyInlineBox($element)
             && '' !== $class
             && ! str_contains($labelHtml, $class);
     }
@@ -332,7 +344,7 @@ final class ButtonPatternContext
         $this->retainSourceDescendants($sourceAnchor);
         // Linked artwork must stay inline: a RichText span changes selector
         // topology and an external image cannot inherit hover/focus paint.
-        $contentMode = $sourceArtwork || 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : 'rich-text';
+        $contentMode = $sourceArtwork || 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : ($wrapper instanceof DOMElement ? 'rich-text' : 'inline-rich-text');
         if ( 'raw-source' === $contentMode ) {
             $wrapper = null;
         }
@@ -397,13 +409,13 @@ final class ButtonPatternContext
         }
 
         $display = '';
-        foreach ( $this->styleResolver->matchingStyleRules($element, 'static') as $rule ) {
+        foreach ( $this->session?->sourceStyleResolutionState()->matchingRules($element, 'static') ?? array() as $rule ) {
             if ( isset($rule['declarations']['display']) ) {
                 $display = (string) $rule['declarations']['display'];
             }
         }
 
-        $inline = $this->styleResolver->inlineDeclarations($element);
+        $inline = SourceDeclarations::inline($element);
 
         return CssValueInspector::comparable((string) ($inline['display'] ?? $display));
     }

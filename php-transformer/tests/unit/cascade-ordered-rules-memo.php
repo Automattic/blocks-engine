@@ -47,7 +47,7 @@ foreach ( $dom->getElementsByTagName('p') as $element ) {
     foreach ( array('color', 'font-size', 'margin-top', 'display') as $property ) {
         $resolver->declaredPresentation($element, $property);
     }
-    $resolver->collapsedViewportDeclarations($element, array('display', 'font-size'));
+    $resolver->cascade->collapsedViewportDeclarations($element, array('display', 'font-size'));
     if ( $before !== $counters() ) {
         throw new RuntimeException('Repeated cascade reads repeated selector candidate work: ' . json_encode(array($before, $counters())));
     }

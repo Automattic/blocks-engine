@@ -61,6 +61,7 @@ final class AuthorSelectorSemanticPreparer
             array_column($session->runtimeBehaviorState()->runtimeProjectionScriptAssets(), 'content'),
             'is_string'
         ));
+        $authorStyles->siteSelectorPruner = ($options['site_selector_pruner'] ?? null) instanceof \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner ? $options['site_selector_pruner'] : null;
         $session->installAuthorStyleAnalysis($authorStyles);
         $sourceStyles = $session->sourceStyleResolutionState();
         $projections = $session->authorSelectorProjectionState();
@@ -205,10 +206,13 @@ final class AuthorSelectorSemanticPreparer
                 $inlineTag = strtolower($element->tagName);
                 $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
                 $directAuthorLayoutItem = $directChildSelector && $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element);
-                // `span` and `font` are replaced by a `<mark>` RichText carrier,
-                // so an author rule naming them needs a marker hook to keep
-                // matching after conversion.
-                if ( ! $this->sourceElementClassifier->isInlineContentElement($inlineTag) || (! in_array($inlineTag, array( 'span', 'font' ), true) && ! $directAuthorLayoutItem) ) {
+                // Format tags lose their class hooks in RichText too. Contextual
+                // selectors need the same source-addressed projection as spans.
+                $compounds = $parsed['compounds'] ?? array();
+                $contextualFormat = count($compounds) > 1
+                    && array() !== array_intersect(SourceDom::tokens(SourceDom::attr($element, 'class')), $compounds[array_key_last($compounds)]['classes'] ?? array())
+                    && in_array($inlineTag, array( 'strong', 'b', 'em', 'i', 'mark', 'small', 'sub', 'sup' ), true);
+                if ( ! $this->sourceElementClassifier->isInlineContentElement($inlineTag) || (! in_array($inlineTag, array( 'span', 'font' ), true) && ! $contextualFormat && ! $directAuthorLayoutItem) ) {
                     continue;
                 }
                 if ( '' === $path ) {
@@ -255,6 +259,7 @@ final class AuthorSelectorSemanticPreparer
                 if ( '' !== $path
                     && $this->context->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($element)
                     && ! $this->isPhrasingWithinHeading($element)
+                    && ! $this->isPhrasingWithinPhrasingQuote($element)
                     && ! $this->isQuoteCitation($element)
                     && ! $projections->isControlPath($parentPath)
                     && ! ('' !== $projections->richTextMarker($path) && SourceDom::ancestorElement($element, 'label') instanceof DOMElement)
@@ -263,6 +268,34 @@ final class AuthorSelectorSemanticPreparer
                 }
             }
         }
+    }
+
+    /**
+     * A blockquote whose children are all phrasing content lowers to one
+     * paragraph holding that content as RichText, like a heading. A
+     * block-display span in it stays a RichText run, so its rules must reach
+     * that run's hook instead of a carrier paragraph that is never emitted.
+     */
+    private function isPhrasingWithinPhrasingQuote(DOMElement $element): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            $tag = strtolower($parent->tagName);
+            if ( 'blockquote' === $tag ) {
+                foreach ( $parent->childNodes as $child ) {
+                    if ( $child instanceof DOMElement
+                        && ! in_array(strtolower($child->tagName), array( 'cite', 'footer', 'br' ), true)
+                        && ! $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) ) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            if ( ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -354,7 +387,7 @@ final class AuthorSelectorSemanticPreparer
                     'margin', 'padding', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'grid', 'grid-area',
                 )));
                 if ( null === $pseudoHost && ! $hasBoxGeometry
-                    && ! $this->selectorRuleDeclaresBoxGeometry($authorSelector['selector'], $authorStyles)
+                    && ! $this->selectorRuleNeedsSubjectMarker($authorSelector['selector'], $authorStyles)
                     && 'img' !== strtolower($element->tagName)
                 ) {
                     continue;
@@ -368,7 +401,12 @@ final class AuthorSelectorSemanticPreparer
         }
     }
 
-    private function selectorRuleDeclaresBoxGeometry(string $selector, AuthorStyleAnalysis $authorStyles): bool
+    /**
+     * Box geometry and custom properties must keep matching their subject:
+     * geometry is not flattened onto the block, and a custom property feeds
+     * descendants that read it through var().
+     */
+    private function selectorRuleNeedsSubjectMarker(string $selector, AuthorStyleAnalysis $authorStyles): bool
     {
         $geometry = array_fill_keys(array(
             'display', 'position', 'inset', 'top', 'right', 'bottom', 'left',
@@ -380,8 +418,14 @@ final class AuthorSelectorSemanticPreparer
                 if ($selector !== ($candidate['selector'] ?? null)) {
                     continue;
                 }
-                if (array_intersect_key($rule['declarations'] ?? array(), $geometry) !== array()) {
+                $declarations = $rule['declarations'] ?? array();
+                if (array_intersect_key($declarations, $geometry) !== array()) {
                     return true;
+                }
+                foreach (array_keys($declarations) as $property) {
+                    if (str_starts_with((string) $property, '--')) {
+                        return true;
+                    }
                 }
             }
         }

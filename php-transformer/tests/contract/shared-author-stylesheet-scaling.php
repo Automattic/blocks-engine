@@ -338,7 +338,9 @@ foreach ($routePlan['pages'] as $row) {
     $assert(str_contains($functions, $class) && str_contains($functions, 'blocksEngineDocumentContext') && str_contains($functions, 'language_attributes'), 'the same root registry reaches front end and editor: ' . $row['source_path']);
 }
 $group = ':where(:root:is(.' . $classes['b.html'] . ',.' . $classes['c.html'] . '))';
-$assert(str_contains($routeText, '.sample{'), 'plain variants inert on other routes remain shared');
+// Every `.sample` element left is a converted carrier, so the control-guarded
+// source arm matches nothing and final pruning drops it; it is never scoped.
+$assert(!str_contains($routeText, '.sample:not(:where(.blocks-engine-role-control)):where(:root'), 'plain variants inert on other routes remain shared');
 $assert(str_contains($routeText, 'html:where(') && str_contains($routeText, ':root:where('), 'variant-only html and root arms merge their positive route scope');
 $droppedOverride = false;
 $conditionalImage = false;

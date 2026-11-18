@@ -33,9 +33,46 @@ final class FormControlLabel
         }
         $label = $labels[0] ?? null;
         if ( $label instanceof DOMElement ) {
-            return $label;
+            return self::fieldTitleBeforeWrappingLabel($control, $labels) ?? $label;
         }
         return self::capturedChoiceFieldLabel($control) ?? self::fieldWrapperLabel($control);
+    }
+
+    /**
+     * A field whose only label wraps the control as its click target (a file
+     * drop zone's "Add a file") is named by an unassociated title label that
+     * precedes it in a wrapper the control owns alone.
+     *
+     * @param list<DOMElement> $labels Labels associated with the control.
+     */
+    private static function fieldTitleBeforeWrappingLabel(DOMElement $control, array $labels): ?DOMElement
+    {
+        if ( 1 !== count($labels) || ! SourceDom::elementContains($labels[0], $control) ) {
+            return null;
+        }
+        $wrapping = $labels[0];
+        $depth = 0;
+        for ( $wrapper = $wrapping->parentNode; $wrapper instanceof DOMElement && $depth < self::FIELD_WRAPPER_DEPTH; $wrapper = $wrapper->parentNode, ++$depth ) {
+            if ( in_array(strtolower($wrapper->tagName), array( 'form', 'fieldset', 'body', 'html' ), true) ) {
+                return null;
+            }
+            $controls = FormControlClassifier::controlElements($wrapper);
+            if ( 1 !== count($controls) || ! $controls[0]->isSameNode($control) ) {
+                return null;
+            }
+            // Labels arrive in document order, so only titles before the wrapping label qualify.
+            foreach ( $wrapper->getElementsByTagName('label') as $title ) {
+                if ( ! $title instanceof DOMElement || $title->isSameNode($wrapping) ) {
+                    break;
+                }
+                $targetId = SourceDom::attr($title, 'for');
+                if ( ('' === $targetId || null === $title->ownerDocument->getElementById($targetId)) && '' !== trim($title->textContent) ) {
+                    return $title;
+                }
+            }
+        }
+
+        return null;
     }
 
     /** The captured choice field's four direct siblings supply one bounded positional label. */

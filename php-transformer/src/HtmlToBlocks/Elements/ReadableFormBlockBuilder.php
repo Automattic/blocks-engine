@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -13,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButto
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
@@ -179,6 +181,10 @@ final class ReadableFormBlockBuilder
         foreach ( $block['innerBlocks'] ?? array() as $index => $child ) {
             $block['innerBlocks'][$index] = $this->inactiveControlBlock($child);
         }
+        if ( isset($block['attrs']['metadata']['blocksEngineInput']) && is_array($block['attrs']['metadata']['blocksEngineInput']) ) {
+            $block['attrs']['metadata']['blocksEngineInput']['disabled'] = true;
+            return $block;
+        }
         $localName = explode('/', $block['blockName'] ?? '')[1] ?? '';
         $generator = match ($localName) {
             AuthoredInputBlockGenerator::LOCAL_NAME => new AuthoredInputBlockGenerator(),
@@ -277,6 +283,25 @@ final class ReadableFormBlockBuilder
             }
 
             $element = $entry['element'];
+            // A control nested below a label's phrasing wrapper cannot be
+            // reconstructed as caption + control: the caption contains that
+            // same wrapper and control, and moving the wrapper outside the
+            // label reverses its source ownership. Preserve this whole native
+            // subtree once, before walking any of its painted descendants.
+            if ('label' === strtolower($element->tagName)) {
+                foreach (FormControlClassifier::controlElements($element) as $control) {
+                    $path = $control;
+                    for ($wrapper = $control->parentNode; $wrapper instanceof DOMElement && !$wrapper->isSameNode($element); $wrapper = $wrapper->parentNode) {
+                        foreach ($wrapper->childNodes as $sibling) {
+                            if (!$sibling->isSameNode($path) && '' !== trim($sibling->textContent ?? '')) {
+                                $blocks[] = $this->nativeLabelSubtree($element);
+                                continue 4;
+                            }
+                        }
+                        $path = $wrapper;
+                    }
+                }
+            }
             if ( ! $this->holdsControl($entry['id'], $children) ) {
                 if ( $this->isFlowContent($element) ) {
                     $this->pushFlowContent($blocks, $element, $fallbacks);
@@ -357,15 +382,40 @@ final class ReadableFormBlockBuilder
                 if ( 1 === count($inner) ) {
                     $inner = array($this->withoutShelledFieldBox($inner[0], $elements));
                 }
-                // Native groups retain class identity and resolved presentation for
-                // simple field rows. Control boxes must keep their shell contract.
-                $classOnlyGroup = 1 === count($inner) && 1 === count($elements)
+                // Native Groups retain ordinary container identity regardless of
+                // child count. A row or a field's error/help content does not
+                // require a generated block. Provider control boxes and wrappers
+                // with attributes outside this native contract still need shells.
+                $nativeContainerGroup = 1 === count($elements)
                     && 'div' === strtolower($element->tagName)
-                    && 1 === $element->attributes->length && $element->hasAttribute('class')
+                    && $this->hasNativeContainerAttributes($element)
                     && null === $controlBox;
-                $shell = $classOnlyGroup
-                    ? $this->createBlock->createBlock('core/group', $this->presentationAttributes($element), $inner, $element)
-                    : ($this->layoutShellBlockForElements)($elements, $inner, $element);
+                // Unowned div chains can also contain a control with help/error
+                // text. Those siblings do not make a composite control. Keep
+                // actual composite controls and provider-owned boxes in shell
+                // transport, where providers replace their complete frame.
+                $controls = array_filter($inner, static fn (array $block): bool => isset($block['form_control_index']));
+                $feedback = array_filter($inner, static fn (array $block): bool =>
+                    'core/paragraph' === ($block['blockName'] ?? null));
+                $controlWithFeedback = 1 === count($controls) && count($feedback) > 0
+                    && count($controls) + count($feedback) === count($inner);
+                $nativeChain = null === $controlBox && count($elements) > 1
+                    && (1 === count($inner) || $controlWithFeedback);
+                foreach ($elements as $source) {
+                    $nativeChain = $nativeChain && 'div' === strtolower($source->tagName)
+                        && $this->hasNativeContainerAttributes($source);
+                }
+                if ($nativeChain) {
+                    $nested = $inner;
+                    foreach (array_reverse($elements) as $source) {
+                        $nested = array($this->createBlock->createBlock('core/group', $this->nativeContainerAttributes($source), $nested, $source));
+                    }
+                    $shell = $nested[0];
+                } else {
+                    $shell = $nativeContainerGroup
+                        ? $this->createBlock->createBlock('core/group', $this->nativeContainerAttributes($element), $inner, $element)
+                        : ($this->layoutShellBlockForElements)($elements, $inner, $element);
+                }
                 if ( null !== $controlBox && 1 === count($inner) && $controlBox === ($inner[0]['form_control_index'] ?? null) && ! isset($inner[0]['_form_control_box']) ) {
                     $shell['form_control_box'] = $controlBox;
                 }
@@ -382,6 +432,94 @@ final class ReadableFormBlockBuilder
         }
 
         return $blocks;
+    }
+
+    /**
+     * Geometry provenance does not change a container's native transport. A
+     * Group carries the class and the id (as its anchor). A valueless data
+     * attribute is a presence marker: when no stylesheet, script or runtime
+     * selector tests for it, it is inert, so dropping it loses nothing and
+     * needs no generated block to keep it. A data attribute with a value
+     * carries data a Group cannot hold, so it keeps the shell.
+     */
+    private function hasNativeContainerAttributes(DOMElement $element): bool
+    {
+        foreach ($element->attributes as $attribute) {
+            $name = strtolower($attribute->name);
+            if (in_array($name, array('class', 'id', BoxTree::NODE_ATTRIBUTE), true)
+                || ('style' === $name && '' === trim($attribute->value))) {
+                continue;
+            }
+            if (str_starts_with($name, 'data-')
+                && '' === $attribute->value
+                && ! $this->runtimeDomTargets->isRuntimeDomTarget($element)
+                && ! DataAttributeReferences::isReferenced($this->session, $element, $name)) {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Form frames replace literal DOM wrappers, not WordPress flow layouts.
+     * Keep author layout and spacing in charge even when a frame has no
+     * explicit grid/flex declaration; core's default block gap would otherwise
+     * add space between the control and its help/error siblings.
+     *
+     * @return array<string, mixed>
+     */
+    private function nativeContainerAttributes(DOMElement $element): array
+    {
+        $attrs = $this->presentationAttributes($element);
+        // CSS-owned grids and responsive layouts need not expose a native
+        // layout attribute. Preserve their existing spacing contract too.
+        if (! isset($attrs['layout']) && ! $this->authorLayoutOwnership->isAuthorOwnedLayout($element)) {
+            $attrs['className'] = SourceDom::mergeClassNames(
+                (string) ($attrs['className'] ?? ''),
+                AuthorLayoutOwnership::CSS_OWNED_LAYOUT_CLASS
+            );
+            $attrs = AuthorLayoutOwnership::withCssOwnedFlow($attrs);
+        }
+        return $attrs;
+    }
+
+    /**
+     * Keep mixed label content in source order. The walk owns every wrapper
+     * here, so controls must not carry a second copy of their label or boxes.
+     *
+     * @return array<string, mixed>
+     */
+    private function nativeLabelSubtree(DOMElement $element): array
+    {
+        $blocks = array();
+        foreach ($element->childNodes as $child) {
+            if (XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '')) {
+                $blocks[] = $this->createBlock->createBlock('core/paragraph', array(
+                    'content' => htmlspecialchars($child->textContent, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                    'className' => SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS,
+                ));
+            } elseif ($child instanceof DOMElement) {
+                if (! FormControlClassifier::isControlElement($child)) {
+                    $blocks[] = $this->nativeLabelSubtree($child);
+                    continue;
+                }
+                $block = $this->controlBlockConverter->convert($child, null, true);
+                if (null !== $block) {
+                    $index = $this->controlIndices[(string) $child->getNodePath()];
+                    $block['form_control_index'] = $index;
+                    $label = $this->metadataBuilder->labelElement($child);
+                    $block['form_field'] = array(
+                        'kind' => 'control',
+                        'label' => null !== $label ? $this->controlBlockConverter->labelMarkup($label) : '',
+                    );
+                    $this->fieldBoxes[$index] = array();
+                    $this->controlBoxes[$index] = array();
+                    $blocks[] = $block;
+                }
+            }
+        }
+        return ($this->layoutShellBlockForElements)(array($element), $blocks, $element);
     }
 
     /**
@@ -512,7 +650,8 @@ final class ReadableFormBlockBuilder
         // including responsive navigation alternatives built from selects.
         for ( $form = $control->parentNode; $form instanceof DOMElement; $form = $form->parentNode ) {
             if ( 'form' === strtolower($form->tagName) ) {
-                $forceNative = $forceNative || FormRuntimeRequirementAnalyzer::collectsOnlyChoices($form);
+                $forceNative = $forceNative || FormRuntimeRequirementAnalyzer::collectsOnlyChoices($form)
+                    || FormRuntimeRequirementAnalyzer::collectsOnlyPurchaseChoices($form);
                 break;
             }
         }

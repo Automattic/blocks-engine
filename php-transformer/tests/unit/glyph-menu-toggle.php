@@ -53,7 +53,11 @@ $isNativeResponsiveMenu = static function (string $html, string $label) use ($as
     $assert(str_contains($html, '"overlayMenu":"mobile"'), $label . ': navigation emits the native mobile overlay', $html);
     $assert(str_contains($html, 'blocks-engine-native-responsive-navigation'), $label . ': native overlay marker is present', $html);
     $assert(! str_contains($html, '<!-- wp:button'), $label . ': the glyph toggle is not emitted as a dead core/button', $html);
-    $assert(! str_contains($html, '☰') && ! str_contains($html, '≡'), $label . ': the glyph is not emitted as content', $html);
+    // Source artwork may travel in block metadata, but must never become a
+    // visible label (including an entity-encoded label) in serialized markup.
+    $content = preg_replace('/<!--\s*\/?wp:[\s\S]*?-->/', '', $html);
+    $content = html_entity_decode($content ?? $html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $assert(! str_contains($content, '☰') && ! str_contains($content, '≡'), $label . ': the glyph is not emitted as visible content or button text outside block metadata', $html);
     $assert(1 === substr_count($html, '<!-- wp:navigation '), $label . ': exactly one navigation is emitted', $html);
     foreach ( $links as $link ) {
         $assert(str_contains($html, '"label":"' . $link . '"'), $label . ': keeps the "' . $link . '" destination', $html);

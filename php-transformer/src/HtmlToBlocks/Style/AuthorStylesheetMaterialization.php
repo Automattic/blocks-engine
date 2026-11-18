@@ -307,8 +307,18 @@ final class AuthorStylesheetMaterialization
      */
     private function rewrite(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true, string $media = '', ?array &$nativeSelectors = null, ?ContentBoxRestatements $contentBoxRestatements = null): string
     {
+        $this->session->authorSelectorProjectionState()->reconcileRetainedControls($this->emittedStyleMarkup);
         $bindings = new ProjectedSelectorBindings();
         $media = trim($media);
+        $sitePruner = $this->session->authorStyleAnalysis()->siteSelectorPruner;
+        if (null !== $sitePruner) {
+            // Prune only the projection input. Analysis and source provenance
+            // retain the authored inventory and its specificity ceiling.
+            // Keep ID ancestry here: route reconciliation needs the same
+            // inventory on every route to coalesce page-local arms. The final
+            // asset pruner can drop absent IDs after that reconciliation.
+            $stylesheet = $sitePruner->prune($stylesheet, true);
+        }
         $projected = $this->projector->project(
             $stylesheet,
             new AuthorStylesheetProjectionContext(

@@ -10,7 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 
-/** Replay source child spacing across native Query Loop transport wrappers. */
+/** Replay source child rules across native Query Loop transport wrappers. */
 final class ListingQueryPresentation
 {
     /** @param list<array<string,mixed>> $assets @param list<string> $containers @return list<array<string,mixed>> */
@@ -20,15 +20,20 @@ final class ListingQueryPresentation
         $elements = array();
         foreach (array_unique($containers) as $markup) {
             $document = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
-            $body = $document->getElementsByTagName('body')->item(0);
-            foreach ($body?->childNodes ?? array() as $child) if ($child instanceof \DOMElement) { $elements[] = $child; break; }
+            foreach ($document->getElementsByTagName('div') as $query) {
+                if (!in_array(WordPressSitePlan::LISTING_QUERY_CLASS, preg_split('/\s+/', $query->getAttribute('class')) ?: array(), true)) continue;
+                foreach ($query->childNodes as $root) {
+                    if (!$root instanceof \DOMElement || !$query->parentNode instanceof \DOMElement) continue;
+                    $elements[] = array('container' => $query->parentNode, 'root' => $root->tagName);
+                    break;
+                }
+            }
         }
         $transformer = new CssStylesheetTransformer();
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? '') || !is_string($asset['content'] ?? null)) continue;
             $content = $transformer->transformStyleRules($asset['content'], static function (string $prelude, string $body) use ($elements): string {
                 $original = $prelude . '{' . $body . '}';
-                if (!preg_match('/(?:^|;)\s*margin(?:-[a-z-]+)?\s*:/i', $body)) return $original;
                 $aliases = array();
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     $selector = trim(preg_replace('~/\*.*?\*/~s', '', $selector) ?? $selector);
@@ -56,9 +61,12 @@ final class ListingQueryPresentation
                     if ('' === $child) continue;
                     if (!preg_match('/^\*?((?::not\(:last-child\)|:first-child|:last-child)?)$/', $child, $match)) continue;
                     $parsed = CssSelectorMatcher::parse($parent);
-                    if (!($parsed['supported'] ?? false) || !array_filter($elements, static fn(\DOMElement $element): bool => CssSelectorMatcher::matches($element, $parsed)['matches'])) continue;
-                    $alias = $parent . '>:where(.blocks-engine-listing-query)>:where(.wp-block-post-template)>:where(li)' . $match[1] . '>:where(article)';
-                    $aliases[($zero ? ':where(' . $alias . ')' : $alias) . $suffix] = true;
+                    if (!($parsed['supported'] ?? false)) continue;
+                    foreach ($elements as $element) {
+                        if (!CssSelectorMatcher::matches($element['container'], $parsed)['matches']) continue;
+                        $alias = $parent . '>:where(.blocks-engine-listing-query)>:where(.wp-block-post-template)>:where(li)' . $match[1] . '>:where(' . $element['root'] . ')';
+                        $aliases[($zero ? ':where(' . $alias . ')' : $alias) . $suffix] = true;
+                    }
                 }
                 return $original . (array() === $aliases ? '' : implode(',', array_keys($aliases)) . '{' . $body . '}');
             });

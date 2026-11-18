@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -21,7 +22,8 @@ final class StructuredInlineItemLowering
         private readonly Runtime $runtime,
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly StyleResolver $styleResolver,
-        private readonly InlineSvgTextGroupLowering $inlineSvgTextGroups
+        private readonly InlineSvgTextGroupLowering $inlineSvgTextGroups,
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization $richTextMaterializer
     ) {
     }
 
@@ -61,7 +63,7 @@ final class StructuredInlineItemLowering
             // The paragraph inherits a span's class for its layout role, but
             // semantic inline elements (time, links, emphasis, etc.) must retain
             // their source markup inside the editable RichText content.
-            $content = 'span' === strtolower($child->tagName) ? $this->styleResolver->innerHtml($child) : SourceDom::outerHtml($child);
+            $content = $this->richTextMaterializer->content($child, array(), 'span' !== strtolower($child->tagName));
             if ( ! $this->runtime->hasVisibleText($content) ) {
                 return null;
             }
@@ -72,9 +74,30 @@ final class StructuredInlineItemLowering
                 $content = (1 === preg_match('/^\s/u', $text) ? ' ' : '') . $content . (1 === preg_match('/\s$/u', $text) ? ' ' : '');
             }
 
-            $blocks[] = $this->blocks->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($child), array( 'content' => $content )), array(), $child);
+            $attrs = $this->styleResolver->presentationAttributes($child);
+            if ( 'a' === strtolower($child->tagName) && self::contentRetainsItemClasses($child, $content) ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::RETAINED_ITEM_CARRIER_CLASS);
+            }
+            $blocks[] = $this->blocks->createBlock('core/paragraph', array_merge($attrs, array( 'content' => $content )), array(), $child);
         }
 
         return 1 < count($blocks) ? $blocks : null;
+    }
+
+    /**
+     * Whether the RichText content keeps the item link itself, with every one
+     * of its classes. The paragraph then carries those classes only so sibling
+     * selectors (`.phone + .email`) still find the item among its source
+     * siblings; the retained link is the item's one box. Other semantic items
+     * (time, emphasis) keep their existing paragraph carrier unchanged.
+     */
+    private static function contentRetainsItemClasses(DOMElement $item, string $content): bool
+    {
+        $classes = SourceDom::tokens(SourceDom::attr($item, 'class'));
+        if ( array() === $classes
+            || 1 !== preg_match('/^\s*<' . preg_quote(strtolower($item->tagName), '/') . '\b[^>]*?\sclass="([^"]*)"/i', $content, $match) ) {
+            return false;
+        }
+        return array() === array_diff($classes, SourceDom::tokens($match[1]));
     }
 }

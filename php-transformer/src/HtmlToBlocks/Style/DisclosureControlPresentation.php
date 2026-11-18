@@ -88,7 +88,7 @@ final class DisclosureControlPresentation
             if ( array() !== $this->styles->declaredPresentation($item, $property)->conditional() ) {
                 continue;
             }
-            $box[$property] = $this->styles->resolveCssVariablesInValue($value, $item);
+            $box[$property] = $this->styles->customProperties->resolve($value, $item);
         }
 
         return $box;
@@ -155,7 +155,7 @@ final class DisclosureControlPresentation
         // particular, copying summary's UA list-item display creates a second
         // line below the native marker.
         $carrierDeclarations = $hasContentCarrier
-            ? $this->styles->cssDeclarations($this->disclosureControlCarriedCss($control, true, true))
+            ? SourceDeclarations::parse($this->disclosureControlCarriedCss($control, true, true))
             : array();
         $carrierCss = $this->styles->cssDeclarationString(array_filter(
             $carrierDeclarations,
@@ -227,7 +227,7 @@ final class DisclosureControlPresentation
      */
     private function accordionToggleBoxCss(DOMElement $control, ?DOMElement $row, ?DOMElement $iconSource, string $css): string
     {
-        $carried = $this->styles->cssDeclarations($css);
+        $carried = SourceDeclarations::parse($css);
         if ( 'summary' === strtolower($control->tagName) ) {
             // A button cannot be a list item, so the toggle is a plain block
             // and its title carries the summary's native marker.
@@ -278,7 +278,7 @@ final class DisclosureControlPresentation
                     $gap = (string) end($parts);
                 }
                 if ( '' !== $gap && 'normal' !== strtolower($gap) ) {
-                    $layout['column-gap'] = $this->styles->resolveCssVariablesInValue($gap, $node);
+                    $layout['column-gap'] = $this->styles->customProperties->resolve($gap, $node);
                 }
                 $alignItems = trim((string) ($declarations['align-items'] ?? ''));
                 if ( '' !== $alignItems ) {
@@ -330,11 +330,11 @@ final class DisclosureControlPresentation
         }
         $clone = $svg->cloneNode(true);
         if ( ! $clone instanceof DOMElement ) return array();
-        $inline = $this->styles->cssDeclarations($clone->getAttribute('style'));
+        $inline = SourceDeclarations::parse($clone->getAttribute('style'));
         unset($inline['transform'], $inline['rotate']);
         $color = (string) ($declarations['color'] ?? $this->styles->authoredInheritedPropertyWinner($svg, 'color'));
         if ( '' !== $color ) {
-            $color = $this->styles->resolveCssVariablesInValue($color, $svg);
+            $color = $this->styles->customProperties->resolve($color, $svg);
             $paint = $this->styles->safeVisualDeclarations(array('color' => $color));
             $inline = array_merge($inline, $paint);
         }
@@ -440,7 +440,7 @@ final class DisclosureControlPresentation
             if ( ! isset($carried[$property]) || in_array(strtolower(trim($carried[$property])), array('inherit', 'unset'), true) ) {
                 $value = $this->styles->authoredInheritedPropertyWinner($control, $property);
                 if ( '' !== $value ) {
-                    $carried[$property] = $this->styles->resolveCssVariablesInValue($value, $control);
+                    $carried[$property] = $this->styles->customProperties->resolve($value, $control);
                 }
             }
         }
@@ -484,7 +484,7 @@ final class DisclosureControlPresentation
         }
         foreach ( $properties as $property ) {
             foreach ( $this->styles->declaredPresentation($control, $property)->conditional() as $condition => $value ) {
-                $declarations = $this->styles->safeVisualDeclarations(array($property => $this->styles->resolveCssVariablesInValue($value, $control)));
+                $declarations = $this->styles->safeVisualDeclarations(array($property => $this->styles->customProperties->resolve($value, $control)));
                 $rules[$condition] = array_merge($rules[$condition] ?? array(), $declarations);
             }
         }

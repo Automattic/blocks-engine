@@ -8,6 +8,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
  *
  * Each text run must reach its own page or a shared surface. Text that
  * reaches neither was dropped, and is reported as content loss on the plan.
+ * Source content a converter dropped before serialization is reported per
+ * document as `html_content_dropped` and counted here too.
  */
 final class ContentConservation
 {
@@ -35,6 +37,19 @@ final class ContentConservation
         foreach ($plan['pages'] as $page) {
             $pages[$page['source_path']] = $text($leaves($page));
             $byType[(string) ($page['post_type'] ?? '')][] = $pages[$page['source_path']];
+        }
+        // Native dates in listings render every queried post's date too.
+        foreach (array_merge($plan['pages'], $plan['templates'] ?? array()) as $surface) {
+            if (!str_contains((string) ($surface['canonical_block_markup'] ?? ''), '<!-- wp:query')) continue;
+            if (!preg_match_all('/<!-- wp:post-date (\{.*?\}) \/?-->/s', $surface['canonical_block_markup'], $dates)) continue;
+            foreach ($dates[1] as $json) {
+                $format = json_decode($json, true)['format'] ?? null;
+                if (!is_string($format)) continue;
+                foreach ($plan['pages'] as $post) {
+                    $published = $post['publication_local_time'] ?? $post['publication_timestamp'] ?? null;
+                    if ('post' === ($post['post_type'] ?? null) && is_string($published) && false !== ($date = date_create_immutable($published))) $byType['post'][] = $date->format($format);
+                }
+            }
         }
         // A query loop renders the titles, excerpts and bound meta of the
         // entries it queries, so their text is carried by the listing page.
@@ -67,6 +82,14 @@ final class ContentConservation
                 }
             }
         }
+        // Suppressed listing captures are views of their parent query, not
+        // independent pages. Check their text against that rendered owner.
+        foreach ($plan['diagnostics'] ?? array() as $diagnostic) {
+            if ('wordpress_site_plan_pagination_suppressed' !== ($diagnostic['code'] ?? null)) continue;
+            foreach ($plan['pages'] as $page) {
+                if (($page['route']['path'] ?? null) === ($diagnostic['parent_route'] ?? null)) $pages[$diagnostic['source_path']] = $pages[$page['source_path']];
+            }
+        }
         $findings = array();
         foreach ($documents as $document) {
             if (!is_array($document) || !is_string($document['block_markup'] ?? null) || !is_string($document['source_path'] ?? null)) continue;
@@ -80,7 +103,10 @@ final class ContentConservation
             if (array() === $lost) continue;
             $findings[] = array('code' => 'wordpress_site_plan_content_lost', 'severity' => 'error', 'loss_class' => 'content_loss', 'source_path' => $document['source_path'], 'lost_text_count' => count($lost), 'lost_text' => array_slice(array_keys($lost), 0, 5), 'message' => 'Compiled document text is missing from its page and from every shared surface in the plan.');
         }
-        $plan['quality']['metrics']['content_loss_count'] = count($findings);
+        // Converters that dropped source content before serialization already
+        // reported it per document; that loss counts the same as plan loss.
+        $dropped = array_filter($plan['diagnostics'] ?? array(), static fn(mixed $diagnostic): bool => is_array($diagnostic) && 'html_content_dropped' === ($diagnostic['code'] ?? null) && 'content_loss' === ($diagnostic['loss_class'] ?? null));
+        $plan['quality']['metrics']['content_loss_count'] = count($findings) + count($dropped);
         return array() === $findings ? $plan : WordPressSitePlan::withFindings($plan, $findings);
     }
 }

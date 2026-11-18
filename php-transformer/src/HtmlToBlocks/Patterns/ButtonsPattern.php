@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
@@ -34,7 +37,9 @@ final class ButtonsPattern
 
     public function matchAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons): ?PatternRecognitionResult
     {
-        if ( $buttons->isRuntimeDomTarget($anchor) ) {
+        // Entrance replay swaps attributes on the source link itself. Core/button
+        // splits its identity across wrappers and cannot retain that contract.
+        if ( $anchor->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) || $buttons->isRuntimeDomTarget($anchor) ) {
             return null;
         }
 
@@ -76,7 +81,7 @@ final class ButtonsPattern
         }
 
         $text = $this->buttonText($anchor, $buttons->richTextInnerHtml($anchor), $buttons);
-        if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
+        if ( ( '' !== $this->plainText($text) || $this->requiresAccessibleLinkSurface($anchor) ) && $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
             // The companion's RichText element replaces the anchor's single
             // wrapper child, so its content is that wrapper's label.
             $wrapper = $this->accessibleLinkContentWrapper($anchor);
@@ -195,6 +200,7 @@ final class ButtonsPattern
         // bar's box, so leave both in place — the wrapper keeps its group and
         // the anchor becomes the button through the plain anchor pattern.
         if ( null !== $wrappedAnchor
+            && ! $wrappedAnchor->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE)
             && $this->isRichTextAnchorLabel($wrappedAnchor, $buttons)
             && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element))
             && ! $this->hasButtonSignal($wrappedAnchor, $buttons) ) {
@@ -224,6 +230,7 @@ final class ButtonsPattern
                 return null;
             }
             if ( '' === trim($anchor->textContent ?? '')
+                || $anchor->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE)
                 || ! $this->isSimpleAnchor($anchor) || $buttons->isRuntimeDomTarget($anchor)
                 || $this->isPositionedFragmentNavigation($anchor, $buttons->resolvedStyle($anchor))
                 || ! $this->hasButtonSignal($anchor, $buttons) || ! $this->isRichTextAnchorLabel($anchor, $buttons) ) {
@@ -250,6 +257,12 @@ final class ButtonsPattern
     private function buttonBlockFromAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons, ?DOMElement $presentationElement = null, ?DOMElement $nativeWrapper = null): array
     {
         $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
+        $title = $this->buttonTitleForAnchor($anchor, $text);
+        // Core's title attribute names icon-only links without a companion block.
+        // Empty controls also need non-empty RichText or core/button omits them.
+        if ( '' === trim($text) && '' !== $this->buttonAccessibleTitle($anchor) ) {
+            $text = SourceDom::visuallyHiddenLabel($this->buttonAccessibleTitle($anchor));
+        }
         $retainsDescendants = $this->rendersSourceDescendants($anchor, $text);
         // A static native button is unwrapped by buttonHtml(), so its box
         // becomes the link surface even when its label retains an icon.
@@ -276,7 +289,7 @@ final class ButtonsPattern
         // A whole-label box can supply a missing fill, but must not replace the
         // control's paint. Conditional background families stay on projected
         // author selectors rather than native attrs, so check the cascade too.
-        if (isset($attrs['style']['color']['background']) || preg_match('/(?:^|;)\s*background(?:-color)?\s*:/i', $resolvedPresentation)) {
+        if (isset($attrs['style']['color']['background']) || array() !== CssRuleAnalyzer::declarations($resolvedPresentation, array( 'background', 'background-color' ))) {
             unset($labelAttrs['style']['color']['background']);
         }
         $attrs = array_replace_recursive($attrs, $labelAttrs);
@@ -296,7 +309,7 @@ final class ButtonsPattern
         return $this->createBlock->createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,
             'url'        => $buttons->attribute($anchor, 'href'),
-            'title'      => $this->buttonTitleForAnchor($anchor, $text),
+            'title'      => $title,
             'linkTarget' => $buttons->attribute($anchor, 'target'),
             'rel'        => $buttons->attribute($anchor, 'rel'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
@@ -378,11 +391,9 @@ final class ButtonsPattern
 
     private function textAlignment(string $style): string
     {
-        if ( preg_match_all('/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/i', $style, $matches) < 1 ) {
-            return '';
-        }
+        $alignment = CssValueInspector::declared(SourceDeclarations::parse($style), 'text-align');
 
-        return strtolower((string) end($matches[1]));
+        return in_array($alignment, array( 'left', 'center', 'right' ), true) ? $alignment : '';
     }
 
     /**
@@ -450,6 +461,7 @@ final class ButtonsPattern
         $html = $buttons->materializeSvgImages($element, $html, $this->outOfFlowDecorationImage($element, $buttons)) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
         // aria-hidden controls accessibility, not paint. Keep decorative label
         // boxes and their wrapper topology so projected author CSS can paint them.
+        $html = $this->inlineDecorationWrappers($html);
         $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
         $html = $this->unwrapPresentationalSpan(trim($html));
         if ( '' !== trim($this->plainText($html)) || preg_match('/<img\b[^>]*>/i', $html) ) {
@@ -457,6 +469,30 @@ final class ButtonsPattern
         }
 
         return '';
+    }
+
+    /** Keep an icon's authored layout boxes in the inline-only button label. */
+    private function inlineDecorationWrappers(string $html): string
+    {
+        $document = HtmlSerialization::parseFragment('<body>' . $html . '</body>');
+        $body = $document->getElementsByTagName('body')->item(0);
+        if ( ! $body instanceof DOMElement ) return $html;
+        $wrappers = array();
+        foreach ( $body->getElementsByTagName('*') as $node ) {
+            if ( 1 === preg_match('/^(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $node->tagName)
+                && '' === trim($node->textContent ?? '') && $node->getElementsByTagName('img')->length > 0 ) {
+                $wrappers[] = $node;
+            }
+        }
+        foreach ( $wrappers as $node ) {
+            $span = $document->createElement('span');
+            foreach ( $node->attributes as $attribute ) {
+                $span->setAttribute($attribute->nodeName, $attribute->nodeValue ?? '');
+            }
+            while ( null !== $node->firstChild ) $span->appendChild($node->firstChild);
+            $node->parentNode?->replaceChild($span, $node);
+        }
+        return SourceDom::innerHtml($body);
     }
 
     /**
@@ -597,6 +633,22 @@ final class ButtonsPattern
         }
 
         return $wrapper;
+    }
+
+    /** Core's title can name decorative artwork, but must not replace the
+     * semantics of a nested control or a non-decorative graphic.
+     */
+    private function requiresAccessibleLinkSurface(DOMElement $anchor): bool
+    {
+        if ( $anchor->getElementsByTagName('button')->length > 0 ) {
+            return true;
+        }
+        foreach ( $anchor->getElementsByTagName('svg') as $svg ) {
+            if ( 'true' !== strtolower($svg->getAttribute('aria-hidden')) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function hasMateriallyDifferentAccessibleLabel(DOMElement $anchor, string $text): bool
@@ -890,7 +942,12 @@ final class ButtonsPattern
         // belongs on the parent core/buttons, not each button). Emitting it here
         // produces an unsupported attribute and invalid block markup, so drop it.
         unset($attrs['layout']);
-        $isOutline     = $this->hasOutlineSignal($element, $resolvedStyle, $native);
+        // Outline is a recognition decision, so it reads the same control
+        // surface the button signal read: the cascade that renders at the
+        // reference viewport, media-conditional rules included. The static
+        // view alone can miss a fill authored behind a width query and would
+        // then force a transparent background over the author's paint.
+        $isOutline     = $this->hasOutlineSignal($element, $buttons->controlSurfaceStyle($element), $native);
         if ( $isOutline ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'is-style-outline');
         }
@@ -989,8 +1046,9 @@ final class ButtonsPattern
         // shorthand and longhand set the fill; unrelated background-* properties
         // do not. Consult the last fill declaration, not an earlier reset.
         $resolvedBackground = '';
-        if ( preg_match_all('/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i', $normalized, $backgroundMatches) ) {
-            $resolvedBackground = trim((string) end($backgroundMatches[1]));
+        $backgrounds = CssRuleAnalyzer::declarations($normalized, array( 'background', 'background-color' ));
+        if ( array() !== $backgrounds ) {
+            $resolvedBackground = end($backgrounds)['value'];
             if ( '' !== $resolvedBackground
                 && ! in_array($resolvedBackground, array( 'transparent', 'none' ), true)
                 && ! preg_match('/^rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)$/i', $resolvedBackground) ) {
@@ -1098,19 +1156,23 @@ final class ButtonsPattern
     private function labelWrapperPaints(DOMElement $wrapper, ButtonPatternContext $buttons): bool
     {
         $style = strtolower($buttons->resolvedStyle($wrapper));
-        preg_match_all('/(?:^|;)\s*background(?:-color|-image)?\s*:\s*([^;]+)/', $style, $backgrounds);
-        foreach ( $backgrounds[1] as $background ) {
+        foreach ( CssRuleAnalyzer::declarations($style, array( 'background', 'background-color', 'background-image' )) as [ 'value' => $background ] ) {
             if ( CssValueInspector::backgroundPaints($background) ) {
                 return true;
             }
         }
+        $sides = static fn (string $prefix, array $suffixes): array => array_merge(...array_map(
+            static fn (string $side): array => array_map(static fn (string $suffix): string => $prefix . '-' . $side . '-' . $suffix, $suffixes),
+            array( 'top', 'right', 'bottom', 'left' )
+        ));
+        $absent = '/^(?:0|none)\s*[a-z%]*\s*$/';
         foreach ( array(
-            'border(?:-(?:top|right|bottom|left)(?:-(?:width|style|color)))?' => '/^(?:0|none)\s*[a-z%]*\s*$/',
-            'box-shadow' => '/^none\s*$/',
-            'outline(?:-(?:width|style|color))?' => '/^(?:0|none)\s*[a-z%]*\s*$/',
-        ) as $property => $negations ) {
-            if ( preg_match('/(?:^|;)\s*' . $property . '\s*:\s*([^;]+)/', $style, $matches)
-                && 1 !== preg_match($negations, trim($matches[1])) ) {
+            array( array_merge(array( 'border' ), $sides('border', array( 'width', 'style', 'color' ))), $absent ),
+            array( array( 'box-shadow' ), '/^none\s*$/' ),
+            array( array( 'outline', 'outline-width', 'outline-style', 'outline-color' ), $absent ),
+        ) as [ $properties, $negation ] ) {
+            $first = CssRuleAnalyzer::declarations($style, $properties)[0] ?? null;
+            if ( null !== $first && 1 !== preg_match($negation, $first['value']) ) {
                 return true;
             }
         }
@@ -1148,9 +1210,11 @@ final class ButtonsPattern
         // Wix-style controls commonly put the visual surface on a nested label
         // span and add a sibling decorative SVG. The single-child surface rule
         // above intentionally rejects that topology, so inspect safe phrasing
-        // descendants without treating arbitrary nested content as a button.
+        // labels without treating arbitrary nested content as a button. Empty
+        // spans paint decoration, not the label's control surface: their padding,
+        // background and radius must not promote an otherwise bare text link.
         foreach ( $anchor->getElementsByTagName('span') as $label ) {
-            if ( $label instanceof DOMElement && ( ( $hasNestedLabelAndSvg && $this->signalClassifier->hasClassSignal($label) ) || $this->signalClassifier->hasTransformSignal($label, $buttons->resolvedStyle($label)) ) ) {
+            if ( $label instanceof DOMElement && '' !== trim($label->textContent) && ( ( $hasNestedLabelAndSvg && $this->signalClassifier->hasClassSignal($label) ) || $this->signalClassifier->hasTransformSignal($label, $buttons->resolvedStyle($label)) ) ) {
                 return true;
             }
         }
@@ -1189,7 +1253,7 @@ final class ButtonsPattern
             return false;
         }
 
-        return preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/i', $resolvedStyle) === 1;
+        return in_array(CssValueInspector::declared(SourceDeclarations::parse($resolvedStyle), 'position'), array( 'fixed', 'absolute' ), true);
     }
 
     private function hasWrapperButtonSignal(DOMElement $element, string $resolvedStyle): bool

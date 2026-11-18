@@ -38,9 +38,15 @@ final class SourceDocumentEnvelope
         ) ?? $html;
     }
 
-    public function documentBodyHtml(string $html): string
+    /** Whether the source is a whole document rather than a fragment of one. */
+    public static function isDocument(string $html): bool
     {
-        if ( ! preg_match('/<(?:!doctype|html|head|body)\b/i', $html) ) {
+        return 1 === preg_match('/<(?:!doctype|html|head|body)\b/i', $html);
+    }
+
+    public function documentBodyHtml(string $html, bool $preserveEvidence = false): string
+    {
+        if ( ! self::isDocument($html) ) {
             return $html;
         }
 
@@ -51,6 +57,11 @@ final class SourceDocumentEnvelope
             return $html;
         }
 
+        if ($preserveEvidence) {
+            $markup = '';
+            foreach ($body->childNodes as $child) $markup .= $document->saveHTML($child);
+            return $markup;
+        }
         return $this->styleResolver->innerHtml($body);
     }
 

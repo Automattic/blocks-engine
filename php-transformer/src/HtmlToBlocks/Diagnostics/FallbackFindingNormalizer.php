@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 
@@ -57,6 +58,7 @@ final class FallbackFindingNormalizer
             'html_checkout_view_fallback' => 'commerce_checkout',
             'html_script_fallback' => 'runtime_script',
             'interactive_control_behavior_lost' => 'interactive_control',
+            'html_content_dropped' => 'content_conservation',
             'html_iframe_embed_fallback' => 'external_embed',
             'html_iframe_surface_capability_gap' => 'iframe_surface',
             'html_canvas_runtime_fallback' => 'runtime_canvas',
@@ -90,28 +92,15 @@ final class FallbackFindingNormalizer
     /**
      * @return array{ids: int, classes: int, attributes: int, pseudo_classes: int, elements: int, score: string}
      */
+    /** @return array{ids?:int, classes?:int, types?:int, score?:string} */
     private static function selectorSpecificity(string $selector): array
     {
-        preg_match_all('/#[A-Za-z0-9_-]+/', $selector, $ids);
-        preg_match_all('/\.[A-Za-z0-9_-]+/', $selector, $classes);
-        preg_match_all('/\[[^\]]+\]/', $selector, $attributes);
-        preg_match_all('/:nth-of-type\(/', $selector, $pseudoClasses);
-        preg_match_all('/(?:^|>\s*)([a-z][a-z0-9-]*)/i', $selector, $elements);
-
-        $idCount = count($ids[0]);
-        $classCount = count($classes[0]);
-        $attributeCount = count($attributes[0]);
-        $pseudoClassCount = count($pseudoClasses[0]);
-        $elementCount = count($elements[1]);
-
-        return array(
-            'ids'            => $idCount,
-            'classes'        => $classCount,
-            'attributes'     => $attributeCount,
-            'pseudo_classes' => $pseudoClassCount,
-            'elements'       => $elementCount,
-            'score'          => $idCount . ',' . ($classCount + $attributeCount + $pseudoClassCount) . ',' . $elementCount,
-        );
+        $parsed = CssSelectorMatcher::parse($selector);
+        if ( ! ($parsed['supported'] ?? false) ) {
+            return array();
+        }
+        $counts = CssSelectorMatcher::specificityCounts($parsed);
+        return $counts + array('score' => implode(',', $counts));
     }
 
     /**

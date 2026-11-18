@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
@@ -96,11 +97,11 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
         }
         $declarations = array_merge(
             $this->styleResolver->structuralPresentationDeclarations($element),
-            $this->styleResolver->matchedCascadedDeclarations($element),
-            $this->styleResolver->inlineDeclarations($element)
+            $this->styleResolver->cascade->declarations($element),
+            SourceDeclarations::inline($element)
         );
         $position = CssValueInspector::declared($declarations, 'position');
-        $opacity = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue((string) ($declarations['opacity'] ?? ''), $element));
+        $opacity = CssValueInspector::comparable($this->styleResolver->customProperties->resolve((string) ($declarations['opacity'] ?? ''), $element));
         $authoredPaint = array() !== array_intersect_key($declarations, array_flip(array( 'background', 'background-color', 'background-image', 'border', 'border-top', 'border-right', 'border-bottom', 'border-left', 'box-shadow', 'outline', 'mask', 'mask-image' )));
 
         return in_array($position, array( 'absolute', 'fixed' ), true)
@@ -177,7 +178,7 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
     {
         return 0 === SourceDom::childElementCount($element)
             && '' === trim($element->textContent ?? '')
-            && 'none' === CssValueInspector::comparable((string) ($this->styleResolver->inlineDeclarations($element)['display'] ?? ''))
+            && 'none' === CssValueInspector::comparable((string) (SourceDeclarations::inline($element)['display'] ?? ''))
             && '' === trim(SourceDom::attr($element, 'class'))
             && '' === trim(SourceDom::attr($element, 'id'))
             && '' === trim(SourceDom::attr($element, 'role'))
@@ -201,7 +202,20 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
             return false;
         }
 
-        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->session->authorSelectorProjectionState()->hasSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
+        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->session->authorSelectorProjectionState()->hasSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || $this->responsiveStylesheetOwnsWrapperBox($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
+    }
+
+    /**
+     * A box styled only by declarations that have media/container variants
+     * stays stylesheet-owned, so presentationAttributes() is empty. The rule
+     * still paints the source wrapper: keep it as its own editable group,
+     * without freezing one breakpoint's value inline (#6346). A styled class
+     * boundary already owns its wrapper through the class hook.
+     */
+    public function responsiveStylesheetOwnsWrapperBox(DOMElement $element): bool
+    {
+        return array() !== $this->styleResolver->responsiveStylesheetOwnedBoxDeclarations($element)
+            && ! $this->styledClassBoundaries->hasStyledSourceClassBoundary($element);
     }
 
     private function containsGeneratedComponentCandidate(DOMElement $element): bool
@@ -255,7 +269,7 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
     private function hasStaticPseudoElementRule(DOMElement $element): bool
     {
         foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
+            if ( $this->session->sourceStyleResolutionState()->matches($element, $rule['selector']) ) {
                 return true;
             }
         }

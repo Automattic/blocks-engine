@@ -17,6 +17,21 @@ final class CssSelectorCompoundInspector
         return array() === $compounds ? array() : $compounds[array_key_last($compounds)];
     }
 
+    /**
+     * Whether a source-image subject compound is a bare `img`/`svg`/universal
+     * type. Such rules keep sizing the replaced image leaf; any class, id or
+     * attribute identity moves to the figure core/image synthesizes around it.
+     *
+     * @param array<string, mixed> $compound
+     */
+    public static function isBareImageSubject(array $compound): bool
+    {
+        return in_array(strtolower((string) ($compound['type'] ?? '*')), array( 'img', 'svg', '*' ), true)
+            && array() === ($compound['classes'] ?? array())
+            && array() === ($compound['ids'] ?? array())
+            && array() === ($compound['attributes'] ?? array());
+    }
+
     /** @param array<string, mixed> $compound @return list<string> */
     public static function dataAttributeNames(array $compound): array
     {
@@ -108,6 +123,43 @@ final class CssSelectorCompoundInspector
             }
         }
         return false;
+    }
+
+    /**
+     * Live class conditions left after binding a source compound to a marker.
+     * Complex/structural predicates cannot safely move to a generated carrier.
+     *
+     * @param array<string, mixed> $compound
+     */
+    public static function markerClassConditions(array $compound, bool $classOnly = false): ?string
+    {
+        if (!empty($compound['has']) || !empty($compound['resting_state_negations'])
+            || !empty($compound['root']) || !empty($compound['first_child']) || !empty($compound['last_child'])
+            || !empty($compound['nth_child']) || !empty($compound['nth_type']) || !empty($compound['last_type'])
+            || ($classOnly && (!empty($compound['type']) || self::hasLiveAttributePredicate($compound) || !empty($compound['empty'])))) {
+            return null;
+        }
+        $conditions = CssIdent::compoundClassSelector($compound['classes'] ?? array());
+        foreach ($compound['any'] ?? array() as $group) {
+            $arms = array();
+            foreach ($group['alternatives'] as $alternative) {
+                if (1 !== count($alternative['compounds']) || !empty($alternative['combinators'])) return null;
+                $arm = self::markerClassConditions($alternative['compounds'][0], true);
+                if (null === $arm) return null;
+                $arms[] = $arm;
+            }
+            if (array('') === array_values(array_unique($arms))) continue;
+            if (in_array('', $arms, true)) return null;
+            $conditions .= (0 === ($group['specificity'] ?? 0) ? ':where(' : ':is(') . implode(',', $arms) . ')';
+        }
+        foreach ($compound['not'] ?? array() as $negated) {
+            if (1 !== count($negated['compounds']) || !empty($negated['combinators'])) return null;
+            $arm = self::markerClassConditions($negated['compounds'][0], true);
+            if (null === $arm) return null;
+            if ('' !== $arm) $conditions .= ':not(' . $arm . ')';
+        }
+        if ($classOnly && (self::containsDataAttribute($compound) || !empty($compound['ids'])) && '' !== $conditions) return null;
+        return $conditions;
     }
 
     /** The selector with every `:not(...)` removed: what it targets, not what it excludes. */

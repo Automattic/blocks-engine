@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -56,15 +58,32 @@ final class SourceElementClassifier
         return false;
     }
 
-    public function isRuntimeMediaSurfaceElement(DOMElement $element): bool
+    public function isRuntimeMediaSurfaceElement(DOMElement $element, bool $includeMotionTopology = true): bool
     {
         $tagName = strtolower($element->tagName);
         if ( in_array($tagName, array( 'iframe', 'canvas', 'embed', 'object' ), true) ) {
             return true;
         }
 
-        return str_contains($tagName, '-')
-            && 1 === preg_match('/(?:^|-)(?:audio|carousel|gallery|iframe|media|player|slideshow|video)(?:-|$)/', $tagName);
+        $tokens = $includeMotionTopology ? 'audio|carousel|gallery|iframe|media|player|slideshow|video' : 'audio|iframe|player|video';
+        if ( ! str_contains($tagName, '-') ) {
+            return false;
+        }
+        if ( 1 === preg_match('/(?:^|-)(?:' . $tokens . ')(?:-|$)/', $tagName) ) {
+            return true;
+        }
+        // Without motion topology, the generic "media" token only marks a
+        // runtime surface when the host actually carries playable media; a
+        // media gallery of static images is ordinary content.
+        if ( $includeMotionTopology || 1 !== preg_match('/(?:^|-)media(?:-|$)/', $tagName) ) {
+            return false;
+        }
+        foreach ( array( 'video', 'audio', 'iframe', 'embed', 'object', 'canvas' ) as $playable ) {
+            if ( $element->getElementsByTagName($playable)->length > 0 ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function isDependentRuntimeMediaMask(DOMElement $element): bool
@@ -401,7 +420,8 @@ final class SourceElementClassifier
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:chips?|pills?|badges?|tags?|filters?|facets?)(?:[^a-z0-9]|$)/', $tokens);
     }
 
-    public function hasOnlyPhrasingChildren(DOMElement $element): bool
+    /** @param null|callable(DOMElement): bool $isRendered Additional presentation visibility check. */
+    public function hasOnlyPhrasingChildren(DOMElement $element, ?callable $isRendered = null): bool
     {
         $nonAnchorText = false;
 
@@ -418,12 +438,17 @@ final class SourceElementClassifier
             }
 
             $tagName = strtolower($child->tagName);
-            if ( 'a' === $tagName ) {
+            // Inline artwork can share a text run, but does not by itself
+            // establish one: an icon-only wrapper still lowers as media.
+            if ( in_array($tagName, array( 'a', 'svg' ), true) ) {
                 continue;
             }
 
             if ( 'br' === $tagName || ( $this->isInlineContentElement($tagName) && ! SourceDom::isImageOnlyNamedGraphic($child) ) ) {
-                $nonAnchorText = true;
+                // Label references and empty decoration do not establish a text
+                // run. Inspect descendants too: a visible span may wrap only
+                // hidden text (or SVG accessibility metadata).
+                $nonAnchorText = $nonAnchorText || $this->hasRenderedInlineText($child, $isRendered);
                 continue;
             }
 
@@ -431,6 +456,30 @@ final class SourceElementClassifier
         }
 
         return $nonAnchorText;
+    }
+
+    /** @param null|callable(DOMElement): bool $isRendered */
+    private function hasRenderedInlineText(DOMElement $element, ?callable $isRendered): bool
+    {
+        if ( $element->hasAttribute('hidden') || SourceDom::isAriaHidden($element)
+            || 'none' === CssValueInspector::declared(SourceDeclarations::inline($element), 'display')
+            || ( null !== $isRendered && ! $isRendered($element) )
+            || in_array(strtolower($element->tagName), array( 'svg', 'script', 'style', 'template' ), true) ) {
+            return false;
+        }
+
+        if ( 'br' === strtolower($element->tagName) ) {
+            return true;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMText && '' !== trim($child->textContent) ) {
+                return true;
+            }
+            if ( $child instanceof DOMElement && $this->hasRenderedInlineText($child, $isRendered) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function isClassedPhrasingItem(DOMElement $element): bool
@@ -456,15 +505,15 @@ final class SourceElementClassifier
             SourceDom::attr($element, 'aria-label'),
         ))));
         $identifier = strtolower(trim(SourceDom::authorIdentityAttribute($element, 'id')));
-        $style = strtolower(SourceDom::attr($element, 'style'));
+        $declarations = SourceDeclarations::inline($element);
 
         if ( preg_match('/(?:^|[\s_-])(?:hero|decor|decorative|layer|overlay|grain|noise|texture|glow|atmosphere|ambient|aura|orb|blob|backdrop|background|bg)(?:$|[\s_-])/', $semanticContext)
             || preg_match('/(?:^|[\s_-])(?:hero|decor|decorative|overlay|grain|noise|texture|glow|atmosphere|ambient|aura|orb|blob|backdrop|background|bg)(?:$|[\s_-])/', $identifier) ) {
             return true;
         }
 
-        return (bool) ( preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/', $style)
-            && preg_match('/(?:^|;)\s*(?:inset|top|right|bottom|left|z-index|pointer-events|mix-blend-mode|opacity|filter|background|background-image)\s*:/', $style) );
+        return in_array(CssValueInspector::declared($declarations, 'position'), array( 'fixed', 'absolute' ), true)
+            && array() !== array_intersect_key($declarations, array_flip(array( 'inset', 'top', 'right', 'bottom', 'left', 'z-index', 'pointer-events', 'mix-blend-mode', 'opacity', 'filter', 'background', 'background-image' )));
     }
 
     /**
@@ -497,12 +546,12 @@ final class SourceElementClassifier
 
     public function isMetadataLayoutStyle(string $style): bool
     {
-        return 1 === preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?(?:grid|flex)\b/i', $style);
+        return in_array(CssValueInspector::declared(SourceDeclarations::parse($style), 'display'), array( 'grid', 'inline-grid', 'flex', 'inline-flex' ), true);
     }
 
     public function isFlexMetadataStyle(string $style): bool
     {
-        return 1 === preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/i', $style);
+        return in_array(CssValueInspector::declared(SourceDeclarations::parse($style), 'display'), array( 'flex', 'inline-flex' ), true);
     }
 
     public function isPresentationalAnimationSelector(string $selector): bool
@@ -600,6 +649,24 @@ final class SourceElementClassifier
             $path = parse_url(SourceDom::attr($image, 'src'), PHP_URL_PATH);
             $extension = strtolower((string) pathinfo(is_string($path) ? $path : '', PATHINFO_EXTENSION));
             $imageType = array('jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'avif' => 'image/avif', 'png' => 'image/png', 'webp' => 'image/webp', 'gif' => 'image/gif')[$extension] ?? '';
+        }
+        // Native image metadata can replay viewport selection without proving
+        // equal crops. Keep format negotiation on the companion path: the
+        // fallback must be a known raster and explicit types must match it.
+        $replayable = '' !== $imageType;
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( str_contains($parent->tagName, '-') ) {
+                $replayable = false;
+            }
+        }
+        foreach ( $element->getElementsByTagName('source') as $source ) {
+            $type = strtolower(trim(SourceDom::attr($source, 'type')));
+            if ( '' !== $type && $type !== $imageType ) {
+                $replayable = false;
+            }
+        }
+        if ( $replayable ) {
+            return false;
         }
         foreach ( $element->getElementsByTagName('source') as $source ) {
             if ( ! $source instanceof DOMElement || '' === SourceDom::attr($source, 'srcset') ) {
@@ -1164,7 +1231,9 @@ final class SourceElementClassifier
             return null;
         }
 
-        if ( $this->hasCarouselIdentity($element) || $this->isCarouselList($element) ) {
+        if ( ( $this->hasCarouselIdentity($element) || $this->isCarouselList($element) )
+            && ! $this->isSlideshowLayoutContainer($element)
+        ) {
             return $element;
         }
 
@@ -1180,6 +1249,44 @@ final class SourceElementClassifier
         }
 
         return $this->slideshowCollectionRoot($contentChildren[0]);
+    }
+
+    /**
+     * A carousel-named element whose images all sit in one child while a
+     * sibling child carries authored content (a heading, text or a form) is a
+     * layout container around a slideshow, not the slideshow itself. Taking
+     * it as the collection root would drop that sibling content.
+     */
+    private function isSlideshowLayoutContainer(DOMElement $element): bool
+    {
+        if ( $element->hasAttribute('data-blocks-engine-slideshow') ) {
+            return false;
+        }
+        $mediaChildren = 0;
+        $contentChild = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || $this->isInertSlideshowHostChild($child) ) {
+                continue;
+            }
+            if ( 0 < $child->getElementsByTagName('img')->length ) {
+                ++$mediaChildren;
+                continue;
+            }
+            $contentChild = $contentChild || $this->hasAuthoredLayoutContent($child);
+        }
+
+        return 1 === $mediaChildren && $contentChild;
+    }
+
+    private function hasAuthoredLayoutContent(DOMElement $element): bool
+    {
+        foreach ( array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'form', 'input', 'select', 'textarea' ) as $tag ) {
+            if ( strtolower($element->tagName) === $tag || 0 < $element->getElementsByTagName($tag)->length ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1203,6 +1310,12 @@ final class SourceElementClassifier
             }
         }
         if ( ! $list instanceof DOMElement || count($items) < 2 || ! $this->slideshowHasStageSelector($root, $list, $items) ) {
+            return array();
+        }
+        // Core Gallery cannot step through a track. A collection that ships
+        // its own stepping pair is a carousel; flattening it into a gallery
+        // would drop both controls and the slide geometry they step through.
+        if ( $this->hasSteppingControlPair($root, $list, count($items)) ) {
             return array();
         }
 
@@ -1262,6 +1375,59 @@ final class SourceElementClassifier
         }
 
         return 2 <= count($images) ? $images : array();
+    }
+
+    /**
+     * Exactly two interactive controls beside a list of more than two
+     * slides, not counting numbered or indexed slide selectors, are a
+     * previous/next pair. A pager has one control per slide, so with two
+     * slides the pair is ambiguous. A thumbnail control shows the slide it
+     * selects; a collection with thumbnails keeps the gallery path. The signal is structural: it does not depend
+     * on the controls' wording.
+     */
+    private function hasSteppingControlPair(DOMElement $root, DOMElement $list, int $slideCount): bool
+    {
+        if ( $slideCount <= 2 ) {
+            return false;
+        }
+        $slideImages = array();
+        foreach ( $list->getElementsByTagName('img') as $image ) {
+            if ( $image instanceof DOMElement && '' !== ($key = $this->imageIdentityKey($image)) ) {
+                $slideImages[$key] = true;
+            }
+        }
+        $controls = array();
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || ! $this->isCarouselControl($candidate, $root)
+                || SourceDom::elementContains($list, $candidate)
+            ) {
+                continue;
+            }
+            foreach ( $controls as $control ) {
+                if ( SourceDom::elementContains($control, $candidate) ) {
+                    continue 2;
+                }
+            }
+            foreach ( $candidate->getElementsByTagName('img') as $image ) {
+                if ( $image instanceof DOMElement && isset($slideImages[$this->imageIdentityKey($image)]) ) {
+                    return false;
+                }
+            }
+            // A numbered or indexed control selects one slide: it is a pager
+            // beside the pair, not one of the pair's controls.
+            foreach ( $candidate->attributes as $attribute ) {
+                if ( 1 === preg_match('/^data-(?:[a-z]+-)*(?:slide|index|item)(?:-[a-z]+)*$/', strtolower($attribute->name)) && ctype_digit(trim($attribute->value)) ) {
+                    continue 2;
+                }
+            }
+            if ( 1 === preg_match('/[0-9]/', SourceDom::attr($candidate, 'aria-label') . ' ' . ($candidate->textContent ?? '')) ) {
+                continue;
+            }
+            $controls[] = $candidate;
+        }
+
+        return 2 === count($controls);
     }
 
     /**
@@ -1374,8 +1540,9 @@ final class SourceElementClassifier
         if ( $width > 0.0 ) {
             return $width;
         }
-        if ( 1 === preg_match('/(?:^|;)\s*width\s*:\s*([^;]+)/i', SourceDom::attr($element, 'style'), $matches) ) {
-            return $this->cssPixelLength($matches[1]);
+        $width = SourceDeclarations::inline($element)['width'] ?? null;
+        if ( null !== $width ) {
+            return $this->cssPixelLength($width);
         }
 
         return 0.0;
@@ -1495,7 +1662,7 @@ final class SourceElementClassifier
             $style = strtolower(SourceDom::attr($item, 'style'));
             if ( '' !== SourceDom::attr($item, 'data-slideshow-slide')
                 || in_array($hidden, array( 'true', 'false' ), true)
-                || 1 === preg_match('/(?:^|;)\s*display\s*:\s*none\b/', $style)
+                || 'none' === CssValueInspector::declared(SourceDeclarations::inline($item), 'display')
             ) {
                 return true;
             }

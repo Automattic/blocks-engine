@@ -115,6 +115,34 @@ final class FormRuntimeRequirementAnalyzer
         return in_array(self::formIntent($form), array( 'preference', 'choice_submission' ), true);
     }
 
+    /**
+     * An add-to-cart form whose visitor input is only bounded variant choices
+     * (radios, checkboxes, selects) beside its submit. The choices belong to
+     * the purchase, so the form stays native for a commerce runtime binding
+     * instead of being frozen as raw HTML (#6442).
+     */
+    public static function collectsOnlyPurchaseChoices(DOMElement $form): bool
+    {
+        if ( 'commerce_add_to_cart' !== self::formIntent($form) ) {
+            return false;
+        }
+        $hasChoice = false;
+        foreach ( self::intentControls($form) as $control ) {
+            $tag = strtolower($control->tagName);
+            $type = FormControlClassifier::controlType($control);
+            if ( 'select' === $tag || ('input' === $tag && in_array($type, array( 'radio', 'checkbox' ), true)) ) {
+                $hasChoice = true;
+                continue;
+            }
+            if ( '' === trim(SourceDom::attr($control, 'role')) && FormControlClassifier::isSubmitLikeControl($control) ) {
+                continue;
+            }
+            return false;
+        }
+
+        return $hasChoice;
+    }
+
     /** Classifies source semantics only; classes and vendor attributes are not intent. */
     public static function formIntent(DOMElement $form): string
     {
@@ -139,6 +167,7 @@ final class FormRuntimeRequirementAnalyzer
         $subscribe = false;
         $donate = 1 === preg_match('~(?:^|/)(?:donat(?:e|ion|ions)|give|giving)(?:[/.]|$)~', $path);
         $freeText = false;
+        $nonEmailEntry = false;
         $hasChoice = false;
         $onlyChoices = true;
         $hasSubmit = false;
@@ -175,7 +204,10 @@ final class FormRuntimeRequirementAnalyzer
                 $onlyChoices = false;
             }
             $quantity = $quantity || in_array($name, array( 'quantity', 'qty' ), true);
-            $email = $email || 'email' === $type || 'email' === $name;
+            $isEmail = 'email' === $type || 'email' === $name;
+            $email = $email || $isEmail;
+            $nonEmailEntry = $nonEmailEntry || 'textarea' === $tag
+                || ('input' === $tag && ! $isEmail && ! in_array($controlType, array( 'radio', 'checkbox', 'submit', 'reset', 'button', 'image' ), true));
             $message = $message || 'textarea' === $tag;
             $search = $search || 'search' === $type || in_array($name, array( 'q', 's', 'search', 'query' ), true);
             $select = $select || 'select' === $tag;
@@ -188,10 +220,23 @@ final class FormRuntimeRequirementAnalyzer
                 $subscribe = $subscribe || 1 === preg_match('/\b(?:subscribe|newsletter)\b/i', ($control->textContent ?? '') . ' ' . SourceDom::attr($control, 'value'));
             }
         }
-        if ( preg_match('~(?:^|/)cart/add(?:[/.]|$)~', $path) || ($hiddenItem && $quantity) || self::hasCommerceSubmissionSignal($form, true) ) {
+        // A submit label alone ("Add to Cart or Get a Quote") does not make a
+        // form that asks for the visitor's email a cart form: a purchase form
+        // carries the item, never the buyer's contact details.
+        if ( preg_match('~(?:^|/)cart/add(?:[/.]|$)~', $path) || ($hiddenItem && $quantity) || (! $email && self::hasCommerceSubmissionSignal($form, true)) ) {
             return 'commerce_add_to_cart';
         }
         if ( $password ) return 'login';
+        // A form meeting the native search contract with an explicit submit is
+        // search whatever its method or self-posting action path: core/search
+        // replaces the source handler. A contribution submit is real donation
+        // evidence; amount choices already break the contract. A local result
+        // workflow stays a client-side tool.
+        $searchControls = SearchBlockConversionContext::searchControls($form);
+        if ( null !== $searchControls && $searchControls['submit'] instanceof DOMElement
+            && ! self::hasDonationSubmitSemantics($searchControls['submit']) && ! self::isClientSideTool($form) ) {
+            return 'search';
+        }
         // A contribution submit (donate / give / contribute) or donation action
         // path outranks the GET filter rule: amount and frequency choices are
         // what the visitor gives, not a catalog filter.
@@ -200,12 +245,21 @@ final class FormRuntimeRequirementAnalyzer
         // and omit `method`, but a search or filter form never collects an email.
         if ( $email && ($subscribe || preg_match('~(?:^|/)(?:newsletter|subscribe)(?:/|$)~', $path)) ) return 'newsletter';
         if ( $email && $message ) return 'contact';
-        if ( self::isClientSideTool($form) ) return 'client_side_tool';
+        // A form whose only free-entry control is an email address is a
+        // signup, whatever its submit label's language or sibling status.
+        if ( $email && ! $nonEmailEntry ) return 'newsletter';
+        // An email address is collected for the site owner: a form that asks
+        // for one submits it (a signup or lead form, whatever its submit label's
+        // language), so its status region announces that submission rather than
+        // a result computed in the page.
+        if ( ! $email && self::isClientSideTool($form) ) return 'client_side_tool';
         $method = strtolower(trim(SourceDom::attr($form, 'method')));
         if ( '' === $method || 'get' === $method ) {
             if ( $search || preg_match('~(?:^|/)search(?:/|$)~', $path) ) return 'search';
             if ( $select && ! $freeText ) return 'filter_sort';
-            if ( ! $freeText && (new ListingControlsRecognizer())->hasNumericBoundsForForm($form) ) return 'filter_sort';
+            // The bound recognizer validates every free-entry control itself,
+            // including text fields with explicit paired numeric evidence.
+            if ( (new ListingControlsRecognizer())->hasNumericBoundsForForm($form) ) return 'filter_sort';
         }
 
         // Keep existing GET search/filter intents, but recognize bounded choice
