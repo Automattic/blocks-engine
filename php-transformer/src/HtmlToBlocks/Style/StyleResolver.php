@@ -7099,6 +7099,30 @@ final class StyleResolver implements ElementPresentationResolver
         return $declarations;
     }
 
+    /**
+     * Whether the author cascade paints real generated content on this
+     * element's `::before` or `::after`: the winning `content` declaration,
+     * by specificity then source order, draws something other than nothing.
+     */
+    public function paintsGeneratedContent(DOMElement $element): bool
+    {
+        $state = $this->session->sourceStyleResolutionState();
+        $winners = array();
+        foreach (array_values($state->pseudoElementRules()) as $order => $rule) {
+            $pseudo = (string) ($rule['pseudo'] ?? '');
+            $content = $rule['declarations']['content'] ?? null;
+            if (!is_string($content) || !in_array($pseudo, array('before', 'after'), true) || !$state->matches($element, (string) $rule['selector'])) continue;
+            $rank = array(CssSelectorMatcher::specificity(CssSelectorMatcher::parse((string) $rule['selector'])), $order);
+            if (!isset($winners[$pseudo]) || $rank >= $winners[$pseudo]['rank']) $winners[$pseudo] = array('rank' => $rank, 'content' => $content);
+        }
+        foreach ($winners as $winner) {
+            $content = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', trim($winner['content']))));
+            if (in_array($content, array('', 'none', 'normal', 'initial', 'unset', 'revert', 'inherit', '""', "''", 'open-quote', 'close-quote', 'no-open-quote', 'no-close-quote'), true)) continue;
+            return true;
+        }
+        return false;
+    }
+
     public function specificityResolvedSvgCascadeValue(DOMElement $element, string $property): ?string
     {
         if ( ! in_array($property, self::SVG_TEXT_CASCADE_PROPERTIES, true) ) {

@@ -35,6 +35,8 @@ final class AuthoredCarouselBlockGenerator
     private SplObjectStorage $recognitions;
 
     public const LOCAL_NAME = 'authored-carousel';
+    /** Marks a rebuilt control whose artwork is author-painted generated content. */
+    private const SOURCE_PAINTED_CONTROL_CLASS = 'blocks-engine-authored-carousel__control--source-painted';
     /**
      * Below a recorded breakpoint the rail is hidden and the stage spans the
      * carousel. The root attribute scopes each rule to opted-in instances.
@@ -632,7 +634,7 @@ JS;
         // block through the inserted wrappers. Min-height slideshows must keep
         // auto-height wrappers so their controls do not inflate normal flow.
         $style .= '.blocks-engine-authored-carousel--positioned-stage>.blocks-engine-authored-carousel__source-stage{height:100%;flex-shrink:0}.blocks-engine-authored-carousel--positioned-stage .blocks-engine-authored-carousel__viewport{height:100%}';
-        $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0}:where(.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__next){transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
+        $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted)),.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted)){position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0}:where(.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__previous:not(.blocks-engine-authored-carousel__control--source-painted),.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__next:not(.blocks-engine-authored-carousel__control--source-painted)){transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted)){left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted)){right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
         $style .= '.blocks-engine-authored-carousel__dots--source{position:static;inset:auto;gap:0;grid-column:1/-1}:where(.blocks-engine-authored-carousel__dots--source) .blocks-engine-authored-carousel__dot{width:revert;height:revert;border:revert;border-radius:revert;background:revert;color:inherit}';
         // A captured orientation is carried by the separate translate and scale
         // properties, as core/icon does, so the source's own transform cannot
@@ -659,7 +661,7 @@ JS;
         // zero specificity lets every author rule still win over the reset.
         $style .= '.blocks-engine-authored-carousel--overlay-controls>.blocks-engine-authored-carousel__source-stage{grid-column:1/-1}'
             . ':where(.blocks-engine-authored-carousel__control--source-box){display:grid;align-content:start;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:inherit}';
-        $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next::before{content:none}';
+        $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before{content:none}';
         $style .= '.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track{display:flex!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>*{display:none!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{display:block!important;position:relative!important;flex:0 0 calc(100% / var(--blocks-engine-carousel-visible));width:calc(100% / var(--blocks-engine-carousel-visible))}';
         $style .= '[data-carousel-arrows="false"]>.blocks-engine-authored-carousel__controls{display:none!important}';
         $style .= '.blocks-engine-authored-carousel--show-status>.blocks-engine-authored-carousel__status{position:static;width:auto;height:auto;margin:0;clip:auto;overflow:visible;white-space:normal}';
@@ -1201,6 +1203,9 @@ JS;
             // element's box: no native button padding, border or centring.
             if ( 'track' === $presentation && '' === $controlsTopology && 'button' !== strtolower($control->tagName) ) {
                 $tokens[] = 'blocks-engine-authored-carousel__control--source-box';
+            }
+            if ( $this->sourcePaintsControlArtwork($control, $styleResolver) ) {
+                $tokens[] = self::SOURCE_PAINTED_CONTROL_CLASS;
             }
             $controlClasses[$direction] = implode(' ', $tokens);
             $position = strtolower(trim(CssValueInspector::withoutImportant((string) ($styleResolver->structuralPresentationDeclarations($control)['position'] ?? ''))));
@@ -1859,6 +1864,9 @@ JS;
         if (isset($controls[$key])) {
             $control = $controls[$key]['element'];
             $class = $this->sourceClassTokens(SourceDom::attr($control, 'class'), $control, $styleResolver);
+            if ( $this->sourcePaintsControlArtwork($control, $styleResolver) ) {
+                $class[] = self::SOURCE_PAINTED_CONTROL_CLASS;
+            }
             $direction = $controls[$key]['next'];
             return $this->navigationButtonMarkup($direction, implode(' ', $class), $this->sourceControlVisual($control), $this->resolvedControlPresentation($control, $styleResolver), $control);
         }
@@ -2399,6 +2407,17 @@ JS;
             $next = $next || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
         return $previous && $next;
+    }
+
+    /**
+     * A control with no child artwork whose arrow the author stylesheet paints
+     * as generated `::before`/`::after` content (an icon-font glyph, say). The
+     * rebuilt button keeps the source classes that draw it, so the engine adds
+     * no glyph or disc chrome of its own over it.
+     */
+    private function sourcePaintsControlArtwork(DOMElement $control, StyleResolver $styleResolver): bool
+    {
+        return '' === $this->sourceControlVisual($control) && $styleResolver->paintsGeneratedContent($control);
     }
 
     private function sourceControlVisual(DOMElement $control): string
