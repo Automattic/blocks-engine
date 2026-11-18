@@ -198,16 +198,29 @@ final class LayoutShellBlockGenerator
             return Object.assign( {}, wrapper, { attributes: visible } );
         } );
     }
+    // The canvas does not cancel a link's navigation. A source card saved as an
+    // anchor wrapper would, on any click meant to select one of its inner
+    // blocks, navigate the editor iframe to the link target and drop the post
+    // from the canvas. Keep the authored href (styles and saved markup need
+    // it) and cancel only the navigation, in the editor alone.
+    function editorWrapperProps( wrapper, props ) {
+        if ( 'a' !== String( wrapper.tagName || '' ).toLowerCase() ) { return props; }
+        var onClick = props.onClick;
+        return Object.assign( {}, props, { onClick: function( event ) {
+            event.preventDefault();
+            if ( onClick ) { onClick( event ); }
+        } } );
+    }
     function edit( props ) {
         var wrappers = revealedWrappers( props.attributes.wrappers || [] );
         // Both hooks run exactly once, in this order, regardless of chain length.
         var blockProps = useBlockProps();
-        var outerProps = wrappers.length ? sourceBlockProps( wrapperProps( wrappers[ 0 ].attributes ), blockProps ) : blockProps;
+        var outerProps = wrappers.length ? editorWrapperProps( wrappers[ 0 ], sourceBlockProps( wrapperProps( wrappers[ 0 ].attributes ), blockProps ) ) : blockProps;
         var last = wrappers.length - 1;
-        var innerProps = useInnerBlocksProps( last > 0 ? wrapperProps( wrappers[ last ].attributes ) : outerProps );
+        var innerProps = useInnerBlocksProps( last > 0 ? editorWrapperProps( wrappers[ last ], wrapperProps( wrappers[ last ].attributes ) ) : outerProps );
         var content = createElement( last >= 0 ? wrappers[ last ].tagName || 'div' : 'div', innerProps );
         for ( var index = last - 1; index >= 0; index-- ) {
-            content = createElement( wrappers[ index ].tagName || 'div', index === 0 ? outerProps : wrapperProps( wrappers[ index ].attributes ), content );
+            content = createElement( wrappers[ index ].tagName || 'div', index === 0 ? outerProps : editorWrapperProps( wrappers[ index ], wrapperProps( wrappers[ index ].attributes ) ), content );
         }
         return content;
     }
