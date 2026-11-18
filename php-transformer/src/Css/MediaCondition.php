@@ -51,6 +51,87 @@ final class MediaCondition
         return implode(', ', array_unique($result)) ?: 'not all';
     }
 
+    /**
+     * Removes `@media` blocks that can never apply under the media the whole
+     * stylesheet is delivered with. A capture that serves one copy of a page
+     * stylesheet per viewport (`media="(min-width:1024px)"` and
+     * `media="(max-width:1023px)"`) leaves each copy carrying the other
+     * viewport's `@media (max-width:1023px)` / `@media (min-width:1024px)`
+     * blocks: dead bytes in every published stylesheet. Only a provable
+     * disjunction is removed (see disjoint()); anything else stays.
+     */
+    public static function withoutUnreachableBlocks(string $css, string $delivery): string
+    {
+        $delivery = trim($delivery);
+        if ('' === $delivery || 'all' === strtolower($delivery) || false === stripos($css, '@media')) return $css;
+        $tree = new CssRuleTree($css);
+        if (!$tree->wellFormed) return $css;
+        $removals = array();
+        $walk = static function (int $scope) use (&$walk, &$removals, $tree, $css, $delivery): void {
+            foreach ($tree->rules($scope) as $rule) {
+                if ('{' !== ($css[$rule['boundary']] ?? '')) continue;
+                $prelude = substr($css, $rule['start'], $rule['boundary'] - $rule['start']);
+                $plain = trim(CssSyntaxScanner::withoutComments($prelude));
+                if (preg_match('/^@media\s+(.+)$/is', $plain, $match) && self::disjoint($delivery, $match[1])) {
+                    // Keep comments (licenses) that precede the rule.
+                    $at = strripos($prelude, '@');
+                    $removals[] = array(false === $at ? $rule['start'] : $rule['start'] + $at, $rule['end'] + 1);
+                } elseif (preg_match('/^@(?:media|supports|layer)\b/i', $plain)) {
+                    $walk($rule['boundary']);
+                }
+            }
+        };
+        $walk(-1);
+        foreach (array_reverse($removals) as [$start, $end]) $css = substr_replace($css, '', $start, $end - $start);
+        return $css;
+    }
+
+    /**
+     * True only when no viewport can satisfy both media query lists: every
+     * pair of their queries names different media types or width ranges that
+     * do not meet. A query this cannot read (negation, `or`, non-px widths)
+     * is assumed to match, so the answer is never a false positive.
+     */
+    public static function disjoint(string $left, string $right): bool
+    {
+        foreach (CssValueSplitter::splitTopLevel($left, array(',')) as $a) {
+            $a = self::query($a);
+            if (null === $a) return false;
+            foreach (CssValueSplitter::splitTopLevel($right, array(',')) as $b) {
+                $b = self::query($b);
+                if (null === $b) return false;
+                $types = null !== $a['type'] && null !== $b['type'] && $a['type'] !== $b['type'];
+                if (!$types && max($a['min'], $b['min']) <= min($a['max'], $b['max'])) return false;
+            }
+        }
+        return true;
+    }
+
+    /** @return array{type:?string,min:float,max:float}|null */
+    private static function query(string $query): ?array
+    {
+        $query = strtolower(trim($query));
+        if ('' === $query || preg_match('/(?<![\w-])(?:not|or)(?![\w-])/', $query)) return null;
+        $query = (string) preg_replace('/^only\s+/', '', $query);
+        $parsed = array('type' => null, 'min' => 0.0, 'max' => INF);
+        foreach (CssValueSplitter::splitTopLevelWhitespace($query) as $index => $part) {
+            $part = trim($part);
+            if ('' === $part || 'and' === $part) continue;
+            if ('(' !== $part[0]) {
+                if (0 !== $index || !preg_match('/^[a-z][a-z0-9-]*$/', $part)) return null;
+                if ('all' !== $part) $parsed['type'] = $part;
+                continue;
+            }
+            // Any other feature only narrows the query; it never widens it.
+            if (!preg_match('/^\(\s*(min-|max-)?width\s*:\s*(\d+(?:\.\d+)?|\.\d+)(px)?\s*\)$/', $part, $feature)) continue;
+            if ('' === ($feature[3] ?? '') && 0.0 !== (float) $feature[2]) continue;
+            $value = (float) $feature[2];
+            if ('max-' !== $feature[1]) $parsed['min'] = max($parsed['min'], $value);
+            if ('min-' !== $feature[1]) $parsed['max'] = min($parsed['max'], $value);
+        }
+        return $parsed;
+    }
+
     /** @param array<int,string> $conditions */
     public static function wrap(string $css, array $conditions): string
     {

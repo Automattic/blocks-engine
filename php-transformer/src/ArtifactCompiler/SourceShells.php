@@ -28,7 +28,7 @@ final class SourceShells
         $context = array();
         for ($cursor = $landmark->parentNode; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
             $attributes = array();
-            foreach ($cursor->attributes ?? array() as $attribute) $attributes[strtolower($attribute->name)] = $attribute->value;
+            $attributes = SourceDom::htmlAttributes($cursor);
             array_unshift($context, array('tag' => strtolower($cursor->tagName), 'attributes' => $attributes));
         }
         return $context;
@@ -129,6 +129,11 @@ final class SourceShells
     {
         $dom = HtmlSerialization::parseDocument('<body>' . $markup . '</body>');
         $xpath = new \DOMXPath($dom);
+        foreach ($dom->getElementsByTagName('*') as $node) {
+            foreach (iterator_to_array($node->attributes) as $attribute) {
+                if (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($attribute->name)) $node->removeAttributeNode($attribute);
+            }
+        }
         if ($ignoreViewportEntrance) {
             foreach ($xpath->query('//*[@' . CaptureEvidence::VIEWPORT_ENTRANCE . ']') ?: array() as $node) {
                 if (!$node instanceof \DOMElement) continue;
@@ -141,12 +146,28 @@ final class SourceShells
                 $node->removeAttribute(CaptureEvidence::VIEWPORT_ENTRANCE);
             }
         }
+        if ($ignoreViewportEntrance) self::neutralizeDialogInstanceIds($xpath);
         if ($ignoreViewportEntrance) {
             foreach ($xpath->query('//*') ?: array() as $node) {
                 if (!$node instanceof \DOMElement) continue;
                 // The source still owns provenance here: do not infer sampled
                 // paint from the SVG produced later by social-link lowering.
                 $node->removeAttribute(CaptureEvidence::GLYPH_COLOR);
+                // A selector-resolved dialog ancestor can sit at a different
+                // depth on each route. Its state is shared; the distance from
+                // the trigger is capture context, not landmark identity. Keep
+                // depth-only targets structural and preserve emission evidence.
+                if ($node->hasAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE)) {
+                    $states = json_decode($node->getAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE), true);
+                    if (is_array($states) && array_is_list($states)) {
+                        foreach ($states as &$state) {
+                            if (is_array($state) && is_string($state['selector'] ?? null) && '' !== trim($state['selector'])) unset($state['depth']);
+                        }
+                        unset($state);
+                        $encoded = json_encode($states, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                        if (false !== $encoded) $node->setAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE, $encoded);
+                    }
+                }
                 $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX)));
                 if (array() === $classes) $node->removeAttribute('class');
                 else $node->setAttribute('class', implode(' ', $classes));
@@ -156,8 +177,40 @@ final class SourceShells
         foreach ($xpath->query('//comment()') ?: array() as $comment) {
             if (preg_match('/^\/?\$(?:[!?])?$/', trim($comment->nodeValue ?? ''))) $comment->parentNode?->removeChild($comment);
         }
+        // Some menus mark the link's wrapper rather than the anchor. Only
+        // navigation wrappers containing links establish route-current state;
+        // selected tabs, choices and other content remain structural.
+        foreach ($xpath->query('//*[@data-selected="true"][ancestor::nav or ancestor::*[@role="navigation"]]') ?: array() as $node) {
+            if (!$node instanceof \DOMElement || 0 === $node->getElementsByTagName('a')->length) continue;
+            $peers = array();
+            // A wrapper's counterparts may live inside sibling list items.
+            $item = $node;
+            while ($item->parentNode instanceof \DOMElement && 'li' !== strtolower($item->tagName) && 'nav' !== strtolower($item->parentNode->tagName)) $item = $item->parentNode;
+            if ('li' !== strtolower($item->tagName)) continue;
+            foreach ($item->parentNode?->childNodes ?? array() as $sibling) {
+                if (!$sibling instanceof \DOMElement || $sibling === $item || $sibling->tagName !== $item->tagName) continue;
+                foreach ($sibling->getElementsByTagName($node->tagName) as $peer) {
+                    // Another current link cannot establish resting state.
+                    if ('true' === $peer->getAttribute('data-selected')) continue;
+                    if ($peer->getAttribute('data-part') === $node->getAttribute('data-part') && 0 !== $peer->getElementsByTagName('a')->length) $peers[] = $peer;
+                }
+            }
+            if (array() === $peers) continue;
+            self::neutralizeCurrentSubtreeShellClasses($node, $peers);
+            foreach (array('data-selected', 'data-interactive') as $attribute) {
+                $values = array_unique(array_map(static fn(\DOMElement $peer): ?string => $peer->hasAttribute($attribute) ? $peer->getAttribute($attribute) : null, $peers));
+                if (1 !== count($values)) continue;
+                $value = reset($values);
+                if (null === $value) $node->removeAttribute($attribute);
+                else $node->setAttribute($attribute, $value);
+            }
+        }
         $currentNodes = array();
         foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;
+        foreach ($xpath->query('//*[@class]') ?: array() as $node) {
+            if (!$node instanceof \DOMElement || in_array($node, $currentNodes, true)) continue;
+            if (array() !== array_filter(SourceDom::tokens($node->getAttribute('class')), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...))) $currentNodes[] = $node;
+        }
         foreach ($currentNodes as $node) {
             for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
                 if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
@@ -193,5 +246,47 @@ final class SourceShells
         $root = $body instanceof \DOMElement ? $body->firstElementChild : null;
         $identity = $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $markup) : $markup;
         return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($identity);
+    }
+
+    /**
+     * A captured dialog panel is a snapshot of the opened state, and the
+     * runtime renders it with instance ids it mints on each visit
+     * (`comp-a1_r_menu` on one route, `comp-b2_r_menu` on another). An id
+     * nothing in the landmark names (no `aria-controls`, `for`, `#fragment`)
+     * is that instance name, not structure: it and the class tokens derived
+     * from it read as their position in the panel. Referenced ids stay.
+     */
+    private static function neutralizeDialogInstanceIds(\DOMXPath $xpath): void
+    {
+        $referenced = array();
+        foreach ($xpath->query('//@*') ?: array() as $attribute) {
+            $name = strtolower($attribute->nodeName);
+            if ('href' === $name && str_starts_with(trim($attribute->nodeValue ?? ''), '#')) $referenced[substr(trim($attribute->nodeValue ?? ''), 1)] = true;
+            elseif (in_array($name, array('for', 'list', 'form', 'popovertarget', CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL), true) || str_starts_with($name, 'aria-')) {
+                foreach (SourceDom::tokens((string) $attribute->nodeValue) as $token) $referenced[$token] = true;
+            }
+        }
+        foreach ($xpath->query('//*[@' . CaptureEvidence::DIALOG_PANEL . ']') ?: array() as $panel) {
+            if (!$panel instanceof \DOMElement) continue;
+            $names = array();
+            foreach ($xpath->query('.//*[@id]', $panel) ?: array() as $node) {
+                $id = $node instanceof \DOMElement ? $node->getAttribute('id') : '';
+                if ('' === $id || isset($referenced[$id]) || isset($names[$id])) continue;
+                $names[$id] = 'dialog-instance-' . count($names);
+            }
+            if (array() === $names) continue;
+            // Longest first, so an id that prefixes another does not claim it.
+            uksort($names, static fn(string $a, string $b): int => strlen($b) <=> strlen($a));
+            foreach ($xpath->query('descendant-or-self::*[@id or @class]', $panel) ?: array() as $node) {
+                if (!$node instanceof \DOMElement) continue;
+                if (isset($names[$node->getAttribute('id')])) $node->setAttribute('id', $names[$node->getAttribute('id')]);
+                if (!$node->hasAttribute('class')) continue;
+                $classes = array_map(static function (string $class) use ($names): string {
+                    foreach ($names as $id => $name) if ($class === $id || str_starts_with($class, $id . '-')) return $name . substr($class, strlen($id));
+                    return $class;
+                }, SourceDom::tokens($node->getAttribute('class')));
+                $node->setAttribute('class', implode(' ', $classes));
+            }
+        }
     }
 }

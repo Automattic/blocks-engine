@@ -115,6 +115,34 @@ final class FormRuntimeRequirementAnalyzer
         return in_array(self::formIntent($form), array( 'preference', 'choice_submission' ), true);
     }
 
+    /**
+     * An add-to-cart form whose visitor input is only bounded variant choices
+     * (radios, checkboxes, selects) beside its submit. The choices belong to
+     * the purchase, so the form stays native for a commerce runtime binding
+     * instead of being frozen as raw HTML (#6442).
+     */
+    public static function collectsOnlyPurchaseChoices(DOMElement $form): bool
+    {
+        if ( 'commerce_add_to_cart' !== self::formIntent($form) ) {
+            return false;
+        }
+        $hasChoice = false;
+        foreach ( self::intentControls($form) as $control ) {
+            $tag = strtolower($control->tagName);
+            $type = FormControlClassifier::controlType($control);
+            if ( 'select' === $tag || ('input' === $tag && in_array($type, array( 'radio', 'checkbox' ), true)) ) {
+                $hasChoice = true;
+                continue;
+            }
+            if ( '' === trim(SourceDom::attr($control, 'role')) && FormControlClassifier::isSubmitLikeControl($control) ) {
+                continue;
+            }
+            return false;
+        }
+
+        return $hasChoice;
+    }
+
     /** Classifies source semantics only; classes and vendor attributes are not intent. */
     public static function formIntent(DOMElement $form): string
     {
@@ -188,7 +216,10 @@ final class FormRuntimeRequirementAnalyzer
                 $subscribe = $subscribe || 1 === preg_match('/\b(?:subscribe|newsletter)\b/i', ($control->textContent ?? '') . ' ' . SourceDom::attr($control, 'value'));
             }
         }
-        if ( preg_match('~(?:^|/)cart/add(?:[/.]|$)~', $path) || ($hiddenItem && $quantity) || self::hasCommerceSubmissionSignal($form, true) ) {
+        // A submit label alone ("Add to Cart or Get a Quote") does not make a
+        // form that asks for the visitor's email a cart form: a purchase form
+        // carries the item, never the buyer's contact details.
+        if ( preg_match('~(?:^|/)cart/add(?:[/.]|$)~', $path) || ($hiddenItem && $quantity) || (! $email && self::hasCommerceSubmissionSignal($form, true)) ) {
             return 'commerce_add_to_cart';
         }
         if ( $password ) return 'login';

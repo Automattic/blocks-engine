@@ -26,11 +26,11 @@ $assert('.mt-1\\.5.sm\\:grid-cols-2' === CssIdent::compoundClassSelector(array( 
 $assert(SourceDom::isBoundedClassToken('mt-1.5'), 'a decimal class token is retained');
 $assert(SourceDom::isBoundedClassToken('sm:grid-cols-2'), 'a colon class token is retained');
 $assert(SourceDom::isBoundedClassToken('2xl:flex'), 'a digit-started class token is retained');
-$assert(! SourceDom::isBoundedClassToken('bad/token'), 'a slash token stays outside the receipt bound');
+$assert(SourceDom::isBoundedClassToken('w-1/2'), 'a fractional utility is a bounded HTML class token');
 $assert(! SourceDom::isBoundedClassToken(str_repeat('x', 81)), 'an overlong token is dropped');
 $assert(
-    array( 'mt-1.5', 'w-full', 'sm:grid-cols-2' ) === SourceDom::boundedClassTokens('mt-1.5 w-full sm:grid-cols-2 bad/token'),
-    'bounded tokens keep escaped-character classes and drop slash tokens'
+    array( 'mt-1.5', 'w-full', 'sm:grid-cols-2', 'w-1/2' ) === SourceDom::boundedClassTokens('mt-1.5 w-full sm:grid-cols-2 w-1/2'),
+    'bounded tokens keep classes that require CSS identifier escaping'
 );
 
 if ( 0 < $failures ) {

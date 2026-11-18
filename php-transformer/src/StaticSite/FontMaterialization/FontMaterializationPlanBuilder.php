@@ -722,46 +722,6 @@ final class FontMaterializationPlanBuilder
         return '';
     }
 
-    /**
-     * Expand `var(--name[, fallback])` references within a CSS string using the
-     * custom-property definitions found in that same CSS. Bounded recursive
-     * passes resolve variables whose values reference other variables. Leaves
-     * unresolved references intact so they can be filtered as invalid families.
-     */
-    public function resolveCssVariables(string $css): string
-    {
-        if ( '' === trim($css) || ! str_contains($css, 'var(') ) {
-            return $css;
-        }
-
-        $vars = $this->cssCustomProperties($css);
-        if ( array() === $vars ) {
-            return $css;
-        }
-
-        for ( $pass = 0; $pass < 5; $pass++ ) {
-            $expanded = preg_replace_callback(
-                '/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/',
-                static function (array $match) use ($vars): string {
-                    $name = (string) $match[1];
-                    if ( isset($vars[$name]) && '' !== $vars[$name] ) {
-                        return $vars[$name];
-                    }
-
-                    return isset($match[2]) && '' !== trim((string) $match[2]) ? trim((string) $match[2]) : (string) $match[0];
-                },
-                $css
-            );
-
-            if ( ! is_string($expanded) || $expanded === $css ) {
-                break;
-            }
-            $css = $expanded;
-        }
-
-        return $css;
-    }
-
     /** @param array<string,string> $variables */
     public function resolveCssVariableValue(string $value, array $variables): string
     {
@@ -783,17 +743,6 @@ final class FontMaterializationPlanBuilder
             $value = $expanded;
         }
         return $value;
-    }
-
-    /**
-     * Collect `--name: value` custom-property declarations from CSS. Later
-     * declarations win, mirroring the cascade for the common single-scope case.
-     *
-     * @return array<string,string>
-     */
-    private function cssCustomProperties(string $css): array
-    {
-        return array_column(CssRuleAnalyzer::customProperties($css), 'value', 'name');
     }
 
     /**

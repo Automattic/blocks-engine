@@ -496,12 +496,6 @@ final class SourceStyleResolutionState
         return $this->pseudoElementRules;
     }
 
-    /** @return array<int, array<string, mixed>> */
-    public function cascadedValueRules(): array
-    {
-        return $this->cascadedValueRules;
-    }
-
     /** @return array<string, string> */
     public function customProperties(): array
     {

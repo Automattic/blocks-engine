@@ -28,7 +28,7 @@ foreach (array('ancestor', 'subject') as $owner) {
             static fn (array $asset): string => (string) ($asset['content'] ?? ''),
             array_filter($result['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? ''))
         ));
-        preg_match_all('/:where\(\.(blocks-engine-attribute-[a-f0-9]{12}-\d+)\)[^{]*\{[^}]*align-items:center/', $css, $projected);
+        preg_match_all('/:where\(\.(blocks-engine-attribute-[a-f0-9]{12}-\d+)(?:\.content)?\)[^{]*\{[^}]*align-items:center/', $css, $projected);
         if ($expected !== (array() !== $projected[1])) {
             $failures[] = "$owner / $name: unexpected projected center rule";
         }

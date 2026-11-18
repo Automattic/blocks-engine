@@ -132,6 +132,22 @@ jobs:
       - name: Run visual parity tests
         run: npm test
 
+      - name: Verify imported slideshows validate in Gutenberg
+        working-directory: php-transformer
+        env:
+          BE_EDITOR_EVIDENCE_DIR: ${{ runner.temp }}/slideshow-editor-acceptance
+          BE_EDITOR_WORDPRESS_IMAGE: wordpress:7.0.4-php8.3-apache
+          BE_EDITOR_CLI_IMAGE: wordpress:cli-php8.3
+        run: composer test:slideshow-browser
+
+      - name: Upload slideshow editor acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slideshow-editor-acceptance
+          path: ${{ runner.temp }}/slideshow-editor-acceptance
+          if-no-files-found: ignore
+
       - name: Verify layout-table source tracks and authored responsive overrides
         env:
           WORDPRESS_ROOT: ${{ runner.temp }}/wordpress
@@ -143,6 +159,14 @@ jobs:
       - name: Verify native disclosure control presentation
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/php-transformer/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/details-control-presentation-browser.mjs
+
+      - name: Verify fill-image rows preserve frontend layout in the editor
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/fill-image-flex-row-browser.mjs
+
+      - name: Verify exposed fill layers stay selectable without following-content interception
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/fill-layer-editor-selection-browser.mjs
 
       - name: Verify standalone line breaks keep source line spacing
         working-directory: php-transformer
@@ -247,6 +271,24 @@ jobs:
           BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/cover-default-padding-browser.mjs
 
+      - name: Verify an authored slider keeps its slide track and arrow artwork
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/carousel-authored-slide-track-browser.mjs
+
+      - name: Verify a backdrop slideshow stays behind its hero content and fills it
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/carousel-backdrop-slideshow-browser.mjs
+
+      - name: Verify a tinted cover photo keeps its own layer's size and position
+        working-directory: php-transformer
+        env:
+          BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/layered-background-cover-browser.mjs
+
       - name: Verify a linked grid-item image adds no line box
         working-directory: php-transformer
         env:
@@ -263,6 +305,12 @@ jobs:
         env:
           BLOCK_LIBRARY_CSS: ${{ runner.temp }}/wordpress/wp-includes/css/dist/block-library/style.min.css
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/neutral-button-fixed-height-browser.mjs
+
+      - name: Verify pinned buttons keep their authored intrinsic width
+        working-directory: php-transformer
+        env:
+          WP_ROOT: ${{ runner.temp }}/wordpress
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/pinned-button-authored-width-browser.mjs
 
       - name: Verify a centred submit carrier keeps its source position
         working-directory: php-transformer

@@ -39,7 +39,7 @@ $compile = static function (string $html, string $css): string {
 
 $containerRule = static function (string $css, string $class): string {
     foreach ( explode('}', $css) as $chunk ) {
-        if ( str_contains($chunk, '.wp-block-navigation__container') && str_contains($chunk, '.' . $class . ' ') ) {
+        if ( str_contains($chunk, '.' . $class . ' .wp-block-navigation__container') ) {
             return trim($chunk) . '}';
         }
     }

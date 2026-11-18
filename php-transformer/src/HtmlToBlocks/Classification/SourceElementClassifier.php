@@ -58,15 +58,32 @@ final class SourceElementClassifier
         return false;
     }
 
-    public function isRuntimeMediaSurfaceElement(DOMElement $element): bool
+    public function isRuntimeMediaSurfaceElement(DOMElement $element, bool $includeMotionTopology = true): bool
     {
         $tagName = strtolower($element->tagName);
         if ( in_array($tagName, array( 'iframe', 'canvas', 'embed', 'object' ), true) ) {
             return true;
         }
 
-        return str_contains($tagName, '-')
-            && 1 === preg_match('/(?:^|-)(?:audio|carousel|gallery|iframe|media|player|slideshow|video)(?:-|$)/', $tagName);
+        $tokens = $includeMotionTopology ? 'audio|carousel|gallery|iframe|media|player|slideshow|video' : 'audio|iframe|player|video';
+        if ( ! str_contains($tagName, '-') ) {
+            return false;
+        }
+        if ( 1 === preg_match('/(?:^|-)(?:' . $tokens . ')(?:-|$)/', $tagName) ) {
+            return true;
+        }
+        // Without motion topology, the generic "media" token only marks a
+        // runtime surface when the host actually carries playable media; a
+        // media gallery of static images is ordinary content.
+        if ( $includeMotionTopology || 1 !== preg_match('/(?:^|-)media(?:-|$)/', $tagName) ) {
+            return false;
+        }
+        foreach ( array( 'video', 'audio', 'iframe', 'embed', 'object', 'canvas' ) as $playable ) {
+            if ( $element->getElementsByTagName($playable)->length > 0 ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function isDependentRuntimeMediaMask(DOMElement $element): bool
@@ -403,7 +420,8 @@ final class SourceElementClassifier
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:chips?|pills?|badges?|tags?|filters?|facets?)(?:[^a-z0-9]|$)/', $tokens);
     }
 
-    public function hasOnlyPhrasingChildren(DOMElement $element): bool
+    /** @param null|callable(DOMElement): bool $isRendered Additional presentation visibility check. */
+    public function hasOnlyPhrasingChildren(DOMElement $element, ?callable $isRendered = null): bool
     {
         $nonAnchorText = false;
 
@@ -420,12 +438,17 @@ final class SourceElementClassifier
             }
 
             $tagName = strtolower($child->tagName);
-            if ( 'a' === $tagName ) {
+            // Inline artwork can share a text run, but does not by itself
+            // establish one: an icon-only wrapper still lowers as media.
+            if ( in_array($tagName, array( 'a', 'svg' ), true) ) {
                 continue;
             }
 
             if ( 'br' === $tagName || ( $this->isInlineContentElement($tagName) && ! SourceDom::isImageOnlyNamedGraphic($child) ) ) {
-                $nonAnchorText = true;
+                // Label references and empty decoration do not establish a text
+                // run. Inspect descendants too: a visible span may wrap only
+                // hidden text (or SVG accessibility metadata).
+                $nonAnchorText = $nonAnchorText || $this->hasRenderedInlineText($child, $isRendered);
                 continue;
             }
 
@@ -433,6 +456,30 @@ final class SourceElementClassifier
         }
 
         return $nonAnchorText;
+    }
+
+    /** @param null|callable(DOMElement): bool $isRendered */
+    private function hasRenderedInlineText(DOMElement $element, ?callable $isRendered): bool
+    {
+        if ( $element->hasAttribute('hidden') || SourceDom::isAriaHidden($element)
+            || 'none' === CssValueInspector::declared(SourceDeclarations::inline($element), 'display')
+            || ( null !== $isRendered && ! $isRendered($element) )
+            || in_array(strtolower($element->tagName), array( 'svg', 'script', 'style', 'template' ), true) ) {
+            return false;
+        }
+
+        if ( 'br' === strtolower($element->tagName) ) {
+            return true;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMText && '' !== trim($child->textContent) ) {
+                return true;
+            }
+            if ( $child instanceof DOMElement && $this->hasRenderedInlineText($child, $isRendered) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function isClassedPhrasingItem(DOMElement $element): bool
@@ -1184,7 +1231,9 @@ final class SourceElementClassifier
             return null;
         }
 
-        if ( $this->hasCarouselIdentity($element) || $this->isCarouselList($element) ) {
+        if ( ( $this->hasCarouselIdentity($element) || $this->isCarouselList($element) )
+            && ! $this->isSlideshowLayoutContainer($element)
+        ) {
             return $element;
         }
 
@@ -1200,6 +1249,44 @@ final class SourceElementClassifier
         }
 
         return $this->slideshowCollectionRoot($contentChildren[0]);
+    }
+
+    /**
+     * A carousel-named element whose images all sit in one child while a
+     * sibling child carries authored content (a heading, text or a form) is a
+     * layout container around a slideshow, not the slideshow itself. Taking
+     * it as the collection root would drop that sibling content.
+     */
+    private function isSlideshowLayoutContainer(DOMElement $element): bool
+    {
+        if ( $element->hasAttribute('data-blocks-engine-slideshow') ) {
+            return false;
+        }
+        $mediaChildren = 0;
+        $contentChild = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || $this->isInertSlideshowHostChild($child) ) {
+                continue;
+            }
+            if ( 0 < $child->getElementsByTagName('img')->length ) {
+                ++$mediaChildren;
+                continue;
+            }
+            $contentChild = $contentChild || $this->hasAuthoredLayoutContent($child);
+        }
+
+        return 1 === $mediaChildren && $contentChild;
+    }
+
+    private function hasAuthoredLayoutContent(DOMElement $element): bool
+    {
+        foreach ( array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'form', 'input', 'select', 'textarea' ) as $tag ) {
+            if ( strtolower($element->tagName) === $tag || 0 < $element->getElementsByTagName($tag)->length ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1223,6 +1310,12 @@ final class SourceElementClassifier
             }
         }
         if ( ! $list instanceof DOMElement || count($items) < 2 || ! $this->slideshowHasStageSelector($root, $list, $items) ) {
+            return array();
+        }
+        // Core Gallery cannot step through a track. A collection that ships
+        // its own stepping pair is a carousel; flattening it into a gallery
+        // would drop both controls and the slide geometry they step through.
+        if ( $this->hasSteppingControlPair($root, $list, count($items)) ) {
             return array();
         }
 
@@ -1282,6 +1375,59 @@ final class SourceElementClassifier
         }
 
         return 2 <= count($images) ? $images : array();
+    }
+
+    /**
+     * Exactly two interactive controls beside a list of more than two
+     * slides, not counting numbered or indexed slide selectors, are a
+     * previous/next pair. A pager has one control per slide, so with two
+     * slides the pair is ambiguous. A thumbnail control shows the slide it
+     * selects; a collection with thumbnails keeps the gallery path. The signal is structural: it does not depend
+     * on the controls' wording.
+     */
+    private function hasSteppingControlPair(DOMElement $root, DOMElement $list, int $slideCount): bool
+    {
+        if ( $slideCount <= 2 ) {
+            return false;
+        }
+        $slideImages = array();
+        foreach ( $list->getElementsByTagName('img') as $image ) {
+            if ( $image instanceof DOMElement && '' !== ($key = $this->imageIdentityKey($image)) ) {
+                $slideImages[$key] = true;
+            }
+        }
+        $controls = array();
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || ! $this->isCarouselControl($candidate, $root)
+                || SourceDom::elementContains($list, $candidate)
+            ) {
+                continue;
+            }
+            foreach ( $controls as $control ) {
+                if ( SourceDom::elementContains($control, $candidate) ) {
+                    continue 2;
+                }
+            }
+            foreach ( $candidate->getElementsByTagName('img') as $image ) {
+                if ( $image instanceof DOMElement && isset($slideImages[$this->imageIdentityKey($image)]) ) {
+                    return false;
+                }
+            }
+            // A numbered or indexed control selects one slide: it is a pager
+            // beside the pair, not one of the pair's controls.
+            foreach ( $candidate->attributes as $attribute ) {
+                if ( 1 === preg_match('/^data-(?:[a-z]+-)*(?:slide|index|item)(?:-[a-z]+)*$/', strtolower($attribute->name)) && ctype_digit(trim($attribute->value)) ) {
+                    continue 2;
+                }
+            }
+            if ( 1 === preg_match('/[0-9]/', SourceDom::attr($candidate, 'aria-label') . ' ' . ($candidate->textContent ?? '')) ) {
+                continue;
+            }
+            $controls[] = $candidate;
+        }
+
+        return 2 === count($controls);
     }
 
     /**

@@ -18,7 +18,7 @@ foreach ($cases as $name => [$group, $routes]) {
     if ($routes !== (array() !== $form)) {
         throw new RuntimeException("$name: expected " . ($routes ? 'a' : 'no') . " form-provider finding.\n" . json_encode($form));
     }
-    if (! $routes && ! str_contains($out['serialized_blocks'], '/authored-input')) {
+    if (! $routes && ! str_contains($out['serialized_blocks'], '/authored-input') && ! str_contains($out['serialized_blocks'], '"blocksEngineInput"')) {
         throw new RuntimeException("$name: the captured field stays a native input.");
     }
     foreach (array('Enter amount:', 'Email') as $label) {

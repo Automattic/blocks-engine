@@ -296,7 +296,15 @@ final class DesignUsageCollector
         $mass = $this->walkChildren($element, $context);
         if (isset(self::HEADING_EM[$tag])) {
             $own = $this->declarations($element, true);
-            $observation = array('level' => (int) $tag[1], 'size_px' => $this->fontSize($own['font-size'] ?? null, $parent['size']));
+            $ownFamily = self::clean($own['font-family'] ?? '');
+            $ownFont = $this->resolver->restingFontShorthand($element);
+            if (null !== $ownFont) $ownFamily = CssFontShorthand::expand($this->resolver->customProperties->resolveCascaded($ownFont, $element))['font-family'] ?? '';
+            $observation = array(
+                'level' => (int) $tag[1],
+                'size_px' => $this->fontSize($own['font-size'] ?? null, $parent['size']),
+                'font_family' => $context['family'],
+                'font_family_authored' => '' !== $ownFamily && !in_array(strtolower($ownFamily), array('inherit', 'unset', 'initial', 'revert', 'revert-layer'), true) && !str_contains($ownFamily, 'var('),
+            );
             foreach (array('font-size' => 'font_size', 'font-weight' => 'font_weight', 'line-height' => 'line_height') as $property => $field) {
                 $value = self::clean($own[$property] ?? '');
                 // Inherited, relative, unresolved and varying values cannot be

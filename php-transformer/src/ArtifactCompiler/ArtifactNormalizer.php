@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle;
@@ -136,13 +137,16 @@ final class ArtifactNormalizer
                 continue;
             }
             if ( ! $isMedia && count($files) - $mediaFiles >= $limits['max_files'] ) {
-                $omitted = array_slice($rawFiles, $index);
-                $rejected += count($omitted);
-                $rejectionCounts['file_limit_exceeded'] = ($rejectionCounts['file_limit_exceeded'] ?? 0) + count($omitted);
-                $this->appendRejectionSamples($rejectionSamples, $omitted, 'file_limit_exceeded');
-                $truncationImpact = $this->truncationImpact(array_slice($rawFiles, $index), $files);
-                $diagnostics[] = ArtifactDiagnostics::make('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => $limits['max_files'], 'truncation_impact' => $truncationImpact));
-                break;
+                ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'file_limit_exceeded', $file, ArtifactPath::safeRelativePath((string) ($file['path'] ?? '')), null);
+                if ( null === $truncationImpact ) {
+                    // Only non-media rows are omitted by this budget. Media
+                    // later in the list still passes through its own limits.
+                    $omitted = array_values(array_filter(array_slice($rawFiles, $index), static fn(array $candidate): bool => ! self::isReferenceBackedBinary($candidate)));
+                    $truncationImpact = $this->truncationImpact($omitted, $files);
+                    $diagnostics[] = ArtifactDiagnostics::make('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => $limits['max_files'], 'truncation_impact' => $truncationImpact));
+                }
+                continue;
             }
 
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
@@ -169,7 +173,7 @@ final class ArtifactNormalizer
             $referenceMedia = self::isReferenceBackedBinary(array('path' => $path) + $file);
             // A declared capture report is hydrated but never converted, so it
             // is bounded on the report budget rather than the parse budget.
-            $capturedReport = ! $referenceMedia && isset($declaredReports[$path]);
+            $capturedReport = ! $referenceMedia && (isset($declaredReports[$path]) || \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isSidecarPath($path));
 
             if ( $referenceMedia && $payload['bytes'] > $limits['max_media_file_bytes'] ) {
                 ++$rejected;
@@ -348,6 +352,12 @@ final class ArtifactNormalizer
             if ('html' === $file['kind']) $file['layout_geometry_proof'] = $layoutGeometryProof['proof'];
         }
         unset($file);
+        $boxTrees = BoxTreeReport::read($files);
+        $diagnostics = array_merge($diagnostics, $boxTrees['diagnostics']);
+        foreach ($files as &$file) {
+            if ('html' === $file['kind']) $file['box_tree'] = $boxTrees['trees'][$file['path']] ?? array();
+        }
+        unset($file);
         $sourceHash = self::sourceHash($files, $runtimeDeclarations);
         if ( 0 < $rejected ) {
             ksort($rejectionCounts);
@@ -397,22 +407,6 @@ final class ArtifactNormalizer
         $counts[$code] = ($counts[$code] ?? 0) + 1;
         if (count($samples) >= self::MAX_REJECTION_SAMPLES) return;
         $samples[] = $this->rejectionSample($code, $file, $path, $bytes);
-    }
-
-    /** @param array<int,array<string,mixed>> $samples @param array<int,array<string,mixed>> $files */
-    private function appendRejectionSamples(array &$samples, array $files, string $code): void
-    {
-        foreach ($files as $file) {
-            if (count($samples) >= self::MAX_REJECTION_SAMPLES) return;
-            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
-            $this->recordRejectionSample($samples, $code, $file, $path);
-        }
-    }
-
-    /** @param array<int,array<string,mixed>> $samples @param array<string,mixed> $file */
-    private function recordRejectionSample(array &$samples, string $code, array $file, string $path): void
-    {
-        $samples[] = $this->rejectionSample($code, $file, $path, null);
     }
 
     /** @param array<string,mixed> $file @return array<string,mixed> */
@@ -645,6 +639,13 @@ final class ArtifactNormalizer
                     continue;
                 }
                 $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
+                // A sheet delivered under its own media never applies a nested
+                // @media its delivery excludes. A device-selected sheet's
+                // `media` is inert capture state, not its delivery, so it keeps
+                // every block.
+                if ( '' === HtmlTagScanner::attribute($attributes, CaptureEvidence::DEVICE_STYLE) && ! array_key_exists(CaptureEvidence::SOURCE_MEDIA, HtmlTagScanner::attributes($attributes)) ) {
+                    $css = MediaCondition::withoutUnreachableBlocks($css, HtmlTagScanner::attribute($attributes, 'media'));
+                }
                 $styles[] = array( 'content' => $css, 'media' => HtmlTagScanner::attribute($attributes, 'media'), 'source_media' => array_key_exists(CaptureEvidence::SOURCE_MEDIA, \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, CaptureEvidence::DEVICE_STYLE => HtmlTagScanner::attribute($attributes, CaptureEvidence::DEVICE_STYLE), 'type' => HtmlTagScanner::attribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
             // Spacing and custom properties inline on <body> are data the

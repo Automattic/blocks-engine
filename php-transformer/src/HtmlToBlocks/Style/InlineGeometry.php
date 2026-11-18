@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
@@ -396,6 +397,16 @@ final class InlineGeometry
         $declarations = $carrierOwnsInlineGeometry
             ? $this->mediaTextInlineCascadeDeclarations(SourceDom::attr($element, 'style'))
             : ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
+        // Entrance startup saves the transition shorthand, overwrites it with
+        // none, then restores/removes it. Isolated longhands are cleared by
+        // that reset; a persistent CSS carrier would incorrectly survive it.
+        $entrance = json_decode($element->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true);
+        if (is_array($entrance) && isset($entrance['attributes'], $entrance['threshold'])
+            && ! isset($entrance['cssAnimations']) && ! isset($declarations['transition'])) {
+            foreach (array_keys($declarations) as $property) {
+                if (str_starts_with($property, 'transition-')) unset($declarations[$property]);
+            }
+        }
         $declarations = ($this->stripFrozenHiddenState)($element, $declarations);
         if (in_array('opacity', $forcedProperties, true)) {
             $inlineDeclarations = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
@@ -563,7 +574,21 @@ final class InlineGeometry
             $overrideDeclarations['height'] = $geometry['height'];
         }
         $overridePropertyLookup = array_fill_keys(array_keys($overrideDeclarations), true);
+        $deviceProperties = array();
+        $deviceStyles = json_decode($element->getAttribute(CaptureEvidence::DEVICE_INLINE), true);
+        if ( is_array($deviceStyles) ) {
+            foreach ( $deviceStyles as $deviceStyle ) {
+                if ( is_string($deviceStyle) ) $deviceProperties += SourceDeclarations::parse($deviceStyle);
+            }
+        }
         foreach ($geometry as $property => $value) {
+            // Device runtimes replace the inline style after load. A promoted
+            // important carrier would freeze the default document's geometry.
+            if ( isset($deviceProperties[$property]) ) {
+                $normalPriorityDeclarations[] = $property . ':' . $value;
+                $normalPriorityOverrides[] = $property;
+                continue;
+            }
             // core/button's carrier sits on the wrapper, but the link paints
             // the background that would cover a wrapper-owned inset shadow.
             if ( $buttonLinkShadow && 'box-shadow' === $property ) {

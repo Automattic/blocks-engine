@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DesignSystem;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PresetBinding;
@@ -141,6 +142,15 @@ foreach (array('global' => 'h1,h2,h3,h4,h5,h6', 'class' => '.signin-title') as $
     $assert(is_string($minorityFamily) && str_contains($signinMarkup, $minorityFamily), "$case standalone: sign-in retains its own heading family instead of inheriting the theme default");
 }
 
+foreach (array('ancestor' => '', 'inherit' => 'h1{font-family:inherit}', 'unset' => '.signin-title{font-family:unset}') as $case => $headingCss) {
+    $signin = '<style>body{font-family:Inter,sans-serif}' . $headingCss . '</style><main><h1 class="signin-title">Sign in</h1><p>Use your account email to continue.</p></main>';
+    [$inheritedPlan, $inheritedTheme] = $compile(array('entrypoint' => 'index.html', 'files' => $sharedFiles + array('signin/index.html' => $signin)));
+    $assert('inherit' === ($inheritedTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? 'inherit'), "$case standalone: an inherited minority prevents the majority heading default");
+    foreach ($inheritedPlan['pages'] as $page) {
+        $assert(!preg_match('/<!-- wp:heading [^\\n]*"style":\\{"typography":\\{"fontFamily"/', $page['canonical_block_markup']), "$case standalone: heading families remain restylable without literal typography");
+    }
+}
+
 // Later authored heading families win without an inheritance reset (#5789).
 [, $cascadeTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>:root{--heading-font:Verdana,sans-serif}body{font-family:"Courier New",monospace}h1,h2,h3{font-family:var(--heading-font)}</style><style>h1,h2,h3{font-family:Georgia,serif}</style><h1>Main title</h1><h2>Second title</h2><h3>Third title</h3><p>Body text paragraph.</p>')));
 $cascadeFamilies = array_column($cascadeTheme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
@@ -214,7 +224,7 @@ foreach ($unusedFamilies as $fixture => $unusedFamily) {
     $assert(array() !== $plan && array() !== $theme, "$fixture: compiles to a site plan with theme.json");
     $palette = $theme['settings']['color']['palette'] ?? array();
     $slugs = array_column($palette, 'slug');
-    $assert(count($palette) >= 5 && count($palette) <= 12, "$fixture: palette has 5-12 colours (" . count($palette) . ')');
+    $assert(count($palette) >= 5, "$fixture: palette has at least 5 colours (" . count($palette) . ')');
     $assert(in_array('base', $slugs, true) && in_array('contrast', $slugs, true), "$fixture: palette names base and contrast");
     $assert(array() === array_filter($slugs, static fn(string $slug): bool => 1 !== preg_match($roleSlug, $slug)), "$fixture: every colour slug is a role name");
     $assert(count($slugs) === count(array_unique(array_map('strtolower', array_column($palette, 'color')))), "$fixture: palette colours are distinct");
@@ -334,7 +344,7 @@ $assert('contrast' === $system?->colorSlug('#222') && 'base' === $system?->color
 $many = array();
 for ($i = 0; $i < 20; $i++) $many[] = $row(sprintf('#%02x%02x%02x', 20 + $i * 11, 200 - $i * 9, ($i * 37) % 256), 20 - $i);
 $capped = DesignSystem::fromUsage(array('a.html' => $usage($many)));
-$assert(12 === count($capped?->colors ?? array()), 'the palette is capped at twelve colours');
+$assert(20 === count($capped?->colors ?? array()), 'every painted colour receives an exact palette token');
 $sizes = array();
 foreach (array(12, 14, 16, 16.2, 18, 20, 24, 30, 36, 48, 60, 72) as $index => $size) $sizes[] = $row('#111111', 100 - $index, 'body', $size);
 $scale = DesignSystem::fromUsage(array('a.html' => $usage($sizes)));
@@ -577,7 +587,7 @@ $shellParts = implode('', array_column($shellPlan['template_parts'] ?? array(), 
 $assert(str_contains($shellParts, '"textColor":"contrast"') && str_contains($shellParts, '"backgroundColor":"base"'), 'tailwind-shell: shared template parts bind like page content');
 $shellCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($shellPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
 $shellMuted = (string) array_search('#93a8ce', $shellPalette, true);
-$assert('' !== $shellMuted && str_contains($shellCss, 'color:var(--wp--preset--color--' . $shellMuted . ',rgb(147 168 206 / var(--tw-text-opacity, 1)))'), 'tailwind-shell: the navigation and footer link colour class reads the palette');
+$assert('' !== $shellMuted && str_contains($shellCss, 'color:var(--wp--preset--color--' . $shellMuted . ',rgb(147 168 206 / var(--tw-text-opacity,1)))'), 'tailwind-shell: the navigation and footer link colour class reads the palette');
 $shellMetrics = $shellPlan['theme']['design_system']['metrics'] ?? array();
 $capturedCss = strlen((string) ((require dirname(__DIR__) . '/fixtures/design-system/tailwind-shell.php')['files']['assets/site.css'] ?? ''));
 $assert($capturedCss === ($shellMetrics['unique_source_css_bytes'] ?? null) && round(($shellMetrics['theme_css_bytes'] ?? 0) / $capturedCss, 4) === ($shellMetrics['generated_to_source_css_ratio'] ?? null), 'tailwind-shell: the CSS ratio is all shipped theme CSS over the captured site.css counted once, not its per-page copies (' . json_encode(array_intersect_key($shellMetrics, array_flip(array('theme_css_bytes', 'unique_source_css_bytes', 'engine_css_bytes')))) . ')');
@@ -587,18 +597,17 @@ $assert(($shellPlan['theme']['design_system'] ?? null) === ($reversedShell['them
 
 // Six greys each written two indistinguishable ways, all on long paragraphs,
 // a cyan accent that only marks many small elements through a custom
-// property, and an amber and a rose heading painted once each. Slots past
-// the roles go to painted colours by their own painted weight, whatever
-// family they rank in: the accent and the heavy grey twins keep tokens, and
-// the lightest painted colours (the two one-off headings among them) keep
-// their literal and are reported; a literal never binds to a near token.
+// property, and an amber and a rose heading painted once each. Tokens past
+// the roles are ordered by each colour's painted weight, whatever family
+// they rank in. Even the lightest colours keep exact tokens; no literal
+// binds to a near token.
 [$accentPlan, $accentTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/near-duplicate-neutrals-small-accent.php');
 $accentPalette = array_column($accentTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
 $cyan = (string) array_search('#22d3ee', $accentPalette, true);
 $accentSystem = $accentPlan['theme']['design_system'] ?? array();
 $accentLiterals = $accentSystem['literal_colors'] ?? array();
-$assert(1 === preg_match($roleSlug, $cyan) && 12 === count($accentPalette) && array() === array_intersect($accentLiterals, $accentPalette), 'near-duplicate-neutrals-small-accent: the accent on many small elements keeps a token and the palette is full (' . json_encode($accentPalette) . ')');
-$assert(array() === array_diff(array('#b45309', '#be123c'), $accentLiterals) && 6 === count($accentLiterals) && 6 === ($accentSystem['metrics']['literal_color_count'] ?? null), 'near-duplicate-neutrals-small-accent: the lightest painted colours, including the one-off headings, are the ones left literal and reported (' . json_encode($accentLiterals) . ')');
+$assert(1 === preg_match($roleSlug, $cyan) && 18 === count($accentPalette) && array() === array_intersect($accentLiterals, $accentPalette), 'near-duplicate-neutrals-small-accent: the accent on many small elements keeps a token and the palette is full (' . json_encode($accentPalette) . ')');
+$assert(array() === $accentLiterals && 0 === ($accentSystem['metrics']['literal_color_count'] ?? null), 'near-duplicate-neutrals-small-accent: even the lightest painted colours, including one-off headings, have exact tokens (' . json_encode($accentLiterals) . ')');
 $accentMarkup = implode('', array_column($accentPlan['pages'], 'canonical_block_markup'));
 $classColors = array('g1' => '#1a1a1a', 'g1b' => '#212121', 'g2' => '#3a3a3a', 'g2b' => '#424242', 'g3' => '#5c5c5c', 'g3b' => '#646464', 'g4' => '#7d7d7d', 'g4b' => '#858585', 'g5' => '#9e9e9e', 'g5b' => '#a6a6a6', 'g6' => '#c4c4c4', 'g6b' => '#cbcbcb');
 $literalBindings = array();
@@ -609,20 +618,20 @@ foreach ($classColors as $class => $hex) {
 }
 $assert(array() === $literalBindings, 'near-duplicate-neutrals-small-accent: each grey binds to the token of its exact value, and a grey with no token keeps its literal (' . json_encode($literalBindings) . ')');
 $accentCss = implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), array_filter($accentPlan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null))));
-$assert(str_contains($accentCss, '--cyan:var(--wp--preset--color--' . $cyan . ',#22d3ee)') && 1 === preg_match('/\\.dot[^{]*\\{color:var\\(--wp--preset--color--' . $cyan . ',var\\(--cyan\\)\\)/', $accentCss), 'near-duplicate-neutrals-small-accent: the authored --cyan custom property reads the accent token, so every rule using it follows the palette');
+$assert(str_contains($accentCss, '--cyan:var(--wp--preset--color--' . $cyan . ',#22d3ee)') && 1 === preg_match('/(?:\\.dot|\\.' . EngineMarker::subjectClassClass('dot') . ')[^{]*\\{color:var\\(--wp--preset--color--' . $cyan . ',var\\(--cyan\\)\\)/', $accentCss), 'near-duplicate-neutrals-small-accent: the authored --cyan custom property reads the accent token, so every rule using it follows the palette');
 
 // A heavy near shade of `base` (white cards on a `#f7fafc` page) outranks
-// two distinct colours each painted on one tiny element: slots past the
-// roles go by each colour's own painted weight, so white keeps a token of
-// its exact value and the two barely used colours are the ones left literal.
+// two distinct colours each painted on one tiny element: tokens past the
+// roles go by each colour's own painted weight, so white ranks earlier but
+// the two barely used colours also keep exact tokens.
 [$heavyPlan, $heavyTheme] = $compile(require dirname(__DIR__) . '/fixtures/design-system/heavy-near-shade-tiny-accents.php');
 $heavyPalette = array_column($heavyTheme['settings']['color']['palette'] ?? array(), 'color', 'slug');
 $heavySystem = $heavyPlan['theme']['design_system'] ?? array();
 $heavyLiterals = $heavySystem['literal_colors'] ?? array();
 sort($heavyLiterals);
-$assert('#f7fafc' === ($heavyPalette['base'] ?? null) && 12 === count($heavyPalette) && (CssColor::distance('#ffffff', '#f7fafc') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE, 'heavy-near-shade-tiny-accents: the palette is full and white is a near shade of base (' . json_encode($heavyPalette) . ')');
+$assert('#f7fafc' === ($heavyPalette['base'] ?? null) && 14 === count($heavyPalette) && (CssColor::distance('#ffffff', '#f7fafc') ?? INF) <= DesignSystem::COLOR_CONSOLIDATION_DISTANCE, 'heavy-near-shade-tiny-accents: the palette is full and white is a near shade of base (' . json_encode($heavyPalette) . ')');
 $assert(1 === preg_match($roleSlug, (string) array_search('#ffffff', $heavyPalette, true)), 'heavy-near-shade-tiny-accents: the heavily painted near shade of base keeps a token of its own exact value (' . json_encode($heavyPalette) . ')');
-$assert(array('#34d399', '#80a690') === $heavyLiterals && 2 === ($heavySystem['metrics']['literal_color_count'] ?? null), 'heavy-near-shade-tiny-accents: the colours painted on one tiny element each are the ones left literal (' . json_encode($heavySystem['literal_colors'] ?? null) . ')');
+$assert(array() === $heavyLiterals && 0 === ($heavySystem['metrics']['literal_color_count'] ?? null), 'heavy-near-shade-tiny-accents: colours painted on one tiny element also receive exact tokens (' . json_encode($heavySystem['literal_colors'] ?? null) . ')');
 $heavyMarkup = implode('', array_column($heavyPlan['pages'], 'canonical_block_markup'));
 preg_match_all('/<!-- wp:group (\{.*?\}) -->/', $heavyMarkup, $heavyGroups);
 $cardColors = array();
@@ -740,7 +749,8 @@ $displayFamilies = array_column($displayTheme['settings']['typography']['fontFam
 $assert(str_contains((string) ($displayFamilies['heading'] ?? ''), 'Fraunces') && str_starts_with((string) ($displayFamilies['body'] ?? ''), '-apple-system'), 'system-stack-display-headings: heading is the webfont headings render, body the system stack (' . json_encode($displayFamilies) . ')');
 $displayMarkup = implode('', array_column($displayPlan['pages'], 'canonical_block_markup'));
 $assert(!preg_match('/<!-- wp:heading \{"className":"text-xl","level":3[^}]*"fontFamily"/', $displayMarkup), 'system-stack-display-headings: system-stack headings do not bind to the display family');
-$assert('var:preset|font-family|heading' === ($displayTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'system-stack-display-headings: the majority display family becomes the heading default while system-stack headings retain their source family');
+$assert('inherit' === ($displayTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'system-stack-display-headings: inherited minority families prevent a display heading default');
+$assert(!str_contains($displayMarkup, '"fontFamily":"sans-serif"'), 'system-stack-display-headings: ordinary headings do not pin a literal family');
 $unanimous = $displayFixture;
 $unanimous['files']['contact.html'] = str_replace('<h3 class="text-xl">', '<h3 class="font-display text-xl">', $unanimous['files']['contact.html']);
 [, $unanimousTheme] = $compile($unanimous);

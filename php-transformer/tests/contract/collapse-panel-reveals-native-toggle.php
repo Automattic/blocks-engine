@@ -79,6 +79,9 @@ foreach (array(true, false) as $panelKeepsSibling) {
     if (array_key_exists('hasIcon', $navigation)) {
         $failures[] = "$label: the glyph toggler must keep Core's icon opener, not a text label.";
     }
+    if (isset($navigation['metadata']['blocksEngineNavigationOpener']['text'])) {
+        $failures[] = "$label: a bordered glyph toggler must retain the header-box path, not intrinsic text metrics.";
+    }
     if (str_contains($markup, 'Toggle navigation')) {
         $failures[] = "$label: the superseded source toggler must be dropped, not kept beside the navigation's own open button.";
     }
@@ -177,6 +180,9 @@ foreach (array(true, false) as $panelKeepsSibling) {
                 }
                 if (preg_match('/min-width:\s*44px/', $body) && preg_match('/min-height:\s*44px/', $body)) {
                     $sized = true;
+                }
+                if (str_contains($body, 'font:revert') || str_contains($body, 'min-width:0!important') || str_contains($body, 'min-height:0!important')) {
+                    throw new RuntimeException("$width: intrinsic glyph resets must not override the bordered toggler's box.");
                 }
             });
         }

@@ -149,7 +149,7 @@ final class MenuVocabulary
     }
 
     /**
-     * A current-page declaration identifies a short, listless internal menu at
+     * A current-page attribute or class identifies a short, listless internal menu at
      * the document's leading edge. Keep the signal structural, not vocabulary-
      * based. Link-bearing children must each be one simple label link; controls
      * and separators without links may accompany the run.
@@ -202,7 +202,7 @@ final class MenuVocabulary
                 if (!in_array($tag, array('span', 'strong', 'em', 'b', 'i', 'small'), true)) return false;
             }
             if ($blocks > 1) return false;
-            $current = $current || 'page' === strtolower(trim($child->getAttribute('aria-current')));
+            $current = $current || 'page' === strtolower(trim($child->getAttribute('aria-current'))) || self::containsCurrentStateToken($child->getAttribute('class'));
             ++$count;
         }
         return $count >= 3 && (!$requireCurrent || $current);
@@ -210,13 +210,14 @@ final class MenuVocabulary
 
     private static function isAtLeadingEdge(DOMElement $element): bool
     {
-        // A header row can have a brand or another responsive copy before the
-        // run. Bound the leading-edge check at the row before main content,
+        // A menu landmark already establishes navigation. A header row can
+        // have a brand or another responsive copy before the run.
+        // Bound the leading-edge check at the row before main content,
         // rather than treating its own chrome as preceding page content.
         $edge = $element;
         for ($ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
-            if (self::isHeaderLandmark($ancestor)) return true;
-            if (in_array(strtolower($ancestor->tagName), array('main', 'article', 'section', 'aside', 'footer', 'nav', 'body'), true)) break;
+            if (self::isHeaderLandmark($ancestor) || self::isMenuLandmark($ancestor)) return true;
+            if (in_array(strtolower($ancestor->tagName), array('main', 'article', 'section', 'aside', 'footer', 'body'), true)) break;
             for ($next = $ancestor->nextSibling; null !== $next; $next = $next->nextSibling) {
                 if ($next instanceof DOMElement && ('main' === strtolower($next->tagName) || 'main' === strtolower($next->getAttribute('role')))) {
                     $edge = $ancestor;

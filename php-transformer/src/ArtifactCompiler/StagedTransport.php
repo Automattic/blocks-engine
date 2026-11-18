@@ -266,6 +266,7 @@ trait StagedTransport
 
         $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
         $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
+        $stageCompiler->siteSelectorEvidence = $sharedPlan['analysis']['site_selector_evidence'] ?? null;
 
         $compiledDocuments = array();
         $stepTimings = array();
@@ -694,6 +695,19 @@ trait StagedTransport
                 ? $ownership['scope']
                 : (HtmlFragmentIncludes::isComponentPath($path) ? 'shared' : (in_array($extension, array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared'));
             $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
+            // Route-local evidence must travel only with its source page, not
+            // become a stale shared sidecar in every other page worker.
+            if (preg_match('~(?:^|/)box-tree/.+\.json$~D', $path)) {
+                $boxTree = json_decode((string) ($file['content'] ?? ''), true, 32);
+                if (is_array($boxTree) && is_string($boxTree['source_path'] ?? null)) {
+                    foreach ($rawFiles as $sourceFile) {
+                        if ($boxTree['source_path'] !== ($sourceFile['path'] ?? null)) continue;
+                        $fileScope = 'page';
+                        $filePageId = $sourceFile['metadata']['compilation']['id'] ?? $sourceFile['path'];
+                        break;
+                    }
+                }
+            }
             if ('page' === $fileScope) $pages[$filePageId][] = $file;
             else $shared[] = $file;
         }
@@ -1154,6 +1168,7 @@ trait StagedTransport
     private function sharedPlanAnalysis(array $normalized, array $partition, string $entryPath, array $artifact): array
     {
         return array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
+            'site_selector_evidence' => $this->selectorEvidence((new ArtifactNormalizer())->normalize($artifact)['files']),
             'entry_path' => $entryPath,
             'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
             'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),

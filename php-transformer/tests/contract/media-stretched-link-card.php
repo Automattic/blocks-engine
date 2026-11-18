@@ -1,0 +1,36 @@
+<?php
+declare(strict_types=1);
+
+require dirname(__DIR__, 2) . '/vendor/autoload.php';
+
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+
+// Category overlays and product cards need no editorial summary to be safe.
+foreach (array(
+    '<img src="category.jpg" alt=""><div class="shade"></div><p>Category</p>',
+    '<img src="product.jpg" alt=""><div><p>Brand</p><p>Product</p><p>Price</p></div>',
+    '<div><img src="product.jpg" alt=""></div><div><p>Brand</p><p>Product</p><p>Price</p></div>',
+    '<div class="visual"><img src="service.jpg" alt=""></div><div class="body"><h3>Service</h3><p>Description</p><span>Learn more →</span></div>',
+    '<div class="card__bg"><img src="category.jpg" alt=""></div><div class="overlay"><p>Category</p><h3>Service</h3><p>Description</p></div>',
+) as $content) {
+    $out = (new HtmlTransformer())->transform('<main><a class="group" href="/destination/">' . $content . '</a></main>')->toArray();
+    $markup = $out['serialized_blocks'];
+    $dom = new DOMDocument();
+    @$dom->loadHTML($markup);
+    $xpath = new DOMXPath($dom);
+    $carrier = str_contains($content, '<h3>') ? 'h3' : 'p';
+    if (str_contains($markup, '/layout-shell')
+        || 1 !== $xpath->query('//div[contains(@class,"blocks-engine-stretched-link")]')->length
+        || 1 !== $xpath->query('//' . $carrier . '/a[@href="/destination/"]')->length
+        || 1 !== $xpath->query('//a')->length) {
+        throw new RuntimeException('Safe media/label cards need one native editable destination: ' . $markup);
+    }
+}
+// Direct-image listing cards retain their source boundary: site planning
+// recognizes their featured image and related-post destination there.
+$out = (new HtmlTransformer())->transform('<a class="card" href="/story/"><img src="story.jpg" alt=""><h3>Story</h3><p>Summary</p></a>')->toArray();
+if (!str_contains($out['serialized_blocks'], '<a class="card" href="/story/">')
+    || str_contains($out['serialized_blocks'], 'blocks-engine-stretched-link')) {
+    throw new RuntimeException('Direct-image listing cards must retain their specialized path.');
+}
+echo "Media stretched-link card contract passed.\n";

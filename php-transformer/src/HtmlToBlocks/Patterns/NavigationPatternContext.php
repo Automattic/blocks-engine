@@ -29,12 +29,14 @@ final class NavigationPatternContext
     use \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ResolvedPatternStyle;
 
     public function __construct(
-        private readonly ?StyleResolver $styleResolver = null,
+        private readonly StyleResolver $styleResolver,
+        private readonly HtmlTransformerSession $session,
+        // A probe context omits the collaborators below: it classifies the
+        // source element without converting, projecting, or recording it.
         private readonly ?NavigationStyleProjector $navigationStyleProjector = null,
         private readonly ?NavigationToggleSuppressor $navigationToggleSuppressor = null,
         private readonly ?RuntimeIslandAnalyzer $runtimeIslands = null,
         private readonly ?SourceTargetProjectionState $sourceTargetProjection = null,
-        private readonly ?HtmlTransformerSession $session = null,
         private readonly ?SvgMaterializer $svgMaterializer = null,
         private readonly ?ProjectedNavigationConverter $projectedNavigation = null,
         private readonly NavigationUnderlineColorResolver $underlineColorResolver = new NavigationUnderlineColorResolver(),
@@ -52,8 +54,7 @@ final class NavigationPatternContext
      */
     public function sourcePresentationMarkers(DOMElement $element): array
     {
-        $projections = $this->session?->authorSelectorProjectionState();
-        if (null === $projections) return array();
+        $projections = $this->session->authorSelectorProjectionState();
         return array_values(array_filter(array_merge(
             $projections->semanticMarkersForPath($element->getNodePath() ?? ''),
             array($projections->tagMarker(strtolower($element->tagName)))
@@ -63,8 +64,8 @@ final class NavigationPatternContext
     /** Block children lowered to spans need the same identity as inline carriers. */
     public function labelPresentationMarkers(DOMElement $element): array
     {
-        $projections = $this->session?->authorSelectorProjectionState();
-        if (null !== $projections && 1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName)
+        $projections = $this->session->authorSelectorProjectionState();
+        if (1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName)
             // Icon/label composites already project their box onto the item.
             && 0 === $element->getElementsByTagName('svg')->length
             && !$this->ownsLabelTypography($element) && $this->hasNavigationSubjectPresentation($element)) {
@@ -72,7 +73,7 @@ final class NavigationPatternContext
             $projections->ensureSemanticMarker($path);
         }
         $markers = $this->sourcePresentationMarkers($element);
-        if (null !== $projections && 1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName)
+        if (1 === preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName)
             && array() !== $projections->semanticMarkersForPath($element->getNodePath() ?? '')) {
             // Retagging changes the UA display from block to inline. Restore
             // only that default, below author CSS (including responsive display).
@@ -84,7 +85,7 @@ final class NavigationPatternContext
         // Core KSES filters label style attributes at render time. Use the
         // same generated geometry owner as block boxes so inline offsets (in
         // particular inset and its logical forms) survive that filtering.
-        $geometry = $this->styleResolver?->inlineGeometryClassName($element) ?? '';
+        $geometry = $this->styleResolver->inlineGeometryClassName($element);
         if ('' !== $geometry) $markers[] = $geometry;
         return $markers;
     }
@@ -98,7 +99,26 @@ final class NavigationPatternContext
      */
     public function recordNavigationSource(DOMElement $element, string $role, bool $rendersSourceSiblings = true): void
     {
-        $this->session?->authorSelectorProjectionState()->markNavigationSource($element, $role, $rendersSourceSiblings);
+        $this->session->authorSelectorProjectionState()->markNavigationSource($element, $role, $rendersSourceSiblings);
+    }
+
+    /**
+     * A wrapper core/navigation flattens away: author rules that address it
+     * land on each item that replaces it, through an engine carrier class
+     * the items carry. The item class plus the carrier outranks Core's item
+     * display, so a breakpoint `display:none` hides them. Returns the class.
+     */
+    public function recordFlattenedWrapperSubject(DOMElement $wrapper): string
+    {
+        $path = $wrapper->getNodePath() ?? '';
+        if ( '' === $path ) {
+            return '';
+        }
+        $projections = $this->session->authorSelectorProjectionState();
+        $marker = $projections->ensureSemanticMarker($path);
+        $projections->installInnerSubject($path, '.wp-block-navigation-item.' . $marker, '', false, true);
+
+        return $marker;
     }
 
     /**
@@ -108,7 +128,7 @@ final class NavigationPatternContext
      */
     public function recordInnerSubject(DOMElement $element, string $selector): void
     {
-        $this->session?->authorSelectorProjectionState()->installInnerSubject($element->getNodePath() ?? '', $selector);
+        $this->session->authorSelectorProjectionState()->installInnerSubject($element->getNodePath() ?? '', $selector);
     }
 
     /** Source list identity also survives when its landmark owns another block. */
@@ -134,7 +154,7 @@ final class NavigationPatternContext
     /** Marker for the native root that renders a source list's own box. */
     private function navigationListBoxMarker(?DOMElement $list): string
     {
-        if (null === $this->session || !$list instanceof DOMElement || !$this->styleResolver instanceof StyleResolver) return '';
+        if (!$list instanceof DOMElement) return '';
         $columns = $this->declaresColumns($list);
         if (!$columns && !array_filter(\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState::NAVIGATION_LIST_BOX_PROPERTIES, fn(string $property): bool => !$this->styleResolver->declaredPresentation($list, $property)->isEmpty())) {
             return '';
@@ -213,7 +233,7 @@ final class NavigationPatternContext
 
     private function sourceListHostIdentity(DOMElement $element): string
     {
-        if (null === $this->session || !in_array(strtolower($element->tagName), array('ul', 'ol'), true)) return '';
+        if (!in_array(strtolower($element->tagName), array('ul', 'ol'), true)) return '';
         $styles = $this->session->authorStyleAnalysis();
         foreach ($styles->styleRules() as $rule) {
             foreach ($rule['selectors'] ?? array() as $record) {
@@ -251,14 +271,21 @@ final class NavigationPatternContext
     public const CLIPPED_SUBMENU_CLASS = 'blocks-engine-clipped-submenu';
 
     /**
+     * Marks a navigation whose submenu labels are themselves the toggles: core's
+     * click mode renders each label as a button, so its decorative icon (which
+     * the source never paints) is hidden and the source's hover reveal restated.
+     */
+    public const LABEL_TOGGLE_SUBMENUS_CLASS = 'blocks-engine-label-toggle-submenus';
+
+    /**
      * Whether a block-level element inside a navigation link declares its own
      * text presentation. Such an element (a logo heading) is what paints the
      * label, so it must survive the label's inline reduction.
      */
     public function serializedInlineStyle(DOMElement $element, ?DOMElement $item = null): string
     {
-        $style = $this->styleResolver?->serializedInlineStyle($element) ?? SourceDom::attr($element, 'style');
-        if (null === $item || !$this->styleResolver instanceof StyleResolver) return $style;
+        $style = $this->styleResolver->serializedInlineStyle($element);
+        if (null === $item) return $style;
 
         // Core replaces the item's label wrappers. Keep the inline tokens they
         // supply in the anchor's scope, without overriding its own definitions.
@@ -272,7 +299,7 @@ final class NavigationPatternContext
 
     public function ownsLabelTypography(DOMElement $element): bool
     {
-        if ( ! $this->styleResolver instanceof StyleResolver || 1 !== preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName) ) {
+        if ( 1 !== preg_match('/^(?:' . NavigationPattern::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $element->tagName) ) {
             return false;
         }
         // Resolve text leaves fully. A composite icon/label surface already has
@@ -303,15 +330,11 @@ final class NavigationPatternContext
 
     public function underlineColor(DOMElement $item, DOMElement $anchor): string
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) {
-            return '';
-        }
-
         return $this->underlineColorResolver->resolve(
             $item,
             $anchor,
             fn (DOMElement $element): array => $this->styleResolver->presentationDeclarations($element),
-            $this->session?->sourceStyleResolutionState()->pseudoElementRules() ?? array(),
+            $this->session->sourceStyleResolutionState()->pseudoElementRules(),
             fn (DOMElement $element, string $selector): bool => $this->session->sourceStyleResolutionState()->matches($element, $selector)
         );
     }
@@ -325,10 +348,6 @@ final class NavigationPatternContext
     /** The element's own presentation as block style attributes (colors, spacing, border). */
     public function resolvedStyleAttributes(DOMElement $element): array
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) {
-            return array();
-        }
-
         return $this->styleResolver->styleAttributeMapper()->map($this->resolvedDeclarations($element))['style'] ?? array();
     }
 
@@ -338,10 +357,6 @@ final class NavigationPatternContext
      */
     public function generatedPseudoContent(DOMElement $element, string $pseudo): string
     {
-        if ( ! $this->styleResolver instanceof StyleResolver || null === $this->session ) {
-            return '';
-        }
-
         foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
             if ( strtolower($pseudo) !== strtolower((string) ($rule['pseudo'] ?? '')) ) {
                 continue;
@@ -362,7 +377,7 @@ final class NavigationPatternContext
     /** The source path of the document being compiled, for route-relative resolution. */
     public function sourcePath(): string
     {
-        return $this->session?->sourcePath() ?? '';
+        return $this->session->sourcePath();
     }
 
     private static function decodeCssContent(string $value): string
@@ -384,7 +399,6 @@ final class NavigationPatternContext
     /** Horizontal border-box extent of a content-free box; unknown lengths refuse carry. */
     public function emptyBoxWidth(DOMElement $element): ?float
     {
-        if (null === $this->styleResolver) return null;
         $declarations = $this->resolvedDeclarations($element);
         $mapped = $this->styleResolver->styleAttributeMapper()->map($declarations)['style'];
         $extent = 0.0;
@@ -405,7 +419,7 @@ final class NavigationPatternContext
 
     public function resolvedBoxSizing(DOMElement $element): string
     {
-        return (string) ($this->styleResolver?->authorViewport->reference($element, array('box-sizing'))['box-sizing'] ?? 'content-box');
+        return (string) ($this->styleResolver->authorViewport->reference($element, array('box-sizing'))['box-sizing'] ?? 'content-box');
     }
 
     /**
@@ -415,9 +429,6 @@ final class NavigationPatternContext
      */
     public function restingStyle(DOMElement $element): string
     {
-        if ( ! $this->styleResolver instanceof StyleResolver || ! $this->session instanceof HtmlTransformerSession ) {
-            return $this->resolvedStyle($element);
-        }
         $projections = $this->session->authorSelectorProjectionState();
         $carriesState = $element->hasAttribute('aria-current') || MenuVocabulary::containsCurrentStateToken($element->getAttribute('class'));
 
@@ -442,7 +453,7 @@ final class NavigationPatternContext
      */
     public function targetsCurrentDocument(string $href): bool
     {
-        $document = $this->session?->sourcePath() ?? '';
+        $document = $this->session->sourcePath();
         $href = trim($href);
         if ( ArtifactPath::namesSection($href) ) {
             return false;
@@ -498,12 +509,6 @@ final class NavigationPatternContext
     public function navigationLinkBoxMarker(DOMElement $anchor, ?DOMElement $sourceItem, bool $atRest = false): string
     {
         $style = $atRest ? $this->restingStyle(...) : $this->resolvedStyle(...);
-        if ( ! $this->styleResolver instanceof StyleResolver
-            || ! $this->session instanceof HtmlTransformerSession
-        ) {
-            return '';
-        }
-
         // A side with media variants stays with the author rule: core renders
         // the source class on the item, where those variants still win.
         $declarations = $this->styleResolver->classOwnedResponsiveDeclarations($anchor, SourceDeclarations::parse($style($anchor)));
@@ -552,7 +557,6 @@ final class NavigationPatternContext
      */
     public function submenuIconGeometryMarker(DOMElement $item, DOMElement $anchor, DOMElement $submenu): string
     {
-        if ( ! $this->styleResolver instanceof StyleResolver || ! $this->session instanceof HtmlTransformerSession ) return '';
         $candidates = array();
         foreach ( $item->getElementsByTagName('svg') as $svg ) {
             $excluded = false;
@@ -713,13 +717,15 @@ final class NavigationPatternContext
     /** @var array<string, true> Source submenu parents that paint no indicator of their own and carry no disclosure control. */
     private array $unindicatedSubmenuParents = array();
 
+    /** @var array<string, bool> Source submenu parent labels, true when the label is the submenu's indicator-free, hover-revealed toggle. */
+    private array $submenuParentLabels = array();
+
     /**
      * Whether the source submenu takes no space until its item's hover/focus
      * reveals it: a zero height or max-height that clips its content.
      */
     public function clipsSubmenuAtRest(DOMElement $item, DOMElement $submenu): bool
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) return false;
         $zero = false;
         foreach ( array( 'height', 'max-height' ) as $property ) {
             $zero = $zero || CssValueInspector::isZeroLength($this->styleResolver->declaredPresentation($submenu, $property)->base());
@@ -742,7 +748,6 @@ final class NavigationPatternContext
      */
     public function revealsSubmenuOnItemState(DOMElement $item, DOMElement $submenu): bool
     {
-        if ( ! $this->styleResolver instanceof StyleResolver || null === $this->session ) return false;
         foreach ( $this->session->sourceStyleResolutionState()->revealStateRules() as $rule ) {
             if ( ! in_array((string) ($rule['state'] ?? ''), array( 'hover', 'focus', 'focus-within' ), true) ) continue;
             $revealed = array_intersect_key((array) ($rule['declarations'] ?? array()), array_flip(array( 'display', 'visibility', 'height', 'max-height', 'opacity' )));
@@ -763,9 +768,9 @@ final class NavigationPatternContext
      * the submenu beside it) leaves the submenu indicator-free: its submenu
      * opens on hover/focus.
      */
-    public function recordSubmenuToggle(DOMElement $toggle, bool $hasDisclosureControl): void
+    public function recordSubmenuToggle(DOMElement $toggle, bool $hasDisclosureControl, bool $isLabelToggle = false): void
     {
-        if ( ! $this->styleResolver instanceof StyleResolver || null === $this->session ) return;
+        $this->submenuParentLabels[$toggle->getNodePath() ?? ''] = false;
         $targets = array( $toggle );
         foreach ( $toggle->childNodes as $child ) {
             if ( $child instanceof DOMElement ) $targets[] = $child;
@@ -782,12 +787,36 @@ final class NavigationPatternContext
         if ( ! $hasDisclosureControl ) {
             $this->unindicatedSubmenuParents[$toggle->getNodePath() ?? ''] = true;
         }
+        $this->submenuParentLabels[$toggle->getNodePath() ?? ''] = $isLabelToggle;
+    }
+
+    /** A submenu parent core's own submenu icon stands in for (a separate source glyph, or the item itself). */
+    public function recordSubmenuParent(DOMElement $label): void
+    {
+        $this->submenuParentLabels[$label->getNodePath() ?? ''] = false;
+    }
+
+    /**
+     * Whether every submenu under this source element is opened by its own
+     * indicator-free label button and revealed on its item's hover. Core's
+     * click mode renders exactly that label: a focusable toggle button.
+     */
+    public function labelTogglesEverySubmenuWithin(DOMElement $source): bool
+    {
+        $root = $source->getNodePath() ?? '';
+        $found = false;
+        foreach ( $this->submenuParentLabels as $path => $isLabelToggle ) {
+            if ( '' === $root || ( $path !== $root && ! str_starts_with((string) $path, $root . '/') ) ) continue;
+            if ( ! $isLabelToggle ) return false;
+            $found = true;
+        }
+        return $found;
     }
 
     /** Whether the source paints nothing for this control at rest (a focus-only affordance). */
     public function isVisuallyHiddenControl(DOMElement $control): bool
     {
-        return $this->styleResolver instanceof StyleResolver && $this->styleResolver->isVisuallyHiddenAtRest($control);
+        return $this->styleResolver->isVisuallyHiddenAtRest($control);
     }
 
     /** Whether a toggle under this source element paints its own indicator. */
@@ -814,7 +843,6 @@ final class NavigationPatternContext
      */
     public function formControlTextResets(DOMElement $control): string
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) return '';
         $own = SourceDeclarations::parse($this->resolvedStyle($control));
         $resets = array();
         foreach ( array( 'text-transform' => 'none', 'letter-spacing' => 'normal', 'word-spacing' => 'normal', 'text-indent' => '0', 'text-shadow' => 'none' ) as $property => $initial ) {
@@ -829,7 +857,6 @@ final class NavigationPatternContext
      */
     public function indicatorTypography(DOMElement $indicator, DOMElement $control): string
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) return '';
         $declarations = array();
         foreach ( array( 'font-family' => '', 'font-size' => '', 'font-weight' => 'normal', 'font-style' => 'normal' ) as $property => $initial ) {
             $own = $this->styleResolver->resolvedInheritedTypographyValue($indicator, $property);
@@ -904,7 +931,10 @@ final class NavigationPatternContext
                 }
                 $boxTarget = $item;
                 foreach ($block['attrs']['metadata']['blocksEngineNavigationAnchor']['boxes'] ?? array() as $box) {
-                    $boxTarget .= '>' . $box['tag'];
+                    // Retained boxes share their tag with inert sibling spacers.
+                    // Bind correspondence to the marker carried by this box,
+                    // not every child of the same type in the item.
+                    $boxTarget .= '>' . $box['tag'] . '.' . $box['marker'];
                     $targets[$box['marker']][$boxTarget] = true;
                 }
                 $collect($block['innerBlocks'] ?? array(), $item . '>.wp-block-navigation__submenu-container');
@@ -961,6 +991,9 @@ final class NavigationPatternContext
             ksort($resting);
             $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . json_encode($resting));
             $block['attrs']['className'] = SourceDom::mergeClassNames($block['attrs']['className'] ?? '', $scope);
+            // Shared entities retain every reference's subject markers. Editor
+            // label typography must bind inside the same instance as frontend CSS.
+            $this->session->generatedSupportStylesheetState()->scopeNavigationEditorTypography($scope, array_keys($targets));
             $this->recordCurrentItemPresentation($current, $scope, $source);
             $markup = (string) json_encode($block);
             // Without a submenu no item holds another item's links.
@@ -981,7 +1014,7 @@ final class NavigationPatternContext
                         ? self::itemContentTarget($itemTarget, $hasSubmenus)
                         : $itemTarget;
                 }
-                $this->session?->authorSelectorProjectionState()->installNavigationSubject($path, $target);
+                $this->session->authorSelectorProjectionState()->installNavigationSubject($path, $target);
                 if (isset($subject['source'])) {
                     // Restore the source anchor's initial stacking below authored
                     // paint, but only when Core really supplies its replacement.
@@ -1134,9 +1167,7 @@ final class NavigationPatternContext
     /** The source anchor remains a distinct CSS subject inside Core's item. */
     public function navigationAnchorSubjectMarker(DOMElement $anchor, ?DOMElement $item = null): string
     {
-        if (!$this->session instanceof HtmlTransformerSession || !$this->styleResolver instanceof StyleResolver
-            || $this->isRuntimeDomTarget($anchor)
-        ) return '';
+        if ($this->isRuntimeDomTarget($anchor)) return '';
         $presented = $this->hasNavigationSubjectPresentation($anchor) || ($item instanceof DOMElement && $this->hasNavigationSubjectPresentation($item));
         for ($node = $anchor->parentNode; !$presented && $node instanceof DOMElement && $item instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
             $presented = $this->hasNavigationSubjectPresentation($node);
@@ -1159,8 +1190,7 @@ final class NavigationPatternContext
     /** Carry an out-of-flow label's sizing independently of anchor subject splitting. */
     public function navigationLabelWidthMarker(DOMElement $anchor): string
     {
-        if (!$this->session instanceof HtmlTransformerSession || !$this->styleResolver instanceof StyleResolver
-            || $this->isRuntimeDomTarget($anchor)) return '';
+        if ($this->isRuntimeDomTarget($anchor)) return '';
         $width = $this->absoluteLabelSizingWidth($anchor);
         if ('' === $width) return '';
         $marker = $this->navigationSubjectMarker($anchor, 'label-width');
@@ -1311,7 +1341,7 @@ final class NavigationPatternContext
      */
     public function recordCurrentNavigationItem(DOMElement $item, DOMElement $anchor): void
     {
-        if (!$this->session instanceof HtmlTransformerSession || !$item->parentNode instanceof DOMElement) return;
+        if (!$item->parentNode instanceof DOMElement) return;
         $peerItems = array();
         foreach ($item->parentNode->childNodes as $sibling) {
             if ($sibling instanceof DOMElement && !$sibling->isSameNode($item) && $sibling->tagName === $item->tagName) $peerItems[] = $sibling;
@@ -1371,14 +1401,13 @@ final class NavigationPatternContext
 
     public function navigationItemSubjectMarker(DOMElement $item): string
     {
-        if (!$this->session instanceof HtmlTransformerSession) return '';
         $marker = $this->navigationSubjectMarker($item, 'item');
         $this->pendingNavigationSubjects[$item->getNodePath() ?? ''] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item.' . $marker);
         // The item's inline style travels as render-time metadata, which the
         // editor never applies. The marker's identity includes that style, so
         // one marker always names one declaration list.
         $declarations = array();
-        if ($this->styleResolver instanceof StyleResolver && '' !== trim($item->getAttribute('style'))) {
+        if ('' !== trim($item->getAttribute('style'))) {
             foreach (SourceDeclarations::parse($item->getAttribute('style')) as $property => $value) {
                 $value = trim(CssValueInspector::withoutImportant((string) $value));
                 if (!preg_match('/^-{0,2}[a-z][a-z0-9-]*$/i', (string) $property) || '' === $value || preg_match('/[{};<>\\@]|url\s*\(/i', $value)) continue;
@@ -1399,7 +1428,6 @@ final class NavigationPatternContext
      */
     public function navigationAnchorBoxes(DOMElement $anchor, DOMElement $item, bool $submenuParent = false): array
     {
-        if (!$this->session instanceof HtmlTransformerSession) return array();
         $boxes = array();
         for ($node = $anchor->parentNode; $node instanceof DOMElement && !$node->isSameNode($item); $node = $node->parentNode) {
             $tag = strtolower($node->tagName);
@@ -1420,7 +1448,7 @@ final class NavigationPatternContext
             $marker = $this->navigationSubjectMarker($node, 'box');
             $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node))));
         }
-        if (array() !== $boxes && $this->styleResolver instanceof StyleResolver) {
+        if (array() !== $boxes) {
             // These carriers exist only at frontend render time. Resolve the
             // link's own cascade too, so a link override beats box inheritance.
             foreach (array_merge(array(array()), $this->styleResolver->navigationEditorTypographyConditions($anchor)) as $conditions) {
@@ -1505,7 +1533,7 @@ final class NavigationPatternContext
     /** Preserve a single passive icon as artwork inside Core's native anchor. */
     public function navigationAnchorArtwork(DOMElement $anchor): string
     {
-        if (!$this->session instanceof HtmlTransformerSession || !$this->svgMaterializer instanceof SvgMaterializer || '' !== trim($anchor->textContent ?? '')) return '';
+        if (!$this->svgMaterializer instanceof SvgMaterializer || '' !== trim($anchor->textContent ?? '')) return '';
         $children = array_values(array_filter(iterator_to_array($anchor->childNodes), static fn($node): bool => $node instanceof DOMElement));
         if (1 !== count($children) || 'svg' !== strtolower($children[0]->tagName)) return '';
         $svg = $children[0];
@@ -1531,11 +1559,8 @@ final class NavigationPatternContext
     public function navigationAnchorLineHeightMarker(array $anchorAttrs, DOMElement $anchor, DOMElement $sourceItem): string
     {
         $value = $anchorAttrs['style']['typography']['lineHeight'] ?? null;
-        if (! $this->session instanceof HtmlTransformerSession) {
-            return '';
-        }
         if (!is_string($value) || '' === trim($value)) {
-            if (! $this->styleResolver instanceof StyleResolver || $anchor->isSameNode($sourceItem)) {
+            if ($anchor->isSameNode($sourceItem)) {
                 return '';
             }
             // Relative units are computed on the source owner. Repeating them
@@ -1592,18 +1617,20 @@ final class NavigationPatternContext
      * Every value the author states for these properties at any viewport.
      * A recognition signal only, never projected.
      *
-     * @param array<int, string> $properties
+     * A null property list answers for every property the author states.
+     *
+     * @param array<int, string>|null $properties
      * @return array<string, list<string>>
      */
-    public function declaredValuesAtAnyViewport(DOMElement $element, array $properties): array
+    public function declaredValuesAtAnyViewport(DOMElement $element, ?array $properties): array
     {
-        return $this->styleResolver?->authorDeclaredValuesAtAnyViewport($element, $properties) ?? array();
+        return $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, $properties);
     }
 
     /** Whether the author cascade hides the element at every viewport its display rules distinguish. */
     public function isDisplayNoneAtEveryViewport(DOMElement $element): bool
     {
-        return $this->styleResolver?->isDisplayNoneAtEveryViewport($element) ?? true;
+        return $this->styleResolver->isDisplayNoneAtEveryViewport($element);
     }
 
     /** Whether the element is, or contains, the toggle recognized for this navigation. */
@@ -1615,7 +1642,7 @@ final class NavigationPatternContext
 
     public function resolvedDisplay(DOMElement $element): string
     {
-        return $this->styleResolver?->resolvedConditionalDisplay($element) ?? '';
+        return $this->styleResolver->resolvedConditionalDisplay($element);
     }
 
     /**
@@ -1626,11 +1653,9 @@ final class NavigationPatternContext
      */
     public function cascadeDisplay(DOMElement $element, bool $includeUaDefault = false): string
     {
-        $display = $this->styleResolver instanceof StyleResolver
-            ? CssValueInspector::declared(SourceDeclarations::parse($this->styleResolver->controlSurfaceResolvedStyle($element)), 'display')
-            : '';
+        $display = CssValueInspector::declared(SourceDeclarations::parse($this->styleResolver->controlSurfaceResolvedStyle($element)), 'display');
         if ( '' === $display ) {
-            return $includeUaDefault ? ($this->styleResolver?->defaultTagDisplay($element) ?? '') : '';
+            return $includeUaDefault ? $this->styleResolver->defaultTagDisplay($element) : '';
         }
 
         return $display;
@@ -1638,16 +1663,13 @@ final class NavigationPatternContext
 
     public function isFloated(DOMElement $element): bool
     {
-        $float = $this->styleResolver?->authorViewport->reference($element, array( 'float' ))['float'] ?? 'none';
+        $float = $this->styleResolver->authorViewport->reference($element, array( 'float' ))['float'] ?? 'none';
         return ! in_array(strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', $float))), array( '', 'none' ), true);
     }
 
     /** Compare the authored display contracts, including breakpoints outside the reference viewport. */
     public function hasDistinctDisplayBoxes(DOMElement $landmark, DOMElement $list): bool
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) {
-            return false;
-        }
         $landmarkDisplay = $this->styleResolver->declaredPresentation($landmark, 'display');
         $listDisplay = $this->styleResolver->declaredPresentation($list, 'display');
         // An unstyled block landmark can still fold a block-level flex/grid
@@ -1686,10 +1708,6 @@ final class NavigationPatternContext
      */
     public function isHiddenAtReferenceViewport(DOMElement $element): bool
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) {
-            return false;
-        }
-
         $declarations = SourceDeclarations::parse($this->styleResolver->controlSurfaceResolvedStyle($element));
         $display = CssValueInspector::declared($declarations, 'display');
         if ( 'none' === $display ) {
@@ -1750,7 +1768,7 @@ final class NavigationPatternContext
 
     public function registerMenuFoldRule(string $marker, string $rule): void
     {
-        $this->session?->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker, $rule);
+        $this->session->generatedSupportStylesheetState()->registerNativeNavigationOverlay($marker, $rule);
     }
 
     public function navigationToggleControl(DOMElement $element): ?DOMElement
@@ -1784,8 +1802,6 @@ final class NavigationPatternContext
     /** Keep fixed native overlays viewport-sized, without changing closed headers. */
     private function releaseResponsiveOverlayContainingBlocks(DOMElement $element): void
     {
-        if (null === $this->styleResolver || null === $this->session) return;
-
         $properties = array('backdrop-filter', '-webkit-backdrop-filter', 'filter', 'transform', 'translate', 'rotate', 'scale', 'perspective', 'contain', 'will-change');
         for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
             $author = $this->styleResolver->authorViewport->reference($ancestor, $properties);
@@ -1822,8 +1838,6 @@ final class NavigationPatternContext
     public function linkIconMarker(DOMElement $element): string
     {
         if ( ! $this->svgMaterializer instanceof SvgMaterializer
-            || ! $this->styleResolver instanceof StyleResolver
-            || ! $this->session instanceof HtmlTransformerSession
         ) {
             return '';
         }
@@ -1903,10 +1917,6 @@ final class NavigationPatternContext
      */
     private function navigationLinkLeadingIconGap(DOMElement $svg): string
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) {
-            return '0.375rem';
-        }
-
         $node  = $svg->parentNode;
         $depth = 0;
         while ( $node instanceof DOMElement && $depth < 4 ) {
@@ -1956,8 +1966,6 @@ final class NavigationPatternContext
      */
     public function inheritedListPackingAlignment(DOMElement $list, array &$attrs): string
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) return '';
-
         $alignment = strtolower($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align'));
         $justify = static fn (string $value): string => match ( strtolower($value) ) {
             'right', 'end' => 'flex-end',
@@ -1988,13 +1996,45 @@ final class NavigationPatternContext
     /** Core's vertical layout must still follow authored breakpoint changes. */
     public function projectNavigationDirection(DOMElement $element, string $marker): void
     {
-        if (!$this->styleResolver instanceof StyleResolver) return;
         $direction = $this->styleResolver->declaredPresentation($element, 'flex-direction');
         if (!$direction->isConditional()) return;
         $target = ':root .wp-block-navigation.' . $marker . ' .wp-block-navigation__container';
         foreach ($direction->conditional() as $queries => $value) {
             $this->sourceTargetProjection?->record(SourceDom::elementSelector($element), $target, 'flex-direction:' . preg_replace('/\s*!important\s*$/i', '', $value) . '!important', explode('{', $queries));
         }
+    }
+
+    /**
+     * A flex row of bare anchors stretches them by default: every anchor box
+     * is as tall as the row and its text sits at the row's top. Core centers
+     * its synthetic list items in the list and each anchor inside its item, so
+     * a link that wraps onto a second line drops its one-line siblings to the
+     * row's middle. Restore the source's stretch on both synthetic boxes.
+     * Only an alignment the author leaves at its default (or states as
+     * `normal`/`stretch`) at every viewport is restated; any other value is
+     * left to core and the projected author rules.
+     *
+     * @param array<int, string> $classes Classes the emitted block carries, so copied onto the container.
+     */
+    public function recordBareAnchorRowStretch(DOMElement $navigation, array $classes): void
+    {
+        if ( array() === $classes || ! $this->sourceTargetProjection instanceof SourceTargetProjectionState
+            || ! in_array($this->resolvedDisplay($navigation), array( 'flex', 'inline-flex' ), true) ) {
+            return;
+        }
+        $direction = $this->styleResolver->declaredPresentation($navigation, 'flex-direction');
+        $alignment = $this->styleResolver->declaredPresentation($navigation, 'align-items');
+        $isDefault = static fn (string $value, array $defaults): bool => in_array(strtolower(CssValueInspector::withoutImportant($value)), $defaults, true);
+        if ( $direction->isConditional() || ! $isDefault($direction->base(), array( '', 'row', 'row-reverse' ))
+            || $alignment->isConditional() || ! $isDefault($alignment->base(), array( '', 'normal', 'stretch' )) ) {
+            return;
+        }
+        $host = '.wp-block-navigation' . CssIdent::compoundClassSelector($classes);
+        $this->sourceTargetProjection->record(
+            SourceDom::elementSelector($navigation),
+            $host . ' :is(.wp-block-navigation__container,.wp-block-navigation-item)',
+            'align-items:normal'
+        );
     }
 
     /** Record unsupported source residue on the native element replacing it. */
@@ -2029,10 +2069,6 @@ final class NavigationPatternContext
 
     private function navigationLinkIconBox(DOMElement $svg, ?array $conditions = null): string
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) {
-            return '';
-        }
-
         $presentation = fn (DOMElement $node): array => null === $conditions
             ? $this->styleResolver->resolvedPresentationDeclarations($node)
             : $this->styleResolver->conditionedBoxPresentation($node, $conditions);
@@ -2158,9 +2194,6 @@ final class NavigationPatternContext
      */
     private function inheritedNavigationPresentationVariants(array $anchors, DOMElement $navigation, array $properties): array
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) {
-            return array();
-        }
         $stacks = array();
         foreach ( $anchors as $anchor ) {
             for ( $node = $anchor; $node instanceof DOMElement; $node = $node->parentNode ) {
@@ -2213,11 +2246,6 @@ final class NavigationPatternContext
             // inheritance may belong to its enclosing landmark.
             if ($pending['path'] !== $root && !str_starts_with($pending['path'], $root . '/') && !str_starts_with($root, $pending['path'] . '/')) continue;
             if (array() !== array_diff($pending['classes'], $classes)) continue;
-            if ('' === $scope && !$this->session instanceof HtmlTransformerSession) {
-                $this->recordInheritedNavigationPresentationRules($pending, '.wp-block-navigation' . CssIdent::compoundClassSelector($pending['classes']) . ' .wp-block-navigation-item__content');
-                unset($this->pendingInheritedPresentations[$index]);
-                continue;
-            }
             if ('' === $scope) {
                 preg_match('/(?:^|\s)(blocks-engine-navigation-instance-[a-f0-9]{12}-[0-9]+)(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''), $existing);
                 $scope = $existing[1] ?? $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-instance', $this->navigationSourceIdentity($source) . $pending['declarations']);
@@ -2240,7 +2268,6 @@ final class NavigationPatternContext
     /** A retained item/wrapper owns its inherited presentation, including state and query changes. */
     private function nativeNavigationParentOwnsPresentation(array $anchors, DOMElement $navigation, string $property): bool
     {
-        if (!$this->session instanceof HtmlTransformerSession || !$this->styleResolver instanceof StyleResolver) return false;
         $properties = 'font' === $property ? array('font', 'font-family', 'font-size', 'font-weight', 'font-style') : array($property);
         if (str_starts_with($property, 'font-')) $properties[] = 'font';
         foreach ($anchors as $anchor) {
@@ -2403,10 +2430,6 @@ final class NavigationPatternContext
      */
     private function placementFamilies(DOMElement $element): array
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) {
-            return array();
-        }
-
         $familyOf = array();
         foreach ( self::PLACEMENT_FAMILY_PROPERTIES as $family => $properties ) {
             foreach ( $properties as $property ) {
@@ -2457,10 +2480,6 @@ final class NavigationPatternContext
      */
     private function navigationItemPresentationValue(DOMElement $anchor, DOMElement $navigation, string $property): string
     {
-        if ( ! $this->styleResolver instanceof StyleResolver ) {
-            return '';
-        }
-
         $node  = $anchor;
         $depth = 0;
         while ( $node instanceof DOMElement && $depth < 12 ) {

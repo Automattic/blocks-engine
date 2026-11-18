@@ -61,6 +61,7 @@ final class AuthorSelectorSemanticPreparer
             array_column($session->runtimeBehaviorState()->runtimeProjectionScriptAssets(), 'content'),
             'is_string'
         ));
+        $authorStyles->siteSelectorPruner = ($options['site_selector_pruner'] ?? null) instanceof \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner ? $options['site_selector_pruner'] : null;
         $session->installAuthorStyleAnalysis($authorStyles);
         $sourceStyles = $session->sourceStyleResolutionState();
         $projections = $session->authorSelectorProjectionState();
@@ -357,7 +358,7 @@ final class AuthorSelectorSemanticPreparer
                     'margin', 'padding', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'grid', 'grid-area',
                 )));
                 if ( null === $pseudoHost && ! $hasBoxGeometry
-                    && ! $this->selectorRuleDeclaresBoxGeometry($authorSelector['selector'], $authorStyles)
+                    && ! $this->selectorRuleNeedsSubjectMarker($authorSelector['selector'], $authorStyles)
                     && 'img' !== strtolower($element->tagName)
                 ) {
                     continue;
@@ -371,7 +372,12 @@ final class AuthorSelectorSemanticPreparer
         }
     }
 
-    private function selectorRuleDeclaresBoxGeometry(string $selector, AuthorStyleAnalysis $authorStyles): bool
+    /**
+     * Box geometry and custom properties must keep matching their subject:
+     * geometry is not flattened onto the block, and a custom property feeds
+     * descendants that read it through var().
+     */
+    private function selectorRuleNeedsSubjectMarker(string $selector, AuthorStyleAnalysis $authorStyles): bool
     {
         $geometry = array_fill_keys(array(
             'display', 'position', 'inset', 'top', 'right', 'bottom', 'left',
@@ -383,8 +389,14 @@ final class AuthorSelectorSemanticPreparer
                 if ($selector !== ($candidate['selector'] ?? null)) {
                     continue;
                 }
-                if (array_intersect_key($rule['declarations'] ?? array(), $geometry) !== array()) {
+                $declarations = $rule['declarations'] ?? array();
+                if (array_intersect_key($declarations, $geometry) !== array()) {
                     return true;
+                }
+                foreach (array_keys($declarations) as $property) {
+                    if (str_starts_with((string) $property, '--')) {
+                        return true;
+                    }
                 }
             }
         }

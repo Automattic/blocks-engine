@@ -16,7 +16,7 @@ $result = (new HtmlTransformer())->transform(
 $css = implode("\n", array_column($result['assets'], 'content'));
 $markup = $result['serialized_blocks'];
 $assert(1 === preg_match('/blocks-engine-attribute-[a-z0-9-]+/', $markup, $marker), 'the native block receives its source attribute identity');
-$assert(isset($marker[0]) && str_contains($css, ':where(.' . $marker[0] . ')') && str_contains($css, '::after{content:""'), 'carried after paint addresses a saved block marker');
+$assert(isset($marker[0]) && str_contains($css, ':where(.' . $marker[0] . '.panel)') && str_contains($css, '::after{content:""'), 'carried after paint addresses a saved block marker');
 $assert(!str_contains($css, '[data-accent="true"]::after'), 'no after rule remains stranded on an attribute core cannot save');
 $assert(str_contains($css, '.panel::before{content:"plain"}'), 'ordinary class-owned pseudo-elements retain their original selector');
 $assert(!str_contains($markup, 'border-top:5px'), 'pseudo-element paint is not baked onto the host box');
