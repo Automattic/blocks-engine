@@ -160,6 +160,20 @@ foreach (array('h1', 'h2', 'h3') as $level) {
 }
 $assert('inherit' !== ($cascadeTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'authored heading cascade: no heading inheritance reset overrides source families');
 
+// The `font` shorthand authors an element family exactly like its longhands (#6690).
+foreach (array(
+    'longhand' => "h2{font-family:'Barlow Condensed',Impact,sans-serif;font-weight:900;font-size:64px;line-height:.89;text-transform:uppercase}",
+    'shorthand' => "h2{font:900 64px/.89 'Barlow Condensed',Impact,sans-serif;text-transform:uppercase}",
+) as $case => $headingCss) {
+    $page = '<style>body{font-family:Inter,sans-serif}' . $headingCss . '.tile h3{font-size:20px}</style><main><h2>Big display heading</h2><p>Body text paragraph long enough to read as copy.</p><div class="tile"><h3>Tile one</h3><p>Tile copy.</p></div><div class="tile"><h3>Tile two</h3><p>Tile copy.</p></div></main>';
+    [, $fontTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $page)));
+    $fontFamilies = array_column($fontTheme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
+    $assert('inherit' !== ($fontTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), "$case heading font: no heading inheritance reset overrides the source family " . json_encode($fontTheme['styles']['elements'] ?? array()));
+    $h2Family = $fontTheme['styles']['elements']['h2']['typography']['fontFamily'] ?? $fontTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? '';
+    if (str_starts_with($h2Family, 'var:preset|font-family|')) $h2Family = (string) ($fontFamilies[substr($h2Family, strlen('var:preset|font-family|'))] ?? '');
+    $assert(str_contains($h2Family, 'Barlow Condensed'), "$case heading font: h2 resolves to Barlow Condensed " . json_encode($fontTheme['styles']['elements'] ?? array()));
+}
+
 // Channel custom properties are colours only in the consuming function, not
 // standalone palette values. Root paint yields to Global Styles; compound
 // uses keep the authored expression as the CSS fallback.
