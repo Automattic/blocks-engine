@@ -21,6 +21,12 @@ add_filter( 'render_block_core/navigation', static function ( string $content, a
         }
         $content = $processor->get_updated_html();
     }
+    $text = $presentation['text'] ?? null;
+    if ( is_string( $text ) && preg_match( '/^[\x{2630}\x{2261}][\x{FE0E}\x{FE0F}]?$/u', $text ) ) {
+        return preg_replace_callback( '/(<button\b[^>]*\bclass="[^"]*\bwp-block-navigation__responsive-container-open\b[^"]*"[^>]*>)(.*?)(<\/button>)/s', static function ( array $match ) use ( $text ): string {
+            return $match[1] . esc_html( $text ) . $match[3];
+        }, $content, 1 ) ?? $content;
+    }
     $svg = $presentation['svg'] ?? null;
     if ( ! is_string( $svg ) || '' === $svg ) return $content;
     $attributes = array_fill_keys( array( 'xmlns', 'width', 'height', 'viewbox', 'fill', 'fill-rule', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-opacity', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'points', 'transform', 'class', 'style' ), true );

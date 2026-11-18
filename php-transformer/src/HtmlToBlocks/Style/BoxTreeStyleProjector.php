@@ -169,12 +169,81 @@ final class BoxTreeStyleProjector
     private function rule(string $selector, array $styles): string
     {
         $declarations = array();
-        foreach ($styles as $name => $value) {
+        foreach (self::withUniformBorder($styles) as $name => $value) {
             // Evidence is external input, not trusted stylesheet syntax.
             if (preg_match('/[{};<>]/', $value) || str_contains($value, '/*')) continue;
             $declarations[] = $name . ':' . $value;
         }
         if (array() === $declarations) return '';
         return $selector . '{' . implode(';', $declarations) . '}';
+    }
+
+    private const BORDER_SIDES = array('border-top', 'border-right', 'border-bottom', 'border-left');
+    private const BORDER_STYLES = array('none', 'hidden', 'dotted', 'dashed', 'solid', 'double', 'groove', 'ridge', 'inset', 'outset');
+
+    /**
+     * Evidence records a border per side, so a uniform border would restate
+     * the same value four times in every carrier. Four equal sides set exactly
+     * the twelve longhands `border-width`, `border-style` and `border-color`
+     * set, so the side declarations fold into those three at the first side's
+     * place. Not `border`: that shorthand also resets `border-image`, which
+     * the evidence never observed. A value that does not read as one width,
+     * one style and one color stays per side.
+     *
+     * @param array<string, string> $styles
+     * @return array<string, string>
+     */
+    private static function withUniformBorder(array $styles): array
+    {
+        $value = $styles['border-top'] ?? null;
+        if (null === $value) return $styles;
+        foreach (self::BORDER_SIDES as $side) {
+            if (($styles[$side] ?? null) !== $value) return $styles;
+        }
+        $parts = self::borderParts($value);
+        if (null === $parts) return $styles;
+        $folded = array();
+        foreach ($styles as $name => $declared) {
+            if ('border-top' === $name) {
+                $folded['border-width'] = $parts[0];
+                $folded['border-style'] = $parts[1];
+                $folded['border-color'] = $parts[2];
+            } elseif (!in_array($name, self::BORDER_SIDES, true)) {
+                $folded[$name] = $declared;
+            }
+        }
+        return $folded;
+    }
+
+    /** @return array{0:string,1:string,2:string}|null Width, style and color of a side border value. */
+    private static function borderParts(string $value): ?array
+    {
+        $tokens = array();
+        $depth = 0;
+        $token = '';
+        foreach (str_split(trim($value)) as $char) {
+            if ('(' === $char) ++$depth;
+            elseif (')' === $char) --$depth;
+            if (0 === $depth && ctype_space($char)) {
+                if ('' !== $token) $tokens[] = $token;
+                $token = '';
+                continue;
+            }
+            $token .= $char;
+        }
+        if ('' !== $token) $tokens[] = $token;
+        if (3 !== count($tokens) || 0 !== $depth) return null;
+        $width = $style = $color = null;
+        foreach ($tokens as $token) {
+            $lower = strtolower($token);
+            if (null === $width && 1 === preg_match('/^(?:0|\d*\.?\d+(?:px|em|rem|pt|pc|cm|mm|in|q|vw|vh|vmin|vmax|ch|ex)|thin|medium|thick)$/', $lower)) $width = $token;
+            elseif (null === $style && in_array($lower, self::BORDER_STYLES, true)) $style = $token;
+            elseif (null === $color && (1 !== preg_match('/^(?:var|env|attr)\(/', $lower) || (null !== $width && null !== $style))) $color = $token;
+            else return null;
+        }
+        // A substitution function could stand for any component: it is the
+        // color only once the width and style are both explicit before it.
+        if (null === $width || null === $style || null === $color) return null;
+        return array($width, $style, $color);
     }
 }

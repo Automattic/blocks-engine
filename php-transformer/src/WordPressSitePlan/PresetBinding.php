@@ -857,6 +857,17 @@ final class PresetBinding
                 $observation = null;
             }
             $slug = $this->presetSlug('color', $literal, $observation, $reason);
+            if (null === $slug && is_string($literal) && self::paintsNothing($literal)) {
+                // A zero-alpha colour (a computed `rgba(255, 255, 255, 0)`)
+                // is no design value: it is the `transparent` keyword in
+                // effect, which paints and interpolates the same. Keep the
+                // declaration in its cascade slot, spelled as the keyword.
+                if (self::replaceDeclaration($d->declarations, $property, $literal, 'transparent')) {
+                    $style->color->{$key} = 'transparent';
+                    ++$d->bound;
+                }
+                continue;
+            }
             $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
             if (!$safe && is_string($literal) && ($this->rendersThroughClass($name, $property, $literal, $tokens) || ('state_variant' === $reason && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)))) {
                 // A preset class would mask the hover colour; the button
@@ -1595,6 +1606,14 @@ final class PresetBinding
         if (null === $color) return 'unresolved_value';
         if ($color[3] <= 0.0) return null;
         return $color[3] < 1.0 ? 'alpha' : 'no_matching_token';
+    }
+
+    /** A literal colour other than the `transparent` keyword whose alpha is zero. */
+    private static function paintsNothing(string $literal): bool
+    {
+        if ('transparent' === strtolower(trim($literal))) return false;
+        $color = CssColor::parse($literal);
+        return null !== $color && $color[3] <= 0.0;
     }
 
     private function comparable(string $kind, string $value): bool

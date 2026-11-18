@@ -19,6 +19,14 @@ use InvalidArgumentException;
 final class StylesheetScopes
 {
     /**
+     * The largest document-owned support sheet a fold may deliver to routes
+     * outside its owners. Folding exists to avoid many tiny files; a larger
+     * sheet folded into a site-wide resource ships its owners' rules to every
+     * other route.
+     */
+    public const FOLD_MEMBER_MAX_BYTES = 2048;
+
+    /**
      * A page-scoped stylesheet compiled from a captured surface is shared:
      * the surface renders on more than one route.
      *
@@ -168,7 +176,8 @@ final class StylesheetScopes
      * into a single resource, in their existing rule order. A rule reaches
      * routes outside its owners only where it provably matches nothing in
      * their documents; otherwise a zero-weight route gate keeps it on its
-     * owners. Rules that can be neither proven nor gated keep their sheet.
+     * owners. Rules that can be neither proven nor gated keep their sheet, as
+     * does a document-owned sheet larger than FOLD_MEMBER_MAX_BYTES.
      *
      * Each document is proven with every template part's markup, since any
      * of them may render on it.
@@ -192,6 +201,10 @@ final class StylesheetScopes
         $foldable = static function (array $asset) use (&$index, $documentsBySource, $canonicalSources, $routeClasses, $transformer, $sharedMarkup): ?string {
             $owners = array_column($asset['scopes'], 'source_path');
             if (in_array('global', array_column($asset['scopes'], 'kind'), true)) return (string) $asset['content'];
+            // Folding trades a request on the owners for bytes on every other
+            // route. Past a small sheet that trade is a loss: the rules stay
+            // on their owners' own sheet.
+            if (strlen((string) $asset['content']) > self::FOLD_MEMBER_MAX_BYTES) return null;
             $outside = array_fill_keys(array_diff($canonicalSources, $owners), true);
             $gate = array();
             foreach ($owners as $owner) {

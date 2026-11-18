@@ -27,6 +27,7 @@ final class AbsentCarrierSelectors
         'wp-block-post-featured-image' => '<!-- wp:post-featured-image',
         'blocks-engine-synthetic-flex-image-figure' => 'blocks-engine-synthetic-flex-image-figure',
         'blocks-engine-synthetic-image-figure-inline' => 'blocks-engine-synthetic-image-figure-inline',
+        'blocks-engine-synthetic-image-figure-strut' => 'blocks-engine-synthetic-image-figure-strut',
         'blocks-engine-layout-table-cell' => 'blocks-engine-layout-table-cell',
     );
 
