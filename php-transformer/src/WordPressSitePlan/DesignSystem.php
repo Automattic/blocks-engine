@@ -612,9 +612,9 @@ final class DesignSystem
         foreach (array_keys($counts) as $hex) {
             // A near shade stays an exact local value; never substitute the
             // family's representative or reintroduce it as a block-only token.
-            if ($this->hasNearColor($hex)) continue;
             do $slug = 'accent-' . (++$accent); while (isset($used[$slug]));
             $used[$slug] = true;
+            if ($this->hasNearColor($hex)) continue;
             $colors[] = array('slug' => $slug, 'name' => self::colorName($hex), 'color' => $hex, 'role' => self::BLOCK_COLOR_ROLE, 'weight' => 0);
         }
         return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
@@ -944,7 +944,7 @@ final class DesignSystem
             $ratio < 2.2 => 'Subheading',
             $ratio < 3 => 'Title',
             default => 'Display',
-        } . ' (' . CssLength::format($px) . 'px)';
+        } . ' (' . CssLength::format($px) . ')';
     }
 
     private static function spacingName(float $px): string
@@ -1042,8 +1042,11 @@ final class DesignSystem
         usort($rest, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: ($isLead($b) <=> $isLead($a)) ?: ($clusters[$memberOf[$b]]['weight'] <=> $clusters[$memberOf[$a]]['weight']) ?: strcmp($a, $b));
         $accent = 0;
         foreach ($rest as $color) {
+            // Reserve the original slot even for an omitted shade: palette
+            // membership may change, but surviving preset slugs must not.
+            $slug = 'accent-' . (++$accent);
             if ($clusters[$memberOf[$color]]['color'] !== $color) continue;
-            $palette[] = $token('accent-' . (++$accent), $color, $prominence[$color]);
+            $palette[] = $token($slug, $color, $prominence[$color]);
         }
         return $palette;
     }
