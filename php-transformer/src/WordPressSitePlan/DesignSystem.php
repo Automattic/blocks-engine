@@ -107,6 +107,8 @@ final class DesignSystem
     // Additional exact colours are editable block values, not new evidence
     // for site-wide defaults or a reason to rewrite every utility rule.
     public const PRIMARY_COLORS = 12;
+    /** Role of the exact tokens withBlockColors() adds for block-only colours. */
+    public const BLOCK_COLOR_ROLE = 'block';
     public const MAX_FONT_SIZES = 8;
     public const MAX_SPACING = 10;
     public const COLOR_TOLERANCE = CssColor::JUST_NOTICEABLE_DIFFERENCE;
@@ -184,17 +186,33 @@ final class DesignSystem
     /** @var array<string,?string> */
     private array $colorSlugs = array();
 
-    /** @return array{hex:array<string,string>,slug:array<string,int>} */
+    /** @return array{hex:array<string,string>,slug:array<string,int>,block:array<string,string>} */
     private function colorIndex(): array
     {
         if (null !== $this->colorIndex) return $this->colorIndex;
-        $hex = $slug = array();
+        $hex = $slug = $block = array();
         foreach ($this->colors as $index => $color) {
             $value = CssColor::hex($color['color']);
-            if (null !== $value && !isset($hex[$value])) $hex[$value] = $color['slug'];
             if (!isset($slug[$color['slug']])) $slug[$color['slug']] = $index;
+            if (null === $value) continue;
+            // Block-only colours bind only the literal they came from
+            // (blockColorSlug()), never stylesheets, classes or elements.
+            if (self::BLOCK_COLOR_ROLE === $color['role']) {
+                if (!isset($block[$value])) $block[$value] = $color['slug'];
+            } elseif (!isset($hex[$value])) $hex[$value] = $color['slug'];
         }
-        return $this->colorIndex = array('hex' => $hex, 'slug' => $slug);
+        return $this->colorIndex = array('hex' => $hex, 'slug' => $slug, 'block' => $block);
+    }
+
+    /**
+     * Slug of the block-only token (withBlockColors()) that paints exactly
+     * this opaque colour, or null.
+     */
+    public function blockColorSlug(string $value): ?string
+    {
+        if (!CssColor::opaque($value)) return null;
+        $hex = CssColor::hex($value);
+        return null === $hex ? null : ($this->colorIndex()['block'][$hex] ?? null);
     }
 
     /**
@@ -542,6 +560,54 @@ final class DesignSystem
             $fontFamilies[] = array('slug' => $slug, 'name' => $name, 'fontFamily' => $stack, 'key' => (string) $key, 'role' => 'family', 'weight' => 0);
         }
         return new self($this->colors, $fontSizes, $fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+    }
+
+    /**
+     * The system with an exact token for every opaque literal colour a block
+     * carries as its `style.color` text or background that no palette token
+     * paints.
+     *
+     * Like withBlockTypography(), this covers the colour the browser rendered
+     * for a block's source node (box-tree evidence: a computed `rgb(0, 0, 0)`
+     * or `color(srgb …)` the static cascade cannot resolve). Those colours are
+     * painted all the same, and without a token they stay literals outside the
+     * editable palette. Each new token (`accent-N` after the usage-ranked
+     * ones, most used first) is the exact 8-bit colour, so binding never
+     * changes what renders. It carries BLOCK_COLOR_ROLE: it binds only that
+     * block literal, inline and in place (blockColorSlug()), never a
+     * stylesheet, a class-driven value or an element style, which keep the
+     * cascade the usage-ranked palette established.
+     *
+     * @param list<string> $markups Every page's block markup.
+     */
+    public function withBlockColors(array $markups): self
+    {
+        $counts = array();
+        foreach ($markups as $markup) {
+            if (!preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) continue;
+            foreach ($matches[1] as $json) {
+                $attributes = json_decode($json, true);
+                $style = is_array($attributes) && is_array($attributes['style'] ?? null) ? $attributes['style'] : array();
+                foreach (array($style['color']['text'] ?? null, $style['color']['background'] ?? null) as $value) {
+                    if (!is_string($value) || str_contains($value, 'var') || !CssColor::opaque($value) || null !== $this->colorSlug($value)) continue;
+                    $hex = (string) CssColor::hex($value);
+                    $counts[$hex] = ($counts[$hex] ?? 0) + 1;
+                }
+            }
+        }
+        $known = array_flip(array_keys($this->colorIndex()['block']));
+        $counts = array_diff_key($counts, $known);
+        if (array() === $counts) return $this;
+        uksort($counts, static fn(string $a, string $b): int => ($counts[$b] <=> $counts[$a]) ?: strcmp($a, $b));
+        $used = array_fill_keys(array_column($this->colors, 'slug'), true);
+        $accent = 0;
+        $colors = $this->colors;
+        foreach (array_keys($counts) as $hex) {
+            do $slug = 'accent-' . (++$accent); while (isset($used[$slug]));
+            $used[$slug] = true;
+            $colors[] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', $slug)), 'color' => $hex, 'role' => self::BLOCK_COLOR_ROLE, 'weight' => 0);
+        }
+        return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
     }
 
     /**
