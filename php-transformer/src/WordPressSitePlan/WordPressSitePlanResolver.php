@@ -170,10 +170,14 @@ final class WordPressSitePlanResolver
         $tokens = self::tokensInPayload($content, $tokensById);
         if (array() !== $attachments && (str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/'))) return self::resolveMarkup($content, array(), $attachments, true);
         if ('functions.php' === $targetPath) {
-            if (array() === $attachments) return $content;
             // Publish only IDs: the generated runtime looks up URLs on the current host.
+            // Only tokens functions.php already lists in its template asset table are published.
             $ids = array();
-            foreach ($attachments as $token => $attachment) $ids[WordPressSitePlan::TOKEN_PREFIX . $token . '}}'] = $attachment['id'];
+            foreach ($attachments as $token => $attachment) {
+                $key = WordPressSitePlan::TOKEN_PREFIX . $token . '}}';
+                if (str_contains($content, $key)) $ids[$key] = $attachment['id'];
+            }
+            if (array() === $ids) return $content;
             return str_replace('$blocks_engine_template_attachment_ids = array();', '$blocks_engine_template_attachment_ids = ' . var_export($ids, true) . ';', $content);
         }
         if (str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/')) return $content;

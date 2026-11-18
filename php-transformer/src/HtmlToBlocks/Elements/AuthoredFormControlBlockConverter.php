@@ -50,7 +50,8 @@ final class AuthoredFormControlBlockConverter
         private readonly Runtime $runtime,
         private readonly Closure $projectSourceTags,
         ?Closure $richTextLabelContent = null,
-        ?Closure $editableLabelContent = null
+        ?Closure $editableLabelContent = null,
+        private readonly ?WrapperCoalescer $wrapperCoalescer = null
     ) {
         $this->richTextLabelContent = $richTextLabelContent ?? static fn (DOMElement $label): string => '';
         $this->editableLabelContent = $editableLabelContent ?? $this->richTextLabelContent;
@@ -640,6 +641,13 @@ final class AuthoredFormControlBlockConverter
         $children = array();
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) $children[] = $this->cssDrawnControlGroup($child);
+        }
+        // Artwork containers use the same selector- and geometry-safe
+        // coalescing as ordinary source containers. The actual button retains
+        // its runtime boundary and is never promoted onto its artwork.
+        if ('div' === strtolower($element->tagName) && 1 === count($children)) {
+            $coalesced = $this->wrapperCoalescer?->coalescedSingleGroupWrapper($element, $children[0]);
+            if (null !== $coalesced) return $coalesced;
         }
         $attributes = array();
         foreach ($element->attributes as $attribute) {

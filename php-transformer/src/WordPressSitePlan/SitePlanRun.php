@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssMathValueCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\ShadowedDeclarationPruner;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -357,9 +358,10 @@ final class SitePlanRun
         // A source arm guarded against role carriers is dead once every
         // element naming its class is one of them.
         $assets = ConvertedSourceClassSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
-        // An image arm requiring classes no emitted image figure carries
-        // together matches nothing on any route.
-        $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
+        // A carrier arm restating an emitted image figure on a carrier it
+        // never becomes matches nothing on any route. Menus keep their markup
+        // in `block_markup`: their figures are emitted too.
+        $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
@@ -530,7 +532,10 @@ final class SitePlanRun
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             // A declaration a later one in its block always overrides never
             // decides a value; dropping it first also lets identical blocks fold.
-            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune($asset['content']));
+            // Captured fluid lengths ship as the source runtime spelled them
+            // (`100 * 1vw * 1`, `- 0px`); each carrier and breakpoint repeats
+            // that spelling, so it is written once at its smallest form.
+            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet($asset['content'])));
             if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
             // Compatibility replays use :root only as a specificity shim,
             // not as a document reset. Their repeated native-host arms can

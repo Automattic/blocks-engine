@@ -147,6 +147,21 @@ foreach ( array( '/giving', '/' ) as $action ) {
     $assert('Search' === ($postSearchBlocks[0]['attrs']['buttonText'] ?? ''), "POST search form at {$action} keeps its submit caption");
     $assert(array() === $blocksNamed($postSearch, 'jetpack/contact-form') && array() === $blocksNamed($postSearch, 'core/html'), "POST search form at {$action} is neither a contact form nor raw HTML");
 }
+// A Drupal search form's visually hidden heading names the search region; it
+// survives beside core/search instead of being reported as dropped content.
+$hiddenHeadingSearch = $transform((string) file_get_contents(dirname(__DIR__) . '/fixtures/post-search-form-hidden-heading.html'));
+$hiddenHeadingDropped = array_values(array_filter(
+    array_merge($hiddenHeadingSearch['diagnostics'] ?? array(), $hiddenHeadingSearch['fallbacks'] ?? array()),
+    static fn (mixed $finding): bool => is_array($finding) && 'html_content_dropped' === ($finding['code'] ?? $finding['diagnostic_code'] ?? null)
+));
+$hiddenHeadingSerialized = (string) ($hiddenHeadingSearch['serialized_blocks'] ?? '');
+$assert(1 === count($blocksNamed($hiddenHeadingSearch, 'core/search')), 'a search form with a visually hidden heading becomes exactly one core/search');
+$assert(array() === $hiddenHeadingDropped, 'the hidden search form heading is not reported as dropped content; got: ' . json_encode(array_column($hiddenHeadingDropped, 'lost_text')));
+$assert(str_contains($hiddenHeadingSerialized, 'Search form'), 'the hidden search form heading text survives in the serialized output');
+$hiddenHeadings = $blocksNamed($hiddenHeadingSearch, 'core/heading');
+$assert(1 === count($hiddenHeadings) && str_contains((string) ($hiddenHeadings[0]['attrs']['className'] ?? ''), 'screen-reader-text'), 'the search form heading stays a visually hidden heading');
+$assert(false === ($blocksNamed($hiddenHeadingSearch, 'core/search')[0]['attrs']['showLabel'] ?? null), 'a Drupal element-invisible label stays visually hidden');
+
 $postContact = $transform('<form action="/" method="post"><input type="text" name="name"><input type="email" name="email"><textarea name="message"></textarea><button type="submit">Send</button></form>');
 $assert(array() === $blocksNamed($postContact, 'core/search'), 'a POST contact form does not become core/search');
 $postDonation = $transform('<form action="/giving" method="post"><label><input type="radio" name="amount" value="25"> $25</label><label><input type="radio" name="amount" value="50"> $50</label><button type="submit">Donate</button></form>');
@@ -161,7 +176,7 @@ $assert(array() === $unsupported($flow), 'a <search> wrapping flow content recor
 $assert(str_contains($flowText, 'Search the archive') && str_contains($flowText, 'Type a keyword.'), 'the flow content inside <search> survives; got: ' . $flowText);
 $assert(1 === count($searchGroups($flow)), 'a multi-child <search> is kept as a search landmark group');
 
-foreach ( array( 'form' => $form, 'toggle' => $toggle, 'flow' => $flow, 'post search' => $postSearch ) as $label => $result ) {
+foreach ( array( 'form' => $form, 'toggle' => $toggle, 'flow' => $flow, 'post search' => $postSearch, 'hidden heading search' => $hiddenHeadingSearch ) as $label => $result ) {
     $validity = ( new BlockValidityValidator() )->validateBlocks($result['blocks'] ?? array());
     $assert('pass' === ($validity['status'] ?? ''), "the {$label} case produces Gutenberg-valid blocks");
 }
