@@ -117,9 +117,9 @@ $assert($malformedSelector === $transformer->transform($malformedSelector, $rena
 $badUrl = '.dots { background: url(data:image/svg+xml,%3Csvg fill=%27%23var(--c)%27%3E) } @media (min-width:1280px) { .before { display:none } }';
 $assert(str_contains($transformer->transform($badUrl, $rename), '.after { display:none }'), 'rules after a bad url() token with a stray close paren are still transformed');
 $unmatchedClose = '} .before { color:red }';
-$assert($unmatchedClose === $transformer->transform($unmatchedClose, $rename), 'top-level unmatched close preserves the entire stylesheet');
+$assert($unmatchedClose === $transformer->transform($unmatchedClose, $rename), 'a top-level unmatched close invalidates only the following rule');
 $unmatchedCloseAfterRule = '.before { color:red } } .before { color:blue }';
-$assert($unmatchedCloseAfterRule === $transformer->transform($unmatchedCloseAfterRule, $rename), 'later unmatched close prevents earlier callback transformations');
+$assert('.after { color:red } } .before { color:blue }' === $transformer->transform($unmatchedCloseAfterRule, $rename), 'a later unmatched close keeps earlier transformations and invalidates only the following rule');
 
 // Block at-rules recurse only when rules are safe to walk. Declaration at-rules
 // and declaration bodies, including custom-property braces and URL data, stay raw.

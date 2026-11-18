@@ -78,6 +78,11 @@ final class CssStylesheetWalk
                 return;
             }
 
+            if ( $tree->hasInvalidPrelude($offset) ) {
+                // A stray root `}` invalidates only the rule it precedes.
+                $offset = $end + 1;
+                continue;
+            }
             $prelude = trim(substr($css, $offset, $boundary - $offset));
             $body = substr($css, $boundary + 1, $end - $boundary - 1);
             $atRule = $this->atRule($prelude);

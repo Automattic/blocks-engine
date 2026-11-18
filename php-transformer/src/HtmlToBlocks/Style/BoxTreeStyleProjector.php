@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 /** Restyle an exact source-node carrier before provenance is discarded. */
 final class BoxTreeStyleProjector
@@ -55,6 +56,11 @@ final class BoxTreeStyleProjector
             return true;
         }, ARRAY_FILTER_USE_BOTH);
         $mapped = $mapper->map(array_replace($unobserved, $invariant));
+        // A style group the block cannot serialize (a paragraph's shadow) would
+        // be dropped from its attributes: it stays in the carrier instead.
+        if ('' !== $blockName) {
+            $mapped['style'] = self::runtime()->normalizeBlockSupportAttributes($blockName, array('style' => $mapped['style']))['attrs']['style'] ?? array();
+        }
         $attrs['style'] = $mapped['style'];
         $attrs = array_replace($attrs, $mapped['attrs']);
         // Layout declarations are deliberately excluded by StyleAttributeMapper;
@@ -62,11 +68,17 @@ final class BoxTreeStyleProjector
         $consumed = SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
-        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, $pseudoFluid);
+        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs), $pseudoFluid);
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
+    }
+
+    private static function runtime(): Runtime
+    {
+        static $runtime = null;
+        return $runtime ??= new Runtime();
     }
 
     /**
@@ -102,16 +114,53 @@ final class BoxTreeStyleProjector
     }
 
     /**
+     * Restyle a source box that becomes no block, such as the document body
+     * the destination document supplies, under a fixed selector. Each given
+     * property is restated where lifted author intent, or one value observed
+     * at every capture, holds at every width and differs from its initial
+     * value: a varying pixel value would freeze at one capture, with no block
+     * to band it.
+     *
+     * @param array<string, string> $properties Property => its initial value, which is not restated.
+     * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
+     */
+    public function boxRule(string $selector, array $properties, array $observations, array $fluid = array()): string
+    {
+        $base = array();
+        $bands = array();
+        foreach ($properties as $property => $initial) {
+            $lifted = $fluid[$property] ?? array();
+            if (array() !== $lifted && null === $lifted[0][0]) {
+                if ($initial !== $lifted[0][1] || 1 < count($lifted)) $base[$property] = $lifted[0][1];
+                foreach (array_slice($lifted, 1) as [$maxWidth, $value]) $bands[self::width((float) $maxWidth)][$property] = $value;
+                continue;
+            }
+            $values = array_unique(array_map(static fn(array $observation): string => (string) ($observation['used_styles'][$property] ?? ''), $observations));
+            if (1 === count($values) && !in_array(reset($values), array('', $initial), true)) $base[$property] = reset($values);
+        }
+        $css = $this->rule($selector, $base);
+        uksort($bands, static fn(int|string $a, int|string $b): int => (float) $b <=> (float) $a);
+        foreach ($bands as $maxWidth => $declared) $css .= '@media (max-width:' . $maxWidth . 'px){' . $this->rule($selector, $declared) . '}';
+        return $css;
+    }
+
+    /**
      * Inherited typography an inline can set apart from its block. Color
      * stays with the link and state styles that already own it.
      */
+    /** Keyword properties BoxTreeFluidIntent lifts only when they explain every capture, pruned or not. */
+    private const SWITCHED_KEYWORDS = array('display' => true, 'visibility' => true);
+
     private const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
 
     /**
      * Author intent proven at every capture (BoxTreeFluidIntent) replaces
      * the frozen pixels in every capture, so it needs no capture delta;
      * where the author switches it, its bands follow the author's own
-     * breakpoints. Do not resurrect properties pruned at any viewport.
+     * breakpoints. Do not resurrect properties pruned at any viewport, except
+     * a switched keyword (`visibility`) whose lift explains every capture,
+     * pruned ones included: without its base value a narrower band could
+     * not switch it back.
      *
      * @param array<string, array<string, string>> $declarations Kept declarations by viewport key, updated in place.
      * @param list<string> $keys Viewport keys, widest first.
@@ -123,7 +172,7 @@ final class BoxTreeStyleProjector
         foreach ($fluid as $property => $propertyBands) {
             if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
             foreach ($keys as $key) {
-                if (!isset($declarations[$key][$property])) continue 2;
+                if (!isset($declarations[$key][$property]) && !isset(self::SWITCHED_KEYWORDS[$property])) continue 2;
             }
             foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
             foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
@@ -139,10 +188,19 @@ final class BoxTreeStyleProjector
      * @param array<string, array<string, mixed>> $parents The block parent's observations, by viewport key.
      * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid Lifted pseudo-element values, by name.
      */
-    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), array $pseudoFluid = array()): string
+    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), bool $syntheticAnchor = false, array $pseudoFluid = array()): string
     {
         $baseKey = $keys[0];
-        $css = $this->rule(self::SELECTOR, $base);
+        $rule = function (array $declared) use ($syntheticAnchor): string {
+            $css = $this->rule(self::SELECTOR, $declared);
+            if ($syntheticAnchor && isset($declared['display'])) {
+                // A real carrier box owns the margin. Only a transparent
+                // carrier passes it to the link, including at breakpoints.
+                $css .= self::SELECTOR . '>a{margin:' . ('contents' === $declared['display'] ? 'inherit' : '0') . '}';
+            }
+            return $css;
+        };
+        $css = $rule($base);
         $effective = $declarations[$baseKey];
         $pseudoEffective = array();
         $pseudoBands = array();
@@ -162,13 +220,13 @@ final class BoxTreeStyleProjector
             $effective = array_replace($effective, $delta);
             $pseudo = $pseudos ? $this->pseudoRules($observations[$key], $pseudoEffective, $pseudoLifted) : '';
             if (array() === $delta && '' === $pseudo) continue;
-            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule(self::SELECTOR, $delta) . $pseudo . '}';
+            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $rule($delta) . $pseudo . '}';
         }
         // Numeric keys become ints: compare them as widths, narrowest last.
         $widths = array_keys($bands + $pseudoBands);
         usort($widths, static fn(int|string $a, int|string $b): int => (float) $b <=> (float) $a);
         foreach ($widths as $maxWidth) {
-            $rules = $this->rule(self::SELECTOR, $bands[$maxWidth] ?? array());
+            $rules = isset($bands[$maxWidth]) ? $rule($bands[$maxWidth]) : '';
             foreach ($pseudoBands[$maxWidth] ?? array() as $name => $declared) $rules .= $this->rule(self::SELECTOR . '::' . $name, $declared);
             if ('' !== $rules) $css .= '@media (max-width:' . $maxWidth . 'px){' . $rules . '}';
         }
@@ -271,6 +329,15 @@ final class BoxTreeStyleProjector
             elseif (BoxTreeDeclarationPruner::INITIAL === $reason && $effective[$property] !== $observed[$property]) $delta[$property] = $observed[$property];
         }
         return $delta;
+    }
+
+    /** Synthetic paragraphs use the transparent-link margin fallback in EngineSupportCss. */
+    private static function syntheticAnchorCarrier(string $blockName, array $attrs): bool
+    {
+        $classes = preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array();
+        if ('core/paragraph' !== $blockName || !in_array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, $classes, true)
+            || in_array(SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS, $classes, true)) return false;
+        return true;
     }
 
     private static function width(float $width): string
