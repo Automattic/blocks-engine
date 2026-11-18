@@ -23,9 +23,10 @@ $result = $compile($report);
 $html = $markup($result);
 $assert(!isset($report['pages'][0]['states']), 'Real emitter fixture has one component inventory.');
 $assert(array('dialog', 'listbox', 'tabs', 'disclosure', 'carousel', 'unsupported') === array_column($report['pages'][0]['components'], 'kind'), 'Real capture covers all six surfaces.');
-foreach (array('tabs', 'tab-list', 'tab-panels', 'tab-panel', 'details', 'custom/authored-carousel') as $block) {
+foreach (array('tabs', 'tab-list', 'tab-panels', 'tab-panel', 'details') as $block) {
     $assert(str_contains($html, '<!-- wp:' . $block . ' ') || str_contains($html, '<!-- wp:' . $block . ' -->'), $block . ' keeps its pre-migration native block family.');
 }
+$assert(!str_contains($html, '<!-- wp:custom/authored-carousel') && str_contains($html, '"blocksEngineCarousel":'), 'Carousel slides use an editable core host recording the carousel stage.');
 $assert(!str_contains($html, '<!-- wp:custom/captured-dialog') && str_contains($html, '<!-- wp:group ') && str_contains($html, '"blocksEngineDialog":'), 'Dialog content uses an editable core Group rather than a companion block.');
 $assert(str_contains($html, '"data-blocks-engine-triggers":"open-dialog"') && str_contains($html, '"data-blocks-engine-resting":"hidden"'), 'Dialog retains its native trigger binding and closed resting state.');
 $assert(str_contains($html, '"blocksEngineSelect":') && !str_contains($html, '<!-- wp:custom/authored-select'), 'Listbox choices use editable core blocks without a select companion.');
@@ -33,7 +34,7 @@ $rendered = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\NativeSelectRe
 $assert(str_contains($rendered, '<option value="Small" selected>Small</option>') && str_contains($rendered, '<option value="Large">Large</option>'), 'Listbox retains native selection behavior.');
 $assert(2 === substr_count($html, '<!-- wp:tab-panel ') && str_contains($html, 'Lazy observed content'), 'Lazy tab is editable native panel content.');
 $assert(str_contains($html, '"showContent":true') && str_contains($html, '<details id="disclosure" class="wp-block-details" open>'), 'Authored open disclosure stays open.');
-$assert(str_contains($html, '"slideCount":2') && str_contains($html, '"initialSlide":0') && str_contains($html, 'actions.next'), 'Carousel retains its initial frame and native directional runtime.');
+$assert(str_contains($html, '"slideCount":2') && str_contains($html, '"initialSlide":0') && str_contains(\Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract::renderMarkup($html), 'actions.next'), 'Carousel retains its initial frame and native directional runtime.');
 $assert(!str_contains($html, 'Unsupported secret content') && !str_contains($html, 'id="unknown-panel"'), 'Unsupported surface materializes no hidden panel.');
 $proofs = $result['source_reports']['native_runtime_replacements'] ?? array();
 $assert(in_array(CaptureEvidence::COMPONENT_RUNTIME, array_column($proofs, 'attribute'), true) && in_array(CaptureEvidence::COMPONENT_CAROUSEL_RUNTIME, array_column($proofs, 'attribute'), true), 'Native tabs and carousel replace their exact capture helpers.');

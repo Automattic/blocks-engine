@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\HeadlessChrome;
 
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -48,7 +49,9 @@ $assert(str_contains($artwork['serialized_blocks'], '"slideCount":3'), 'Artwork 
 $assert(str_contains($artwork['serialized_blocks'], '"presentation":"slideshow"'), 'Artwork overlay is a slideshow.');
 // count is deliberately initialized by callbacks.init from rendered children;
 // items-1 means one visible slide, not one slide in the collection.
-$assert(str_contains($artwork['serialized_blocks'], 'blocks-engine-authored-carousel--items-1'), 'Slideshow shows one of its three slides.');
+// A site import publishes the slideshow as a core Group recording its stage;
+// the front end renders that stage around the slides.
+$assert(str_contains(AuthoredCarouselGalleryContract::renderMarkup($artwork['serialized_blocks']), 'blocks-engine-authored-carousel--items-1'), 'Slideshow shows one of its three slides.');
 $definition = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator())->definition('custom');
 $assert(str_contains($definition['view_js'], 'context.count = slidesOf( ref ).length'), 'Runtime counts the rendered slides.');
 
@@ -62,7 +65,7 @@ mkdir($directory);
 try {
     foreach (array(array($artwork, 1440, 0), array($artwork, 390, 0), array($scopedArtwork, 1440, 100), array($scopedArtwork, 390, 100)) as [$artifact, $width, $offset]) {
         $css = $definition['assets']['style.css'] . "\n" . implode("\n", array_column($artifact['assets'], 'content'));
-        $document = '<!doctype html><html><head><style>' . $css . ' body{width:' . $width . 'px}</style></head><body>' . $artifact['serialized_blocks'] . '<script>
+        $document = '<!doctype html><html><head><style>' . $css . ' body{width:' . $width . 'px}</style></head><body>' . AuthoredCarouselGalleryContract::renderMarkup($artifact['serialized_blocks']) . '<script>
 const root = document.querySelector(".blocks-engine-authored-carousel");
 const stage = root.querySelector(".blocks-engine-authored-carousel__source-stage");
 const track = root.querySelector(".blocks-engine-authored-carousel__track");

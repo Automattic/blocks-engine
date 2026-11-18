@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract;
 
 $html = <<<'HTML'
 <!doctype html><html><head><title>Background carousel</title><style>
@@ -36,7 +37,17 @@ $failures = array();
 $assert = static function (bool $condition, string $message) use (&$failures): void {
     if (!$condition) $failures[] = $message;
 };
-$carousels = $find($result['blocks'] ?? array(), '/authored-carousel');
+// A site import publishes a slideshow as a core Group recording its stage.
+$collect = static function (array $blocks) use (&$collect): array {
+    $found = array();
+    foreach ($blocks as $block) {
+        $attributes = AuthoredCarouselGalleryContract::carouselAttributes($block);
+        if (null !== $attributes) $found[] = array('attrs' => $attributes) + $block;
+        $found = array_merge($found, $collect($block['innerBlocks'] ?? array()));
+    }
+    return $found;
+};
+$carousels = $collect($result['blocks'] ?? array());
 $assert(1 === count($carousels), 'one authored carousel');
 $assert(array() === ($result['fallbacks'] ?? array()), 'no fallbacks');
 if (1 === count($carousels)) {

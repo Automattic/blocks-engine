@@ -68,8 +68,8 @@ final class AuthoredCarouselBlockGenerator
      * slide keeps the captured stage height and contains its own positioned
      * content.
      */
-    private const SLIDESHOW_EDITOR_STYLE = '.blocks-engine-authored-carousel-editor--slideshow{position:relative;isolation:isolate}'
-        . '.blocks-engine-authored-carousel-editor--slideshow>.block-editor-inner-blocks>.block-editor-block-list__layout>.wp-block{position:relative!important;inset:auto!important;z-index:auto!important;transform:none!important;opacity:1!important;visibility:visible!important;height:var(--blocks-engine-carousel-height,auto)!important;overflow:hidden;contain:paint}';
+    private const SLIDESHOW_EDITOR_STYLE = '.blocks-engine-authored-carousel-editor--slideshow,.' . AuthoredCarouselGalleryContract::EDITOR_HOST_CLASS . '{position:relative;isolation:isolate}'
+        . '.blocks-engine-authored-carousel-editor--slideshow>.block-editor-inner-blocks>.block-editor-block-list__layout>.wp-block,.' . AuthoredCarouselGalleryContract::EDITOR_HOST_CLASS . '>.wp-block{position:relative!important;inset:auto!important;z-index:auto!important;transform:none!important;opacity:1!important;visibility:visible!important;height:var(--blocks-engine-carousel-height,auto)!important;overflow:hidden;contain:paint}';
     private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right', 'position');
     private const SLIDE_INDEX_ATTRIBUTES = array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item');
     private const GEOMETRY_VALUE_PATTERN = '^[0-9a-zA-Z.%()+*/,_ -]+(?:\\s*!important)?$';
@@ -1734,15 +1734,24 @@ JS;
     private function carouselBlock(GeneratedBlockRegistry $registry, array $attributes, array $slides): array
     {
         $shell = $this->shell($attributes);
-        // A site import publishes a carousel of images as a core Gallery an
-        // editor changes with core tools; the theme runtime renders the
-        // source's navigable stage, recorded here, around the gallery's images.
-        if (true === $this->session?->publishesImageCarouselsAsGalleries()
-            && 'src-swap' !== ($attributes['presentation'] ?? 'track') && array() !== $slides
-            && array() === array_filter($slides, static fn (array $slide): bool => 'core/image' !== ($slide['blockName'] ?? null))
+        // A site import publishes a carousel as a core block an editor changes
+        // with core tools: a Gallery of image slides, or a Group of a
+        // slideshow's stacked slides that pair an image with text or a link.
+        // The theme runtime renders the source's navigable stage, recorded
+        // here, around the host's slides.
+        $presentation = $attributes['presentation'] ?? 'track';
+        if (true === $this->session?->publishesCarouselsAsCoreBlocks()
+            && 'src-swap' !== $presentation && array() !== $slides
+            && ('slideshow' === $presentation || 'core/gallery' === AuthoredCarouselGalleryContract::hostBlockName($slides))
         ) {
             $createBlock = $this->createBlock ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
-            return $createBlock->createBlock('core/gallery', array('metadata' => array(AuthoredCarouselGalleryContract::METADATA_KEY => $shell + array('attributes' => $attributes))), $slides);
+            $host = array('metadata' => array(AuthoredCarouselGalleryContract::METADATA_KEY => $shell + array('attributes' => $attributes)));
+            if ('slideshow' === $presentation) {
+                // The editor shows no stage: the carousel's editor style lays
+                // the stacked slides out in flow, as its own block's editor does.
+                $host['className'] = AuthoredCarouselGalleryContract::EDITOR_HOST_CLASS;
+            }
+            return $createBlock->createBlock(AuthoredCarouselGalleryContract::hostBlockName($slides), $host, $slides);
         }
         return array(
             'blockName' => $registry->blockName(self::LOCAL_NAME),

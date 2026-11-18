@@ -44,7 +44,7 @@ final class HtmlTransformerSession
     private readonly GeneratedSupportStylesheetState $generatedSupportStylesheetState;
     private bool $preserveShellLandmarks = false;
     private bool $fallbackReductionMode = false;
-    private bool $imageCarouselsAsGalleries = false;
+    private bool $carouselsAsCoreBlocks = false;
     private string $sourcePath = '';
     private string $sourceRootTheme = '';
     /** @var list<string> */
@@ -283,14 +283,14 @@ final class HtmlTransformerSession
     }
 
     /**
-     * Whether an authored carousel of images is published as a core Gallery.
+     * Whether an authored carousel is published as a core Gallery or Group.
      * A site import asks for it: its theme runtime renders the carousel stage
-     * recorded on the gallery. A standalone transform keeps the self-rendering
+     * recorded on the host. A standalone transform keeps the self-rendering
      * generated carousel block, since nothing else would render that stage.
      */
-    public function publishesImageCarouselsAsGalleries(): bool
+    public function publishesCarouselsAsCoreBlocks(): bool
     {
-        return $this->imageCarouselsAsGalleries;
+        return $this->carouselsAsCoreBlocks;
     }
 
     public function usesFallbackReductionMode(): bool
@@ -338,7 +338,7 @@ final class HtmlTransformerSession
             TransformOptions::assetMetadataFromOptions($options)
         ));
         $this->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
-        $this->imageCarouselsAsGalleries = true === ($options[\Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract::TRANSFORM_OPTION] ?? false);
+        $this->carouselsAsCoreBlocks = true === ($options[\Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract::TRANSFORM_OPTION] ?? false);
         $this->runtimeBehaviorState()->installRuntimeScriptMetadata(TransformOptions::runtimeScriptMetadataFromOptions($options));
         $this->runtimeBehaviorState()->installRuntimeProjectionScriptAssets(
             ArrayField::array($options, 'runtime_projection_script_assets')

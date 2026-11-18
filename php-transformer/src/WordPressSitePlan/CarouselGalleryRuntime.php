@@ -6,24 +6,29 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract;
 
 /**
- * An authored carousel of images is saved as a core Gallery so it stays
+ * An authored carousel is saved as a core Gallery or Group so it stays
  * editable with core tools. The navigable stage the source published around
- * those images is recorded in the gallery's metadata; this filter renders it
- * in place of the gallery's own figure and loads the carousel's behavior and
- * styles from the generated carousel block type.
+ * its slides is recorded in the host's metadata; this filter renders it in
+ * place of the host's own wrapper and loads the carousel's behavior and styles
+ * from the generated carousel block type.
  */
 final class CarouselGalleryRuntime
 {
     public static function bootstrap(): string
     {
         return str_replace(
-            array('__SHELL_KEY__', '__BLOCK_SUFFIX__', '__FIGURE_PATTERN__'),
-            array(AuthoredCarouselGalleryContract::METADATA_KEY, '/' . AuthoredCarouselGalleryContract::LOCAL_NAME, var_export(AuthoredCarouselGalleryContract::FIGURE_PATTERN, true)),
+            array('__SHELL_KEY__', '__BLOCK_SUFFIX__', '__WRAPPER_PATTERN__', '__HOST_FILTERS__'),
+            array(
+                AuthoredCarouselGalleryContract::METADATA_KEY,
+                '/' . AuthoredCarouselGalleryContract::LOCAL_NAME,
+                var_export(AuthoredCarouselGalleryContract::WRAPPER_PATTERN, true),
+                var_export(array_map(static fn (string $name): string => 'render_block_' . $name, AuthoredCarouselGalleryContract::HOST_BLOCKS), true),
+            ),
             <<<'PHP'
-add_filter( 'render_block_core/gallery', static function ( string $content, array $block ): string {
+$blocks_engine_carousel_host = static function ( string $content, array $block ): string {
     $shell = $block['attrs']['metadata']['__SHELL_KEY__'] ?? null;
     if ( ! is_array( $shell ) || ! is_string( $shell['opening'] ?? null ) || ! is_string( $shell['closing'] ?? null ) ) return $content;
-    if ( ! preg_match( __FIGURE_PATTERN__, $content, $match ) ) return $content;
+    if ( ! preg_match( __WRAPPER_PATTERN__, $content, $match ) ) return $content;
     static $enqueued = false;
     if ( ! $enqueued ) {
         $enqueued = true;
@@ -34,8 +39,9 @@ add_filter( 'render_block_core/gallery', static function ( string $content, arra
             foreach ( (array) ( $type->style_handles ?? array() ) as $handle ) wp_enqueue_style( $handle );
         }
     }
-    return $shell['opening'] . $match[1] . $shell['closing'];
-}, 20, 2 );
+    return $shell['opening'] . $match[2] . $shell['closing'];
+};
+foreach ( __HOST_FILTERS__ as $blocks_engine_carousel_filter ) add_filter( $blocks_engine_carousel_filter, $blocks_engine_carousel_host, 20, 2 );
 PHP
         );
     }

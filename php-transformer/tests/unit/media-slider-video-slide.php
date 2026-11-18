@@ -15,10 +15,10 @@ $assert = static function (bool $condition, string $message): void {
 $collect = static function (array $blocks, string $name) use (&$collect): array {
     $found = array();
     foreach ($blocks as $block) {
-        // A site import publishes an image-only carousel as a core Gallery
+        // A site import publishes a carousel as a core Gallery or Group
         // carrying the carousel stage; either form is the authored carousel.
-        $isCarousel = 'custom/authored-carousel' === $name && 'core/gallery' === ($block['blockName'] ?? null)
-            && isset($block['attrs']['metadata'][AuthoredCarouselGalleryContract::METADATA_KEY]);
+        $isCarousel = 'custom/authored-carousel' === $name && 'custom/authored-carousel' !== ($block['blockName'] ?? null)
+            && null !== AuthoredCarouselGalleryContract::carouselAttributes($block);
         if ($name === ($block['blockName'] ?? null) || $isCarousel) $found[] = $block;
         $found = array_merge($found, $collect($block['innerBlocks'] ?? array(), $name));
     }

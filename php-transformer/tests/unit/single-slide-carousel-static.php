@@ -20,10 +20,9 @@ $other = '<div class="slideshow carousel"><div class="track-slider"><div class="
 $carousels = static function (array $blocks) use (&$carousels): array {
     $found = array();
     foreach ($blocks as $block) {
-        // A site import publishes an image-only carousel as a core Gallery
+        // A site import publishes a carousel as a core Gallery or Group
         // carrying the carousel stage.
-        if (str_ends_with($block['blockName'] ?? '', '/authored-carousel')
-            || ('core/gallery' === ($block['blockName'] ?? null) && isset($block['attrs']['metadata'][AuthoredCarouselGalleryContract::METADATA_KEY]))) $found[] = $block;
+        if (null !== AuthoredCarouselGalleryContract::carouselAttributes($block)) $found[] = $block;
         $found = array_merge($found, $carousels($block['innerBlocks'] ?? array()));
     }
     return $found;
