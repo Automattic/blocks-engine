@@ -233,10 +233,36 @@ final class ColumnsPattern implements PatternRecognizerInterface
         // they can name a full-width content wrapper in normal document flow.
         // Split-layout names describe two-pane structures. Multi-child content
         // stacks such as hero copy must stay groups so source CSS controls flow.
-        return ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::childElementCount($element) )
+        return $this->namesColumnsContainer($element)
+            || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::childElementCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element, $referenceViewportStyle) )
             || $this->hasSidebarAndContentChildren($element, $referenceViewportStyle)
             || in_array(CssValueInspector::declared(SourceDeclarations::parse($inlineStyle), 'display'), array( 'flex', 'inline-flex' ), true);
+    }
+
+    /**
+     * A complete plural `columns` class names a row of column boxes, but only
+     * when every child is a box container. The singular `column` names one
+     * item (Drupal Zen's `#content.column`), and headings, paragraphs or
+     * navigation children are flow content, not columns.
+     */
+    private function namesColumnsContainer(DOMElement $element): bool
+    {
+        if ( ! preg_match('/(?:^|\s)columns(?:$|\s)/', strtolower(SourceDom::attr($element, 'class'))) ) {
+            return false;
+        }
+        $children = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof \DOMText && '' === trim($child->textContent) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'div', 'section', 'aside' ), true) ) {
+                return false;
+            }
+            ++$children;
+        }
+
+        return $children >= 2;
     }
 
     private function looksLikeSplitLayout(DOMElement $element): bool
