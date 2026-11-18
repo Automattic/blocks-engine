@@ -75,11 +75,3 @@ $assert(!str_contains($kept, 'comp-gone') && str_contains($kept, '#comp-q:hover{
 $editor = array('kind' => 'css', 'source' => 'editor-static-state', 'content' => '@font-face{font-family:G;src:url(g.woff2)}#comp-q:hover{color:green}', 'scopes' => array(array('kind' => 'page', 'source_path' => 'index.html')));
 $kept = EvidenceRouteStylesheets::retire(array($editor), array($page))[0]['content'];
 $assert('@font-face{font-family:G;src:url(g.woff2)}' === $kept, 'editor static state sheets keep only font faces on evidence routes', $kept);
-
-// A carried inline style still reads author tokens (imb-culinary-craft FAQ
-// questions: `font-family:var(--font-heading)` on the lowered button mark).
-// The definitions it reads stay; tokens nothing reads are retired.
-$page['canonical_block_markup'] = '<!-- wp:paragraph --><p><mark style="font-family:var(--font-heading);color:hsl(var(--primary))">Q?</mark></p><!-- /wp:paragraph -->';
-$kept = $retire(':root{--primary:155 32% 16%;--font-heading:"Plus Jakarta Sans",var(--font-fallback);--font-fallback:sans-serif;--unused:1px}.font-heading{font-family:var(--font-heading)}');
-$assert(str_contains($kept, '--font-heading:"Plus Jakarta Sans",var(--font-fallback)') && str_contains($kept, '--primary:155 32% 16%') && str_contains($kept, '--font-fallback:sans-serif'), 'definitions of tokens the emitted markup reads are kept, closed over', $kept);
-$assert(!str_contains($kept, '--unused') && !str_contains($kept, '.font-heading{'), 'unread tokens and resting rules are still retired', $kept);

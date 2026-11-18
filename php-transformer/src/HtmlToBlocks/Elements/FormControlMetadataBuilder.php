@@ -567,6 +567,17 @@ final class FormControlMetadataBuilder
             $carrier = FormPresentationGraphBuilder::soleTextCarrier($control);
             if ($carrier instanceof DOMElement) {
                 $typography = $this->contextTypography($carrier);
+                // The provider flattens the caption onto the control. Its source
+                // class no longer supplies inherited tracking after that move.
+                // Carry a capture-invariant value only; responsive tracking must
+                // remain with the presentation graph's viewport rules.
+                $tracking = array();
+                foreach ($this->session?->boxTreeEvidence($carrier) ?? array() as $observation) {
+                    $tracking[] = $observation['used_styles']['letter-spacing'] ?? null;
+                }
+                if (array() !== $tracking && null !== $tracking[0] && 1 === count(array_unique($tracking))) {
+                    $typography['letter_spacing'] = $tracking[0];
+                }
                 $declarations = array();
                 foreach ($typography as $property => $value) {
                     $declarations[str_replace('_', '-', $property)] = $value;
