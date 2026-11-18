@@ -53,6 +53,8 @@ $assert(str_contains(implode(';', $bodies('.display')), 'font-size') && str_cont
 $nonHeading = implode(';', $bodies('.display:not(:where(h1,h2,h3,h4,h5,h6))'));
 $assert(str_contains($nonHeading, 'font-family') && str_contains($nonHeading, 'Playfair Display'), 'Non-heading .display elements keep the author font.');
 $mono = implode(';', $bodies('.mono'));
-$assert(1 === preg_match('/font-family:[^;]*"Courier New"/', $mono), 'The different-font heading keeps its font-family declaration.');
+// A stack the theme holds as a preset is read through that preset alone.
+$monoFamily = preg_match('/font-family:var\(--wp--preset--font-family--([a-z0-9-]+)\)/', $mono, $preset) ? ($families[$preset[1]] ?? '') : $mono;
+$assert(str_contains($monoFamily, 'Courier New'), 'The different-font heading keeps its font-family declaration: ' . $mono);
 
 echo "Heading font global style contract passed.\n";

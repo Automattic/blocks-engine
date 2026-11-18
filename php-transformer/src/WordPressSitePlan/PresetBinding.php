@@ -1270,6 +1270,14 @@ final class PresetBinding
     }
 
     /** Compare complete stacks, not just the primary family. */
+    private function presetHoldsFamily(string $slug, string $family): bool
+    {
+        foreach ($this->system->fontFamilies as $preset) {
+            if ($preset['slug'] === $slug) return $this->sameFont($family, $preset['fontFamily']);
+        }
+        return false;
+    }
+
     private function sameFont(string $a, string $b): bool
     {
         return '' !== DesignSystem::familyKey($a) && DesignSystem::familyKey($a) === DesignSystem::familyKey($b)
@@ -1470,8 +1478,10 @@ final class PresetBinding
             foreach ($this->system->fontFamilies as $preset) {
                 if (null !== $slug && $preset['slug'] === $slug && $this->sameFont($family, $preset['fontFamily'])) {
                     ++$this->bound;
+                    // The stack is the preset's own value, which theme.json
+                    // always defines: a fallback would restate it.
                     return self::sourcePresets($parts[0]) . ':' . self::sourcePresets(substr($value, 0, $familyOffset))
-                        . 'var(--wp--preset--font-family--' . $slug . (0 === $familyOffset ? ',' . self::sourcePresets($family) : '') . ')' . $important;
+                        . 'var(--wp--preset--font-family--' . $slug . ')' . $important;
                 }
             }
         }
@@ -1512,7 +1522,11 @@ final class PresetBinding
         // font size, not the document's root, so such a preset would rescale it.
         if ($rootSelector && 'font-size' === $kind && self::rootRelativePreset($this->system->fontSizes, $slug)) return $declaration;
         ++$this->bound;
-        return self::sourcePresets($parts[0]) . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . ',' . self::sourcePresets($value) . ')' . $important;
+        // A font stack the preset already holds needs no fallback: theme.json
+        // defines every font-family preset, so the restated stack is dead
+        // weight repeated on every rule. A different stack stays the fallback.
+        $fallback = 'font-family' === $kind && $this->presetHoldsFamily($slug, $value) ? '' : ',' . self::sourcePresets($value);
+        return self::sourcePresets($parts[0]) . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . $fallback . ')' . $important;
     }
 
     /**
