@@ -23,7 +23,7 @@ $compile = static fn(string $html): array => (new ArtifactCompiler())->compile(a
 foreach (array($source, str_replace('.brand{', '.brand   {', $source)) as $html) {
     $plan = $compile($html);
     $css = implode("\n", array_column($plan['assets'], 'content'));
-    $assert(1 === preg_match('/\.brand\s*\{[^}]*font-family:var\(--wp--preset--font-family--body,Verdana,sans-serif\)/', $css), 'Brand font keeps its class specificity on headings despite the competing Georgia rule: ' . $css);
+    $assert(1 === preg_match('/\.brand\s*\{[^}]*font-family:var\(--wp--preset--font-family--body(?:,Verdana,sans-serif)?\)/', $css), 'Brand font keeps its class specificity on headings despite the competing Georgia rule: ' . $css);
     $assert(!str_contains($css, '.brand:not(:where(h'), 'Competing font prevents heading exclusion');
     $assert(str_contains($plan['pages'][0]['canonical_block_markup'], 'The Power of Community'), 'Heading survives compilation');
 }

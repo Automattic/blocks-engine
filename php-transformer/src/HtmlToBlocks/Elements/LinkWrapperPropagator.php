@@ -270,7 +270,11 @@ final class LinkWrapperPropagator
     }
 
     /**
-     * Give a card one editable destination, preferring its first heading.
+     * Give a card one editable destination, preferring its first heading,
+     * then its first authored text block. A synthetic paragraph wraps loose
+     * inline content (a badge or eyebrow span) and never names the card, so
+     * it does not carry the destination; without an authored carrier the
+     * card keeps its source wrapper.
      *
      * @param array<int, array<string, mixed>> $blocks
      * @param array<string, string> $linkAttrs
@@ -299,7 +303,9 @@ final class LinkWrapperPropagator
             if ( in_array($name, self::LINK_SELF_MANAGING_BLOCKS, true) ) {
                 continue;
             }
-            if ( in_array($name, $names, true) && $this->propagateInlineLink($block, $linkAttrs) ) {
+            if ( in_array($name, $names, true)
+                && ! str_contains((string) ($block['attrs']['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS)
+                && $this->propagateInlineLink($block, $linkAttrs) ) {
                 return true;
             }
             if ( isset($block['innerBlocks']) && $this->propagateFirstTextLink($block['innerBlocks'], $linkAttrs, $names) ) {

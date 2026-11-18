@@ -82,8 +82,8 @@ $rows = array(
     array('a transparent text shadow inherits like none', array('text-shadow' => 'rgba(0, 0, 0, 0) 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px'), array(), 'core/group', array(), array('text-shadow')),
     // Longhands that do not apply to the box.
     array('flex container longhands need a flex box', array('justify-content' => 'normal'), array(), 'core/group', array(), array('flex-wrap', 'justify-content', 'row-gap')),
-    array('a flex box keeps longhands core flex layout sets', array('display' => 'flex'), array(), 'core/group', array('flex-wrap:nowrap', 'align-items:normal', 'row-gap:normal'), array('align-content', 'grid-auto-flow')),
-    array('a grid box keeps its template and gaps', array('display' => 'grid', 'grid-template-rows' => '40px'), array(), 'core/group', array('grid-template-columns:none', 'grid-template-rows:40px', 'column-gap:normal'), array('grid-auto-flow', 'justify-items', 'flex-wrap')),
+    array('a flex box keeps longhands core flex layout sets', array('display' => 'flex'), array(), 'core/group', array('flex-wrap:nowrap', 'align-items:normal', 'gap:normal'), array('align-content', 'grid-auto-flow')),
+    array('a grid box keeps its template and gaps', array('display' => 'grid', 'grid-template-rows' => '40px'), array(), 'core/group', array('grid-template-columns:none', 'grid-template-rows:40px', 'gap:normal'), array('grid-auto-flow', 'justify-items', 'flex-wrap')),
     array('item longhands need a flex or grid parent', array('flex-basis' => '50%'), array(), 'core/group', array(), array('flex-basis', 'align-self', 'grid-column-start')),
     array('grid items keep placement but drop flex sizing', array('flex-basis' => '50%', 'grid-column-start' => '2', 'min-width' => '0px'), array('display' => 'grid'), 'core/group', array('grid-column-start:2', 'min-width:0px'), array('flex-basis', 'grid-row-start', 'order')),
     array('offsets need a positioned box', array('top' => '12px'), array(), 'core/group', array(), array('top:')),

@@ -43,7 +43,11 @@ final class CopyToClipboardConverter implements ElementConverter
 
         $copyText = $this->resolveCopyText($element);
         if ( '' === $copyText ) {
-            $fallbacks[] = FallbackDiagnostic::build(array(
+            // The control still lowers natively; nothing falls back to raw HTML,
+            // so the lost copy behavior is a conversion diagnostic, not a fallback.
+            $this->session->transformationEvidenceState()->recordConversionDiagnostic(FallbackDiagnostic::build(array(
+                'code' => 'interactive_control_behavior_lost',
+                'severity' => 'warning',
                 'type' => 'html',
                 'reason' => 'interactive_control_behavior_lost',
                 'diagnostic_code' => 'interactive_control_behavior_lost',
@@ -56,7 +60,7 @@ final class CopyToClipboardConverter implements ElementConverter
                     'parent_tag' => SourceDom::closestTagName($element) ?? '',
                     'ancestor_tags' => SourceDom::ancestorTags($element),
                 ),
-            ));
+            )));
 
             return ConversionOutcome::unhandled();
         }

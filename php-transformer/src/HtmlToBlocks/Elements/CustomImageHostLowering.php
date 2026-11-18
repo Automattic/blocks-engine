@@ -38,7 +38,8 @@ final class CustomImageHostLowering implements ElementConverter
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
         private readonly AuthorLayoutOwnership $authorLayoutOwnership,
         private readonly ImageDimensionResolver $imageDimensions,
-        private readonly ImageUrlResolver $imageUrls
+        private readonly ImageUrlResolver $imageUrls,
+        private readonly RenderNeutralElements $renderNeutral
     ) {
     }
 
@@ -113,14 +114,18 @@ final class CustomImageHostLowering implements ElementConverter
         // image. In particular an id and captured image metadata are not a
         // reason to make the image itself an opaque HTML editing surface.
         $this->session->authorSelectorProjectionState()->ensureTagMarker(strtolower($host->tagName));
+        $hasPicture = $picture instanceof DOMElement && $picture !== $host;
         $wrappers = array($host);
-        if ($picture instanceof DOMElement && $picture !== $host) {
+        // A source-less picture only selects its lone image. Without identity,
+        // presentation, or selectors that depend on it, its box is the image's
+        // own and a native container for it is an extra List View level.
+        if ($hasPicture && ! $this->isNeutralPictureBox($host, $picture, $image)) {
             $wrappers[] = $picture;
         }
         // Captured metadata describes a retained CSS-owned box. Uncaptured
         // geometry still needs the presentation carrier's intrinsic-height
         // folding when its visual layer is positioned out of flow.
-        if (count($wrappers) === 1 && ! $host->hasAttribute('data-image-info')
+        if (! $hasPicture && ! $host->hasAttribute('data-image-info')
             && ! $this->canGroupPicturelessImageHost($host, $image, $link)) {
             return $this->layoutShells->blockForElements($wrappers, array($block), $host);
         }
@@ -133,6 +138,52 @@ final class CustomImageHostLowering implements ElementConverter
             $block['_native_custom_wrapper_hook'] = true;
         }
         return $block;
+    }
+
+    /**
+     * Whether a source-less picture contributes nothing beyond its image: no
+     * identity, behavior or presentation, and no selector that reaches the
+     * image through it.
+     */
+    private function isNeutralPictureBox(DOMElement $host, DOMElement $picture, DOMElement $image): bool
+    {
+        if (1 !== SourceDom::childElementCount($picture) || '' !== trim(SourceDom::attr($picture, 'id'))) {
+            return false;
+        }
+        foreach ($picture->attributes as $attribute) {
+            $name = strtolower($attribute->name);
+            if (in_array($name, array('class', 'style'), true)) {
+                continue;
+            }
+            if (! str_starts_with($name, 'data-') || DataAttributeReferences::isReferenced($this->session, $picture, $name)) {
+                return false;
+            }
+        }
+        // An offsetless relative picture is only a containing block and a
+        // paint layer. Inside a positioned host, around an in-flow image,
+        // neither changes what renders.
+        $outOfFlow = array('absolute', 'fixed', 'sticky');
+        $hostPosition = $this->positionOf($host);
+        $inertPositioning = '' !== $hostPosition && 'static' !== $hostPosition
+            && ! in_array($this->positionOf($image), $outOfFlow, true);
+        if (! $this->renderNeutral->isRenderNeutralWrapper($picture, true, true, $inertPositioning)) {
+            return false;
+        }
+        // Rules addressed through the picture (`picture > img`) would stop
+        // matching the image once the box is gone.
+        foreach ($this->session->authorStyleRuleCandidates($image) as $candidate) {
+            if (1 === preg_match('/(?<![\w-])picture(?![\w-])/i', (string) $candidate['selector'])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function positionOf(DOMElement $element): string
+    {
+        return strtolower(trim(CssValueInspector::withoutImportant(
+            (string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? '')
+        )));
     }
 
     /** Keep links, geometry and out-of-flow topology on the existing carrier. */
