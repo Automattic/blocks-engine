@@ -280,7 +280,9 @@ final class SitePlanRun
         $assets = SharedChromeStylesheets::project($assets, array_merge($parts, $frameParts), $pages, $this->references, $assetTargetCollisions, $liveElementMarkers);
         $assets = DeadElementMarkers::withoutDeadSelectors($assets, $liveElementMarkers);
         // Removing dead selectors can consume a generated sheet's last rule.
-        $assets = array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['source'] ?? '', array('engine-support', 'editor-static-state', 'wordpress-compat'), true) || !is_string($asset['content'] ?? null) || '' !== trim($asset['content'])));
+        // Nothing delivers through a generated sheet, so it goes here; source
+        // sheets wait until delivery is final.
+        $assets = array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['source'] ?? '', array('engine-support', 'editor-static-state', 'wordpress-compat'), true) || !EmptyStylesheets::isEmpty($asset)));
         foreach ($assetTargetCollisions as $collision) $this->unitFindings->record(array(
             'code' => 'wordpress_site_plan_colliding_asset_target',
             'unit' => 'asset',
@@ -363,6 +365,11 @@ final class SitePlanRun
         // in `block_markup`: their figures are emitted too.
         $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
+        // Bytes and delivery are final: a sheet left empty is neither written
+        // nor enqueued, unless it still carries route selection or a reference.
+        $emptyStylesheets = EmptyStylesheets::elide($assets, array('pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'patterns' => $syncedPatterns, 'menus' => $menus), $pages, $rootDocuments, (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme']), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        ['assets' => $assets, 'document_sets' => ['pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'patterns' => $syncedPatterns, 'menus' => $menus]] = $emptyStylesheets;
+        $tokens = array_values(array_filter($tokens, static fn(array $token): bool => !isset($emptyStylesheets['tokens'][$token['token']])));
         // Layout findings name the engine classes of the part they occurred in.
         $data['diagnostics'] = self::withTemplatePartAttribution($data['diagnostics'], $parts);
         // Stylesheets are final: a selector hook that no stylesheet or script
@@ -390,23 +397,10 @@ final class SitePlanRun
         $scriptLoading = DocumentScripts::loading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         // Core hosts are a publication format, not the DOM used for shared
         // stylesheet reachability, presets, or shell extraction.
-        $publishCarousels = static function (array $rows): array {
-            foreach ($rows as &$row) {
-                foreach (array('canonical_block_markup', 'resolved_block_markup') as $key) {
-                    if (!is_string($row[$key] ?? null) || !str_contains($row[$key], '/authored-carousel')) continue;
-                    $row[$key] = \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract::publishMarkup($row[$key]);
-                }
-                if (isset($row['content_hash'], $row['canonical_block_markup'])) $row['content_hash'] = WordPressSitePlan::contentHash($row['canonical_block_markup']);
-            }
-            unset($row);
-            return $rows;
-        };
-        $pages = $publishCarousels($pages);
-        $parts = $publishCarousels($parts);
-        $templates = $publishCarousels($templates);
-        $syncedPatterns = $publishCarousels($syncedPatterns);
+        ['pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'synced_patterns' => $syncedPatterns, 'declarations' => $runtimeDeclarations, 'records' => $runtimeEntityRecords] = self::withPublishedCarousels(array('pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'synced_patterns' => $syncedPatterns), $runtimeDeclarations, $runtimeEntityRecords);
         $operations = PageOperations::plan($pages);
-        $writes = array_merge(ThemeScaffold::writes($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $this->runtimeEmoji, $rootDocuments), $assetWrites);
+        $bootstrap = ThemeBootstrap::bootstrap($assets, $scriptLoading['scripts'], $parts, $tokens, $templates, $pages, $menus, $this->runtimeEmoji, $rootDocuments);
+        $writes = array_merge(ThemeScaffold::writes($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages, $menus, $this->runtimeEmoji, $rootDocuments, $bootstrap['source']), $assetWrites);
         $unitFindings = array_merge($this->unitFindings->diagnostics(), NavigationInstanceDiagnostics::collect($assets, $navigationMarkup));
         $recoveryDiagnostics = array_merge($this->routeTable->diagnostics(), $this->links->diagnostics(), $themeAssetWrites->diagnostics(), $this->heads->diagnostics(), $unitFindings, $this->missingMedia->diagnostics(), $this->missingFonts->diagnostics(), $this->missingImports->diagnostics(), $eventDiagnostics, $paginationDiagnostics);
         // All shell, navigation, listing and script binding projection is now
@@ -450,14 +444,14 @@ final class SitePlanRun
             'author_entities' => array_values(array_filter($taxonomyProjection['entities'], static fn(array $entity): bool => 'author' === $entity['kind'])),
             'navigation_links' => $this->input->navigationLinks,
             'menus' => $menus,
-            'theme' => array_merge($this->runtimeEmoji ? array('runtime_emoji' => 'wordpress') : array(), array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'design_token_provenance' => $themeProjection['provenance']), $rootDocuments ? array('document_roots' => $rootDocuments) : array(), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $this->input->fontMaterialization ? array() : array('font_materialization' => $this->input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array(), (int) ($this->compiled['source_css_bytes'] ?? 0))))),
+            'theme' => array_merge($this->runtimeEmoji ? array('runtime_emoji' => 'wordpress') : array(), array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => 'functions.php', 'bootstrap_units' => $bootstrap['units'], 'design_token_provenance' => $themeProjection['provenance']), $rootDocuments ? array('document_roots' => $rootDocuments) : array(), null !== ($themeProjection['responsive_breakpoints'] ?? null) ? array('responsive_breakpoints' => $themeProjection['responsive_breakpoints']) : array(), array() === $this->input->fontMaterialization ? array() : array('font_materialization' => $this->input->fontMaterialization), null === $this->designSystem ? array() : array('design_system' => $this->designSystem->report() + array('metrics' => $this->designSystem->metrics(self::markups(array_merge($pages, $templates, $parts)), $assets, array_merge(self::markups(array_merge($pages, $templates)), ...array_fill(0, max(1, count($pages)), self::markups($parts))), $this->presetBinding?->refusals(self::markups(array_merge($pages, $templates, $parts)), array_values(array_map(static fn(array $menu): string => (string) ($menu['block_markup'] ?? ''), $menus))) ?? array(), (int) ($this->compiled['source_css_bytes'] ?? 0))))),
             'visual_repair' => $this->compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
             'runtime_entity_records' => $runtimeEntityRecords,
             'diagnostics' => array_merge($data['diagnostics'], $shellDiagnostics, $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics),
             // A dropped or rewritten unit is a warning on the plan, the same as withFindings().
-            'quality' => array('status' => UnitFindings::status($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true, 'step_timings' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $this->input->coreHtmlFallbackEvidence, 'editability_policy' => $this->editabilityPolicy),
+            'quality' => array('status' => UnitFindings::status($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true, 'step_timings' => true)) + array('empty_asset_count' => EmptyStylesheets::count($assets)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $this->input->coreHtmlFallbackEvidence, 'editability_policy' => $this->editabilityPolicy),
             'reporting' => PlanReporting::summary($pages, $data, $this->input->coreHtmlFallbackEvidence, array_merge($shellDiagnostics, $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), array_merge($this->surfaces, array_values(array_column(array_filter($templates, static fn(array $template): bool => isset($archiveSources[$template['source_path'] ?? ''])), null, 'source_path')))),
         );
         $plan['reference_semantics']['navigation_entities'] = NavigationEntityProjection::REFERENCE_CONTRACT;
@@ -622,6 +616,51 @@ final class SitePlanRun
         }
         $bindings = BindingAnchors::rebased($declarations, $records, $before, $after, static fn (string $markup): string => UnreferencedEngineClasses::without($markup, $dropped));
         return null === $bindings ? null : $units + array('declarations' => $bindings['declarations'], 'records' => $bindings['records']);
+    }
+    /**
+     * Every document with its authored carousels published as core hosts
+     * ({@see AuthoredCarouselGalleryContract::publicationEdits()}). Only the
+     * carousel shells change, so runtime bindings anchored in a document
+     * follow their blocks by the length the shells before them changed. A
+     * document whose bound block contains a carousel shell keeps its
+     * carousels as saved.
+     *
+     * @param array<string,array<int,array<string,mixed>>> $units
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $records
+     * @return array<string,mixed>
+     */
+    private static function withPublishedCarousels(array $units, array $declarations, array $records): array
+    {
+        $edits = array();
+        foreach ($units as $group => $rows) foreach ($rows as $index => $row) {
+            if (!is_string($row['canonical_block_markup'] ?? null)) continue;
+            $documentEdits = \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract::publicationEdits($row['canonical_block_markup']);
+            if (array() !== $documentEdits) $edits[$group . "\0" . $index] = $documentEdits;
+        }
+        foreach ($edits as $key => $documentEdits) {
+            [$group, $index] = explode("\0", $key);
+            $source = $units[$group][$index]['source_path'] ?? null;
+            if (!is_string($source) || array() === $declarations) continue;
+            $markup = $units[$group][$index]['canonical_block_markup'];
+            $rebased = BindingAnchors::rebased($declarations, $records, array($source => $markup), array($source => \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract::applyEdits($markup, $documentEdits)), static fn (string $prefix): string => \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract::applyEdits($prefix, $documentEdits));
+            if (null === $rebased) {
+                unset($edits[$key]);
+                continue;
+            }
+            ['declarations' => $declarations, 'records' => $records] = $rebased;
+        }
+        foreach ($edits as $key => $documentEdits) {
+            [$group, $index] = explode("\0", $key);
+            $row = &$units[$group][$index];
+            foreach (array('canonical_block_markup', 'resolved_block_markup') as $field) {
+                if (!is_string($row[$field] ?? null)) continue;
+                $row[$field] = 'canonical_block_markup' === $field ? \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract::applyEdits($row[$field], $documentEdits) : \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract::publishMarkup($row[$field]);
+            }
+            if (isset($row['content_hash'])) $row['content_hash'] = WordPressSitePlan::contentHash($row['canonical_block_markup']);
+            unset($row);
+        }
+        return $units + array('declarations' => $declarations, 'records' => $records);
     }
     /**
      * Shell extraction already knows the final part markup, so a layout

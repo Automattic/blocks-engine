@@ -79,38 +79,105 @@ final class AuthoredCarouselGalleryContract
      */
     public static function publishMarkup(string $markup): string
     {
+        return self::applyEdits($markup, self::publicationEdits($markup));
+    }
+
+    /**
+     * The byte edits that publish every carousel in `$markup` as its core
+     * host. Each carousel's saved opening (its block comment and the shell
+     * before its first slide) and closing (the shell after its last slide and
+     * its closing comment) are replaced; the slides' bytes and every other
+     * block stay exactly as saved, so the document keeps its block count and
+     * anything anchored to a block outside a carousel shell only moves by the
+     * length the shells before it changed.
+     *
+     * @return list<array{offset:int,length:int,text:string}> Non-overlapping, in document order.
+     */
+    public static function publicationEdits(string $markup): array
+    {
+        if (! str_contains($markup, '/' . self::LOCAL_NAME)) return array();
         $runtime = new Runtime();
-        $publish = static function (array $blocks) use (&$publish): array {
-            foreach ($blocks as &$block) {
-                $block['innerBlocks'] = $publish($block['innerBlocks'] ?? array());
-                $attrs = $block['attrs'] ?? array();
-                $slides = $block['innerBlocks'];
-                $presentation = $attrs['presentation'] ?? 'track';
-                if (! str_ends_with((string) ($block['blockName'] ?? ''), '/' . self::LOCAL_NAME)
-                    || 'src-swap' === $presentation || array() === $slides
-                    || ('slideshow' !== $presentation && 'core/gallery' !== self::hostBlockName($slides))) continue;
-                $chunks = $block['innerContent'] ?? array();
-                // Generated carousels save one opening and closing shell around
-                // the editable slides. Keep those exact, already-rebased bytes.
-                if (count($chunks) !== count($slides) + 2 || !is_string($chunks[0]) || !is_string($chunks[count($chunks) - 1])) continue;
-                $name = self::hostBlockName($slides);
-                $class = 'core/gallery' === $name ? 'wp-block-gallery has-nested-images columns-default is-cropped' : 'wp-block-group';
-                $hostAttrs = array('metadata' => array(self::METADATA_KEY => array('opening' => $chunks[0], 'closing' => $chunks[count($chunks) - 1], 'attributes' => $attrs)));
-                if ('slideshow' === $presentation) {
-                    $hostAttrs['className'] = self::EDITOR_HOST_CLASS;
-                    $class .= ' ' . self::EDITOR_HOST_CLASS;
-                }
-                $tag = 'core/gallery' === $name ? 'figure' : 'div';
-                $opening = '<' . $tag . ' class="' . $class . '">';
-                $closing = '</' . $tag . '>';
-                $block = array('blockName' => $name, 'attrs' => $hostAttrs, 'innerBlocks' => $slides,
-                    'innerHTML' => $opening . $closing,
-                    'innerContent' => array_merge(array($opening), array_fill(0, count($slides), null), array($closing)));
-            }
-            unset($block);
-            return $blocks;
-        };
-        return $runtime->serializeBlocks($publish($runtime->parseBlocks($markup)));
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $names = array();
+        foreach ($index->tokens() as $token) if (! $token['closing']) $names[$token['offset']] = $token;
+        $edits = array();
+        foreach ($index->ranges() as $range) {
+            $token = $names[$range['offset']] ?? null;
+            if (null === $token || ! str_ends_with($token['name'], '/' . self::LOCAL_NAME)) continue;
+            $children = $index->children($range);
+            if (array() === $children) continue;
+            $parsed = $runtime->parseBlocks(substr($markup, $range['offset'], $range['length']));
+            $block = $parsed[0] ?? null;
+            if (! is_array($block) || null === ($host = self::publishedHost($block))) continue;
+            $first = $children[0]['offset'];
+            $last = end($children);
+            $lastEnd = $last['offset'] + $last['length'];
+            $end = $range['offset'] + $range['length'];
+            $closingComment = '<!-- /wp:' . (str_starts_with($host['blockName'], 'core/') ? substr($host['blockName'], 5) : $host['blockName']) . ' -->';
+            $serialized = $runtime->serializeBlocks(array(array('blockName' => $host['blockName'], 'attrs' => $host['attrs'], 'innerBlocks' => array(), 'innerHTML' => $host['opening'] . $host['closing'], 'innerContent' => array($host['opening'], $host['closing']))));
+            $tail = $host['closing'] . $closingComment;
+            if (! str_ends_with($serialized, $tail)) continue;
+            $edits[] = array('offset' => $range['offset'], 'length' => $first - $range['offset'], 'text' => substr($serialized, 0, strlen($serialized) - strlen($tail)));
+            $edits[] = array('offset' => $lastEnd, 'length' => $end - $lastEnd, 'text' => $tail);
+        }
+        usort($edits, static fn (array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        return $edits;
+    }
+
+    /**
+     * `$markup` with the edits of {@see publicationEdits()} that end within it
+     * applied; a prefix of a document is published as far as it reaches.
+     *
+     * @param list<array{offset:int,length:int,text:string}> $edits
+     */
+    public static function applyEdits(string $markup, array $edits): string
+    {
+        $published = '';
+        $cursor = 0;
+        foreach ($edits as $edit) {
+            if ($edit['offset'] + $edit['length'] > strlen($markup)) break;
+            $published .= substr($markup, $cursor, $edit['offset'] - $cursor) . $edit['text'];
+            $cursor = $edit['offset'] + $edit['length'];
+        }
+        return $published . substr($markup, $cursor);
+    }
+
+    /**
+     * The core host a parsed carousel block publishes as, with the wrapper
+     * its saved shell is replaced by; null when the block stays as it is.
+     *
+     * @param array<string, mixed> $block
+     * @return array{blockName:string,attrs:array<string,mixed>,opening:string,closing:string}|null
+     */
+    private static function publishedHost(array $block): ?array
+    {
+        if (! str_ends_with((string) ($block['blockName'] ?? ''), '/' . self::LOCAL_NAME)) return null;
+        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        $slides = array_map(static fn (array $slide): array => array('blockName' => self::publishedName($slide)), array_values(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array()));
+        $presentation = $attrs['presentation'] ?? 'track';
+        if ('src-swap' === $presentation || array() === $slides
+            || ('slideshow' !== $presentation && 'core/gallery' !== self::hostBlockName($slides))) return null;
+        $chunks = is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array();
+        // Generated carousels save one opening and closing shell around
+        // the editable slides. Keep those exact, already-rebased bytes.
+        if (count($chunks) !== count($slides) + 2 || ! is_string($chunks[0]) || ! is_string($chunks[count($chunks) - 1])) return null;
+        foreach (array_slice($chunks, 1, -1) as $chunk) if (null !== $chunk) return null;
+        $name = self::hostBlockName($slides);
+        $class = 'core/gallery' === $name ? 'wp-block-gallery has-nested-images columns-default is-cropped' : 'wp-block-group';
+        $hostAttrs = array('metadata' => array(self::METADATA_KEY => array('opening' => $chunks[0], 'closing' => $chunks[count($chunks) - 1], 'attributes' => $attrs)));
+        if ('slideshow' === $presentation) {
+            $hostAttrs['className'] = self::EDITOR_HOST_CLASS;
+            $class .= ' ' . self::EDITOR_HOST_CLASS;
+        }
+        $tag = 'core/gallery' === $name ? 'figure' : 'div';
+        return array('blockName' => $name, 'attrs' => $hostAttrs, 'opening' => '<' . $tag . ' class="' . $class . '">', 'closing' => '</' . $tag . '>');
+    }
+
+    /** @param array<string, mixed> $block The block name a parsed block publishes under. */
+    private static function publishedName(array $block): string
+    {
+        $host = self::publishedHost($block);
+        return null === $host ? (string) ($block['blockName'] ?? '') : $host['blockName'];
     }
 
     /**
