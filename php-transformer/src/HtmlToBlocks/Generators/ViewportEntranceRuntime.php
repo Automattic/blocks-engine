@@ -90,6 +90,24 @@ function replayViewportEntrances() {
             else
                 inline.removeProperty('transition');
         }
+        // Engine-owned styles (box-tree routes) never ship the author sheet
+        // that bound the paused animation. When no captured binding exists
+        // anywhere in the subtree, the evidence itself is the animation: hold
+        // its captured frames paused at zero until the entrance starts.
+        const authored = () => element.getAnimations({ subtree: true }).filter((animation) => animation instanceof CSSAnimation &&
+            animation.timeline === document.timeline && state.cssAnimations.some(binding => binding.name === animation.animationName));
+        let replay = null;
+        const hold = () => {
+            replay?.forEach(effect => effect.cancel());
+            replay = state.cssAnimations.map(binding => {
+                const effect = element.animate(binding.frames.map(({ computedOffset, ...frame }) => frame), binding.timing);
+                effect.pause();
+                effect.currentTime = 0;
+                return effect;
+            });
+        };
+        if (state.cssAnimations && Array.isArray(state.cssAnimations) && state.cssAnimations.every(binding => Array.isArray(binding?.frames) && binding.timing) && !authored().length)
+            hold();
         let running = false, complete = false;
         // A lost lifecycle settles on the after pose: the before pose is a
         // hidden pending state, and nothing will ever play it to completion.
@@ -98,15 +116,16 @@ function replayViewportEntrances() {
             observer.disconnect();
             running = false;
             complete = true;
+            replay?.forEach(effect => effect.cancel());
             apply('after');
         };
         const start = () => {
             if (running || complete)
                 return;
-            const effects = element.getAnimations().filter((animation) => animation instanceof CSSAnimation &&
+            const effects = replay ?? element.getAnimations().filter((animation) => animation instanceof CSSAnimation &&
                 animation.timeline === document.timeline && state.cssAnimations.some(binding => binding.name === animation.animationName));
             const signatures = effects.map(effect => signature({ name: effect.animationName, timing: effect.effect?.getTiming(), frames: effect.effect.getKeyframes() })).sort();
-            if (JSON.stringify(signatures) !== JSON.stringify(state.cssAnimations.map(binding => signature(binding)).sort()) ||
+            if ((!replay && JSON.stringify(signatures) !== JSON.stringify(state.cssAnimations.map(binding => signature(binding)).sort())) ||
                 effects.some(effect => effect.playState !== 'paused' || effect.currentTime !== 0)) {
                 lose('authored paused CSS animation binding changed');
                 return;
@@ -138,6 +157,8 @@ function replayViewportEntrances() {
                     const side = entry.boundingClientRect.top >= (entry.rootBounds?.top ?? 0) ? 'below' : 'above';
                     if (!Array.isArray(state.repeatSides) || state.repeatSides.includes(side)) {
                         apply('before');
+                        if (replay)
+                            hold();
                         complete = false;
                     }
                 }
@@ -171,10 +192,11 @@ function replayViewportEntrances() {
         reduced.addEventListener('change', event => {
             if (event.matches) {
                 observer.disconnect();
+                replay?.forEach(effect => effect.cancel());
                 apply('after');
             }
         });
-        } catch (_) { apply('after'); }
+        } catch (_) { element.getAnimations().forEach(effect => effect instanceof CSSAnimation || effect instanceof CSSTransition || effect.cancel()); apply('after'); }
     }
 }
 
