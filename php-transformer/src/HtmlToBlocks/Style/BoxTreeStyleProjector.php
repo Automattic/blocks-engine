@@ -60,7 +60,7 @@ final class BoxTreeStyleProjector
         $consumed = SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
-        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true);
+        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents);
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
@@ -96,7 +96,7 @@ final class BoxTreeStyleProjector
             $declarations[$key] = $this->kept($typography[$key]['used_styles'], $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, array_intersect_key($fluid, $properties));
-        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $typography, $viewports, $bands, false), $state);
+        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $typography, $viewports, $bands, false, $parents), $state);
     }
 
     /**
@@ -131,16 +131,29 @@ final class BoxTreeStyleProjector
         return $bands;
     }
 
-    /** The base rule, then each narrower capture's delta, then the lifted bands. */
-    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos): string
+    /**
+     * The base rule, then each narrower capture's delta, then the lifted bands.
+     *
+     * @param array<string, array<string, mixed>> $parents The block parent's observations, by viewport key.
+     */
+    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array()): string
     {
         $baseKey = $keys[0];
         $css = $this->rule(self::SELECTOR, $base);
         $effective = $declarations[$baseKey];
         $pseudoEffective = array();
         if ($pseudos) $css .= $this->pseudoRules($observations[$baseKey], $pseudoEffective);
-        foreach (array_slice($keys, 1) as $key) {
+        foreach (array_slice($keys, 1) as $index => $key) {
             $delta = $this->delta($effective, $declarations[$key], $status[$key], $observations[$key]['used_styles']);
+            // A box hidden across this rule's whole range renders none of the
+            // rest, and one inside a parent hidden at this capture is not
+            // rendered there, so its captured values are no layout evidence:
+            // only its display is restated, and narrower captures restate
+            // against the rules that still apply.
+            $narrower = $keys[$index + 2] ?? null;
+            if ('none' === ($parents[$key]['used_styles']['display'] ?? null) || $this->hiddenThroughout(array_replace($effective, $delta)['display'] ?? null, $observations[$key]['used_styles']['display'] ?? null, (float) $viewports[$key]['width'], null === $narrower ? 0.0 : (float) $viewports[$narrower]['width'], $bands)) {
+                $delta = array_intersect_key($delta, array('display' => true));
+            }
             $effective = array_replace($effective, $delta);
             $pseudo = $pseudos ? $this->pseudoRules($observations[$key], $pseudoEffective) : '';
             if (array() === $delta && '' === $pseudo) continue;
@@ -152,6 +165,38 @@ final class BoxTreeStyleProjector
             $css .= '@media (max-width:' . $maxWidth . 'px){' . $this->rule(self::SELECTOR, $declared) . '}';
         }
         return $css;
+    }
+
+    /**
+     * Whether a capture's rule, which applies from its own width down to the
+     * next narrower capture's, only ever lands on a `display:none` box. The
+     * lifted bands come after the capture rules, so a band that declares
+     * display wins wherever it applies.
+     *
+     * @param array<int|string, array<string, string>> $bands Band declarations by max-width.
+     */
+    private function hiddenThroughout(?string $display, ?string $observed, float $width, float $narrower, array $bands): bool
+    {
+        if ('none' !== $observed) return false;
+        $switches = array_filter($bands, static fn(array $declared): bool => isset($declared['display']));
+        if (array() === $switches) return 'none' === $display;
+        // The cascade only changes at a band's own max-width.
+        $points = array($width);
+        foreach (array_keys($switches) as $maxWidth) {
+            if ((float) $maxWidth > $narrower && (float) $maxWidth < $width) $points[] = (float) $maxWidth;
+        }
+        foreach ($points as $point) {
+            $winner = $display;
+            $narrowest = INF;
+            foreach ($switches as $maxWidth => $declared) {
+                if ((float) $maxWidth >= $point && (float) $maxWidth < $narrowest) {
+                    $narrowest = (float) $maxWidth;
+                    $winner = $declared['display'];
+                }
+            }
+            if ('none' !== $winner) return false;
+        }
+        return true;
     }
 
     /** Register one carrier per distinct declaration set, not per source node. */
