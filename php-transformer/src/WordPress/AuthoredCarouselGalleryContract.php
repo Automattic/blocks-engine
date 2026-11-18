@@ -17,8 +17,6 @@ final class AuthoredCarouselGalleryContract
 {
     public const LOCAL_NAME = 'authored-carousel';
     public const METADATA_KEY = 'blocksEngineCarousel';
-    /** Transform option that asks for core block publication. */
-    public const TRANSFORM_OPTION = 'carousels_as_core_blocks';
     /** Core blocks that host a carousel's slides. */
     public const HOST_BLOCKS = array('core/gallery', 'core/group');
     /**
@@ -72,6 +70,47 @@ final class AuthoredCarouselGalleryContract
         if (! is_array($shell) || ! is_string($shell['opening'] ?? null) || ! is_string($shell['closing'] ?? null)) return $content;
         if (! preg_match(self::WRAPPER_PATTERN, $content, $match)) return $content;
         return $shell['opening'] . $match[2] . $shell['closing'];
+    }
+
+    /**
+     * Publish only after shared chrome and stylesheet planning have seen the
+     * original stage DOM. Moving it into JSON earlier hides selector carriers
+     * and changes site-wide CSS reachability and preset decisions.
+     */
+    public static function publishMarkup(string $markup): string
+    {
+        $runtime = new Runtime();
+        $publish = static function (array $blocks) use (&$publish): array {
+            foreach ($blocks as &$block) {
+                $block['innerBlocks'] = $publish($block['innerBlocks'] ?? array());
+                $attrs = $block['attrs'] ?? array();
+                $slides = $block['innerBlocks'];
+                $presentation = $attrs['presentation'] ?? 'track';
+                if (! str_ends_with((string) ($block['blockName'] ?? ''), '/' . self::LOCAL_NAME)
+                    || 'src-swap' === $presentation || array() === $slides
+                    || ('slideshow' !== $presentation && 'core/gallery' !== self::hostBlockName($slides))) continue;
+                $chunks = $block['innerContent'] ?? array();
+                // Generated carousels save one opening and closing shell around
+                // the editable slides. Keep those exact, already-rebased bytes.
+                if (count($chunks) !== count($slides) + 2 || !is_string($chunks[0]) || !is_string($chunks[count($chunks) - 1])) continue;
+                $name = self::hostBlockName($slides);
+                $class = 'core/gallery' === $name ? 'wp-block-gallery has-nested-images columns-default is-cropped' : 'wp-block-group';
+                $hostAttrs = array('metadata' => array(self::METADATA_KEY => array('opening' => $chunks[0], 'closing' => $chunks[count($chunks) - 1], 'attributes' => $attrs)));
+                if ('slideshow' === $presentation) {
+                    $hostAttrs['className'] = self::EDITOR_HOST_CLASS;
+                    $class .= ' ' . self::EDITOR_HOST_CLASS;
+                }
+                $tag = 'core/gallery' === $name ? 'figure' : 'div';
+                $opening = '<' . $tag . ' class="' . $class . '">';
+                $closing = '</' . $tag . '>';
+                $block = array('blockName' => $name, 'attrs' => $hostAttrs, 'innerBlocks' => $slides,
+                    'innerHTML' => $opening . $closing,
+                    'innerContent' => array_merge(array($opening), array_fill(0, count($slides), null), array($closing)));
+            }
+            unset($block);
+            return $blocks;
+        };
+        return $runtime->serializeBlocks($publish($runtime->parseBlocks($markup)));
     }
 
     /**

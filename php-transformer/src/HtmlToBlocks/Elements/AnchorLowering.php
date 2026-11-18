@@ -344,31 +344,6 @@ final class AnchorLowering implements ButtonLinkLeftovers
      * on native RichText. Media-led heading cards need a separate visual
      * container; direct-image listings keep their specialized lowering paths.
      */
-    private static function mixesLooseInlineWithBlocks(DOMElement $anchor): bool
-    {
-        foreach ( $anchor->getElementsByTagName('div') as $box ) {
-            $block = false;
-            $inline = false;
-            foreach ( $box->childNodes as $child ) {
-                if ( $child instanceof DOMElement ) {
-                    $tag = strtolower($child->tagName);
-                    if ( in_array($tag, array('div', 'p'), true) ) {
-                        $block = true;
-                    } elseif ( ! in_array($tag, array('img', 'picture', 'svg', 'br'), true) && '' !== trim($child->textContent) ) {
-                        $inline = true;
-                    }
-                } elseif ( XML_TEXT_NODE === $child->nodeType && '' !== trim((string) $child->textContent) ) {
-                    $inline = true;
-                }
-            }
-            if ( $block && $inline ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private function isStretchedLinkCard(DOMElement $anchor): bool
     {
         if ( '' === LinkUrlSanitizer::sanitize(SourceDom::attr($anchor, 'href'))
@@ -427,13 +402,6 @@ final class AnchorLowering implements ButtonLinkLeftovers
             if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true) ) {
                 return false;
             }
-        }
-        // A headingless card carries its destination on its first text. When a
-        // content box mixes loose inline text with authored paragraphs, that
-        // text would become a synthetic paragraph carrier, a block box the
-        // source never had; keep the source link and its content box instead.
-        if ( ! $hasHeading && self::mixesLooseInlineWithBlocks($anchor) ) {
-            return false;
         }
         $hasSummary = false;
         foreach ( $anchor->getElementsByTagName('*') as $descendant ) {

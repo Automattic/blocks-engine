@@ -27,6 +27,12 @@ use DOMElement;
  * - A unitless `line-height` scales with the element's font size: it is
  *   lifted when the observed line height differs between captures and
  *   equals that factor times the observed font size at every capture.
+ * - A `display` keyword winner (`none`, reached directly or through
+ *   `var()`) that equals the observed value at every capture and differs
+ *   between captures is lifted, so a box the author hides below a breakpoint
+ *   (a menu bar that becomes a hamburger) stops rendering at that
+ *   breakpoint rather than at the narrower capture's width. Other keyword
+ *   switches only move layout between captures and keep their pixels.
  * - On a heading, an inherited property with no author winner whose observed
  *   value equals the parent's at every capture, and varies between captures,
  *   is lifted as `inherit`. That overrides the heading's user-agent default
@@ -204,9 +210,10 @@ final class BoxTreeFluidIntent
         $inheriting = in_array($blockName, self::INHERITING_BLOCKS, true);
         $lifted = array();
         foreach ($properties as $property) {
-            $bands = $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents)
+            $bands = ('display' === $property ? $this->liftedDisplay($widths, $samples, $observations) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
                 ?? $this->liftedIntrinsic($property, $widths, $samples)
                 ?? $this->liftedAutoMargin($property, $widths, $samples)
+                ?? $this->liftedMixed($property, $widths, $samples, $observations, $viewports, $parents)
                 ?? ($inheriting ? $this->liftedInheritance($property, $widths, $samples, $observations, $parents) : null);
             if (null !== $bands) $lifted[$property] = $bands;
         }
@@ -223,20 +230,10 @@ final class BoxTreeFluidIntent
         $proven = array();
         $observed = array();
         foreach ($widths as $key => $width) {
-            $value = $this->declared($property, $width);
-            if (null === $value || '' === $value) return null;
-            $factor = 'line-height' === $property && preg_match('/^\d*\.?\d+$/', $value);
-            if (!$factor && !preg_match('/%|\d(?:vw|vh|vmin|vmax|em)\b|\b(?:calc|clamp|min|max)\(/i', $value)) return null;
-            $styles = $observations[$key]['used_styles'] ?? array();
-            $parent = $parents[$key]['used_styles'] ?? array();
-            [$percent, $em] = $this->bases($property, (string) $key, $styles, $parent);
-            $actual = self::pixels((string) ($styles[$property] ?? ''));
-            $predicted = $factor
-                ? (null === $em ? null : (float) $value * $em)
-                : CssFluidLength::evaluate($value, $width, (float) ($viewports[$key]['height'] ?? 0), $percent, $em);
-            if (null === $actual || null === $predicted || abs($actual - $predicted) > self::TOLERANCE) return null;
+            $value = $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents);
+            if (null === $value) return null;
             $proven[$key] = $value;
-            $observed[(string) ($styles[$property] ?? '')] = true;
+            $observed[(string) ($observations[$key]['used_styles'][$property] ?? '')] = true;
         }
         // A unitless line height already equals its pixels at every capture
         // when they agree: only a varying one carries intent pixels lose.
@@ -245,6 +242,77 @@ final class BoxTreeFluidIntent
             $value = $this->declared($property, $width);
             return '' === $value ? null : $value;
         });
+    }
+
+    /** The author's fluid expression at one capture when it reproduces the captured pixels, or null. */
+    private function provedExpression(string $property, string $key, float $width, array $observations, array $viewports, array $parents): ?string
+    {
+        $value = $this->declared($property, $width);
+        if (null === $value || '' === $value) return null;
+        $factor = 'line-height' === $property && preg_match('/^\d*\.?\d+$/', $value);
+        if (!$factor && !self::expression($value)) return null;
+        $styles = $observations[$key]['used_styles'] ?? array();
+        $parent = $parents[$key]['used_styles'] ?? array();
+        [$percent, $em] = $this->bases($property, $key, $styles, $parent);
+        $actual = self::pixels((string) ($styles[$property] ?? ''));
+        $predicted = $factor
+            ? (null === $em ? null : (float) $value * $em)
+            : CssFluidLength::evaluate($value, $width, (float) ($viewports[$key]['height'] ?? 0), $percent, $em);
+        if (null === $actual || null === $predicted || abs($actual - $predicted) > self::TOLERANCE) return null;
+        return $value;
+    }
+
+    /** Whether a value is a viewport-, font- or containing-block-relative expression. */
+    private static function expression(string $value): bool
+    {
+        return 1 === preg_match('/%|\d(?:vw|vh|vmin|vmax|em)\b|\b(?:calc|clamp|min|max)\(/i', $value);
+    }
+
+    /**
+     * A sizing property whose author value switches kind between author
+     * bands (a `%` at the base and `max-content` under a width query): each
+     * capture and each author breakpoint between captures takes the first
+     * lifter that proves it, and the bands are emitted only when every band
+     * holds a capture so proved. Single-kind properties never reach here.
+     *
+     * @param array<string, float> $widths
+     * @param array<string, float> $samples
+     * @return list<array{0: float|null, 1: string}>|null
+     */
+    private function liftedMixed(string $property, array $widths, array $samples, array $observations, array $viewports, array $parents): ?array
+    {
+        if (count($widths) < 2 || !isset(self::INTRINSIC[$property]) && !isset(self::MARGIN_ALIASES[$property])) return null;
+        $auto = function (float $width) use ($property): ?string {
+            if (!isset(self::MARGIN_ALIASES[$property])) return null;
+            foreach (self::MARGIN_ALIASES[$property] as $alias) {
+                if (null !== $this->declared($alias, $width)) return null;
+            }
+            return 'auto' === strtolower((string) $this->declared($property, $width)) ? 'auto' : null;
+        };
+        $intrinsic = fn(float $width): ?string => isset(self::INTRINSIC[$property]) ? $this->intrinsicKeyword($property, $width) : null;
+        $expression = function (float $width) use ($property): ?string {
+            $value = $this->declared($property, $width);
+            return null !== $value && '' !== $value && self::expression($value) ? $value : null;
+        };
+        $proven = array();
+        $kinds = array();
+        foreach ($widths as $key => $width) {
+            $value = $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents);
+            $kind = 'expression';
+            if (null === $value) {
+                $value = $intrinsic($width);
+                $kind = 'intrinsic';
+            }
+            if (null === $value) {
+                $value = $auto($width);
+                $kind = 'auto';
+            }
+            if (null === $value) return null;
+            $proven[$key] = $value;
+            $kinds[$kind] = true;
+        }
+        if (count($kinds) < 2) return null;
+        return $this->bands($widths, $samples, $proven, fn(float $width): ?string => $expression($width) ?? $intrinsic($width) ?? $auto($width));
     }
 
     /**
@@ -339,6 +407,31 @@ final class BoxTreeFluidIntent
         if ('' === trim($value) || preg_match('/\b(?:var|attr|env)\(/i', $value)) return false;
         $tracks = (string) preg_replace('/\[[^\]]*\]/', ' ', strtolower($value));
         return 1 === preg_match('/\b(?:auto|min-content|max-content|fit-content|minmax|auto-fill|auto-fit|subgrid|masonry)\b|\d(?:fr|%|[sld]?v(?:w|h|i|b|min|max))\b|\d%/', $tracks);
+    }
+
+    /**
+     * The author's `display` keyword, proven when it equals the observed
+     * display at every capture. One the captures agree on is already exact;
+     * one that switches between them switches at the author's breakpoint.
+     *
+     * @param array<string, float> $widths
+     * @param array<string, float> $samples
+     * @return list<array{0: float|null, 1: string}>|null
+     */
+    private function liftedDisplay(array $widths, array $samples, array $observations): ?array
+    {
+        $proven = array();
+        foreach ($widths as $key => $width) {
+            $value = strtolower((string) $this->declared('display', $width));
+            if (1 !== preg_match('/^[a-z][a-z-]*$/', $value) || in_array($value, array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) return null;
+            if ($value !== ($observations[$key]['used_styles']['display'] ?? null)) return null;
+            $proven[$key] = $value;
+        }
+        if (count(array_unique($proven)) < 2) return null;
+        return $this->bands($widths, $samples, $proven, function (float $width): ?string {
+            $value = $this->declared('display', $width);
+            return null === $value || '' === $value ? null : strtolower($value);
+        });
     }
 
     /**

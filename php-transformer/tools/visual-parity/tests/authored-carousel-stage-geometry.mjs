@@ -42,7 +42,7 @@ const compile = (fixture) => {
     $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
     $page = $plan['pages'][0] ?? array();
     $definition = (new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\Generators\\AuthoredCarouselBlockGenerator())->definition('custom');
-    $markup = (string) ($page['canonical_block_markup'] ?? '');
+    $markup = Automattic\\BlocksEngine\\PhpTransformer\\WordPress\\AuthoredCarouselGalleryContract::renderMarkup((string) ($page['canonical_block_markup'] ?? ''));
     $support = new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\Style\\EngineSupportCss();
     $supportCss = implode("\\n", array_merge($support->beforeAuthorCss($markup, 'custom/layout-shell'), $support->generatedMarkupRepairCss($markup)));
     $styles = implode("\\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $plan['assets'] ?? array()));

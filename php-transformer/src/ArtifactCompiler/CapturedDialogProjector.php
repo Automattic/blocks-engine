@@ -554,6 +554,7 @@ final class CapturedDialogProjector
             $reason = 0 < $projected ? 'native_dialog_close_replaces_capture_close_helper' : 'native_navigation_submenu_replaces_capture_disclosure';
             $retired = array_merge($retired, $this->retireRecognizedRuntime($document, CaptureEvidence::DISCLOSURE_RUNTIME, $reason));
         }
+        $this->releaseRestingPanelTriggers($document);
 
         $output = HtmlSerialization::documentHtml($document);
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected, 'retired_scripts' => $retired, 'script_bindings' => is_string($output) ? $scriptBindings : null);
@@ -1270,6 +1271,29 @@ final class CapturedDialogProjector
             $parent = $node->parentNode;
             if ($node instanceof DOMElement && $parent instanceof DOMElement && NavigationPattern::ownsCapturedSubmenuTrigger($node)) {
                 $this->consumeMatchedCloseHelper($document, array($node), $parent);
+            }
+        }
+    }
+
+    /**
+     * A disclosure runtime kept for other wiring on the page selects its
+     * triggers by `data-blocks-engine-capture-dialog-trigger`. A trigger bound
+     * to a panel adopted at its resting presentation belongs to that dialog
+     * now, and the panel no longer carries its existing-panel snapshot, so the
+     * runtime would set `hidden` on it wherever the trigger is concealed.
+     * Release such triggers from the kept runtime; the dialog binds them by id.
+     */
+    private function releaseRestingPanelTriggers(DOMDocument $document): void
+    {
+        $xpath = new DOMXPath($document);
+        $runtimes = $xpath->query('//script[@' . CaptureEvidence::DISCLOSURE_RUNTIME . ']');
+        if (!$runtimes || 0 === $runtimes->length) return;
+        foreach ($xpath->query('//*[@data-blocks-engine-captured-dialog="true"][@data-blocks-engine-resting-state]') ?: array() as $dialog) {
+            if (!$dialog instanceof DOMElement) continue;
+            foreach (SourceDom::tokens($dialog->getAttribute('data-blocks-engine-triggers')) as $id) {
+                foreach ($xpath->query('//*[@id=' . $this->xpathLiteral($id) . ']') ?: array() as $trigger) {
+                    if ($trigger instanceof DOMElement) $trigger->removeAttribute(CaptureEvidence::DIALOG_TRIGGER);
+                }
             }
         }
     }

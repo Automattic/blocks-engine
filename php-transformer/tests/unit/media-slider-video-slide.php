@@ -51,7 +51,9 @@ $assert(array() === $collect($result['blocks'], 'core/html'), 'converted media n
 $control = $compile($images);
 $controls = $collect($control['blocks'], 'custom/authored-carousel');
 $assert(1 === count($controls) && 2 === count($controls[0]['innerBlocks']), 'image-only control remains a two-slide carousel');
-$assert('core/gallery' === $controls[0]['blockName'], 'the image-only control is published as an editable core gallery');
+$published = (new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime())->parseBlocks($control['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup']);
+$publishedControls = $collect($published, 'custom/authored-carousel');
+$assert('core/gallery' === ($publishedControls[0]['blockName'] ?? null), 'the image-only control is published as an editable core gallery');
 $assert($controls[0]['innerBlocks'] === array_slice($carousel['innerBlocks'], 0, 2), 'image slides convert exactly as in the image-only control');
 $sourceOnly = $compile($images . str_replace(' src="/v.mp4"><source', '><source', $video));
 $assert(1 === count($collect($sourceOnly['blocks'], 'core/video')) && 1 === count($collect($sourceOnly['blocks'], 'custom/authored-carousel')), 'a native source child also supplies the video');

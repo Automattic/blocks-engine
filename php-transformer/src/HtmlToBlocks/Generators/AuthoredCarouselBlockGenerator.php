@@ -421,7 +421,7 @@ const syncDots = ( root, context ) => {
         const active = index === context.index;
         const item = control.parentElement?.matches( '.blocks-engine-authored-carousel__dots > li' ) ? control.parentElement : control;
         item.hidden = index > maximumIndex( context );
-        ( item.dataset.carouselActiveClasses || '' ).split( /\s+/ ).filter( Boolean ).forEach( ( name ) => item.classList.toggle( name, active ) );
+        ( item === control ? [ item ] : [ item, control ] ).forEach( ( node ) => ( node.dataset.carouselActiveClasses || '' ).split( /\s+/ ).filter( Boolean ).forEach( ( name ) => node.classList.toggle( name, active ) ) );
         control.classList.toggle( 'blocks-engine-authored-carousel__dot--active', active );
         control.setAttribute( 'aria-current', active ? 'true' : 'false' );
     } );
@@ -1734,25 +1734,6 @@ JS;
     private function carouselBlock(GeneratedBlockRegistry $registry, array $attributes, array $slides): array
     {
         $shell = $this->shell($attributes);
-        // A site import publishes a carousel as a core block an editor changes
-        // with core tools: a Gallery of image slides, or a Group of a
-        // slideshow's stacked slides that pair an image with text or a link.
-        // The theme runtime renders the source's navigable stage, recorded
-        // here, around the host's slides.
-        $presentation = $attributes['presentation'] ?? 'track';
-        if (true === $this->session?->publishesCarouselsAsCoreBlocks()
-            && 'src-swap' !== $presentation && array() !== $slides
-            && ('slideshow' === $presentation || 'core/gallery' === AuthoredCarouselGalleryContract::hostBlockName($slides))
-        ) {
-            $createBlock = $this->createBlock ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
-            $host = array('metadata' => array(AuthoredCarouselGalleryContract::METADATA_KEY => $shell + array('attributes' => $attributes)));
-            if ('slideshow' === $presentation) {
-                // The editor shows no stage: the carousel's editor style lays
-                // the stacked slides out in flow, as its own block's editor does.
-                $host['className'] = AuthoredCarouselGalleryContract::EDITOR_HOST_CLASS;
-            }
-            return $createBlock->createBlock(AuthoredCarouselGalleryContract::hostBlockName($slides), $host, $slides);
-        }
         return array(
             'blockName' => $registry->blockName(self::LOCAL_NAME),
             'attrs' => $attributes,
@@ -1914,6 +1895,56 @@ JS;
             array_values(array_filter(SourceDom::boundedClassTokens($classes), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-') || str_starts_with($class, 'blocks-engine-attribute-'))),
             $styleResolver->sourceAttributeSelectorMarkers($element)
         )));
+    }
+
+    /**
+     * A rebuilt element's source classes plus the projection markers the
+     * engine allocated for its source path, the identity any other emitted
+     * source element carries, so scoped author rules projected onto those
+     * markers still bind.
+     *
+     * @return list<string>
+     */
+    private function sourceIdentityTokens(DOMElement $element, StyleResolver $styleResolver): array
+    {
+        return array_values(array_unique(array_merge(
+            $this->sourceClassTokens(SourceDom::attr($element, 'class'), $element, $styleResolver),
+            array_filter($styleResolver->richTextSourceMarkers($element), static fn (string $marker): bool => '' !== $marker)
+        )));
+    }
+
+    /**
+     * Identities for sibling pagination items rebuilt as carousel dots. Each
+     * keeps its source identity, but markers only a source-selected item owns
+     * (its selected-state projection) follow carousel selection instead: they
+     * are returned as toggled markers, and the source-selected item statically
+     * carries the identity of an unselected sibling.
+     *
+     * @param list<DOMElement> $elements
+     * @param list<bool> $sourceActive
+     * @return array{0: list<list<string>>, 1: list<string>}
+     */
+    private function paginationIdentities(array $elements, array $sourceActive, StyleResolver $styleResolver): array
+    {
+        $identities = array_map(fn (DOMElement $element): array => $this->sourceIdentityTokens($element, $styleResolver), $elements);
+        $inactive = array_keys(array_filter($sourceActive, static fn (bool $active): bool => !$active));
+        if (array() === $inactive || count($inactive) === count($elements)) {
+            return array($identities, array());
+        }
+        $shared = array_merge(...array_map(static fn (int $index): array => $identities[$index], $inactive));
+        $activeOnly = array();
+        foreach ($sourceActive as $index => $active) {
+            if ($active) {
+                $activeOnly = array_merge($activeOnly, array_diff($identities[$index], $shared));
+            }
+        }
+        $activeOnly = array_values(array_unique($activeOnly));
+        foreach ($sourceActive as $index => $active) {
+            if ($active) {
+                $identities[$index] = array_values(array_unique(array_merge(array_diff($identities[$index], $activeOnly), $identities[$inactive[0]])));
+            }
+        }
+        return array($identities, $activeOnly);
     }
 
     private function safeInlineStyle(string $style): string
@@ -2151,17 +2182,19 @@ JS;
             return '';
         }
         $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $markup = '<' . strtolower($list->tagName) . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceClassTokens(SourceDom::attr($list, 'class'), $list, $styleResolver))) . '" role="group" aria-label="Choose slide">';
-        foreach ($controls as $control) {
-            if ($control->parentNode !== $list) {
-                continue;
-            }
+        $markup = '<' . strtolower($list->tagName) . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceIdentityTokens($list, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        $controls = array_values(array_filter($controls, static fn (DOMElement $control): bool => $control->parentNode === $list));
+        $activeClasses = array_map(static fn (DOMElement $control): array => $styleResolver->paginationActiveClasses($control), $controls);
+        $sourceActive = array_map(static fn (DOMElement $control, array $classes): bool => array() !== array_intersect(SourceDom::tokens(SourceDom::attr($control, 'class')), $classes), $controls, $activeClasses);
+        [$itemIdentities, $itemActiveMarkers] = $this->paginationIdentities($controls, $sourceActive, $styleResolver);
+        $visuals = array_map(static fn (DOMElement $control): ?DOMElement => $control->firstElementChild, $controls);
+        [$visualIdentities, $visualActiveMarkers] = in_array(null, $visuals, true) ? array(array_fill(0, count($controls), array()), array()) : $this->paginationIdentities($visuals, $sourceActive, $styleResolver);
+        foreach ($controls as $position => $control) {
             $index = $this->slideIndex($control);
-            $visual = $control->firstElementChild;
-            $classes = $visual instanceof DOMElement ? $this->sourceClassTokens(SourceDom::attr($visual, 'class'), $visual, $styleResolver) : array();
-            $activeClasses = $styleResolver->paginationActiveClasses($control);
-            $itemClasses = array_diff($this->sourceClassTokens(SourceDom::attr($control, 'class'), $control, $styleResolver), $activeClasses);
-            $markup .= '<li data-carousel-active-classes="' . $escape(implode(' ', $activeClasses)) . '" class="' . $escape(implode(' ', $itemClasses)) . '"><button type="button" class="blocks-engine-authored-carousel__dot ' . $escape(implode(' ', $classes)) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></button></li>';
+            $itemClasses = array_diff($itemIdentities[$position], $activeClasses[$position]);
+            $markup .= '<li data-carousel-active-classes="' . $escape(implode(' ', array_unique(array_merge($activeClasses[$position], $itemActiveMarkers)))) . '" class="' . $escape(implode(' ', $itemClasses)) . '"><button type="button"'
+                . (array() === $visualActiveMarkers ? '' : ' data-carousel-active-classes="' . $escape(implode(' ', $visualActiveMarkers)) . '"')
+                . ' class="blocks-engine-authored-carousel__dot ' . $escape(implode(' ', $visualIdentities[$position])) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></button></li>';
         }
         return $markup . '</' . strtolower($list->tagName) . '>';
     }
@@ -2216,13 +2249,15 @@ JS;
         }
         $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $tag = in_array(strtolower($container->tagName), array('div', 'nav', 'span', 'p'), true) ? strtolower($container->tagName) : 'div';
-        $markup = '<' . $tag . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceClassTokens(SourceDom::attr($container, 'class'), $container, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        $markup = '<' . $tag . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceIdentityTokens($container, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        $activeClasses = array_map(static fn (DOMElement $bullet): array => $styleResolver->paginationActiveClasses($bullet), $bullets);
+        $sourceActive = array_map(static fn (DOMElement $bullet, array $classes): bool => array() !== array_intersect(SourceDom::tokens(SourceDom::attr($bullet, 'class')), $classes), $bullets, $activeClasses);
+        [$identities, $activeMarkers] = $this->paginationIdentities($bullets, $sourceActive, $styleResolver);
         foreach ($bullets as $index => $bullet) {
             $button = 'button' === strtolower($bullet->tagName);
-            $activeClasses = $styleResolver->paginationActiveClasses($bullet);
-            $classes = array_diff($this->sourceClassTokens(SourceDom::attr($bullet, 'class'), $bullet, $styleResolver), $activeClasses);
+            $classes = array_diff($identities[$index], $activeClasses[$index]);
             $markup .= ($button ? '<button type="button"' : '<span role="button" tabindex="0"')
-                . ' data-carousel-active-classes="' . $escape(implode(' ', $activeClasses)) . '" class="' . $escape(trim('blocks-engine-authored-carousel__dot ' . implode(' ', $classes))) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></' . ($button ? 'button' : 'span') . '>';
+                . ' data-carousel-active-classes="' . $escape(implode(' ', array_unique(array_merge($activeClasses[$index], $activeMarkers)))) . '" class="' . $escape(trim('blocks-engine-authored-carousel__dot ' . implode(' ', $classes))) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></' . ($button ? 'button' : 'span') . '>';
         }
         return $markup . '</' . $tag . '>';
     }

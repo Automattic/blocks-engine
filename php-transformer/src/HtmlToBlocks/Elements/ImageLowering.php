@@ -484,8 +484,19 @@ final class ImageLowering
         if (isset($shape['aspectRatio'])
             && ! $this->imageDimensions->statesAspectRatio((string) ($attrs['width'] ?? ''), (string) ($attrs['height'] ?? ''), (string) $shape['aspectRatio'])
         ) {
+            $intrinsic = array();
             foreach (array( 'width', 'height' ) as $property) {
-                if ($this->imageDimensions->imageDimensionIsIntrinsicAttribute($image, $property)) {
+                $intrinsic[$property] = $this->imageDimensions->imageDimensionIsIntrinsicAttribute($image, $property);
+            }
+            foreach (array( 'width', 'height' ) as $property) {
+                $other = 'width' === $property ? 'height' : 'width';
+                // An HTML dimension is a presentational hint for the CSS
+                // property of the same name. When author CSS states the other
+                // axis and leaves this one alone, the hint is this axis' used
+                // size and aspect-ratio no longer applies (both axes are
+                // definite), so it stays. Only a pair the CSS leaves wholly
+                // to the attributes describes the file rather than the box.
+                if ($intrinsic[$property] && ($intrinsic[$other] || '' === (string) ($attrs[$other] ?? ''))) {
                     // HTML dimensions describe the file, not a stylesheet-owned
                     // crop. Keeping either as a core/image style overrides it.
                     unset($attrs[$property]);
@@ -616,6 +627,17 @@ final class ImageLowering
                 if (null !== $background && '' !== $background) {
                     $attrs['metadata']['blocksEngineVisibleImage'] = array('url' => $this->imageUrls->resolvedAssetUrl($background));
                 }
+            }
+        }
+
+        // A linked image may become a listing card's per-post featured image.
+        // Its authored width/height state the box the card reserved, which the
+        // lowered figure no longer carries once author CSS makes it fluid.
+        if ( $link instanceof DOMElement ) {
+            $intrinsicWidth = trim(SourceDom::attr($image, 'width'));
+            $intrinsicHeight = trim(SourceDom::attr($image, 'height'));
+            if ( 1 === preg_match('/^[1-9]\d{0,5}$/', $intrinsicWidth) && 1 === preg_match('/^[1-9]\d{0,5}$/', $intrinsicHeight) ) {
+                $attrs['metadata'] = array_merge(ArrayField::array($attrs, 'metadata'), array( 'blocksEngineIntrinsicSize' => array( 'width' => (int) $intrinsicWidth, 'height' => (int) $intrinsicHeight ) ));
             }
         }
 
