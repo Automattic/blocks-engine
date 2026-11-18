@@ -515,14 +515,7 @@ final class ArtifactCompiler
         $referenceReports = $this->referenceReports($normalized['files'], $entryPath);
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $entryOwnership = is_array($entry) ? FileOwnership::of($entry) : array('scope' => 'page', 'id' => $entryPath);
-        $generatedAssets = $this->generatedAssetsForDocuments($entryBlocks['assets'], $entryOwnership, $compiledHtmlDocuments, $normalized['files']);
-        $generatedAssetIdentities = array();
-        foreach ($generatedAssets as $asset) $generatedAssetIdentities[hash('sha256', (string) ($asset['path'] ?? '') . "\0" . (string) ($asset['content'] ?? ''))] = true;
-        foreach ($inlineShellCompilation['assets'] as $asset) {
-            $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . (string) ($asset['content'] ?? ''));
-            if (isset($generatedAssetIdentities[$identity])) continue;
-            $generatedAssetIdentities[$identity] = true; $generatedAssets[] = $asset;
-        }
+        $generatedAssets = $this->generatedAssetsForDocuments($entryBlocks['assets'], $entryOwnership, $compiledHtmlDocuments, $normalized['files'], $inlineShellCompilation['assets']);
         $rootInlineAsset = $this->documentInlineStyleAsset($normalized['files'], $authoredFiles);
         if (null !== $rootInlineAsset) $generatedAssets[] = $rootInlineAsset;
         $presentationalHintAsset = $this->documentPresentationalHintAsset($normalized['files']);
@@ -1019,9 +1012,10 @@ final class ArtifactCompiler
      * @param array{scope:string,id:string} $entryOwnership
      * @param array<string,array<string,mixed>> $compiledHtmlDocuments
      * @param array<int,array<string,mixed>> $files
+     * @param array<int,array<string,mixed>> $sharedShellAssets
      * @return array<int,array<string,mixed>>
      */
-    private function generatedAssetsForDocuments(array $entryAssets, array $entryOwnership, array $compiledHtmlDocuments, array $files): array
+    private function generatedAssetsForDocuments(array $entryAssets, array $entryOwnership, array $compiledHtmlDocuments, array $files, array $sharedShellAssets = array()): array
     {
         $assets = array();
         $assetIndexes = array();
@@ -1086,6 +1080,9 @@ final class ArtifactCompiler
                 FileOwnership::of($file)
             );
         }
+        // Identical support bytes may already belong to the evidence page.
+        // Merge the shell's consumers too, rather than dropping its ownership.
+        $append($sharedShellAssets, array('scope' => 'shared'));
 
         return $assets;
     }
@@ -2784,7 +2781,7 @@ final class ArtifactCompiler
             };
             $walk($body);
             foreach ($rows as &$areaRows) foreach ($areaRows as &$row) {
-                $row['source_identity'] = 'markup:' . hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeStackingIdentity::normalize($row['identity']));
+                $row['source_identity'] = 'markup:' . hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity::markup($row['identity']));
                 // Include provenance describes transport, not a different shell.
                 // An expanded include and identical inline markup must share the
                 // same compilation group and its canonical support assets.
@@ -2846,7 +2843,7 @@ final class ArtifactCompiler
                 $open = ''; $close = '';
                 foreach (array_slice($context, 2) as $ancestor) { $open .= '<' . $ancestor['tag'] . SourceShells::attributes($ancestor['attributes']) . '>'; $close = '</' . $ancestor['tag'] . '>' . $close; }
                 $synthetic = '<!doctype html><html' . SourceShells::attributes($context[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . SourceShells::attributes($context[1]['attributes'] ?? array()) . '>' . $open . $canonicalMarkup . $close . '</body></html>';
-                $compiled = $this->compileHtmlDocumentBlocks($synthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($context) - 2));
+                $compiled = $this->compileHtmlDocumentBlocks($synthetic, $evidenceSourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($context) - 2));
                 $generatedBlocks = array_merge($generatedBlocks, $compiled['generated_blocks'] ?? array());
                 $shell = current(array_filter($compiled['shell_artifacts'], static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
                 if (!is_array($shell)) continue;

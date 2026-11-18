@@ -131,10 +131,20 @@ final class SourceShells
         $xpath = new \DOMXPath($dom);
         foreach ($dom->getElementsByTagName('*') as $node) {
             foreach (iterator_to_array($node->attributes) as $attribute) {
-                if (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($attribute->name)) $node->removeAttributeNode($attribute);
+                // Comparison ignores route-local observations; emission keeps
+                // node IDs so the canonical route's accepted tree can restyle
+                // the isolated shared shell rather than falling back to CSS.
+                if ($ignoreViewportEntrance && \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isEvidenceAttribute($attribute->name)) $node->removeAttributeNode($attribute);
             }
         }
         if ($ignoreViewportEntrance) {
+            foreach ($dom->getElementsByTagName('*') as $node) {
+                foreach (iterator_to_array($node->attributes) as $attribute) {
+                    if (!str_starts_with($attribute->name, 'data-')) continue;
+                    $value = json_decode($attribute->value, true);
+                    if (is_array($value)) $node->setAttribute($attribute->name, (string) json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+                }
+            }
             foreach ($xpath->query('//*[@' . CaptureEvidence::VIEWPORT_ENTRANCE . ']') ?: array() as $node) {
                 if (!$node instanceof \DOMElement) continue;
                 $evidence = json_decode($node->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true);
@@ -153,6 +163,12 @@ final class SourceShells
                 // The source still owns provenance here: do not infer sampled
                 // paint from the SVG produced later by social-link lowering.
                 $node->removeAttribute(CaptureEvidence::GLYPH_COLOR);
+                // Measured padding is a route observation, not authored shell
+                // identity. The canonical member still supplies it on emission.
+                if ($node->hasAttribute(CaptureEvidence::fluidIgnorePaddingAttribute())) {
+                    $style = preg_replace('/(?:^|;)\s*padding(?:-(?:top|right|bottom|left))?\s*:[^;]*/i', '', $node->getAttribute('style')) ?? '';
+                    $node->setAttribute('style', ltrim($style, ';'));
+                }
                 // A selector-resolved dialog ancestor can sit at a different
                 // depth on each route. Its state is shared; the distance from
                 // the trigger is capture context, not landmark identity. Keep
@@ -168,7 +184,7 @@ final class SourceShells
                         if (false !== $encoded) $node->setAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE, $encoded);
                     }
                 }
-                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX)));
+                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX) && !CaptureEvidence::isDeviceIslandClass($class) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX)));
                 if (array() === $classes) $node->removeAttribute('class');
                 else $node->setAttribute('class', implode(' ', $classes));
             }
@@ -212,6 +228,13 @@ final class SourceShells
             if (array() !== array_filter(SourceDom::tokens($node->getAttribute('class')), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...))) $currentNodes[] = $node;
         }
         foreach ($currentNodes as $node) {
+            // Explicit current tokens are state, not evidence that an item's
+            // other classes must match its structurally different siblings.
+            $marked = false;
+            for ($ancestor = $node; $ancestor instanceof \DOMElement; $ancestor = $ancestor->parentNode) {
+                if (array() !== array_filter(SourceDom::tokens($ancestor->getAttribute('class')), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...)) || str_contains($ancestor->getAttribute('data-blocks-engine-route-resting'), '"class"')) $marked = true;
+                if ('nav' === strtolower($ancestor->tagName)) break;
+            }
             // A navigation toggle may be an anchor without href, with no
             // same-tag sibling to establish its resting classes. Known current
             // tokens are route state independently of its computed link colour.
@@ -223,7 +246,11 @@ final class SourceShells
             for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
                 if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
                 $classes = SourceDom::tokens($cursor->getAttribute('class'));
-                if (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
+                if ($marked) {
+                    $rest = array_values(array_filter($classes, static fn(string $class): bool => !\Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken($class) && !in_array($class, \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::DISCLOSURE_CLASSES, true)));
+                    if (array() === $rest) $cursor->removeAttribute('class');
+                    else $cursor->setAttribute('class', implode(' ', $rest));
+                } elseif (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
                     $siblingClasses = array();
                     foreach ($cursor->parentNode->childNodes as $sibling) {
                         if (!$sibling instanceof \DOMElement || $sibling === $cursor || $sibling->tagName !== $cursor->tagName) continue;
