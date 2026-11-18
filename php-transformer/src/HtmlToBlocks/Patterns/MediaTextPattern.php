@@ -50,6 +50,10 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return null;
         }
 
+        if ( $media->hasSourceOwnedGridGeometry($element) ) {
+            return null;
+        }
+
         $fallbacks = array();
         $block = $this->match(
             $element,

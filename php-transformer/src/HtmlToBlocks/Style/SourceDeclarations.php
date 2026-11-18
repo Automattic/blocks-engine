@@ -32,8 +32,9 @@ final class SourceDeclarations
     public static function parse(string $style): array
     {
         $declarations = array();
-        foreach ( self::verbatim($style, true) as $name => $value ) {
-            foreach ( self::physicalBox($name, $value) as $boxName => $boxValue ) {
+        $authored = self::verbatim($style, true);
+        foreach ( $authored as $name => $value ) {
+            foreach ( self::physicalBox($name, $value, $authored) as $boxName => $boxValue ) {
                 // Importance precedes source order even within one declaration
                 // list. Reducing to a property map must retain that winner.
                 if (isset($declarations[$boxName]) && CssValueInspector::isImportant($declarations[$boxName]) && ! CssValueInspector::isImportant($boxValue)) {
@@ -124,9 +125,10 @@ final class SourceDeclarations
      * viewport's horizontal-tb, left-to-right writing mode — the same fixed
      * assumption the rest of style resolution makes.
      *
+     * @param array<string, string> $authored Declarations available for local substitution.
      * @return array<string, string> Physical declarations keyed by property.
      */
-    private static function physicalBox(string $property, string $value): array
+    private static function physicalBox(string $property, string $value, array $authored): array
     {
         $axes = array(
             'padding-block' => array( 'padding-top', 'padding-bottom' ),
@@ -138,6 +140,19 @@ final class SourceDeclarations
             $important = CssValueInspector::isImportant($value) ? ' !important' : '';
             $plain = trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
             $parts = CssValueSplitter::splitTopLevelWhitespace($plain);
+            foreach ( $parts as $part ) {
+                // A top-level variable can supply multiple sides. Variables
+                // inside calc() cannot change the shorthand's component count.
+                if ( ! preg_match('/^var\s*\(/i', $part) ) continue;
+                $resolved = CssVariableExpander::expand(
+                    $part,
+                    static fn (string $name): ?string => isset($authored[$name]) ? CssValueInspector::withoutImportant($authored[$name]) : null,
+                    keep: static fn (string $name): bool => ! isset($authored[$name])
+                );
+                if ( null === $resolved || str_contains($resolved, 'var(') || count(CssValueSplitter::splitTopLevelWhitespace($resolved)) !== 1 ) {
+                    return array( $property => $value );
+                }
+            }
             if ( count($parts) < 1 || count($parts) > 2 ) {
                 return array();
             }

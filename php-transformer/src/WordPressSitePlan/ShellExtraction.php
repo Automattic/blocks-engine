@@ -207,9 +207,14 @@ final class ShellExtraction
                 if (count($identities[$candidate['area']]) < 2) continue;
                 // Runtime-bound source blocks must retain the exact compiled
                 // payload their bindings address; the hoister owns those shells.
+                // Source equality still proves their identity: route-compiled
+                // copies of one source header differ in presentation context,
+                // and would otherwise split one shell into route variants.
+                $bound = false;
                 if (isset($candidate['offset'], $candidate['length'])) {
                     $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($candidate));
-                    if ($bindings['blocked'] || array() !== $bindings['refs']) continue;
+                    if ($bindings['blocked']) continue;
+                    $bound = array() !== $bindings['refs'];
                 }
                 $artifact = self::sourceSharedShellArtifact($artifacts, $page, $candidate['area'], $variant);
                 if (null === $artifact) continue;
@@ -219,6 +224,7 @@ final class ShellExtraction
                 // drawer) is absent from a landmark-only artifact.
                 if (array() !== array_diff(self::textRuns($candidate['markup']), self::textRuns($markup))) continue;
                 $candidate['identity_markup'] = ChromeIdentity::markup($markup);
+                if ($bound) continue;
                 // Source equality proves ownership, not presentation: isolated
                 // compilation lacks the route's complete selector context.
                 $presentation = ($presentations[$markup]['score'] ?? 0) > 0 ? $presentations[$markup]['markup'] : $candidate['markup'];
@@ -745,13 +751,20 @@ final class ShellExtraction
     private function collectNestedChrome(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $ranges, array &$headers, array &$footers, string $captureScope = '', ?array $captureShell = null): void
     {
         $markup = $index->markup;
+        if (array() === $ranges) return;
         // Empty decoration groups ahead of the header do not move it: the first
         // block that holds anything is the one that may be the header.
         $lead = 0;
         while ($lead < count($ranges) - 1 && self::isEmptyVisualGroup(substr($markup, $ranges[$lead]['offset'], $ranges[$lead]['length']))) ++$lead;
-        if (2 <= count($ranges) - $lead) {
-            $head = $ranges[$lead];
-            $first = substr($markup, $head['offset'], $head['length']);
+        // A text-only announcement bar above the navigation is part of the
+        // masthead: the header runs from it through the navigation block.
+        $navAt = $lead;
+        while (self::leadsMainDocument($index, $ranges[$lead]['offset']) && $navAt < $lead + 2 && $navAt < count($ranges) - 1 && self::isLeadingAnnouncement(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) ++$navAt;
+        if (!self::containsNavigation(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) $navAt = $lead;
+        if (2 <= count($ranges) - $navAt) {
+            $head = $ranges[$navAt];
+            $start = $ranges[$lead]['offset'];
+            $first = substr($markup, $start, $head['offset'] + $head['length'] - $start);
             // Capture documents are detection roots, not chrome: descend into
             // each device document instead of claiming its route content.
             if (!str_contains($first, CaptureEvidence::DOCUMENT_SCOPE) && self::containsNavigation($first) && !self::containsMainLandmark($first) && !self::chromeSplitIsInside($index, $head)) {
@@ -760,7 +773,7 @@ final class ShellExtraction
                 // page heading, that block is the route itself, not chrome.
                 $restHasContent = false;
                 $restInFlow = false;
-                foreach (array_slice($ranges, $lead + 1) as $range) {
+                foreach (array_slice($ranges, $navAt + 1) as $range) {
                     $sibling = substr($markup, $range['offset'], $range['length']);
                     if (self::isEmptyVisualGroup($sibling)) continue;
                     $restHasContent = true;
@@ -771,15 +784,15 @@ final class ShellExtraction
                 }
                 if (!$restInFlow && 1 === preg_match('/<h1\b/i', $first)) $restHasContent = false;
                 if ($restHasContent) {
-                    $headers[] = $this->nestedChromeRow($first, $head['offset'], $head['length']) + array('capture_scope' => $captureScope, 'capture_scope_shell' => $captureShell);
+                    $headers[] = $this->nestedChromeRow($first, $start, strlen($first)) + array('capture_scope' => $captureScope, 'capture_scope_shell' => $captureShell);
                     // A projected modal dialog mounts at the end of its document;
                     // it renders in the top layer, so the footer is the last
                     // sibling before it.
                     $lastIndex = count($ranges) - 1;
-                    while ($lastIndex > $lead && self::isCapturedModalDialogBlock(substr($markup, $ranges[$lastIndex]['offset'], $ranges[$lastIndex]['length']))) --$lastIndex;
+                    while ($lastIndex > $navAt && self::isCapturedModalDialogBlock(substr($markup, $ranges[$lastIndex]['offset'], $ranges[$lastIndex]['length']))) --$lastIndex;
                     $last = $ranges[$lastIndex];
                     $lastMarkup = substr($markup, $last['offset'], $last['length']);
-                    if ($last !== $head && self::isFooterChrome($lastMarkup)) {
+                    if ($lastIndex > $navAt && self::isFooterChrome($lastMarkup)) {
                         $footers[] = $this->nestedChromeRow($lastMarkup, $last['offset'], $last['length']) + array('capture_scope' => $captureScope, 'capture_scope_shell' => $captureShell);
                     }
                     return;
@@ -981,6 +994,33 @@ final class ShellExtraction
         return is_array($shell) && 'dropdown' !== ($shell['attributes']['data-blocks-engine-presentation'] ?? null);
     }
 
+    /**
+     * A short text-only paragraph or group (an announcement bar): no heading,
+     * landmark, navigation, media or nested part, so it holds no page content.
+     */
+    private static function isLeadingAnnouncement(string $markup): bool
+    {
+        if (1 !== preg_match('/^<!--\s*wp:(?:paragraph|group)(?:\s|\/|-)/', ltrim($markup)) || self::isCapturedModalDialogBlock($markup) || self::containsNavigation($markup) || self::containsMainLandmark($markup)) return false;
+        if (str_contains($markup, '<!-- wp:heading') || str_contains($markup, 'wp:template-part') || 1 === preg_match('/"tagName":"(?:header|footer|nav|section|article|aside)"|<h[1-6]\b|<(?:img|picture|video|audio|iframe|svg|canvas|form|input|button)\b/i', $markup)) return false;
+        $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags(preg_replace('/<!--.*?-->/s', '', $markup) ?? ''))) ?? '');
+        return '' !== $text && mb_strlen($text) <= 200;
+    }
+
+    /**
+     * True when the block at $offset opens the page inside its main landmark:
+     * every block before it is one of its ancestors and one is the main.
+     */
+    private static function leadsMainDocument(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, int $offset): bool
+    {
+        $main = false;
+        foreach ($index->tokens() as $token) {
+            if ($token['offset'] >= $offset) break;
+            if ($token['closing'] || $token['self_closing']) return false;
+            $main = $main || 1 === preg_match('/"tagName":"main"/', $token['attributes']);
+        }
+        return $main;
+    }
+
     private static function isHeadingBlock(string $markup): bool
     {
         return 1 === preg_match('/^<!--\s*wp:heading(?:\s|\{)/', ltrim($markup));
@@ -997,17 +1037,38 @@ final class ShellExtraction
             if (array() === $rows) continue;
             if (!empty($rows[0]['document_level']) && 1 < count($rows)) continue;
             $identities = array_column($rows, 'identity_markup');
-            if (1 !== count(array_unique($identities))) continue;
+            $scoped = array();
+            foreach ($rows as $variant) {
+                $scope = self::responsiveVariantClass($variant);
+                if (null === $scope) { $scoped = array(); break; }
+                $scoped[$scope][] = $variant;
+            }
+            // Footer variants need not agree across devices: compare the ordered
+            // device bundle across routes, preserving each variant's controls.
+            // Headers retain their leading-chrome/overlay absorption contract.
+            $bundle = 'footer' === $area && count($scoped) > 1 && 1 !== count(array_unique($identities)) && str_contains($markup, CaptureEvidence::DOCUMENT_SCOPE);
+            if (!$bundle && 1 !== count(array_unique($identities))) continue;
+            $pieces = array(); $scopeIdentities = array();
+            if ($bundle) {
+                ksort($scoped, SORT_STRING);
+                foreach ($scoped as $scope => $variants) {
+                    if (1 !== count(array_unique(array_column($variants, 'identity_markup')))) continue 2;
+                    $variant = $variants[0];
+                    $scopeIdentities[$scope] = $variant['identity_markup'];
+                    $classes = $variant['ancestor_context']['variant_classes'][$scope] ?? array($scope);
+                    $pieces[] = self::variantVisibilityGroup(implode(' ', $classes), self::landmarkPartMarkup(RestingNavigation::markup($variant['markup']), $area), $variant['ancestor_context']['variant_shells'][$scope] ?? null);
+                }
+            }
             $row = $rows[0];
             if ('header' === $area && 1 === count($rows)) $row = $this->withLeadingHeaderChrome($index, $row);
-            $identity = $row['identity_markup'];
+            $identity = $bundle ? json_encode($scopeIdentities, JSON_THROW_ON_ERROR) : $row['identity_markup'];
             if ('' === $identity) continue;
-            $partMarkup = self::landmarkPartMarkup(RestingNavigation::markup($row['markup']), $area);
+            $partMarkup = $bundle ? implode("\n", $pieces) : self::landmarkPartMarkup(RestingNavigation::markup($row['markup']), $area);
             $additional = array();
             foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
             // The candidate's own block-tree offset is carried forward so removal
             // never needs to re-derive its position by searching for its bytes.
-            $candidates[] = array('document_edge' => $row['document_edge'] ?? false, 'area' => $area, 'markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null) + (isset($row['shared_leading']) ? array('shared_leading' => $row['shared_leading']) : array());
+            $candidates[] = array('document_edge' => $row['document_edge'] ?? false, 'area' => $area, 'markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'device_document_bundle' => $bundle, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null) + (isset($row['shared_leading']) ? array('shared_leading' => $row['shared_leading']) : array());
         }
         return $candidates;
     }
@@ -1800,7 +1861,7 @@ final class ShellExtraction
             $absorbed = null;
             foreach ($withoutShells as $index => $withoutShell) {
                 $variants = $this->scopedVariantLandmarks($pages[$index]['canonical_block_markup'], $area);
-                if ($this->retainsResponsiveVariantLandmark($withoutShell, $area) || (!$inlineShell && is_array($variants) && count($variants) > 1)) {
+                if ($this->retainsResponsiveVariantLandmark($withoutShell, $area) || (!$inlineShell && empty($first['device_document_bundle']) && is_array($variants) && count($variants) > 1)) {
                     $absorbed = $this->absorbResponsiveVariantLandmarks($pages, $cluster['indexes'], $area, $candidates, $withoutShells, $runtimeDeclarations);
                     break;
                 }
@@ -3013,7 +3074,10 @@ final class ShellExtraction
         $closing = substr($markup, $end);
         $content = substr($markup, $start, $end - $start);
         if ('' === trim($content) || str_contains($content, 'wp:template-part')) return null;
-        if (preg_match('/"tagName":"main"/', $opening . $closing)) return null;
+        // A document-wide main may own the masthead as its first child.
+        // Hoist that complete frame rather than detaching chrome from its
+        // stacking/selector context. A main within the content gap stays put.
+        if (preg_match('/"tagName":"main"/', $opening . $closing) && (!isset($refs['header']) || !self::leadsMainDocument(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup), $nodes[$refs['header']]['offset']))) return null;
         // A frame belongs to one captured device document. When the shells sit
         // in one of several device documents, the others are page content, not
         // chrome around it.
@@ -3167,7 +3231,9 @@ final class ShellExtraction
     {
         $canonical = null;
         foreach ($indexes as $index) if (($pages[$index]['source_path'] ?? null) === ($first['source_path'] ?? null)) $canonical = $index;
-        if (null === $canonical || !isset($shellBindings[$canonical]) || !empty($first['nested_shell']) && array() !== ($first['additional_ranges'] ?? array())) return null;
+        // A complete device bundle retains every disjoint variant in the part;
+        // its positioned descendant bindings can move together with that bundle.
+        if (null === $canonical || !isset($shellBindings[$canonical]) || !empty($first['nested_shell']) && empty($first['device_document_bundle']) && array() !== ($first['additional_ranges'] ?? array())) return null;
         $partMarkup = (string) ($first['template_part_markup'] ?? '');
         $keys = null;
         foreach ($indexes as $index) {
@@ -4060,8 +4126,18 @@ final class ShellExtraction
             foreach ($page['shell_candidates'] as &$candidate) {
                 $markup = $candidate['markup'];
                 $rested = $markup;
-                foreach (array_reverse($items($markup, $design($candidate) . "\0" . $candidate['area'], $route)) as $row) {
-                    if (!$row['valid'] || !($row['current'] || ('submenu' === $row['kind'] && $row['holds']))) continue;
+                $rows = $items($markup, $design($candidate) . "\0" . $candidate['area'], $route);
+                // Without an item naming the route, the navigation runtime marks
+                // the item naming its longest ancestor current (the served
+                // section), so that item's captured state rests too.
+                $section = null;
+                if (!array_filter($rows, static fn (array $row): bool => $row['current'])) {
+                    foreach ($rows as $position => $row) {
+                        if ($row['valid'] && $namesAncestor($row['attrs'], $route) && (null === $section || strlen((string) $urlPath($row['attrs'])) > strlen((string) $urlPath($rows[$section]['attrs'])))) $section = $position;
+                    }
+                }
+                foreach (array_reverse($rows, true) as $position => $row) {
+                    if (!$row['valid'] || !($row['current'] || $position === $section || ('submenu' === $row['kind'] && $row['holds']))) continue;
                     // Only one resting look is evidence of the item's own presentation.
                     $rest = $resting[$row['key']] ?? array();
                     if (1 !== count($rest)) continue;

@@ -187,6 +187,15 @@ final class NavigationStyleProjector
                 // than directly under a block element.
                 . ':root .editor-styles-wrapper .block-editor-block-list__block>div:not([class]):not([id]):not([style]):has(>.' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder){display:contents}';
         }
+        // A source rule can hide an empty element (`p:empty{display:none}`).
+        // In the editor that element is a live RichText root: retyping it
+        // empties it for a moment (select-all + input, or Backspace to blank),
+        // the rule then removes its box, the caret leaves, and the edit is
+        // dropped. Keep the focused root's box while it is empty; the rest
+        // state, saved markup and the front end are unchanged.
+        if ( preg_match('/:empty(?![\w-])[^{}]*\{[^}]*display\s*:\s*none/i', $this->session->authorStyleAnalysis()->combinedCss()) ) {
+            $rules[] = ':root .editor-styles-wrapper [contenteditable="true"]:focus:is(:empty,[data-empty="true"]){display:revert!important}';
+        }
         if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->session->authorStyleAnalysis()->combinedCss()) ) {
             $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
         }
@@ -1328,7 +1337,11 @@ final class NavigationStyleProjector
                 if ( $this->navigationPropertyIsItemLayout($property) ) {
                     return null;
                 }
-                $values['revert'] = true;
+                // A line width reverts to the user-agent `medium`, which an
+                // author's universal `border-style:solid` (Tailwind preflight)
+                // paints as a 3px frame the source never had: the item had no
+                // edge at all, so its width is zero.
+                $values[$this->navigationPropertyIsLineWidth($property) ? '0' : 'revert'] = true;
                 continue;
             }
 
@@ -1443,6 +1456,11 @@ final class NavigationStyleProjector
         }
 
         return $siblingAnchors > 1;
+    }
+
+    private function navigationPropertyIsLineWidth(string $property): bool
+    {
+        return 1 === preg_match('/^(?:border(?:-(?:top|right|bottom|left|block|inline|block-start|block-end|inline-start|inline-end))?|outline)-width$/', $property);
     }
 
     private function navigationPropertyIsItemLayout(string $property): bool

@@ -134,9 +134,10 @@ final class CssSyntaxScanner
      * other comment leaves nothing (a comment is not whitespace, so `.a`, a
      * comment and `.b` with no space between form the compound `.a.b`).
      * An unterminated comment runs to
-     * the end of the value and is dropped with it.
+     * the end of the value and is dropped with it. Publication may opt to
+     * preserve /*! license banners while dropping build-only annotations.
      */
-    public static function withoutComments(string $value): string
+    public static function withoutComments(string $value, bool $preserveLicenses = false): string
     {
         if ( ! str_contains($value, '/*') ) {
             return $value;
@@ -160,6 +161,12 @@ final class CssSyntaxScanner
                 $next = self::inertEnd($value, $next, $state);
                 if ( $next < $length ) {
                     $next = (int) self::consume($value, $next, $state);
+                }
+                if ($preserveLicenses && '!' === ($value[$start + 2] ?? '')) {
+                    $output .= substr($value, $start, $next - $start);
+                    $state['comment'] = false;
+                    $offset = $next;
+                    continue;
                 }
                 $before = $start > 0 ? $value[ $start - 1 ] : '';
                 $after  = $value[ $next ] ?? '';

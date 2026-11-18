@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use InvalidArgumentException;
@@ -112,7 +113,8 @@ final class SitePlanRun
         // which is what tells a button that renders through them apart from
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
-        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy(array_values(array_filter(array_column($documents, 'block_markup'), 'is_string')));
+        $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
+        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups)->withBlockTypography($markups);
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
@@ -344,6 +346,9 @@ final class SitePlanRun
         $navigationMarkup = $emittedMarkup . "\n" . implode("\n", self::markups($menus));
         // Markup is final: an arm requiring a carrier no route has is dead.
         $assets = AbsentCarrierSelectors::prune($assets, $navigationMarkup . "\n" . json_encode(array($runtimeDeclarations, $runtimeEntityRecords), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        // A source arm guarded against role carriers is dead once every
+        // element naming its class is one of them.
+        $assets = ConvertedSourceClassSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
@@ -506,11 +511,26 @@ final class SitePlanRun
         // Asset payloads are the last canonicalization pass, so the placeholder
         // backing recovered media is declared once every reference is known.
         // Every emitted stylesheet is serialized once, at its smallest
-        // cascade-equivalent size.
+        // cascade-equivalent size. Projection restates one author declaration
+        // block for each carrier it reaches (a class, its control twin, the
+        // editor canvas); that block ships once, for all of them.
         $compactor = new CssStylesheetTransformer();
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $compacted = $compactor->compactStylesheet($asset['content']);
+            if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
+            // Compatibility replays use :root only as a specificity shim,
+            // not as a document reset. Their repeated native-host arms can
+            // share a declaration body after preset binding has settled it.
+            if ('wordpress-compat' === ($asset['source'] ?? null)) {
+                $compacted = CssSelectorListCompactor::stylesheet($compactor->mergeRepeatedDeclarationRules($compacted, true));
+            }
+            // A restated arm folded beside the arm it restricts adds nothing.
+            $compacted = CssSelectorListCompactor::withoutSubsumedArmsInStylesheet($compacted);
+            // Projection writes combinators and selector lists spaced out;
+            // the selector whitespace that separates no tokens ships once
+            // per arm. Declaration values are left byte for byte.
+            $compacted = CssSelectorListCompactor::withoutRedundantSelectorWhitespaceInStylesheet($compacted);
             if ($compacted !== $asset['content']) $asset = CompiledAssets::withRewrittenTextContent($asset, $compacted);
         }
         unset($asset);
@@ -648,7 +668,7 @@ final class SitePlanRun
         $parts = $folded['parts'];
         // The generic page template is shared by routes that did not author it,
         // so the rules aimed at its markers are site-wide chrome rules.
-        $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . $shellFrames['frames']['page']['closing'])) : array();
+        $frameParts = isset($shellFrames['frames']['page']) ? array(array('slug' => 'page-frame', 'placement' => array('kind' => 'shared_shell'), 'canonical_block_markup' => $shellFrames['frames']['page']['opening'] . '<!-- wp:post-content /-->' . $shellFrames['frames']['page']['closing'])) : array();
         foreach ($documentChrome['chrome'] as $chrome) $frameParts[] = array('slug' => 'document-chrome', 'placement' => array('kind' => 'shared_shell', 'template_slugs' => array('single')), 'canonical_block_markup' => $chrome);
         return array(
             'pages' => $pages,

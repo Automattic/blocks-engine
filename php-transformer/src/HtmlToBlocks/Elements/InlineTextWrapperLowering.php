@@ -156,9 +156,16 @@ final class InlineTextWrapperLowering
             if ( $child instanceof DOMElement && $this->authorLayoutOwnership->requiresStandaloneInlineLayoutLeaf($child) ) {
                 return null;
             }
+            if ( $child instanceof DOMElement && 'svg' === strtolower($child->tagName)
+                && ! in_array($this->styleResolver->resolvedDeclaration($child, 'display'), array( '', 'inline', 'inline-block', 'none' ), true) ) {
+                return null;
+            }
         }
 
-        if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) ) {
+        if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren(
+            $element,
+            fn (DOMElement $child): bool => 'none' !== $this->styleResolver->resolvedDeclaration($child, 'display')
+        ) ) {
             return null;
         }
 

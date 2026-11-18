@@ -3,31 +3,37 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use DOMElement;
 use DOMNode;
 
 /** Lower definition carriers whose clips are inert or have exact native equivalents. */
 final class SvgDefinitionClips
 {
-    public static function isCarrier(DOMElement $svg): bool
+    /**
+     * $styles lets a carrier prove from the page stylesheets, not only its own
+     * attributes, that it is out of flow and never hidden.
+     */
+    public static function isCarrier(DOMElement $svg, ?ElementPresentationResolver $styles = null): bool
     {
-        return array() !== self::carrierReplacements($svg);
+        return array() !== self::carrierReplacements($svg, $styles);
     }
 
     /** @return array<string, string> */
-    public static function replacements(DOMElement $body): array
+    public static function replacements(DOMElement $body, ?ElementPresentationResolver $styles = null): array
     {
         $result = array();
         foreach ($body->getElementsByTagName('svg') as $svg) {
-            $result = array_replace($result, self::carrierReplacements($svg));
+            $result = array_replace($result, self::carrierReplacements($svg, $styles));
         }
         return $result;
     }
 
     /** Rewrite inline `style` references to definition-only SVG clips under $body. */
-    public static function rewriteInlineStyles(DOMElement $body): void
+    public static function rewriteInlineStyles(DOMElement $body, ?ElementPresentationResolver $styles = null): void
     {
-        $replacements = self::replacements($body);
+        $replacements = self::replacements($body, $styles);
         if ( array() === $replacements ) {
             return;
         }
@@ -39,7 +45,7 @@ final class SvgDefinitionClips
     }
 
     /** All-or-nothing: unsupported definitions must keep their in-document carrier. */
-    private static function carrierReplacements(DOMElement $svg): array
+    private static function carrierReplacements(DOMElement $svg, ?ElementPresentationResolver $styles): array
     {
         $display = '';
         foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($svg->getAttribute('style'), array(';')) as $declaration) {
@@ -50,9 +56,20 @@ final class SvgDefinitionClips
         }
         // Browsers ignore clips inside display:none SVGs, regardless of geometry.
         $inert = 1 === preg_match('/^none\s*(?:!\s*important)?$/', $display);
-        if (!SourceDom::isDefinitionsOnlySvg($svg)
-            || (!$inert && (preg_match('/^0(?:\.0+)?(?:px)?$/', trim($svg->getAttribute('width'))) !== 1
-                || preg_match('/^0(?:\.0+)?(?:px)?$/', trim($svg->getAttribute('height'))) !== 1))) {
+        if (!SourceDom::isDefinitionsOnlySvg($svg)) {
+            return array();
+        }
+        // A stylesheet-positioned carrier (Squarespace's section dividers) takes
+        // no space at any size, so dropping it is exact while it is never hidden:
+        // browsers ignore clips inside a display:none SVG.
+        $positioned = !$inert && null !== $styles
+            && ($styles->hasPropertyValueAtEveryViewport($svg, 'position', 'absolute') || $styles->hasPropertyValueAtEveryViewport($svg, 'position', 'fixed'))
+            && !in_array('none', array_map(
+                static fn (string $value): string => CssValueInspector::comparable($value),
+                array_merge(array($styles->declaredPresentation($svg, 'display')->base()), array_values($styles->declaredPresentation($svg, 'display')->conditional()))
+            ), true);
+        if (!$inert && !$positioned && (preg_match('/^0(?:\.0+)?(?:px)?$/', trim($svg->getAttribute('width'))) !== 1
+            || preg_match('/^0(?:\.0+)?(?:px)?$/', trim($svg->getAttribute('height'))) !== 1)) {
             return array();
         }
         foreach ($svg->attributes as $attr) {
@@ -67,7 +84,7 @@ final class SvgDefinitionClips
                 continue;
             }
             if (!in_array($name, array('width', 'height', 'style'), true)
-                || ('style' === $name && !preg_match('/^\s*position\s*:\s*absolute\s*;?\s*$/i', $attr->value))) {
+                || ('style' === $name && !preg_match($positioned ? '/^\s*(?:(?:position\s*:\s*absolute|display\s*:\s*block)\s*(?:;\s*|$))+$/i' : '/^\s*position\s*:\s*absolute\s*;?\s*$/i', $attr->value))) {
                 return array();
             }
         }
@@ -82,7 +99,8 @@ final class SvgDefinitionClips
             if (in_array(strtolower($defs->tagName), array('title', 'desc', 'metadata'), true)) {
                 continue;
             }
-            $directClip = $inert && 'clippath' === strtolower($defs->tagName);
+            // A <clipPath> never renders, whether or not a <defs> wraps it.
+            $directClip = 'clippath' === strtolower($defs->tagName);
             if (!$directClip && ($defs->attributes->length > 0
                 || ($inert && 'defs' !== strtolower($defs->tagName)))) {
                 return array();
@@ -95,7 +113,7 @@ final class SvgDefinitionClips
                     return array();
                 }
                 if ('clippath' !== strtolower($clip->tagName) || '' === $clip->getAttribute('id')
-                    || null === ($native = $inert ? 'none' : self::native($clip))) {
+                    || null === ($native = $inert ? 'none' : self::native($clip, $styles))) {
                     return array();
                 }
                 $result[$clip->getAttribute('id')] = $native;
@@ -104,7 +122,7 @@ final class SvgDefinitionClips
         return $result;
     }
 
-    private static function native(DOMElement $clip): ?string
+    private static function native(DOMElement $clip, ?ElementPresentationResolver $styles): ?string
     {
         // Transforms, clip rules, nested geometry and styling require SVG semantics.
         foreach ($clip->attributes as $attr) {
@@ -133,16 +151,14 @@ final class SvgDefinitionClips
         }
         $tag = strtolower($shape->tagName);
         foreach ($shape->attributes as $attr) {
-            if (!in_array(strtolower($attr->name), array('d', 'points', 'cx', 'cy', 'r', 'rx', 'ry'), true)) {
+            if (!in_array(strtolower($attr->name), array('d', 'points', 'cx', 'cy', 'r', 'rx', 'ry'), true)
+                && !('class' === strtolower($attr->name) && self::geometryUnstyled($shape, $styles))) {
                 return null;
             }
         }
         $bbox = 'objectBoundingBox' === $clip->getAttribute('clippathunits');
         if ($bbox && 'path' === $tag) {
-            $ellipse = self::arcEllipse($shape->getAttribute('d'));
-            if (null !== $ellipse) {
-                return $ellipse;
-            }
+            return self::arcEllipse($shape->getAttribute('d')) ?? self::bboxShape($shape->getAttribute('d'));
         }
         if ($bbox && in_array($tag, array('circle', 'ellipse'), true)) {
             $values = array();
@@ -176,6 +192,20 @@ final class SvgDefinitionClips
         return null;
     }
 
+    /** A class names the shape for styling; it is inert while no rule restyles the geometry. */
+    private static function geometryUnstyled(DOMElement $shape, ?ElementPresentationResolver $styles): bool
+    {
+        if (null === $styles) {
+            return false;
+        }
+        foreach (array('d', 'transform', 'translate', 'rotate', 'scale', 'transform-origin', 'transform-box', 'clip-rule', 'display', 'visibility') as $property) {
+            if (!$styles->declaredPresentation($shape, $property)->isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** Source formatting and comments do not change clip geometry. */
     private static function isNeutralNode(DOMNode $node): bool
     {
@@ -207,6 +237,107 @@ final class SvgDefinitionClips
             return null;
         }
         return 'ellipse(' . ($rx * 100) . '% ' . ($ry * 100) . '% at ' . (($x + $endX) * 50) . '% ' . (($y + $endY) * 50) . '%)';
+    }
+
+    /**
+     * A bounding-box path is CSS `shape()` with every coordinate as a percentage
+     * of the reference box: both resolve x against width and y against height.
+     * An unrotated arc stays axis-aligned under that scaling, so its radii are
+     * percentages too; a rotated one would shear, so it keeps the SVG definition.
+     */
+    private static function bboxShape(string $d): ?string
+    {
+        $n = '[-+]?(?:\\d*\\.\\d+|\\d+\\.?\\d*)(?:[eE][-+]?\\d+)?';
+        if (!preg_match('/^[\\s,]*[Mm]/', $d) || !preg_match_all('/([MmLlHhVvCcSsQqTtAaZz])|(' . $n . ')|([\\s,]+)|(.)/', $d, $tokens, PREG_SET_ORDER)) {
+            return null;
+        }
+        $arity = array('m' => 2, 'l' => 2, 'h' => 1, 'v' => 1, 'c' => 6, 's' => 4, 'q' => 4, 't' => 2, 'a' => 7, 'z' => 0);
+        $pct = static function (string $value): string {
+            $out = rtrim(rtrim(sprintf('%.6F', (float) $value * 100), '0'), '.');
+            return ('-0' === $out ? '0' : $out) . '%';
+        };
+        $pair = static fn (array $v, int $i): string => $pct($v[$i]) . ' ' . $pct($v[$i + 1]);
+        $commands = array();
+        $command = null;
+        $args = array();
+        $emit = static function (string $command, array $v) use ($pair, $pct): ?string {
+            $mode = ctype_lower($command) ? 'by' : 'to';
+            switch (strtolower($command)) {
+                case 'm':
+                    return "move {$mode} " . $pair($v, 0);
+                case 'l':
+                    return "line {$mode} " . $pair($v, 0);
+                case 'h':
+                    return "hline {$mode} " . $pct($v[0]);
+                case 'v':
+                    return "vline {$mode} " . $pct($v[0]);
+                case 'c':
+                    return "curve {$mode} " . $pair($v, 4) . ' with ' . $pair($v, 0) . ' / ' . $pair($v, 2);
+                case 's':
+                    return "smooth {$mode} " . $pair($v, 2) . ' with ' . $pair($v, 0);
+                case 'q':
+                    return "curve {$mode} " . $pair($v, 2) . ' with ' . $pair($v, 0);
+                case 't':
+                    return "smooth {$mode} " . $pair($v, 0);
+                case 'a':
+                    if (0.0 !== (float) $v[2] || !in_array($v[3], array('0', '1'), true) || !in_array($v[4], array('0', '1'), true)) {
+                        return null;
+                    }
+                    // A zero radius draws the chord; the absolute radii are the arc's.
+                    if (0.0 === (float) $v[0] || 0.0 === (float) $v[1]) {
+                        return "line {$mode} " . $pair($v, 5);
+                    }
+                    return "arc {$mode} " . $pair($v, 5) . ' of ' . $pct((string) abs((float) $v[0])) . ' ' . $pct((string) abs((float) $v[1]))
+                        . ('1' === $v[4] ? ' cw' : ' ccw') . ('1' === $v[3] ? ' large' : ' small');
+            }
+            return 'close';
+        };
+        $flush = static function () use (&$command, &$args, &$commands, $arity, $emit): bool {
+            if (null === $command) {
+                return array() === $args;
+            }
+            $size = $arity[strtolower($command)];
+            if (0 === $size) {
+                $commands[] = 'close';
+                return array() === $args;
+            }
+            if (array() === $args || 0 !== count($args) % $size) {
+                return false;
+            }
+            foreach (array_chunk($args, $size) as $index => $chunk) {
+                // Extra pairs after a moveto are implicit linetos.
+                $name = 0 < $index && 'm' === strtolower($command) ? ('m' === $command ? 'l' : 'L') : $command;
+                $emitted = $emit($name, $chunk);
+                if (null === $emitted) {
+                    return false;
+                }
+                $commands[] = $emitted;
+            }
+            return true;
+        };
+        foreach ($tokens as $token) {
+            if (isset($token[4]) && '' !== $token[4]) {
+                return null;
+            }
+            if ('' !== $token[1]) {
+                if (!$flush()) {
+                    return null;
+                }
+                $command = $token[1];
+                $args = array();
+            } elseif (isset($token[2]) && '' !== $token[2]) {
+                $args[] = $token[2];
+            }
+        }
+        if (!$flush() || count($commands) < 2) {
+            return null;
+        }
+        // The first moveto is the shape's start point; SVG treats a leading `m` as absolute.
+        if (!preg_match('/^move (?:to|by) (.+)$/', $commands[0], $start)) {
+            return null;
+        }
+        $commands[0] = 'from ' . $start[1];
+        return 'shape(' . implode(', ', $commands) . ')';
     }
 
     /** Rewrite only local clip-path references, not strings or unrelated URL properties. */

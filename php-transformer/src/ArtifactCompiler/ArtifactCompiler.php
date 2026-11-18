@@ -560,9 +560,16 @@ final class ArtifactCompiler
             // Projection can give several author rules one long selector
             // list; ship that list once. Engine stylesheets are named by their
             // content and are reconciled with later page copies by it.
-            // The author's indentation and line breaks separate no tokens,
-            // yet every published byte counts towards the theme's weight.
-            if ('files' === ($asset['source'] ?? null)) $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace((new CssStylesheetTransformer())->mergeRepeatedSelectorRules($content));
+            // Build annotations and formatting are not runtime CSS, yet every
+            // published byte counts towards the theme's weight; keep /*!
+            // license banners and literal strings. Repeated declaration
+            // blocks are folded by the site plan once preset bindings, which
+            // can tell such rules apart, have been applied.
+            if ('files' === ($asset['source'] ?? null)) {
+                $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutComments($content, true);
+                $content = (new CssStylesheetTransformer())->mergeRepeatedSelectorRules($content);
+                $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace($content);
+            }
             if ($content !== $asset['content']) $asset = ArtifactNormalizer::withTextPayload($asset, $content);
         }
         unset($asset, $propertyPruner);
@@ -2313,9 +2320,18 @@ final class ArtifactCompiler
         $texts = array();
         foreach ($files as $file) {
             if ('css' === ($file['kind'] ?? '')) continue;
+            // The capture's custom-property inventory lists every property the
+            // source defines, read or not: it is the stylesheets' own
+            // definitions, not a consumer. Counting it keeps each one alive.
+            if (is_string($file['path'] ?? null) && 'css-variables.json' === basename($file['path'])) continue;
             // Metadata carries captured interaction states.
             if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $texts[] = (string) json_encode($file['metadata']);
             $text = $file['content'] ?? (in_array($file['kind'] ?? '', array('html', 'js', 'json', 'svg', 'text'), true) && is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
+            // A capture report describes the source as measured; it never
+            // reads a custom property. Its variable inventory (every property
+            // the source declared) would otherwise keep each unused token alive.
+            // BEM-style names such as `card--active` stay intact.
+            if (ArtifactNormalizer::CAPTURE_REPORT_ROLE === ($file['role'] ?? null) && is_string($text)) $text = (string) preg_replace('/(?<![\w-])--[\w-]+/', '', $text);
             // A complete document supplies subject evidence, not its style
             // inventory. Otherwise an inline framework sheet keeps every one
             // of its own unused selectors alive. Fragments remain conservative:
@@ -2549,8 +2565,7 @@ final class ArtifactCompiler
             $declarations = \Automattic\BlocksEngine\PhpTransformer\Support\BodyPresentationalHints::declarations((string) ($file['content'] ?? ''));
             if ('' === $declarations) continue;
             $source = (string) $file['path'];
-            $identity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
-            $class = $this->routeClasses[$identity] ?? \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($identity);
+            $class = $this->routeClasses[\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source)];
             $rules[] = ':where(html.' . $class . ') body{' . $declarations . '}';
         }
         if (array() === $rules) return null;
@@ -2588,8 +2603,7 @@ final class ArtifactCompiler
         }
         $rules = array();
         foreach ($documents as $source => $styles) {
-            $identity = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source);
-            $class = $this->routeClasses[$identity] ?? \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeClass($identity);
+            $class = $this->routeClasses[\Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::identity('page', $source, $source)];
             $root = 'html.' . $class . ':is(.' . $class . ',' . str_repeat('#' . $class, $ids + 1) . ')';
             foreach ($styles as $tag => $style) {
                 $rules[] = $root . ('body' === $tag ? ' body' : '') . '{' . $style . '}';

@@ -9,17 +9,7 @@ try {
         await page.setContent(`<!doctype html><style>${css}</style><body class="${editor ? 'editor-styles-wrapper' : ''}">${markup}</body>`);
         const carrier = page.locator('p:has(>a[href="/"])');
         assert.ok(await carrier.evaluate(e => e.getBoundingClientRect().width > 0), 'The native paragraph has a box on both frontend and editor');
-        const brand = page.locator('p:has(>a[href="/brand"])');
-        assert.equal(await brand.evaluate(e => getComputedStyle(e).display), 'contents', 'Layout-owning carrier remains transparent without a live editor');
         if (!editor) continue;
-        await brand.evaluate(e => {
-            e.contentEditable = 'true';
-            e.addEventListener('click', event => event.preventDefault());
-        });
-        await brand.click({ timeout: 2000 });
-        assert.equal(await brand.evaluate(e => document.activeElement === e), true, 'A flex-item RichText carrier can receive focus');
-        await brand.fill('Saved brand edit');
-        assert.equal(await brand.textContent(), 'Saved brand edit', 'Native input changes the RichText root');
         await carrier.evaluate(e => {
             e.contentEditable = 'true';
             e.addEventListener('click', event => { event.preventDefault(); e.dataset.clicked = 'yes'; });

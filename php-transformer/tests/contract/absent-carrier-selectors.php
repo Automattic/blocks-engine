@@ -20,7 +20,7 @@ $assert = static function (bool $condition, string $message): void {
 // would ship in the theme stylesheet without ever matching.
 // The materialization layer spells out the engine carrier classes; they must
 // stay the ones conversion emits.
-foreach (array(SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS) as $carrier) {
+foreach (array(SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS, SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS) as $carrier) {
     $assert(isset(AbsentCarrierSelectors::CARRIERS[$carrier]), 'Absent-carrier pruning knows the ' . $carrier . ' carrier.');
 }
 

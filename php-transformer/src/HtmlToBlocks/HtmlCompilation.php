@@ -421,7 +421,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime
         );
         $this->patternRecognizers = PatternRecognizerRegistry::createDefault($this, $this->runtime, $this->sourceElementClassifier, $this->richTextMaterializer);
-        $this->authoredMarqueeRecognizer = new AuthoredMarqueeRecognizer($this->sourceElementClassifier, $this->richTextMaterializer, $this->runtime, $this->session);
+        $this->authoredMarqueeRecognizer = new AuthoredMarqueeRecognizer($this->sourceElementClassifier, $this->richTextMaterializer, $this->runtime, $this->session,
+            fn (DOMElement $element, string $className): string => $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext(), $className)
+        );
         $this->patternProbeContext = $this->createProbePatternContext();
         $this->navigationToggleSuppressor = new NavigationToggleSuppressor($this->session,
             $this->createNavigationToggleSuppressionContext(),
@@ -1188,6 +1190,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html), array() !== $this->session->boxTreeViewports()))
         );
         $document = HtmlSerialization::parseFragment('<body>' . $normalizedHtml . '</body>');
+        CommerceStructureRecognizer::registerSourceDocument($document, (string) ($options['declarative_state_html'] ?? $html));
 
         $resultComposer = new HtmlResultComposer();
         $selectorCache = $this->session->sourceStyleResolutionState()->selectorMatchCache;
@@ -1203,7 +1206,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Resolve before dispatch: controls, rich text, and preserved markup
         // serialize source images without passing through native image lowering.
         $this->imageUrls->resolveSourceImages($body);
-        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewriteInlineStyles($body);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewriteInlineStyles($body, $this->styleResolver);
         CapturedNavigationPanels::restoreNative($body);
         CapturedNavigationPanels::restoreRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
@@ -1725,7 +1728,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new MediaPatternContext($this->styleResolver, $this->imageUrls, $this->imageDimensions, $this->session),
             new ColumnsPatternContext($this->styleResolver),
             new MarkupPatternContext(
-                $this->session
+                $this->session,
+                $this->svgMaterializer->withReferencedDefinitions(...)
             ),
             new ButtonPatternContext(
                 $this->styleResolver,
@@ -1822,7 +1826,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 publishesSubjects: false
             ),
             markupContext: new MarkupPatternContext(
-                $this->session
+                $this->session,
+                $this->svgMaterializer->withReferencedDefinitions(...)
             ),
             codeWindowContext: new CodeWindowPatternContext($this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver)),
             logoContext: new LogoPatternContext(
@@ -2054,6 +2059,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $preserveGeneratedStyle = 'core/accordion-heading' === $name
                 || ('core/button' === $name && $this->sourceElementClassifier->hasLogoBrandSignal($sourceElement))
                 || ('core/spacer' === $name && $this->emptyElementFootprint->isEmptyVisualInlineCandidate($sourceElement));
+            $imageFigureFlow = 'core/image' === $name && 'figure' !== $sourceTagName
+                ? $this->syntheticImageFigureFlow->syntheticImageFigureFlow($sourceElement)
+                : Elements\SyntheticImageFigureFlow::BOX;
             $attrs = $this->sourceBlockAttributeProjector->project(
                 $name,
                 $attrs,
@@ -2069,13 +2077,16 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     'core/button' === $name && '' !== $logicalControlPath && $hasAuthorControlProjection
                         && $this->authorLayoutOwnership->isDirectChildOfAuthorFlexLayout($logicalControl),
                     $preserveGeneratedStyle,
-                    'core/image' === $name
-                        && 'figure' !== $sourceTagName
-                        && $this->syntheticImageFigureFlow->syntheticImageFigureFollowsInlineFlow($sourceElement)
+                    Elements\SyntheticImageFigureFlow::INLINE === $imageFigureFlow,
+                    Elements\SyntheticImageFigureFlow::STRUT === $imageFigureFlow
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $this->session->boxTreeEvidence($sourceElement), $this->session->boxTreeViewports(), $this->session->layoutGeometryState(), $sourceElement->parentNode instanceof DOMElement ? $this->session->boxTreeEvidence($sourceElement->parentNode) : array());
+            $observations = $this->session->boxTreeEvidence($sourceElement);
+            $viewports = $this->session->boxTreeViewports();
+            $parents = $sourceElement->parentNode instanceof DOMElement ? $this->session->boxTreeEvidence($sourceElement->parentNode) : array();
+            $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name);
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,
@@ -2089,7 +2100,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     : $this->sourceVisibility->startsHidden($sourceElement),
                 SourceDom::htmlAttributes($sourceElement),
                 $this->sourceElementDescription->structureSignals($sourceElement, $attrs),
-                array() === $innerBlocks && 'core/group' === $name
+                // A populated group whose box is responsive and stylesheet-owned
+                // carries no block style, yet must stay independently editable
+                // rather than folding into a layout-shell wrapper list.
+                'core/group' === $name && (array() === $innerBlocks || $this->emptyVisualRetention->responsiveStylesheetOwnsWrapperBox($sourceElement))
                     ? $this->emptyVisualRetention->emptyVisualTopologyEvidence($sourceElement)
                     : array(),
                 'core/navigation' === $name && $this->sourceVisibility->wrapperHiddenAtCollapsedViewport($sourceElement)

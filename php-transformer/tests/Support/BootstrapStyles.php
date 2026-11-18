@@ -23,12 +23,18 @@ final class BootstrapStyles
     {
         if (!preg_match('/\$blocks_engine_style_sequences = (\[[^\n]*\]);/s', $bootstrap, $match)) return $bootstrap;
         $sequences = eval('return ' . $match[1] . ';');
-        return preg_replace_callback('/^    if \( (.+) \) \$blocks_engine_style_routes\[\] = (\[[^\n]+\]);$/m', static function (array $match) use ($sequences): string {
+        // Route selection runs ahead of every enqueue; each selected route's
+        // calls load where the enqueue loop stands in the cascade.
+        $blocks = array();
+        $bootstrap = preg_replace_callback('/^    if \( (.+) \) \$blocks_engine_style_routes\[\] = (\[[^\n]+\]);\n/m', static function (array $match) use ($sequences, &$blocks): string {
             [$index, $handles] = eval('return ' . $match[2] . ';');
             $lines = array('    if ( ' . $match[1] . ' ) {', '        $blocks_engine_route_styles = true;');
             foreach ($sequences[$index] as $position => $style) $lines[] = '        wp_enqueue_style( ' . var_export($handles[$position], true) . ', get_theme_file_uri( ' . var_export($style[0], true) . ' ), array(), null, ' . var_export($style[1], true) . ' );';
             $lines[] = '    }';
-            return implode("\n", $lines);
+            $blocks[] = implode("\n", $lines);
+            return '';
         }, $bootstrap) ?? $bootstrap;
+        $loop = '/^    foreach \( \$blocks_engine_style_routes as \[\$sequence, \$handles\] \) \{\n(?:        [^\n]*\n)+    \}$/m';
+        return preg_replace_callback($loop, static fn(): string => implode("\n", $blocks), $bootstrap, 1) ?? $bootstrap;
     }
 }
