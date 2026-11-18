@@ -155,10 +155,8 @@ foreach (array('header' => 'Harbor ', 'footer' => 'Visit ') as $area => $text) {
     $assert(array('light' => $label, 'dark' => $label . ' (Events)') === array('light' => $titles['light'] ?? null, 'dark' => $titles['dark'] ?? null), "The main {$area} variant is titled {$label} and the other after its first route: " . json_encode($titles));
 }
 
-// A unique landmark design stays route-owned, never a single-use part.
-// Three routes share a header and footer;
-// the entrypoint has the same nav in a header with different classes and a
-// longer footer, so the landmark clusters exclude it as non_equivalent.
+// Once three routes share a header, the entrypoint's different header
+// classes become a variant part; its different footer copy stays local.
 $soleNav = '<nav><a href="index.html">Home</a><a href="about.html">About</a><a href="visit.html">Visit</a><a href="events.html">Events</a></nav>';
 $solePage = static function (string $title, bool $home) use ($soleNav): string {
     $header = '<header class="masthead' . ($home ? ' masthead--overlay' : '') . '"><a class="brand" href="index.html">Harbor</a>' . $soleNav . '</header>';
@@ -179,7 +177,7 @@ foreach (array_column($solePlan['pages'], null, 'source_path') as $source => $ro
     $slug = pathinfo($source, PATHINFO_FILENAME);
     $template = (string) ($soleTemplates['index' === $slug ? 'front-page' : 'page-' . $slug] ?? $soleTemplates['page'] ?? '');
     if ('index.html' === $source) {
-        $assert(str_contains($markup, 'masthead--overlay') && str_contains($markup, 'Open daily.') && !str_contains($markup, 'wp:template-part'), 'Unique home chrome stays content.');
+        $assert(!str_contains($markup, 'masthead--overlay'), 'Unique home chrome moves to variant parts.');
         continue;
     }
     $assert(!preg_match('/"tagName":"(?:header|footer)"/', $markup) && str_contains($markup, 'body copy.'), "{$source} keeps its content and no header/footer landmark group: {$markup}");
@@ -190,7 +188,7 @@ foreach (array_column($solePlan['pages'], null, 'source_path') as $source => $ro
 }
 foreach (array('header', 'footer') as $area) {
     $variant = array_values(array_filter($soleParts, static fn(array $part): bool => $area === $part['area'] && array('index.html') === ($part['placement']['source_paths'] ?? null)));
-    $assert(0 === count($variant), "The home {$area} is its own route-variant part: " . json_encode(array_column($solePlan['template_parts'], 'title', 'slug')));
+    $assert(('header' === $area ? 1 : 0) === count($variant), "Only the home header is a presentation variant: " . json_encode(array_column($solePlan['template_parts'], 'title', 'slug')));
 }
 $assert(str_contains((string) $soleTemplates['front-page'], 'wp:post-content'), 'The front page renders its own content.');
 

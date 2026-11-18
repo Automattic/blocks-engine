@@ -2518,6 +2518,20 @@ final class ShellExtraction
             $edges = self::normalizeEdgeLinks($edges, $pages);
             $groups = self::edgeGroups($edges, $pages);
             $largestCluster = max(array_map('count', $clusters) ?: array(0));
+            // Once an area has shared chrome, route-unique landmarks belong
+            // to the same variant-part path, not to editable post content.
+            // Without a repeated edge, retain the existing route ownership.
+            if (array() !== $groups) {
+                $grouped = array_merge(...array_column($groups, 'indexes'));
+                foreach ($edges as $index => $edge) {
+                    if (in_array($index, $grouped, true) || 1 !== count($landmarks[$index] ?? array())) continue;
+                    $position = $this->edgeLandmarkIndex((string) $pages[$index]['canonical_block_markup'], $edge, (string) $landmarks[$index][0]['markup']);
+                    if (null === $position) continue;
+                    $sharedLandmark = $landmarks[$groups[0]['indexes'][0]][0] ?? null;
+                    if (null === $sharedLandmark || self::textRuns($landmarks[$index][0]['markup']) !== self::textRuns($sharedLandmark['markup'])) continue;
+                    $groups[] = array('indexes' => array($index), 'length' => $position + 1);
+                }
+            }
             // Variants are distinct designs: they differ from their first
             // block, so no chrome would be copied into two parts, and no
             // landmark repeats on more routes than any of them (that landmark
@@ -2611,7 +2625,7 @@ final class ShellExtraction
             $sourceMarkup = substr((string) $pages[$first]['canonical_block_markup'], $ranges[$first]['offset'], $ranges[$first]['length']);
             // A route-local landmark is already compiled in its resting page
             // context. Edge normalization would strip its authored paint.
-            $markup = null !== $routeSlug ? $sourceMarkup : self::landmarkPartMarkup(self::withoutEdgeCurrentState($sourceMarkup, $pages[$first]), $area);
+            $markup = null !== $routeSlug || 1 === count($group['indexes']) ? $sourceMarkup : self::landmarkPartMarkup(self::withoutEdgeCurrentState($sourceMarkup, $pages[$first]), $area);
             $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"' . $area . '","tagName":"div","className":"blocks-engine-shell-transport"} /-->';
             // Replace from the end of each page so earlier offsets stay valid.
             foreach ($group['indexes'] as $index) {
