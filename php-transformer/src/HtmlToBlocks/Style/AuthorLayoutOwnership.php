@@ -294,6 +294,34 @@ final class AuthorLayoutOwnership
         return false;
     }
 
+    /**
+     * An inline-tag element the author always lays out as an in-flow block
+     * (a `<time class="post-date">` date line) in a block-flow parent. Its
+     * inline layout carrier can be an inline box instead of display:contents
+     * without moving anything: the carrier has no margin, padding or border,
+     * so the line fragments it keeps around the block are empty and take no
+     * height. A flex or grid parent would make the carrier, not the element,
+     * its item, so that case keeps the boxless carrier.
+     */
+    public function isInFlowBlockLeaf(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || $this->isAuthorOwnedLayout($parent) || $this->wrapperCoalescer->isStructuralLayoutElement($parent) ) {
+            return false;
+        }
+        $display = $this->styleResolver->declaredPresentation($element, 'display');
+        if ( $display->isConditional() ) {
+            return false;
+        }
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( 'block' !== CssValueInspector::declared($declarations, 'display') ) {
+            return false;
+        }
+        $position = CssValueInspector::declared($declarations, 'position');
+        $float = CssValueInspector::declared($declarations, 'float');
+        return in_array($position, array( '', 'static', 'relative' ), true) && in_array($float, array( '', 'none' ), true);
+    }
+
     public function isLoneStyledInlineInFlowWrapper(DOMElement $element): bool
     {
         $parent = $element->parentNode;

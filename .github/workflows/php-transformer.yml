@@ -176,6 +176,10 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/inline-layout-carrier-editor-focus-browser.mjs
 
+      - name: Verify a block-leaf inline layout carrier takes a real click
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/inline-layout-carrier-block-leaf-click-browser.mjs
+
       - name: Verify standalone line breaks keep source line spacing
         working-directory: php-transformer
         run: php tests/unit/standalone-break-spacing.php

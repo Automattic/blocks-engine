@@ -25,6 +25,8 @@ use DOMElement;
 final class AuthorStylesheetProjector
 {
     public const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
+    /** An inline layout carrier around an in-flow block leaf: an inline box, not boxless. */
+    public const INLINE_LAYOUT_CARRIER_BOX_CLASS = 'blocks-engine-inline-layout-carrier-box';
 
     /**
      * Class no emitted element carries. A type selector whose only source

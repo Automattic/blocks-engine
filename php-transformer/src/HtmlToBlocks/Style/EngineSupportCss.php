@@ -306,6 +306,12 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
             $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
+            if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_BOX_CLASS) ) {
+                // Around an in-flow block leaf the carrier's line fragments are
+                // empty, so an inline box changes no layout and gives the
+                // RichText root a box to hit-test and focus (issue #5901).
+                $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_BOX_CLASS . '){display:inline}';
+            }
             // An anchor inside the carrier exists only because a content-wrapping
             // link was pushed down onto it. It has no presentation of its own,
             // but as a block box it establishes a line box from the inherited
