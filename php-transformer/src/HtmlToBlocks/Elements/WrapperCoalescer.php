@@ -727,7 +727,7 @@ final class WrapperCoalescer
             array('saved_group_boundary', fn (): bool => SourceDom::hasClass($element, 'wp-block-group')),
             array('child_is_binding_anchor', fn (): bool => $this->isBindingAnchor($childBlock)),
             array('unrepresentable_wrapper_tag', fn (): bool => ! $this->wrapperTagIsRepresentableOnChild($element, $childBlock)),
-            array('unsupported_child_block_name', fn (): bool => ! in_array($childBlock['blockName'] ?? null, array( 'core/group', 'core/image' ), true)),
+            array('unsupported_child_block_name', fn (): bool => ! in_array($childBlock['blockName'] ?? null, array( 'core/group', 'core/image', 'core/buttons' ), true)),
             array('full_width_shell_requires_group_child', fn (): bool => $fullWidthTransparentShell && 'core/group' !== ($childBlock['blockName'] ?? null)),
             array('runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($element)),
             array('structural_layout_child_without_proof', fn (): bool => null === $proof && $this->isDirectChildOfStructuralLayout($element) && ! $redundantNestedLayout),
@@ -773,7 +773,7 @@ final class WrapperCoalescer
             array('source_child_has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($sourceChild)),
             array('box_affecting_declarations_not_neutral', fn (): bool => null === $proof && ! $redundantNestedLayout && ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element))),
             array('full_width_shell_child_not_normal_flow', fn (): bool => null === $proof && $fullWidthTransparentShell && ! $this->isNormalFlowFullWidthShellChild($sourceChild)),
-            array('containing_block_dependent_declarations', fn (): bool => 'core/image' !== ($childBlock['blockName'] ?? null) && ! $redundantNestedLayout && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild)),
+            array('containing_block_dependent_declarations', fn (): bool => ! in_array($childBlock['blockName'] ?? null, array('core/image', 'core/buttons'), true) && ! $redundantNestedLayout && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild)),
             array('selector_matching_does_not_survive_coalescing', fn (): bool => null === $proof && ! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild, $fullWidthTransparentShell)),
         );
     }
@@ -1187,7 +1187,7 @@ final class WrapperCoalescer
     private function hasBlockingStructureSignals(DOMElement $element, array $childBlock): bool
     {
         $signals = $this->sourceElementDescription->structureSignals($element);
-        if ( 'core/image' === ($childBlock['blockName'] ?? null) ) {
+        if ( in_array($childBlock['blockName'] ?? null, array('core/image', 'core/buttons'), true) ) {
             unset($signals['card_like'], $signals['grid_like'], $signals['section_container_like']);
         }
 
