@@ -359,7 +359,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     )
     {
         $this->sourceElementClassifier = new SourceElementClassifier();
-        $listStructure = new ListStructure($this->sourceElementClassifier);
+        $listStructure = new ListStructure($this->sourceElementClassifier, fn (DOMElement $element): array => $this->session->boxTreeEvidence($element));
         $commercePattern = $this->createCommercePattern();
         $this->sourceElementDescription = new SourceElementDescription($this->sourceElementClassifier, $commercePattern);
         $this->session = new HtmlTransformerSession($this->runtime, $this->sourceElementDescription);
@@ -637,7 +637,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime,
             $this->sourceTagProjectedClone(...),
             fn (DOMElement $label): string => $this->richTextMaterializer->content($label, array( 'input', 'select', 'textarea' )),
-            $this->richTextStylingHooks->inlineContent(...)
+            $this->richTextStylingHooks->inlineContent(...),
+            $this->wrapperCoalescer
         );
         $this->projectedNavigation = new ProjectedNavigationConverter(
             $this->navigationToggleSuppressor,
@@ -1207,6 +1208,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $document = HtmlSerialization::parseFragment('<body>' . $normalizedHtml . '</body>');
         CommerceStructureRecognizer::registerSourceDocument($document, (string) ($options['declarative_state_html'] ?? $html));
+        if ( Support\SourceDocumentEnvelope::isDocument($html) ) {
+            Classification\FormControlClassifier::registerWholeDocument($document);
+        }
 
         $resultComposer = new HtmlResultComposer();
         $selectorCache = $this->session->sourceStyleResolutionState()->selectorMatchCache;
@@ -1217,6 +1221,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $timer->start('transform.source_normalization');
         SourceDom::removeIntegerKeyAttributes($body);
+        SourceDom::removeNonRenderingSvgAttributes($body);
         SourceDom::unwrapLineBreakOnlyLinks($body);
         SourceDom::normalizeHashbangPlaceholders($body);
         // Resolve before dispatch: controls, rich text, and preserved markup

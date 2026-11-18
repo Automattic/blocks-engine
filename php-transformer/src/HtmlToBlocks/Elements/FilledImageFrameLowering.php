@@ -17,8 +17,9 @@ use DOMElement;
  * authored, the frame becomes a Group around an Image block, a wrapper an
  * editor has to click through without it meaning anything.
  *
- * On a box-tree evidence route, when the capture proves the image's border
- * box is the frame's border box at every viewport, the image takes the
+ * On a box-tree evidence route, when an explicit aspect ratio sizes the frame
+ * and the capture proves the image's border box is the frame's border box
+ * at every viewport, the image takes the
  * frame's place: it keeps its own source and description, and carries the
  * frame's classes, inline style and capture identity, so the frame's box
  * geometry and selector identity reach the image block. Any authored
@@ -118,7 +119,8 @@ final class FilledImageFrameLowering
             if (!empty($observation['pseudo']) || !empty($own['pseudo'])
                 || 'absolute' !== ($style['position'] ?? null)
                 || 'static' === ($frameStyle['position'] ?? 'static')
-                || 'none' === ($frameStyle['display'] ?? 'none')) {
+                || 'none' === ($frameStyle['display'] ?? 'none')
+                || !$this->hasAspectRatio($frameStyle)) {
                 return null;
             }
             // The frame carries no paint of its own the image block would gain
@@ -159,6 +161,21 @@ final class FilledImageFrameLowering
         }
 
         return $image;
+    }
+
+    /**
+     * Coincident boxes do not prove equivalent sizing: a percentage-height
+     * container depends on its parent, whereas an image has an intrinsic ratio.
+     * Require an explicit ratio before replacing that container with an image.
+     *
+     * @param array<string, mixed> $style
+     */
+    private function hasAspectRatio(array $style): bool
+    {
+        $ratio = (string) ($style['aspect-ratio'] ?? '');
+        return 1 === preg_match('/^([0-9]*\.?[0-9]+)\s*\/\s*([0-9]*\.?[0-9]+)$/', $ratio, $parts)
+            && (float) $parts[1] > 0
+            && (float) $parts[2] > 0;
     }
 
     /**

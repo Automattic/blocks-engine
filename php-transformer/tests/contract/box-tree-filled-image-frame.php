@@ -30,7 +30,7 @@ $styles = static function (string $display, string $position, array $overrides =
     return array_merge($used, $overrides);
 };
 
-$compile = static function (int $imageInset) use ($styles): string {
+$compile = static function (int $imageInset, bool $ratioFrame = true) use ($styles): string {
     $html = '<!doctype html><html data-blocks-engine-node-id="n1"><head data-blocks-engine-node-id="n2"><title data-blocks-engine-node-id="n3">Gallery</title></head>'
         . '<body data-blocks-engine-node-id="n4"><main data-blocks-engine-node-id="n5"><div class="tile" data-blocks-engine-node-id="tile">'
         . '<span class="frame" data-blocks-engine-node-id="frame"><img src="https://example.com/dish.jpg" alt="Catering dishes" class="fill" data-blocks-engine-node-id="image"></span>'
@@ -45,12 +45,12 @@ $compile = static function (int $imageInset) use ($styles): string {
         'n4' => array('children' => array('n5'), 'viewports' => $observe(array('x' => 0, 'y' => 0, 'width' => 400, 'height' => 340), $styles('block', 'static'))),
         'n5' => array('children' => array('tile', 'caption'), 'viewports' => $observe(array('x' => 0, 'y' => 0, 'width' => 400, 'height' => 340), $styles('block', 'static'))),
         'tile' => array('children' => array('frame'), 'viewports' => $observe(array('x' => 0, 'y' => 0, 'width' => 400, 'height' => 292), $styles('block', 'static', array('overflow-x' => 'hidden', 'overflow-y' => 'hidden', 'border-radius' => '12px')))),
-        'frame' => array('children' => array('image'), 'viewports' => $observe($box(), $styles('inline-block', 'relative', array('aspect-ratio' => '1 / 1')))),
+        'frame' => array('children' => array('image'), 'viewports' => $observe($box(), $styles('inline-block', 'relative', array('aspect-ratio' => $ratioFrame ? '1 / 1' : 'auto', 'height' => $ratioFrame ? '286px' : '100%')))),
         'image' => array('children' => array(), 'viewports' => $observe($box($imageInset), $styles('block', 'absolute', array('top' => $imageInset . 'px', 'right' => $imageInset . 'px', 'bottom' => $imageInset . 'px', 'left' => $imageInset . 'px')))),
         'caption' => array('children' => array(), 'viewports' => $observe(array('x' => 0, 'y' => 300, 'width' => 400, 'height' => 24), $styles('block', 'static'))),
     );
     $tree = array('schema' => BoxTree::SCHEMA, 'viewports' => array('desktop' => array('width' => 1440, 'height' => 900), 'mobile' => array('width' => 390, 'height' => 844)), 'nodes' => $nodes, 'source_path' => 'index.html', 'source_hash' => hash('sha256', $html));
-    $css = '.tile{overflow:hidden;border-radius:12px}.frame{display:inline-block;position:relative;aspect-ratio:1/1;width:100%;object-fit:cover}.fill{position:absolute;inset:' . $imageInset . 'px;width:100%;height:100%;object-fit:cover}';
+    $css = '.tile{overflow:hidden;border-radius:12px}.frame{display:inline-block;position:relative;' . ($ratioFrame ? 'aspect-ratio:1/1;' : 'height:100%;') . 'width:100%;object-fit:cover}.fill{position:absolute;inset:' . $imageInset . 'px;width:100%;height:100%;object-fit:cover}';
     $html = str_replace('</title>', '</title><style>' . $css . '</style>', $html);
     $tree['source_hash'] = hash('sha256', $html);
     return (string) (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html, 'box-tree/index.json' => json_encode($tree))))->toArray()['serialized_blocks'];
@@ -68,6 +68,10 @@ $assert(1 === preg_match('/<!-- wp:image \{[^}]*"className":"[^"]*\bframe\b/', $
 $assert(!str_contains($merged, '"className":"fill') && 0 === preg_match('/<!-- wp:image \{[^}]*\bfill\b/', $merged), 'The image\'s fill-the-frame classes are gone with the frame.');
 $assert(2 === count(array_keys($names, 'group', true)), 'Only main and the tile remain Groups: no Group stands in for the frame.');
 $assert(str_contains($merged, 'alt="Catering dishes"'), 'The image keeps its own description.');
+
+$percentage = $compile(0, false);
+$assert(3 === count(array_keys($blockNames($percentage), 'group', true)) && str_contains($percentage, '"className":"frame'), 'A percentage-height frame keeps its containing box even when the image fills it at every captured width.');
+$assert(0 === preg_match('/<!-- wp:image \{[^}]*"className":"[^"]*\bframe\b/', $percentage), 'A percentage-height frame never transfers its sizing classes to the image.');
 
 $inset = $compile(8);
 $assert(3 === count(array_keys($blockNames($inset), 'group', true)) && str_contains($inset, '"className":"frame'), 'An image inset within its frame keeps the frame as its own box.');
