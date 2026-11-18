@@ -28,14 +28,12 @@ try {
     await page.setContent(`<style>${frontEndCss}</style>${result.serialized_blocks}`);
     assert.equal(await display(), 'contents', 'the front-end carrier keeps the source layout');
 
-    // Editor: mirror core's RichText, which makes the paragraph contenteditable
-    // and marks it `is-selected` once the caret is placed in it.
+    // Editor: mirror core's unselected RichText. A real mouse click must
+    // place the caret before Gutenberg can mark the block selected.
     await page.setContent(`<style>${editorCss}</style><div class="editor-styles-wrapper">${result.serialized_blocks}</div>`);
     await carrier.evaluate(node => node.setAttribute('contenteditable', 'true'));
-    assert.equal(await display(), 'contents', 'an unselected carrier keeps the front-end layout in the canvas');
-    await carrier.evaluate(node => node.classList.add('is-selected'));
-    await carrier.evaluate(node => node.focus());
-    assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'P', 'the selected carrier takes focus');
+    await carrier.click({ timeout: 2000 });
+    assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'P', 'an unselected carrier takes focus on a real click');
     await carrier.fill('Import loop edit');
     assert.equal(await carrier.textContent(), 'Import loop edit', 'typed text lands in the carrier');
     console.log('inline layout carrier editor focus browser passed');
