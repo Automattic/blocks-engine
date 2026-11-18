@@ -231,7 +231,11 @@ final class FormRuntimeRequirementAnalyzer
         // and omit `method`, but a search or filter form never collects an email.
         if ( $email && ($subscribe || preg_match('~(?:^|/)(?:newsletter|subscribe)(?:/|$)~', $path)) ) return 'newsletter';
         if ( $email && $message ) return 'contact';
-        if ( self::isClientSideTool($form) ) return 'client_side_tool';
+        // An email address is collected for the site owner: a form that asks
+        // for one submits it (a signup or lead form, whatever its submit label's
+        // language), so its status region announces that submission rather than
+        // a result computed in the page.
+        if ( ! $email && self::isClientSideTool($form) ) return 'client_side_tool';
         $method = strtolower(trim(SourceDom::attr($form, 'method')));
         if ( '' === $method || 'get' === $method ) {
             if ( $search || preg_match('~(?:^|/)search(?:/|$)~', $path) ) return 'search';
