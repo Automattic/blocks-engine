@@ -654,6 +654,13 @@ final class ImageLowering
                     }
                 }
             }
+        } elseif ($link instanceof DOMElement && $this->isBlockImageInInlineLink($image, $link)) {
+            // The source's block-level image broke out of its inline link and
+            // sized and aligned (e.g. `mx-auto`) against the link's container,
+            // which the synthetic figure now stands in for. Core's inline-block
+            // anchor would shrink-wrap the image and pin it to the line start;
+            // keep the source link inline so the image lays out on the figure.
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::INLINE_IMAGE_LINK_CLASS);
         }
         $block = $this->blocks->createBlock('core/image', $attrs, array(), $figure ?? $image);
         // core/image saves the class list and anchor on the <figure>; an author
@@ -688,14 +695,32 @@ final class ImageLowering
      * Authored `loading` belongs to it: when candidates share a URL, the first
      * fetch fixes the image's density, so eager and lazy copies render apart.
      *
+     * A src-only image keeps just its authored `loading` and `fetchpriority`:
+     * core/image saves neither, and core's default would load the first
+     * content images eagerly although the source deferred them. An image
+     * without authored values records nothing, so core's defaults apply.
+     *
      * @return array<string, mixed>
      */
     private function authoredImageSelection(DOMElement $image, string $src, ?DOMElement $picture = null): array
     {
-        if ( (null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset'))) || $this->hasUnsafeResponsiveImageSources($picture ?? $image) ) {
+        $loading       = strtolower(trim(SourceDom::attr($image, 'loading')));
+        $loading       = in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '';
+        $fetchpriority = strtolower(trim(SourceDom::attr($image, 'fetchpriority')));
+        $fetchpriority = in_array($fetchpriority, array( 'high', 'low', 'auto' ), true) ? $fetchpriority : '';
+        if ( null === $picture && array() === SrcsetParser::parse(SourceDom::attr($image, 'srcset')) ) {
+            if ( '' === $loading && '' === $fetchpriority ) {
+                return array();
+            }
+            return array_filter(array(
+                'src'           => $src,
+                'loading'       => $loading,
+                'fetchpriority' => $fetchpriority,
+            ), static fn (string $value): bool => '' !== $value);
+        }
+        if ( $this->hasUnsafeResponsiveImageSources($picture ?? $image) ) {
             return array();
         }
-        $loading = strtolower(trim(SourceDom::attr($image, 'loading')));
         $sizes   = trim(SourceDom::attr($image, 'sizes'));
 
         // The HTML spec applies the `auto` keyword only to lazy-loaded images;
@@ -709,7 +734,7 @@ final class ImageLowering
             'src'     => $src,
             'srcset'  => SrcsetParser::rewrite(SourceDom::attr($image, 'srcset'), fn (string $url): string => $this->imageUrls->resolvedAssetUrl($url)),
             'sizes'   => $sizes,
-            'loading' => in_array($loading, array( 'lazy', 'eager' ), true) ? $loading : '',
+            'loading' => $loading,
         ), static fn (string $value): bool => '' !== $value);
         if ( $picture instanceof DOMElement ) {
             $selection['image'] = array();
@@ -793,6 +818,18 @@ final class ImageLowering
         return $attrs;
     }
 
+    private function isBlockImageInInlineLink(DOMElement $image, DOMElement $link): bool
+    {
+        return 'block' === $this->sourceDisplay($image) && 'inline' === $this->sourceDisplay($link);
+    }
+
+    private function sourceDisplay(DOMElement $element): string
+    {
+        $value = SourceDeclarations::inline($element)['display'] ?? $this->styleResolver->declaredPresentation($element, 'display')->resolvedValue();
+
+        return CssValueInspector::comparable('' !== $value ? $value : $this->styleResolver->defaultTagDisplay($element));
+    }
+
     /** Keep independently styled source boxes distinct without changing inert class transport. */
     private function imageNeedsSeparateFigureBox(DOMElement $image, ?DOMElement $figure): bool
     {
@@ -828,7 +865,7 @@ final class ImageLowering
                 $this->styleResolver->syntheticFlexImageBoxClassName($image)
             );
         }
-        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->imageLeafPlacementClassName($image));
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->imageLeafPlacementClassName($image, $figure instanceof DOMElement));
         if ( $figure instanceof DOMElement ) {
             // Separate source boxes must keep separate selector ownership. Only
             // inert identities retain the historical class transport.

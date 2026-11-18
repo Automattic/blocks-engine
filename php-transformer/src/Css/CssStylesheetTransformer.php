@@ -133,7 +133,8 @@ final class CssStylesheetTransformer
      * The stylesheet without rules a later identical rule in the same
      * conditional groups repeats: the later copy wins wherever the earlier
      * one would, so the cascade is unchanged. Nor does it keep a style rule
-     * a later one restates in full ({@see withoutDominatedUnits()}).
+     * a later one restates in full ({@see withoutDominatedUnits()}), nor a
+     * style rule that declares nothing ({@see withoutEmptyStyleRules()}).
      * Malformed input is returned unchanged.
      */
     public function compactStylesheet(string $css): string
@@ -143,7 +144,37 @@ final class CssStylesheetTransformer
         }
         $units = array();
         $this->collectRuleUnits($css, array(), $units);
-        return $this->serializeRuleUnits($this->withoutDominatedUnits($this->withoutEarlierDuplicates(array($units))));
+        return $this->serializeRuleUnits($this->withoutDominatedUnits($this->withoutEarlierDuplicates(array($this->withoutEmptyStyleRules($units)))));
+    }
+
+    /**
+     * The units without style rules whose block declares nothing. Projection
+     * empties a rule when it routes every declaration to another carrier (an
+     * inline-style guard, a native attribute); the empty rule styles no
+     * element, yet ships its selector. A rule that first names a cascade
+     * layer keeps the layer's order, and a leading comment (a license) stays.
+     *
+     * @param list<array{context: list<string>, text: string, dedupable: bool}> $units
+     * @return list<array{context: list<string>, text: string, dedupable: bool}>
+     */
+    private function withoutEmptyStyleRules(array $units): array
+    {
+        $named = array();
+        $kept = array();
+        foreach ( $units as $unit ) {
+            $origin = false;
+            foreach ( self::layerNames($unit) as $name ) {
+                if ( ! isset($named[ $name ]) ) {
+                    $named[ $name ] = true;
+                    $origin = true;
+                }
+            }
+            if ( ! $origin && ! str_contains($unit['text'], '/*') && 1 === preg_match('/^\s*[^{}@\s][^{}]*\{\s*\}\s*$/', $unit['text']) ) {
+                continue;
+            }
+            $kept[] = $unit;
+        }
+        return $kept;
     }
 
     /**
@@ -618,6 +649,56 @@ final class CssStylesheetTransformer
             }
         }
         return $this->serializeRuleUnits($kept);
+    }
+
+    /**
+     * What a stylesheet may set on one route's document: the cascade families
+     * (see cascadePropertyFamilies) it declares on each element it may style,
+     * or null when that cannot be proven — malformed CSS, an unreadable
+     * selector or an arm the index cannot evaluate. Two stylesheets whose
+     * footprints do not overlap can trade places on that route without
+     * changing its cascade.
+     *
+     * @return array<int|string, array<string, true>>|null
+     */
+    public function cascadeFootprint(string $css, RouteSelectorMatchIndex $matchIndex, string $owner): ?array
+    {
+        if ( ! $this->isWellFormedStylesheet($css) ) {
+            return null;
+        }
+        $units = array();
+        $this->collectRuleUnits($css, array(), $units);
+        $footprint = array();
+        foreach ( $units as $unit ) {
+            $families = self::cascadePropertyFamilies($unit['text']);
+            if ( array() === $families ) {
+                continue;
+            }
+            $targets = self::cascadeTargets($matchIndex, $owner, $unit['text']);
+            if ( null === $targets ) {
+                return null;
+            }
+            foreach ( array_keys($targets) as $id ) {
+                $footprint[ $id ] = ( $footprint[ $id ] ?? array() ) + $families;
+            }
+        }
+        return $footprint;
+    }
+
+    /**
+     * Whether two cascade footprints set an overlapping family on one target.
+     *
+     * @param array<int|string, array<string, true>> $first
+     * @param array<int|string, array<string, true>> $second
+     */
+    public static function cascadeFootprintsOverlap(array $first, array $second): bool
+    {
+        foreach ( array_intersect_key($first, $second) as $id => $families ) {
+            if ( self::cascadeFamiliesOverlap($families, $second[ $id ]) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1201,21 +1282,6 @@ final class CssStylesheetTransformer
         }
         unset($arm);
         return $arms;
-    }
-
-    /**
-     * Gate selector arms to the documents whose root matches $scope (a
-     * zero-weight `:where(:root...)`), or null when an arm cannot be gated.
-     *
-     * @param list<string> $arms
-     * @return list<string>|null
-     */
-    public static function routeScopedArms(array $arms, string $scope): ?array
-    {
-        $reason = null;
-        $parsed = array();
-        $scoped = self::scopeRouteArms($arms, $scope, $reason, $parsed);
-        return null === $reason ? $scoped : null;
     }
 
     private static function scopeRouteArms(array $arms, string $scope, ?string &$reason, array &$parsedArms): ?array

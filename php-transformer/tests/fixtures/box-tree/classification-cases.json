@@ -1,5 +1,10 @@
 [
   {"name":"neutral", "criterion":"equal-child-geometry"},
+  {"name":"hidden", "styles":{"display":"none"}, "criterion":"hidden"},
+  {"name":"flex-order", "styles":{"order":"1"}, "criterion":"own-placement"},
+  {"name":"offset", "styles":{"position":"relative","top":"-40px"}, "criterion":"own-placement"},
+  {"name":"device-island", "attributes":"class=\"data-blocks-engine-capture-desktop-only\"", "criterion":"capture-marker"},
+  {"name":"inline-child", "child_styles":{"display":"inline-block"}, "criterion":"line-box"},
   {"name":"twelve-wrapper-image-chain", "chain":true, "criterion":"equal-child-geometry"},
   {"name":"background", "styles":{"background-color":"rgb(255, 0, 0)"}, "criterion":"paints"},
   {"name":"border", "styles":{"border-top":"1px solid rgb(0, 0, 0)"}, "criterion":"paints"},

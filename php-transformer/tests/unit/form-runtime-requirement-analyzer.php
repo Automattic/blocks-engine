@@ -43,6 +43,24 @@ $assert($analyzer->requiresPreservation($elementFrom('<form><input data-runtime=
 $assert($analyzer->requiresPreservation($elementFrom('<form class="signup js-form"></form>')), 'form-js-class-requires-runtime');
 $assert($analyzer->requiresPreservation($elementFrom('<form><input class="field js-validate"></form>')), 'control-js-class-requires-runtime');
 
+// A POST search form keeps search intent ahead of the path-only donation rule;
+// hidden server tokens are not authored controls.
+$postSearch = static fn (string $action, string $submit = '<input type="submit" name="op" value="Search">'): string =>
+    '<form action="' . $action . '" method="post" id="search-block-form"><input type="text" name="search_block_form">' . $submit
+    . '<input type="hidden" name="form_build_id" value="token"><input type="hidden" name="form_id" value="search_block_form"></form>';
+$assert('search' === FormRuntimeRequirementAnalyzer::formIntent($elementFrom($postSearch('/giving'))), 'post-search-at-giving-path-is-search');
+$assert('search' === FormRuntimeRequirementAnalyzer::formIntent($elementFrom($postSearch('/'))), 'post-search-at-root-is-search');
+$assert('donation' === FormRuntimeRequirementAnalyzer::formIntent($elementFrom(
+    '<form action="/giving" method="post"><label><input type="radio" name="amount" value="25"> $25</label><label><input type="radio" name="amount" value="50"> $50</label><button type="submit">Donate</button></form>'
+)), 'post-donation-with-amounts-stays-donation');
+$assert('donation' === FormRuntimeRequirementAnalyzer::formIntent($elementFrom($postSearch('/giving', '<button type="submit">Donate</button>'))), 'search-shaped-form-with-donate-submit-stays-donation');
+$assert('contact' === FormRuntimeRequirementAnalyzer::formIntent($elementFrom(
+    '<form action="/" method="post"><input type="text" name="name"><input type="email" name="email"><textarea name="message"></textarea><button type="submit">Send</button></form>'
+)), 'post-contact-form-stays-contact');
+$assert('login' === FormRuntimeRequirementAnalyzer::formIntent($elementFrom(
+    '<form action="/search" method="post"><input type="text" name="search"><input type="password" name="pass"><button type="submit">Search</button></form>'
+)), 'password-keeps-login-precedence');
+
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);
