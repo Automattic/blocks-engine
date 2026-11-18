@@ -116,10 +116,10 @@ $cases = array(
         array('@media (max-width:1023px){.be-inline-geometry-', '@media (max-width:800px){.be-inline-geometry-', 'margin-top:calc(0.1 * min(100vw, 700px))'),
         array('font-size:270px', 'margin-top:144px'),
     ),
-    'a band between captures that no capture proves stays in pixels' => array(
+    'an author band between captures is retained without an intermediate capture' => array(
         ':root{--max:9999px}@media (max-width:1023px){:root{--max:9000px}}@media (max-width:700px){:root{--max:700px}}h1{font-size:calc(0.1875 * min(100vw, var(--max)))}',
         array('n6.font-size' => array('270px', '75.375px')),
-        array('font-size:270px', 'font-size:75.375px'), array('min(100vw'),
+        array('font-size:calc(0.1875 * min(100vw, 9999px))', '@media (max-width:1023px)', 'font-size:calc(0.1875 * min(100vw, 9000px))', '@media (max-width:700px)', 'font-size:calc(0.1875 * min(100vw, 700px))'), array('font-size:270px', 'font-size:75.375px'),
     ),
     'an undefined custom property stays in pixels' => array(
         'h1{font-size:calc(var(--missing) * 2)}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:75px', 'font-size:20.9px'), array('var(--missing)'),
@@ -200,9 +200,20 @@ $cases = array(
     'a declared width keeps its pixels' => array(
         'h1{width:300px}', array('n6.width' => array('300px', '300px')), array('h1 ;width:300px'), array('h1 ;width:auto'),
     ),
-    'a width a query sets between captures keeps its pixels' => array(
+    'an intrinsic width switched to pixels lifts under the author query' => array(
         'h1{width:auto}@media (max-width:500px){h1{width:300px}}', array('n6.width' => array('1440px', '300px')),
-        array('width:1440px', 'width:300px'), array('h1 ;width:auto'),
+        array('h1 ;width:auto', '@media (max-width:500px)', 'width:300px'), array('width:1440px'),
+    ),
+    // sdnunca header menu: the author switches the width's kind at a query.
+    'a % width an author query switches to max-content lifts per author band' => array(
+        'h1{width:85.57%}@media (max-width:1023px){h1{width:max-content}}',
+        array('n5.width' => array('1000px', '402px'), 'n6.width' => array('855.7px', '30.92px')),
+        array('h1 ;width:85.57%', '@media (max-width:1023px){', 'width:max-content'), array('width:855.7px', 'width:30.92px'),
+    ),
+    'a percentage switched to a pixel value lifts under the author query' => array(
+        'h1{width:85.57%}@media (max-width:1023px){h1{width:30.92px}}',
+        array('n5.width' => array('1000px', '402px'), 'n6.width' => array('855.7px', '30.92px')),
+        array('h1 ;width:85.57%', '@media (max-width:1023px)', 'width:30.92px'), array('width:855.7px', 'width:max-content'),
     ),
     'a logical size alias keeps its pixels' => array(
         'h1{inline-size:300px}', array('n6.width' => array('300px', '300px')), array('h1 ;width:300px'), array('h1 ;width:auto'),
@@ -269,7 +280,8 @@ $cases = array(
             'n5.padding-left' => array('10px', '10px'), 'n5.padding-right' => array('10px', '10px'), 'n5.padding-top' => array('0px', '0px'), 'n5.padding-bottom' => array('0px', '0px'),
             'n6.position' => array('absolute', 'absolute'), 'n6.left' => array('110px', '60px'), 'n6.top' => array('25px', '15px'),
             'n6.right' => array('110px', '60px'), 'n6.bottom' => array('25px', '15px')),
-        array('left:50%', 'top:50%', 'h1 right:auto', 'h1 bottom:auto'), array('left:110px', 'left:60px', 'top:25px', 'top:15px', 'right:110px', 'bottom:25px'),
+        // The four offsets fold into one inset shorthand, in top/right/bottom/left order.
+        array('h1 inset:50% auto auto 50%'), array('h1 110px', 'h1 60px', 'h1 25px', 'h1 15px'),
     ),
     'a calc(% - px) offset lifts through the inset shorthand' => array(
         'main{position:relative}h1{position:absolute;inset:0 auto auto calc(50% - 24px)}',
@@ -314,7 +326,7 @@ $cases = array(
     'a % column gap through the gap shorthand lifts against the own content box' => array(
         'main{display:flex;gap:0 10%}',
         array('n5.display' => array('flex', 'flex'), 'n5.width' => array('1000px', '400px'), 'n5.column-gap' => array('100px', '40px')),
-        array('column-gap:10%'), array('column-gap:100px', 'column-gap:40px'),
+        array('gap:none 10%'), array('column-gap:100px', 'column-gap:40px', 'gap:none 100px', 'gap:none 40px'),
     ),
 );
 /** The heading's carrier rules: needles prefixed `h1 ` are matched there only. */

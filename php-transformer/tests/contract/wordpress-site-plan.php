@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 require __DIR__ . '/support/ResolvedPlanProjection.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\FontPresetReads;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
@@ -484,7 +485,7 @@ $assert(is_array($editorStateAsset) && 'editor' === ($editorStateAsset['styleshe
 $editorStateFontPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="assets/site.css"><main id="content">Home</main>', 'assets/site.css' => '@font-face{font-family:Test;src:url("font.woff2")}#content{background:#111;font-family:Test}', 'assets/font.woff2' => "wOF2\x00\x01\x00\x00")))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 $editorStateFontWrites = $writeMap($editorStateFontPlan['writes'] ?? array());
 $editorStateFontAsset = current(array_filter($editorStateFontPlan['assets'] ?? array(), static fn(array $asset): bool => 'editor-static-state' === ($asset['source'] ?? '')));
-$editorStateFontCss = (string) ($editorStateFontWrites[$editorStateFontAsset['target_path'] ?? '']['payload']['data'] ?? '');
+$editorStateFontCss = FontPresetReads::resolve((string) ($editorStateFontWrites[$editorStateFontAsset['target_path'] ?? '']['payload']['data'] ?? ''), $editorStateFontPlan);
 $assert(array() !== $editorStateFontPlan && str_contains($editorStateFontCss, 'font-family:') && str_contains($editorStateFontCss, 'Test') && !str_contains($editorStateFontCss, '@font-face') && !str_contains($editorStateFontCss, 'font.woff2') && in_array('file:./assets/assets/font.woff2', array_column(array_merge(...array_map(static fn(array $family): array => $family['fontFace'] ?? array(), json_decode((string) ($editorStateFontWrites['theme.json']['payload']['data'] ?? '{}'), true)['settings']['typography']['fontFamilies'] ?? array())), 'src'), true) && isset($editorStateFontWrites['assets/assets/font.woff2']) && !str_contains((string) ($editorStateFontWrites['assets/assets/site.css']['payload']['data'] ?? ''), '@font-face'), 'Editor-state repairs use the shared author font without copying its definition; theme.json registers the local face once, in place of the author stylesheet copy.');
 $nestedShellPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>#master.mesh{display:grid;grid-template-rows:auto 1fr auto}#master.mesh #site-footer{grid-area:3 / 1 / 4 / 2;background:#111}</style><div id="master" class="mesh"><header>Header</header><main>Body</main><footer id="site-footer" class="site-footer">Footer</footer></div>')))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 $nestedShellEditorAsset = current(array_filter($nestedShellPlan['assets'] ?? array(), static fn (array $asset): bool => 'editor-static-state' === ($asset['source'] ?? '')));

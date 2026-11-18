@@ -16,8 +16,9 @@ native pixel attributes, even when desktop and mobile samples happen to agree.
 Inline image constraints retain source importance; structural fallbacks use
 normal priority.
 
-CSS-sized provider frames use the existing editable visual-iframe companion.
-This preserves their source selector surface and exact aspect-ratio/padding
+CSS-sized provider frames stay a core/embed of their source URL whose frame
+attributes ride in block metadata; the generated theme renders the bare source
+iframe from them. This preserves their source selector surface and exact aspect-ratio/padding
 wrapper behavior without an oEmbed round-trip replacing their box. Captured
 width/height attributes are omitted on these blocks. Unsized and attribute-only
 provider embeds retain core/embed behavior. Generated markup and assets must be

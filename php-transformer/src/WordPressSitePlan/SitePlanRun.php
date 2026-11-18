@@ -11,6 +11,8 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssMathValueCompactor;
+use Automattic\BlocksEngine\PhpTransformer\Css\ShadowedDeclarationPruner;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use InvalidArgumentException;
@@ -114,7 +116,7 @@ final class SitePlanRun
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
         $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
-        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups)->withBlockTypography($markups);
+        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups)->withBlockTypography($markups)->withBlockColors($markups);
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
@@ -294,7 +296,7 @@ final class SitePlanRun
         $assets = PageStylesheets::place($assets, $pages, array_merge($pages, $parts, $frameParts));
         $assets = EditorStaticStateAssets::share($assets, $this->references);
         $assets = StylesheetScopes::foldSupport($assets, StylesheetScopes::documentsBySource($pages, $rootDocuments), StylesheetScopes::canonicalDocuments(StylesheetScopes::documentsBySource($assetPages, $rootDocuments)), implode("\n", array_column(array_merge($parts, $frameParts), 'canonical_block_markup')));
-        $assets = EvidenceRouteStylesheets::retire($assets, $pages);
+        $assets = EvidenceRouteStylesheets::retire($assets, $pages, array_merge($parts, $frameParts));
         $tokens = $this->tokens($assets);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shellDeclarations;
@@ -320,7 +322,7 @@ final class SitePlanRun
          // of the page. Rebase retained runtime anchors on the final documents.
          $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $pages, array_merge($parts, $bindingTemplates), $paginationOwners);
          $pages = WholePageCandidates::attach($pages, $runtimeDeclarations, $runtimeEntityRecords);
-         foreach ($pages as &$page) unset($page['_projected_source_block_markup'], $page['_synced_pattern_source']); unset($page);
+         foreach ($pages as &$page) unset($page['_synced_pattern_source']); unset($page);
          BindingAnchors::assertAnchored($runtimeDeclarations, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $assets);
         $taxonomyProjection = TaxonomyProjection::withSettledPresentation($taxonomyProjection, $pages);
         ['pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources] = $this->materializedPages($pages, $assets, $taxonomyProjection);
@@ -334,6 +336,10 @@ final class SitePlanRun
         // Template-group lifting settles post bodies and can add featured images.
         $pages = $this->listings->materialize($pages, $runtimeDeclarations, $taxonomyProjection['entities'], true, $foldedListingRoutes);
         $pages = ListingFieldProjection::resolveFeaturedImageTargets($pages, $tokens);
+        // Article chrome moves shared post chrome out of each post body, which
+        // shifts the page-owned blocks after it. Rebase their runtime anchors.
+        $runtimeDeclarations = $this->entityBindings->canonical($runtimeDeclarations, $runtimeEntityRecords, $this->references, $pages, array_merge($parts, $syncedPatterns, $bindingTemplates), $paginationOwners);
+        foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
         // Related-section queries are registered while article chrome is factored.
         $assets = ListingQueryPresentation::project($assets, $this->listings->queryContainers());
         $themeProjection = ThemeTemplates::withCustomTemplates($themeProjection, $pages, $sharedTemplateTitles);
@@ -352,6 +358,10 @@ final class SitePlanRun
         // A source arm guarded against role carriers is dead once every
         // element naming its class is one of them.
         $assets = ConvertedSourceClassSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
+        // A carrier arm restating an emitted image figure on a carrier it
+        // never becomes matches nothing on any route. Menus keep their markup
+        // in `block_markup`: their figures are emitted too.
+        $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
@@ -520,7 +530,12 @@ final class SitePlanRun
         $compactor = new CssStylesheetTransformer();
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $compacted = $compactor->compactStylesheet($asset['content']);
+            // A declaration a later one in its block always overrides never
+            // decides a value; dropping it first also lets identical blocks fold.
+            // Captured fluid lengths ship as the source runtime spelled them
+            // (`100 * 1vw * 1`, `- 0px`); each carrier and breakpoint repeats
+            // that spelling, so it is written once at its smallest form.
+            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet($asset['content'])));
             if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
             // Compatibility replays use :root only as a specificity shim,
             // not as a document reset. Their repeated native-host arms can

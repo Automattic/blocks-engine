@@ -34,8 +34,11 @@ $assert($white === ($attributes['textColor'] ?? null), 'An exact palette literal
 $assert(!isset($attributes['style']['color']['text']) && !str_contains($light[2], 'color:') && str_contains($light[2], 'has-text-color') && str_contains($light[2], 'has-' . $white . '-color'), 'Core preset attributes and classes replace the inline text declaration.');
 
 $unsafe = $compile('.body:hover{color:#fff}');
-$assert(str_contains($unsafe['pages'][0]['canonical_block_markup'], 'style="color:rgb(255, 255, 255)"'), 'Reachable state_variant rules keep the literal.');
-$assert($unsafe['theme']['design_system']['metrics']['refusal_reasons']['state_variant'] > 0, 'The safety refusal remains reported.');
+// A preset class would mask the state rule; the inline declaration keeps its
+// cascade slot and reads the token instead.
+$assert(1 === preg_match('/<!-- wp:paragraph (\{.*?\}) -->(<p[^>]*>)Light copy<\/p>/', $unsafe['pages'][0]['canonical_block_markup'], $stateLight), 'The state-guarded paragraph remains native.');
+$assert('var:preset|color|' . $white === (json_decode($stateLight[1], true, 512, JSON_THROW_ON_ERROR)['style']['color']['text'] ?? null) && str_contains($stateLight[2], 'style="color:var(--wp--preset--color--' . $white . ')"') && !str_contains($stateLight[2], 'has-' . $white . '-color'), 'Reachable state_variant rules bind the literal to an inline preset variable.');
+$assert(0 === $unsafe['theme']['design_system']['metrics']['refusal_reasons']['state_variant'], 'No state-guarded palette literal is refused.');
 // An author !important rule overrides the inline colour, so the source never
 // renders it: the literal is neither kept nor bound, and the author rule paints.
 $important = $compile('.body{color:#fff!important}');

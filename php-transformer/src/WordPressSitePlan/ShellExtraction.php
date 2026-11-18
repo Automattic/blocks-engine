@@ -501,6 +501,8 @@ final class ShellExtraction
     {
         foreach ($pages as &$page) {
             foreach ($page['shell_candidates'] ?? array() as $candidate) {
+                // A candidate still at its block-tree position needs no restoring.
+                if (isset($candidate['offset'], $candidate['markup']) && $candidate['markup'] === substr($page['canonical_block_markup'], $candidate['offset'], strlen($candidate['markup']))) continue;
                 // A leading-chrome candidate still owns its original landmark
                 // until extraction accepts it; restoring the pruned part loses content.
                 $restored = $this->replaceTopLevelShell($page['canonical_block_markup'], (string) ($candidate['area'] ?? ''), (string) ($candidate['shared_leading']['markup'] ?? $candidate['markup'] ?? ''));
@@ -554,6 +556,7 @@ final class ShellExtraction
             $row = array('area' => $candidate['area'], 'markup' => $markup, 'template_part_markup' => $templatePartMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => ArrayField::string($candidate, 'source_hash'));
             if (is_array($range)) { $row['offset'] = $range['offset']; $row['length'] = $range['length']; }
             if ('header' === $row['area'] && is_array($range)) $row = $this->withLeadingHeaderChrome($index, $row);
+            if ('header' === $row['area'] && is_array($range) && !isset($row['shared_leading'])) $row = self::withLeadingAnnouncements($index, $row);
             $candidates[] = $row;
         }
         $sourcePath = WordPressSitePlan::value($document, 'source_path');
@@ -757,9 +760,11 @@ final class ShellExtraction
         $lead = 0;
         while ($lead < count($ranges) - 1 && self::isEmptyVisualGroup(substr($markup, $ranges[$lead]['offset'], $ranges[$lead]['length']))) ++$lead;
         // A text-only announcement bar above the navigation is part of the
-        // masthead: the header runs from it through the navigation block.
+        // masthead: the header runs from it through the navigation block,
+        // whether it opens the main landmark or the document itself.
         $navAt = $lead;
-        while (self::leadsMainDocument($index, $ranges[$lead]['offset']) && $navAt < $lead + 2 && $navAt < count($ranges) - 1 && self::isLeadingAnnouncement(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) ++$navAt;
+        $leadsDocument = self::leadsMainDocument($index, $ranges[$lead]['offset']) || in_array($ranges[$lead], $index->topLevel(), true);
+        while ($leadsDocument && $navAt < $lead + 2 && $navAt < count($ranges) - 1 && self::isLeadingAnnouncement(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) ++$navAt;
         if (!self::containsNavigation(substr($markup, $ranges[$navAt]['offset'], $ranges[$navAt]['length']))) $navAt = $lead;
         if (2 <= count($ranges) - $navAt) {
             $head = $ranges[$navAt];
@@ -994,14 +999,25 @@ final class ShellExtraction
         return is_array($shell) && 'dropdown' !== ($shell['attributes']['data-blocks-engine-presentation'] ?? null);
     }
 
+    /** A block holding nothing but one in-page fragment link (a skip link). */
+    private static function isFragmentLinkOnly(string $markup): bool
+    {
+        $html = trim(preg_replace('/<!--.*?-->/s', '', $markup) ?? '');
+        $html = trim(preg_replace('/^<p\b[^>]*>|<\/p>$/i', '', $html) ?? '');
+        return 1 === preg_match('/^<a\b[^>]*\bhref="#[^"]*"[^>]*>[^<]*<\/a>$/i', $html);
+    }
+
     /**
      * A short text-only paragraph or group (an announcement bar): no heading,
      * landmark, navigation, media or nested part, so it holds no page content.
      */
     private static function isLeadingAnnouncement(string $markup): bool
     {
-        if (1 !== preg_match('/^<!--\s*wp:(?:paragraph|group)(?:\s|\/|-)/', ltrim($markup)) || self::isCapturedModalDialogBlock($markup) || self::containsNavigation($markup) || self::containsMainLandmark($markup)) return false;
-        if (str_contains($markup, '<!-- wp:heading') || str_contains($markup, 'wp:template-part') || 1 === preg_match('/"tagName":"(?:header|footer|nav|section|article|aside)"|<h[1-6]\b|<(?:img|picture|video|audio|iframe|svg|canvas|form|input|button)\b/i', $markup)) return false;
+        if (1 !== preg_match('/^<!--\s*wp:(?:paragraph|group|[a-z0-9-]+\/layout-shell)(?:\s|\/|-)/', ltrim($markup)) || self::isCapturedModalDialogBlock($markup) || self::containsNavigation($markup) || self::containsMainLandmark($markup)) return false;
+        // A decorative inline icon (an empty-alt image inside the bar's text,
+        // such as an external-link glyph) is phrasing, not media.
+        $media = preg_replace('/<img\b(?=[^>]*\balt="")[^>]*>/i', '', $markup) ?? $markup;
+        if (str_contains($markup, '<!-- wp:heading') || str_contains($markup, 'wp:template-part') || str_contains($markup, '<!-- wp:image') || 1 === preg_match('/"tagName":"(?:header|footer|nav|section|article|aside)"|<h[1-6]\b|<(?:img|picture|video|audio|iframe|svg|canvas|form|input|button)\b/i', $media)) return false;
         $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags(preg_replace('/<!--.*?-->/s', '', $markup) ?? ''))) ?? '');
         return '' !== $text && mb_strlen($text) <= 200;
     }
@@ -1021,6 +1037,42 @@ final class ShellExtraction
         return $main;
     }
 
+    /**
+     * A header nested in a body-level view that comes after a body-level
+     * <nav> sibling belongs to that view (an SPA page, a panel), not to the
+     * site chrome: the leading <nav> already is the masthead. Only a sibling
+     * whose own element is the nav landmark counts, so capture-variant
+     * documents and site wrappers never qualify as that earlier chrome, and a
+     * header that opens its own wrapper ahead of a main landmark never matches.
+     */
+    private static function followsDocumentNavigation(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $row): bool
+    {
+        if (!empty($row['document_level'])) return false;
+        $navBefore = false;
+        foreach ($index->topLevel() as $range) {
+            if ($range['offset'] + $range['length'] <= $row['offset']) {
+                $navBefore = $navBefore || self::isNavLandmarkBlock(substr($index->markup, $range['offset'], $range['length']));
+                continue;
+            }
+            if ($range['offset'] > $row['offset']) return false;
+            if (!$navBefore) return false;
+            // The view wrapping the header: a header followed by a main
+            // landmark in that wrapper is the wrapper's own masthead.
+            $after = substr($index->markup, $row['offset'] + $row['length'], $range['offset'] + $range['length'] - $row['offset'] - $row['length']);
+            return 1 !== preg_match('/<!--\s*wp:[a-z\/-]+\s+\{[^}]*"tagName":"main"/', $after) && !str_contains($after, '<main');
+        }
+        return false;
+    }
+
+    /** A body-level block whose own element is the navigation landmark. */
+    private static function isNavLandmarkBlock(string $block): bool
+    {
+        if (1 === preg_match('/^<!--\s*wp:navigation(?:\s|\{|\/)/', ltrim($block))) return true;
+        if (1 !== preg_match('/^<!--\s*wp:[a-z\/-]+\s+(\{.*?\})\s*\/?-->/s', ltrim($block), $match)) return false;
+        $attrs = json_decode($match[1], true);
+        return is_array($attrs) && 'nav' === ShellLandmarkPolicy::landmarkKind((string) ($attrs['tagName'] ?? ''), (string) ($attrs['role'] ?? ''));
+    }
+
     private static function isHeadingBlock(string $markup): bool
     {
         return 1 === preg_match('/^<!--\s*wp:heading(?:\s|\{)/', ltrim($markup));
@@ -1034,6 +1086,7 @@ final class ShellExtraction
         foreach (array('header', 'footer') as $area) {
             if (in_array($area, $occupiedAreas, true)) continue;
             $rows = $this->nestedLandmarkCandidates($index, $sourcePath, $area);
+            if ('header' === $area) $rows = array_values(array_filter($rows, static fn(array $row): bool => !self::followsDocumentNavigation($index, $row)));
             if (array() === $rows) continue;
             if (!empty($rows[0]['document_level']) && 1 < count($rows)) continue;
             $identities = array_column($rows, 'identity_markup');
@@ -1071,6 +1124,37 @@ final class ShellExtraction
             $candidates[] = array('document_edge' => $row['document_edge'] ?? false, 'area' => $area, 'markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'device_document_bundle' => $bundle, 'shared_only' => !empty($row['document_level']), 'wrapper_contract_shell' => !empty($row['wrapper_contract_shell']), 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional, 'ancestor_context' => $row['ancestor_context'] ?? null) + (isset($row['shared_leading']) ? array('shared_leading' => $row['shared_leading']) : array());
         }
         return $candidates;
+    }
+
+    /**
+     * Announcement bars (a utility or language bar) directly before a
+     * top-level header render above it on every route, so the header shell
+     * starts at the first of them and keeps their source order. Only the
+     * contiguous run ending at the header counts; a skip link or any other
+     * block ends it, so skip links keep their own handling on every route.
+     *
+     * @param array<string,mixed> $row
+     * @return array<string,mixed>
+     */
+    private static function withLeadingAnnouncements(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $row): array
+    {
+        $before = array_values(array_filter($index->topLevel(), static fn (array $range): bool => $range['offset'] < $row['offset']));
+        $start = null;
+        for ($i = count($before) - 1; $i >= 0; --$i) {
+            $markup = substr($index->markup, $before[$i]['offset'], $before[$i]['length']);
+            if (self::isFragmentLinkOnly($markup) || !self::isLeadingAnnouncement($markup)) break;
+            $start = $before[$i]['offset'];
+        }
+        if (null === $start) return $row;
+        $markup = substr($index->markup, $start, $row['offset'] + $row['length'] - $start);
+        return array_replace($row, array(
+            'markup' => $markup,
+            'identity_markup' => ChromeIdentity::markup($markup),
+            'source_hash' => hash('sha256', $markup),
+            'template_part_markup' => self::landmarkPartMarkup(RestingNavigation::markup($markup), 'header'),
+            'offset' => $start,
+            'length' => strlen($markup),
+        ));
     }
 
     /**
@@ -2534,7 +2618,9 @@ final class ShellExtraction
 
     /**
      * Position, counted from the page edge, of the edge block that holds the
-     * landmark candidate, or null when the edge does not hold it.
+     * landmark candidate, or null when the edge does not hold it. A candidate
+     * that starts with leading chrome spans whole edge blocks and ends at the
+     * landmark's own block.
      *
      * @param list<array{offset:int,length:int,identity:string,nested:bool}> $edge
      */
@@ -2544,6 +2630,11 @@ final class ShellExtraction
         foreach ($edge as $position => $block) {
             $at = strpos(substr($markup, $block['offset'], $block['length']), $landmark);
             if (false !== $at) return $position;
+        }
+        $starts = array_column($edge, 'offset');
+        foreach ($edge as $position => $block) {
+            $start = $block['offset'] + $block['length'] - strlen($landmark);
+            if (in_array($start, $starts, true) && $landmark === substr($markup, $start, strlen($landmark))) return $position;
         }
         return null;
     }
@@ -2969,6 +3060,9 @@ final class ShellExtraction
         $slug = (string) $parts[$partIndex]['slug'];
         $reference = '/<!--\s*wp:template-part\s+\{[^}]*"slug":"' . preg_quote($slug, '/') . '"[^}]*\}\s*\/-->/';
         foreach ($pages as $page) if (1 === preg_match($reference, (string) ($page['canonical_block_markup'] ?? ''))) return $unchanged;
+        // Another part rendering this one (a device-document footer around
+        // shared footer copy) would nest the folded footer inside itself.
+        foreach ($parts as $index => $part) if ($index !== $partIndex && 1 === preg_match($reference, (string) ($part['canonical_block_markup'] ?? ''))) return $unchanged;
         $slot = '<!-- wp:post-content {"className":"blocks-engine-frame-slot"} /-->';
         $runs = array();
         foreach ($frames as $template => $frame) {

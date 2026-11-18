@@ -14,7 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeBootstrap;
 // (EvidenceRouteStylesheets retires its author sheets), so the carriers must
 // reproduce the author's breakpoint rules at every captured viewport. The
 // source sizes images with breakpoint rules; the evidence captures it at
-// three widths. The delivered CSS is cascaded against the compiled markup at
+// two widths. The delivered CSS is cascaded against the compiled markup at
 // each width, and sizes are resolved at viewports whose heights differ from
 // the captures'.
 $assert = static function (bool $condition, string $message, string $detail = ''): void {
@@ -28,51 +28,62 @@ $author = '.hero{height:min(880px,100svh);min-height:680px}'
     . '.intro img{display:block;width:100%;max-height:650px;object-fit:cover}'
     . '.approach{display:grid;grid-template-columns:1fr 1fr;column-gap:40px}'
     . '.approach-image img{display:block;width:100%;height:680px;object-fit:cover}'
-    . '@media (max-width:900px){.approach{grid-template-columns:1fr}.approach-image img{height:450px}}';
+    . '.portfolio{display:grid;grid-template-columns:repeat(12,1fr)}'
+    . '.pic:nth-child(n){grid-column:span 5;height:640px}.pic:nth-child(2){grid-column:span 7;height:610px}'
+    . '@media (max-width:850px){.approach{grid-template-columns:1fr}.approach-image img{height:450px}'
+    . '.pic:nth-child(n){grid-column:span 6;height:340px}.pic:nth-child(1){grid-column:span 12;height:500px}}'
+    . '@media (max-width:520px){.pic:nth-child(n){grid-column:span 12;height:280px}}';
 $markup = '<!doctype html><html><head><title>Responsive</title><style>' . $author . '</style></head><body><main>'
     . '<section class="hero"><h1>Hero</h1></section>'
     . '<section class="story"><figure><img src="https://example.com/story.jpg" alt="Story"></figure></section>'
     . '<section class="intro"><h1>Intro</h1><img src="https://example.com/intro.jpg" alt="Intro"></section>'
     . '<section class="approach"><div class="approach-text"><h2>Approach</h2><p>How we work.</p></div>'
     . '<div class="approach-image"><img src="https://example.com/approach.jpg" alt="Approach"></div></section>'
+    . '<section class="portfolio"><div class="pic"><p>First picture</p></div><div class="pic"><p>Second picture</p></div></section>'
     . '</main></body></html>';
-$viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'tablet' => array('width' => 768, 'height' => 1024), 'mobile' => array('width' => 390, 'height' => 640));
+$viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'mobile' => array('width' => 390, 'height' => 640));
 
 // Used values the browser reports for the boxes the author rules size. Every
 // other box fills the viewport width; the intro and story images are 2:3,
 // clamped to 650px. The hero is min(880px, 100svh) tall, at least 680px (650px
 // at 520px and below): at the 640px-tall mobile capture its min-height wins.
-$column = array('desktop' => array('width' => '700px'), 'tablet' => array('width' => '768px'), 'mobile' => array('width' => '390px'));
+$column = array('desktop' => array('width' => '700px'), 'mobile' => array('width' => '390px'));
 $clampedImage = array(
     'desktop' => array('display' => 'block', 'width' => '1440px', 'height' => '650px', 'max-height' => '650px', 'object-fit' => 'cover'),
-    'tablet' => array('display' => 'block', 'width' => '768px', 'height' => '650px', 'max-height' => '650px', 'object-fit' => 'cover'),
     'mobile' => array('display' => 'block', 'width' => '390px', 'height' => '585px', 'max-height' => '650px', 'object-fit' => 'cover'),
 );
 $observed = array(
     '//section[@class="hero"]' => array(
         'desktop' => array('display' => 'block', 'height' => '880px', 'min-height' => '680px'),
-        'tablet' => array('display' => 'block', 'height' => '880px', 'min-height' => '680px'),
         'mobile' => array('display' => 'block', 'height' => '650px', 'min-height' => '650px'),
     ),
     '//section[@class="story"]/figure' => array(
         'desktop' => array('display' => 'block', 'height' => '650px'),
-        'tablet' => array('display' => 'block', 'height' => '650px'),
         'mobile' => array('display' => 'block', 'height' => '585px'),
     ),
     '//section[@class="story"]/figure/img' => $clampedImage,
     '//section[@class="intro"]/img' => $clampedImage,
     '//section[@class="approach"]' => array(
         'desktop' => array('display' => 'grid', 'grid-template-columns' => '700px 700px', 'column-gap' => '40px'),
-        'tablet' => array('display' => 'grid', 'grid-template-columns' => '768px', 'column-gap' => '40px'),
         'mobile' => array('display' => 'grid', 'grid-template-columns' => '390px', 'column-gap' => '40px'),
     ),
     '//div[@class="approach-text"]' => $column,
     '//div[@class="approach-image"]' => $column,
     '//div[@class="approach-image"]/img' => array(
         'desktop' => array('display' => 'block', 'width' => '700px', 'height' => '680px', 'object-fit' => 'cover'),
-        'tablet' => array('display' => 'block', 'width' => '768px', 'height' => '450px', 'object-fit' => 'cover'),
         'mobile' => array('display' => 'block', 'width' => '390px', 'height' => '450px', 'object-fit' => 'cover'),
     ),
+);
+
+foreach (array(1, 2) as $index) {
+    $observed['//div[@class="pic"][' . $index . ']'] = array(
+        'desktop' => array('height' => 1 === $index ? '640px' : '610px', 'grid-column-start' => 1 === $index ? 'span 5' : 'span 7'),
+        'mobile' => array('height' => '280px', 'grid-column-start' => 'span 12'),
+    );
+}
+$observed['//section[@class="portfolio"]'] = array(
+    'desktop' => array('display' => 'grid', 'grid-template-columns' => implode(' ', array_fill(0, 12, '120px'))),
+    'mobile' => array('display' => 'grid', 'grid-template-columns' => implode(' ', array_fill(0, 12, '32.5px'))),
 );
 
 $fixture = json_decode((string) file_get_contents(__DIR__ . '/../fixtures/box-tree/index.json'), true, 32, JSON_THROW_ON_ERROR);
@@ -146,7 +157,9 @@ $assert(!empty($plan['pages'][0]['document_metadata']['engine_owned_styles']), '
 $css = '.wp-block-image img{box-sizing:border-box;height:auto;max-width:100%;vertical-align:bottom}';
 $assets = array_column($plan['assets'], null, 'target_path');
 foreach (ThemeBootstrap::documentStylesheets($plan, 'index.html') as $row) $css .= "\n" . ($assets[$row['target_path']]['content'] ?? '');
-$assert(!str_contains($css, '.approach-image img'), 'No author selector is delivered on the evidence route.');
+$assert(!str_contains($css, '.approach-image img') && !str_contains($css, '.pic') && !str_contains($css, '.portfolio'), 'No author selector is delivered on the evidence route.');
+$assert(2 === count($tree['viewports']), 'Only desktop and mobile captures are available.');
+$assert(str_contains($css, '@media (max-width:850px)') && str_contains($css, '@media (max-width:520px)'), 'Engine rules retain both author media conditions.');
 $compiled = new DOMDocument();
 $compiled->loadHTML('<!doctype html><html><body>' . $result['serialized_blocks'] . '</body></html>', LIBXML_NOERROR);
 $compiledPath = new DOMXPath($compiled);
@@ -249,11 +262,16 @@ $expect = static function (DOMElement $target, string $label, string $property, 
     }
 };
 
-// The captures (1440, 768, 390) and widths either side of the author's 900px breakpoint.
+// Only 1440 and 390 were captured; 768 exercises the unobserved author variant.
 $widths = array(1440, 1000, 800, 768, 390);
 $expect($introImage, 'intro image', 'max-height', array_fill_keys($widths, '650px'));
 $expect($introImage, 'intro image', 'object-fit', array_fill_keys($widths, 'cover'));
-$expect($introImage, 'intro image', 'height', array(1440 => '650px', 768 => '650px', 390 => '585px'));
+$expect($introImage, 'intro image', 'height', array(1440 => '650px', 390 => '585px'));
+foreach (array(1, 2) as $index) {
+    $pic = $element('//*[contains(concat(" ", @class, " "), " pic ")][' . $index . ']');
+    $expect($pic, 'portfolio item ' . $index, 'grid-column-start', array(1440 => 1 === $index ? 'span 5' : 'span 7', 851 => 1 === $index ? 'span 5' : 'span 7', 850 => 1 === $index ? 'span 12' : 'span 6', 768 => 1 === $index ? 'span 12' : 'span 6', 521 => 1 === $index ? 'span 12' : 'span 6', 520 => 'span 12', 390 => 'span 12'));
+    $expect($pic, 'portfolio item ' . $index, 'height', array(1440 => 1 === $index ? '640px' : '610px', 768 => 1 === $index ? '500px' : '340px', 390 => '280px'));
+}
 $expect($approachImage, 'approach image', 'height', array(1440 => '680px', 1000 => '680px', 800 => '450px', 768 => '450px', 390 => '450px'));
 $expect($approachImage, 'approach image', 'object-fit', array_fill_keys($widths, 'cover'));
 $expect($approach, 'approach grid', 'grid-template-columns', array(1440 => '1fr 1fr', 1000 => '1fr 1fr', 800 => '1fr', 768 => '1fr', 390 => '1fr'));
@@ -293,7 +311,13 @@ $expectHeight = static function (DOMElement $target, string $label, array $cases
         $assert(null !== $actual && abs($actual - $expected) < 0.5, "In a {$width}x{$height} viewport the $label is {$expected}px tall.", 'Got ' . var_export($actual, true) . "\n" . $result['serialized_blocks'] . "\n" . $css);
     }
 };
-// Viewport heights the captures (900, 1024, 640) never saw.
+foreach (array(1 => 500, 2 => 340) as $index => $height) {
+    $pic = $element('//*[contains(concat(" ", @class, " "), " pic ")][' . $index . ']');
+    $expectHeight($pic, 'portfolio item ' . $index, array(array(768, 1024, $height)));
+    $span = (int) str_replace('span ', '', (string) $cascaded($pic, 'grid-column-start', 768));
+    $assert((1 === $index ? 768 : 384) === 768 / 12 * $span, 'At uncaptured 768px the portfolio item ' . $index . ' occupies its authored grid width.');
+}
+// Viewport heights the captures (900, 640) never saw.
 $expectHeight($hero, 'hero', array(
     array(1440, 1000, 880), array(1440, 760, 760), array(1440, 600, 680),
     array(768, 700, 700), array(600, 660, 680), array(500, 660, 660),

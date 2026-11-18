@@ -46,6 +46,19 @@ final class TransformationEvidenceState
     /** @var list<string> */
     private array $formControlEchoTexts = array();
 
+    /** @var array<string, true> Node paths of source skip links omitted because Core renders its own. */
+    private array $omittedSkipLinkPaths = array();
+
+    public function recordOmittedSkipLink(string $nodePath): void
+    {
+        $this->omittedSkipLinkPaths[$nodePath] = true;
+    }
+
+    public function isOmittedSkipLink(string $nodePath): bool
+    {
+        return isset($this->omittedSkipLinkPaths[$nodePath]);
+    }
+
     /** @var list<array<string, mixed>> */
     private array $frozenHiddenStateFindings = array();
 
