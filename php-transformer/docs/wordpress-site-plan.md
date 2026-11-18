@@ -475,8 +475,12 @@ renderer pass needs one in a template part), `body_class` needs a document
 body class and `template_include` needs body attributes beyond classes.
 `theme.bootstrap_units` lists every top-level hook registration in emitted
 order as `{hook, feature}`, naming the plan feature it serves (for example
-`navigation_submenus`, `template_assets`, `document_attributes`). Validation
-rebuilds the list with the bootstrap and rejects a mismatch.
+`navigation_submenus`, `template_assets`, `document_attributes`). ThemeBootstrap
+collects feature units containing source and hook metadata; both the report and
+`functions.php` are derived from that same list in one build. The report is
+informational, not a validation constraint: consumers editing a plan and
+regenerating its bootstrap may retain the original report. Validation still
+checks the actual bootstrap source.
 
 ## Reporting
 

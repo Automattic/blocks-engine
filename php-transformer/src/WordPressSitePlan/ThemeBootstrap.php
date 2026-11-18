@@ -258,7 +258,7 @@ PHP;
     {
         $units = array();
         $served = 0;
-        $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY);
+        $lines = array(self::SOURCE_TEXT_TYPOGRAPHY);
         $documents = array_merge($templates, $parts, $pages);
         $documentsWithMenus = array_merge($documents, $menus);
         self::serve($lines, $served, $units, 'source_text');
@@ -743,20 +743,29 @@ PHP;
             $lines[] = "}, 10, 2 );";
         }
         self::serve($lines, $served, $units, 'script_attributes');
-        return array('source' => implode("\n", $lines) . "\n", 'units' => $units);
+        return array(
+            'source' => "<?php\n" . implode('', array_column($units, 'source')),
+            'units' => array_merge(array(), ...array_column($units, 'report')),
+        );
     }
 
     /**
-     * Attribute the hooks registered since the last call to one feature.
+     * Collect one emitted feature unit, including its source and hook report.
+     * Rendering and reporting both consume this list, not a second bootstrap.
+     * Empty features contribute neither source nor report entries.
      *
      * @param list<string> $lines
-     * @param list<array{hook:string,feature:string}> $units
+     * @param list<array{source:string,report:list<array{hook:string,feature:string}>}> $units
      */
     private static function serve(array $lines, int &$served, array &$units, string $feature): void
     {
-        preg_match_all("/^(?:add_filter|add_action|remove_action|remove_filter)\\( '([^']+)'/m", implode("\n", array_slice($lines, $served)), $hooks);
-        foreach ($hooks[1] as $hook) $units[] = array('hook' => $hook, 'feature' => $feature);
+        $source = implode("\n", array_slice($lines, $served));
         $served = count($lines);
+        if ('' === $source) return;
+        preg_match_all("/^(?:add_filter|add_action|remove_action|remove_filter)\\( '([^']+)'/m", $source, $hooks);
+        $report = array();
+        foreach ($hooks[1] as $hook) $report[] = array('hook' => $hook, 'feature' => $feature);
+        $units[] = array('source' => $source . "\n", 'report' => $report);
     }
 
     /** @param list<array<string,mixed>> $documents */

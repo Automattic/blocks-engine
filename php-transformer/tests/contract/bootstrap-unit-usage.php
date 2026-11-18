@@ -10,6 +10,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assertions = 0;
 $assert = static function (bool $condition, string $message) use (&$assertions): void {
@@ -61,5 +62,13 @@ $assert(array('navigation_submenus') === ($richFeatures['render_block_core/navig
 $assert(array('document_attributes') === ($richFeatures['body_class'] ?? null), 'Body classes emit body_class, attributed to document_attributes.');
 $assert(array('document_attributes') === ($richFeatures['template_include'] ?? null), 'Body attributes emit the document canvas selector.');
 $assert(array('template_assets') === ($richFeatures['get_block_file_template'] ?? null) && array('template_assets') === ($richFeatures['get_block_templates'] ?? null), 'Referenced asset tokens emit the template asset resolver.');
+
+// Consumers may regenerate a bootstrap after editing plan features, retaining
+// the original informational report (SSI's public srcset materialization does
+// this). Validate the actual source, not a stale copy of the report.
+$edited = $rich['plan'];
+$edited['theme']['bootstrap_units'] = $plain['plan']['theme']['bootstrap_units'];
+WordPressSitePlan::assertValid($edited);
+$assert(true, 'A stale informational bootstrap report does not reject valid generated source.');
 
 fwrite(STDOUT, "Bootstrap unit usage: {$assertions} assertions passed\n");
