@@ -160,7 +160,7 @@ final class SourceBlockAttributeProjector
         }
         $attrs = $this->withoutDuplicatedButtonLabelColor($name, $attrs, $sourceElement, $logicalSourceElement);
 
-        $attrs = $this->withGroupSourceSemantics($name, $attrs, $sourceElement);
+        $attrs = $this->withGroupSourceSemantics($name, $attrs, $sourceElement, $context);
         $attrs = $this->withSocialAnchorIdentity($name, $attrs, $sourceElement, $sourceTagName, $context);
         $attrs = $this->withGlobalZeroBoxes($name, $attrs, $sourceElement, $context);
         return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
@@ -480,7 +480,7 @@ final class SourceBlockAttributeProjector
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function withGroupSourceSemantics(string $name, array $attrs, DOMElement $sourceElement): array
+    private function withGroupSourceSemantics(string $name, array $attrs, DOMElement $sourceElement, SourceBlockAttributeProjectionContext $context): array
     {
         if ( 'core/group' === $name ) {
             $responsiveMarginTop = $this->styleResolver->responsiveBlockMarginTopClassName($sourceElement);
@@ -491,6 +491,15 @@ final class SourceBlockAttributeProjector
 
         if ( 'core/group' === $name && ! isset($attrs['tagName']) ) {
             $semanticTag = self::semanticGroupTagName($sourceElement);
+            // A content item's own header/footer is no landmark (HTML maps it
+            // to a generic role). Saved as `<header>`/`<footer>` it reads as a
+            // copy of the page shell inside page content, so it keeps the
+            // tag only while author CSS still selects it by that tag.
+            if ( null !== $semanticTag && ShellLandmarkPolicy::isContentItemLandmarkTag($sourceElement)
+                && ! self::authorCssSelectsTag($context->authorStyles, $semanticTag)
+            ) {
+                $semanticTag = null;
+            }
             if ( null !== $semanticTag ) {
                 $attrs['tagName'] = $semanticTag;
             }
@@ -1258,6 +1267,31 @@ final class SourceBlockAttributeProjector
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $className);
         $generatedStyles->registerSyntheticHeaderAnchor($className, 'p.' . $className . '>a{' . $css . '}');
         return $attrs;
+    }
+
+    /**
+     * Whether an author rule names the tag as a type with an effect a `div`
+     * would not already have. `display:block` (the normalize.css reset for
+     * sectioning tags) is a div's own display.
+     */
+    private static function authorCssSelectsTag(AuthorStyleAnalysis $authorStyles, string $tagName): bool
+    {
+        $pattern = '/(?<![\w.#-])' . preg_quote($tagName, '/') . '(?![\w-])/i';
+        foreach ( $authorStyles->styleRules() as $rule ) {
+            $declarations = (array) ( $rule['declarations'] ?? array() );
+            if ( 1 === count($declarations) && 'block' === strtolower(trim((string) ( $declarations['display'] ?? '' ))) ) {
+                continue;
+            }
+            foreach ( (array) ( $rule['selectors'] ?? array() ) as $selector ) {
+                $text = is_array($selector) ? (string) ( $selector['selector'] ?? '' ) : (string) $selector;
+                // Attribute values and strings can hold the word; strip them first.
+                $text = preg_replace('/\[[^\]]*\]|"[^"]*"|\'[^\']*\'/', '', $text) ?? $text;
+                if ( 1 === preg_match($pattern, $text) ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static function semanticGroupTagName(DOMElement $element): ?string
