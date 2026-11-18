@@ -555,6 +555,9 @@ final class SitePlanRun
             // that spelling, so it is written once at its smallest form.
             $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet($asset['content'])));
             if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
+            // Fold independent support carriers, not structural roots or native
+            // descendants whose standalone rules are consumed by other stages.
+            if ('engine-support' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted, false, true);
             // Compatibility replays use :root only as a specificity shim,
             // not as a document reset. Their repeated native-host arms can
             // share a declaration body after preset binding has settled it.
