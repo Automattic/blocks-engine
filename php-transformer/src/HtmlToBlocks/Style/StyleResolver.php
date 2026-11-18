@@ -2030,15 +2030,79 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->inlineGeometry()->syntheticFlexImageBoxClassName($image);
     }
 
-    /** Carry runtime-authored inline image placement on the native image leaf. */
-    public function imageLeafPlacementClassName(DOMElement $image): string
+    /**
+     * Carry runtime-authored inline image placement on the native image leaf.
+     *
+     * When the image keeps its source figure, the figure block is that box,
+     * not the image, so the image's own relative offsets have no other
+     * carrier. A relatively positioned image (a focal-point crop that shifts
+     * the image inside its clipping frame, `position:relative;top:-156px`)
+     * keeps those offsets on the leaf. Without a source figure the synthetic
+     * figure takes the image's positioning instead.
+     */
+    public function imageLeafPlacementClassName(DOMElement $image, bool $sourceFigure = false): string
     {
         $declarations = SourceDeclarations::inline($image);
         $placement = array_keys(array_filter($declarations, NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
+        $overrides = array();
+        if ( $sourceFigure ) {
+            $position = CssValueInspector::declared($declarations, 'position');
+            if ( '' === $position ) {
+                $position = CssValueInspector::comparable((string) ($this->structuralPresentationDeclarations($image)['position'] ?? ''));
+            }
+            if ( 'relative' === $position ) {
+                $placement = array_merge($placement, array_keys(array_intersect_key(
+                    $declarations,
+                    array_flip(array( 'position', 'top', 'right', 'bottom', 'left', 'inset' ))
+                )));
+                $overrides = $this->fluidCropOffsets($image, $declarations);
+            }
+        }
         if ( array() === $placement ) {
             return '';
         }
-        return $this->inlineGeometry()->className($image, array_values(array_diff(array_keys($declarations), $placement)), $placement, array(), false, true);
+        return $this->inlineGeometry()->className($image, array_values(array_diff(array_keys($declarations), $placement)), $placement, array(), false, true, false, $overrides);
+    }
+
+    /**
+     * Re-express a cover crop's captured pixel offsets for every viewport.
+     *
+     * A crop runtime (Squarespace's `content-fill`) sizes the image to cover
+     * its clipping frame with viewport units (`height:max(449px, 66.64vw)`)
+     * and writes the offset that centres the focal point as pixels measured
+     * at the capture width (`top:-226.312px`). Those pixels are only right at
+     * that width: narrower, the frame is covered horizontally and the image
+     * must shift left with no vertical offset. The runtime offset is
+     * `-clamp(0, focal * size - frame / 2, size - frame)`, which CSS states
+     * directly with the frame as the percentage basis of `top`/`left`.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private function fluidCropOffsets(DOMElement $image, array $declarations): array
+    {
+        $focal = array_map('trim', explode(',', $image->getAttribute('data-image-focal-point')));
+        $overrides = array();
+        foreach (array( 'left' => array( 'width', 'right', 0 ), 'top' => array( 'height', 'bottom', 1 ) ) as $offset => [$size, $opposite, $axis]) {
+            $value = CssValueInspector::comparable(CssValueInspector::withoutImportant((string) ($declarations[$offset] ?? '')));
+            $extent = CssValueInspector::comparable(CssValueInspector::withoutImportant((string) ($declarations[$size] ?? '')));
+            if (
+                1 !== preg_match('/^(?:0|-?(?:\d+|\d*\.\d+)px)$/', $value)
+                || 0.0 < (float) $value
+                || isset($declarations[$opposite])
+                || 1 !== preg_match('/\d(?:[sld]?v[whib]|[sld]?vmin|[sld]?vmax)\b/', $extent)
+                || 1 !== preg_match('/^[\d\s.,+\-*\/a-z()]+$/', $extent)
+                || str_contains($extent, '%')
+            ) {
+                continue;
+            }
+            $point = isset($focal[$axis]) && is_numeric($focal[$axis]) ? max(0.0, min(1.0, (float) $focal[$axis])) : 0.5;
+            $point = rtrim(rtrim(number_format($point, 4, '.', ''), '0'), '.');
+            $point = '' === $point ? '0' : $point;
+            $overrides[$offset] = 'calc(-1 * clamp(0px, ' . $point . ' * ' . $extent . ' - 50%, ' . $extent . ' - 100%))';
+        }
+
+        return $overrides;
     }
 
     /** @param array<string, string> $declarations */
@@ -2132,6 +2196,13 @@ final class StyleResolver implements ElementPresentationResolver
         // this axis in CSS; it must never become a native inline dimension.
         foreach ($this->session->sourceStyleResolutionState()->matchingRules($image, 'image-shape') as $rule) {
             if ($property !== ($rule['property'] ?? '')) continue;
+            // A print or speech rule (`@media print{img{max-width:100%}}`)
+            // never draws a screen box, so it is not a viewport variant.
+            foreach ($rule['conditions'] ?? array() as $condition) {
+                if (preg_match('/^@media\s*(.*)$/is', trim($condition), $media) && ! CssCascade::mediaConditionTargetsScreen($media[1])) {
+                    continue 2;
+                }
+            }
             foreach ($rule['conditions'] ?? array() as $condition) {
                 if (! preg_match('/^@layer\b/i', trim($condition))) return true;
             }
@@ -2286,10 +2357,14 @@ final class StyleResolver implements ElementPresentationResolver
         // `width:100%`) keeps core's responsive default untouched. Percentage
         // heights depend on the containing block and may become auto when
         // positioning moves to a wrapper; they must not lift the clamp.
+        // An inline definite width the source does not clamp (a focal-point
+        // crop sized `width:1440px` or `width:max(674px, 100vw)` inside a
+        // narrower clipping frame) overflowed its container the same way.
         if (
-            '' === $nativeWidth
-            && (1 === preg_match('/^(?:\d+|\d*\.\d+)(?:px|em|rem|ch|ex|cap|ic|lh|rlh|cm|mm|q|in|pt|pc|[sld]?v[whib]|[sld]?vmin|[sld]?vmax)?$/i', $nativeHeight)
-                || $this->imageHasViewportDerivedWidth($image))
+            (('' === $nativeWidth
+                && (1 === preg_match('/^(?:\d+|\d*\.\d+)(?:px|em|rem|ch|ex|cap|ic|lh|rlh|cm|mm|q|in|pt|pc|[sld]?v[whib]|[sld]?vmin|[sld]?vmax)?$/i', $nativeHeight)
+                    || $this->imageHasViewportDerivedWidth($image)))
+                || $this->imageInlineWidthIsDefinite($declarations))
             && ! isset($box['max-width'])
             && ! $this->imageAxisVariesByViewport($image, 'max-width')
             && $this->imageComputedMaxWidthIsNone($declarations)
@@ -2463,6 +2538,26 @@ final class StyleResolver implements ElementPresentationResolver
         $className = $this->session->layoutGeometryState()->allocateCarrier($this->geometryStructuralPath($image) . "\nresponsive-image-overflow");
         $this->session->layoutGeometryState()->registerRule($className, 'img.' . $className . '{max-width:none!important}');
         return $className;
+    }
+
+    /**
+     * Whether the image's winning width is an inline definite length that
+     * does not depend on its container (`1440px`, `max(674px, 100vw)`).
+     *
+     * @param array<string, array<string, mixed>> $declarations
+     */
+    private function imageInlineWidthIsDefinite(array $declarations): bool
+    {
+        if (! ($declarations['width']['inline'] ?? false)) {
+            return false;
+        }
+        $value = CssValueInspector::comparable(CssValueInspector::withoutImportant((string) ($declarations['width']['value'] ?? '')));
+
+        return '' !== $value
+            && ! str_contains($value, '%')
+            && ! str_contains($value, 'var(')
+            && 1 === preg_match('/^(?:(?:\d+|\d*\.\d+)(?:px|[sld]?v[whib]|[sld]?vmin|[sld]?vmax)|(?:max|min|clamp|calc)\([\d\s.,+\-*\/a-z()]*\))$/', $value)
+            && 1 === preg_match('/\d/', $value);
     }
 
     /** Whether the cascade leaves this image's max-width at its initial `none`. */
