@@ -2153,11 +2153,13 @@ final class NavigationPatternContext
         }
 
         $declarations = $projected = array();
+        // Every property below walks the same anchors and ancestors.
+        $resolvedDeclarations = new \SplObjectStorage();
         // `font` first: builders commonly state menu type as the shorthand, and
         // a longhand found further out should not silently outrank it.
         foreach ( array( 'font', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
             if ($this->nativeNavigationParentOwnsPresentation($anchors, $navigation, $property)) continue;
-            $value = $this->sharedNavigationItemPresentationValue($anchors, $navigation, $property);
+            $value = $this->sharedNavigationItemPresentationValue($anchors, $navigation, $property, $resolvedDeclarations);
             // The source component resolves this formula against its own width.
             // Replaying it on Core's replacement anchor changes that reference
             // and inflates the label. The promoted item retains the source
@@ -2298,12 +2300,13 @@ final class NavigationPatternContext
      * Presentation every source anchor inside the navigation actually shares.
      *
      * @param list<DOMElement> $anchors
+     * @param \SplObjectStorage<DOMElement, array<string, string>> $resolvedDeclarations
      */
-    private function sharedNavigationItemPresentationValue(array $anchors, DOMElement $navigation, string $property): string
+    private function sharedNavigationItemPresentationValue(array $anchors, DOMElement $navigation, string $property, \SplObjectStorage $resolvedDeclarations): string
     {
         $shared = null;
         foreach ( $anchors as $anchor ) {
-            $value = $this->navigationItemPresentationValue($anchor, $navigation, $property);
+            $value = $this->navigationItemPresentationValue($anchor, $navigation, $property, $resolvedDeclarations);
             if ( null === $shared ) {
                 $shared = $value;
                 continue;
@@ -2460,8 +2463,9 @@ final class NavigationPatternContext
      */
     private function navigationDeclaresAny(DOMElement $navigation, array $properties): bool
     {
+        $resolvedDeclarations = new \SplObjectStorage();
         foreach ( $properties as $property ) {
-            $value = $this->navigationItemPresentationValue($navigation, $navigation, $property);
+            $value = $this->navigationItemPresentationValue($navigation, $navigation, $property, $resolvedDeclarations);
             if ( '' !== $value && ! in_array(strtolower($value), array( 'none', 'transparent', '0', '0px', 'rgba(0, 0, 0, 0)', 'medium none', '0 none' ), true) ) {
                 return true;
             }
@@ -2477,18 +2481,26 @@ final class NavigationPatternContext
      * document chrome that the destination theme legitimately supplies, and
      * reading it would recover the destination's own default rather than the
      * source's menu styling.
+     *
+     * A node's resolved declarations do not depend on the property, so a
+     * caller reading several properties across the same nodes passes one
+     * `$resolvedDeclarations` store and each node's cascade resolves once.
+     *
+     * @param \SplObjectStorage<DOMElement, array<string, string>> $resolvedDeclarations
      */
-    private function navigationItemPresentationValue(DOMElement $anchor, DOMElement $navigation, string $property): string
+    private function navigationItemPresentationValue(DOMElement $anchor, DOMElement $navigation, string $property, \SplObjectStorage $resolvedDeclarations): string
     {
         $node  = $anchor;
         $depth = 0;
         while ( $node instanceof DOMElement && $depth < 12 ) {
             ++$depth;
-            $resolved     = $this->styleResolver->customProperties->resolve(
-                $this->styleResolver->specificityResolvedPresentationStyle($node),
-                $node
-            );
-            $declarations = SourceDeclarations::parse($resolved);
+            if ( ! $resolvedDeclarations->offsetExists($node) ) {
+                $resolvedDeclarations[$node] = SourceDeclarations::parse($this->styleResolver->customProperties->resolve(
+                    $this->styleResolver->specificityResolvedPresentationStyle($node),
+                    $node
+                ));
+            }
+            $declarations = $resolvedDeclarations[$node];
             $value        = trim((string) ($declarations[$property] ?? ''));
             if ( '' === $value ) {
                 $value = $this->styleResolver->conditionalDeclaration($node, $property);
