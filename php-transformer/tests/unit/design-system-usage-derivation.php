@@ -512,14 +512,14 @@ $assert(!str_contains($observedSheet($observedRows), '--wp--preset--'), 'a match
 $assert(!str_contains($observedSheet(array(), '.missing'), '--wp--preset--'), 'no matching evidence leaves the declaration literal');
 $assert(!str_contains($observedSheet(array($observedRows[0]), '.a:hover'), '--wp--preset--'), 'resting class-list evidence does not prove an interaction-state colour');
 
-$assert('.a{font-family:var(--wp--preset--font-family--body,Inter, sans-serif)}.b{font-family:var(--wp--preset--font-family--body,Inter,Arial)}' === $sheet('.a{font-family:Inter, sans-serif}.b{font-family:Inter,Arial}'), 'stacks with the same primary bind while retaining their original fallback');
+$assert('.a{font-family:var(--wp--preset--font-family--body)}.b{font-family:var(--wp--preset--font-family--body,Inter,Arial)}' === $sheet('.a{font-family:Inter, sans-serif}.b{font-family:Inter,Arial}'), 'stacks with the same primary bind; only a stack the preset does not hold is kept as the fallback');
 $fontVariables = ':root{--family:Inter, sans-serif;--other:Inter,Arial}.a{font-family:var(--family)}.b{font-family:var(--other)}';
 $assert(str_contains($sheet($fontVariables), '.a{font-family:var(--wp--preset--font-family--body,var(--family))}') && str_contains($sheet($fontVariables), '.b{font-family:var(--wp--preset--font-family--body,var(--other))}'), 'resolved font declarations bind their primary family and retain the original variable fallback');
-$assert('.a{font-family:var(--wp--preset--font-family--body,"Inter",sans-serif)}.b{font-family:"In ter",sans-serif}' === $sheet('.a{font-family:"Inter",sans-serif}.b{font-family:"In ter",sans-serif}'), 'font stack comparison preserves spaces inside family names');
+$assert('.a{font-family:var(--wp--preset--font-family--body)}.b{font-family:"In ter",sans-serif}' === $sheet('.a{font-family:"Inter",sans-serif}.b{font-family:"In ter",sans-serif}'), 'font stack comparison preserves spaces inside family names');
 
 // Custom properties accept bare stacks as well as complete font shorthands,
 // but sharing only the primary family is not an exact-stack match (#6058).
-$assert(':root{--body-font:var(--wp--preset--font-family--body,"Inter",sans-serif)!important;--heading-font:italic 700 24px/1.2 var(--wp--preset--font-family--body);--other-font:"Inter",serif;--length:24px;--ink:var(--wp--preset--color--' . $slug . ',#e11d48)}' === $sheet(':root{--body-font:"Inter",sans-serif!important;--heading-font:italic 700 24px/1.2 "Inter",sans-serif;--other-font:"Inter",serif;--length:24px;--ink:#e11d48}'), 'custom-property font stacks bind exact presets, preserving shorthand prefixes, importance and non-font binders');
+$assert(':root{--body-font:var(--wp--preset--font-family--body)!important;--heading-font:italic 700 24px/1.2 var(--wp--preset--font-family--body);--other-font:"Inter",serif;--length:24px;--ink:var(--wp--preset--color--' . $slug . ',#e11d48)}' === $sheet(':root{--body-font:"Inter",sans-serif!important;--heading-font:italic 700 24px/1.2 "Inter",sans-serif;--other-font:"Inter",serif;--length:24px;--ink:#e11d48}'), 'custom-property font stacks bind exact presets, preserving shorthand prefixes, importance and non-font binders');
 
 // Compound colour values follow the palette without interpreting positions,
 // variable fallbacks or URLs as colour tokens.
