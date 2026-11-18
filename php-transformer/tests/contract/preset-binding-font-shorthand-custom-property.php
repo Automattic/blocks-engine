@@ -13,7 +13,9 @@ $stack = 'Example Light,Example,sans-serif';
 $html = '<!doctype html><html><head><style>:root{--t:normal normal normal 18px/1.6em ' . $stack
     . ';--spaced:italic  700 18px / 1.6em ' . $stack . '!important'
     . ';--near:18px Example Light,serif;--unmatched:italic 700 21px / 1.4 Unknown Face,serif;--c:47,46,46;--sh:0 0 2px #2f2e2e}'
-    . '.copy{font:var(--t);color:rgb(var(--c))}</style></head><body><main>'
+    . '.copy{font:var(--t);color:rgb(var(--c))}'
+    // Unread inventory tokens are pruned; a reader keeps each observed token.
+    . '.copy{--observed:var(--spaced) var(--near) var(--unmatched) var(--sh)}</style></head><body><main>'
     . str_repeat('<p class="copy">Body copy with a typography token.</p>', 6) . '</main></body></html>';
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray()['source_reports']['wordpress_site_plan'];
 $css = '';

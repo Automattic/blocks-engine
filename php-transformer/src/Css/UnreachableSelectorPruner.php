@@ -47,7 +47,8 @@ final class UnreachableSelectorPruner
         $this->evidenceText = implode("\n", $texts);
         $prefixes = array();
         foreach ($texts as $text) {
-            if (preg_match_all('/[\w-]+/', $text, $matches)) $this->live += array_fill_keys($matches[0], true);
+            // Set keys in place: a property union (`+=`) copies the whole set per text.
+            if (preg_match_all('/[\w-]+/', $text, $matches)) foreach ($matches[0] as $token) $this->live[$token] = true;
             if (preg_match_all('/[A-Za-z][\w-]*[-_](?=["\'`$+])/', $text, $matches)) $prefixes += array_fill_keys($matches[0], true);
         }
         $this->livePrefixes = array_keys($prefixes);
@@ -75,7 +76,10 @@ final class UnreachableSelectorPruner
             // Matcher support is not selector validity: generated content and
             // browser state pseudos can still have provably absent subjects.
             // Malformed attribute syntax, however, makes a whole list uncertain.
+            // Comments are not selector syntax: a bracket in a leading
+            // annotation (RTLCSS `stringMap: [ ... ]`) is no attribute.
             foreach ($arms as $arm) {
+                $arm = CssSyntaxScanner::withoutComments($arm);
                 for ($i = 0, $length = strlen($arm); $i < $length; ++$i) {
                     if ('\\' === $arm[$i]) { ++$i; continue; }
                     if ('[' !== $arm[$i]) continue;

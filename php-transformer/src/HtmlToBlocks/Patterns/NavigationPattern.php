@@ -545,6 +545,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             $scopedClasses,
             $listSource
         );
+        if ( null === $listSource && ! $label instanceof DOMElement && $this->linksAreDirectAnchorsOf($links, $directAnchors, $navigationSource) ) {
+            $navigationContext->recordBareAnchorRowStretch($navigationSource, $scopedClasses);
+        }
         $this->recordNavigationSources($links, $directAnchors, $listItems, $navigationSource, $navigationContext);
 
         if ( ! $label instanceof DOMElement ) {
@@ -1852,16 +1855,24 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $attrs;
     }
 
-    /** Whether the source list lays out its items as a horizontal row. */
+    /**
+     * Whether the source list lays out its items as a horizontal row.
+     *
+     * A `ul`/`ol` holds its items as `li`s. A landmark without a list (a
+     * `<nav>` of `<div>` items, as Squarespace chrome renders) holds them as
+     * its direct element children, which form the same inline row when each
+     * is inline or inline-block.
+     */
     private function isResolvedNavigationRow(DOMElement $list, NavigationPatternContext $navigationContext): bool
     {
         if ( in_array($navigationContext->resolvedDisplay($list), array( 'flex', 'inline-flex' ), true) ) {
             return ! in_array(CssValueInspector::declared(SourceDeclarations::parse($navigationContext->resolvedStyle($list)), 'flex-direction'), array( 'column', 'column-reverse' ), true);
         }
 
+        $isList = in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true);
         $items = 0;
         foreach ( $list->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+            if ( ! $child instanceof DOMElement || ( $isList && 'li' !== strtolower($child->tagName) ) ) {
                 continue;
             }
             $display = $navigationContext->resolvedDisplay($child);
@@ -4222,6 +4233,27 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function isListNavigationSource(DOMElement $element): bool
     {
         return $this->navigationListSource($element) instanceof DOMElement;
+    }
+
+    /**
+     * Whether each emitted link stands in for one anchor the navigation holds
+     * directly: the anchors are then the source row's own flex items.
+     *
+     * @param array<int, array<string, mixed>> $links
+     * @param list<DOMElement> $directAnchors
+     */
+    private function linksAreDirectAnchorsOf(array $links, array $directAnchors, DOMElement $navigation): bool
+    {
+        if ( array() === $directAnchors || count($links) !== count($directAnchors) ) {
+            return false;
+        }
+        foreach ( $directAnchors as $anchor ) {
+            if ( ! $anchor->parentNode instanceof DOMElement || ! $anchor->parentNode->isSameNode($navigation) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function navigationListSource(DOMElement $element): ?DOMElement

@@ -77,10 +77,12 @@ final class ConvertedSourceClassSelectors
             }
             // Every token outside a class list too: a class named anywhere
             // else may be applied in a way this reading does not see.
-            if (preg_match_all('/[\w-]+/', $text, $matches)) $this->tokens += array_fill_keys($matches[0], true);
+            // Set keys in place: a union (`+=`) copies the whole set per
+            // text, which grows with texts × distinct tokens.
+            if (preg_match_all('/[\w-]+/', $text, $matches)) foreach ($matches[0] as $token) $this->tokens[$token] = true;
         }
         foreach ($scripts as $script) {
-            if (preg_match_all('/[\w-]+/', $script, $matches)) $this->scriptTokens += array_fill_keys($matches[0], true);
+            if (preg_match_all('/[\w-]+/', $script, $matches)) foreach ($matches[0] as $token) $this->scriptTokens[$token] = true;
         }
     }
 

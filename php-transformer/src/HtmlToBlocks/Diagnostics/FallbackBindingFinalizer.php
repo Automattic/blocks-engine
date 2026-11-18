@@ -141,6 +141,15 @@ final class FallbackBindingFinalizer
                     $binding = array();
                 }
             } else {
+                if ( 'commerce_cart' === ($binding['role'] ?? null) ) {
+                    $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
+                        'code' => 'runtime_binding_declined',
+                        'severity' => 'warning',
+                        'message' => 'Declined a cart binding without an independently emitted cart block.',
+                        'source' => self::class,
+                        'context' => array('reason' => 'cart_anchor_unresolved', 'role' => 'commerce_cart'),
+                    ));
+                }
                 $binding = array();
             }
             unset($binding['_binding_provenance_id'], $binding['_binding_anchor_selector'], $binding['_binding_control_run_selectors']);
