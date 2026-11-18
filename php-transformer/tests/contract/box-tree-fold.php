@@ -55,7 +55,7 @@ $cases = array(
     array('rule' => 'containing-block', 'refuse' => true, 'box' => array('position' => 'relative'), 'child' => array('position' => 'absolute')),
     array('rule' => 'own-placement', 'parent' => array('display' => 'grid', 'grid-template-columns' => '400px'),
         'box' => array('grid-row-start' => '1', 'grid-row-end' => '2', 'grid-column-start' => '1', 'grid-column-end' => '2', 'justify-self' => 'start'),
-        'expect' => array('grid-row-start' => '1', 'justify-self' => 'start')),
+        'expect' => array('grid-row' => '1 / 2', 'justify-self' => 'start')),
     array('rule' => 'own-placement', 'refuse' => true, 'parent' => array('display' => 'grid', 'grid-template-columns' => '400px'),
         'box' => array('grid-row-start' => '1', 'justify-self' => 'start'), 'child' => array('justify-self' => 'end')),
 );
