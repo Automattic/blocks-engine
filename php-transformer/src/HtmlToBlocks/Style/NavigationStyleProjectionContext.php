@@ -18,7 +18,7 @@ final class NavigationStyleProjectionContext
 {
     /**
      * @param Closure(string): array<string, mixed>                       $parsedCssSelector
-     * @param Closure(array<int, string>, string, string, string, string): void $materializeStylesheetAsset
+     * @param Closure(array<int, string>, string, string, string, string, string): void $materializeStylesheetAsset
      */
     public function __construct(
         private readonly Closure $parsedCssSelector,
@@ -42,8 +42,9 @@ final class NavigationStyleProjectionContext
         string $source,
         string $placement,
         string $pathPrefix,
-        string $target = 'both'
+        string $target = 'both',
+        string $sourceRole = ''
     ): void {
-        ($this->materializeStylesheetAsset)($cssParts, $source, $placement, $pathPrefix, $target);
+        ($this->materializeStylesheetAsset)($cssParts, $source, $placement, $pathPrefix, $target, $sourceRole);
     }
 }
