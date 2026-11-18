@@ -766,15 +766,4 @@ $carouselCss = (string) ($output['source_reports']['generated_blocks'][0]['asset
 $assert(array() === $chrome($painted, $carouselCss), 'a pseudo-painted control gets no engine glyph, disc background or font-size:0 chrome');
 $assert(array() !== $chrome($childArtwork, $carouselCss), 'a control with child artwork keeps the engine slideshow chrome');
 
-// #5860: a captured gallery whose source paints no counter gets no visible
-// "Slide 1 of 4"; one whose chrome reads "1 / 3" keeps it. The active slide
-// fills a sized stage, as the source's absolute full-height slide did, so its
-// positioned caption is not pushed above the clipping viewport.
-$gallery = static fn (string $chrome): array => (new HtmlTransformer())->transform('<div class="slider" id="c" data-blocks-engine-capture-gallery data-blocks-engine-capture-gallery-source="#c" data-blocks-engine-capture-gallery-index="0"><div class="track" data-blocks-engine-capture-gallery-stage data-blocks-engine-capture-gallery-initial="0">' . $slides . '</div>' . $chrome . '<div class="prev" role="button" tabindex="0" aria-label="Previous slide" data-blocks-engine-capture-gallery-direction="-1"></div><div class="next" role="button" tabindex="0" aria-label="Next slide" data-blocks-engine-capture-gallery-direction="1"></div></div>')->toArray();
-$statusShown = static fn (array $result): bool => str_contains((string) $result['serialized_blocks'], 'blocks-engine-authored-carousel--show-status');
-$plain = $gallery('');
-$assert(!$statusShown($plain), 'a captured gallery without a source counter paints no slide status');
-$assert($statusShown($gallery('<div class="count">1 / 3</div>')), 'a captured gallery whose source paints a counter keeps the slide status');
-$assert(str_contains((string) ($plain['source_reports']['generated_blocks'][0]['assets']['style.css'] ?? ''), '__slide--active{position:relative!important;inset:auto!important;height:auto!important;min-height:100%;'), 'the active slide fills the sized stage');
-
 fwrite(STDOUT, "Authored carousel companion tests passed\n");

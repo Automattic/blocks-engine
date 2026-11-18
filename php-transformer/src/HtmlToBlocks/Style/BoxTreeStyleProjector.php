@@ -28,19 +28,19 @@ final class BoxTreeStyleProjector
      * @param array{observations?: array<string, array<string, mixed>>, parents?: array<string, array<string, mixed>>, fluid?: array<string, list<array{0: float|null, 1: string}>>} $image
      *        The painting `<img>` inside an authored core/image `<figure>`: its observations, its parent's, and its lifted author values.
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array(), bool $hasSeparateTextItems = false): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array()): array
     {
         if ('core/image' === $blockName && 'img' === strtolower($sourceTag)) {
             return array() === $observations ? $attrs : $this->projectImage($attrs, $observations, $viewports, $state, $parents, $fluid, true);
         }
-        if (array() !== $observations) $attrs = $this->projectBox($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid, $hasSeparateTextItems);
+        if (array() !== $observations) $attrs = $this->projectBox($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid);
         $imageObservations = $image['observations'] ?? array();
         if ('core/image' !== $blockName || array() === $imageObservations) return $attrs;
         return $this->projectImage($attrs, $imageObservations, $viewports, $state, $image['parents'] ?? array(), $image['fluid'] ?? array(), false);
     }
 
     /** One carrier for the block's own box, from its source element's observations. */
-    private function projectBox(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $blockName, array $fluid, array $pseudoFluid = array(), bool $hasSeparateTextItems = false): array
+    private function projectBox(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $blockName, array $fluid, array $pseudoFluid = array()): array
     {
         $keys = array_keys($observations);
         usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
@@ -83,7 +83,6 @@ final class BoxTreeStyleProjector
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
         $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs), $pseudoFluid);
-        if ('core/button' === $blockName && $hasSeparateTextItems) $css .= $this->buttonLinkContainerCss($keys, $declarations, $status, $observations, $viewports, $bands);
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
@@ -150,33 +149,6 @@ final class BoxTreeStyleProjector
 
     /** core/image attributes serialized inline on its `<img>` => the observed property each sets. */
     private const IMAGE_DIMENSION_ATTRIBUTES = array('width' => 'width', 'height' => 'height', 'aspectRatio' => 'aspect-ratio', 'scale' => 'object-fit');
-
-    /**
-     * Properties that make a box the formatting context of its children.
-     */
-    private const CONTAINER_PROPERTIES = array('display', 'gap', 'row-gap', 'column-gap', 'flex-direction', 'flex-wrap', 'align-items', 'justify-content', 'align-content', 'justify-items', 'grid-template-columns', 'grid-template-rows', 'grid-template-areas', 'grid-auto-flow', 'grid-auto-columns', 'grid-auto-rows');
-
-    /**
-     * A core/button carrier lands on the `.wp-block-button` save wrapper, but
-     * the observed box is the source control, whose children render inside
-     * `.wp-block-button__link`. When that control is a flex or grid container
-     * separate text-bearing children are block-level items, so the
-     * link, not only the wrapper, must establish that formatting context;
-     * otherwise they flow inline as one run of text.
-     */
-    private function buttonLinkContainerCss(array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands): string
-    {
-        $container = false;
-        foreach ($keys as $key) {
-            if (1 === preg_match('/^(?:inline-)?(?:flex|grid)$/', (string) ($declarations[$key]['display'] ?? ''))) $container = true;
-        }
-        if (!$container) return '';
-        $properties = array_flip(self::CONTAINER_PROPERTIES);
-        $linkDeclarations = array_map(static fn(array $kept): array => array_intersect_key($kept, $properties), $declarations);
-        $linkBands = array_filter(array_map(static fn(array $declared): array => array_intersect_key($declared, $properties), $bands));
-        $css = $this->carrierCss($linkDeclarations[$keys[0]], $keys, $linkDeclarations, $status, $observations, $viewports, $linkBands, false);
-        return str_replace(self::SELECTOR, self::SELECTOR . '>.wp-block-button__link', $css);
-    }
 
     /**
      * Restyle an inline element inside RichText, which has no block

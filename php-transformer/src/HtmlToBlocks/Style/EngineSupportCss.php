@@ -376,6 +376,21 @@ final class EngineSupportCss
             );
             $buttonCss = ':where(.' . $neutralButton . '){display:contents!important}'
                 . LayoutParticipation::transferredFlexContainerPaddingRule($flexContainers);
+            // A control whose author display changes under a condition (a
+            // `md:hidden` menu button) rests at the transferred display, but
+            // through a default that the author projection (more specific, or
+            // a revert-layer shim for layered sheets) outranks under that
+            // condition. An !important resting display would keep the control
+            // painted where the source hid it.
+            $conditionalDisplay = $neutralButton . '-conditional-display';
+            $restingDisplay = static fn (string $declarations): string => preg_replace('/(^|;)display:([^;!]+)!important/', '$1display:$2', $declarations) ?? $declarations;
+            $hasConditionalDisplay = str_contains($serializedBlocks, $conditionalDisplay);
+            $withConditionalDisplay = static function (string $selector, string $declarations) use ($conditionalDisplay, $restingDisplay, $hasConditionalDisplay): string {
+                if ( ! $hasConditionalDisplay ) return ':where(' . $selector . ')>.wp-block-button__link{' . $declarations . '}';
+                $items = explode(',', $selector);
+                return ':where(' . implode(',', array_map(static fn (string $item): string => $item . ':not(.' . $conditionalDisplay . ')', $items)) . ')>.wp-block-button__link{' . $declarations . '}'
+                    . ':where(' . implode(',', array_map(static fn (string $item): string => $item . '.' . $conditionalDisplay, $items)) . ')>.wp-block-button__link.wp-block-button__link{' . $restingDisplay($declarations) . '}';
+            };
             foreach ( $rules as $selector => $declarations ) {
                 $axisRules = '';
                 // Engine support CSS is shared by every page of a site, so the
@@ -393,14 +408,14 @@ final class EngineSupportCss
                     $conditionalSelectors = implode(',', array_map(static fn (string $item): string => $item . '.' . $conditional, explode(',', $selector)));
                     $axisRules .= ':where(' . $conditionalSelectors . ')>.wp-block-button__link.wp-block-button__link{' . $property . ':' . $default . '}';
                 }
-                $buttonCss .= ':where(' . $selector . ')>.wp-block-button__link{' . $declarations . '}' . $axisRules;
+                $buttonCss .= $withConditionalDisplay($selector, $declarations) . $axisRules;
             }
             foreach ( array( 'inline-block', 'block', 'flex', 'inline-flex', 'inline-grid', 'inline-table' ) as $display ) {
                 $modifier = $neutralButton . '-display-' . $display;
                 // Support sheets from multiple routes can coexist. Always emit
                 // every modifier, or a later route's generic inline reset can
                 // override an earlier route's source display restoration.
-                $buttonCss .= ':where(.' . $neutralButton . '.' . $modifier . ')>.wp-block-button__link{display:' . $display . '!important}';
+                $buttonCss .= $withConditionalDisplay('.' . $neutralButton . '.' . $modifier, 'display:' . $display . '!important');
             }
             $parts[] = $buttonCss;
         }

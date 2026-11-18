@@ -727,6 +727,15 @@ final class SourceBlockAttributeProjector
                 $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-conditional-' . $property;
             }
         }
+        // A display the author states only under a condition (`md:hidden`, a
+        // desktop-only `hidden md:flex`) is projected under that condition.
+        // The transferred resting display must not outrank it there.
+        foreach ( $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array( 'display' ))['display'] ?? array() as $value ) {
+            if ( $display !== CssValueInspector::comparable($value) ) {
+                $classes[] = self::LAYOUT_NEUTRAL_BUTTON_CLASS . '-conditional-display';
+                break;
+            }
+        }
         return implode(' ', $classes);
     }
 
