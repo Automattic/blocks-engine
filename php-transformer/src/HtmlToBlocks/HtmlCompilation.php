@@ -626,7 +626,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->emptyVisualRetention->shouldPreserveEmptyVisualElement(...),
             $emptyVisualSpacers->emptyVisualSpacerBlock(...),
             $this->session->rememberNativeDisclosure(...),
-            $this->runtimeIslands->retainsRuntimeTextLeafInRichText(...)
+            $this->runtimeIslands->retainsRuntimeTextLeafInRichText(...),
+            fn (DOMElement $element): array => $this->session->authorSelectorProjectionState()->semanticMarkersForElement($element)
         ), $this->styleResolver, $this->runtime, $this->sourceBlockAttributeProjector);
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $formControlMetadataBuilder,

@@ -190,6 +190,14 @@ final class InlineContentElementConverter implements ElementConverter
         if ('' === trim($element->textContent ?? '') && 0 === $element->childElementCount && $this->styleResolver->hasBeforeFontGlyph($element)) {
             $carrier = $element->cloneNode(true);
             $carrier->setAttribute('style', $this->styleResolver->cssDeclarationString($this->richTextMaterializer->inlineVisualDeclarations($element)));
+            // Author rules that matched this span were projected onto its
+            // semantic marker (and their authored arms scoped off this route),
+            // so the glyph carrier must carry that marker or it loses them,
+            // e.g. a slideshow arrow's `position:absolute`.
+            $markers = $this->context->semanticMarkerClasses($element);
+            if (array() !== $markers) {
+                $carrier->setAttribute('class', SourceDom::mergeClassNames(SourceDom::attr($element, 'class'), ...$markers));
+            }
             $content = SourceDom::outerHtml($carrier);
             if ($this->richTextMaterializer->requiresHtmlFallbackForElement($element, $content)) {
                 $fallbacks[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic::build(array(
