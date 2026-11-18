@@ -2077,6 +2077,7 @@ final class ArtifactCompiler
             }
         }
         $transformer = new CssStylesheetTransformer();
+        $rootTokens = null;
         $routeIdentities = array();
         $routeDocuments = array();
         $timer?->start('compose.author_stylesheet_projections.route_documents');
@@ -2187,7 +2188,7 @@ final class ArtifactCompiler
             $timer?->start('compose.author_stylesheet_projections.route_variants');
             $routed = $transformer->scopeRouteVariants($sharedStylesheets, $pageProjections, $routeIdentities, preg_match('/@namespace\b/i', implode('', $preambles)) ? '@namespace' : null, $pageMarkup, $routeMatchIndex, $this->routeClasses, $sharedMarkup, function (array $classes): string {
                 return \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::routeSetClass($classes, $this->routeSets);
-            });
+            }, $rootTokens ??= $this->documentRootTokens($files));
             // Recompact only at serialization, merging compatible marker arms.
             $recompact = static function (string $css) use ($timer): string {
                 // Native-block projection expands selectors even for a single
@@ -2312,6 +2313,41 @@ final class ArtifactCompiler
             $this->siteSelectorPruner = new UnreachableSelectorPruner($evidence, true, $stylesheets);
         }
         return $this->siteSelectorPruner;
+    }
+
+    /**
+     * Every class and id a document root of the site can carry: the captured
+     * roots' own, and any name a script could add at runtime, so route
+     * scoping never forks an arm into a root alternative no root matches.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, true>
+     */
+    private function documentRootTokens(array $files): array
+    {
+        $tokens = array();
+        $collect = static function (string $text) use (&$tokens): void {
+            if (preg_match_all('/[\w-]+/', $text, $matches)) foreach ($matches[0] as $token) $tokens[$token] = true;
+        };
+        foreach ($files as $file) {
+            if ('css' === ($file['kind'] ?? '')) continue;
+            if (is_array($file['metadata'] ?? null) && array() !== $file['metadata']) $collect((string) json_encode($file['metadata']));
+            $text = $file['content'] ?? (is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : null);
+            if (!is_string($text) || '' === $text) continue;
+            if ('html' !== ($file['kind'] ?? '')) { $collect($text); continue; }
+            $root = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentRootContext::metadataFromHtml($text)['root_attributes'];
+            $collect((string) ($root['class'] ?? '') . ' ' . (string) ($root['id'] ?? ''));
+            // Inline scripts and handlers can add root classes at runtime.
+            $offset = 0;
+            while (preg_match('/<script\b[^>]*>/i', $text, $open, PREG_OFFSET_CAPTURE, $offset)) {
+                $start = $open[0][1] + strlen($open[0][0]);
+                $close = preg_match('/<\/script\s*>/i', $text, $end, PREG_OFFSET_CAPTURE, $start) ? $end[0][1] : strlen($text);
+                $collect(substr($text, $start, $close - $start));
+                $offset = $close;
+            }
+            if (preg_match_all('/\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\')/i', $text, $handlers)) foreach ($handlers[1] as $handler) $collect($handler);
+        }
+        return $tokens;
     }
 
     /** @param array<int, array<string, mixed>> $files @return list<string> */

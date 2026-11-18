@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
+use Automattic\BlocksEngine\PhpTransformer\Css\ShadowedDeclarationPruner;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use InvalidArgumentException;
@@ -517,7 +518,9 @@ final class SitePlanRun
         $compactor = new CssStylesheetTransformer();
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
-            $compacted = $compactor->compactStylesheet($asset['content']);
+            // A declaration a later one in its block always overrides never
+            // decides a value; dropping it first also lets identical blocks fold.
+            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune($asset['content']));
             if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
             // Compatibility replays use :root only as a specificity shim,
             // not as a document reset. Their repeated native-host arms can

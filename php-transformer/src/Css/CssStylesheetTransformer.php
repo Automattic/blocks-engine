@@ -739,12 +739,13 @@ final class CssStylesheetTransformer
      * @param array<string,string> $routeClasses Site-wide collision-free classes by route identity.
      * @param ?string $sharedMarkup Shared template-part markup; null means no carrier evidence.
      * @param ?callable(list<string>):string $routeSetClass Registers a set of route classes and returns its root class. Callers must materialize membership on every member root. Without it, standalone callers retain enumerated guards.
+     * @param ?array<string,true> $rootTokens Every class and id some document root of the site can carry, captured or named by a script. A class- or pseudo-led arm is then forked into a root alternative only when its leading compound can match a root. Null keeps every root alternative.
      * `route_bytes` counts shipped growth after serialization and recompaction
      * over the unscoped arm-union sheet (including inserted arms).
      *
      * @return array{stylesheet:string, scoped:list<string>, reasons:array<string,string>, route_bytes:int}
      */
-    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null, array $markup = array(), ?RouteSelectorMatchIndex $matchIndex = null, array $routeClasses = array(), ?string $sharedMarkup = null, ?callable $routeSetClass = null): array
+    public function scopeRouteVariants(array $shared, array $pages, array $routeIdentities = array(), ?string $unsafeReason = null, array $markup = array(), ?RouteSelectorMatchIndex $matchIndex = null, array $routeClasses = array(), ?string $sharedMarkup = null, ?callable $routeSetClass = null, ?array $rootTokens = null): array
     {
         $base = array();
         foreach ($shared as $css) $this->collectRuleUnits($css, array(), $base);
@@ -893,7 +894,7 @@ final class CssStylesheetTransformer
         // sets collapse to one ungated arm. Order within such a run cannot
         // change any cascade result.
         $pending = null;
-        $flush = function () use (&$pending, &$output, &$parsedArms, $routeClass, $routeSetClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex): void {
+        $flush = function () use (&$pending, &$output, &$parsedArms, $routeClass, $routeSetClass, $allRoutes, $baseOwner, $carriers, $markup, $matchIndex, $rootTokens): void {
             if (null === $pending) return;
             ['members' => $members, 'prototype' => $prototype, 'lead' => $lead, 'body' => $body] = $pending;
             $pending = null;
@@ -952,7 +953,7 @@ final class CssStylesheetTransformer
                 if ('' !== $scope) {
                     $reason = null;
                     $arms = null === $routeSetClass || !str_contains($scope, '.be-rs-')
-                        ? self::scopeRouteArms($arms, $scope, $reason, $parsedArms)
+                        ? self::scopeRouteArms($arms, $scope, $reason, $parsedArms, $rootTokens)
                         : self::scopeRouteSubjects($arms, $scope, $reason, $parsedArms);
                 }
                 $unit['text'] = $lead . implode(',', $arms) . $body;
@@ -1218,7 +1219,8 @@ final class CssStylesheetTransformer
         return null === $reason ? $scoped : null;
     }
 
-    private static function scopeRouteArms(array $arms, string $scope, ?string &$reason, array &$parsedArms): ?array
+    /** @param array<string,true>|null $rootTokens Classes and ids any document root can carry; null when unknown. */
+    private static function scopeRouteArms(array $arms, string $scope, ?string &$reason, array &$parsedArms, ?array $rootTokens = null): ?array
     {
         $rootAlternatives = array();
         foreach ($arms as &$arm) {
@@ -1241,15 +1243,17 @@ final class CssStylesheetTransformer
                 $arm = substr($arm, 0, $insert) . $scope . substr($arm, $insert);
                 continue;
             }
-            $functional = preg_match('/(?<![\w-])(?:html|:root)\b/i', $first) ? self::scopeFunctionalRoot($first, $scope, $reason, $parsedArms) : null;
+            $functional = preg_match('/(?<![\w-])(?:html|:root)\b/i', $first) ? self::scopeFunctionalRoot($first, $scope, $reason, $parsedArms, $rootTokens) : null;
             if (null !== $reason) return null;
             if (null !== $functional) {
                 $arm = $functional . substr($arm, $end);
                 continue;
             }
             // Class/universal/attribute/pseudo arms may themselves match html.
-            // Retain that match as well as descendants without adding weight.
-            if (preg_match('/^[*.#\[:]/', $first)) {
+            // Retain that match as well as descendants without adding weight,
+            // unless the leading compound requires a type, class or id no
+            // document root carries: that alternative can never match.
+            if (preg_match('/^[*.#\[:]/', $first) && (null === $rootTokens || self::compoundMayMatchRoot($first, $rootTokens))) {
                 $rootAlternatives[] = substr($arm, 0, $insert) . $scope . substr($arm, $insert);
             }
             $arm = $scope . ' ' . $arm;
@@ -1263,7 +1267,7 @@ final class CssStylesheetTransformer
      * tests the root, or null when the root test sits elsewhere (`:not()`,
      * `:has()`), where an ancestor scope is already exact.
      */
-    private static function scopeFunctionalRoot(string $compound, string $scope, ?string &$reason, array &$parsedArms): ?string
+    private static function scopeFunctionalRoot(string $compound, string $scope, ?string &$reason, array &$parsedArms, ?array $rootTokens = null): ?string
     {
         if (!preg_match_all('/:(?:is|where|matches|-webkit-any|-moz-any)\(/i', $compound, $matches, PREG_OFFSET_CAPTURE)) return null;
         foreach ($matches[0] as [$open, $offset]) {
@@ -1275,9 +1279,85 @@ final class CssStylesheetTransformer
             if (!preg_match('/(?<![\w-])(?:html|:root)\b/i', $argument)) continue;
             $alternatives = self::splitSelectorList($argument);
             if (null === $alternatives) { $reason = 'unparseable functional root selector'; return null; }
-            $scoped = self::scopeRouteArms($alternatives, $scope, $reason, $parsedArms);
+            $scoped = self::scopeRouteArms($alternatives, $scope, $reason, $parsedArms, $rootTokens);
             if (null === $scoped) return null;
             return substr($compound, 0, $start) . implode(',', $scoped) . substr($compound, $close);
+        }
+        return null;
+    }
+
+    /** Class names WordPress, its editor or the engine may put on a document root. */
+    private const ROOT_MINTED_CLASS = '/^(?:wp-|is-|has-|blocks-engine-|be-|route-class-|editor-|block-editor-|components-)/';
+
+    /**
+     * Whether a compound could match a document root, given every class and
+     * id some root carries. Classes WordPress, the editor or the engine mint
+     * (route classes and root-owned state markers among them) may sit on any
+     * root. A leading type other than html, a required class or id absent
+     * from every root, or a positive `:is()`/`:where()` whose every alternative is such
+     * a compound disproves the match. Negations, `:has()`, attributes,
+     * escapes and complex alternatives prove nothing and keep it possible.
+     *
+     * @param array<string,true> $rootTokens
+     */
+    private static function compoundMayMatchRoot(string $compound, array $rootTokens): bool
+    {
+        if (str_contains($compound, '\\') || str_contains($compound, '|') || 1 === preg_match('/[^\x20-\x7E]/', $compound)) return true;
+        $length = strlen($compound);
+        if (preg_match('/^[A-Za-z][\w-]*/', $compound, $type) && 'html' !== strtolower($type[0])) return false;
+        for ($i = 0; $i < $length; ++$i) {
+            $char = $compound[$i];
+            if ('"' === $char || "'" === $char) {
+                $close = strpos($compound, $char, $i + 1);
+                if (false === $close) return true;
+                $i = $close;
+            } elseif ('[' === $char || '(' === $char) {
+                $close = self::closingBracket($compound, $i);
+                if (null === $close) return true;
+                $i = $close;
+            } elseif (('.' === $char || '#' === $char) && preg_match('/\G[\w-]+/', $compound, $name, 0, $i + 1)) {
+                if (!isset($rootTokens[$name[0]]) && !('.' === $char && 1 === preg_match(self::ROOT_MINTED_CLASS, $name[0]))) return false;
+                $i += strlen($name[0]);
+            } elseif (':' === $char && preg_match('/\G:(?:is|where|matches|-webkit-any|-moz-any)\(/i', $compound, $open, 0, $i)) {
+                $start = $i + strlen($open[0]);
+                $close = self::closingBracket($compound, $start - 1);
+                if (null === $close) return true;
+                $alternatives = self::splitSelectorList(substr($compound, $start, $close - $start));
+                if (null !== $alternatives && array() !== $alternatives) {
+                    $possible = false;
+                    foreach ($alternatives as $alternative) {
+                        $tokens = CssSelectorTokenizer::tokenize(trim($alternative));
+                        if (!$tokens['supported'] || 1 !== count($tokens['compounds']) || self::compoundMayMatchRoot($tokens['compounds'][0], $rootTokens)) { $possible = true; break; }
+                    }
+                    if (!$possible) return false;
+                }
+                $i = $close;
+            } elseif (':' === $char && preg_match('/\G::?[\w-]+/', $compound, $pseudo, 0, $i)) {
+                $i += strlen($pseudo[0]) - 1;
+            }
+        }
+        return true;
+    }
+
+    /** Offset of the bracket or parenthesis closing the one at $open, outside strings. */
+    private static function closingBracket(string $text, int $open): ?int
+    {
+        $stack = array();
+        $quote = null;
+        for ($i = $open, $length = strlen($text); $i < $length; ++$i) {
+            $char = $text[$i];
+            if (null !== $quote) {
+                if ('\\' === $char) ++$i;
+                elseif ($char === $quote) $quote = null;
+                continue;
+            }
+            if ('"' === $char || "'" === $char) $quote = $char;
+            elseif ('(' === $char) $stack[] = ')';
+            elseif ('[' === $char) $stack[] = ']';
+            elseif (')' === $char || ']' === $char) {
+                if (array_pop($stack) !== $char) return null;
+                if (array() === $stack) return $i;
+            }
         }
         return null;
     }
