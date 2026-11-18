@@ -5204,11 +5204,12 @@ final class NavigationPattern implements PatternRecognizerInterface
         // A toggle-like identity alone does not make an empty capture a
         // source-owned control. Do not let inert siblings claim the menu's
         // wrapper and prevent its desktop/mobile copies from being recognized.
+        // A CSS-drawn hamburger keeps child bars (<span>s); only a fully
+        // empty element (no text, no child elements) is inert.
         if ( '' === trim($element->textContent ?? '')
+            && null === $element->firstElementChild
             && ! in_array($tagName, array( 'a', 'button' ), true)
-            && ! AuthoredButtonBlockGenerator::isRoleButton($element)
-            && 0 === $element->getElementsByTagName('a')->length
-            && 0 === $element->getElementsByTagName('button')->length ) {
+            && ! AuthoredButtonBlockGenerator::isRoleButton($element) ) {
             return false;
         }
 
