@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 /** Restyle an exact source-node carrier before provenance is discarded. */
 final class BoxTreeStyleProjector
@@ -53,6 +54,11 @@ final class BoxTreeStyleProjector
             return true;
         }, ARRAY_FILTER_USE_BOTH);
         $mapped = $mapper->map(array_replace($unobserved, $invariant));
+        // A style group the block cannot serialize (a paragraph's shadow) would
+        // be dropped from its attributes: it stays in the carrier instead.
+        if ('' !== $blockName) {
+            $mapped['style'] = self::runtime()->normalizeBlockSupportAttributes($blockName, array('style' => $mapped['style']))['attrs']['style'] ?? array();
+        }
         $attrs['style'] = $mapped['style'];
         $attrs = array_replace($attrs, $mapped['attrs']);
         // Layout declarations are deliberately excluded by StyleAttributeMapper;
@@ -65,6 +71,12 @@ final class BoxTreeStyleProjector
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
+    }
+
+    private static function runtime(): Runtime
+    {
+        static $runtime = null;
+        return $runtime ??= new Runtime();
     }
 
     /**
