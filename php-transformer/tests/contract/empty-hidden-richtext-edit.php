@@ -7,9 +7,12 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 // Source sites hide empty text containers (`p:empty{display:none}`). In the
 // editor the same paragraph is a live RichText root that is momentarily
-// empty while its text is replaced; the browser test retypes it there.
+// empty while its text is replaced; the browser test retypes it there. The
+// empty state is written inside a selector list (`:is(p:empty,h2:empty)`):
+// the editor still hides `[data-empty]` paragraphs through it, so keeping the
+// focused root shown cannot depend on how the authored selector is spelled.
 $result = (new HtmlTransformer())->transform(
-    '<style>.desc-wrapper p:empty{display:none}.desc-wrapper p{font-size:18px}</style>'
+    '<style>.desc-wrapper :is(p:empty,h2:empty){display:none}.desc-wrapper p{font-size:18px}</style>'
     . '<main><div class="desc-wrapper"><p>Sustainability</p><p>Second line</p></div></main>'
 )->toArray();
 $markup = (string) ($result['serialized_blocks'] ?? '');

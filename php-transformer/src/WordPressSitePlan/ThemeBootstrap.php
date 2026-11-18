@@ -28,6 +28,18 @@ final class ThemeBootstrap
 
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
 
+    /**
+     * The shell transport is boxless on the frontend (display:contents), but
+     * the editor keeps its box for selection, and Gutenberg gives every block
+     * pointer-events:auto. As a grid or flex item that box stretches across
+     * its track, so a transport inside a fixed overlay (a pinned header layer
+     * whose authored pointer-events:none lets clicks through) covers the whole
+     * canvas and swallows clicks meant for the content beneath. Only the
+     * transport's own box lets pointers through; its blocks still take them,
+     * so clicking the part's content still selects the part.
+     */
+    public const EDITOR_SHELL_TRANSPORT_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-template-part.blocks-engine-shell-transport{pointer-events:none}:root .block-editor-block-list__block.wp-block-template-part.blocks-engine-shell-transport>.block-editor-block-list__block{pointer-events:auto}';
+
     public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}.blocks-engine-listing-card{position:relative}.blocks-engine-listing-card>.blocks-engine-listing-overlay{position:absolute;inset:0;z-index:2}.blocks-engine-listing-card>.blocks-engine-listing-background{position:absolute;inset:0;margin:0;pointer-events:none;z-index:0}.blocks-engine-listing-background img{width:100%;height:100%;object-fit:cover}.blocks-engine-listing-card>:not(.blocks-engine-listing-background):not(.blocks-engine-listing-overlay){position:relative;z-index:1}';
 
     /**
@@ -80,22 +92,32 @@ PHP;
 
     /**
      * A lowered srcset family keeps its authored candidates, slot sizes and
-     * loading in core/image metadata. They describe the source `src`; once
-     * the image is replaced, the new attachment's own candidates apply.
+     * loading in core/image metadata; a src-only image keeps only its authored
+     * loading and fetchpriority, and its srcset and sizes are left alone.
+     * They describe the source `src`; once the image is replaced, the new
+     * attachment's own candidates apply.
      */
     public const IMAGE_SELECTION_RENDERER = <<<'PHP'
 add_filter( 'render_block_core/image', static function ( string $content, array $block ): string {
     $selection = $block['attrs']['metadata']['blocksEngineImageSelection'] ?? null;
     if ( ! is_array( $selection ) || ! is_string( $selection['src'] ?? null ) ) return $content;
     $picture = is_array( $selection['picture'] ?? null ) && is_array( $selection['sources'] ?? null );
-    if ( ! $picture && empty( $selection['srcset'] ) ) return $content;
+    $family = $picture || ! empty( $selection['srcset'] );
+    $loading = in_array( $selection['loading'] ?? null, array( 'lazy', 'eager' ), true ) ? $selection['loading'] : null;
+    $priority = in_array( $selection['fetchpriority'] ?? null, array( 'high', 'low', 'auto' ), true ) ? $selection['fetchpriority'] : null;
+    if ( ! $family && null === $loading && null === $priority ) return $content;
     $tag = new WP_HTML_Tag_Processor( $content );
     if ( ! $tag->next_tag( 'IMG' ) || $tag->get_attribute( 'src' ) !== $selection['src'] ) return $content;
+    if ( null !== $priority ) $tag->set_attribute( 'fetchpriority', $priority );
+    if ( ! $family ) {
+        if ( null !== $loading ) $tag->set_attribute( 'loading', $loading );
+        return $tag->get_updated_html();
+    }
     if ( is_string( $selection['srcset'] ?? null ) && '' !== $selection['srcset'] ) $tag->set_attribute( 'srcset', $selection['srcset'] );
     else $tag->remove_attribute( 'srcset' );
     if ( is_string( $selection['sizes'] ?? null ) && '' !== $selection['sizes'] ) $tag->set_attribute( 'sizes', $selection['sizes'] );
     else $tag->remove_attribute( 'sizes' );
-    if ( in_array( $selection['loading'] ?? null, array( 'lazy', 'eager' ), true ) ) $tag->set_attribute( 'loading', $selection['loading'] );
+    if ( null !== $loading ) $tag->set_attribute( 'loading', $loading );
     if ( $picture && is_array( $selection['image'] ?? null ) ) {
         foreach ( array( 'class', 'style', 'id' ) as $name ) {
             if ( ! is_string( $selection['image'][$name] ?? null ) ) continue;
@@ -119,6 +141,32 @@ add_filter( 'render_block_core/image', static function ( string $content, array 
         if ( is_array( $source ) ) $open .= '<source' . $attributes( $source, true ) . '>';
     }
     return preg_replace_callback( '/<img\\b(?:[^>"\']|"[^"]*"|\'[^\']*\')*>/i', static fn ( array $match ): string => $open . $match[0] . '</picture>', $content, 1 ) ?? $content;
+}, 10, 2 );
+PHP;
+
+    /**
+     * A lowered image without an authored srcset family decoded its one `src`
+     * at every source width. Core's content filter would offer the materialized
+     * attachment's generated renditions as srcset candidates, so a narrow
+     * viewport decodes resized bytes the source never served. Such an image
+     * keeps its single `src`; images the importer did not lower (no
+     * `blocks-engine-image` figure) and authored families keep core behavior.
+     */
+    public const SINGLE_SOURCE_IMAGE_RUNTIME = <<<'PHP'
+$blocks_engine_single_source_images = new ArrayObject();
+add_filter( 'render_block_core/image', static function ( string $content, array $block ) use ( $blocks_engine_single_source_images ): string {
+    if ( isset( $block['attrs']['metadata']['blocksEngineImageSelection'] ) ) return $content;
+    $tag = new WP_HTML_Tag_Processor( $content );
+    if ( ! $tag->next_tag( 'FIGURE' ) || ! $tag->has_class( 'blocks-engine-image' ) ) return $content;
+    if ( ! $tag->next_tag( 'IMG' ) || null !== $tag->get_attribute( 'srcset' ) ) return $content;
+    $src = $tag->get_attribute( 'src' );
+    if ( is_string( $src ) && '' !== $src ) $blocks_engine_single_source_images[ $src ] = true;
+    return $content;
+}, 10, 2 );
+add_filter( 'wp_img_tag_add_srcset_and_sizes_attr', static function ( $add, $image ) use ( $blocks_engine_single_source_images ) {
+    if ( true !== $add || ! is_string( $image ) || 0 === count( $blocks_engine_single_source_images ) ) return $add;
+    $tag = new WP_HTML_Tag_Processor( $image );
+    return ! ( $tag->next_tag( 'IMG' ) && isset( $blocks_engine_single_source_images[ (string) $tag->get_attribute( 'src' ) ] ) );
 }, 10, 2 );
 PHP;
 
@@ -224,6 +272,9 @@ PHP;
         }
         if (self::markupContains($documents, 'blocksEngineImageSelection')) {
             $lines[] = self::IMAGE_SELECTION_RENDERER;
+        }
+        if (self::markupContains($documents, 'blocks-engine-image')) {
+            $lines[] = self::SINGLE_SOURCE_IMAGE_RUNTIME;
         }
         if (array_filter($pages, static fn(array $page): bool => str_contains($page['canonical_block_markup'], 'blocks-engine-listing-overlay'))) {
             $lines[] = "add_filter( 'render_block_core/read-more', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-listing-overlay', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) { \$tag->set_attribute( 'aria-hidden', 'true' ); \$tag->set_attribute( 'tabindex', '-1' ); } return \$tag->get_updated_html(); }, 10, 2 );";
@@ -601,6 +652,7 @@ PHP;
         $lines[] = "}, 10, 1 );";
         $hasListingQuery = self::markupContains(array_merge($pages, $templates, $parts), WordPressSitePlan::LISTING_QUERY_CLASS);
         $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS;
+        if (array() !== $parts) $editorCss .= self::EDITOR_SHELL_TRANSPORT_INTERACTION_CSS;
         foreach ($pages as $page) if (str_contains((string) ($page['canonical_block_markup'] ?? ''), WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX)) {
             $editorCss .= SyncedPatternProjection::EDITOR_CONTAINER_CSS;
             break;

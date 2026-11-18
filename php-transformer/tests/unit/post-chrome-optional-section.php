@@ -55,6 +55,9 @@ HTML;
         }
         $text = trim(preg_replace('/\s+/', ' ', strip_tags(preg_replace('/<!--.*?-->/s', '', $post['canonical_block_markup']))));
         if ($text !== $slug . ' opening paragraph.' . $slug . ' middle paragraph.' . $slug . ' closing paragraph.') $failures[] = $case . '/' . $slug . ': body only: ' . $text;
+        // #6438: d lists no cards, so it is outside the term proof; as a
+        // member of the proven term its hidden section keeps the peers' query.
+        if ('hidden-related-singleton-disjoint' === $case && !str_contains($template, '{{wordpress-site-plan:term:post_tag:notes}}')) $failures[] = $case . '/' . $slug . ': related query scoped to its term';
         if ('d' === $slug && str_contains($template, 'author-box')) $failures[] = $case . ': absent author box stays absent';
     }
     foreach ($plan['diagnostics'] ?? array() as $finding) {
