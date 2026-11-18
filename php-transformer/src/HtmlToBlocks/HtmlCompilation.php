@@ -1305,12 +1305,18 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InteractiveSurface::indexDocument($document);
         try {
             FormRuntimeRequirementAnalyzer::indexSourceBehavior($document, (string) ($options['declarative_state_html'] ?? ''));
-            $interactionCandidates = $this->interactionFallbackReporter->interactionCandidates($body);
-            $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
-            $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
-            $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
-            $this->generatedComponentCandidates->collectGeneratedComponentCandidates($body);
-            $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts->globalShellArtifacts($body, (string) ($options['source'] ?? 'html'), false, max(0, (int) ($options['global_shell_context_depth'] ?? 0))) : array();
+            // Sub-steps name the conversion work that precedes the body walk.
+            $interactionCandidates = $timer->measure('transform.conversion.source_relationships', function () use ($body): array {
+                $interactionCandidates = $this->interactionFallbackReporter->interactionCandidates($body);
+                $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
+                $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
+                $this->navigationToggleSuppressor->collectSupersededCapturedSubmenuSelectors($body);
+                $this->generatedComponentCandidates->collectGeneratedComponentCandidates($body);
+                return $interactionCandidates;
+            });
+            $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell'])
+                ? $timer->measure('transform.conversion.global_shell', fn (): array => $this->globalShellArtifacts->globalShellArtifacts($body, (string) ($options['source'] ?? 'html'), false, max(0, (int) ($options['global_shell_context_depth'] ?? 0))))
+                : array();
             $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->session->transformationProvenanceState()->sources(), $this->session->transformationProvenanceState()->sourceBaseHiddenStates(), $this->session->transformationProvenanceState()->sourceCollapsedWrapperHiddenStates());
         } finally {
             FormRuntimeRequirementAnalyzer::releaseSourceBehavior($document);
@@ -1400,7 +1406,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             ! empty($options['native_document_context']),
             $this->session->sourcePath()
         );
-        $authorStylesheetProjections = $authorStylesheets->projections();
+        $authorStylesheetProjections = $timer->measure('transform.serialization.author_stylesheet_projections', fn (): array => $authorStylesheets->projections());
         $runtimeScriptProjections = RuntimeScriptProjections::collect($this->session);
         $timer->start('transform.stylesheet_materialization');
         $authorStylesheets->materialize(
@@ -2309,6 +2315,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
             $fluid = $this->liftedBands($sourceElement, $observations, $viewports, $parents, $name);
+            $fluidIntent = new Style\BoxTreeFluidIntent();
+            $pseudoFluid = array();
+            foreach ( array( 'before', 'after' ) as $pseudo ) {
+                $pseudoFluid[$pseudo] = $fluidIntent->liftPseudo($sourceElement, $this->styleResolver, $observations, $viewports, $pseudo, $this->liftEvidence());
+            }
             // An authored figure keeps its own box; the image it paints is styled from its own evidence.
             $image = array();
             $paintedImage = 'core/image' === $name && 'figure' === $sourceTagName ? $sourceElement->getElementsByTagName('img')->item(0) : null;
@@ -2318,10 +2329,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $image = array(
                     'observations' => $imageObservations,
                     'parents' => $imageParents,
-                    'fluid' => (new Style\BoxTreeFluidIntent())->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
+                    'fluid' => $fluidIntent->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
                 );
             }
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $sourceTagName, $image);
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,
