@@ -280,7 +280,9 @@ final class SitePlanRun
         $assets = SharedChromeStylesheets::project($assets, array_merge($parts, $frameParts), $pages, $this->references, $assetTargetCollisions, $liveElementMarkers);
         $assets = DeadElementMarkers::withoutDeadSelectors($assets, $liveElementMarkers);
         // Removing dead selectors can consume a generated sheet's last rule.
-        $assets = array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['source'] ?? '', array('engine-support', 'editor-static-state', 'wordpress-compat'), true) || !is_string($asset['content'] ?? null) || '' !== trim($asset['content'])));
+        // Nothing delivers through a generated sheet, so it goes here; source
+        // sheets wait until delivery is final.
+        $assets = array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['source'] ?? '', array('engine-support', 'editor-static-state', 'wordpress-compat'), true) || !EmptyStylesheets::isEmpty($asset)));
         foreach ($assetTargetCollisions as $collision) $this->unitFindings->record(array(
             'code' => 'wordpress_site_plan_colliding_asset_target',
             'unit' => 'asset',
@@ -363,6 +365,11 @@ final class SitePlanRun
         // in `block_markup`: their figures are emitted too.
         $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
+        // Bytes and delivery are final: a sheet left empty is neither written
+        // nor enqueued, unless it still carries route selection or a reference.
+        $emptyStylesheets = EmptyStylesheets::elide($assets, array('pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'patterns' => $syncedPatterns, 'menus' => $menus), $pages, $rootDocuments, (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme']), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        ['assets' => $assets, 'document_sets' => ['pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'patterns' => $syncedPatterns, 'menus' => $menus]] = $emptyStylesheets;
+        $tokens = array_values(array_filter($tokens, static fn(array $token): bool => !isset($emptyStylesheets['tokens'][$token['token']])));
         // Layout findings name the engine classes of the part they occurred in.
         $data['diagnostics'] = self::withTemplatePartAttribution($data['diagnostics'], $parts);
         // Stylesheets are final: a selector hook that no stylesheet or script
@@ -440,7 +447,7 @@ final class SitePlanRun
             'runtime_entity_records' => $runtimeEntityRecords,
             'diagnostics' => array_merge($data['diagnostics'], $shellDiagnostics, $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics),
             // A dropped or rewritten unit is a warning on the plan, the same as withFindings().
-            'quality' => array('status' => UnitFindings::status($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true, 'step_timings' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $this->input->coreHtmlFallbackEvidence, 'editability_policy' => $this->editabilityPolicy),
+            'quality' => array('status' => UnitFindings::status($data['status'], $unitFindings), 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true, 'step_timings' => true)) + array('empty_asset_count' => EmptyStylesheets::count($assets)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $this->input->coreHtmlFallbackEvidence, 'editability_policy' => $this->editabilityPolicy),
             'reporting' => PlanReporting::summary($pages, $data, $this->input->coreHtmlFallbackEvidence, array_merge($shellDiagnostics, $scriptLoading['diagnostics'], $taxonomyProjection['diagnostics'], $recoveryDiagnostics), array_merge($this->surfaces, array_values(array_column(array_filter($templates, static fn(array $template): bool => isset($archiveSources[$template['source_path'] ?? ''])), null, 'source_path')))),
         );
         $plan['reference_semantics']['navigation_entities'] = NavigationEntityProjection::REFERENCE_CONTRACT;
