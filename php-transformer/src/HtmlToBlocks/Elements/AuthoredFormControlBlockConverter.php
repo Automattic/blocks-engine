@@ -74,8 +74,8 @@ final class AuthoredFormControlBlockConverter
         return str_contains($content, '<!--') ? CommentTextRunBoundaries::apply($content) : $content;
     }
 
-    /** Keep an explicit external association even when its control is outside this fragment. */
-    public function label(DOMElement $label): ?array
+    /** Keep an explicit external association, or a native form's unassociated label host. */
+    public function label(DOMElement $label, bool $preserveHost = false): ?array
     {
         if (!FormControlClassifier::isExternalAssociatedLabel($label)) {
             return null;
@@ -90,7 +90,7 @@ final class AuthoredFormControlBlockConverter
             'content' => $this->labelContent($label),
             'sourceAttributes' => SourceAttribute::staticAttributes(SourceDom::htmlAttributes($label), array_values(AuthoredLabelBlockGenerator::HOST_ATTRIBUTES)),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
-        if (FormControlClassifier::isDanglingCaptionLabel($label)) {
+        if (! $preserveHost && FormControlClassifier::isDanglingCaptionLabel($label)) {
             // Caption text, not an association: the caption is the core
             // paragraph's own box, carrying the label's classes and its text as
             // core RichText (a <label> inside RichText is structural markup the

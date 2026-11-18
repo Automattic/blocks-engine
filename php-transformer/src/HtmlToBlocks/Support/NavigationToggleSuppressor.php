@@ -1270,8 +1270,8 @@ final class NavigationToggleSuppressor
             ))));
             return $parent instanceof DOMElement
                 && 'details' === strtolower($parent->tagName)
-                && '' === $this->visibleMenuToggleLabel($element)
-                && $this->namesMenu($accessibleName);
+                && $this->namesMenu($accessibleName)
+                && '' === $this->visibleMenuToggleLabel($element);
         }
 
         $isButton = 'button' === $tagName;
@@ -1896,13 +1896,14 @@ final class NavigationToggleSuppressor
             return null;
         }
 
+        $navigationVariantRoot = SourceDom::documentVariantRoot($navigation);
         foreach ( $document->getElementsByTagName('*') as $toggle ) {
             // Prefer the authored collapse target to an unrelated captured dialog.
             if ( $toggle instanceof DOMElement && $this->authoredCollapseControlsNavigation($toggle, $navigation) ) {
                 return $this->concreteToggleControl($toggle);
             }
             if ( ! $toggle instanceof DOMElement
-                || SourceDom::documentVariantRoot($toggle) !== SourceDom::documentVariantRoot($navigation)
+                || SourceDom::documentVariantRoot($toggle) !== $navigationVariantRoot
                 || $this->isCapturedDialogControl($toggle)
                 || ( ! $this->isHamburgerMenuToggleControl($toggle) && ! $this->isProjectableHashAnchorMenuToggle($toggle) )
             ) {
@@ -2518,7 +2519,7 @@ final class NavigationToggleSuppressor
 
     private function isProjectableHashAnchorMenuToggle(DOMElement $element): bool
     {
-        if ( 'a' !== strtolower($element->tagName) || '' !== $this->visibleMenuToggleLabel($element) ) {
+        if ( 'a' !== strtolower($element->tagName) ) {
             return false;
         }
 
@@ -2532,7 +2533,9 @@ final class NavigationToggleSuppressor
             SourceDom::attr($element, 'title'),
         ))));
 
-        return $this->namesMenu($accessibleName);
+        // The visible label resolves the cascade of the anchor and every
+        // descendant; read it only for an anchor the attributes already qualify.
+        return $this->namesMenu($accessibleName) && '' === $this->visibleMenuToggleLabel($element);
     }
 
 

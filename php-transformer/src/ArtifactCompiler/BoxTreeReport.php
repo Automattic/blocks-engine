@@ -36,7 +36,62 @@ final class BoxTreeReport
             }
             $trees[$tree['source_path']] = $tree;
         }
-        return array('trees' => $trees, 'diagnostics' => $diagnostics);
+        return array('trees' => self::withSharedChromeViewports($trees, $sources), 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * A producer may sample extra viewports on some routes only (mobile HTML
+     * per template cluster). Chrome every route repeats is one part, so its
+     * identity cannot depend on that sampling: within the subtree of a
+     * header or footer whose source identity other routes share, a route
+     * keeps only the viewports every sharing route observed. The rest of the
+     * route, its page content, keeps all of its evidence.
+     *
+     * @param array<string,array<string,mixed>> $trees @param array<string,array<string,mixed>> $sources
+     * @return array<string,array<string,mixed>>
+     */
+    private static function withSharedChromeViewports(array $trees, array $sources): array
+    {
+        if (count($trees) < 2) return $trees;
+        $groups = array();
+        foreach ($trees as $path => $tree) {
+            $dom = HtmlSerialization::parseDocument((string) ($sources[$path]['content'] ?? ''));
+            $body = $dom->getElementsByTagName('body')->item(0);
+            if (!$body instanceof DOMElement) continue;
+            $walk = static function (DOMElement $parent) use (&$walk, &$groups, $dom, $path): void {
+                foreach ($parent->childNodes as $child) {
+                    if (!$child instanceof DOMElement) continue;
+                    $tag = strtolower($child->tagName);
+                    if (in_array($tag, array('main', 'article', 'section', 'aside'), true)) continue;
+                    $area = \Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy::landmarkKind($tag, trim($child->getAttribute('role')));
+                    if (!in_array($area, array('header', 'footer'), true)) {
+                        $walk($child);
+                        continue;
+                    }
+                    $ids = array();
+                    foreach (array_merge(array($child), iterator_to_array($child->getElementsByTagName('*'))) as $node) {
+                        if ($node instanceof DOMElement && $node->hasAttribute(BoxTree::NODE_ATTRIBUTE)) $ids[] = $node->getAttribute(BoxTree::NODE_ATTRIBUTE);
+                    }
+                    if (array() === $ids) continue;
+                    $identity = hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity::markup(SourceShells::identity((string) $dom->saveHTML($child))));
+                    $groups[$area . ':' . $identity][$path][] = $ids;
+                }
+            };
+            $walk($body);
+        }
+        foreach ($groups as $members) {
+            if (count($members) < 2) continue;
+            $shared = null;
+            foreach (array_keys($members) as $path) $shared = null === $shared ? $trees[$path]['viewports'] : array_intersect_key($shared, $trees[$path]['viewports']);
+            if (array() === $shared) continue;
+            foreach ($members as $path => $landmarks) {
+                if (array() === array_diff_key($trees[$path]['viewports'], $shared)) continue;
+                foreach (array_merge(...$landmarks) as $id) {
+                    if (isset($trees[$path]['nodes'][$id]['viewports'])) $trees[$path]['nodes'][$id]['viewports'] = array_intersect_key($trees[$path]['nodes'][$id]['viewports'], $shared);
+                }
+            }
+        }
+        return $trees;
     }
 
     private static function validate(mixed $tree, array $sources): ?string

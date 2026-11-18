@@ -34,6 +34,11 @@ its bindings re-anchor there, mirroring how trailing frame chrome folds into the
 footer part. Route coverage counts only template references. The compiler
 contract is `tests/unit/shell-wrapper-shared-header-template.php`.
 
+Routes whose header or footer agrees on the box-tree viewports they share stay
+one part even when one route's sidecar samples an extra viewport (`mobile`):
+intake aligns that chrome subtree to the common viewports, while the route's
+page content keeps its full evidence (`docs/contracts/box-tree.md`).
+
 When the source has no area landmark, extraction adds a semantic header/footer
 Group marked `blocks-engine-shell-landmark`. The same frontend-only transport
 stylesheet makes this synthetic landmark boxless too: source children remain

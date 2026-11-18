@@ -486,6 +486,62 @@ final class CssSelectorListCompactor
         return null === $combinator ? $out : null;
     }
 
+    /**
+     * The arms compact() factored into one `:is()` compound, split back out:
+     * `X :is(.a,.b) Y` becomes `X .a Y` and `X .b Y`. Only a list of plain
+     * compounds with one weight is split, the lists compact() writes, so
+     * every arm keeps the specificity it had inside the list. A condition
+     * appended to the list compound later (`:is(.a,.b):where(:root.r)`)
+     * follows each arm. A selector without such a list is its own only arm.
+     *
+     * @return list<string>
+     */
+    public static function factoredArms(string $selector, int $limit = 64): array
+    {
+        $selector = trim($selector);
+        if ( ! str_contains($selector, ':is(') ) {
+            return array($selector);
+        }
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        if ( ! $tokens['supported'] ) {
+            return array($selector);
+        }
+        foreach ( $tokens['compound_spans'] as $position => $span ) {
+            $compound = $tokens['compounds'][ $position ];
+            if ( ! str_starts_with($compound, ':is(') ) {
+                continue;
+            }
+            $close = CssSyntaxScanner::matchingClose($compound, 3);
+            if ( null === $close ) {
+                continue;
+            }
+            $alternatives = CssStylesheetTransformer::splitSelectorList(substr($compound, 4, $close - 4));
+            if ( null === $alternatives || count($alternatives) < 2 ) {
+                continue;
+            }
+            $weights = array();
+            foreach ( $alternatives as $alternative ) {
+                $weights[ (string) self::plainCompoundWeight(trim($alternative)) ] = true;
+            }
+            if ( 1 !== count($weights) || isset($weights['']) ) {
+                continue;
+            }
+            $prefix = substr($selector, 0, $span['start']);
+            $suffix = substr($compound, $close + 1) . substr($selector, $span['end']);
+            $arms = array();
+            foreach ( $alternatives as $alternative ) {
+                foreach ( self::factoredArms($prefix . trim($alternative) . $suffix, $limit) as $arm ) {
+                    $arms[] = $arm;
+                    if ( count($arms) > $limit ) {
+                        return array($selector);
+                    }
+                }
+            }
+            return $arms;
+        }
+        return array($selector);
+    }
+
     public static function compact(string $prelude): string
     {
         if ( ! str_contains($prelude, ',') ) {

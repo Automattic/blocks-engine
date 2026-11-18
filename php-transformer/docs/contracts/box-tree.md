@@ -93,6 +93,16 @@ Invalid evidence produces a warning diagnostic (`box_tree_schema_invalid`,
 `box_tree_styles_invalid`, or `box_tree_duplicate_route`). Conversion proceeds
 without rejected evidence; this evidence never authorizes layout reductions.
 
+Routes may declare different viewport sets (a producer can sample mobile HTML
+per template cluster). After acceptance, a header or footer whose source
+identity other routes with evidence share keeps, within its subtree, only the
+viewports every sharing route observed, so the extra sampling of one route
+cannot fork shared chrome or its generated geometry classes. The route's other
+nodes, its page content, keep every declared viewport. Classification treats an
+observation missing at one viewport conservatively: equal child geometry and
+containment inside a clip are unproven there. The contract is
+`tests/unit/shared-header-extra-viewport-box-tree.php`.
+
 Normalized HTML files carry `box_tree`. The compiler passes it into each HTML
 session; `HtmlTransformerSession::boxTreeEvidence(DOMElement)` exposes the
 viewport observations for that exact source element. This is independent of
@@ -182,6 +192,17 @@ node keeps its deciding `criterion` and lists the applied rules in `fold`;
 - `own-placement`: grid lines, `justify-self`/`align-self`, `order`, flex item
   factors, `float`/`clear` and margins move when the child's own values are
   initial and its margin box then equals the box's margin box.
+
+Inherited values move with every fold. When the box's inherited value
+(`color`, `font-*`, `line-height`, `letter-spacing`, `word-spacing`, `text-*`,
+`white-space`, word breaking, list style, `visibility`, `cursor`) differs from
+its block parent's at any capture, and the child repeats the box's value at every
+capture, the value moves to the child with the box's author bands. This keeps
+the subtree from re-basing on the new parent. If the child's value differs
+anywhere, the fold is refused when the property can be derived from the box's
+value (`font-size`, `line-height`, `text-indent`: an `em` or `%` of it). It is
+also refused when the child inherits the box's value at some captures but not
+others. Otherwise the child's own value stands.
 
 Never folded: rendering pseudo-elements, clipping overflow, transforms (even
 identity), filters, backdrop filters, opacity, blending, isolation, clip paths,
