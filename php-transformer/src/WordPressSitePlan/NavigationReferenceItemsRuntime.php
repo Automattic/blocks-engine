@@ -50,7 +50,20 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
         $url = is_string( $attrs['url'] ?? null ) ? trim( $attrs['url'] ) : '';
         $current = str_contains( (string) ( $attrs['className'] ?? '' ), 'blocks-engine-current-navigation-item' )
             || ( null !== $served && '' !== $url && '/' === $url[0] && ( 1 === strlen( $url ) || '/' !== $url[1] ) && ! str_contains( $url, '#' ) && '/' . trim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) === $served );
-        if ( $current !== ! empty( $own['current'] ) ) continue;
+        if ( $current !== ! empty( $own['current'] ) ) {
+            // The item's captured box geometry is its layout in either state.
+            // The entity drops it when another copy of the same menu never
+            // laid out (a collapsed responsive menu), so the served item
+            // keeps the reference's own geometry beside the entity's classes.
+            $entity = preg_split( '/\s+/', trim( (string) ( $attrs['className'] ?? '' ) ), -1, PREG_SPLIT_NO_EMPTY ) ?: array();
+            $geometry = preg_grep( '/^be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?$/D', preg_split( '/\s+/', trim( (string) ( $own['className'] ?? '' ) ), -1, PREG_SPLIT_NO_EMPTY ) ?: array() );
+            if ( array() !== $geometry && array() === preg_grep( '/^be-inline-geometry-/', $entity ) ) {
+                $attrs['className'] = implode( ' ', array_merge( $entity, array_values( $geometry ) ) );
+                $block->parsed_block['attrs'] = $attrs;
+                unset( $block->attributes );
+            }
+            continue;
+        }
         unset( $attrs['className'], $attrs['metadata']['blocksEngineNavigationAnchor'] );
         if ( is_string( $own['className'] ?? null ) ) $attrs['className'] = $own['className'];
         if ( is_array( $own['blocksEngineNavigationAnchor'] ?? null ) ) $attrs['metadata']['blocksEngineNavigationAnchor'] = $own['blocksEngineNavigationAnchor'];

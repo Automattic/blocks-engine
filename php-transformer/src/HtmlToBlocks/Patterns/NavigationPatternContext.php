@@ -271,6 +271,13 @@ final class NavigationPatternContext
     public const CLIPPED_SUBMENU_CLASS = 'blocks-engine-clipped-submenu';
 
     /**
+     * Marks a navigation whose submenu labels are themselves the toggles: core's
+     * click mode renders each label as a button, so its decorative icon (which
+     * the source never paints) is hidden and the source's hover reveal restated.
+     */
+    public const LABEL_TOGGLE_SUBMENUS_CLASS = 'blocks-engine-label-toggle-submenus';
+
+    /**
      * Whether a block-level element inside a navigation link declares its own
      * text presentation. Such an element (a logo heading) is what paints the
      * label, so it must survive the label's inline reduction.
@@ -710,6 +717,9 @@ final class NavigationPatternContext
     /** @var array<string, true> Source submenu parents that paint no indicator of their own and carry no disclosure control. */
     private array $unindicatedSubmenuParents = array();
 
+    /** @var array<string, bool> Source submenu parent labels, true when the label is the submenu's indicator-free, hover-revealed toggle. */
+    private array $submenuParentLabels = array();
+
     /**
      * Whether the source submenu takes no space until its item's hover/focus
      * reveals it: a zero height or max-height that clips its content.
@@ -758,8 +768,9 @@ final class NavigationPatternContext
      * the submenu beside it) leaves the submenu indicator-free: its submenu
      * opens on hover/focus.
      */
-    public function recordSubmenuToggle(DOMElement $toggle, bool $hasDisclosureControl): void
+    public function recordSubmenuToggle(DOMElement $toggle, bool $hasDisclosureControl, bool $isLabelToggle = false): void
     {
+        $this->submenuParentLabels[$toggle->getNodePath() ?? ''] = false;
         $targets = array( $toggle );
         foreach ( $toggle->childNodes as $child ) {
             if ( $child instanceof DOMElement ) $targets[] = $child;
@@ -776,6 +787,30 @@ final class NavigationPatternContext
         if ( ! $hasDisclosureControl ) {
             $this->unindicatedSubmenuParents[$toggle->getNodePath() ?? ''] = true;
         }
+        $this->submenuParentLabels[$toggle->getNodePath() ?? ''] = $isLabelToggle;
+    }
+
+    /** A submenu parent core's own submenu icon stands in for (a separate source glyph, or the item itself). */
+    public function recordSubmenuParent(DOMElement $label): void
+    {
+        $this->submenuParentLabels[$label->getNodePath() ?? ''] = false;
+    }
+
+    /**
+     * Whether every submenu under this source element is opened by its own
+     * indicator-free label button and revealed on its item's hover. Core's
+     * click mode renders exactly that label: a focusable toggle button.
+     */
+    public function labelTogglesEverySubmenuWithin(DOMElement $source): bool
+    {
+        $root = $source->getNodePath() ?? '';
+        $found = false;
+        foreach ( $this->submenuParentLabels as $path => $isLabelToggle ) {
+            if ( '' === $root || ( $path !== $root && ! str_starts_with((string) $path, $root . '/') ) ) continue;
+            if ( ! $isLabelToggle ) return false;
+            $found = true;
+        }
+        return $found;
     }
 
     /** Whether the source paints nothing for this control at rest (a focus-only affordance). */
@@ -1940,13 +1975,25 @@ final class NavigationPatternContext
         // Only a media stack that changes the packing needs projection; an
         // unrelated conditional ancestor rule (a motion custom property) would
         // otherwise add a per-document marker that splits shared chrome.
+        // Each stack is read on its own: a box restating text-align under a
+        // different media condition (a tablet drawer's `left` on the wrapper)
+        // must not hide a farther ancestor's packing for the rest of the stack.
+        // Once any stack changes the packing, every stack that states one is
+        // replayed, farthest declaration first, so where stacks overlap the
+        // nearer box wins as it does in the source.
         $base = $justify($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align', true));
         $packings = array();
+        $changes = false;
         foreach ( $this->styleResolver->inheritedBoxMediaConditions($list) as $stack ) {
-            $packing = $justify($this->styleResolver->authoredInheritedPropertyWinner($list, 'text-align', true, $stack));
-            if ( $packing !== $base ) $packings[] = array($stack, $packing);
+            $origin = $this->styleResolver->conditionedInheritedPropertyOrigin($list, 'text-align', $stack);
+            if ( '' === $origin['value'] ) continue;
+            $packing = $justify($origin['value']);
+            $changes = $changes || $packing !== $base;
+            $packings[] = array($stack, $packing, $origin['depth']);
         }
-        if ( array() === $packings ) return $alignment;
+        if ( ! $changes ) return $alignment;
+        // usort is stable, so stacks at one distance keep their source order.
+        usort($packings, static fn (array $left, array $right): int => $right[2] <=> $left[2]);
 
         $marker = 'blocks-engine-navigation-packing-' . substr(hash('sha256', SourceDom::elementSelector($list)), 0, 12);
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . $marker);
@@ -1967,6 +2014,39 @@ final class NavigationPatternContext
         foreach ($direction->conditional() as $queries => $value) {
             $this->sourceTargetProjection?->record(SourceDom::elementSelector($element), $target, 'flex-direction:' . preg_replace('/\s*!important\s*$/i', '', $value) . '!important', explode('{', $queries));
         }
+    }
+
+    /**
+     * A flex row of bare anchors stretches them by default: every anchor box
+     * is as tall as the row and its text sits at the row's top. Core centers
+     * its synthetic list items in the list and each anchor inside its item, so
+     * a link that wraps onto a second line drops its one-line siblings to the
+     * row's middle. Restore the source's stretch on both synthetic boxes.
+     * Only an alignment the author leaves at its default (or states as
+     * `normal`/`stretch`) at every viewport is restated; any other value is
+     * left to core and the projected author rules.
+     *
+     * @param array<int, string> $classes Classes the emitted block carries, so copied onto the container.
+     */
+    public function recordBareAnchorRowStretch(DOMElement $navigation, array $classes): void
+    {
+        if ( array() === $classes || ! $this->sourceTargetProjection instanceof SourceTargetProjectionState
+            || ! in_array($this->resolvedDisplay($navigation), array( 'flex', 'inline-flex' ), true) ) {
+            return;
+        }
+        $direction = $this->styleResolver->declaredPresentation($navigation, 'flex-direction');
+        $alignment = $this->styleResolver->declaredPresentation($navigation, 'align-items');
+        $isDefault = static fn (string $value, array $defaults): bool => in_array(strtolower(CssValueInspector::withoutImportant($value)), $defaults, true);
+        if ( $direction->isConditional() || ! $isDefault($direction->base(), array( '', 'row', 'row-reverse' ))
+            || $alignment->isConditional() || ! $isDefault($alignment->base(), array( '', 'normal', 'stretch' )) ) {
+            return;
+        }
+        $host = '.wp-block-navigation' . CssIdent::compoundClassSelector($classes);
+        $this->sourceTargetProjection->record(
+            SourceDom::elementSelector($navigation),
+            $host . ' :is(.wp-block-navigation__container,.wp-block-navigation-item)',
+            'align-items:normal'
+        );
     }
 
     /** Record unsupported source residue on the native element replacing it. */

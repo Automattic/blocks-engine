@@ -124,6 +124,13 @@ final class EngineSupportCss
                 // toggles the attribute after compilation.
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS . ')>a:not([hidden]){display:block}';
         }
+        if (str_contains($serializedBlocks, SourceBlockAttributeProjector::RETAINED_ITEM_CARRIER_CLASS)) {
+            // The carrier and the item it keeps share the source classes, so
+            // an author `::before` label for the item matches both and paints
+            // twice. The retained item draws it; the carrier adds none.
+            $carrier = '.' . SourceBlockAttributeProjector::RETAINED_ITEM_CARRIER_CLASS;
+            $parts[] = $carrier . '::before,' . $carrier . '::after{content:none!important}';
+        }
         if (str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS)) {
             $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
         }
@@ -563,6 +570,14 @@ final class EngineSupportCss
             $item = '.wp-block-navigation .wp-block-navigation-item.' . \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::CLIPPED_SUBMENU_CLASS . ':not(:hover,:focus-within,.is-menu-open *)';
             $parts[] = $item . '>.wp-block-navigation__submenu-container:not(.wp-block-navigation-submenu__toggle[aria-expanded="true"]~*)'
                 . '{padding-top:0!important;padding-bottom:0!important;border-top-width:0!important;border-bottom-width:0!important}';
+        }
+        if (str_contains($serializedBlocks, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::LABEL_TOGGLE_SUBMENUS_CLASS)) {
+            // The source label is the toggle and paints no indicator: drop core's
+            // icon and the room its toggle keeps for it, and open on hover as the source does.
+            $item = '.wp-block-navigation.' . \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext::LABEL_TOGGLE_SUBMENUS_CLASS . ' .wp-block-navigation-item.open-on-click';
+            $parts[] = $item . '>.wp-block-navigation__submenu-icon{display:none}'
+                . "\n" . $item . '>.wp-block-navigation-submenu__toggle{padding-right:0}'
+                . "\n" . '@media (hover:hover){' . $item . ':not(.is-menu-open *):hover>.wp-block-navigation__submenu-container{visibility:visible;overflow:visible;opacity:1;width:auto;height:auto;min-width:200px}}';
         }
         if (str_contains($serializedBlocks, 'blocks-engine-social-source-non-list')) {
             // Lowering a div/span to ul must not introduce UA list margins.

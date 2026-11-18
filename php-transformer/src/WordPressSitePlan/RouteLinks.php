@@ -76,6 +76,9 @@ final class RouteLinks
             }
             $offset = $match[0][1] + strlen($match[0][0]);
         }
+        // Authored controls keep source attributes as name/value pairs, and
+        // save() renders the link from that pair, so it resolves with the markup.
+        $content = preg_replace_callback('/("name"\s*:\s*"(?:href|action)"\s*,\s*"value"\s*:\s*")([^"]+)(")/i', $replace, $content) ?? $content;
         // Route tokens and relative links retain their existing mapping. Only
         // absolute item destinations need URL serialization before shell/menu
         // identity is computed; emission uses these same attributes.
@@ -142,6 +145,15 @@ final class RouteLinks
             $linkKeys = in_array(strtolower($match[1]), WordPressSitePlan::ROUTE_URL_BLOCKS, true) ? array('url', 'href', 'action') : array('href', 'action');
             $changed = false;
             $walk = function (array $value) use (&$walk, &$changed, $linkKeys, $origin): array {
+                // A source attribute name/value pair saves as that attribute.
+                if (is_string($value['name'] ?? null) && is_string($value['value'] ?? null) && in_array(strtolower($value['name']), array('href', 'action'), true)) {
+                    $resolved = $this->unresolvedNavigationReference($value['value'], $origin);
+                    if (null !== $resolved) {
+                        $value['value'] = html_entity_decode($resolved, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                        $changed = true;
+                    }
+                    return $value;
+                }
                 foreach ($value as $key => $item) {
                     if (is_array($item)) { $value[$key] = $walk($item); continue; }
                     if (!is_string($key) || !is_string($item) || !in_array(strtolower($key), $linkKeys, true)) continue;

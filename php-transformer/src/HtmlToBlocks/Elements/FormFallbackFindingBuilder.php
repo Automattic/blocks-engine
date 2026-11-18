@@ -67,11 +67,15 @@ final class FormFallbackFindingBuilder
         // own converted subtree instead. Anchor that binding on the source
         // element so the form entity keeps an exact anchor the page still owns.
         $pageOwnedAnchor = ! $replacesRuntimeIsland && 'form' !== strtolower($element->tagName) ? $element : null;
+        // A purchase form of variant choices belongs to the shop's cart
+        // runtime, not a form provider (#6442).
+        $purchase = 'form' === strtolower($element->tagName) && FormRuntimeRequirementAnalyzer::collectsOnlyPurchaseChoices($element);
+        $role = $purchase ? 'commerce_add_to_cart_form' : 'form';
         $binding = null !== $pageOwnedAnchor
-            ? $this->context->blockBinding(array(), 'form', $supersededRuntimeSelectors, $pageOwnedAnchor)
-            : ( null !== $bindingBlock ? $this->context->blockBinding($bindingBlock, 'form', $supersededRuntimeSelectors) : array() );
+            ? $this->context->blockBinding(array(), $role, $supersededRuntimeSelectors, $pageOwnedAnchor)
+            : ( null !== $bindingBlock ? $this->context->blockBinding($bindingBlock, $role, $supersededRuntimeSelectors) : array() );
         if ( array() === $binding && array() !== $choiceGroups ) {
-            $binding = $this->context->blockBinding(array(), 'form', $supersededRuntimeSelectors, $element);
+            $binding = $this->context->blockBinding(array(), $role, $supersededRuntimeSelectors, $element);
         }
 
         $finding = array(
@@ -137,6 +141,13 @@ final class FormFallbackFindingBuilder
         ))->build($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         if ( 'form' !== strtolower($element->tagName) ) {
             $finding['form_boundary'] = $this->pseudoFormAnalyzer->boundaryMetadata($element);
+        }
+
+        if ( $purchase ) {
+            $finding['reason'] = 'commerce_controls_require_runtime';
+            $finding['diagnostic_code'] = 'html_commerce_controls_fallback';
+            $finding['kind'] = 'html_commerce_controls_fallback';
+            $finding['message'] = 'An add-to-cart form with variant choices keeps native blocks and requires commerce runtime binding.';
         }
 
         $diagnostic = $this->context->buildFallbackDiagnostic($finding);

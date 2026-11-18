@@ -42,10 +42,39 @@ final class AuthorSelectorProjector
 
     private const SEMANTIC_ROLE_CLASS = 'blocks-engine-role-semantic';
 
+    private ?string $loweredAnchorMarkup = null;
+
+    private bool $loweredAnchorCarrier = false;
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer
     ) {
+    }
+
+    /**
+     * Whether a source `<a>` was lowered to a non-anchor carrier (a link card
+     * with block children becomes a group). Only then do author `a` type
+     * selectors need the subject-tag bridge; other pages keep native `a`.
+     */
+    private function hasLoweredAnchorCarrier(string $markup): bool
+    {
+        if ( $markup !== $this->loweredAnchorMarkup ) {
+            $this->loweredAnchorMarkup = $markup;
+            $this->loweredAnchorCarrier = false;
+            if ( str_contains($markup, EngineMarker::subjectTagClass('a'))
+                && preg_match_all('/<(?!a[\s>])[a-z][a-z0-9]*\b[^>]*\sclass="([^"]*\b' . EngineMarker::subjectTagClass('a') . '\b[^"]*)"/i', $markup, $carriers)
+            ) {
+                foreach ( $carriers[1] as $classes ) {
+                    // Button wrappers restate the tag but are control carriers.
+                    if ( ! str_contains(' ' . $classes . ' ', ' blocks-engine-role-control ') ) {
+                        $this->loweredAnchorCarrier = true;
+                        break;
+                    }
+                }
+            }
+        }
+        return $this->loweredAnchorCarrier;
     }
 
     /**
@@ -1547,7 +1576,23 @@ final class AuthorSelectorProjector
      */
     public function rewriteSourceTagTypes(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, string $rightmostInsertion = '', array $replacements = array()): string
     {
-        foreach ( array_merge($parsed['type_spans'], CssSelectorMatcher::functionalTypeSpans($selector)) as $typeSpan ) {
+        $typeSpans = $parsed['type_spans'];
+        $bridgeAnchors = $this->hasLoweredAnchorCarrier($context->emittedMarkup);
+        if ($bridgeAnchors && ! $parsed['supported']) {
+            // Ancestor states are outside the matcher's static subset, but
+            // tokenization still identifies each compound's leading type.
+            $tokens = CssSelectorTokenizer::tokenize($selector);
+            foreach ($tokens['compounds'] as $index => $compound) {
+                $resting = preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $compound) ?? $compound;
+                $compoundParsed = CssSelectorMatcher::parse($resting);
+                foreach ($compoundParsed['type_spans'] as $span) {
+                    if (0 !== $span['start'] || 'a' !== strtolower($span['name'])) continue;
+                    $start = $tokens['compound_spans'][$index]['start'];
+                    $typeSpans[] = array('start' => $start, 'end' => $start + $span['end'], 'name' => $span['name']);
+                }
+            }
+        }
+        foreach ( array_merge($typeSpans, CssSelectorMatcher::functionalTypeSpans($selector)) as $typeSpan ) {
             // A caller that already replaced the compound holding this type has
             // decided where that type goes; the marker must not take it back.
             foreach ( $replacements as $replacementStart => $replacement ) {
@@ -1564,6 +1609,16 @@ final class AuthorSelectorProjector
                     ? ':is(' . substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ',:where(.' . $marker . '))'
                     : ':where(.' . $marker . ')' . $this->typeSpecificityShim($context);
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => $value );
+            } elseif ( $bridgeAnchors && 'a' === strtolower((string) $typeSpan['name']) ) {
+                // Block-child links lower to groups but retain their source
+                // subject tag. Keep native anchors in the same arm: inline
+                // links and lowered cards can share a rule. :is() preserves
+                // the type weight, including in functional pseudos/negations.
+                // Button wrappers keep their own control projection.
+                $replacements[$typeSpan['start']] = array(
+                    'end' => $typeSpan['end'],
+                    'value' => ':is(a,:where(.' . EngineMarker::subjectTagClass('a') . ':not(.blocks-engine-role-control)))',
+                );
             } elseif ( 'img' === strtolower((string) $typeSpan['name'])
                 && str_contains($context->emittedMarkup, 'assets/materialized-svg/inline-svg-')
             ) {
@@ -1667,7 +1722,11 @@ final class AuthorSelectorProjector
         if (null !== $universal) {
             return $universal['prefix'] . $this->projectControlTarget(':where(.blocks-engine-role-control)', $universal['selector'], $universal['parsed'], $context, $wrapper);
         }
-        return $this->projectControlTarget(':where(.' . $marker . ')', $selector, $parsed, $context, $wrapper);
+        // A token the control's entrance replays stays a live predicate; the
+        // marker alone would freeze its captured after pose.
+        $rightmost = CssSelectorCompoundInspector::rightmost($parsed['compounds'] ?? array());
+        $live = array_intersect(array_map('strval', $rightmost['classes'] ?? array()), $context->selectorProjections->controlEntranceClasses($marker));
+        return $this->projectControlTarget(':where(.' . $marker . CssIdent::compoundClassSelector(array_values($live)) . ')', $selector, $parsed, $context, $wrapper);
     }
 
     /**
