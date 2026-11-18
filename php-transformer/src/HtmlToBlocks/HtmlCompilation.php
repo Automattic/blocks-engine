@@ -1263,6 +1263,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Body-only parsing must retain the html ancestor that owns inherited
         // custom properties and participates in authored root selectors.
         \Automattic\BlocksEngine\PhpTransformer\Support\DocumentRootAttributes::restoreRoot($body, $html);
+        if ( array() !== $this->session->boxTreeViewports() ) {
+            \Automattic\BlocksEngine\PhpTransformer\Support\DocumentRootAttributes::restoreEvidenceIdentity($body, $html);
+        }
 
         // Document metadata (`<link>`, `<meta>`, `<base>`, `<title>`) generates no
         // rendered box and belongs in `<head>`, but browsers tolerate it anywhere

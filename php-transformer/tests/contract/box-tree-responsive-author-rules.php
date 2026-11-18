@@ -31,7 +31,14 @@ $author = '.cta{background:#111;color:#fff;display:inline-flex;gap:24px;padding:
     . '.buy{background:#111;color:#fff;display:inline-flex;align-self:flex-start;margin-top:22px;padding:17px 30px;font-size:10px;line-height:17px}'
     // A legal line: a bare span in a footer with a smaller strut, whose line
     // height a breakpoint restates in another unit (same computed value).
-    . 'footer{font-size:12px}.legal{font-size:10px;line-height:17px}@media (max-width:1000px){.legal{line-height:1.7}}'
+    // The footer is a template part, a direct child of the body: its media
+    // variants lift like page content's. The narrowest variant is a
+    // percentage (the source's `8%`), proven against the body's own box.
+    . 'footer{font-size:12px;padding:0 115px}@media (max-width:850px){footer{padding:0 61px}}@media (max-width:520px){footer{padding:0 8%}}'
+    // An add-on line: a block-level `<b>` beside bare text, so it becomes the
+    // only content of a boxless inline-layout carrier paragraph.
+    . '.addon{font-size:12px}.addon b{display:block;font:26px "Playfair Display";margin-top:15px}'
+    . '.legal{font-size:10px;line-height:17px}@media (max-width:1000px){.legal{line-height:1.7}}'
     . '.hero{height:min(880px,100svh);min-height:680px}'
     . '@media (max-width:520px){.hero{min-height:650px}}'
     . '.story figure{margin:0}.story img{display:block;width:100%;max-height:650px;object-fit:cover}'
@@ -52,8 +59,9 @@ $markup = '<!doctype html><html><head><title>Responsive</title><style>' . $autho
     . '<section class="portfolio"><div class="pic"><p>First picture</p></div><div class="pic"><p>Second picture</p></div></section>'
     . '<section class="contact"><a class="cta" href="/contact" style="display:inline-flex;padding:17px 30px;font-size:10px">Contact us</a></section>'
     . '<section class="plan"><p class="price">RM 99 <small>FROM RM</small></p><a class="buy" href="/buy">Buy</a></section>'
-    . '<footer><p>Footer <span>inline text</span></p><span class="legal">2024 Studio</span></footer>'
-    . '</main></body></html>';
+    . '<section class="pricing"><div class="addon">EXTRA HOUR<b>RM150/hr</b></div></section>'
+    . '</main><footer><p>Footer <span>inline text</span></p><span class="legal">2024 Studio</span></footer>'
+    . '</body></html>';
 $viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'mobile' => array('width' => 390, 'height' => 640));
 
 // Used values the browser reports for the boxes the author rules size. Every
@@ -70,13 +78,19 @@ $footerStyles = array('display' => 'block', 'height' => '17px', 'font-size' => '
 $buyStyles = array('display' => 'inline-flex', 'width' => '77.23px', 'height' => '51px', 'margin-top' => '22px', 'align-self' => 'flex-start', 'padding-top' => '17px', 'padding-right' => '30px', 'padding-bottom' => '17px', 'padding-left' => '30px', 'font-size' => '10px', 'line-height' => '17px');
 $priceStyles = array('display' => 'block', 'height' => '38px', 'font-size' => '31.67px', 'line-height' => '38px');
 $smallStyles = array('display' => 'inline', 'font-size' => '11px', 'line-height' => '13.2px');
+$addonStyles = array('display' => 'block', 'height' => '30px', 'font-size' => '26px', 'font-family' => '"Playfair Display"', 'line-height' => 'normal', 'margin-top' => '15px');
 $legalStyles = array('display' => 'inline', 'font-size' => '10px', 'line-height' => '17px');
 $observed = array(
     '//section[@class="plan"]' => array('desktop' => array('display' => 'flex', 'flex-direction' => 'column', 'height' => '111px'), 'mobile' => array('display' => 'flex', 'flex-direction' => 'column', 'height' => '111px')),
     '//a[@class="buy"]' => array('desktop' => $buyStyles, 'mobile' => $buyStyles),
     '//p[@class="price"]' => array('desktop' => $priceStyles, 'mobile' => $priceStyles),
     '//p[@class="price"]/small' => array('desktop' => $smallStyles, 'mobile' => $smallStyles),
-    '//footer' => array('desktop' => array('display' => 'block', 'height' => '34px', 'font-size' => '12px'), 'mobile' => array('display' => 'block', 'height' => '34px', 'font-size' => '12px')),
+    '//footer' => array(
+        'desktop' => array('display' => 'block', 'height' => '34px', 'font-size' => '12px', 'padding-left' => '115px', 'padding-right' => '115px'),
+        'mobile' => array('display' => 'block', 'height' => '34px', 'font-size' => '12px', 'padding-left' => '31.2px', 'padding-right' => '31.2px'),
+    ),
+    '//div[@class="addon"]' => array('desktop' => array('font-size' => '12px'), 'mobile' => array('font-size' => '12px')),
+    '//div[@class="addon"]/b' => array('desktop' => $addonStyles, 'mobile' => $addonStyles),
     '//span[@class="legal"]' => array('desktop' => $legalStyles, 'mobile' => $legalStyles),
     '//a[@class="cta"]' => array('desktop' => $buttonStyles, 'mobile' => array_replace($buttonStyles, array('row-gap' => '12px', 'column-gap' => '12px'))),
     '//footer/p' => array('desktop' => $footerStyles, 'mobile' => $footerStyles),
@@ -302,6 +316,39 @@ $expect($buttonLink, 'button link', 'display', array(1440 => 'inline-flex', 768 
 $expect($buttonLink, 'button link', 'gap', array(1440 => '24px', 768 => '12px', 390 => '12px'));
 $footerParagraph = $element('//footer//p');
 $expect($footerParagraph, 'footer paragraph line box', 'line-height', array(1440 => '17px', 768 => '17px', 390 => '17px'));
+
+// The footer renders from its template part. Its author variants apply there
+// exactly as on page content: 61px at the uncaptured 768px, and the 8% band
+// at the narrowest capture, whose basis is the body's captured box.
+$parts = array_column($plan['template_parts'], null, 'slug');
+$assert(isset($parts['footer']['canonical_block_markup']), 'The footer is a template part.');
+$footerPart = new DOMDocument();
+$footerPart->loadHTML('<!doctype html><html><body>' . $parts['footer']['canonical_block_markup'] . '</body></html>', LIBXML_NOERROR);
+$footer = (new DOMXPath($footerPart))->query('//footer')->item(0) ?? throw new RuntimeException('No footer in the footer template part.');
+foreach (array('padding-left', 'padding-right') as $property) {
+    $expect($footer, 'footer template part', $property, array(1440 => '115px', 851 => '115px', 850 => '61px', 768 => '61px', 521 => '61px', 520 => '8%', 390 => '8%'));
+}
+
+// A block-level `<b>` that is the only content of a boxless inline-layout
+// carrier paragraph is the box the source laid out: it keeps every captured
+// declaration, display and margin as well as its typography.
+$addon = $element('//p[contains(concat(" ", @class, " "), " blocks-engine-inline-layout-carrier ")]/b');
+$fontFamilies = array_column($plan['theme']['design_system']['font_families'] ?? array(), 'name', 'slug');
+$family = static function (?string $value) use ($fontFamilies): string {
+    if (null !== $value && preg_match('/^var\(--wp--preset--font-family--([\w-]+)\)$/', $value, $match)) return (string) ($fontFamilies[$match[1]] ?? $value);
+    return trim((string) $value, '"\'');
+};
+$marginTop = static function (?string $margin, ?string $longhand): ?string {
+    if (null !== $longhand) return $longhand;
+    return null === $margin ? null : (preg_split('/\s+/', trim($margin))[0] ?? null);
+};
+foreach (array(1440, 768, 390) as $width) {
+    $assert('block' === $cascaded($addon, 'display', $width), "At {$width}px the add-on's <b> keeps display:block.", (string) $cascaded($addon, 'display', $width) . "\n" . $result['serialized_blocks']);
+    $assert(str_contains((string) $cascaded($addon, 'font-size', $width), '26px'), "At {$width}px the add-on's <b> keeps its font-size.", (string) $cascaded($addon, 'font-size', $width));
+    $assert('Playfair Display' === $family($cascaded($addon, 'font-family', $width)), "At {$width}px the add-on's <b> keeps its font-family.", (string) $cascaded($addon, 'font-family', $width) . ' ' . json_encode($fontFamilies));
+    $top = $marginTop($cascaded($addon, 'margin', $width), $cascaded($addon, 'margin-top', $width));
+    $assert('15px' === $top, "At {$width}px the add-on's <b> keeps its margin-top.", (string) $top);
+}
 
 // A carrier splits by role: the CTA's margin and flex-item placement stay on
 // the block's outermost box, the flex item of the plan card; its padding,

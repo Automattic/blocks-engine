@@ -265,6 +265,34 @@ final class BoxTreeStyleProjector
     private const IMAGE_DIMENSION_ATTRIBUTES = array('width' => 'width', 'height' => 'height', 'aspectRatio' => 'aspect-ratio', 'scale' => 'object-fit');
 
     /**
+     * Restyle a phrasing element saved verbatim as a block's only content
+     * while the block itself generates no box (the `display:contents`
+     * inline-layout carrier paragraph): the element is the box the source
+     * laid out, so it keeps every captured declaration, its display, box
+     * model and typography alike, not only the typography of
+     * {@see self::inlineCarrier()}.
+     *
+     * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
+     * @return string The carrier class, or '' when nothing differs from the element's defaults.
+     */
+    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $sourceTag, array $fluid = array()): string
+    {
+        $keys = array_values(array_filter(array_keys($observations), static fn(string $key): bool => isset($viewports[$key]['width']) && is_array($observations[$key]['used_styles'] ?? null)));
+        if (array() === $keys) return '';
+        usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
+        $observations = array_intersect_key($observations, array_flip($keys));
+        $status = array();
+        $declarations = array();
+        foreach ($keys as $key) {
+            $parent = $parents[$key]['used_styles'] ?? null;
+            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, '', $sourceTag);
+            $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
+        }
+        $bands = $this->liftFluid($declarations, $keys, $fluid);
+        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents), $state);
+    }
+
+    /**
      * Restyle an inline element inside RichText, which has no block
      * attributes: its observed typography that differs from its source
      * parent's goes entirely to a carrier class. A value equal to the

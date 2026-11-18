@@ -829,6 +829,28 @@ final class StyleResolver implements ElementPresentationResolver
         }
     }
 
+    /**
+     * A phrasing element that is the only content of a boxless block (the
+     * inline-layout carrier paragraph) as RichText: its descendants are
+     * restyled as in any RichText, and the element itself, the box the
+     * source laid out, takes every captured declaration through a box-tree
+     * carrier. Null without evidence for the element.
+     */
+    public function boxTreeBoxlessContent(DOMElement $element): ?DOMElement
+    {
+        $viewports = $this->session->boxTreeViewports();
+        $parent = $element->parentNode;
+        if (array() === $viewports || !$parent instanceof DOMElement) return null;
+        $observations = $this->session->boxTreeEvidence($element);
+        if (array() === $observations) return null;
+        $parents = $this->session->boxTreeEvidence($parent);
+        $clone = $this->richTextSerializationSource($element);
+        $fluid = (new BoxTreeFluidIntent())->lift($element, $this, $observations, $viewports, $parents, '', fn(DOMElement $node): array => $this->session->boxTreeEvidence($node));
+        $class = (new BoxTreeStyleProjector())->elementCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, strtolower($element->tagName), $fluid);
+        if ('' !== $class) $clone->setAttribute('class', SourceDom::mergeClassNames($clone->getAttribute('class'), $class));
+        return $clone;
+    }
+
     /** Preserve authored inline CSS except typography already supplied by the parent. */
     public function serializedInlineStyle(DOMElement $element): string
     {
