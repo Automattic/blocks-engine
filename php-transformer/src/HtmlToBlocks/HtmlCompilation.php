@@ -551,7 +551,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $linkCarriers = new Elements\LinkCarrierLowering($this, $this, $this->runtime, $this->styleResolver, $this->runtimeIslands, $this->layoutShells);
         $namePriceRows = new Elements\NamePriceRowLowering($this, $this, $this->styleResolver, $this->sourceElementDescription);
         $mediaGalleries = new Elements\MediaGalleryLowering($this->sourceElementClassifier, $this->styleResolver, $this->imageLowering, $this);
-        $customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership, $this->imageDimensions, $this->imageUrls);
+        $customImageHosts = new Elements\CustomImageHostLowering($this, $this->blockFactory, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->layoutShells, $this->runtimeIslands, $this->authorLayoutOwnership, $this->imageDimensions, $this->imageUrls, $this->renderNeutral);
         $this->anchors = new Elements\AnchorLowering($this, $this, $this->styleResolver, $this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->imageLowering, $this->imageUrls, $this->layoutShells, $linkWrapperPropagator, $this->runtimeIslands, $customImageHosts);
         $this->layoutTables = new Elements\LayoutTableLowering(
             $this,
@@ -1917,11 +1917,53 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
+     * The sole child that replaces a retained custom-wrapper hook, or null when
+     * the hook keeps its own Group.
+     *
+     * A hook stays in the source DOM only so author selectors that key on its
+     * data attributes (for example Wix's
+     * `[data-interact-key="…"] :is(.image):is(#comp)`) still match during
+     * selector preparation. Projection then binds those rules through the
+     * matched descendant, never through the hook's block, because the block
+     * wrapper drops the data attribute. A hook that is boxless with its styles
+     * prepared and wraps exactly one element has no box or rule of its own to
+     * keep, so its Group would only add a nesting level.
+     */
+    private function boxlessWrapperHookChild(DOMElement $element): ?DOMElement
+    {
+        if ( ! in_array($element, $this->retainedCustomWrapperHooks, true) ) {
+            return null;
+        }
+        $child = null;
+        foreach ( $element->childNodes as $node ) {
+            if ( $node instanceof DOMElement ) {
+                if ( null !== $child ) {
+                    return null;
+                }
+                $child = $node;
+            } elseif ( $node instanceof \DOMText && '' !== trim($node->textContent) ) {
+                return null;
+            }
+        }
+        if ( null === $child
+            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, true)
+            || ! $this->renderNeutral->isBoxlessWrapper($element)
+        ) {
+            return null;
+        }
+        return $child;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
+        $hookChild = $this->boxlessWrapperHookChild($element);
+        if ( null !== $hookChild ) {
+            return $this->convertElement($hookChild, $fallbacks, $captureUnsupported);
+        }
         // ADR 0005: a box the classifier proves neutral emits no block. Its sole
         // child takes its place before any converter can make it a Group or
         // register its engine rule; the child keeps its own rule.
