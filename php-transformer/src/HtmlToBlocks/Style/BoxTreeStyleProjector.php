@@ -67,6 +67,12 @@ final class BoxTreeStyleProjector
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
         $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents);
+        if ('' !== $css && self::boxedSyntheticAnchorCarrier($blockName, $attrs, $observations)) {
+            // The carrier restates the anchor's captured margins on a real box,
+            // so the anchor must not inherit them a second time through the
+            // display:contents fallback in EngineSupportCss.
+            $css .= self::SELECTOR . '>a{margin:0}';
+        }
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
@@ -245,6 +251,19 @@ final class BoxTreeStyleProjector
             elseif (BoxTreeDeclarationPruner::INITIAL === $reason && $effective[$property] !== $observed[$property]) $delta[$property] = $observed[$property];
         }
         return $delta;
+    }
+
+    /** A synthetic link paragraph whose observed display gives it a box at every capture. */
+    private static function boxedSyntheticAnchorCarrier(string $blockName, array $attrs, array $observations): bool
+    {
+        $classes = preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array();
+        if ('core/paragraph' !== $blockName || !in_array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, $classes, true)
+            || in_array(SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS, $classes, true)) return false;
+        foreach ($observations as $observation) {
+            $display = strtolower(trim((string) ($observation['used_styles']['display'] ?? '')));
+            if ('' === $display || 'contents' === $display) return false;
+        }
+        return true;
     }
 
     private static function width(float $width): string
