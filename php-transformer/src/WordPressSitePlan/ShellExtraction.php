@@ -2286,12 +2286,13 @@ final class ShellExtraction
                 // in a route-local part rather than freezing the donor's paint.
                 if (null === $sharedWrapper && empty($attrs['anchor']) && in_array($wrapper, $wrappers, true)) $sharedWrapper = $wrapper;
                 if (null === $sharedWrapper) continue;
-                // Route-local menu state is presentation too. Keep it in the
-                // variant part rather than leaving a second page-owned shell.
+                // Navigation-only exclusions remain route-owned unless layout
+                // differs. A bound control, however, must move with its shell
+                // into an editable part, even when block layout is identical.
                 if (self::textRuns($row['markup']) !== self::textRuns($part['canonical_block_markup'])) continue;
                 $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
                 if ($bindings['blocked']) continue;
-                if (!empty($attrs['anchor']) && $wrapper === $sharedWrapper
+                if ((!empty($attrs['anchor']) || (array() === $bindings['refs'] && str_contains($row['markup'], '<!-- wp:navigation '))) && $wrapper === $sharedWrapper
                     && self::descendantShellLayout($row['markup']) === self::descendantShellLayout($part['canonical_block_markup'])) continue;
                 $hoist = array() === $bindings['refs'] ? null : $this->sharedShellBindingHoist($runtimeDeclarations, $pages, array($index), array($index => $bindings['refs']), $row + array('template_part_markup' => $row['markup']), 'header');
                 if (array() !== $bindings['refs'] && null === $hoist) continue;
