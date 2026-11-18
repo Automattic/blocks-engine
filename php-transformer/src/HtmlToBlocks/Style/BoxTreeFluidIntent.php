@@ -124,6 +124,13 @@ final class BoxTreeFluidIntent
         'left' => array('auto', 'inset-inline', 'inset-inline-start'),
     );
 
+    /**
+     * Horizontal size => its logical longhand (horizontal writing mode),
+     * which the cascade resolves together: an `inline-size:100%` box follows
+     * its container exactly as `width:100%` does.
+     */
+    private const LOGICAL_SIZES = array('width' => 'inline-size', 'min-width' => 'min-inline-size', 'max-width' => 'max-inline-size');
+
     private const GRID_TEMPLATES = array('grid-template-columns', 'grid-template-rows', 'grid-auto-columns', 'grid-auto-rows');
 
     /** Sizes whose `%` basis the rebuilt ancestor chain reproduces, so the author's `%` is restated as written. */
@@ -222,6 +229,7 @@ final class BoxTreeFluidIntent
             $bands = ('display' === $property ? $this->liftedDisplay($widths, $samples, $observations) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
                 ?? $this->liftedIntrinsic($property, $widths, $samples)
                 ?? $this->liftedAutoMargin($property, $widths, $samples)
+                ?? $this->liftedMixed($property, $widths, $samples, $observations, $viewports, $parents)
                 ?? ($inheriting ? $this->liftedInheritance($property, $widths, $samples, $observations, $parents) : null);
             if (null !== $bands) $lifted[$property] = $bands;
         }
@@ -238,21 +246,10 @@ final class BoxTreeFluidIntent
         $proven = array();
         $observed = array();
         foreach ($widths as $key => $width) {
-            $value = $this->declared($property, $width);
-            if (null === $value || '' === $value) return null;
-            $factor = 'line-height' === $property && preg_match('/^\d*\.?\d+$/', $value);
-            if (!$factor && !preg_match('/%|\d(?:vw|vh|vmin|vmax|em)\b|\b(?:calc|clamp|min|max)\(/i', $value)) return null;
-            $styles = $observations[$key]['used_styles'] ?? array();
-            $parent = $parents[$key]['used_styles'] ?? array();
-            [$percent, $em] = $this->bases($property, (string) $key, $styles, $parent);
-            $actual = self::pixels((string) ($styles[$property] ?? ''));
-            $predicted = $factor
-                ? (null === $em ? null : (float) $value * $em)
-                : CssFluidLength::evaluate($value, $width, (float) ($viewports[$key]['height'] ?? 0), $percent, $em);
-            if (null !== $predicted && isset(self::CLAMPS[$property])) $predicted = self::clamped($predicted, $styles, ...self::CLAMPS[$property]);
-            if (null === $actual || null === $predicted || abs($actual - $predicted) > self::TOLERANCE) return null;
+            $value = $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents);
+            if (null === $value) return null;
             $proven[$key] = $value;
-            $observed[(string) ($styles[$property] ?? '')] = true;
+            $observed[(string) ($observations[$key]['used_styles'][$property] ?? '')] = true;
         }
         // A unitless line height already equals its pixels at every capture
         // when they agree: only a varying one carries intent pixels lose.
@@ -261,6 +258,78 @@ final class BoxTreeFluidIntent
             $value = $this->declared($property, $width);
             return '' === $value ? null : $value;
         });
+    }
+
+    /** The author's fluid expression at one capture when it reproduces the captured pixels, or null. */
+    private function provedExpression(string $property, string $key, float $width, array $observations, array $viewports, array $parents): ?string
+    {
+        $value = $this->declared($property, $width);
+        if (null === $value || '' === $value) return null;
+        $factor = 'line-height' === $property && preg_match('/^\d*\.?\d+$/', $value);
+        if (!$factor && !self::expression($value)) return null;
+        $styles = $observations[$key]['used_styles'] ?? array();
+        $parent = $parents[$key]['used_styles'] ?? array();
+        [$percent, $em] = $this->bases($property, $key, $styles, $parent);
+        $actual = self::pixels((string) ($styles[$property] ?? ''));
+        $predicted = $factor
+            ? (null === $em ? null : (float) $value * $em)
+            : CssFluidLength::evaluate($value, $width, (float) ($viewports[$key]['height'] ?? 0), $percent, $em);
+        if (null !== $predicted && isset(self::CLAMPS[$property])) $predicted = self::clamped($predicted, $styles, ...self::CLAMPS[$property]);
+        if (null === $actual || null === $predicted || abs($actual - $predicted) > self::TOLERANCE) return null;
+        return $value;
+    }
+
+    /** Whether a value is a viewport-, font- or containing-block-relative expression. */
+    private static function expression(string $value): bool
+    {
+        return 1 === preg_match('/%|\d(?:vw|vh|vmin|vmax|em)\b|\b(?:calc|clamp|min|max)\(/i', $value);
+    }
+
+    /**
+     * A sizing property whose author value switches kind between author
+     * bands (a `%` at the base and `max-content` under a width query): each
+     * capture and each author breakpoint between captures takes the first
+     * lifter that proves it, and the bands are emitted only when every band
+     * holds a capture so proved. Single-kind properties never reach here.
+     *
+     * @param array<string, float> $widths
+     * @param array<string, float> $samples
+     * @return list<array{0: float|null, 1: string}>|null
+     */
+    private function liftedMixed(string $property, array $widths, array $samples, array $observations, array $viewports, array $parents): ?array
+    {
+        if (count($widths) < 2 || !isset(self::INTRINSIC[$property]) && !isset(self::MARGIN_ALIASES[$property])) return null;
+        $auto = function (float $width) use ($property): ?string {
+            if (!isset(self::MARGIN_ALIASES[$property])) return null;
+            foreach (self::MARGIN_ALIASES[$property] as $alias) {
+                if (null !== $this->declared($alias, $width)) return null;
+            }
+            return 'auto' === strtolower((string) $this->declared($property, $width)) ? 'auto' : null;
+        };
+        $intrinsic = fn(float $width): ?string => isset(self::INTRINSIC[$property]) ? $this->intrinsicKeyword($property, $width) : null;
+        $expression = function (float $width) use ($property): ?string {
+            $value = $this->declared($property, $width);
+            return null !== $value && '' !== $value && self::expression($value) ? $value : null;
+        };
+        $proven = array();
+        $kinds = array();
+        foreach ($widths as $key => $width) {
+            $value = $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents);
+            $kind = 'expression';
+            if (null === $value) {
+                $value = $intrinsic($width);
+                $kind = 'intrinsic';
+            }
+            if (null === $value) {
+                $value = $auto($width);
+                $kind = 'auto';
+            }
+            if (null === $value) return null;
+            $proven[$key] = $value;
+            $kinds[$kind] = true;
+        }
+        if (count($kinds) < 2) return null;
+        return $this->bands($widths, $samples, $proven, fn(float $width): ?string => $expression($width) ?? $intrinsic($width) ?? $auto($width));
     }
 
     /**
@@ -323,6 +392,7 @@ final class BoxTreeFluidIntent
     {
         [$initial] = self::INTRINSIC[$property];
         foreach (array_slice(self::INTRINSIC[$property], 1) as $alias) {
+            if ($alias === (self::LOGICAL_SIZES[$property] ?? null)) continue;
             if (null !== $this->declared($alias, $width)) return null;
         }
         $grid = in_array($property, self::GRID_TEMPLATES, true);
@@ -461,6 +531,10 @@ final class BoxTreeFluidIntent
     {
         $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width);
         $order = array_flip(array_keys($winners));
+        // A logical size (`inline-size:100%`) sets the same box as its physical
+        // longhand in horizontal writing mode: the later winner is the author's.
+        $logical = self::LOGICAL_SIZES[$property] ?? null;
+        if (null !== $logical && isset($order[$logical]) && (!isset($order[$property]) || $order[$logical] > $order[$property])) $property = $logical;
         $shorthand = self::SHORTHANDS[$property] ?? null;
         $fromShorthand = null !== $shorthand && isset($order[$shorthand]) && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
         $name = $fromShorthand ? $shorthand : $property;
