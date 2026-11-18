@@ -190,6 +190,13 @@ final class ColumnsPattern implements PatternRecognizerInterface
         }
         $display = CssValueInspector::declared(SourceDeclarations::parse($style), 'display');
 
+        // A container the source hides at rest (an inactive app view) lays
+        // out no row. core/columns ships its own flex display, which would
+        // beat the source hide and reveal the view; a group keeps it hidden.
+        if ( 'none' === $display ) {
+            return false;
+        }
+
         if ( SourceDom::hasClass($element, 'wp-block-columns') ) {
             return true;
         }

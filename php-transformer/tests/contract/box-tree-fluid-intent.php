@@ -179,6 +179,39 @@ $cases = array(
         'h1{width:auto}@media (max-width:500px){h1{width:300px}}', array('n6.width' => array('1440px', '300px')),
         array('width:1440px', 'width:300px'), array('h1 ;width:auto'),
     ),
+    // sdnunca header menu: the author switches the width's kind at a query.
+    'a % width an author query switches to max-content lifts per author band' => array(
+        'h1{width:85.57%}@media (max-width:1023px){h1{width:max-content}}',
+        array('n5.width' => array('1000px', '402px'), 'n6.width' => array('855.7px', '30.92px')),
+        array('h1 ;width:85.57%', '@media (max-width:1023px){', 'width:max-content'), array('width:855.7px', 'width:30.92px'),
+    ),
+    'a band neither lifter proves keeps its pixels' => array(
+        'h1{width:85.57%}@media (max-width:1023px){h1{width:30.92px}}',
+        array('n5.width' => array('1000px', '402px'), 'n6.width' => array('855.7px', '30.92px')),
+        array('width:855.7px', 'width:30.92px'), array('width:85.57%', 'width:max-content'),
+    ),
+    // sdnunca capture: the DLA identity-subset sheet hides desktop-only images
+    // below 1024px; the copy must hide them there, not only at the 402px capture.
+    'a display switch at an author breakpoint lifts at that breakpoint' => array(
+        'h1{display:block}@media (max-width:1023px){h1{display:none!important}}',
+        array('n6.display' => array('block', 'none')),
+        array('h1 {display:block', '@media (max-width:1023px){', 'display:none'), array('@media (max-width:402px){'),
+    ),
+    'a display switch with no base author winner lifts at the author breakpoint' => array(
+        '@media(max-width:1023px){.x,h1{display:none!important}}',
+        array('n6.display' => array('block', 'none')),
+        array('h1 {display:block', '@media (max-width:1023px){', 'display:none'), array('@media (max-width:402px){'),
+    ),
+    'a visibility switch at an author breakpoint lifts at that breakpoint' => array(
+        'h1{visibility:visible}@media (max-width:1023px){h1{visibility:hidden}}',
+        array('n6.visibility' => array('visible', 'hidden')),
+        array('h1 visibility:visible', '@media (max-width:1023px){', 'visibility:hidden'), array('@media (max-width:402px){'),
+    ),
+    'a display switch the author winners do not explain keeps per-capture output' => array(
+        'h1{display:block}',
+        array('n6.display' => array('block', 'none')),
+        array('display:block', 'display:none'), array('@media (max-width:1023px){'),
+    ),
     'a logical size alias keeps its pixels' => array(
         'h1{inline-size:300px}', array('n6.width' => array('300px', '300px')), array('h1 ;width:300px'), array('h1 ;width:auto'),
     ),
@@ -244,7 +277,8 @@ $cases = array(
             'n5.padding-left' => array('10px', '10px'), 'n5.padding-right' => array('10px', '10px'), 'n5.padding-top' => array('0px', '0px'), 'n5.padding-bottom' => array('0px', '0px'),
             'n6.position' => array('absolute', 'absolute'), 'n6.left' => array('110px', '60px'), 'n6.top' => array('25px', '15px'),
             'n6.right' => array('110px', '60px'), 'n6.bottom' => array('25px', '15px')),
-        array('left:50%', 'top:50%', 'h1 right:auto', 'h1 bottom:auto'), array('left:110px', 'left:60px', 'top:25px', 'top:15px', 'right:110px', 'bottom:25px'),
+        // The four offsets fold into one inset shorthand, in top/right/bottom/left order.
+        array('h1 inset:50% auto auto 50%'), array('h1 110px', 'h1 60px', 'h1 25px', 'h1 15px'),
     ),
     'a calc(% - px) offset lifts through the inset shorthand' => array(
         'main{position:relative}h1{position:absolute;inset:0 auto auto calc(50% - 24px)}',
@@ -289,7 +323,7 @@ $cases = array(
     'a % column gap through the gap shorthand lifts against the own content box' => array(
         'main{display:flex;gap:0 10%}',
         array('n5.display' => array('flex', 'flex'), 'n5.width' => array('1000px', '400px'), 'n5.column-gap' => array('100px', '40px')),
-        array('column-gap:10%'), array('column-gap:100px', 'column-gap:40px'),
+        array('gap:none 10%'), array('column-gap:100px', 'column-gap:40px', 'gap:none 100px', 'gap:none 40px'),
     ),
 );
 /** The heading's carrier rules: needles prefixed `h1 ` are matched there only. */
