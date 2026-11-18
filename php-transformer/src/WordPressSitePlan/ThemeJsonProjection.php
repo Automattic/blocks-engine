@@ -628,7 +628,9 @@ final class ThemeJsonProjection
         $declarations = array();
         foreach (CssRuleAnalyzer::declarationList($body) as ['name' => $name, 'value' => $value]) {
             if ('' === $name || '' === $value || CssPropertyName::startsLikeNumber($name) || str_contains(strtolower($value), '!important')) continue;
-            $longhands = 'font' === strtolower($name) ? CssFontShorthand::expand($value) : array();
+            // Fluid sizes follow the same projection path as authored font-size;
+            // they must not prevent the shorthand's family from being recorded.
+            $longhands = 'font' === strtolower($name) ? CssFontShorthand::expand($value, true) : array();
             if (array() === $longhands) { $declarations[$name] = $value; continue; }
             unset($declarations[$name]);
             foreach ($longhands as $longhand => $longhandValue) {

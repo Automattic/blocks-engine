@@ -164,6 +164,8 @@ $assert('inherit' !== ($cascadeTheme['styles']['elements']['heading']['typograph
 foreach (array(
     'longhand' => "h2{font-family:'Barlow Condensed',Impact,sans-serif;font-weight:900;font-size:64px;line-height:.89;text-transform:uppercase}",
     'shorthand' => "h2{font:900 64px/.89 'Barlow Condensed',Impact,sans-serif;text-transform:uppercase}",
+    'fluid longhand' => "h2{font-family:'Barlow Condensed',Impact,sans-serif;font-weight:900;font-size:clamp(56px,7.6vw,126px);line-height:.89}",
+    'fluid shorthand' => "h2{font:900 clamp(56px,7.6vw,126px)/.89 'Barlow Condensed',Impact,sans-serif}",
 ) as $case => $headingCss) {
     $page = '<style>body{font-family:Inter,sans-serif}' . $headingCss . '.tile h3{font-size:20px}</style><main><h2>Big display heading</h2><p>Body text paragraph long enough to read as copy.</p><div class="tile"><h3>Tile one</h3><p>Tile copy.</p></div><div class="tile"><h3>Tile two</h3><p>Tile copy.</p></div></main>';
     [, $fontTheme] = $compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $page)));
@@ -172,6 +174,17 @@ foreach (array(
     $h2Family = $fontTheme['styles']['elements']['h2']['typography']['fontFamily'] ?? $fontTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? '';
     if (str_starts_with($h2Family, 'var:preset|font-family|')) $h2Family = (string) ($fontFamilies[substr($h2Family, strlen('var:preset|font-family|'))] ?? '');
     $assert(str_contains($h2Family, 'Barlow Condensed'), "$case heading font: h2 resolves to Barlow Condensed " . json_encode($fontTheme['styles']['elements'] ?? array()));
+    if ('fluid longhand' === $case) $fluidLonghandTheme = $fontTheme;
+    if ('fluid shorthand' === $case) {
+        $assert(($fontTheme['styles']['elements']['h2']['typography']['fontSize'] ?? null) === ($fluidLonghandTheme['styles']['elements']['h2']['typography']['fontSize'] ?? null), 'fluid shorthand: projected h2 size matches the fluid longhand');
+        $assert(($fontTheme['settings']['typography']['fontSizes'] ?? array()) === ($fluidLonghandTheme['settings']['typography']['fontSizes'] ?? array()), 'fluid shorthand: size presets match the fluid longhand without an invalid preset');
+        $h2Size = $fontTheme['styles']['elements']['h2']['typography']['fontSize'] ?? '';
+        if (str_starts_with($h2Size, 'var:preset|font-size|')) {
+            $fontSizes = array_column($fontTheme['settings']['typography']['fontSizes'] ?? array(), 'size', 'slug');
+            $h2Size = $fontSizes[substr($h2Size, strlen('var:preset|font-size|'))] ?? '';
+        }
+        $assert('clamp(56px,7.6vw,126px)' === $h2Size, 'fluid shorthand: h2 size resolves to the authored fluid expression');
+    }
 }
 
 // Channel custom properties are colours only in the consuming function, not
