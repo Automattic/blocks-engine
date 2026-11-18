@@ -1216,6 +1216,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         CapturedNavigationPanels::restoreRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
         $this->session->installCapturedGlyphColors(CapturedGlyphColor::detach($body));
+        $this->session->reusableComponentState()->liftRestingNavigation($body);
         if ( QuirksModeSource::isQuirksMode($html) ) {
             QuirksModeSource::normalize(
                 $body,
@@ -1598,8 +1599,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 continue;
             }
             $fallbackOffset = count($fallbacks);
+            // Link preservation needs the source box, not a generated block.
+            // A plain div has no native attributes requiring shell transport;
+            // keep its children editable without introducing Core flow spacing.
             $block = $preserveLinkContainers && 'div' === strtolower($child->tagName) && 0 === $child->attributes->length
-                ? $this->layoutShells->blockForElements(array($child), $this->convertChildren($child, $fallbacks, $captureUnsupported, true), $child)
+                ? $this->createBlock('core/group', $this->authorLayoutOwnership->cssOwnedGroupAttributes($child), $this->convertChildren($child, $fallbacks, $captureUnsupported, true), $child)
                 : $this->convertElement($child, $fallbacks, $captureUnsupported);
             if ( null !== $block ) {
                 // Retain the public source boundary rather than private metadata.

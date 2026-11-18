@@ -652,6 +652,56 @@ final class CssStylesheetTransformer
     }
 
     /**
+     * What a stylesheet may set on one route's document: the cascade families
+     * (see cascadePropertyFamilies) it declares on each element it may style,
+     * or null when that cannot be proven — malformed CSS, an unreadable
+     * selector or an arm the index cannot evaluate. Two stylesheets whose
+     * footprints do not overlap can trade places on that route without
+     * changing its cascade.
+     *
+     * @return array<int|string, array<string, true>>|null
+     */
+    public function cascadeFootprint(string $css, RouteSelectorMatchIndex $matchIndex, string $owner): ?array
+    {
+        if ( ! $this->isWellFormedStylesheet($css) ) {
+            return null;
+        }
+        $units = array();
+        $this->collectRuleUnits($css, array(), $units);
+        $footprint = array();
+        foreach ( $units as $unit ) {
+            $families = self::cascadePropertyFamilies($unit['text']);
+            if ( array() === $families ) {
+                continue;
+            }
+            $targets = self::cascadeTargets($matchIndex, $owner, $unit['text']);
+            if ( null === $targets ) {
+                return null;
+            }
+            foreach ( array_keys($targets) as $id ) {
+                $footprint[ $id ] = ( $footprint[ $id ] ?? array() ) + $families;
+            }
+        }
+        return $footprint;
+    }
+
+    /**
+     * Whether two cascade footprints set an overlapping family on one target.
+     *
+     * @param array<int|string, array<string, true>> $first
+     * @param array<int|string, array<string, true>> $second
+     */
+    public static function cascadeFootprintsOverlap(array $first, array $second): bool
+    {
+        foreach ( array_intersect_key($first, $second) as $id => $families ) {
+            if ( self::cascadeFamiliesOverlap($families, $second[ $id ]) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * The page-document elements a rule unit may style, or null when that set
      * cannot be proven — an unreadable selector list or an arm the index
      * cannot evaluate — meaning cascade interaction cannot be disproved.
@@ -1232,21 +1282,6 @@ final class CssStylesheetTransformer
         }
         unset($arm);
         return $arms;
-    }
-
-    /**
-     * Gate selector arms to the documents whose root matches $scope (a
-     * zero-weight `:where(:root...)`), or null when an arm cannot be gated.
-     *
-     * @param list<string> $arms
-     * @return list<string>|null
-     */
-    public static function routeScopedArms(array $arms, string $scope): ?array
-    {
-        $reason = null;
-        $parsed = array();
-        $scoped = self::scopeRouteArms($arms, $scope, $reason, $parsed);
-        return null === $reason ? $scoped : null;
     }
 
     private static function scopeRouteArms(array $arms, string $scope, ?string &$reason, array &$parsedArms): ?array

@@ -17,6 +17,21 @@ final class CssSelectorCompoundInspector
         return array() === $compounds ? array() : $compounds[array_key_last($compounds)];
     }
 
+    /**
+     * Whether a source-image subject compound is a bare `img`/`svg`/universal
+     * type. Such rules keep sizing the replaced image leaf; any class, id or
+     * attribute identity moves to the figure core/image synthesizes around it.
+     *
+     * @param array<string, mixed> $compound
+     */
+    public static function isBareImageSubject(array $compound): bool
+    {
+        return in_array(strtolower((string) ($compound['type'] ?? '*')), array( 'img', 'svg', '*' ), true)
+            && array() === ($compound['classes'] ?? array())
+            && array() === ($compound['ids'] ?? array())
+            && array() === ($compound['attributes'] ?? array());
+    }
+
     /** @param array<string, mixed> $compound @return list<string> */
     public static function dataAttributeNames(array $compound): array
     {

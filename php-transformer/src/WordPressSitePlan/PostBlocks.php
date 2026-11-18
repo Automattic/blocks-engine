@@ -153,7 +153,12 @@ final class PostBlocks
         return '<!-- wp:post-featured-image ' . BlockAttributes::encode($attrs) . ' /-->';
     }
 
-    public static function query(int $perPage, string $template, bool $inherit = false, ?string $sectionSlug = null, string $sourcePagination = ''): string
+    /**
+     * @param array{taxonomy:string,slug:string,order_by:string}|null $relatedTerm
+     *        The current post's term a related listing is scoped to, from
+     *        ListingQueryLoops::relatedTermScopes().
+     */
+    public static function query(int $perPage, string $template, bool $inherit = false, ?string $sectionSlug = null, string $sourcePagination = '', ?array $relatedTerm = null): string
     {
         $attrs = array(
             'queryId' => 1,
@@ -173,6 +178,11 @@ final class PostBlocks
             'className' => WordPressSitePlan::LISTING_QUERY_CLASS,
         );
         if (null !== $sectionSlug) $attrs['query']['taxQuery'] = array('category' => array('{{wordpress-site-plan:term:category:' . $sectionSlug . '}}'));
+        if (null !== $relatedTerm) {
+            $attrs['query']['orderBy'] = $relatedTerm['order_by'];
+            $attrs['query']['taxQuery'] = array('include' => array($relatedTerm['taxonomy'] => array('{{wordpress-site-plan:term:' . $relatedTerm['taxonomy'] . ':' . $relatedTerm['slug'] . '}}')));
+            $attrs['query']['excludeCurrent'] = true;
+        }
         $encoded = BlockAttributes::encode($attrs);
         $pagination = '' !== $sourcePagination ? $sourcePagination : ($inherit
             ? '<!-- wp:query-pagination {"paginationArrow":"arrow","layout":{"type":"flex","justifyContent":"space-between"}} --><!-- wp:query-pagination-previous /--><!-- wp:query-pagination-next /--><!-- /wp:query-pagination --><!-- wp:query-no-results --><!-- wp:paragraph --><p>No posts found.</p><!-- /wp:paragraph --><!-- /wp:query-no-results -->'
