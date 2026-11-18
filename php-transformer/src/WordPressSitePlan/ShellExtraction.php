@@ -2969,6 +2969,9 @@ final class ShellExtraction
         $slug = (string) $parts[$partIndex]['slug'];
         $reference = '/<!--\s*wp:template-part\s+\{[^}]*"slug":"' . preg_quote($slug, '/') . '"[^}]*\}\s*\/-->/';
         foreach ($pages as $page) if (1 === preg_match($reference, (string) ($page['canonical_block_markup'] ?? ''))) return $unchanged;
+        // Another part rendering this one (a device-document footer around
+        // shared footer copy) would nest the folded footer inside itself.
+        foreach ($parts as $index => $part) if ($index !== $partIndex && 1 === preg_match($reference, (string) ($part['canonical_block_markup'] ?? ''))) return $unchanged;
         $slot = '<!-- wp:post-content {"className":"blocks-engine-frame-slot"} /-->';
         $runs = array();
         foreach ($frames as $template => $frame) {
