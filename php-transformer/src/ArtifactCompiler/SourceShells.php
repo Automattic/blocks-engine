@@ -153,6 +153,11 @@ final class SourceShells
                 // The source still owns provenance here: do not infer sampled
                 // paint from the SVG produced later by social-link lowering.
                 $node->removeAttribute(CaptureEvidence::GLYPH_COLOR);
+                // RouteStateProjector records how to restore current-link state
+                // only on routes where it observed that state. This transport
+                // payload is not authored shell structure. Keep it when this
+                // method is used to prepare emission (ignoreViewportEntrance=false).
+                $node->removeAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE);
                 // A selector-resolved dialog ancestor can sit at a different
                 // depth on each route. Its state is shared; the distance from
                 // the trigger is capture context, not landmark identity. Keep
