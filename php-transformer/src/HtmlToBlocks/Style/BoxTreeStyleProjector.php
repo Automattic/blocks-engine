@@ -13,8 +13,7 @@ final class BoxTreeStyleProjector
 
     private readonly BoxTreeDeclarationPruner $pruner;
 
-    /** @param list<string> $movedProperties Longhands transferred from a folded box. */
-    public function __construct(private readonly array $movedProperties = array())
+    public function __construct()
     {
         $this->pruner = new BoxTreeDeclarationPruner();
     }
@@ -245,6 +244,14 @@ final class BoxTreeStyleProjector
     /** Inherited paint the link and state styles already own, never restated on an inline. */
     private const INLINE_STATE_OWNED = array('color' => true, 'text-decoration-color' => true);
 
+    /**
+     * Grid lines BoxTreeFluidIntent lifts only from author winners at every
+     * capture: a capture pruned at the initial `auto` is still explained, so
+     * a placement switching to `auto` follows the author's breakpoint. Lines
+     * every capture pruned (not a grid item) stay out.
+     */
+    private const GRID_LINES = array('grid-row-start' => true, 'grid-row-end' => true, 'grid-column-start' => true, 'grid-column-end' => true);
+
     private const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
 
     /**
@@ -265,9 +272,15 @@ final class BoxTreeStyleProjector
         $bands = array();
         foreach ($fluid as $property => $propertyBands) {
             if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
+            $kept = 0;
             foreach ($keys as $key) {
-                if (!isset($declarations[$key][$property]) && !isset(self::SWITCHED_KEYWORDS[$property])) continue 2;
+                if (isset($declarations[$key][$property])) {
+                    ++$kept;
+                    continue;
+                }
+                if (!isset(self::SWITCHED_KEYWORDS[$property]) && !isset(self::GRID_LINES[$property])) continue 2;
             }
+            if (0 === $kept && isset(self::GRID_LINES[$property])) continue;
             foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
             foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
                 $bands[self::width((float) $maxWidth)][$property] = $value;
@@ -482,6 +495,8 @@ final class BoxTreeStyleProjector
                 // Lifted author intent replaces the frozen pixels in every capture.
                 $kept = array_replace($kept, array_intersect_key($lifted[$name] ?? array(), $kept));
                 $declarations = array_merge($kept, array('content' => $pseudo['content']));
+                // Without a lifted width, a pseudo that fills its originator's content box is auto.
+                if (isset($declarations['width']) && !isset($lifted[$name]['width']) && self::fillsOriginator($pseudo['used_styles'], $observation)) $declarations['width'] = 'auto';
                 $delta = isset($effective[$name]) ? $this->delta($effective[$name], $declarations, $pseudoStatus, $pseudo['used_styles']) : $declarations;
                 $effective[$name] = array_replace($effective[$name] ?? array(), $delta);
                 $css .= $this->rule(self::SELECTOR . '::' . $name, $delta);
@@ -493,10 +508,45 @@ final class BoxTreeStyleProjector
         return $css;
     }
 
+    /**
+     * Whether a pseudo-element's used width is its originating element's
+     * content width: a block-level, in-flow box whose margin box exactly
+     * fills the originator's content box, in a block container or a
+     * stretching column flexbox. That width is the container's decision
+     * (`width:auto`), so it follows the copy's container rather than
+     * freezing the capture's pixels, which overflow every narrower viewport.
+     */
+    private static function fillsOriginator(array $pseudo, array $observation): bool
+    {
+        $box = $observation['border_box']['width'] ?? null;
+        $originator = $observation['used_styles'] ?? array();
+        if (!is_numeric($box) || !in_array($pseudo['display'] ?? '', array('block', 'flex', 'grid', 'flow-root', 'table', 'list-item'), true)) return false;
+        if (!in_array($pseudo['position'] ?? 'static', array('static', 'relative', 'sticky'), true) || 'none' !== ($pseudo['float'] ?? 'none')) return false;
+        $display = (string) ($originator['display'] ?? '');
+        if (in_array($display, array('flex', 'inline-flex'), true)) {
+            $align = 'auto' === ($pseudo['align-self'] ?? 'auto') ? (string) ($originator['align-items'] ?? 'normal') : (string) $pseudo['align-self'];
+            if (!str_starts_with((string) ($originator['flex-direction'] ?? 'row'), 'column') || !in_array($align, array('normal', 'stretch'), true)) return false;
+        } elseif (!in_array($display, array('block', 'flow-root', 'list-item', 'inline-block'), true)) {
+            return false;
+        }
+        $edges = static function (array $styles, array $properties): ?float {
+            $sum = 0.0;
+            foreach ($properties as $property) {
+                if (!preg_match('/^(-?(?:\d*\.)?\d+)px\b/', (string) ($styles[$property] ?? '0px'), $match)) return null;
+                $sum += (float) $match[1];
+            }
+            return $sum;
+        };
+        $originatorEdges = $edges($originator, array('padding-left', 'padding-right', 'border-left', 'border-right'));
+        $pseudoEdges = $edges($pseudo, 'border-box' === ($pseudo['box-sizing'] ?? 'content-box') ? array('margin-left', 'margin-right') : array('margin-left', 'margin-right', 'padding-left', 'padding-right', 'border-left', 'border-right'));
+        if (null === $originatorEdges || null === $pseudoEdges || !preg_match('/^(?:\d*\.)?\d+px$/', (string) ($pseudo['width'] ?? ''))) return false;
+        return abs((float) $pseudo['width'] + $pseudoEdges - ((float) $box - $originatorEdges)) <= 0.5;
+    }
+
     private function rule(string $selector, array $styles): string
     {
         $declarations = array();
-        foreach (self::withSideShorthands(self::withUniformBorder($styles), $this->movedProperties) as $name => $value) {
+        foreach (self::withSideShorthands(self::withUniformBorder($styles)) as $name => $value) {
             // Evidence is external input, not trusted stylesheet syntax.
             if (preg_match('/[{};<>]/', $value) || str_contains($value, '/*')) continue;
             $declarations[] = $name . ':' . $value;
@@ -574,12 +624,10 @@ final class BoxTreeStyleProjector
      * @param array<string, string> $styles
      * @return array<string, string>
      */
-    private static function withSideShorthands(array $styles, array $movedProperties = array()): array
+    private static function withSideShorthands(array $styles): array
     {
         foreach (self::SIDE_SHORTHANDS as $shorthand => [$longhands, $form, $overlap]) {
-            // Keep transferred declarations individually addressable on the
-            // receiving carrier, as required by the box-fold delivery contract.
-            if (isset($styles[$shorthand]) || array_intersect($longhands, $movedProperties)) continue;
+            if (isset($styles[$shorthand])) continue;
             $values = array();
             foreach ($longhands as $longhand) {
                 $value = $styles[$longhand] ?? null;

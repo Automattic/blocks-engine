@@ -54,9 +54,9 @@
             "retagged span>p [blocks-engine-synthetic-paragraph]": 30
         },
         "13-realistic-small-business": {
-            "added div [blocks-engine-control]": 12,
+            "added div [blocks-engine-control]": 13,
             "added div [blocks-engine-layout-child-button]": 8,
-            "added div [blocks-engine-layout-neutral-buttons]": 8,
+            "added div [blocks-engine-layout-neutral-buttons]": 7,
             "added div [blocks-engine-semantic]": 3,
             "added figure [blocks-engine-synthetic-image-figure]": 8,
             "added img": 14,
@@ -181,9 +181,8 @@
             "retagged svg>img": 6
         },
         "19-product-catalog": {
-            "added div [blocks-engine-control]": 16,
+            "added div [blocks-engine-control]": 17,
             "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
             "added figure [blocks-engine-synthetic-image-figure]": 9,
             "added img": 9,
             "added mark": 1,
@@ -324,9 +323,8 @@
             "retagged svg>img": 1
         },
         "25-real-estate": {
-            "added div [blocks-engine-control]": 4,
+            "added div [blocks-engine-control]": 6,
             "added div [blocks-engine-layout-child-button]": 2,
-            "added div [blocks-engine-layout-neutral-buttons]": 2,
             "added figure [blocks-engine-synthetic-image-figure]": 1,
             "added img": 1,
             "added mark": 1,
@@ -607,9 +605,9 @@
         },
         "4-course-education": {
             "added a": 1,
-            "added div [blocks-engine-control]": 10,
+            "added div [blocks-engine-control]": 11,
             "added div [blocks-engine-layout-child-button]": 2,
-            "added div [blocks-engine-layout-neutral-buttons]": 2,
+            "added div [blocks-engine-layout-neutral-buttons]": 1,
             "added figure [blocks-engine-synthetic-image-figure]": 5,
             "added img": 6,
             "added mark": 3,
@@ -969,9 +967,9 @@
         },
         "7-event-conference": {
             "added a": 1,
-            "added div [blocks-engine-control]": 10,
+            "added div [blocks-engine-control]": 12,
             "added div [blocks-engine-layout-child-button]": 5,
-            "added div [blocks-engine-layout-neutral-buttons]": 3,
+            "added div [blocks-engine-layout-neutral-buttons]": 1,
             "added figure [blocks-engine-synthetic-image-figure]": 3,
             "added img": 5,
             "added input": 1,
@@ -1068,9 +1066,9 @@
             "retagged svg>img": 1
         },
         "74-lumen-coffee": {
-            "added div [blocks-engine-control]": 6,
+            "added div [blocks-engine-control]": 7,
             "added div [blocks-engine-layout-child-button]": 2,
-            "added div [blocks-engine-layout-neutral-buttons]": 2,
+            "added div [blocks-engine-layout-neutral-buttons]": 1,
             "added figure [blocks-engine-synthetic-image-figure]": 2,
             "added img": 2,
             "added mark": 2,
@@ -1110,9 +1108,8 @@
             "retagged svg>img": 6
         },
         "77-fernwood-plants": {
-            "added div [blocks-engine-control]": 4,
+            "added div [blocks-engine-control]": 5,
             "added div [blocks-engine-layout-child-button]": 1,
-            "added div [blocks-engine-layout-neutral-buttons]": 1,
             "added figure [blocks-engine-synthetic-image-figure]": 2,
             "added img": 3,
             "added p [blocks-engine-inline-layout-carrier]": 5,
@@ -1154,9 +1151,9 @@
         },
         "8-local-service-business": {
             "added a": 2,
-            "added div [blocks-engine-control]": 6,
+            "added div [blocks-engine-control]": 9,
             "added div [blocks-engine-layout-child-button]": 5,
-            "added div [blocks-engine-layout-neutral-buttons]": 5,
+            "added div [blocks-engine-layout-neutral-buttons]": 2,
             "added figure [blocks-engine-synthetic-image-figure]": 45,
             "added img": 53,
             "added mark": 2,

@@ -299,6 +299,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     /** @var array<string, array<string, list<array{0: float|null, 1: string}>>> Lifted author bands by node id. */
     private array $foldFluid = array();
 
+    /** @var array<string, true> Folded box ids whose declarations a child's block has taken. */
+    private array $foldsCarried = array();
+
 
 
 
@@ -795,7 +798,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             // Carousel slides are editable native images inside authored
             // holders; the carousel owns slide presentation.
-            fn (DOMElement $element): ?array => $this->imageLowering->convertImage($element, nativeImage: true),
+            fn (DOMElement $element, ?DOMElement $link = null): ?array => $this->imageLowering->convertImage($element, null, null, $link, nativeImage: true),
             $this
         );
         $visualIframeGenerator = new VisualIframeBlockGenerator(
@@ -1196,7 +1199,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
         $this->session->installTransformOptions($options);
-        $this->foldedInto = $this->foldFluid = array();
+        $this->foldedInto = $this->foldFluid = $this->foldsCarried = array();
         $this->neutralBoxChildren = $this->neutralBoxChildren($html, $options);
         $this->documentAuthorCss = '';
         $sharedStylesheetPaths = TransformOptions::sharedStylesheetPaths($options);
@@ -1959,6 +1962,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( !$box instanceof DOMElement ) {
             return array_diff_key($fluid, $fold['moves'], array_flip(self::FOLD_SIZING));
         }
+        $this->foldsCarried[$fold['from']] = true;
         $boxObservations = $this->session->boxTreeEvidence($box);
         if ( !isset($this->foldFluid[$fold['from']]) ) {
             $boxParent = $this->blockParentElement($box);
@@ -2076,7 +2080,22 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // register its engine rule; the child keeps its own rule.
         $neutralChild = $this->neutralBoxChild($element);
         if ( null !== $neutralChild ) {
-            return $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
+            $boxId = $element->getAttribute(BoxTree::NODE_ATTRIBUTE);
+            $childId = $neutralChild->getAttribute(BoxTree::NODE_ATTRIBUTE);
+            if ( $boxId !== ($this->foldedInto[$childId]['from'] ?? null) ) {
+                return $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
+            }
+            // A folded box's declarations survive only in its child's box-tree
+            // rule. A child converted without one (a pattern leaf such as an
+            // accessible icon link) would drop the box's placement and size,
+            // so the box keeps its own block and rule instead.
+            $before = $fallbacks;
+            $block = $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
+            if ( null === $block || isset($this->foldsCarried[$boxId]) ) {
+                return $block;
+            }
+            $fallbacks = $before;
+            unset($this->neutralBoxChildren[$boxId], $this->foldedInto[$childId]);
         }
         $tagName = strtolower($element->tagName);
 
@@ -2315,7 +2334,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
             $fluid = $this->liftedBands($sourceElement, $observations, $viewports, $parents, $name);
-            $movedProperties = array_keys($this->foldedInto[$sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE)]['moves'] ?? array());
             $fluidIntent = new Style\BoxTreeFluidIntent();
             $pseudoFluid = array();
             foreach ( array( 'before', 'after' ) as $pseudo ) {
@@ -2333,7 +2351,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     'fluid' => $fluidIntent->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
                 );
             }
-            $attrs = (new Style\BoxTreeStyleProjector($movedProperties))->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image);
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,

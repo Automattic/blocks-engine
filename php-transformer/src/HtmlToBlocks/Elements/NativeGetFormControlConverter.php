@@ -63,6 +63,12 @@ final class NativeGetFormControlConverter implements ElementConverter
         if ( 'label' === $tagName && '' !== SourceDom::attr($element, 'for') ) {
             $target = $element->ownerDocument?->getElementById(SourceDom::attr($element, 'for'));
             if ($target instanceof DOMElement && $target->hasAttribute(CaptureEvidence::NATIVE_CONTROL_STATE)) return ConversionOutcome::unhandled();
+            // Valid associations ride on their control below. A missing or
+            // non-control target has no such owner: keep the label at its own
+            // source position, including its classes and harmless authored for.
+            if (! $target instanceof DOMElement || ! FormControlClassifier::isControlElement($target)) {
+                return ConversionOutcome::handled($this->authoredFormControlBlockConverter->label($element, true));
+            }
             return ConversionOutcome::handled(null);
         }
 
