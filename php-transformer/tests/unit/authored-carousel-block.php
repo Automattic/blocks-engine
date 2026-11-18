@@ -725,7 +725,19 @@ $assert(0 === $xpath->query('//*[contains(@class,"blocks-engine-authored-carouse
 $dots = $xpath->query('//div[contains(@class,"blocks-engine-authored-carousel__dots--source") and contains(@class,"pager")]/span[@role="button"][contains(concat(" ",@class," ")," blocks-engine-authored-carousel__dot bullet ")]');
 $assert(3 === $dots->length, 'span bullets become one source-classed dot per slide');
 foreach ($dots as $index => $dot) {
-    $assert((string) $index === $dot->getAttribute('data-carousel-index') && 'bullet-active' === $dot->getAttribute('data-carousel-active-classes') && !str_contains($dot->getAttribute('class'), 'bullet-active'), 'bullet active class follows carousel selection');
+    $assert((string) $index === $dot->getAttribute('data-carousel-index') && in_array('bullet-active', explode(' ', $dot->getAttribute('data-carousel-active-classes')), true) && !str_contains($dot->getAttribute('class'), 'bullet-active'), 'bullet active class follows carousel selection');
+}
+
+// Scoped bullet rules project onto the source bullets' markers only, so each
+// rebuilt dot carries its bullet's projection identity, and markers only the
+// source-selected bullet owns follow carousel selection.
+$scoped = (new HtmlTransformer())->transform('<style>.bullet{display:inline-block;width:8px;height:8px}.bullet-active{background:#123}.scope .bullet{width:9px;opacity:.28}.scope .bullet-active{opacity:1}</style><section class="scope"><div class="slider" id="g" data-blocks-engine-capture-gallery data-blocks-engine-capture-gallery-source="#g" data-blocks-engine-capture-gallery-index="0"><div class="track" data-blocks-engine-capture-gallery-stage data-blocks-engine-capture-gallery-initial="0">' . $slides . '</div><div class="pager">' . $bullets . '</div><div class="prev" role="button" tabindex="0" aria-label="Previous slide" data-blocks-engine-capture-gallery-direction="-1"></div><div class="next" role="button" tabindex="0" aria-label="Next slide" data-blocks-engine-capture-gallery-direction="1"></div></div></section>')->toArray();
+$dead = array_filter($scoped['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'dead_projected_author_selector' === ($diagnostic['code'] ?? null) && str_contains((string) ($diagnostic['source_selector'] ?? ''), 'bullet'));
+$assert(array() === $dead && 'pass' === ($scoped['source_reports']['wp_block_validity']['status'] ?? null), 'scoped bullet rules bind to the rebuilt dots', json_encode(array_column($dead, 'source_selector')));
+@$document->loadHTML((string) $scoped['serialized_blocks']);
+foreach ((new DOMXPath($document))->query('//span[contains(concat(" ",@class," ")," blocks-engine-authored-carousel__dot ")]') as $dot) {
+    $toggled = explode(' ', $dot->getAttribute('data-carousel-active-classes'));
+    $assert(in_array('bullet-active', $toggled, true) && 1 < count($toggled) && array() === array_intersect($toggled, explode(' ', $dot->getAttribute('class'))), 'selected-bullet markers follow carousel selection on every dot');
 }
 
 fwrite(STDOUT, "Authored carousel companion tests passed\n");
