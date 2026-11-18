@@ -355,8 +355,9 @@ final class SitePlanRun
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
         // Layout findings name the engine classes of the part they occurred in.
         $data['diagnostics'] = self::withTemplatePartAttribution($data['diagnostics'], $parts);
-        // Stylesheets are final: a selector hook none of them, no runtime and
-        // no document root names is dropped from the markup.
+        // Stylesheets are final: a selector hook that no stylesheet or script
+        // delivered to the frontend or the editor canvas, no runtime and no
+        // document root names is dropped from the markup.
         $hookReferences = UnreferencedEngineClasses::references($assets, $runtimeDeclarations, $runtimeEntityRecords, $rootDocuments, $themeProjection['theme'], $this->compiled['visual_repair'] ?? array(), array_column($pages, 'document_metadata'));
         $pruned = self::withoutUnreferencedEngineClasses(array('pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'synced_patterns' => $syncedPatterns, 'menus' => $menus, 'entities' => $taxonomyProjection['entities']), $hookReferences, $runtimeDeclarations, $runtimeEntityRecords);
         if (null !== $pruned) {
@@ -560,7 +561,7 @@ final class SitePlanRun
      * @param array<int,array<string,mixed>> $records
      * @return array<string,array<int,array<string,mixed>>>|null
      */
-    private static function withoutUnreferencedEngineClasses(array $units, string $references, array $declarations, array $records): ?array
+    private static function withoutUnreferencedEngineClasses(array $units, ?string $references, array $declarations, array $records): ?array
     {
         $markups = array();
         foreach ($units as $group => $rows) foreach ($rows as $index => $row) {

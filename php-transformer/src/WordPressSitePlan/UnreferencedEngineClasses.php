@@ -10,8 +10,10 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  *
  * The mirror of DeadElementMarkers: that pass drops selectors naming a marker
  * no markup carries; this one drops selector hooks (EngineMarker::isSelectorHook())
- * from markup when no emitted stylesheet, script, runtime declaration or entity
- * record names them. A class no selector names changes no match, so the
+ * from markup when no stylesheet or script delivered to the frontend or the
+ * editor canvas, no runtime declaration and no entity record names them. An
+ * editor anchor stays while its id is delivered: it is that id in the editor
+ * canvas. A class no selector names changes no match, so the
  * markup renders the same and the inspector's Additional CSS class(es) field
  * lists fewer generated names. A hook is kept everywhere or dropped
  * everywhere, so a block comment's className and its saved HTML agree.
@@ -32,6 +34,8 @@ final class UnreferencedEngineClasses
 
     private const HTML_CLASS = '/(\sclass=")([^"]*)(")/';
 
+    private const HTML_ID = '/\sid="([^"]+)"/';
+
     /** Block comment attributes; WordPress escapes `--` and quotes in their JSON. */
     private const BLOCK_COMMENT = '/<!--\s+wp:[a-z0-9\/-]+\s+\{.*?\}\s+\/?-->/s';
 
@@ -41,22 +45,43 @@ final class UnreferencedEngineClasses
     private const CLASS_PREDICATE = '/\[\s*class\s*([*^$|]?)=\s*(?:"([^"\\\\]*)"|\'([^\'\\\\]*)\'|([A-Za-z0-9_-]+))\s*([iIsS])?\s*\]/';
 
     /**
-     * Every string leaf of the values emitted beside the markup, which may
-     * name a class: stylesheet and script assets, runtime declarations and
-     * records, theme settings and document roots.
+     * Everything the plan delivers beside the markup that may name a class:
+     * every stylesheet and script asset, whether it loads on the frontend,
+     * in the editor canvas or both (editor-only styles included), the
+     * stylesheets the theme bootstrap inlines for either, and every string
+     * leaf of the other values (runtime declarations and records, theme
+     * settings, document roots).
+     *
+     * Null when a delivered stylesheet or script cannot be read here (its
+     * bytes live behind a payload reference): what it names is unknown, so
+     * nothing may be dropped.
      *
      * @param array<int,array<string,mixed>> $assets
      */
-    public static function references(array $assets, mixed ...$values): string
+    public static function references(array $assets, mixed ...$values): ?string
     {
-        $text = array();
+        $text = array(ThemeBootstrap::inlineStylesheets());
         foreach ($assets as $asset) {
-            if (in_array($asset['kind'] ?? null, array('css', 'js'), true) && is_string($asset['content'] ?? null)) $text[] = $asset['content'];
+            if (!in_array($asset['kind'] ?? null, array('css', 'js'), true)) continue;
+            $content = self::assetText($asset);
+            if (null === $content) return null;
+            $text[] = $content;
         }
         array_walk_recursive($values, static function (mixed $value) use (&$text): void {
             if (is_string($value)) $text[] = $value;
         });
         return implode("\n", $text);
+    }
+
+    /** @param array<string,mixed> $asset */
+    private static function assetText(array $asset): ?string
+    {
+        if (is_string($asset['content'] ?? null)) return $asset['content'];
+        if (is_string($asset['content_base64'] ?? null)) {
+            $decoded = base64_decode($asset['content_base64'], true);
+            return false === $decoded ? null : $decoded;
+        }
+        return null === ($asset['payload_reference'] ?? null) ? '' : null;
     }
 
     /**
@@ -71,9 +96,10 @@ final class UnreferencedEngineClasses
      * @param array<array-key,string> $markups
      * @return array<string,true>
      */
-    public static function unreferenced(array $markups, string $references): array
+    public static function unreferenced(array $markups, ?string $references): array
     {
-        $referenced = self::referenced($references);
+        if (null === $references) return array();
+        $referenced = self::referenced($references) + self::editorCanvasAnchors($markups);
         $lists = array();
         foreach ($markups as $markup) foreach (self::classLists($markup) as $list) $lists[] = $list;
         $candidates = array();
@@ -113,18 +139,18 @@ final class UnreferencedEngineClasses
         foreach ($plan['writes'] ?? array() as $write) {
             if (!in_array($write['kind'] ?? null, array('theme_template', 'theme_template_part'), true)) $emitted[] = $write['payload']['data'] ?? null;
         }
-        $referenced = self::referenced(self::references($plan['assets'] ?? array(), $emitted, $plan['runtime_declarations'] ?? array(), $plan['runtime_records'] ?? array(), $plan['runtime_entity_records'] ?? array(), $plan['theme'] ?? array(), $plan['visual_repair'] ?? array(), array_column($plan['pages'] ?? array(), 'document_metadata')));
+        $references = self::references($plan['assets'] ?? array(), $emitted, $plan['runtime_declarations'] ?? array(), $plan['runtime_records'] ?? array(), $plan['runtime_entity_records'] ?? array(), $plan['theme'] ?? array(), $plan['visual_repair'] ?? array(), array_column($plan['pages'] ?? array(), 'document_metadata'));
+        $markups = array_values(array_filter(array_map(self::markup(...), self::units($plan)), 'is_string'));
+        $referenced = self::referenced((string) $references) + self::editorCanvasAnchors($markups);
         $tokens = 0;
         $engine = 0;
         $unreferenced = 0;
-        foreach (self::units($plan) as $unit) {
-            $markup = self::markup($unit);
-            if (null === $markup) continue;
+        foreach ($markups as $markup) {
             foreach (self::classLists($markup) as $list) foreach (self::tokens($list['value']) as $token) {
                 ++$tokens;
                 if (1 !== preg_match(self::ENGINE_CLASS, $token)) continue;
                 ++$engine;
-                if (!self::isReferenced($token, $referenced)) ++$unreferenced;
+                if (null !== $references && !self::isReferenced($token, $referenced)) ++$unreferenced;
             }
         }
         return array('unreferenced_engine_class_count' => $unreferenced, 'engine_class_token_share' => 0 === $tokens ? 0.0 : round($engine / $tokens, 4));
@@ -145,6 +171,25 @@ final class UnreferencedEngineClasses
     {
         $markup = $unit['canonical_block_markup'] ?? $unit['block_markup'] ?? null;
         return is_string($markup) ? $markup : null;
+    }
+
+    /**
+     * The editor canvas copy of every id the markup delivers. Gutenberg does
+     * not render a block's anchor as an id in the canvas, so there the
+     * editor-anchor class is the element's id: whatever finds the element by
+     * that id on the frontend finds it by this class in the editor.
+     *
+     * @param array<array-key,string> $markups
+     * @return array<string,true>
+     */
+    private static function editorCanvasAnchors(array $markups): array
+    {
+        $anchors = array();
+        foreach ($markups as $markup) {
+            if (!preg_match_all(self::HTML_ID, $markup, $matches)) continue;
+            foreach ($matches[1] as $id) $anchors[EngineMarker::editorAnchorClass(html_entity_decode($id, ENT_QUOTES | ENT_HTML5))] = true;
+        }
+        return $anchors;
     }
 
     /** @return array<string,true> */
