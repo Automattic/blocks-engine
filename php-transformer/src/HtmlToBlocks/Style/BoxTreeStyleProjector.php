@@ -66,13 +66,7 @@ final class BoxTreeStyleProjector
         $consumed = SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
-        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents);
-        if ('' !== $css && self::boxedSyntheticAnchorCarrier($blockName, $attrs, $observations)) {
-            // The carrier restates the anchor's captured margins on a real box,
-            // so the anchor must not inherit them a second time through the
-            // display:contents fallback in EngineSupportCss.
-            $css .= self::SELECTOR . '>a{margin:0}';
-        }
+        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs));
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
@@ -160,10 +154,19 @@ final class BoxTreeStyleProjector
      *
      * @param array<string, array<string, mixed>> $parents The block parent's observations, by viewport key.
      */
-    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array()): string
+    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), bool $syntheticAnchor = false): string
     {
         $baseKey = $keys[0];
-        $css = $this->rule(self::SELECTOR, $base);
+        $rule = function (array $declared) use ($syntheticAnchor): string {
+            $css = $this->rule(self::SELECTOR, $declared);
+            if ($syntheticAnchor && isset($declared['display'])) {
+                // A real carrier box owns the margin. Only a transparent
+                // carrier passes it to the link, including at breakpoints.
+                $css .= self::SELECTOR . '>a{margin:' . ('contents' === $declared['display'] ? 'inherit' : '0') . '}';
+            }
+            return $css;
+        };
+        $css = $rule($base);
         $effective = $declarations[$baseKey];
         $pseudoEffective = array();
         if ($pseudos) $css .= $this->pseudoRules($observations[$baseKey], $pseudoEffective);
@@ -181,12 +184,12 @@ final class BoxTreeStyleProjector
             $effective = array_replace($effective, $delta);
             $pseudo = $pseudos ? $this->pseudoRules($observations[$key], $pseudoEffective) : '';
             if (array() === $delta && '' === $pseudo) continue;
-            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule(self::SELECTOR, $delta) . $pseudo . '}';
+            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $rule($delta) . $pseudo . '}';
         }
         // Numeric keys become ints: compare them as widths, narrowest last.
         uksort($bands, static fn(int|string $a, int|string $b): int => (float) $b <=> (float) $a);
         foreach ($bands as $maxWidth => $declared) {
-            $css .= '@media (max-width:' . $maxWidth . 'px){' . $this->rule(self::SELECTOR, $declared) . '}';
+            $css .= '@media (max-width:' . $maxWidth . 'px){' . $rule($declared) . '}';
         }
         return $css;
     }
@@ -253,16 +256,12 @@ final class BoxTreeStyleProjector
         return $delta;
     }
 
-    /** A synthetic link paragraph whose observed display gives it a box at every capture. */
-    private static function boxedSyntheticAnchorCarrier(string $blockName, array $attrs, array $observations): bool
+    /** Synthetic paragraphs use the transparent-link margin fallback in EngineSupportCss. */
+    private static function syntheticAnchorCarrier(string $blockName, array $attrs): bool
     {
         $classes = preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array();
         if ('core/paragraph' !== $blockName || !in_array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, $classes, true)
             || in_array(SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS, $classes, true)) return false;
-        foreach ($observations as $observation) {
-            $display = strtolower(trim((string) ($observation['used_styles']['display'] ?? '')));
-            if ('' === $display || 'contents' === $display) return false;
-        }
         return true;
     }
 

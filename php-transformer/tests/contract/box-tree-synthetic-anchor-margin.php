@@ -62,66 +62,78 @@ $assert = static function (bool $ok, string $message): void {
     echo "PASS: $message\n";
 };
 
-$compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html, 'box-tree/index.json' => json_encode($tree))));
-$result = $compiled->toArray();
-$assert(!in_array('box_tree_styles_invalid', array_column($result['diagnostics'], 'code'), true), 'The box-tree sidecar is accepted.');
-// The stylesheets the page actually loads: the evidence route retires author rules.
-$plan = $compiled->toWordPressSitePlanView()['wordpress_site_plan'];
-$planAssets = array_column($plan['assets'], null, 'target_path');
-$css = '';
-foreach (ThemeBootstrap::documentStylesheets($plan, 'index.html') as $row) $css .= ($planAssets[$row['target_path']]['content'] ?? '') . "\n";
-$assert(!str_contains($css, '.links a'), 'The author link margin rule is retired on the evidence route.');
-$dom = new DOMDocument();
-@$dom->loadHTML('<!doctype html><html><body>' . $result['serialized_blocks'] . '</body></html>');
-$anchors = array();
-foreach ($dom->getElementsByTagName('a') as $anchor) $anchors[] = $anchor;
-$assert(3 === count($anchors), 'All three links survive.');
+$verify = static function (array $tree) use ($html, $assert, $widths): void {
+    $compiled = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html, 'box-tree/index.json' => json_encode($tree))));
+    $result = $compiled->toArray();
+    $assert(!in_array('box_tree_styles_invalid', array_column($result['diagnostics'], 'code'), true), 'The box-tree sidecar is accepted.');
+    // The stylesheets the page actually loads: the evidence route retires author rules.
+    $plan = $compiled->toWordPressSitePlanView()['wordpress_site_plan'];
+    $planAssets = array_column($plan['assets'], null, 'target_path');
+    $css = '';
+    foreach (ThemeBootstrap::documentStylesheets($plan, 'index.html') as $row) $css .= ($planAssets[$row['target_path']]['content'] ?? '') . "\n";
+    $assert(!str_contains($css, '.links a'), 'The author link margin rule is retired on the evidence route.');
+    $dom = new DOMDocument();
+    @$dom->loadHTML('<!doctype html><html><body>' . $result['serialized_blocks'] . '</body></html>');
+    $anchors = array();
+    foreach ($dom->getElementsByTagName('a') as $anchor) $anchors[] = $anchor;
+    $assert(3 === count($anchors), 'All three links survive.');
 
-/** The declared value of $property that wins on $element at $width, ignoring inheritance. */
-$cascade = static function (DOMElement $element, string $property, int $width) use ($css): ?string {
-    $winner = null;
-    $rank = array(-1, -1);
-    $order = 0;
-    (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $selector, string $body, array $ancestors) use ($element, $property, $width, &$winner, &$rank, &$order): void {
-        $order++;
-        foreach ($ancestors as $ancestor) {
-            if (!preg_match('/^@media\s*\((max|min)-width:\s*(\d+(?:\.\d+)?)px\)$/i', trim((string) $ancestor), $m)) return;
-            if (('max' === strtolower($m[1])) !== ($width <= (float) $m[2])) return;
-        }
-        $declarations = SourceDeclarations::parse($body);
-        $value = $declarations[$property] ?? null;
-        if (null === $value && isset($declarations['margin']) && in_array($property, array('margin-left', 'margin-right'), true)) {
-            // Horizontal sides of the shorthand: 1 value -> it, 2-3 -> second, 4 -> second/fourth.
-            $parts = preg_split('/\s+/', trim($declarations['margin'])) ?: array();
-            $value = $parts[4 === count($parts) && 'margin-left' === $property ? 3 : (1 === count($parts) ? 0 : 1)];
-        }
-        if (null === $value) return;
-        foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm) {
-            $parsed = CssSelectorMatcher::parse($arm);
-            if (!CssSelectorMatcher::matches($element, $parsed)['matches']) continue;
-            $specificity = CssSelectorMatcher::specificity($parsed);
-            if (array($specificity, $order) >= $rank) {
-                $rank = array($specificity, $order);
-                $winner = $value;
+    /** The declared value of $property that wins on $element at $width, ignoring inheritance. */
+    $cascade = static function (DOMElement $element, string $property, int $width) use ($css): ?string {
+        $winner = null;
+        $rank = array(-1, -1);
+        $order = 0;
+        (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $selector, string $body, array $ancestors) use ($element, $property, $width, &$winner, &$rank, &$order): void {
+            $order++;
+            foreach ($ancestors as $ancestor) {
+                if (!preg_match('/^@media\s*\((max|min)-width:\s*(\d+(?:\.\d+)?)px\)$/i', trim((string) $ancestor), $m)) return;
+                if (('max' === strtolower($m[1])) !== ($width <= (float) $m[2])) return;
+            }
+            $declarations = SourceDeclarations::parse($body);
+            $value = $declarations[$property] ?? null;
+            if (null === $value && isset($declarations['margin']) && in_array($property, array('margin-left', 'margin-right'), true)) {
+                // Horizontal sides of the shorthand: 1 value -> it, 2-3 -> second, 4 -> second/fourth.
+                $parts = preg_split('/\s+/', trim($declarations['margin'])) ?: array();
+                $value = $parts[4 === count($parts) && 'margin-left' === $property ? 3 : (1 === count($parts) ? 0 : 1)];
+            }
+            if (null === $value) return;
+            foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm) {
+                $parsed = CssSelectorMatcher::parse($arm);
+                if (!CssSelectorMatcher::matches($element, $parsed)['matches']) continue;
+                $specificity = CssSelectorMatcher::specificity($parsed);
+                if (array($specificity, $order) >= $rank) {
+                    $rank = array($specificity, $order);
+                    $winner = $value;
+                }
+            }
+        });
+        $inline = SourceDeclarations::parse($element->getAttribute('style'))[$property] ?? null;
+        return $inline ?? $winner;
+    };
+    $px = static fn(?string $value): float => null === $value || !preg_match('/^(-?\d+(?:\.\d+)?)px$/', trim($value), $m) ? 0.0 : (float) $m[1];
+
+    foreach ($widths as $key => $width) {
+        foreach ($anchors as $anchor) {
+            $carrier = $anchor->parentNode;
+            $assert($carrier instanceof DOMElement && str_contains($carrier->getAttribute('class'), 'blocks-engine-synthetic-paragraph'), "$key: the link keeps its synthetic paragraph carrier");
+            $boxed = 'contents' !== ($cascade($carrier, 'display', $width) ?? 'contents');
+            $expectedBox = 'contents' !== $tree['nodes']['a1']['viewports'][$key]['used_styles']['display'];
+            $assert($boxed === $expectedBox, "$key: the carrier preserves the captured display ownership");
+            foreach (array('margin-left', 'margin-right') as $side) {
+                $carrierMargin = $px($cascade($carrier, $side, $width));
+                $anchorValue = $cascade($anchor, $side, $width);
+                $anchorMargin = 'inherit' === $anchorValue ? $carrierMargin : $px($anchorValue);
+                $applied = ($boxed ? $carrierMargin : 0.0) + $anchorMargin;
+                $assert(12.0 === $applied, "$key: {$anchor->textContent} $side applies 12px once (carrier " . ($boxed ? 'boxed' : 'contents') . ", applied {$applied}px)");
             }
         }
-    });
-    $inline = SourceDeclarations::parse($element->getAttribute('style'))[$property] ?? null;
-    return $inline ?? $winner;
-};
-$px = static fn(?string $value): float => null === $value || !preg_match('/^(-?\d+(?:\.\d+)?)px$/', trim($value), $m) ? 0.0 : (float) $m[1];
-
-foreach ($widths as $key => $width) {
-    foreach ($anchors as $anchor) {
-        $carrier = $anchor->parentNode;
-        $assert($carrier instanceof DOMElement && str_contains($carrier->getAttribute('class'), 'blocks-engine-synthetic-paragraph'), "$key: the link keeps its synthetic paragraph carrier");
-        $boxed = 'contents' !== ($cascade($carrier, 'display', $width) ?? 'contents');
-        foreach (array('margin-left', 'margin-right') as $side) {
-            $carrierMargin = $px($cascade($carrier, $side, $width));
-            $anchorValue = $cascade($anchor, $side, $width);
-            $anchorMargin = 'inherit' === $anchorValue ? $carrierMargin : $px($anchorValue);
-            $applied = ($boxed ? $carrierMargin : 0.0) + $anchorMargin;
-            $assert(12.0 === $applied, "$key: {$anchor->textContent} $side applies 12px once (carrier " . ($boxed ? 'boxed' : 'contents') . ", applied {$applied}px)");
-        }
     }
+};
+$verify($tree);
+
+// Margin ownership must also switch when a carrier becomes transparent at
+// the narrower capture, rather than disabling the boxed reset everywhere.
+foreach (array('a1', 'a2', 'a3') as $id) {
+    $tree['nodes'][$id]['viewports']['mobile']['used_styles']['display'] = 'contents';
 }
+$verify($tree);
