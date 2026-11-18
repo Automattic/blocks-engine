@@ -18,6 +18,7 @@ $css = '.site-phone,.site-email{white-space:nowrap}.site-address+.site-phone,.si
 
 $markup = (string) (new HtmlTransformer())->transform($page($css, $info))->toArray()['serialized_blocks'];
 if (1 !== preg_match('/<p id="siteInfo"[^>]*>(.*?)<\/p>/s', $markup, $run)) $fail('the abutting items stay one paragraph', $markup);
+if (!str_contains($run[0], 'blocks-engine-lowered-paragraph')) $fail('a source div does not acquire paragraph margins', $markup);
 foreach (array('site-address', 'site-phone', 'site-email') as $class) {
     if (!str_contains($run[1], 'class="' . $class)) $fail("the run keeps the {$class} item's class", $markup);
 }
@@ -30,5 +31,13 @@ $spaced = (string) (new HtmlTransformer())->transform($page($css, str_replace(ar
 if (!str_contains($spaced, '<p class="site-address blocks-engine-synthetic-paragraph">')) $fail('whitespace-separated items keep their own paragraphs', $spaced);
 $unstyled = (string) (new HtmlTransformer())->transform($page('', $info))->toArray()['serialized_blocks'];
 if (!str_contains($unstyled, '<p class="site-address blocks-engine-synthetic-paragraph">')) $fail('unstyled items keep their own paragraphs', $unstyled);
+
+// Captured engine annotations are not runtime state, but an author counter
+// is: its item must keep its independent paragraph/source identity. Combining
+// it with the unit adds a wrapper paragraph and turns the counter into a mark.
+$counter = '<div class="stat"><div class="num"><span class="value" data-count="1271">0</span><span class="unit">M km</span></div></div>';
+$counterCss = '.stat .num{font-size:2rem}.stat .num .unit{font-size:.9rem;margin-left:.25rem}';
+$counted = (string) (new HtmlTransformer())->transform($page($counterCss, $counter))->toArray()['serialized_blocks'];
+if (!preg_match('/<p[^>]*class="[^"]*value[^\"]*"[^>]*>0<\/p>/', $counted)) $fail('author counter retains its independent paragraph', $counted);
 
 fwrite(STDOUT, "abutting inline items text run tests: passed\n");

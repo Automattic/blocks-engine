@@ -116,6 +116,11 @@ $assert(array( 'ambiguous_iframe_destination', 'unsafe_iframe_destination', 'cre
 $assert(array() === array_values(array_filter($unsafe['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? null))), 'classified custom iframe surfaces do not use unsupported-element fallbacks');
 $assert(! str_contains((string) ($unsafe['serialized_blocks'] ?? ''), '<iframe') && ! str_contains((string) ($unsafe['serialized_blocks'] ?? ''), '<!-- wp:html') && ! str_contains((string) ($unsafe['serialized_blocks'] ?? ''), 'user:secret'), 'rejected custom iframe surfaces emit no raw HTML and no credentials');
 
+// A frame capture dropped (no rendered box) leaves an empty host carrying only capture provenance.
+$emptyHost = (new HtmlTransformer())->transform('<main><p>Text</p><vendor-iframe data-src="" data-blocks-engine-node-id="n1"><div class="holder" style="" data-blocks-engine-capture-geometry-id="g1" data-blocks-engine-node-id="n2"></div></vendor-iframe></main>')->toArray();
+$assert(array() === ($emptyHost['fallbacks'] ?? array()), 'an empty iframe host carrying only capture provenance is inert, not a capability gap');
+$assert(! str_contains((string) ($emptyHost['serialized_blocks'] ?? ''), 'vendor-iframe') && ! str_contains((string) ($emptyHost['serialized_blocks'] ?? ''), '<!-- wp:html'), 'an inert empty iframe host emits no markup');
+
 $fillStyle = '<style>.fill{width:100%;height:100%}.box{aspect-ratio:16/9;overflow:hidden}</style>';
 $fillFrame = static fn (string $class): string => '<iframe class="' . $class . '" src="https://www.youtube-nocookie.com/embed/aBcDeFgHiJk" title="Demo" width="290" height="163"></iframe>';
 $fill = (new HtmlTransformer())->transform($fillStyle . '<main><div class="box">' . $fillFrame('fill') . '</div></main>')->toArray();

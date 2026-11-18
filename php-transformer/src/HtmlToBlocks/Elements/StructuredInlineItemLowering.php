@@ -37,50 +37,27 @@ final class StructuredInlineItemLowering
      */
     public function structuredInlineItemBlocks(DOMElement $element): ?array
     {
+        // Decide whether to keep the run before materializing any item. Block
+        // creation and RichText projection register styles and source bindings;
+        // abandoning a partially lowered run leaks those into the fallback.
+        if ($this->isAbuttingInlineRun($element)) {
+            return null;
+        }
         $blocks = array();
-        // The previous item when nothing separates it from the next one:
-        // null after whitespace, a block-level item or the run's start.
-        $abutting = null;
-        $itemsBlockified = $this->blockifiesItems($element);
 
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType ) {
                 if ( '' !== trim($child->textContent ?? '') ) {
                     return null;
                 }
-                if ( '' !== ( $child->textContent ?? '' ) ) {
-                    $abutting = null;
-                }
                 continue;
             }
-
-            if ( XML_COMMENT_NODE === $child->nodeType ) {
-                continue;
-            }
-
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
-
             if ( ! $this->sourceElementClassifier->isClassedPhrasingItem($child) ) {
                 return null;
             }
-
-            // Inline items the author's stylesheet spaces apart along one line
-            // with nothing between them in the text ("New York(212)
-            // 555-0123") are one text run: a paragraph per item would break
-            // the line between them where the source text has none. The run
-            // stays one paragraph whose RichText keeps each item's class.
-            // Items without that inline spacing keep the item-per-paragraph
-            // structure their classes name, and a script-targeted item keeps
-            // its own addressable block.
-            $inlineItem = ! $itemsBlockified && $this->isInlineLevel($child) && ! $this->runtimeDomTargets->isRuntimeDomTarget($child);
-            $text = $child->textContent;
-            if ( $inlineItem && null !== $abutting && 1 !== preg_match('/^\s/u', $text)
-                && ( $this->hasAuthorInlineSpacing($abutting) || $this->hasAuthorInlineSpacing($child) ) ) {
-                return null;
-            }
-            $abutting = $inlineItem && 1 !== preg_match('/\s$/u', $text) ? $child : null;
 
             $inlineSvgTextGroup = $this->inlineSvgTextGroups->fromElement($child);
             if ( null !== $inlineSvgTextGroup ) {
@@ -110,6 +87,65 @@ final class StructuredInlineItemLowering
         }
 
         return 1 < count($blocks) ? $blocks : null;
+    }
+
+    public function isAbuttingInlineRun(DOMElement $element): bool
+    {
+        // The previous item when nothing separates it from the next one:
+        // null after whitespace, a block-level item or the run's start.
+        // Attribute-bearing items can carry runtime state even when the
+        // capture has no script binding (for example data-count counters).
+        // They must retain independent block/source identities.
+        foreach ($element->childNodes as $item) {
+            if (!$item instanceof DOMElement) continue;
+            foreach ($item->attributes as $attribute) {
+                if (str_starts_with($attribute->name, 'data-') && !str_starts_with($attribute->name, 'data-blocks-engine-')) return false;
+            }
+        }
+        $abutting = null;
+        $itemsBlockified = $this->blockifiesItems($element);
+
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                if ( '' !== ( $child->textContent ?? '' ) ) {
+                    $abutting = null;
+                }
+                continue;
+            }
+
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( ! $this->sourceElementClassifier->isClassedPhrasingItem($child) ) {
+                return false;
+            }
+
+            // Inline items the author's stylesheet spaces apart along one line
+            // with nothing between them in the text ("New York(212)
+            // 555-0123") are one text run: a paragraph per item would break
+            // the line between them where the source text has none. The run
+            // stays one paragraph whose RichText keeps each item's class.
+            // Items without that inline spacing keep the item-per-paragraph
+            // structure their classes name, and a script-targeted item keeps
+            // its own addressable block.
+            $inlineItem = ! $itemsBlockified && $this->isInlineLevel($child) && ! $this->runtimeDomTargets->isRuntimeDomTarget($child);
+            $text = $child->textContent;
+            if ( $inlineItem && null !== $abutting && 1 !== preg_match('/^\s/u', $text)
+                && ( $this->hasAuthorInlineSpacing($abutting) || $this->hasAuthorInlineSpacing($child) ) ) {
+                return true;
+            }
+            $abutting = $inlineItem && 1 !== preg_match('/\s$/u', $text) ? $child : null;
+        }
+
+        return false;
     }
 
     /** A flex or grid wrapper blockifies its items: each is its own text box. */

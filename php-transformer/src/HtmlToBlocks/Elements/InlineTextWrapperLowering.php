@@ -217,7 +217,8 @@ final class InlineTextWrapperLowering
             return null;
         }
 
-        if ( 'div' === strtolower($element->tagName) && $this->styleResolver->hasNonZeroStructuralDeclaration($element, self::MARGIN_WRAPPER_PROPERTIES) ) {
+        if ( 'div' === strtolower($element->tagName) && ( $this->styleResolver->hasNonZeroStructuralDeclaration($element, self::MARGIN_WRAPPER_PROPERTIES)
+            || $this->structuredInlineItemLowering->isAbuttingInlineRun($element) ) ) {
             $attrs = $this->styleResolver->presentationAttributes($element);
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), HtmlCompilation::LOWERED_PARAGRAPH_CLASS);
             return $this->blocks->createBlock(

@@ -359,7 +359,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     )
     {
         $this->sourceElementClassifier = new SourceElementClassifier();
-        $listStructure = new ListStructure($this->sourceElementClassifier);
+        $listStructure = new ListStructure($this->sourceElementClassifier, fn (DOMElement $element): array => $this->session->boxTreeEvidence($element));
         $commercePattern = $this->createCommercePattern();
         $this->sourceElementDescription = new SourceElementDescription($this->sourceElementClassifier, $commercePattern);
         $this->session = new HtmlTransformerSession($this->runtime, $this->sourceElementDescription);
