@@ -311,7 +311,9 @@ final class BlockFactory
         }
 
         if ( 'core/paragraph' === $name ) {
-            return '<p' . $this->blockSupportAttrs($attrs) . '>' . $this->preserveRichTextPunctuation((string) ($attrs['content'] ?? '')) . '</p>';
+            // core/paragraph save() renders its `direction` attribute as `dir`.
+            $direction = in_array($attrs['direction'] ?? null, array( 'ltr', 'rtl' ), true) ? ' dir="' . $attrs['direction'] . '"' : '';
+            return '<p' . $this->blockSupportAttrs($attrs) . $direction . '>' . $this->preserveRichTextPunctuation((string) ($attrs['content'] ?? '')) . '</p>';
         }
 
         if ( 'core/list-item' === $name ) {
