@@ -21,7 +21,9 @@ $source = '<!doctype html><html><head><style>'
     . '</style></head><body><main><div class="bg" style="background-image:url(x.jpg)"></div>'
     . '<p class="lead translate-x-2">Lead <mark>copy</mark></p>'
     . '<figure><img src="x.jpg" alt="Real"><figcaption>Caption</figcaption></figure>'
-    . '<button type="button" class="lead">Book</button></main></body></html>';
+    . '<button type="button" class="lead">Book</button></main>'
+    // A runtime reads the otherwise unread reset tokens, so they stay live.
+    . '<script>const s=getComputedStyle(document.body);s.getPropertyValue("--tw-ring-color");s.getPropertyValue("--tw-content")</script></body></html>';
 $result = (new ArtifactCompiler())->compile(array('files' => array(
     array('path' => 'index.html', 'kind' => 'html', 'content' => $source),
     array('path' => 'x.jpg', 'kind' => 'image', 'content' => base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSFw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==')),
