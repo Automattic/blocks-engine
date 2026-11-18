@@ -159,10 +159,11 @@ final class DesignUsageCollector
             )),
         );
 
-        $rootColorTokens = array();
+        $rootColorTokens = $rootDesignTokens = array();
         // Root-declared tokens only: resolving them needs no per-element cascade.
         foreach ($this->resolver->customProperties->root() as $name => $_value) {
             $value = $this->resolver->customProperties->resolve('var(' . $name . ')');
+            $rootDesignTokens[$name] = $value;
             // Channel tuples become colours only in their consuming function.
             foreach (array($value, 'hsl(' . $value . ')') as $candidate) {
                 if (!CssColor::opaque($candidate)) continue;
@@ -177,6 +178,7 @@ final class DesignUsageCollector
             'root_font_size_authored' => $this->resolver->hasAuthoredHtmlFontSize($body),
             'root' => $root,
             'root_color_tokens' => $rootColorTokens,
+            'root_design_tokens' => $rootDesignTokens,
             'text' => self::rows($this->text),
             'backgrounds' => self::rows($this->backgrounds),
             'spacing' => self::rows($this->spacing),
