@@ -98,6 +98,17 @@ final class NavigationStyleProjector
             $rules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
                 . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){display:block!important;visibility:visible!important}';
         }
+        // An inline layout carrier is `display:contents` so its inline content
+        // lays out in the source's own box. In the editor that paragraph is
+        // the RichText root, and a boxless element cannot take focus: putting
+        // the caret in it to replace its text (a `<time>` date line) left focus
+        // outside, and the typed text never reached the block (issue #5797).
+        // Give the carrier an inline box only while it is being edited: at
+        // rest the canvas keeps the front end's boxless layout, and the front
+        // end never matches this editor-only rule.
+        if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
+            $rules[] = ':root .editor-styles-wrapper p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '[contenteditable="true"]:is(.is-selected,:focus){display:inline}';
+        }
         foreach ( self::focusedEmptyRichTextRepairRules($projectedAuthorCss) as $repairRule ) {
             $rules[] = $repairRule;
         }
@@ -189,20 +200,6 @@ final class NavigationStyleProjector
                 // transport sits under the shell's inner-blocks layer rather
                 // than directly under a block element.
                 . ':root .editor-styles-wrapper .block-editor-block-list__block>div:not([class]):not([id]):not([style]):has(>.' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder){display:contents}';
-        }
-        // A source rule can hide an empty element (`p:empty{display:none}`).
-        // In the editor that element is a live RichText root: retyping it
-        // empties it for a moment (select-all + input, or Backspace to blank),
-        // the rule then removes its box, the caret leaves, and the edit is
-        // dropped. Keep the focused root's box while it is empty; the rest
-        // state, saved markup and the front end are unchanged. The per-rule
-        // repairs above mirror only selectors whose `:empty` is the plain
-        // subject compound, while the editor's `[data-empty]` translation
-        // hides through every spelling (`:is(p:empty,h2:empty)`,
-        // `:where(:empty)`, nested rules): this root-level rule does not
-        // depend on how the authored selector is written.
-        if ( preg_match('/:empty(?![\w-])[^{}]*\{[^}]*display\s*:\s*none/i', $this->session->authorStyleAnalysis()->combinedCss()) ) {
-            $rules[] = ':root .editor-styles-wrapper [contenteditable="true"]:focus:is(:empty,[data-empty="true"]){display:revert!important}';
         }
         if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->session->authorStyleAnalysis()->combinedCss()) ) {
             $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';

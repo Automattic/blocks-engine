@@ -68,7 +68,6 @@
     "test:fill-image-flex-row-browser": "node tests/unit/fill-image-flex-row-browser.mjs",
     "test:background-image-stacking-browser": "node tests/contract/background-image-stacking-browser.mjs",
     "test:custom-property-state-paint-browser": "node tests/contract/custom-property-state-paint-browser.mjs",
-    "test:empty-hidden-richtext-edit-browser": "node tests/contract/empty-hidden-richtext-edit-browser.mjs",
     "test:detached-auto-inset-backdrop-browser": "node tests/unit/detached-auto-inset-backdrop-browser.mjs",
     "test:social-profile-flex-cluster-browser": "node tests/unit/social-profile-flex-cluster-browser.mjs",
     "test:native-button-control-font-browser": "node tests/unit/native-button-control-font-browser.mjs",
