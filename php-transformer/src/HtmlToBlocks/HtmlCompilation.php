@@ -1902,26 +1902,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /** The nearest source ancestor that emits a block: neutral boxes are skipped. */
-    /**
-     * Captured observations of the box an element lays out in: its block
-     * parent's, or past a `display:contents` parent (which generates no box)
-     * the nearest observed ancestor that generates one.
-     *
-     * @param array<string, array<string, mixed>> $parents The block parent's observations.
-     * @return array<string, array<string, mixed>>
-     */
-    private function boxTreeLayoutParent(?DOMElement $parent, array $parents): array
-    {
-        for ($depth = 0; null !== $parent && array() !== $parents && $depth < 8; ++$depth) {
-            foreach ($parents as $observation) {
-                if ('contents' !== ($observation['used_styles']['display'] ?? '')) return $parents;
-            }
-            $parent = $this->blockParentElement($parent);
-            $parents = null !== $parent ? $this->session->boxTreeEvidence($parent) : array();
-        }
-        return array();
-    }
-
     private function blockParentElement(DOMElement $element): ?DOMElement
     {
         $parent = $element->parentNode;
@@ -2180,7 +2160,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $viewports = $this->session->boxTreeViewports();
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
-            $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->boxTreeLayoutParent($blockParent, $parents));
+            $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->session->boxTreeEvidence(...));
             $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
