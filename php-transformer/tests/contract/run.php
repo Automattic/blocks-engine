@@ -3999,13 +3999,13 @@ $assert(array() === ($unknownIframe['fallbacks'] ?? array()), 'bounded visual if
 $unknownIframeIslands = array_values(array_filter($unknownIframe['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
 $assert(1 === count($unknownIframeIslands), 'unknown iframe projects as a runtime island');
 $assert('iframe_requires_embed_runtime' === ($unknownIframeIslands[0]['preservation_reason'] ?? ''), 'unknown iframe runtime island exposes preservation reason');
-$unknownVisualIframeBlock = array_values(array_filter($unknownIframe['blocks'][0]['innerBlocks'] ?? array(), static fn (array $block): bool => 'custom/visual-iframe' === ($block['blockName'] ?? '')))[0] ?? array();
-$unknownSerialized = (string) ($unknownIframe['serialized_blocks'] ?? '');
-$assert(! str_contains($unknownSerialized, '<!-- wp:embed'), 'unknown iframe does not become a provider embed block');
-$assert('custom/visual-iframe' === ($unknownVisualIframeBlock['blockName'] ?? ''), 'bounded visible unknown iframe is materialized as the typed visual-iframe companion');
-$assert(! str_contains($unknownSerialized, '<!-- wp:html') && str_contains($unknownSerialized, '<!-- wp:custom/visual-iframe'), 'bounded visual iframe does not use a core HTML fallback');
-$assert(str_contains($unknownSerialized, '<iframe') && str_contains($unknownSerialized, 'width="640"') && str_contains($unknownSerialized, 'height="360"'), 'bounded iframe source dimensions survive companion save serialization');
-$assert(str_contains($unknownSerialized, 'title="Interactive demo"') && str_contains($unknownSerialized, 'loading="lazy"') && str_contains($unknownSerialized, 'sandbox="allow-scripts"') && str_contains($unknownSerialized, 'referrerpolicy="no-referrer"'), 'bounded iframe accessibility and safe runtime attributes survive companion save serialization');
+$unknownVisualIframeBlock = array_values(array_filter($unknownIframe['blocks'][0]['innerBlocks'] ?? array(), static fn (array $block): bool => null !== \Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture::frame($block)))[0] ?? array();
+$unknownSerialized = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture::render((string) ($unknownIframe['serialized_blocks'] ?? ''));
+$assert(! str_contains((string) ($unknownIframe['serialized_blocks'] ?? ''), '"providerNameSlug"'), 'unknown iframe does not become a provider embed block');
+$assert('core/embed' === ($unknownVisualIframeBlock['blockName'] ?? ''), 'bounded visible unknown iframe is materialized as a core embed frame');
+$assert(! str_contains($unknownSerialized, '<!-- wp:html') && array() === ($unknownIframe['source_reports']['generated_blocks'] ?? array()), 'bounded visual iframe does not use a core HTML fallback or a generated block');
+$assert(str_contains($unknownSerialized, '<iframe') && str_contains($unknownSerialized, 'width="640"') && str_contains($unknownSerialized, 'height="360"'), 'bounded iframe source dimensions survive the rendered frame');
+$assert(str_contains($unknownSerialized, 'title="Interactive demo"') && str_contains($unknownSerialized, 'loading="lazy"') && str_contains($unknownSerialized, 'sandbox="allow-scripts"') && str_contains($unknownSerialized, 'referrerpolicy="no-referrer"'), 'bounded iframe accessibility and safe runtime attributes survive the rendered frame');
 $assert(str_contains($unknownSerialized, 'Playground'), 'ancestor content around unknown iframe still converts heading content');
 $assert(str_contains($unknownSerialized, 'Before embed.'), 'ancestor content before unknown iframe still converts');
 $assert(str_contains($unknownSerialized, 'After embed.'), 'ancestor content after unknown iframe still converts');
@@ -4015,15 +4015,15 @@ $responsiveIframeWrapper = ( new HtmlTransformer() )->transform(
     '<main><wix-iframe data-src=""><div class="map-container"><iframe title="Map" src="https://example.test/map" width="1280" height="350"></iframe></div></wix-iframe><wix-iframe data-src=""><div class="map-container"></div></wix-iframe></main>'
 )->toArray();
 $assert(array() === ($responsiveIframeWrapper['fallbacks'] ?? array()), 'an inactive custom media placeholder does not emit an unsupported-element fallback');
-$assert(1 === substr_count((string) ($responsiveIframeWrapper['serialized_blocks'] ?? ''), '<iframe'), 'the active custom media variant still lowers through bounded iframe conversion');
+$assert(1 === substr_count(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture::render((string) ($responsiveIframeWrapper['serialized_blocks'] ?? '')), '<iframe'), 'the active custom media variant still lowers through bounded iframe conversion');
 
 $customIframeMap = ( new HtmlTransformer() )->transform(
     '<main><vendor-iframe data-src="https://example.test/map" title="Studio map" width="1280" height="350"><div class="map-container"></div></vendor-iframe></main>'
 )->toArray();
 $customIframeMapMarkup = (string) ($customIframeMap['serialized_blocks'] ?? '');
-$customIframeMapBlock = array_values(array_filter($customIframeMap['blocks'][0]['innerBlocks'] ?? array(), static fn (array $block): bool => 'custom/visual-iframe' === ($block['blockName'] ?? '')))[0] ?? ($customIframeMap['blocks'][0] ?? array());
-$assert('custom/visual-iframe' === ($customIframeMapBlock['blockName'] ?? ''), 'portable custom iframe map materializes as the typed visual-iframe companion');
-$assert('https://example.test/map' === ($customIframeMapBlock['attrs']['src'] ?? '') && '1280' === ($customIframeMapBlock['attrs']['width'] ?? ''), 'portable custom iframe map retains destination and geometry');
+$customIframeMapBlock = array_values(array_filter($customIframeMap['blocks'][0]['innerBlocks'] ?? array(), static fn (array $block): bool => null !== \Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture::frame($block)))[0] ?? ($customIframeMap['blocks'][0] ?? array());
+$assert(null !== \Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture::frame($customIframeMapBlock), 'portable custom iframe map materializes as a core embed frame');
+$assert('https://example.test/map' === ($customIframeMapBlock['attrs']['url'] ?? '') && '1280' === (\Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture::frame($customIframeMapBlock)['width'] ?? ''), 'portable custom iframe map retains destination and geometry');
 $assert(array() === ($customIframeMap['fallbacks'] ?? array()) && ! str_contains($customIframeMapMarkup, '<!-- wp:html') && ! str_contains($customIframeMapMarkup, 'html_unsupported_element'), 'portable custom iframe map does not emit raw HTML or unsupported-element fallbacks');
 $assert('pass' === ($customIframeMap['source_reports']['wp_block_validity']['status'] ?? ''), 'portable custom iframe map save shape is Gutenberg-valid');
 $customIframeMapIslands = array_values(array_filter($customIframeMap['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
@@ -4041,7 +4041,7 @@ $assert(! str_contains((string) ($customIframeGaps['serialized_blocks'] ?? ''), 
 $visualIframeGeometry = ( new HtmlTransformer() )->transform(
     '<main><div style="width:1280px;height:350px;margin:0 80px 10px"><iframe title="Map surface" src="https://example.test/map" width="100%" height="100%"></iframe></div><p>Following content</p></main>'
 )->toArray();
-$visualIframeGeometryMarkup = (string) ($visualIframeGeometry['serialized_blocks'] ?? '');
+$visualIframeGeometryMarkup = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture::render((string) ($visualIframeGeometry['serialized_blocks'] ?? ''));
 $visualIframeGeometryCss = (string) ($visualIframeGeometry['css'] ?? '');
 $assert(str_contains($visualIframeGeometryMarkup, 'width="100%"') && str_contains($visualIframeGeometryMarkup, 'height="100%"') && str_contains($visualIframeGeometryMarkup, 'title="Map surface"'), 'bounded iframe retains source sizing and title within its geometry-owning wrapper');
 $assert((str_contains($visualIframeGeometryMarkup, 'margin-bottom:10px') || str_contains($visualIframeGeometryCss, 'margin-bottom:10px')) && str_contains($visualIframeGeometryMarkup, 'Following content'), 'iframe wrapper margins and following content layout remain serialized');
@@ -4049,7 +4049,7 @@ $assert((str_contains($visualIframeGeometryMarkup, 'margin-bottom:10px') || str_
 $suppressedIframe = ( new HtmlTransformer() )->transform(
     '<main><iframe src="https://example.test/tag-manager" width="0" height="0" style="display:none"></iframe><iframe src="javascript:alert(1)" width="640" height="360" srcdoc="<p>unsafe</p>"></iframe><iframe src="https://example.test/unbounded"></iframe></main>'
 )->toArray();
-$suppressedIframeMarkup = (string) ($suppressedIframe['serialized_blocks'] ?? '');
+$suppressedIframeMarkup = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture::render((string) ($suppressedIframe['serialized_blocks'] ?? ''));
 $assert(! str_contains($suppressedIframeMarkup, '<iframe'), 'zero-size, unsafe, and unbounded iframes remain suppressed');
 
 $staticTemplate = ( new HtmlTransformer() )->transform(

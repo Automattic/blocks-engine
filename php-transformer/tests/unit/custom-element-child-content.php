@@ -17,7 +17,7 @@ foreach ( $cases as $name => $html ) {
     $iframes = array();
     $walk = static function (array $blocks) use (&$walk, &$iframes): void {
         foreach ( $blocks as $block ) {
-            if ( 'custom/visual-iframe' === ($block['blockName'] ?? '') ) {
+            if ( isset($block['attrs']['metadata']['blocksEngineIframe']) ) {
                 $iframes[] = $block;
             }
             $walk($block['innerBlocks'] ?? array());
@@ -25,7 +25,7 @@ foreach ( $cases as $name => $html ) {
     };
     $walk($result['blocks'] ?? array());
     $unsupported = array_filter($result['fallbacks'] ?? array(), static fn (array $finding): bool => 'html_unsupported_element' === ($finding['diagnostic_code'] ?? ''));
-    if ( array() !== $unsupported || 1 !== count($iframes) || 'https://app.cal.com/example/30min?embed=true' !== ($iframes[0]['attrs']['src'] ?? '') ) {
+    if ( array() !== $unsupported || 1 !== count($iframes) || 'https://app.cal.com/example/30min?embed=true' !== ($iframes[0]['attrs']['url'] ?? '') ) {
         fwrite(STDERR, "FAIL: {$name}: expected no unsupported-element finding and one visual iframe with the original source\n");
         exit(1);
     }

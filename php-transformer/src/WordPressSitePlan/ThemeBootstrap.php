@@ -273,6 +273,8 @@ PHP;
         if (self::markupContains($documents, 'blocksEngineImageSelection')) {
             $lines[] = self::IMAGE_SELECTION_RENDERER;
         }
+        $iframeEmbeds = IframeEmbedRuntime::source($documents);
+        if ('' !== $iframeEmbeds) $lines[] = $iframeEmbeds;
         if (self::markupContains($documents, 'blocks-engine-image')) {
             $lines[] = self::SINGLE_SOURCE_IMAGE_RUNTIME;
         }
