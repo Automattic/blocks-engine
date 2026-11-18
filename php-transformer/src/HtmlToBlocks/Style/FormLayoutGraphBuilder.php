@@ -25,11 +25,11 @@ final class FormLayoutGraphBuilder
     private const MAX_CONDITION_DEPTH = 8;
     private const MAX_VARIANTS = 256;
     private const MAX_PROVENANCE = 16;
-    private const SOURCE_BOX_PROPERTIES = array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'position', 'top', 'right', 'bottom', 'left', 'place-self');
+    private const SOURCE_BOX_PROPERTIES = array('max-width', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'position', 'top', 'right', 'bottom', 'left', 'place-self');
     // Shorthands read from source and expanded into their longhands before the
     // cascade; they never appear as graph keys themselves.
-    private const SHORTHAND_PROPERTIES = array('flex-flow');
-    private const SOURCE_BOX_KEYS = array('margin_top', 'margin_right', 'margin_bottom', 'margin_left', 'position', 'top', 'right', 'bottom', 'left');
+    private const SHORTHAND_PROPERTIES = array('flex-flow', 'margin-block', 'margin-inline', 'padding-block', 'padding-inline');
+    private const SOURCE_BOX_KEYS = array('max_width', 'margin_top', 'margin_right', 'margin_bottom', 'margin_left', 'position', 'top', 'right', 'bottom', 'left');
     private const PROPERTIES = array( 'display', 'width', 'height', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-items', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end' );
     private const LAYOUT_KEYS = array( 'display', 'width', 'height', 'min_height', 'padding', 'padding_top', 'padding_right', 'padding_bottom', 'padding_left', 'padding_block_start', 'padding_block_end', 'padding_inline_start', 'padding_inline_end', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_items', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis', 'margin_block_start', 'margin_block_end', 'margin_inline_start', 'margin_inline_end' );
     private const V1_PROPERTIES = array( 'display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
@@ -1081,7 +1081,7 @@ final class FormLayoutGraphBuilder
         $expanded = array();
         foreach ($declarations as $declaration) {
             $name = $declaration['name'];
-            if (!in_array($name, array('margin', 'place-self', 'flex-flow'), true)) {
+            if (!in_array($name, array('margin', 'place-self', 'flex-flow', 'margin-block', 'margin-inline', 'padding-block', 'padding-inline'), true)) {
                 $expanded[] = $declaration;
                 continue;
             }
@@ -1090,6 +1090,11 @@ final class FormLayoutGraphBuilder
             $parts = CssValueSplitter::splitTopLevelWhitespace($value);
             if ('margin' === $name && count($parts) >= 1 && count($parts) <= 4) {
                 foreach (array_combine(array('top', 'right', 'bottom', 'left'), CssValueInspector::expandBoxShorthand($value)) as $side => $part) $expanded[] = array('name' => 'margin-' . $side, 'value' => $part . $important);
+            } elseif (in_array($name, array('margin-block', 'margin-inline', 'padding-block', 'padding-inline'), true) && count($parts) >= 1 && count($parts) <= 2) {
+                // The provider graph names logical sides, not axis shorthands.
+                // Expand before cascading so later longhands still win normally.
+                $expanded[] = array('name' => $name . '-start', 'value' => $parts[0] . $important);
+                $expanded[] = array('name' => $name . '-end', 'value' => ($parts[1] ?? $parts[0]) . $important);
             } elseif ('flex-flow' === $name && null !== ($flow = FlexFlowParser::parse($parts))) {
                 // `flex-flow` resets both longhands; an omitted one is its initial value.
                 $expanded[] = array('name' => 'flex-direction', 'value' => $flow[0] . $important);
