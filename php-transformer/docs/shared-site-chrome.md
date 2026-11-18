@@ -24,6 +24,16 @@ items rather than acquiring another layout box. This addresses #5213 without
 reviving slug-based template-part unwrapping. The public compiler contract is
 `route-invariant-footer-frame.php`.
 
+A shared header and footer nested in a site wrapper beside `main` (Squarespace's
+`#siteWrapper`) move with that wrapper to the templates. Chrome that precedes
+the header in the wrapper and carries a runtime binding (a floating cart link)
+would otherwise sit in the template frame, where no binding can anchor, and
+keep both references in page content. When every route repeats that leading run
+(compared without route-local box-tree node ids), it joins the header part and
+its bindings re-anchor there, mirroring how trailing frame chrome folds into the
+footer part. Route coverage counts only template references. The compiler
+contract is `tests/unit/shell-wrapper-shared-header-template.php`.
+
 When the source has no area landmark, extraction adds a semantic header/footer
 Group marked `blocks-engine-shell-landmark`. The same frontend-only transport
 stylesheet makes this synthetic landmark boxless too: source children remain

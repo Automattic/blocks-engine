@@ -730,7 +730,10 @@ final class SitePlanRun
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
         $documentChrome = $this->shellExtraction->separateCaptureDocumentChrome($shells['pages'], $shells['runtime_declarations'], $runtimeEntityRecords);
         $shells['diagnostics'] = array_merge($shells['diagnostics'], $documentChrome['diagnostics']);
-        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($documentChrome['pages'], $parts, $shells['runtime_declarations']);
+        $leadingChrome = $this->shellExtraction->withLeadingBoundChromeInHeader($documentChrome['pages'], $parts, $shells['runtime_declarations'], $assets);
+        $parts = $leadingChrome['parts'];
+        $shells['runtime_declarations'] = $leadingChrome['runtime_declarations'];
+        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($leadingChrome['pages'], $parts, $shells['runtime_declarations']);
         $pages = $shellFrames['pages'];
         $folded = $this->shellExtraction->foldFrameTrailingChrome($shellFrames['frames'], $parts, $pages);
         $shellFrames['frames'] = $folded['frames'];

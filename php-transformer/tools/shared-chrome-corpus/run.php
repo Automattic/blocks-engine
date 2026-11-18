@@ -183,10 +183,8 @@ foreach ($inputs as $id => $dir) {
         $routeResidue[] = array('route' => $sourcePath, 'navigation_in_content' => $containsNavigation, 'repeated_edge_residue' => $hasRepeatedEdge);
         $templateSlug = !empty($page['entrypoint']) ? 'front-page' : ('page-' . (string) ($page['slug'] ?? ''));
         if (!isset($templateMarkup[$templateSlug])) $templateSlug = 'page';
-        // Inline shared shells render through page-content references at the
-        // source position, not necessarily through the enclosing template.
         foreach ($parts as $partIndex => $part) {
-            if (preg_match('/<!--\s*wp:template-part\s+\{[^}]*"slug":"' . preg_quote((string) $part['slug'], '/') . '"/', (string) ($templateMarkup[$templateSlug] ?? '') . (string) ($page['canonical_block_markup'] ?? ''))) $parts[$partIndex]['routes'][] = $sourcePath;
+            if (preg_match('/<!--\s*wp:template-part\s+\{[^}]*"slug":"' . preg_quote((string) $part['slug'], '/') . '"/', (string) ($templateMarkup[$templateSlug] ?? ''))) $parts[$partIndex]['routes'][] = $sourcePath;
         }
     }
     $menus = $plan['menus'] ?? array();
