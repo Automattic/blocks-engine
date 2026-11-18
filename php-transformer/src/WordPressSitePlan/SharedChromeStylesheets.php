@@ -580,6 +580,12 @@ final class SharedChromeStylesheets
         $elements = array();
         foreach ($pages as $page) {
             $document = HtmlSerialization::parseDocument('<html><body>' . ($page['canonical_block_markup'] ?? '') . '</body></html>');
+            // Rules conditioned on the document root (`body:not(.responsive) …`)
+            // match only under the route's own html and body attributes.
+            foreach (array('html' => 'root_attributes', 'body' => 'body_attributes') as $tag => $key) {
+                $root = $document->getElementsByTagName($tag)->item(0);
+                foreach ((array) ($page['document_metadata'][$key] ?? array()) as $name => $value) $root?->setAttribute((string) $name, (string) $value);
+            }
             foreach ((new \DOMXPath($document))->query('//*[@class or @id]') ?: array() as $element) {
                 if (!$element instanceof \DOMElement) continue;
                 $hooks = array_intersect(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), $classes);

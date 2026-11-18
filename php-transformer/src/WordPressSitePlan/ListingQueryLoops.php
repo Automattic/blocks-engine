@@ -204,14 +204,52 @@ final class ListingQueryLoops
      */
     public function cardFeaturedImage(string $markup, array $post, string $route): ?array
     {
+        $slice = $this->cardFeaturedImageSlice($markup, $post, $route);
+        return null === $slice ? null : PostBlocks::leadImage($slice);
+    }
+
+    /**
+     * The card block projected as core/post-featured-image.
+     *
+     * @param array<string,mixed> $post
+     */
+    private function cardFeaturedImageSlice(string $markup, array $post, string $route): ?string
+    {
         $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($post['canonical_block_markup']);
         foreach ($index->ranges() as $leaf) {
             $slice = substr($markup, $leaf['offset'], $leaf['length']);
             if ('featured-image' !== $this->classifyCardBlock($slice, $post, $route, $postIndex) && !('image' === PostBlocks::sourceBlockName($slice) && str_contains($markup, '"wrappers"'))) continue;
-            return PostBlocks::leadImage($slice);
+            return $slice;
         }
         return null;
+    }
+
+    /**
+     * Every post renders its own image in the card box the source reserved.
+     * When every card image states the same box ratio, the template's
+     * featured image keeps that box and covers it; otherwise it is unchanged.
+     *
+     * @param array<int,array{offset:int,length:int,route:string,post:array<string,mixed>}> $cards
+     */
+    private function withCardImageRatio(string $template, string $markup, array $cards): string
+    {
+        if (!str_contains($template, '<!-- wp:post-featured-image')) return $template;
+        $ratio = null;
+        foreach ($cards as $card) {
+            $slice = $this->cardFeaturedImageSlice(substr($markup, $card['offset'], $card['length']), $card['post'], $card['route']);
+            $cardRatio = null === $slice ? null : PostBlocks::intrinsicRatio($slice);
+            if (null === $cardRatio || (null !== $ratio && $ratio !== $cardRatio)) return $template;
+            $ratio = $cardRatio;
+        }
+        if (null === $ratio) return $template;
+        return (string) preg_replace_callback('/<!-- wp:post-featured-image (\{.*?\}) \/-->/s', static function (array $match) use ($ratio): string {
+            $attrs = BlockAttributes::decodeComment('wp:post-featured-image ' . $match[1]);
+            if (!is_array($attrs) || isset($attrs['aspectRatio']) || isset($attrs['height'])) return $match[0];
+            $attrs['aspectRatio'] = $ratio;
+            $attrs['scale'] = 'cover';
+            return '<!-- wp:post-featured-image ' . BlockAttributes::encode($attrs) . ' /-->';
+        }, $template);
     }
 
     /**
@@ -482,7 +520,7 @@ final class ListingQueryLoops
         } elseif (1 === count($uniqueGaps) && 1 === preg_match('/^<!-- wp:(?:separator|spacer)\b/', trim($uniqueGaps[0]))) {
             $template .= $uniqueGaps[0];
         }
-        return $template;
+        return $this->withCardImageRatio($template, $markup, $cards);
     }
 
     /**

@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = fileURLToPath(new URL('../../..', import.meta.url));
-const code = 'require $argv[1]."/vendor/autoload.php"; $out=[]; foreach(require $argv[1]."/tests/fixtures/conditional-inline-positioning.php" as $fixture){$r=(new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform("<style>".$fixture["css"]."</style>".$fixture["html"])->toArray();$fixture["result"]=$r;$out[]=$fixture;}echo json_encode($out);';
+const code = 'require $argv[1]."/vendor/autoload.php"; $out=[]; foreach(require $argv[1]."/tests/fixtures/conditional-inline-positioning.php" as $fixture){$r=(new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform("<style>".$fixture["css"]."</style>".$fixture["html"])->toArray();$fixture["result"]=$r;$fixture["rendered"]=Automattic\\BlocksEngine\\PhpTransformer\\Tests\\Support\\IframeEmbedRendererFixture::render($r["serialized_blocks"]);$out[]=$fixture;}echo json_encode($out);';
 const fixtures = JSON.parse(execFileSync('php', ['-r', code, root], { encoding:'utf8' }));
 const browser = await chromium.launch({headless:true});
 try {
@@ -21,7 +21,9 @@ try {
         });
       };
       const source = await measure(fixture.html,fixture.css);
-      const candidate = await measure(fixture.result.serialized_blocks,css);
+      // The frontend markup: a core/embed frame renders through the generated
+      // theme's frame renderer, as WordPress serves it.
+      const candidate = await measure(fixture.rendered,css);
       if (fixture.active.includes(width)) {
         assert.deepEqual(candidate,source,`${fixture.name} preserves the positioned iframe surface at ${width}px`);
         assert.equal(candidate.height,180);

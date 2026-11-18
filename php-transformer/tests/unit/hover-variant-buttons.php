@@ -29,10 +29,17 @@ $bind = static function (string $css, string $markup) use ($system): string {
     return (new \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\PresetBinding($system, array(array('kind' => 'css', 'content' => $css))))->bind($markup);
 };
 $state = '.paint:hover{background-color:#1d4ed8}';
+// The inline literal outranks the state rule, so an inline preset variable
+// renders the same whatever the resting cascade paints.
 foreach (array(
     'no resting rule' => $state,
     'different resting colour' => '.paint{background-color:#fff}' . $state,
     'conditional-only resting rule' => '@media(min-width:800px){.paint{background-color:#2563eb}}' . $state,
+) as $label => $css) {
+    $inline = $bind($css, $button);
+    if (!str_contains($inline, '"background":"var:preset|color|') || !str_contains($inline, 'background-color:var(--wp--preset--color--') || 1 === preg_match('/has-[a-z0-9-]+-background-color/', $inline)) $errors[] = 'Must bind an inline preset variable: ' . $label;
+}
+foreach (array(
     'important competitor' => '.paint{background-color:#2563eb}.paint{background-color:#fff!important}' . $state,
     'style text observer' => '.paint{background-color:#2563eb}[style*="background-color"]{background-color:#fff}' . $state,
 ) as $label => $css) {

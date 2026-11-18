@@ -100,6 +100,9 @@ final class ContentRoundTripReporter
     private function extractTextNodes(string $markup): array
     {
         $stripped = $this->stripBlockComments($markup);
+        // A core/embed saves its URL as the wrapper's text: that is the embed's
+        // source attribute, not visible copy.
+        $stripped = (string) preg_replace('/(<div class="wp-block-embed__wrapper">)[^<]*(<\/div>)/', '$1$2', $stripped);
         $nodes = array();
         foreach ( preg_split('/<[^>]+>/', $stripped) ?: array() as $raw ) {
             $text = $this->htmlToPlainText($raw);
