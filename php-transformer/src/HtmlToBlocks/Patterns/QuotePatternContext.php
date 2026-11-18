@@ -23,15 +23,45 @@ final class QuotePatternContext
      */
     public function figureQuotationTypography(DOMElement $blockquote): array
     {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($blockquote);
-        $typography = array_intersect_key($declarations, array_flip(array(
+        return $this->mappedQuotationStyle($blockquote, array(
             'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform',
-        )));
+        ))['typography'] ?? array();
+    }
+
+    /**
+     * The authored margins of the consumed blockquote. Its paragraph keeps the
+     * blockquote's block box, so an authored `margin-bottom` still separates
+     * the quotation from its caption. Browser-default blockquote margins are
+     * not authored and stay dropped; so does the rest of the box (width,
+     * padding), which would register generated geometry.
+     *
+     * @return array<string, mixed>
+     */
+    public function figureQuotationMargin(DOMElement $blockquote): array
+    {
+        return $this->mappedQuotationStyle($blockquote, array(
+            'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+        ))['spacing']['margin'] ?? array();
+    }
+
+    /**
+     * @param list<string> $properties
+     * @return array<string, mixed>
+     */
+    private function mappedQuotationStyle(DOMElement $blockquote, array $properties): array
+    {
+        $declarations = array_intersect_key(
+            $this->styleResolver->structuralPresentationDeclarations($blockquote),
+            array_flip($properties)
+        );
+        if (array() === $declarations) {
+            return array();
+        }
         $mapped = $this->styleResolver->styleAttributeMapper()->map(
-            $typography,
+            $declarations,
             fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $blockquote)
         );
-        return $mapped['style']['typography'] ?? array();
+        return $mapped['style'] ?? array();
     }
 
     /**
@@ -58,6 +88,11 @@ final class QuotePatternContext
             if ('' !== $value) {
                 $declarations[$property] = $value;
             }
+        }
+        if (array() !== $declarations) {
+            // The span stands for the caption's block box. Inline, it would sit
+            // in a line box sized by the cite's own font, not the caption's.
+            $declarations['display'] = 'block';
         }
         $style = $this->styleResolver->cssDeclarationString($declarations);
         return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
