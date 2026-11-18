@@ -427,7 +427,7 @@ cascade:
 - the inline style is not exactly what the attributes serialize;
 - an `!important` rule for the property could match the same element, unless it excludes the preset class (`:not(.has-text-color)`);
 - a selector reads the inline style text (`[style*=…]`);
-- a `:hover`, `:focus` or `:active` rule sets the property on the element (a preset class is `!important` and would mask it). A button whose literal colour is the `button` element style's token, with a `:hover` element value, drops the literal and its `has-text-color`/`has-background` class instead: it renders through the element style and its `:hover`;
+- a `:hover`, `:focus` or `:active` rule sets the property on the element (a preset class is `!important` and would mask it). A button whose literal colour is the `button` element style's token, with a `:hover` element value, drops the literal and its `has-text-color`/`has-background` class instead: it renders through the element style and its `:hover`. A plain inline colour equal to a token still reads it, as an inline preset variable (`color:var(--wp--preset--color--accent-1)`) in the same declaration slot, so the cascade and the state rule are unchanged;
 - a media query (breakpoint, colour scheme) gives the property a value matching another token, or redefines a custom property it reads;
 - elements with the same class list render different values.
 
@@ -452,6 +452,7 @@ report repeats as `design_system`:
 - `preset_share`: the share of block colour, size, family and spacing attribute values that are preset references (zero lengths, `auto` and CSS-wide keywords are not counted);
 - `restyle_coverage`: of the text and background colours on rendered blocks, the share a palette edit changes, because they come from a preset through the block's attributes, its classes' rules, an ancestor or the root styles (`RestyleCoverage`). Template parts count once per page. `restyle_text_elements`, `restyle_text_preset`, `restyle_backgrounds` and `restyle_backgrounds_preset` are the counts;
 - `palette_size`;
+- `literal_preset_color_count`: block colour attributes (text, background, border, element link colours) that store a literal equal to a palette preset, which a palette edit would skip; zero when every one is bound;
 - `unused_font_families`: declared primary families no rendered text uses;
 - `theme_css_bytes`: every stylesheet the theme ships (author projections, per-page copies, shared chrome, engine support) plus inline block `style` attribute bytes;
 - `unique_source_css_bytes`: the author's stylesheets as captured, each counted once (compiled-site CSS assets other than engine support, deduplicated by `source_hash`, using their `source_bytes`);

@@ -676,6 +676,10 @@ final class DesignSystem
      * - `palette_size`: colours in the palette.
      * - `literal_color_count`: painted opaque colours without a palette token
      *   (report `literal_colors`); zero when every usage colour is registered.
+     * - `literal_preset_color_count`: block colour attributes (text,
+     *   background, border and element link colours; see styleColors())
+     *   that store a literal equal to a palette preset, so a palette edit
+     *   skips them; zero when every such value is bound to its preset.
      * - `unused_font_families`: primary families (the first name of a
      *   `font-family` stack, unquoted) the source stylesheets declare that no
      *   rendered text uses as its primary, so the theme does not offer them.
@@ -704,7 +708,7 @@ final class DesignSystem
      */
     public function metrics(array $markups, array $assets, array $routeMarkups = array(), array $refusals = array(), ?int $uniqueSourceBytes = null): array
     {
-        $preset = $literal = 0;
+        $preset = $literal = $literalPresetColors = 0;
         $inline = $engine = $shipped = 0;
         foreach ($markups as $markup) {
             if (preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) {
@@ -713,6 +717,7 @@ final class DesignSystem
                     if (!is_array($attributes)) continue;
                     foreach (array('textColor', 'backgroundColor', 'fontSize', 'fontFamily') as $key) if (is_string($attributes[$key] ?? null)) $preset++;
                     $style = ArrayField::array($attributes, 'style');
+                    foreach (self::styleColors($style) as $color) if (!str_starts_with($color, 'var:') && null !== $this->colorSlug($color)) $literalPresetColors++;
                     $values = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $style['typography']['fontSize'] ?? null, $style['typography']['fontFamily'] ?? null);
                     foreach (array('padding', 'margin') as $box) foreach ((array) ($style['spacing'][$box] ?? array()) as $value) $values[] = $value;
                     foreach ((array) ($style['spacing']['blockGap'] ?? array()) as $value) $values[] = $value;
@@ -769,6 +774,7 @@ final class DesignSystem
             'refusal_reasons' => $refusals,
             'palette_size' => count($this->colors),
             'literal_color_count' => count($this->literalColors),
+            'literal_preset_color_count' => $literalPresetColors,
             'font_size_count' => count($this->fontSizes),
             'spacing_size_count' => count($this->spacing),
             'font_family_count' => count($this->fontFamilies),
@@ -778,6 +784,31 @@ final class DesignSystem
             'engine_css_bytes' => $engine + $inline,
             'generated_to_source_css_ratio' => 0 === $source ? null : round($theme / $source, 4),
         );
+    }
+
+    /**
+     * The colour values a block's `style` attribute stores: text and
+     * background, the border and each border side, and the text and
+     * background of each element style (`elements.link`) and its states.
+     *
+     * @param array<mixed> $style
+     * @return list<string>
+     */
+    private static function styleColors(array $style): array
+    {
+        $groups = array($style['color'] ?? null);
+        foreach (ArrayField::array($style, 'elements') as $element) {
+            if (!is_array($element)) continue;
+            $groups[] = $element['color'] ?? null;
+            foreach ($element as $state => $styles) if (is_string($state) && str_starts_with($state, ':') && is_array($styles)) $groups[] = $styles['color'] ?? null;
+        }
+        $colors = array();
+        foreach ($groups as $group) foreach (array('text', 'background') as $key) if (is_array($group) && is_string($group[$key] ?? null)) $colors[] = $group[$key];
+        $border = ArrayField::array($style, 'border');
+        foreach (array($border, $border['top'] ?? null, $border['right'] ?? null, $border['bottom'] ?? null, $border['left'] ?? null) as $side) {
+            if (is_array($side) && is_string($side['color'] ?? null)) $colors[] = $side['color'];
+        }
+        return $colors;
     }
 
     /**

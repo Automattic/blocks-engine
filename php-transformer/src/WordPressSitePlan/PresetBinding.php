@@ -84,7 +84,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  *   button whose literal colour is the `button` element style's token, and
  *   whose state rule the element's `:hover` restates, drops the literal
  *   instead, as does a button painted by a matching bound author class
- *   (rendersThroughElement());
+ *   (rendersThroughElement()). A plain inline literal equal to a token
+ *   still reads it, as an inline preset variable in the same cascade slot
+ *   rather than an `!important` preset class;
  * - the source renders the property differently under a media condition
  *   (breakpoint or colour scheme), unless every such value matches the same
  *   token;
@@ -885,9 +887,11 @@ final class PresetBinding
                 ++$d->bound;
                 continue;
             }
-            if (!$safe && 'state_variant' === $reason && null !== $slug && is_string($literal) && $this->restsOn($property, $literal, $tokens, 'button' === $name ? array($this->tagTokens($html, $classes, true), $this->tagTokens('<div>', 'wp-block-button ' . (is_string($attributes->className ?? null) ? $attributes->className : ''))) : null) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) {
+            if (!$safe && 'state_variant' === $reason && null !== $slug && is_string($literal) && ((null !== CssColor::parse($literal) && $this->safe($property, $tokens, array(), false, false, $inlineReason, true)) || $this->restsOn($property, $literal, $tokens, 'button' === $name ? array($this->tagTokens($html, $classes, true), $this->tagTokens('<div>', 'wp-block-button ' . (is_string($attributes->className ?? null) ? $attributes->className : ''))) : null)) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) {
                 // A preset class is !important and would mask the state
-                // rule. The resting rules paint this exact colour, so the
+                // rule. A plain inline colour is block-local evidence of its
+                // resting value; a var() literal needs the resting rules to
+                // paint this exact colour (restsOn()). Either way the
                 // inline declaration keeps its place in the cascade and only
                 // reads its value from the token.
                 ++$d->bound;

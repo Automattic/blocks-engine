@@ -18,5 +18,7 @@ if (1 !== preg_match('/<p\b([^>]*)>Local resting paint<\/p>/', $markup, $state))
 if (!str_contains($state[1], 'color:var(--wp--preset--color--')) throw new RuntimeException('A proven local resting variable binds inline.');
 if (preg_match('/has-[a-z0-9-]+-color\b/', str_replace('has-text-color', '', $state[1]))) throw new RuntimeException('No important preset class masks hover.');
 if (1 !== preg_match('/<p\b([^>]*)>Unproven resting paint<\/p>/', $markup, $guarded)) throw new RuntimeException('The guarded paragraph remains native.');
-if (!str_contains($guarded[1], 'color:#c80000') || str_contains($guarded[1], '--wp--preset--color--')) throw new RuntimeException('A reachable state rule without proven resting paint keeps the authored literal.');
+// A plain inline literal is its own resting evidence: it reads the token in
+// the same declaration slot, without a preset class that would mask hover.
+if (str_contains($guarded[1], 'color:#c80000') || !str_contains($guarded[1], 'color:var(--wp--preset--color--') || preg_match('/has-[a-z0-9-]+-color\b/', str_replace('has-text-color', '', $guarded[1]))) throw new RuntimeException('A reachable state rule keeps a plain inline literal in place, reading its preset.');
 echo "Local resting preset binding passed.\n";

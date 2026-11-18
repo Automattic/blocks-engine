@@ -33,9 +33,12 @@ $attributes = json_decode($light[1], true, 512, JSON_THROW_ON_ERROR);
 $assert($white === ($attributes['textColor'] ?? null), 'An exact palette literal binds despite differing resting colours on the same authored classes.');
 $assert(!isset($attributes['style']['color']['text']) && !str_contains($light[2], 'color:') && str_contains($light[2], 'has-text-color') && str_contains($light[2], 'has-' . $white . '-color'), 'Core preset attributes and classes replace the inline text declaration.');
 
-$unsafe = $compile('.body:hover{color:#fff}');
-$assert(str_contains($unsafe['pages'][0]['canonical_block_markup'], 'style="color:rgb(255, 255, 255)"'), 'Reachable state_variant rules keep the literal.');
-$assert($unsafe['theme']['design_system']['metrics']['refusal_reasons']['state_variant'] > 0, 'The safety refusal remains reported.');
+// A reachable state rule rules out the !important preset class, so the
+// plain inline literal reads its token in the same declaration slot.
+$state = $compile('.body:hover{color:#fff}');
+$stateMarkup = $state['pages'][0]['canonical_block_markup'];
+$assert(str_contains($stateMarkup, 'style="color:var(--wp--preset--color--' . $white . ')"') && !str_contains($stateMarkup, 'has-' . $white . '-color'), 'A state-guarded inline literal binds to an inline preset variable, not a preset class.');
+$assert(0 === $state['theme']['design_system']['metrics']['refusal_reasons']['state_variant'] && 0 === $state['theme']['design_system']['metrics']['literal_preset_color_count'], 'No state-guarded literal equal to a preset is left.');
 // An author !important rule overrides the inline colour, so the source never
 // renders it: the literal is neither kept nor bound, and the author rule paints.
 $important = $compile('.body{color:#fff!important}');
