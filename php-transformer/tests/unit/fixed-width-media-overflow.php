@@ -9,8 +9,8 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture;
 
 $assertions = 0;
 $assert = static function (bool $condition, string $message) use (&$assertions): void {
@@ -32,25 +32,17 @@ $cssFor = static function (array $result): string {
 
 $iframeSource = '<main><div class="host" style="width:100%"><iframe class="juxtapose" width="735" height="3178" src="https://example.test/compare"></iframe></div></main>';
 $iframe = (new HtmlTransformer())->transform($iframeSource)->toArray();
-$iframeMarkup = (string) ($iframe['serialized_blocks'] ?? '');
+$iframeMarkup = IframeEmbedRendererFixture::render((string) ($iframe['serialized_blocks'] ?? ''));
 $iframeCss = $cssFor($iframe);
 $iframeBlock = $iframe['blocks'][0]['innerBlocks'][0] ?? array();
-$assert('custom/visual-iframe' === ($iframeBlock['blockName'] ?? null), 'pixel-width iframe uses the visual iframe companion');
-$assert('735' === ($iframeBlock['attrs']['width'] ?? null) && '3178' === ($iframeBlock['attrs']['height'] ?? null), 'companion retains authored iframe dimensions');
-$assert(str_contains($iframeMarkup, 'width="735"') && str_contains($iframeMarkup, 'height="3178"'), 'saved iframe markup keeps authored width and height');
+$iframeFrame = IframeEmbedRendererFixture::frame($iframeBlock);
+$assert(null !== $iframeFrame, 'pixel-width iframe uses a core embed frame');
+$assert('735' === ($iframeFrame['width'] ?? null) && '3178' === ($iframeFrame['height'] ?? null), 'the frame retains authored iframe dimensions');
+$assert(str_contains($iframeMarkup, 'width="735"') && str_contains($iframeMarkup, 'height="3178"'), 'rendered iframe markup keeps authored width and height');
 $assert(
     str_contains($iframeMarkup, 'max-width:100%') || str_contains($iframeCss, 'iframe{max-width:100%}'),
     'pixel-width iframe is capped to its containing block'
 );
-
-$definition = (new VisualIframeBlockGenerator())->definition('custom');
-$assert('file:./style.css' === ($definition['block_json']['style'] ?? null), 'visual iframe companion declares a stylesheet');
-$assert(
-    str_contains((string) ($definition['assets']['style.css'] ?? ''), 'max-width:100%'),
-    'visual iframe stylesheet caps replaced iframe media'
-);
-$editor = (string) ($definition['assets']['index.js'] ?? '');
-$assert(str_contains($editor, 'maxWidth') || str_contains($editor, 'max-width'), 'editor iframe projection caps width to the containing block');
 
 $imageSource = '<main><div class="slide" style="width:661px"><img src="/media/slide.jpg" alt="Slide" style="width:661px"></div></main>';
 $image = (new HtmlTransformer())->transform($imageSource)->toArray();

@@ -108,6 +108,13 @@ final class MediaTextPattern implements PatternRecognizerInterface
         if ( null === $elementChildren || 2 !== count($elementChildren) ) {
             return null;
         }
+        // core/media-text cannot carry a pane's native `hidden` state, so a
+        // hidden pane would render. Ordinary lowering keeps it on its block.
+        foreach ( $elementChildren as $child ) {
+            if ( $child->hasAttribute('hidden') ) {
+                return null;
+            }
+        }
 
         $mediaCandidates = array();
         foreach ( $elementChildren as $index => $child ) {
@@ -729,6 +736,9 @@ final class MediaTextPattern implements PatternRecognizerInterface
      */
     private function pureMediaResolution(DOMElement $element, ?DOMElement $anchor = null): ?array
     {
+        if ( $element->hasAttribute('hidden') ) {
+            return null;
+        }
         $tagName = strtolower($element->tagName);
         if ( in_array($tagName, array( 'img', 'video' ), true) ) {
             if ( ! $this->hasOnlyIgnorableChildren($element) ) {

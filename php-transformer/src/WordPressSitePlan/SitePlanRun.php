@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssMathValueCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\ShadowedDeclarationPruner;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -357,10 +358,21 @@ final class SitePlanRun
         // A source arm guarded against role carriers is dead once every
         // element naming its class is one of them.
         $assets = ConvertedSourceClassSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
-        // An image arm requiring classes no emitted image figure carries
-        // together matches nothing on any route.
-        $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
+        // A carrier arm restating an emitted image figure on a carrier it
+        // never becomes matches nothing on any route. Menus keep their markup
+        // in `block_markup`: their figures are emitted too.
+        $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
+        // Layout findings name the engine classes of the part they occurred in.
+        $data['diagnostics'] = self::withTemplatePartAttribution($data['diagnostics'], $parts);
+        // Stylesheets are final: a selector hook that no stylesheet or script
+        // delivered to the frontend or the editor canvas, no runtime and no
+        // document root names is dropped from the markup.
+        $hookReferences = UnreferencedEngineClasses::references($assets, $runtimeDeclarations, $runtimeEntityRecords, $rootDocuments, $themeProjection['theme'], $this->compiled['visual_repair'] ?? array(), array_column($pages, 'document_metadata'));
+        $pruned = self::withoutUnreferencedEngineClasses(array('pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'synced_patterns' => $syncedPatterns, 'menus' => $menus, 'entities' => $taxonomyProjection['entities']), $hookReferences, $runtimeDeclarations, $runtimeEntityRecords);
+        if (null !== $pruned) {
+            ['pages' => $pages, 'parts' => $parts, 'templates' => $templates, 'synced_patterns' => $syncedPatterns, 'menus' => $menus, 'entities' => $taxonomyProjection['entities'], 'declarations' => $runtimeDeclarations, 'records' => $runtimeEntityRecords] = $pruned;
+        }
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
         foreach ($assets as &$asset) unset($asset['reference_origin']); unset($asset);
@@ -397,7 +409,6 @@ final class SitePlanRun
             $unitFindings = array_merge($unitFindings, $droppedDeclarations);
             $recoveryDiagnostics = array_merge($recoveryDiagnostics, $droppedDeclarations);
         }
-        $data['diagnostics'] = self::withTemplatePartAttribution($data['diagnostics'], $parts);
         $commentEntities = array();
         foreach ($pages as &$page) {
             array_push($commentEntities, ...($page['document_metadata']['comment_entities'] ?? array()));
@@ -438,6 +449,7 @@ final class SitePlanRun
         }
         $this->timer?->start('compose.site_plan.asset_consumers');
         $plan = AssetConsumers::assign($plan);
+        $plan['quality']['metrics'] += UnreferencedEngineClasses::metrics($plan);
         $plan = ContentConservation::check($plan, $this->compiled['pages']);
         $plan['plan_identity'] = WordPressSitePlan::planIdentity($plan);
         WordPressSitePlan::assertValid($plan);
@@ -530,7 +542,10 @@ final class SitePlanRun
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             // A declaration a later one in its block always overrides never
             // decides a value; dropping it first also lets identical blocks fold.
-            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune($asset['content']));
+            // Captured fluid lengths ship as the source runtime spelled them
+            // (`100 * 1vw * 1`, `- 0px`); each carrier and breakpoint repeats
+            // that spelling, so it is written once at its smallest form.
+            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet($asset['content'])));
             if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
             // Compatibility replays use :root only as a specificity shim,
             // not as a document reset. Their repeated native-host arms can
@@ -548,6 +563,47 @@ final class SitePlanRun
         }
         unset($asset);
         return $assets;
+    }
+    /**
+     * Every emitted block markup without the selector hooks nothing emitted
+     * names: page, part, template and pattern bodies, menus, and the archive
+     * presentation each archive template restates. Runtime bindings follow
+     * their blocks; null when nothing is dropped or a bound block would move
+     * in a way they cannot follow.
+     *
+     * @param array<string,array<int,array<string,mixed>>> $units
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $records
+     * @return array<string,array<int,array<string,mixed>>>|null
+     */
+    private static function withoutUnreferencedEngineClasses(array $units, ?string $references, array $declarations, array $records): ?array
+    {
+        $markups = array();
+        foreach ($units as $group => $rows) foreach ($rows as $index => $row) {
+            foreach (array('canonical_block_markup', 'block_markup') as $field) if (is_string($row[$field] ?? null)) $markups[$group . "\0" . $index . "\0" . $field] = $row[$field];
+            if (is_string($row['archive']['presentation_markup'] ?? null)) $markups[$group . "\0" . $index . "\0archive"] = $row['archive']['presentation_markup'];
+        }
+        $dropped = UnreferencedEngineClasses::unreferenced($markups, $references);
+        if (array() === $dropped) return null;
+        $before = array();
+        $after = array();
+        foreach ($markups as $key => $markup) {
+            $pruned = UnreferencedEngineClasses::without($markup, $dropped);
+            [$group, $index, $field] = explode("\0", $key);
+            if ('archive' === $field) {
+                $units[$group][$index]['archive']['presentation_markup'] = $pruned;
+                continue;
+            }
+            if (is_string($units[$group][$index]['source_path'] ?? null) && 'canonical_block_markup' === $field) {
+                $before[$units[$group][$index]['source_path']] = $markup;
+                $after[$units[$group][$index]['source_path']] = $pruned;
+            }
+            if ($pruned === $markup) continue;
+            $units[$group][$index][$field] = $pruned;
+            if (isset($units[$group][$index]['content_hash'])) $units[$group][$index]['content_hash'] = WordPressSitePlan::contentHash($pruned);
+        }
+        $bindings = BindingAnchors::rebased($declarations, $records, $before, $after, static fn (string $markup): string => UnreferencedEngineClasses::without($markup, $dropped));
+        return null === $bindings ? null : $units + array('declarations' => $bindings['declarations'], 'records' => $bindings['records']);
     }
     /**
      * Shell extraction already knows the final part markup, so a layout

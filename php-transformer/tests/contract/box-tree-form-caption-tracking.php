@@ -26,4 +26,14 @@ array_walk_recursive($result, static function ($value, $key) use (&$controls): v
     if ('letterSpacing' === $key) $controls[] = $value;
 });
 if (!in_array('2px', $controls, true)) throw new RuntimeException('The flattened form caption lost its captured tracking.');
-echo "PASS: Flattened form captions carry captured tracking.\n";
+// The correction belongs to the flattened caption, not a shared typography
+// rule: compiling an otherwise identical untracked control must not acquire it.
+foreach ($tree['nodes']['n10']['viewports'] as &$viewport) $viewport['used_styles']['letter-spacing'] = '0px';
+unset($viewport);
+$plain = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html, 'box-tree/index.json' => json_encode($tree))))->toArray();
+$plainTracking = array();
+array_walk_recursive($plain, static function ($value, $key) use (&$plainTracking): void {
+    if ('letterSpacing' === $key) $plainTracking[] = $value;
+});
+if (in_array('2px', $plainTracking, true)) throw new RuntimeException('Caption tracking leaked to an untracked control.');
+echo "PASS: Flattened form captions carry captured tracking without restyling untracked controls.\n";

@@ -22,7 +22,7 @@
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image blocks-engine-synthetic-image-figure" },
     { "path": "serialized_blocks", "assert": "contains", "value": "hero-media" },
-    { "path": "assets.0.content", "assert": "contains", "value": ":root .blocks-engine-synthetic-image-figure-strut{display:contents}" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":root .blocks-engine-synthetic-image-figure-strut:where(:not([hidden])){display:contents}" },
     { "path": "assets.1.content", "assert": "contains", "value": "height:100%" }
   ]
 }

@@ -414,7 +414,7 @@ final class ElementConversionPrelude implements ElementConverter
             return $this->createBlock->createBlock('core/paragraph', $attrs, array(), $element);
         }
         $identity = AddressableInlineLayoutLeaf::identity($element, $this->styleResolver);
-        $content = null !== $identity ? SourceDom::innerHtml($element) : $this->styleResolver->inlineLayoutLeafMarkup($element);
+        $content = null !== $identity ? SourceDom::innerHtml($element) : SourceDom::outerHtml($element);
         $inlineSvgContent = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
         if ( null !== $inlineSvgContent ) {
             $content = $inlineSvgContent;

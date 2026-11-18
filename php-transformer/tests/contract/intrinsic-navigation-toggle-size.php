@@ -35,5 +35,5 @@ $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'f
 $css = json_encode($plan, JSON_UNESCAPED_SLASHES);
 $assert(str_contains($css, 'blocks-engine-native-navigation-toggle-'), 'The responsive math icon projects through native navigation.');
 $assert(!str_contains($css, 'min-height:44px') && !str_contains($css, 'min-width:44px'), 'A responsive CSS-math icon must not inflate the header with a 44px floor.');
-$assert(str_contains($css, 'width:max(0.5px, 0.0769231 * (100vw - 0px))!important'), 'Core receives the collapsed icon box, not a token scoped to the removed child.');
+$assert(str_contains($css, 'width:max(0.5px,0.0769231*100vw)!important'), 'Core receives the collapsed icon box, not a token scoped to the removed child.');
 echo "ok\n";
