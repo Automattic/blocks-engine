@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -18,17 +17,13 @@ use DOMElement;
  */
 final class StructuredInlineItemLowering
 {
-    /** Inline-axis margins the author sets on an item at any viewport. */
-    private const INLINE_SPACING_PROPERTIES = array( 'margin', 'margin-left', 'margin-right', 'margin-inline', 'margin-inline-start', 'margin-inline-end' );
-
     public function __construct(
         private readonly SourceBlockCreator $blocks,
         private readonly Runtime $runtime,
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly StyleResolver $styleResolver,
         private readonly InlineSvgTextGroupLowering $inlineSvgTextGroups,
-        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization $richTextMaterializer,
-        private readonly RuntimeDomTargets $runtimeDomTargets
+        private readonly \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization $richTextMaterializer
     ) {
     }
 
@@ -37,12 +32,6 @@ final class StructuredInlineItemLowering
      */
     public function structuredInlineItemBlocks(DOMElement $element): ?array
     {
-        // Decide whether to keep the run before materializing any item. Block
-        // creation and RichText projection register styles and source bindings;
-        // abandoning a partially lowered run leaks those into the fallback.
-        if ($this->isAbuttingInlineRun($element)) {
-            return null;
-        }
         $blocks = array();
 
         foreach ( $element->childNodes as $child ) {
@@ -52,9 +41,15 @@ final class StructuredInlineItemLowering
                 }
                 continue;
             }
+
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
+
             if ( ! $this->sourceElementClassifier->isClassedPhrasingItem($child) ) {
                 return null;
             }
@@ -87,101 +82,6 @@ final class StructuredInlineItemLowering
         }
 
         return 1 < count($blocks) ? $blocks : null;
-    }
-
-    public function isAbuttingInlineRun(DOMElement $element): bool
-    {
-        // The previous item when nothing separates it from the next one:
-        // null after whitespace, a block-level item or the run's start.
-        // Attribute-bearing items can carry runtime state even when the
-        // capture has no script binding (for example data-count counters).
-        // They must retain independent block/source identities.
-        foreach ($element->childNodes as $item) {
-            if (!$item instanceof DOMElement) continue;
-            foreach ($item->attributes as $attribute) {
-                if (str_starts_with($attribute->name, 'data-') && !str_starts_with($attribute->name, 'data-blocks-engine-')) return false;
-            }
-        }
-        $abutting = null;
-        $itemsBlockified = $this->blockifiesItems($element);
-
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                if ( '' !== trim($child->textContent ?? '') ) {
-                    return false;
-                }
-                if ( '' !== ( $child->textContent ?? '' ) ) {
-                    $abutting = null;
-                }
-                continue;
-            }
-
-            if ( XML_COMMENT_NODE === $child->nodeType ) {
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            if ( ! $this->sourceElementClassifier->isClassedPhrasingItem($child) ) {
-                return false;
-            }
-
-            // Inline items the author's stylesheet spaces apart along one line
-            // with nothing between them in the text ("New York(212)
-            // 555-0123") are one text run: a paragraph per item would break
-            // the line between them where the source text has none. The run
-            // stays one paragraph whose RichText keeps each item's class.
-            // Items without that inline spacing keep the item-per-paragraph
-            // structure their classes name, and a script-targeted item keeps
-            // its own addressable block.
-            $inlineItem = ! $itemsBlockified && $this->isInlineLevel($child) && ! $this->runtimeDomTargets->isRuntimeDomTarget($child);
-            $text = $child->textContent;
-            if ( $inlineItem && null !== $abutting && 1 !== preg_match('/^\s/u', $text)
-                && ( $this->hasAuthorInlineSpacing($abutting) || $this->hasAuthorInlineSpacing($child) ) ) {
-                return true;
-            }
-            $abutting = $inlineItem && 1 !== preg_match('/\s$/u', $text) ? $child : null;
-        }
-
-        return false;
-    }
-
-    /** A flex or grid wrapper blockifies its items: each is its own text box. */
-    private function blockifiesItems(DOMElement $element): bool
-    {
-        return in_array($this->styleResolver->resolvedDeclaration($element, 'display'), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
-    }
-
-    private function hasAuthorInlineSpacing(DOMElement $element): bool
-    {
-        foreach ( $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, self::INLINE_SPACING_PROPERTIES) as $property => $values ) {
-            foreach ( $values as $value ) {
-                $value = CssValueInspector::withoutImportant($value);
-                if ( 'margin' === $property ) {
-                    // The shorthand's inline sides: right, then left.
-                    $sides = preg_split('/\s+/', trim($value)) ?: array();
-                    $value = ( $sides[1] ?? $sides[0] ?? '' ) . ' ' . ( $sides[3] ?? $sides[1] ?? $sides[0] ?? '' );
-                }
-                if ( CssValueInspector::isNonZero($value) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private function isInlineLevel(DOMElement $element): bool
-    {
-        // A float or out-of-flow item is blockified like a flex item.
-        if ( in_array($this->styleResolver->resolvedDeclaration($element, 'float'), array( 'left', 'right', 'inline-start', 'inline-end' ), true)
-            || in_array($this->styleResolver->resolvedDeclaration($element, 'position'), array( 'absolute', 'fixed' ), true) ) {
-            return false;
-        }
-
-        return in_array($this->styleResolver->resolvedDeclaration($element, 'display'), array( '', 'inline', 'inline-block' ), true);
     }
 
     /**

@@ -527,7 +527,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->documentEnvelope = new Support\SourceDocumentEnvelope($this->styleResolver);
         $customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $mediaLowering, $this->imageLowering, $this->layoutShells, $this);
         $listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $listStructure, $this->richTextMaterializer, $this->wrapperCoalescer, $this->authorLayoutOwnership);
-        $structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups, $this->richTextMaterializer, $this->runtimeIslands);
+        $structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups, $this->richTextMaterializer);
         $inlineTextWrappers = new Elements\InlineTextWrapperLowering(
             $this,
             $this,
@@ -2161,7 +2161,17 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
             $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->session->boxTreeEvidence(...));
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid);
+            // Only multiple text items need a captured link context to preserve
+            // their text boundaries. Leave ordinary single-label controls alone.
+            $textItems = 0;
+            if ('core/button' === $name) {
+                foreach ($sourceElement->childNodes as $child) {
+                    if ($child instanceof DOMElement && '' !== trim($child->textContent)) {
+                        ++$textItems;
+                    }
+                }
+            }
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, 1 < $textItems);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,

@@ -22,7 +22,7 @@ final class BoxTreeStyleProjector
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid Lifted author values: property => bands, widest
      *        first, each [max-width (null for the base rule), value] ({@see BoxTreeFluidIntent::lift()}).
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array()): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), bool $hasSeparateTextItems = false): array
     {
         if (array() === $observations) return $attrs;
         $keys = array_keys($observations);
@@ -61,7 +61,7 @@ final class BoxTreeStyleProjector
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
         $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents);
-        if ('core/button' === $blockName) $css .= $this->buttonLinkContainerCss($keys, $declarations, $status, $observations, $viewports, $bands);
+        if ('core/button' === $blockName && $hasSeparateTextItems) $css .= $this->buttonLinkContainerCss($keys, $declarations, $status, $observations, $viewports, $bands);
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
@@ -77,7 +77,7 @@ final class BoxTreeStyleProjector
      * A core/button carrier lands on the `.wp-block-button` save wrapper, but
      * the observed box is the source control, whose children render inside
      * `.wp-block-button__link`. When that control is a flex or grid container
-     * its children are block-level items (an icon box beside a label), so the
+     * separate text-bearing children are block-level items, so the
      * link, not only the wrapper, must establish that formatting context;
      * otherwise they flow inline as one run of text.
      */
