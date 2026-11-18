@@ -22,7 +22,10 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     echo "PASS: $message\n";
 };
 
-$author = '.hero{height:min(880px,100svh);min-height:680px}'
+$author = '.cta{background:#111;color:#fff;display:inline-flex;gap:24px;padding:17px 30px;font-size:10px;line-height:17px}'
+    . '@media (max-width:850px){.cta{gap:12px}}'
+    . 'footer p{font-size:10px;line-height:17px;margin:0}'
+    . '.hero{height:min(880px,100svh);min-height:680px}'
     . '@media (max-width:520px){.hero{min-height:650px}}'
     . '.story figure{margin:0}.story img{display:block;width:100%;max-height:650px;object-fit:cover}'
     . '.intro img{display:block;width:100%;max-height:650px;object-fit:cover}'
@@ -40,6 +43,8 @@ $markup = '<!doctype html><html><head><title>Responsive</title><style>' . $autho
     . '<section class="approach"><div class="approach-text"><h2>Approach</h2><p>How we work.</p></div>'
     . '<div class="approach-image"><img src="https://example.com/approach.jpg" alt="Approach"></div></section>'
     . '<section class="portfolio"><div class="pic"><p>First picture</p></div><div class="pic"><p>Second picture</p></div></section>'
+    . '<section class="contact"><a class="cta" href="/contact" style="display:inline-flex;padding:17px 30px;font-size:10px">Contact us</a></section>'
+    . '<footer><p>Footer <span>inline text</span></p></footer>'
     . '</main></body></html>';
 $viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'mobile' => array('width' => 390, 'height' => 640));
 
@@ -52,7 +57,12 @@ $clampedImage = array(
     'desktop' => array('display' => 'block', 'width' => '1440px', 'height' => '650px', 'max-height' => '650px', 'object-fit' => 'cover'),
     'mobile' => array('display' => 'block', 'width' => '390px', 'height' => '585px', 'max-height' => '650px', 'object-fit' => 'cover'),
 );
+$buttonStyles = array('display' => 'inline-flex', 'width' => '110px', 'height' => '51px', 'padding-top' => '17px', 'padding-right' => '30px', 'padding-bottom' => '17px', 'padding-left' => '30px', 'font-size' => '10px', 'line-height' => '17px', 'row-gap' => '24px', 'column-gap' => '24px');
+$footerStyles = array('display' => 'block', 'height' => '17px', 'font-size' => '10px', 'line-height' => '17px');
 $observed = array(
+    '//a[@class="cta"]' => array('desktop' => $buttonStyles, 'mobile' => array_replace($buttonStyles, array('row-gap' => '12px', 'column-gap' => '12px'))),
+    '//footer/p' => array('desktop' => $footerStyles, 'mobile' => $footerStyles),
+    '//footer/p/span' => array('desktop' => array_replace($footerStyles, array('display' => 'inline')), 'mobile' => array_replace($footerStyles, array('display' => 'inline'))),
     '//section[@class="hero"]' => array(
         'desktop' => array('display' => 'block', 'height' => '880px', 'min-height' => '680px'),
         'mobile' => array('display' => 'block', 'height' => '650px', 'min-height' => '650px'),
@@ -262,6 +272,19 @@ $expect = static function (DOMElement $target, string $label, string $property, 
     }
 };
 
+$buttonLink = $element('//a[@href="/contact"]');
+$buttonWrapper = $buttonLink->parentNode;
+$assert($buttonWrapper instanceof DOMElement && str_contains($buttonWrapper->getAttribute('class'), 'wp-block-button'), 'The CTA becomes core/button.');
+foreach (array(1440, 768, 390) as $width) {
+    $assert(in_array($cascaded($buttonWrapper, 'padding', $width), array(null, '0', '0px'), true), 'The button wrapper has no padding.');
+    $assert(null === $cascaded($buttonWrapper, 'padding-top', $width), 'No captured padding lands on the button wrapper.');
+}
+$expect($buttonLink, 'button link', 'padding', array(1440 => '17px 30px', 768 => '17px 30px', 390 => '17px 30px'));
+$expect($buttonLink, 'button link', 'display', array(1440 => 'inline-flex', 768 => 'inline-flex', 390 => 'inline-flex'));
+$expect($buttonLink, 'button link', 'gap', array(1440 => '24px', 768 => '12px', 390 => '12px'));
+$footerParagraph = $element('//footer//p');
+$expect($footerParagraph, 'footer paragraph line box', 'line-height', array(1440 => '17px', 768 => '17px', 390 => '17px'));
+
 // Only 1440 and 390 were captured; 768 exercises the unobserved author variant.
 $widths = array(1440, 1000, 800, 768, 390);
 $expect($introImage, 'intro image', 'max-height', array_fill_keys($widths, '650px'));
@@ -324,3 +347,34 @@ $expectHeight($hero, 'hero', array(
     array(390, 844, 844), array(390, 600, 650),
 ));
 $expectHeight($storyImage, 'story image', array(array(1440, 700, 650), array(768, 600, 650), array(390, 844, 585)));
+
+// Compare actual browser boxes, including the line box around inline text.
+$chrome = getenv('CHROME_PATH') ?: trim((string) shell_exec('command -v chromium || command -v google-chrome'));
+if ('' === $chrome) throw new RuntimeException('Browser required for source-node box contract.');
+$directory = sys_get_temp_dir() . '/box-tree-source-node-' . bin2hex(random_bytes(6));
+mkdir($directory);
+try {
+    $probe = '<script>const a=document.querySelector("a[href=\"/contact\"]");const p=document.querySelector("footer p");'
+        . 'document.body.dataset.boxes=JSON.stringify([a,p].map(e=>{const b=e.getBoundingClientRect();return [b.width,b.height]}));</script>';
+    $baseline = '<style>body{font-family:Arial;font-size:16px}a{box-sizing:border-box}</style>';
+    file_put_contents($directory . '/source.html', $markup . $baseline . $probe);
+    file_put_contents($directory . '/compiled.html', '<!doctype html><style>' . $css . '</style>' . $baseline . $result['serialized_blocks'] . $probe);
+    foreach (array(1440, 768, 390) as $width) {
+        $boxes = array();
+        foreach (array('source', 'compiled') as $document) {
+            $output = shell_exec(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\HeadlessChrome::tmpdirPrefix() . escapeshellarg($chrome)
+                . ' --headless --no-sandbox --disable-gpu --user-data-dir=' . escapeshellarg($directory . '/profile')
+                . ' --window-size=' . $width . ',900 --dump-dom --virtual-time-budget=1000 '
+                . escapeshellarg('file://' . $directory . '/' . $document . '.html') . ' 2>/dev/null');
+            if (!preg_match('/data-boxes="([^"\n]+)"/', (string) $output, $match)) throw new RuntimeException('Missing browser boxes: ' . $output);
+            $boxes[$document] = json_decode(html_entity_decode($match[1], ENT_QUOTES), true, 32, JSON_THROW_ON_ERROR);
+        }
+        foreach (array(0 => 'button', 1 => 'footer paragraph') as $index => $label) {
+            $axes = 0 === $index ? array(0, 1) : array(1);
+            foreach ($axes as $axis) $assert(abs($boxes['source'][$index][$axis] - $boxes['compiled'][$index][$axis]) < 0.5,
+                "At {$width}px the $label keeps its source " . (0 === $axis ? 'width' : 'line box height') . '.', json_encode($boxes, JSON_THROW_ON_ERROR));
+        }
+    }
+} finally {
+    shell_exec('rm -rf ' . escapeshellarg($directory));
+}
