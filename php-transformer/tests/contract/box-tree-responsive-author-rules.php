@@ -25,6 +25,13 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 $author = '.cta{background:#111;color:#fff;display:inline-flex;gap:24px;padding:17px 30px;font-size:10px;line-height:17px}'
     . '@media (max-width:850px){.cta{gap:12px}}'
     . 'footer p{font-size:10px;line-height:17px;margin:0}'
+    // A plan card: a flex column whose CTA is spaced from the price by its own
+    // margin, and whose price carries a smaller `<small>` prefix.
+    . '.plan{display:flex;flex-direction:column}.plan p{margin:0}.price{font-size:31.67px;line-height:1.2}.price small{font-size:11px}'
+    . '.buy{background:#111;color:#fff;display:inline-flex;align-self:flex-start;margin-top:22px;padding:17px 30px;font-size:10px;line-height:17px}'
+    // A legal line: a bare span in a footer with a smaller strut, whose line
+    // height a breakpoint restates in another unit (same computed value).
+    . 'footer{font-size:12px}.legal{font-size:10px;line-height:17px}@media (max-width:1000px){.legal{line-height:1.7}}'
     . '.hero{height:min(880px,100svh);min-height:680px}'
     . '@media (max-width:520px){.hero{min-height:650px}}'
     . '.story figure{margin:0}.story img{display:block;width:100%;max-height:650px;object-fit:cover}'
@@ -44,7 +51,8 @@ $markup = '<!doctype html><html><head><title>Responsive</title><style>' . $autho
     . '<div class="approach-image"><img src="https://example.com/approach.jpg" alt="Approach"></div></section>'
     . '<section class="portfolio"><div class="pic"><p>First picture</p></div><div class="pic"><p>Second picture</p></div></section>'
     . '<section class="contact"><a class="cta" href="/contact" style="display:inline-flex;padding:17px 30px;font-size:10px">Contact us</a></section>'
-    . '<footer><p>Footer <span>inline text</span></p></footer>'
+    . '<section class="plan"><p class="price">RM 99 <small>FROM RM</small></p><a class="buy" href="/buy">Buy</a></section>'
+    . '<footer><p>Footer <span>inline text</span></p><span class="legal">2024 Studio</span></footer>'
     . '</main></body></html>';
 $viewports = array('desktop' => array('width' => 1440, 'height' => 900), 'mobile' => array('width' => 390, 'height' => 640));
 
@@ -59,7 +67,17 @@ $clampedImage = array(
 );
 $buttonStyles = array('display' => 'inline-flex', 'width' => '110px', 'height' => '51px', 'padding-top' => '17px', 'padding-right' => '30px', 'padding-bottom' => '17px', 'padding-left' => '30px', 'font-size' => '10px', 'line-height' => '17px', 'row-gap' => '24px', 'column-gap' => '24px');
 $footerStyles = array('display' => 'block', 'height' => '17px', 'font-size' => '10px', 'line-height' => '17px');
+$buyStyles = array('display' => 'inline-flex', 'width' => '77.23px', 'height' => '51px', 'margin-top' => '22px', 'align-self' => 'flex-start', 'padding-top' => '17px', 'padding-right' => '30px', 'padding-bottom' => '17px', 'padding-left' => '30px', 'font-size' => '10px', 'line-height' => '17px');
+$priceStyles = array('display' => 'block', 'height' => '38px', 'font-size' => '31.67px', 'line-height' => '38px');
+$smallStyles = array('display' => 'inline', 'font-size' => '11px', 'line-height' => '13.2px');
+$legalStyles = array('display' => 'inline', 'font-size' => '10px', 'line-height' => '17px');
 $observed = array(
+    '//section[@class="plan"]' => array('desktop' => array('display' => 'flex', 'flex-direction' => 'column', 'height' => '111px'), 'mobile' => array('display' => 'flex', 'flex-direction' => 'column', 'height' => '111px')),
+    '//a[@class="buy"]' => array('desktop' => $buyStyles, 'mobile' => $buyStyles),
+    '//p[@class="price"]' => array('desktop' => $priceStyles, 'mobile' => $priceStyles),
+    '//p[@class="price"]/small' => array('desktop' => $smallStyles, 'mobile' => $smallStyles),
+    '//footer' => array('desktop' => array('display' => 'block', 'height' => '34px', 'font-size' => '12px'), 'mobile' => array('display' => 'block', 'height' => '34px', 'font-size' => '12px')),
+    '//span[@class="legal"]' => array('desktop' => $legalStyles, 'mobile' => $legalStyles),
     '//a[@class="cta"]' => array('desktop' => $buttonStyles, 'mobile' => array_replace($buttonStyles, array('row-gap' => '12px', 'column-gap' => '12px'))),
     '//footer/p' => array('desktop' => $footerStyles, 'mobile' => $footerStyles),
     '//footer/p/span' => array('desktop' => array_replace($footerStyles, array('display' => 'inline')), 'mobile' => array_replace($footerStyles, array('display' => 'inline'))),
@@ -285,11 +303,38 @@ $expect($buttonLink, 'button link', 'gap', array(1440 => '24px', 768 => '12px', 
 $footerParagraph = $element('//footer//p');
 $expect($footerParagraph, 'footer paragraph line box', 'line-height', array(1440 => '17px', 768 => '17px', 390 => '17px'));
 
+// A carrier splits by role: the CTA's margin and flex-item placement stay on
+// the block's outermost box, the flex item of the plan card; its padding,
+// display and typography go to the link.
+$buyLink = $element('//a[@href="/buy"]');
+$buyButtons = $buyLink->parentNode?->parentNode;
+$assert($buyButtons instanceof DOMElement && str_contains($buyButtons->getAttribute('class'), 'wp-block-buttons'), 'The plan CTA becomes core/buttons.');
+$expect($buyButtons, 'plan CTA buttons wrapper', 'margin', array(1440 => '22px 0px 0px', 768 => '22px 0px 0px', 390 => '22px 0px 0px'));
+$expect($buyButtons, 'plan CTA buttons wrapper', 'align-self', array(1440 => 'flex-start', 390 => 'flex-start'));
+$expect($buyLink, 'plan CTA link', 'padding', array(1440 => '17px 30px', 390 => '17px 30px'));
+foreach (array(1440, 768, 390) as $width) {
+    foreach (array('margin', 'margin-top') as $property) {
+        $assert(in_array($cascaded($buyLink, $property, $width), array(null, '0', '0px', 'initial'), true), "At {$width}px the plan CTA link has no $property of its own.");
+    }
+    $assert(null === $cascaded($buyButtons, 'padding', $width), "At {$width}px the plan CTA wrapper has no padding.");
+}
+
+// An inline phrasing element keeps its own captured typography on its own
+// box, not on a nested carrier: otherwise `<small>` takes the price's size.
+$small = $element('//small');
+foreach (array(1440, 768, 390) as $width) {
+    $assert(str_contains((string) $cascaded($small, 'font-size', $width), '11px'), "At {$width}px the price's <small> keeps its own font-size.", (string) $cascaded($small, 'font-size', $width));
+    $assert('13.2px' === $cascaded($small, 'line-height', $width), "At {$width}px the price's <small> keeps its own line-height.", (string) $cascaded($small, 'line-height', $width));
+}
+
 // Only 1440 and 390 were captured; 768 exercises the unobserved author variant.
 $widths = array(1440, 1000, 800, 768, 390);
 $expect($introImage, 'intro image', 'max-height', array_fill_keys($widths, '650px'));
 $expect($introImage, 'intro image', 'object-fit', array_fill_keys($widths, 'cover'));
-$expect($introImage, 'intro image', 'height', array(1440 => '650px', 390 => '585px'));
+// No author rule sizes the intro image's height: it is the 2:3 image's own
+// ratio at its width, clamped. The captures' heights (650px, 585px) must not
+// freeze, or a 343px-wide image at an uncaptured width keeps 585px (#6580).
+$expect($introImage, 'intro image', 'height', array_fill_keys($widths, 'auto'));
 foreach (array(1, 2) as $index) {
     $pic = $element('//*[contains(concat(" ", @class, " "), " pic ")][' . $index . ']');
     $expect($pic, 'portfolio item ' . $index, 'grid-column-start', array(1440 => 1 === $index ? 'span 5' : 'span 7', 851 => 1 === $index ? 'span 5' : 'span 7', 850 => 1 === $index ? 'span 12' : 'span 6', 768 => 1 === $index ? 'span 12' : 'span 6', 521 => 1 === $index ? 'span 12' : 'span 6', 520 => 'span 12', 390 => 'span 12'));
@@ -320,12 +365,14 @@ $expect($storyImage, 'story image', 'width', array_fill_keys($widths, '100%'));
  * clamped by its max-height, then its min-height.
  */
 $usedHeight = static function (DOMElement $target, int $width, int $height) use ($cascaded): ?float {
+    // The fixture's images are 2:3 and fill the viewport width.
+    $auto = 'img' === $target->tagName ? $width * 1.5 : 0.0;
     $resolve = static function (string $property, float $fallback) use ($cascaded, $target, $width, $height): ?float {
         $value = $cascaded($target, $property, $width);
         if (null === $value || in_array($value, array('auto', 'none'), true)) return $fallback;
         return CssFluidLength::evaluate($value, $width, $height);
     };
-    [$specified, $minimum, $maximum] = array($resolve('height', 0.0), $resolve('min-height', 0.0), $resolve('max-height', INF));
+    [$specified, $minimum, $maximum] = array($resolve('height', $auto), $resolve('min-height', 0.0), $resolve('max-height', INF));
     return null === $specified || null === $minimum || null === $maximum ? null : max($minimum, min($maximum, $specified));
 };
 $expectHeight = static function (DOMElement $target, string $label, array $cases) use ($usedHeight, $assert, $css, $result): void {
@@ -347,6 +394,7 @@ $expectHeight($hero, 'hero', array(
     array(390, 844, 844), array(390, 600, 650),
 ));
 $expectHeight($storyImage, 'story image', array(array(1440, 700, 650), array(768, 600, 650), array(390, 844, 585)));
+$expectHeight($introImage, 'intro image', array(array(1440, 900, 650), array(768, 1024, 650), array(390, 844, 585), array(343, 700, 514.5)));
 
 // Compare actual browser boxes, including the line box around inline text.
 $chrome = getenv('CHROME_PATH') ?: trim((string) shell_exec('command -v chromium || command -v google-chrome'));
@@ -354,11 +402,16 @@ if ('' === $chrome) throw new RuntimeException('Browser required for source-node
 $directory = sys_get_temp_dir() . '/box-tree-source-node-' . bin2hex(random_bytes(6));
 mkdir($directory);
 try {
-    $probe = '<script>const a=document.querySelector("a[href=\"/contact\"]");const p=document.querySelector("footer p");'
-        . 'document.body.dataset.boxes=JSON.stringify([a,p].map(e=>{const b=e.getBoundingClientRect();return [b.width,b.height]}));</script>';
+    // Source and compiled elements, in the order the comparison below lists them.
+    $probes = array(
+        'source' => '[document.querySelector("a[href=\"/contact\"]"),document.querySelector("footer p"),document.querySelector(".buy"),document.querySelector(".plan"),document.querySelector(".price small"),document.querySelector("footer")]',
+        'compiled' => '[document.querySelector("a[href=\"/contact\"]"),document.querySelector("footer p"),document.querySelector("a[href=\"/buy\"]").closest(".wp-block-buttons"),document.querySelector(".plan"),document.querySelector("small"),document.querySelector("footer")]',
+    );
+    $probe = static fn(string $document): string => '<script>document.body.dataset.boxes=JSON.stringify(' . $probes[$document]
+        . '.map(e=>{const b=e.getBoundingClientRect();return [b.width,b.height]}));</script>';
     $baseline = '<style>body{font-family:Arial;font-size:16px}a{box-sizing:border-box}</style>';
-    file_put_contents($directory . '/source.html', $markup . $baseline . $probe);
-    file_put_contents($directory . '/compiled.html', '<!doctype html><style>' . $css . '</style>' . $baseline . $result['serialized_blocks'] . $probe);
+    file_put_contents($directory . '/source.html', $markup . $baseline . $probe('source'));
+    file_put_contents($directory . '/compiled.html', '<!doctype html><style>' . $css . '</style>' . $baseline . $result['serialized_blocks'] . $probe('compiled'));
     foreach (array(1440, 768, 390) as $width) {
         $boxes = array();
         foreach (array('source', 'compiled') as $document) {
@@ -369,8 +422,17 @@ try {
             if (!preg_match('/data-boxes="([^"\n]+)"/', (string) $output, $match)) throw new RuntimeException('Missing browser boxes: ' . $output);
             $boxes[$document] = json_decode(html_entity_decode($match[1], ENT_QUOTES), true, 32, JSON_THROW_ON_ERROR);
         }
-        foreach (array(0 => 'button', 1 => 'footer paragraph') as $index => $label) {
-            $axes = 0 === $index ? array(0, 1) : array(1);
+        $compared = array(
+            0 => array('button', array(0, 1)),
+            1 => array('footer paragraph', array(1)),
+            // The CTA's outermost box is the link's border box: its margin sits outside it.
+            2 => array('plan CTA outer box', array(0, 1)),
+            3 => array('plan card', array(1)),
+            4 => array("price's <small>", array(0, 1)),
+            // The bare legal span's line box keeps its 17px line height over the footer's strut.
+            5 => array('footer with its legal line', array(1)),
+        );
+        foreach ($compared as $index => [$label, $axes]) {
             foreach ($axes as $axis) $assert(abs($boxes['source'][$index][$axis] - $boxes['compiled'][$index][$axis]) < 0.5,
                 "At {$width}px the $label keeps its source " . (0 === $axis ? 'width' : 'line box height') . '.', json_encode($boxes, JSON_THROW_ON_ERROR));
         }

@@ -143,11 +143,106 @@ final class BoxTreeStyleProjector
             $attrs['className'] = implode(' ', array_filter(preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), static fn(string $class): bool => '' !== $class && 'is-resized' !== $class));
             if ('' === $attrs['className']) unset($attrs['className']);
         }
-        $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid, $selector);
-        $class = $this->carrier(($synthetic ? $this->rule(self::SELECTOR, array('display' => 'contents')) : '') . $css, $state);
+        $split = $synthetic ? $this->outerBoxSplit($blockName, $keys, $declarations, $bands, $observations, $parents, $selector) : null;
+        $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid, $selector, $split);
+        $wrapper = $synthetic && null === $split ? $this->rule(self::SELECTOR, array('display' => 'contents')) : '';
+        $class = $this->carrier($wrapper . $css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
+    }
+
+    /**
+     * Properties that place a box in its parent's flow rather than style its
+     * contents, by their initial values. They belong on the block's outermost
+     * rendered box, which is the flex or grid item (or the margin box) in
+     * the copy's parent.
+     */
+    private const OUTER_BOX = array(
+        'margin-top' => array('0px', '0'), 'margin-right' => array('0px', '0'), 'margin-bottom' => array('0px', '0'), 'margin-left' => array('0px', '0'),
+        'align-self' => array('auto', 'normal'), 'justify-self' => array('auto', 'normal'), 'order' => array('0'),
+        'flex-grow' => array('0'), 'flex-shrink' => array('1'), 'flex-basis' => array('auto'),
+        'grid-column-start' => array('auto'), 'grid-column-end' => array('auto'), 'grid-row-start' => array('auto'), 'grid-row-end' => array('auto'),
+        'position' => array('static'), 'top' => array('auto'), 'right' => array('auto'), 'bottom' => array('auto'), 'left' => array('auto'),
+        'z-index' => array('auto'), 'float' => array('none'), 'clear' => array('none'),
+    );
+
+    /** Sizes that size the flex or grid item, so they follow it onto the outer box. */
+    private const OUTER_ITEM_SIZE = array('width' => array('auto'), 'min-width' => array('auto', '0px', '0'), 'max-width' => array('none'));
+
+    /**
+     * How a core/buttons or core/button carrier splits each declaration set
+     * between the block's outermost rendered box and the source-node link,
+     * or null when no outer-box property differs from its initial value at
+     * any capture or band (then the wrappers stay transparent and the link
+     * owns everything).
+     *
+     * A core/buttons whose source is the link itself owns the outer box
+     * (`div.wp-block-buttons`); its core/button child carries the same
+     * evidence, so the inner wrapper is made transparent and its outer-box
+     * declarations are reset. A core/button whose core/buttons has its own
+     * source box owns `div.wp-block-button` as its outer box.
+     *
+     * @param list<string> $keys Viewport keys, widest first.
+     * @return (\Closure(array<string, string>): string)|null
+     */
+    private function outerBoxSplit(string $blockName, array $keys, array $declarations, array $bands, array $observations, array $parents, string $selector): ?\Closure
+    {
+        if (!in_array($blockName, array('core/buttons', 'core/button'), true)) return null;
+        $baseKey = $keys[0];
+        $parentDisplay = (string) ($parents[$baseKey]['used_styles']['display'] ?? '');
+        $item = 1 === preg_match('/(?<![\w-])(?:inline-)?(?:flex|grid)(?![\w-])/', $parentDisplay);
+        $outer = $item ? self::OUTER_BOX + self::OUTER_ITEM_SIZE : self::OUTER_BOX;
+        $placed = array();
+        $declaredOuter = array();
+        foreach (array_merge(array_values($declarations), array_values($bands)) as $declared) {
+            foreach (array_intersect_key($declared, $outer) as $property => $value) {
+                $declaredOuter[$property] = true;
+                if (!in_array(strtolower(trim($value)), $outer[$property], true)) $placed[$property] = true;
+            }
+        }
+        if (array() === $placed) return null;
+        $observed = $observations[$baseKey]['used_styles'];
+        // The link's border box fills the outer box: a content-box width
+        // grows by the link's own horizontal padding and border.
+        $edges = 0.0;
+        if ('border-box' !== ($observed['box-sizing'] ?? 'content-box')) {
+            foreach (array('padding-left', 'padding-right', 'border-left', 'border-right') as $edge) {
+                if (preg_match('/^(-?(?:\d*\.)?\d+)px\b/', (string) ($observed[$edge] ?? ''), $match)) $edges += (float) $match[1];
+            }
+        }
+        $shared = 'core/buttons' === $blockName;
+        $first = true;
+        $hidden = false;
+        return function (array $declared) use ($outer, $declaredOuter, $edges, $shared, $selector, &$first, &$hidden): string {
+            $outerDeclared = array_intersect_key($declared, $outer);
+            $inner = array_diff_key($declared, $outer);
+            // A hidden link must not leave its outer box's margins behind.
+            if (isset($inner['display']) && ('none' === $inner['display']) !== $hidden) {
+                $hidden = 'none' === $inner['display'];
+                $outerDeclared = array('display' => $hidden ? 'none' : 'flex') + $outerDeclared;
+            }
+            foreach (array_keys(self::OUTER_ITEM_SIZE) as $size) {
+                if (!isset($outerDeclared[$size]) || in_array(strtolower(trim($outerDeclared[$size])), $outer[$size], true)) continue;
+                if (0.0 !== $edges) $outerDeclared[$size] = 'calc(' . $outerDeclared[$size] . ' + ' . self::width($edges) . 'px)';
+                // The flex outer box is sized; its only item fills it.
+                if ('width' === $size) $inner['flex-grow'] = '1';
+            }
+            $css = '';
+            if ($first) {
+                $first = false;
+                $box = $shared ? array() : array('display' => 'flex');
+                $css .= $this->rule(self::SELECTOR, $outerDeclared + $box);
+                if ($shared) {
+                    $resets = array('display' => 'contents');
+                    foreach (array_keys($declaredOuter) as $property) $resets[$property] = 'initial';
+                    $css .= $this->rule(self::SELECTOR . ' > .wp-block-button', $resets);
+                }
+            } else {
+                $css .= $this->rule(self::SELECTOR, $outerDeclared);
+            }
+            return $css . $this->rule($selector, $inner);
+        };
     }
 
     /** Map source identity once, before any captured, author or pseudo rule is emitted. */
@@ -157,11 +252,12 @@ final class BoxTreeStyleProjector
         if ('core/image' === $blockName && 'img' === $sourceTag) return self::SELECTOR . ' img';
         if ('core/button' === $blockName) return self::SELECTOR . ' > a.wp-block-button__link';
         if ('core/buttons' === $blockName && in_array($sourceTag, array('a', 'button'), true)) return self::SELECTOR . ' > .wp-block-button > a.wp-block-button__link';
-        $classes = SourceDom::tokens((string) ($attrs['className'] ?? ''));
-        if ('core/paragraph' === $blockName && 'p' !== $sourceTag
-            && in_array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, $classes, true)
-            && ('a' === $sourceTag || !in_array(SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS, $classes, true))
-            && '' !== $sourceTag) return self::SELECTOR . ' > ' . $sourceTag;
+        // Only a link survives RichText as the paragraph's own child: a span
+        // is lowered to a `<mark>` carrier or unwrapped, so a `> span` rule
+        // would match nothing and the transparent paragraph would leave its
+        // text on the parent's font and line box. The paragraph is its box.
+        if ('core/paragraph' === $blockName && 'a' === $sourceTag
+            && in_array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, SourceDom::tokens((string) ($attrs['className'] ?? '')), true)) return self::SELECTOR . ' > a';
         return self::SELECTOR;
     }
 
@@ -275,10 +371,11 @@ final class BoxTreeStyleProjector
      * @param array<string, array<string, mixed>> $parents The block parent's observations, by viewport key.
      * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid Lifted pseudo-element values, by name.
      */
-    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), bool $syntheticAnchor = false, array $pseudoFluid = array(), string $selector = self::SELECTOR): string
+    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), bool $syntheticAnchor = false, array $pseudoFluid = array(), string $selector = self::SELECTOR, ?\Closure $split = null): string
     {
         $baseKey = $keys[0];
-        $rule = function (array $declared) use ($syntheticAnchor, $selector): string {
+        $rule = function (array $declared) use ($syntheticAnchor, $selector, $split): string {
+            if (null !== $split) return $split($declared);
             $css = $this->rule($selector, $declared);
             if ($syntheticAnchor && isset($declared['display'])) {
                 // A real carrier box owns the margin. Only a transparent

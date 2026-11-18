@@ -480,9 +480,26 @@ final class BoxTreeFluidIntent
         // A replaced or attribute-sized element's intrinsic size is not the
         // author's to restate; a pseudo-element is neither.
         if ('' !== $this->pseudo) return $value;
-        if (in_array(strtolower($this->element->tagName), self::REPLACED, true)) return null;
+        if (in_array(strtolower($this->element->tagName), self::REPLACED, true)) return $this->replacedHeightFromWidth($property, $value, $width);
         if (in_array($property, array('width', 'height'), true) && $this->element->hasAttribute($property)) return null;
         return $value;
+    }
+
+    /**
+     * An image's `height:auto` beside a width the author sets is the width
+     * times the image's own ratio, which the copy serves too. Restating it
+     * keeps that ratio at widths no capture saw, where the captured pixels
+     * (from a 402px capture, say) would stretch the image at 390px. Every
+     * other intrinsic size of a replaced element stays the source's pixels.
+     */
+    private function replacedHeightFromWidth(string $property, string $value, float $width): ?string
+    {
+        if ('height' !== $property || 'auto' !== $value || 'img' !== strtolower($this->element->tagName) || $this->element->hasAttribute('height')) return null;
+        foreach (array('width', 'inline-size') as $alias) {
+            $declared = $this->declared($alias, $width);
+            if (null !== $declared && '' !== $declared && !in_array(strtolower($declared), self::INTRINSIC_KEYWORDS, true)) return $value;
+        }
+        return null;
     }
 
     /** Whether a resolved height is a percentage the copy resolves against the same basis as the source. */
