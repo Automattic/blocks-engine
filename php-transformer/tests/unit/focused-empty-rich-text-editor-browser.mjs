@@ -15,6 +15,9 @@ const source = '<style>.desc-wrapper p{margin:20px auto}.desc-wrapper p:empty{di
 const code = 'require $argv[1]."/vendor/autoload.php"; echo json_encode((new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform(stream_get_contents(STDIN))->toArray());';
 const result = JSON.parse(execFileSync('php', ['-r', code, root], { input: source, encoding: 'utf8' }));
 const css = result.assets.filter(asset => asset.kind === 'css').map(asset => asset.content).join('\n');
+// The repair is editor-only: front-end stylesheets keep the authored rule as written.
+const frontEndCss = result.assets.filter(asset => asset.kind === 'css' && asset.stylesheet_target !== 'editor').map(asset => asset.content).join('\n');
+assert.ok(!/contenteditable|:focus/.test(frontEndCss), `front-end CSS carries no editor repair: ${frontEndCss}`);
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
 try {
