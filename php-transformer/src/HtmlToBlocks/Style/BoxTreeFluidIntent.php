@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFluidLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use DOMElement;
 
 /**
@@ -14,12 +15,16 @@ use DOMElement;
  * (ADR 0005 §4), so widths between captures follow the author rather than
  * the nearest frozen capture.
  *
- * - A resting cascade winner that is a fluid expression (viewport units,
- *   `%`, `em`, CSS math, `var()`), reached directly or through the `font`,
- *   `margin` or `padding` shorthand, is lifted when it evaluates to the
- *   observed used value (±0.5px) at every capture. Every `var()` is expanded
- *   at the element's scope and width, so the carrier references no custom
- *   property.
+ * - A resting cascade winner, whatever CSS value it is (a pixel length,
+ *   viewport units including `sv*`/`lv*`/`dv*`, `%`, `em`/`rem`, CSS math,
+ *   `var()`), reached directly or through the `font`, `margin` or `padding`
+ *   shorthand, is lifted verbatim when it evaluates to the observed used
+ *   value (±0.5px) at every capture. Viewport units resolve against each
+ *   capture's own viewport width and height, and a `width` or `height` is
+ *   first clamped by the observed `min-*`/`max-*` on its axis, as layout
+ *   does. Every `var()` is expanded at the element's scope and width, so the
+ *   carrier references no custom property. Only a value nothing reproduces
+ *   keeps the captured pixels.
  * - `rem` lengths in a lifted expression are restated in pixels against
  *   the root font size the author's cascade gives the document at that
  *   width (the user-agent 16px when undeclared), so the carrier does not
@@ -79,15 +84,21 @@ use DOMElement;
  * margin the author declared at every capture is restated as `auto`.
  *
  * Where the author's cascade switches between captures (a width query that
- * redefines a scaling token), the lift is a set of bands keyed by the
- * author's own breakpoint, not the capture width. Each band must contain a
- * capture that proves its value; otherwise the property keeps its pixels. A
- * flexible grid track list is exempt: it is exact by construction in every
- * band, and frozen tracks overflow the widths between captures.
+ * redefines a scaling token, or sets another pixel length such as an image
+ * height under a breakpoint), the lift is a set of bands keyed by the
+ * author's own breakpoint, not the capture width. Captures verify the
+ * declarations active there; author variants between captures are retained
+ * even when no capture falls inside that media condition. Only unexplained
+ * observations keep their capture bands.
  *
  * A `%` width or height is proven against the used value its observed
  * `min-*` and `max-*` pixels clamp it to, so a `width:100%` container capped
  * by its `max-width` at the widest capture still follows its container.
+ *
+ * A `::before`/`::after` box lifts under the same contract
+ * ({@see self::liftPseudo()}): its own author winners, its host as its
+ * parent, and `%` against the host's content box (the pseudo's containing
+ * block when it is in flow).
  */
 final class BoxTreeFluidIntent
 {
@@ -101,6 +112,8 @@ final class BoxTreeFluidIntent
         'padding-top' => 'padding', 'padding-right' => 'padding', 'padding-bottom' => 'padding', 'padding-left' => 'padding',
         'top' => 'inset', 'right' => 'inset', 'bottom' => 'inset', 'left' => 'inset',
         'flex-basis' => 'flex',
+        'grid-column-start' => 'grid-column', 'grid-column-end' => 'grid-column',
+        'grid-row-start' => 'grid-row', 'grid-row-end' => 'grid-row',
         'row-gap' => 'gap', 'column-gap' => 'gap',
     );
 
@@ -167,6 +180,8 @@ final class BoxTreeFluidIntent
     private const INHERITING_BLOCKS = array('core/heading');
 
     private DOMElement $element;
+    /** The pseudo-element being lifted (`before`, `after`), or '' for the element itself. */
+    private string $pseudo = '';
     private StyleResolver $resolver;
     /** @var list<string> */
     private array $requested = array();
@@ -191,6 +206,40 @@ final class BoxTreeFluidIntent
      *         [max-width or null for the base rule, value].
      */
     public function lift(DOMElement $element, StyleResolver $resolver, array $observations, array $viewports, array $parents, string $blockName = '', ?\Closure $evidence = null): array
+    {
+        $this->pseudo = '';
+        return $this->liftSubject($element, $resolver, $observations, $viewports, $parents, $blockName, $evidence);
+    }
+
+    /**
+     * Lift an element's `::before` or `::after` box: its own author winners
+     * (rules whose subject is that pseudo-element), with the element as its
+     * parent, so a `%` resolves against the element's content box and an
+     * intrinsic keyword is restated as for the element itself. Nothing is
+     * lifted unless the pseudo renders at every capture.
+     *
+     * @param array<string, array<string, mixed>> $observations Captured observations of the host element, by viewport key.
+     * @param string $pseudo `before` or `after`.
+     * @return array<string, list<array{0: float|null, 1: string}>> {@see self::lift()}
+     */
+    public function liftPseudo(DOMElement $element, StyleResolver $resolver, array $observations, array $viewports, string $pseudo, ?\Closure $evidence = null): array
+    {
+        $pseudoObservations = array();
+        foreach ($observations as $key => $observation) {
+            $styles = $observation['pseudo'][$pseudo]['used_styles'] ?? null;
+            if (!is_array($styles) || !is_array($observation['used_styles'] ?? null)) return array();
+            $pseudoObservations[$key] = array('used_styles' => $styles);
+        }
+        $this->pseudo = $pseudo;
+        try {
+            return $this->liftSubject($element, $resolver, $pseudoObservations, $viewports, $observations, '', $evidence ?? static fn(DOMElement $node): array => $node === $element ? $observations : array());
+        } finally {
+            $this->pseudo = '';
+        }
+    }
+
+    /** @see self::lift() */
+    private function liftSubject(DOMElement $element, StyleResolver $resolver, array $observations, array $viewports, array $parents, string $blockName, ?\Closure $evidence): array
     {
         if (array() === $observations) return array();
         $widths = array();
@@ -224,14 +273,38 @@ final class BoxTreeFluidIntent
         $inheriting = in_array($blockName, self::INHERITING_BLOCKS, true);
         $lifted = array();
         foreach ($properties as $property) {
-            $bands = (isset(self::KEYWORD_SWITCHES[$property]) ? $this->liftedKeyword($property, $widths, $samples, $observations, $parents) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
+            $bands = $this->liftedAuthor($property, $widths, $samples, $observations, $viewports, $parents)
+                ?? (isset(self::KEYWORD_SWITCHES[$property]) ? $this->liftedKeyword($property, $widths, $samples, $observations, $parents) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
                 ?? $this->liftedIntrinsic($property, $widths, $samples)
                 ?? $this->liftedAutoMargin($property, $widths, $samples)
                 ?? $this->liftedMixed($property, $widths, $samples, $observations, $viewports, $parents)
-                ?? ($inheriting ? $this->liftedInheritance($property, $widths, $samples, $observations, $parents) : null);
+                ?? $this->liftedInheritance($property, $widths, $samples, $observations, $parents, $inheriting);
             if (null !== $bands) $lifted[$property] = $bands;
         }
         return $lifted;
+    }
+
+    /**
+     * Lift the resting author cascade, including variants with no capture.
+     * Captures disprove a declaration only where that declaration applies;
+     * an unobserved intermediate variant is still author intent, not missing
+     * evidence to replace with a neighbouring capture's pixels.
+     */
+    private function liftedAuthor(string $property, array $widths, array $samples, array $observations, array $viewports, array $parents): ?array
+    {
+        $proven = array();
+        foreach ($widths as $key => $width) {
+            $value = $this->declared($property, $width);
+            if (null === $value || '' === $value) return null;
+            $actual = (string) ($observations[$key]['used_styles'][$property] ?? '');
+            if ($value !== $actual
+                && null === $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents)
+                && (!isset(self::INTRINSIC[$property]) || $value !== $this->intrinsicKeyword($property, $width))) return null;
+            $proven[$key] = $value;
+        }
+        if ('line-height' === $property && count(array_unique(array_column(array_column($observations, 'used_styles'), $property))) < 2
+            && count(array_filter($proven, static fn(string $value): bool => 1 === preg_match('/^\d*\.?\d+$/', $value))) === count($proven)) return null;
+        return $this->bands($widths, $samples, $proven, fn(float $width): ?string => $this->declared($property, $width), false);
     }
 
     /**
@@ -264,7 +337,7 @@ final class BoxTreeFluidIntent
         $value = $this->declared($property, $width);
         if (null === $value || '' === $value) return null;
         $factor = 'line-height' === $property && preg_match('/^\d*\.?\d+$/', $value);
-        if (!$factor && !self::expression($value)) return null;
+        if (!$factor && !self::expression($value) && !preg_match('/^-?(?:\d*\.)?\d+px$/i', $value)) return null;
         $styles = $observations[$key]['used_styles'] ?? array();
         $parent = $parents[$key]['used_styles'] ?? array();
         [$percent, $em] = $this->bases($property, $key, $styles, $parent);
@@ -280,7 +353,7 @@ final class BoxTreeFluidIntent
     /** Whether a value is a viewport-, font- or containing-block-relative expression. */
     private static function expression(string $value): bool
     {
-        return 1 === preg_match('/%|\d(?:vw|vh|vmin|vmax|em)\b|\b(?:calc|clamp|min|max)\(/i', $value);
+        return 1 === preg_match('/%|\d(?:[sld]?v(?:w|h|i|b|min|max)|em)\b|\b(?:calc|clamp|min|max)\(/i', $value);
     }
 
     /**
@@ -404,7 +477,9 @@ final class BoxTreeFluidIntent
         if ($offset) return 'auto' === $value ? $value : null;
         if (null !== $declared && in_array($property, self::PERCENT_HEIGHTS, true) && self::percentHeight($declared)) return $declared;
         if (!in_array($value, self::INTRINSIC_KEYWORDS, true)) return null;
-        // A replaced or attribute-sized element's intrinsic size is not the author's to restate.
+        // A replaced or attribute-sized element's intrinsic size is not the
+        // author's to restate; a pseudo-element is neither.
+        if ('' !== $this->pseudo) return $value;
         if (in_array(strtolower($this->element->tagName), self::REPLACED, true)) return null;
         if (in_array($property, array('width', 'height'), true) && $this->element->hasAttribute($property)) return null;
         return $value;
@@ -486,13 +561,13 @@ final class BoxTreeFluidIntent
      * @param array<string, float> $samples
      * @return list<array{0: float|null, 1: string}>|null
      */
-    private function liftedInheritance(string $property, array $widths, array $samples, array $observations, array $parents): ?array
+    private function liftedInheritance(string $property, array $widths, array $samples, array $observations, array $parents, bool $allowAbsent): ?array
     {
         if (!in_array($property, BoxTree::INHERITED_PROPERTIES, true) || count($widths) < 2) return null;
         $values = array();
         foreach ($widths + $samples as $key => $width) {
             $declared = $this->declared($property, $width);
-            if (null !== $declared && 'inherit' !== strtolower($declared)) return null;
+            if (null === $declared ? !$allowAbsent : 'inherit' !== strtolower($declared)) return null;
             if (!isset($observations[$key])) continue;
             $own = $observations[$key]['used_styles'][$property] ?? null;
             $parent = $parents[$key]['used_styles'][$property] ?? null;
@@ -504,16 +579,16 @@ final class BoxTreeFluidIntent
     }
 
     /**
-     * Split the author's value into bands at the breakpoints where it
-     * switches between captures. Each band must hold a capture whose proven
-     * value it carries, unless the caller waives that proof.
+     * Split the author's value at its own breakpoints, not capture widths.
+     * Direct author declarations may cover unobserved bands; inferred intent
+     * still requires each band to hold a capture proving the inference.
      *
      * @param array<string, float> $widths
      * @param array<string, float> $samples
      * @param array<string, string> $proven Proven value by capture key.
      * @param callable(float): ?string $sample The author's value at a width between captures, or null when unresolved.
-     * @param bool $everyBandProven Whether a band no capture falls in rejects the lift. Only a value exact by
-     *        construction at every width (a flexible track list) may skip that proof.
+     * @param bool $everyBandProven Whether an unobserved band rejects inferred intent. Direct author
+     *        declarations and flexible grid tracks retain their unobserved variants.
      * @return list<array{0: float|null, 1: string}>|null
      */
     private function bands(array $widths, array $samples, array $proven, callable $sample, bool $everyBandProven = true): ?array
@@ -552,7 +627,7 @@ final class BoxTreeFluidIntent
      */
     private function declared(string $property, float $width): ?string
     {
-        $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width);
+        $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width, pseudoElement: $this->pseudo);
         $order = array_flip(array_keys($winners));
         $shorthand = self::SHORTHANDS[$property] ?? null;
         $fromShorthand = null !== $shorthand && isset($order[$shorthand]) && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
@@ -560,16 +635,38 @@ final class BoxTreeFluidIntent
         if (!isset($winners[$name])) return null;
         $value = trim(CssValueInspector::withoutImportant((string) $winners[$name]));
         if ('' === $value) return null;
+        if ('' !== $this->pseudo && $this->pseudoDefinesReferenced($value, $width)) return '';
+        if ($this->resolver->customProperties->isProvenInvalid($value, $this->element)) {
+            // Invalid at computed-value time means unset for the whole
+            // declaration, including every longhand of a shorthand.
+            return in_array($property, BoxTree::INHERITED_PROPERTIES, true) ? 'inherit' : 'unset';
+        }
         $value = $this->withRemInPixels(trim($this->resolver->customProperties->resolveAtViewport($value, $this->element, $width)), $width);
         if ('' === $value || !$fromShorthand) return $value;
         if ('font' === $shorthand) {
             return trim(CssValueInspector::withoutImportant(CssFontShorthand::expand($value, true)[$property] ?? ''));
         }
         if ('flex' === $shorthand) return '';
+        if ('grid-column' === $shorthand || 'grid-row' === $shorthand) {
+            $parts = CssValueSplitter::splitTopLevel($value, array('/'));
+            return str_ends_with($property, '-start') ? trim($parts[0]) : trim($parts[1] ?? (preg_match('/^[a-z_][\\w-]*$/i', $parts[0]) && 'span' !== $parts[0] ? $parts[0] : 'auto'));
+        }
         // `gap` is `<row-gap> <column-gap>?`, the first two box sides.
         if ('gap' === $shorthand) return CssValueInspector::expandBoxShorthand($value)['row-gap' === $property ? 0 : 1];
         $side = self::SIDES['inset' === $shorthand ? $property : substr($property, (int) strrpos($property, '-') + 1)] ?? null;
         return null === $side ? '' : CssValueInspector::expandBoxShorthand($value)[$side];
+    }
+
+    /**
+     * Whether the pseudo-element itself defines a custom property the value
+     * references. The resolver expands `var()` from the host outward, which
+     * would miss that definition, so the value is left unresolved instead.
+     */
+    private function pseudoDefinesReferenced(string $value, float $width): bool
+    {
+        if (!preg_match_all('/var\(\s*(--[\w-]+)/', $value, $names)) return false;
+        $names = array_values(array_unique($names[1]));
+        return array() !== $this->resolver->authorViewport->atViewport($this->element, $names, $width, pseudoElement: $this->pseudo);
     }
 
     /**
@@ -659,7 +756,8 @@ final class BoxTreeFluidIntent
             return isset($viewport['width'], $viewport['height']) ? array((float) $viewport['width'], (float) $viewport['height']) : null;
         }
         $absolute = 'absolute' === $position;
-        for ($node = $this->element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+        // A pseudo-element's box is a child of its host's.
+        for ($node = '' === $this->pseudo ? $this->element->parentNode : $this->element; $node instanceof DOMElement; $node = $node->parentNode) {
             $styles = ($this->evidence)($node)[$key]['used_styles'] ?? null;
             if (!is_array($styles)) {
                 // The document root boxes are rarely captured; an absolute

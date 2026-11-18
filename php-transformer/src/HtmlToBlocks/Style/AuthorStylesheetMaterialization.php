@@ -130,6 +130,10 @@ final class AuthorStylesheetMaterialization
         }
         $afterAuthorCss->add(CascadeLayer::SOURCE_BOX_MODEL_RESTATEMENT, $contentBoxSupportCss);
         $geometryCss = $this->styleResolver->generatedGeometryCss($serializedBlocks);
+        $bodyCss = $this->boxTreeBodyCss($html);
+        if ( '' !== $bodyCss ) {
+            $beforeAuthorCssParts[] = $bodyCss;
+        }
         if ( '' !== $geometryCss ) {
             // Important carrier rules precede author CSS: they retain inline
             // precedence over normal selectors while authored !important rules
@@ -262,6 +266,41 @@ final class AuthorStylesheetMaterialization
         return false;
     }
 
+
+    /**
+     * Properties of the source body that its own box owns, rather than
+     * passing to its content by inheritance, with their initial values.
+     */
+    private const BODY_BOX_PROPERTIES = array(
+        'width' => 'auto', 'min-width' => 'auto', 'max-width' => 'none', 'min-height' => 'auto',
+        'margin-top' => '0px', 'margin-right' => '0px', 'margin-bottom' => '0px', 'margin-left' => '0px',
+        'padding-top' => '0px', 'padding-right' => '0px', 'padding-bottom' => '0px', 'padding-left' => '0px',
+        'text-align' => 'start',
+    );
+
+    /**
+     * On a box-tree route the author stylesheet is not shipped (ADR 0005) and
+     * the source body becomes no block, so nothing else restates the column,
+     * centring and padding the author gave it. WordPress renders the content
+     * in its own body: restate the source body's box there, from its
+     * evidence and the author intent lifted from it.
+     */
+    private function boxTreeBodyCss(string $html): string
+    {
+        $viewports = $this->session->boxTreeViewports();
+        if ( array() === $viewports || ! preg_match('/<body\b/i', $html) ) {
+            return '';
+        }
+        $source = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization::parseDocument($html)->getElementsByTagName('body')->item(0);
+        $observations = $source instanceof \DOMElement ? $this->session->boxTreeEvidence($source) : array();
+        $root = $source?->parentNode;
+        if ( array() === $observations || ! $root instanceof \DOMElement ) {
+            return '';
+        }
+        $body = $this->session->authorStyleAnalysis()->sourceBody();
+        $fluid = ( new BoxTreeFluidIntent() )->lift($body, $this->styleResolver, $observations, $viewports, $this->session->boxTreeEvidence($root));
+        return ( new BoxTreeStyleProjector() )->boxRule(':root body', self::BODY_BOX_PROPERTIES, $observations, $fluid);
+    }
 
     /** Whether the source paints its canvas on `html` and never on `body`, under any condition. */
     private function htmlOwnsCanvas(\DOMElement $body): bool

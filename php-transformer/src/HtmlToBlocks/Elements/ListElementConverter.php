@@ -30,19 +30,25 @@ final class ListElementConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
 
-        $navigation = $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class ));
+        // core/list-item only accepts core/list children. A malformed list
+        // nested in an item (members other than <li>) must stay a List rather
+        // than select a pattern or the structural Group fallback.
+        $parent = $element->parentNode;
+        $nestedInItem = $parent instanceof DOMElement && 'li' === strtolower($parent->tagName) && $this->hasNonItemMember($element);
+
+        $navigation = $nestedInItem ? null : $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class ));
         if ( null !== $navigation ) {
             return ConversionOutcome::handled($this->context->rememberAccordionDisclosureRoot($navigation, $element));
         }
 
-        if ( $this->context->isStructuredCardList($element) ) {
+        if ( ! $nestedInItem && $this->context->isStructuredCardList($element) ) {
             $decomposed = $this->context->decomposeStructuredCardList($element, $fallbacks);
             if ( null !== $decomposed ) {
                 return ConversionOutcome::handled($decomposed);
             }
         }
 
-        if ( $this->context->containsStructuralItemContent($element) ) {
+        if ( ! $nestedInItem && $this->context->containsStructuralItemContent($element) ) {
             return ConversionOutcome::handled($this->context->decomposeStructuralList($element, $fallbacks));
         }
 
@@ -61,5 +67,16 @@ final class ListElementConverter implements ElementConverter
             $items,
             $element
         ));
+    }
+
+    private function hasNonItemMember(DOMElement $list): bool
+    {
+        foreach ( $list->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array( 'li', 'script', 'style', 'template' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
