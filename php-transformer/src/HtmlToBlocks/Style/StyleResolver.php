@@ -811,12 +811,12 @@ final class StyleResolver implements ElementPresentationResolver
      * @param list<DOMElement> $sources Source elements, the RichText root first.
      * @param list<DOMElement> $targets Their serialization clones, in the same order.
      */
-    private function restyleRichTextInlines(array $sources, array $targets): void
+    private function restyleRichTextInlines(array $sources, array $targets, int $from = 1): void
     {
         $viewports = $this->session->boxTreeViewports();
         if (array() === $viewports) return;
         $projector = null;
-        foreach (array_slice($sources, 1, null, true) as $index => $source) {
+        foreach (array_slice($sources, $from, null, true) as $index => $source) {
             $target = $targets[$index] ?? null;
             $parent = $source->parentNode;
             if (!$target instanceof DOMElement || !$parent instanceof DOMElement) continue;
@@ -827,6 +827,19 @@ final class StyleResolver implements ElementPresentationResolver
             $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
             if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
         }
+    }
+
+    /**
+     * A leaf saved whole inside boxless RichText is an inline, not the block
+     * root. Project only its typography; its layout already has an owner.
+     */
+    public function inlineLayoutLeafMarkup(DOMElement $element): string
+    {
+        if (array() === $this->session->boxTreeViewports()) return SourceDom::outerHtml($element);
+        $clone = $element->cloneNode(true);
+        if (!$clone instanceof DOMElement) return SourceDom::outerHtml($element);
+        $this->restyleRichTextInlines(array($element), array($clone), 0);
+        return SourceDom::outerHtml($clone);
     }
 
     /** Preserve authored inline CSS except typography already supplied by the parent. */
