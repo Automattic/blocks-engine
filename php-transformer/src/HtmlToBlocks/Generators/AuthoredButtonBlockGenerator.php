@@ -68,14 +68,22 @@ final class AuthoredButtonBlockGenerator
         ), static fn (mixed $value): bool => array() !== $value && '' !== $value);
     }
 
-    /** A captured dialog trigger anchor is a button only when its two bindings agree. */
+    /**
+     * A captured dialog trigger anchor is a button when its two capture
+     * bindings agree, or once dialog projection has rebound it: the projector
+     * points `aria-controls` at the native dialog it built and gives the
+     * trigger the id that dialog's `data-blocks-engine-triggers` names, so
+     * the capture key no longer matches `aria-controls` but the dialog
+     * binding proves the same control.
+     */
     public static function isCapturedDialogTriggerAnchor(DOMElement $element): bool
     {
         $key = trim(SourceDom::attr($element, CaptureEvidence::DIALOG_TRIGGER));
-        return 'a' === strtolower($element->tagName)
-            && 'button' === SourceDom::role($element)
-            && '' !== $key
-            && $key === trim(SourceDom::attr($element, 'aria-controls'));
+        if ('a' !== strtolower($element->tagName) || 'button' !== SourceDom::role($element) || '' === $key) {
+            return false;
+        }
+        $controls = trim(SourceDom::attr($element, 'aria-controls'));
+        return $key === $controls || ('' !== $controls && SourceDom::isBoundCapturedDialogTrigger($element));
     }
 
     /**
