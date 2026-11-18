@@ -13,6 +13,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LayoutTableLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WordPressCommentForm;
@@ -73,6 +75,7 @@ final class AuthorStylesheetProjector
             $stylesheet,
             function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, &$bridges): string {
                 $css = $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions);
+                $css = $this->withProviderFieldWrapperHeight($prelude, $css, $context);
                 $bridge = $this->projectedLayerBridge($prelude, $css, $ancestors, $context);
                 if ( '' !== $bridge ) $bridges[$bridge] = true;
                 return $css;
@@ -113,6 +116,63 @@ final class AuthorStylesheetProjector
             });
         }
         return CssSelectorListCompactor::stylesheet($projected);
+    }
+
+    /**
+     * A provider-materialized form control sits inside the provider's field
+     * wrapper, a box the source did not have between the control and its
+     * authored parent. A percentage height on the control resolved against
+     * that parent in the source; against the auto-height wrapper it resolves
+     * to nothing, so `textarea{height:100%}` no longer fills its column.
+     *
+     * When every element the rule selects is such a control, its parent on
+     * the front end is the provider wrapper, so the projected rule passes the
+     * parent's height through it with a nested `:has(>&){height:100%}`: the
+     * control's percentage then resolves against the same box it did in the
+     * source, and an auto-height parent leaves the wrapper auto as before.
+     * Nesting states the wrapper by the rule's own selector instead of
+     * repeating it, and a control's own `height:100%` shares that rule.
+     */
+    private function withProviderFieldWrapperHeight(string $prelude, string $css, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( ! str_contains($css, '%') ) return $css;
+        $percentHeight = static fn (string $property, string $value): bool => in_array(strtolower($property), array( 'height', 'min-height', 'max-height' ), true) && 1 === preg_match('/\d%/', $value);
+        $controls = 0;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $selector = preg_replace(AuthorSelectorProjector::STATE_PSEUDO_CLASS_PATTERN, '', $selector) ?? $selector;
+            if ( str_contains($selector, '::') ) return $css;
+            foreach ( $this->selectors->matchingSourceElements($selector, $context->sourceStyles->parsedSelector($selector), $context) as $element ) {
+                $form = SourceDom::ancestorElement($element, 'form');
+                if ( null === $form || ! FormControlClassifier::isDataEntryControl($element) || array() === FormDispatcher::hostRenderedClasses($form) ) return $css;
+                ++$controls;
+            }
+        }
+        if ( 0 === $controls ) return $css;
+        $transformer = new CssStylesheetTransformer();
+
+        return $transformer->transformStyleRules($css, static function (string $selector, string $body) use ($transformer, $percentHeight): string {
+            $parts = $transformer->splitStyleRuleBody($body);
+            // An editor-canvas restatement has no provider wrapper, and a
+            // body that already nests rules is left as authored.
+            if ( str_contains($selector, EditorShellBoundary::EDITOR_SCOPE) || 1 !== count($parts) || ! isset($parts[0]['declarations']) ) return $selector . '{' . $body . '}';
+            $declarations = CssValueSplitter::splitTopLevel($body, array( ';' ));
+            $kept = array();
+            $percent = false;
+            $shared = null;
+            foreach ( $declarations as $declaration ) {
+                [$property, $value] = array_map('trim', explode(':', $declaration, 2)) + array( '', '' );
+                if ( $percentHeight($property, $value) ) $percent = true;
+                if ( null === $shared && 'height' === strtolower($property) && '100%' === $value && 1 === count(array_filter($declarations, static fn (string $other): bool => 1 === preg_match('/^\s*height\s*:/i', $other))) ) {
+                    $shared = $declaration;
+                    continue;
+                }
+                $kept[] = $declaration;
+            }
+            if ( ! $percent ) return $selector . '{' . $body . '}';
+            $nested = null === $shared ? ':has(>&){height:100%}' : '&,:has(>&){' . $shared . '}';
+
+            return $selector . '{' . implode(';', $kept) . ( array() === $kept ? '' : ';' ) . $nested . '}';
+        });
     }
 
     /**
