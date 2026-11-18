@@ -18,6 +18,13 @@ final class AuthorSelectorProjectionState
     public const NAVIGATION_ITEM = 'item';
     public const NAVIGATION_LIST_HOST = 'list-host';
 
+    /**
+     * Marks a core/navigation that stands in for a source menu and for the
+     * equivalent copy the source shows at other widths. The kept copy's
+     * width-gated hides belong to the copy it absorbed, not to this block.
+     */
+    public const MERGED_DEVICE_NAVIGATION_CLASS = 'blocks-engine-merged-device-navigation';
+
     private ?AuthorStyleAnalysis $authorStyles = null;
 
     /** @var array<string, string> */
@@ -174,6 +181,9 @@ final class AuthorSelectorProjectionState
      */
     private array $navigationSourcePaths = array();
 
+    /** @var array<string, true> Source menus whose navigation absorbed an equivalent device copy. */
+    private array $mergedDeviceNavigationPaths = array();
+
     /** @var array<string, string> Source subject path => its exact native CSS target. */
     private array $navigationSubjects = array();
 
@@ -183,7 +193,7 @@ final class AuthorSelectorProjectionState
     private array $navigationListShownDisplays = array();
 
     /** Source list box properties that the native root renders after the list becomes display:contents. */
-    public const NAVIGATION_LIST_BOX_PROPERTIES = array('display', 'flex-direction', 'flex-wrap', 'flex-flow', 'justify-content', 'align-items', 'align-content', 'gap', 'row-gap', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'margin-block', 'margin-block-start', 'margin-block-end', 'margin-inline', 'margin-inline-start', 'margin-inline-end', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block', 'padding-block-start', 'padding-block-end', 'padding-inline', 'padding-inline-start', 'padding-inline-end', 'overflow', 'overflow-x', 'overflow-y', 'columns', 'column-count', 'column-width', 'column-gap', 'column-fill', 'column-rule', 'column-rule-color', 'column-rule-style', 'column-rule-width');
+    public const NAVIGATION_LIST_BOX_PROPERTIES = array('width', 'min-width', 'max-width', 'box-sizing', 'border', 'border-width', 'border-style', 'border-color', 'border-top', 'border-right', 'border-bottom', 'border-left', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width', 'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style', 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color', 'border-radius', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-left-radius', 'border-bottom-right-radius', 'background', 'background-color', 'background-image', 'background-position', 'background-size', 'background-repeat', 'background-origin', 'background-clip', 'background-attachment', 'display', 'flex-direction', 'flex-wrap', 'flex-flow', 'justify-content', 'align-items', 'align-content', 'gap', 'row-gap', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'margin-block', 'margin-block-start', 'margin-block-end', 'margin-inline', 'margin-inline-start', 'margin-inline-end', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block', 'padding-block-start', 'padding-block-end', 'padding-inline', 'padding-inline-start', 'padding-inline-end', 'overflow', 'overflow-x', 'overflow-y', 'columns', 'column-count', 'column-width', 'column-gap', 'column-fill', 'column-rule', 'column-rule-color', 'column-rule-style', 'column-rule-width');
 
     /**
      * Target class for the native root that renders source list `$path`'s box.
@@ -594,17 +604,30 @@ final class AuthorSelectorProjectionState
         // A carrier restated in a block attribute (a navigation link label)
         // is JSON-escaped in the block comment.
         $markup = str_replace(array( '\\u003c', '\\u003e', '\\u0022' ), array( '<', '>', '"' ), $markup);
+        // Every allocated rich-text marker has one shape, so the markup is
+        // read once for all of them rather than once per marker (#6752).
+        $shape = 'blocks-engine-richtext-[a-f0-9]{12}-\d+';
+        $indexed = null;
         foreach ( $this->subjectCarriers['richtext'] ?? array() as $marker => $carrier ) {
             $marker = (string) $marker;
             if ( null === $carrier || isset($this->withheldSubjectCarriers['richtext'][$marker]) ) {
                 continue;
             }
-            $pattern = preg_quote($marker, '/') . '(?!\d)';
-            $occurrences = preg_match_all('/' . $pattern . '/', $markup);
-            if ( ! is_int($occurrences) || 0 === $occurrences
-                || ! preg_match_all('/<(?:mark|span)\b[^>]*' . $pattern . '[^>]*>/i', $markup, $tags) || count($tags[0]) !== $occurrences
-            ) {
-                continue;
+            if ( 1 === preg_match('/^' . $shape . '$/D', $marker) ) {
+                $indexed ??= self::richTextMarkerOccurrences($markup, $shape);
+                $occurrences = $indexed['occurrences'][$marker] ?? 0;
+                $tags = array( $indexed['tags'][$marker] ?? array() );
+                if ( 0 === $occurrences || count($tags[0]) !== $occurrences ) {
+                    continue;
+                }
+            } else {
+                $pattern = preg_quote($marker, '/') . '(?!\d)';
+                $occurrences = preg_match_all('/' . $pattern . '/', $markup);
+                if ( ! is_int($occurrences) || 0 === $occurrences
+                    || ! preg_match_all('/<(?:mark|span)\b[^>]*' . $pattern . '[^>]*>/i', $markup, $tags) || count($tags[0]) !== $occurrences
+                ) {
+                    continue;
+                }
             }
             $expected = array( EngineMarker::roleClass($marker), ...EngineMarker::subjectClasses($carrier['tag'], array_map('strval', array_keys($carrier['classes']))) );
             foreach ( $tags[0] as $tag ) {
@@ -615,6 +638,38 @@ final class AuthorSelectorProjectionState
             }
             $this->confirmedRichTextCarriers[$marker] = true;
         }
+    }
+
+    /**
+     * Each rich-text marker's occurrences in the markup, and the `<mark>` or
+     * `<span>` start tags that carry it, each tag once. A marker's digits
+     * end where the next character is not a digit, as `marker(?!\d)` reads
+     * it, so one scan answers what a scan per marker would.
+     *
+     * @return array{occurrences: array<string, int>, tags: array<string, list<string>>}
+     */
+    private static function richTextMarkerOccurrences(string $markup, string $shape): array
+    {
+        $occurrences = array();
+        if ( preg_match_all('/' . $shape . '/', $markup, $matches) ) {
+            foreach ( $matches[0] as $marker ) {
+                $occurrences[$marker] = ($occurrences[$marker] ?? 0) + 1;
+            }
+        }
+        $tags = array();
+        if ( array() !== $occurrences && preg_match_all('/<(?:mark|span)\b[^>]*>/i', $markup, $matches) ) {
+            foreach ( $matches[0] as $tag ) {
+                // Tags are read case-insensitively, as the per-marker tag
+                // pattern was.
+                if ( false === stripos($tag, 'blocks-engine-richtext-') || ! preg_match_all('/' . $shape . '/i', $tag, $carried) ) {
+                    continue;
+                }
+                foreach ( array_unique(array_map('strtolower', $carried[0])) as $marker ) {
+                    $tags[$marker][] = $tag;
+                }
+            }
+        }
+        return array( 'occurrences' => $occurrences, 'tags' => $tags );
     }
 
     /** @return list<string> */
@@ -927,6 +982,39 @@ final class AuthorSelectorProjectionState
     public function isNavigationSourcePath(string $path, string $role): bool
     {
         return isset($this->navigationSourcePaths[$role][$path]);
+    }
+
+    /** Record a source menu whose navigation also serves an absorbed equivalent copy. */
+    public function markMergedDeviceNavigationSource(DOMElement $element): void
+    {
+        $path = $element->getNodePath() ?? '';
+        if ( '' !== $path ) {
+            $this->mergedDeviceNavigationPaths[$path] = true;
+        }
+    }
+
+    public function isMergedDeviceNavigationSource(string $path): bool
+    {
+        return isset($this->mergedDeviceNavigationPaths[$path]);
+    }
+
+    /**
+     * A source list nested in an item core renders as a navigation item:
+     * core renders it as that item's submenu container, never as the
+     * navigation's top-level list.
+     */
+    public function isNavigationSubmenuListSource(DOMElement $element): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
+            return false;
+        }
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'li' === strtolower($node->tagName) && $this->isNavigationSourcePath($node->getNodePath() ?? '', self::NAVIGATION_ITEM) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** A projected opener owns the root; the source list now owns the inner UL. */

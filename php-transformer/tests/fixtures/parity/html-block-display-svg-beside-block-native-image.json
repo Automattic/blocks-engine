@@ -1,0 +1,113 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-block-display-svg-beside-block-native-image",
+  "description": "A standalone inline SVG that author CSS lays out as display:block, directly before a paragraph, is a block-level box rather than phrasing content. It becomes an editable core/image figure, not an image object inside a synthetic SVG paragraph. Its class rule's centering margins and opacity are owned by the image leaf once, not replayed on the synthetic figure as well (which compounded the fade). An inline-display SVG beside the same block keeps its paragraph host.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-block-display-svg-beside-block-native-image.json",
+    "notes": "Product-neutral regression for a centered, faded block-level icon above body text. The sibling paragraph made the phrasing-to-block rule wrap the icon in blocks-engine-synthetic-svg-paragraph, so it could not be selected or replaced as an image and lost its author styles."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><style>.icon{display:block;margin:0 auto;opacity:.55}</style></head><body><svg class=\"icon\" viewBox=\"0,0,20,20\" width=\"44\" height=\"44\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M2 2h16v16H2z\"></path></svg><p>Text below an icon.</p><section><svg viewBox=\"0,0,20,20\" width=\"24\" height=\"24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M2 2h16v16H2z\"></path></svg><p>Text beside an inline icon.</p></section></body></html>"
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/image",
+      "attrs": {
+        "width": "44px",
+        "height": "44px"
+      }
+    },
+    {
+      "path": "blocks.1",
+      "name": "core/paragraph"
+    },
+    {
+      "path": "blocks.2",
+      "name": "core/group"
+    },
+    {
+      "path": "blocks.2.innerBlocks.0",
+      "name": "core/paragraph"
+    }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "blocks",
+      "assert": "count",
+      "count": 3
+    },
+    {
+      "path": "blocks.0.attrs.url",
+      "assert": "contains",
+      "value": "assets/materialized-svg/"
+    },
+    {
+      "path": "blocks.0.attrs.className",
+      "assert": "contains",
+      "value": "icon "
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<figure class=\"wp-block-image is-resized icon "
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "alt=\"\" style=\"width:44px;height:44px\"/></figure><!-- /wp:image --><!-- wp:paragraph --><p>Text below an icon.</p>"
+    },
+    {
+      "path": "blocks.2.innerBlocks.0.attrs.className",
+      "assert": "contains",
+      "value": "blocks-engine-synthetic-svg-paragraph"
+    },
+    {
+      "path": "assets.3.path",
+      "assert": "equals",
+      "value": "inline-style-1.css"
+    },
+    {
+      "path": "assets.3.content",
+      "assert": "contains",
+      "value": ".icon{display:block}"
+    },
+    {
+      "path": "assets.3.content",
+      "assert": "contains",
+      "value": ".icon:not(:where(.blocks-engine-synthetic-image-figure)){opacity:.55}"
+    },
+    {
+      "path": "assets.3.content",
+      "assert": "contains",
+      "value": ".icon.wp-block-image > img,.icon.wp-block-image > a > img{display:block;object-fit:inherit;object-position:inherit;border-radius:inherit;display:block;margin:0 auto;opacity:.55}"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "<!-- wp:html"
+    },
+    {
+      "path": "fallbacks",
+      "assert": "count",
+      "count": 0
+    },
+    {
+      "path": "source_reports.wp_block_validity.status",
+      "assert": "equals",
+      "value": "pass"
+    }
+  ]
+}

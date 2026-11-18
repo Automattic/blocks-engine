@@ -63,7 +63,7 @@ final class SourceStyleResolutionState
     private array $ariaControlledTargetIds = array();
 
     /**
-     * Each source element's interaction-state families, keyed by node path and
+     * Each source element's interaction-state families, keyed by element identity and
      * reused only for the same node; dropped with the selector match cache
      * that decided them.
      *
@@ -72,8 +72,8 @@ final class SourceStyleResolutionState
     private array $stateStyleFamilies = array();
 
     /**
-     * Each source element's matched cascaded-value declarations, keyed by node
-     * path. An entry is reused only for the same node with the same inline
+     * Each source element's matched cascaded-value declarations, keyed by element
+     * identity. An entry is reused only for the same node with the same inline
      * style, so a node replaced at that path or restyled in place is
      * recomputed; the selector matches behind it are dropped with the
      * selector match cache.
@@ -84,20 +84,23 @@ final class SourceStyleResolutionState
 
     /**
      * Each source element's matching rules per collection, keyed by collection
-     * and node path.
+     * and element identity, with values derived from exactly those rules.
      *
-     * @var array<string, array{node: DOMElement, rules: list<array<string, mixed>>}>
+     * @var array<string, array{node: DOMElement, rules: list<array<string, mixed>>, derived?: array<string, array<string, string>>}>
      */
     private array $matchedRules = array();
 
     /**
      * Each source element's inherited custom properties, keyed by resting flag
-     * and node path, with the ancestor chain and style attributes they were
+     * and element identity, with the ancestor chain and style attributes they were
      * cascaded from.
      *
      * @var array<string, array{chain: list<DOMElement>, styles: list<string>, properties: array<string, string>}>
      */
     private array $cascadedCustomProperties = array();
+
+    /** @var array<string, array{node: DOMElement, declarations: array<string, string>}> */
+    private array $authoredInheritedDeclarations = array();
 
     /** @var (Closure(): list<array<string, mixed>>)|null */
     private ?Closure $hiddenStateRules = null;
@@ -118,6 +121,7 @@ final class SourceStyleResolutionState
         $this->cascadedDeclarations = array();
         $this->matchedRules = array();
         $this->cascadedCustomProperties = array();
+        $this->authoredInheritedDeclarations = array();
         $this->ariaControlledTargetIds = array();
     }
 
@@ -143,6 +147,7 @@ final class SourceStyleResolutionState
         $this->cascadedDeclarations = array();
         $this->matchedRules = array();
         $this->cascadedCustomProperties = array();
+        $this->authoredInheritedDeclarations = array();
         $this->customProperties = $analysis['custom_properties'];
         $this->layerNames = array_values(array_map('strval', $analysis['layer_names'] ?? array()));
     }
@@ -161,6 +166,28 @@ final class SourceStyleResolutionState
         $this->ruleCandidateIndexes = array();
         $this->matchedRules = array();
         $this->cascadedCustomProperties = array();
+        $this->authoredInheritedDeclarations = array();
+    }
+
+    /**
+     * Remember an element's authored inherited cascade for all of its inputs.
+     * Selector invalidation owns the lifetime; detached nodes are never retained.
+     *
+     * @param list<string> $conditions
+     * @param callable(DOMElement): array<string, string> $compute
+     * @return array<string, string>
+     */
+    public function authoredInheritedDeclarations(DOMElement $element, bool $navigationEditor, array $conditions, bool $skipForeignConditions, callable $compute): array
+    {
+        if ( ! $element->isConnected ) {
+            return $compute($element);
+        }
+        $key = $this->selectorMatchCache->elementKey($element) . "\0" . serialize(array($navigationEditor, $conditions, $skipForeignConditions, $element->getAttribute('style')));
+        $entry = $this->authoredInheritedDeclarations[$key] ?? null;
+        if ( null === $entry || ! $entry['node']->isSameNode($element) ) {
+            $entry = $this->authoredInheritedDeclarations[$key] = array('node' => $element, 'declarations' => $compute($element));
+        }
+        return $entry['declarations'];
     }
 
     /**
@@ -176,7 +203,7 @@ final class SourceStyleResolutionState
             $declarations = $compute($element);
             return array( 'node' => $element, 'style' => $element->getAttribute('style'), 'declarations' => $declarations, 'custom' => self::customDeclarations($declarations) );
         }
-        $path = (string) $element->getNodePath();
+        $path = $this->selectorMatchCache->elementKey($element);
         $style = $element->getAttribute('style');
         $entry = $this->cascadedDeclarations[$path] ?? null;
         if ( null === $entry || $entry['style'] !== $style || ! $entry['node']->isSameNode($element) ) {
@@ -206,6 +233,13 @@ final class SourceStyleResolutionState
      */
     public function matchingRules(DOMElement $element, string $collection): array
     {
+        // The hot read must not allocate a closure or repeat the connected
+        // node check on every hit. Invalidation owns this memo's lifetime.
+        $key = $collection . "\0" . $this->selectorMatchCache->elementKey($element);
+        if (isset($this->matchedRules[$key]) && $element->isConnected
+            && $this->matchedRules[$key]['node']->isSameNode($element)) {
+            return $this->matchedRules[$key]['rules'];
+        }
         return $this->remembered($element, $collection, function (DOMElement $element) use ($collection): array {
             $rules = array();
             foreach ( $this->candidateRules($element, $collection) as $rule ) {
@@ -215,6 +249,26 @@ final class SourceStyleResolutionState
             }
             return $rules;
         });
+    }
+
+    /**
+     * A value derived only from the element's matching rules in a collection
+     * and `$derivation` (which must name every other input), remembered with
+     * those matched rules: it is recomputed whenever they are, so it is
+     * exactly what `$derive` would return from a fresh read.
+     *
+     * @param Closure(list<array<string, mixed>>): array<string, string> $derive
+     * @return array<string, string>
+     */
+    public function derivedFromMatchingRules(DOMElement $element, string $collection, string $derivation, Closure $derive): array
+    {
+        $rules = $this->matchingRules($element, $collection);
+        if ( ! self::isInDocument($element) ) {
+            return $derive($rules);
+        }
+        // matchingRules() just left this element's entry under this key.
+        $key = $collection . "\0" . $this->selectorMatchCache->elementKey($element);
+        return $this->matchedRules[$key]['derived'][$derivation] ??= $derive($rules);
     }
 
     /**
@@ -262,7 +316,7 @@ final class SourceStyleResolutionState
         if ( ! self::isInDocument($element) ) {
             return $compute($element);
         }
-        $key .= "\0" . $element->getNodePath();
+        $key .= "\0" . $this->selectorMatchCache->elementKey($element);
         $entry = $this->matchedRules[$key] ?? null;
         if ( null === $entry || ! $entry['node']->isSameNode($element) ) {
             $entry = $this->matchedRules[$key] = array( 'node' => $element, 'rules' => $compute($element) );
@@ -297,6 +351,12 @@ final class SourceStyleResolutionState
             'image-shape' => $this->imageShapeRules,
             // Interaction-state rules indexed by their resting selector, each
             // carrying the property families it declares.
+            // Reveal-state rules indexed by their resting selector, each
+            // carrying its source rule.
+            'reveal-state' => array_map(static fn (array $rule): array => array(
+                'selector' => (string) ($rule['base_selector'] ?? ''),
+                'rule' => $rule,
+            ), $this->revealStateRules),
             'state-families' => array_map(static fn (array $rule): array => array(
                 'selector' => (string) ($rule['base_selector'] ?? ''),
                 'families' => array_fill_keys(array_map(static fn (int|string $property): string => ResponsivePropertyFamily::of((string) $property), array_keys($rule['declarations'] ?? array())), true),
@@ -348,7 +408,7 @@ final class SourceStyleResolutionState
         if ( ! $node instanceof DOMDocument ) {
             return $compute($chain);
         }
-        $key = ( $resting ? 'resting' : 'desktop' ) . "\0" . $element->getNodePath();
+        $key = ( $resting ? 'resting' : 'desktop' ) . "\0" . $this->selectorMatchCache->elementKey($element);
         $entry = $this->cascadedCustomProperties[$key] ?? null;
         if ( null !== $entry && $entry['styles'] === $styles && self::sameNodes($entry['chain'], $chain) ) {
             return $entry['properties'];
@@ -383,11 +443,8 @@ final class SourceStyleResolutionState
      */
     private static function isInDocument(DOMElement $element): bool
     {
-        $node = $element;
-        while ( null !== $node->parentNode ) {
-            $node = $node->parentNode;
-        }
-        return $node instanceof \DOMDocument;
+        // Whether the root of the element's tree is its document.
+        return $element->isConnected;
     }
 
     /**
@@ -414,7 +471,7 @@ final class SourceStyleResolutionState
         if ( ! self::isInDocument($element) ) {
             return $compute($element);
         }
-        $path = (string) $element->getNodePath();
+        $path = $this->selectorMatchCache->elementKey($element);
         $entry = $this->stateStyleFamilies[$path] ?? null;
         if ( null === $entry || ! $entry['node']->isSameNode($element) ) {
             $entry = $this->stateStyleFamilies[$path] = array( 'node' => $element, 'families' => $compute($element) );
@@ -455,6 +512,21 @@ final class SourceStyleResolutionState
     public function revealStateRules(): array
     {
         return $this->revealStateRules;
+    }
+
+    /**
+     * The reveal-state rules whose resting selector matches the element, in
+     * source order: what a walk of {@see revealStateRules()} that matches each
+     * `base_selector` keeps, read through the candidate index instead.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function matchingRevealStateRules(DOMElement $element): array
+    {
+        if ( array() === $this->revealStateRules ) {
+            return array();
+        }
+        return array_map(static fn (array $entry): array => $entry['rule'], $this->matchingRules($element, 'reveal-state'));
     }
 
     public function isAriaControlledTarget(DOMElement $element): bool
@@ -516,8 +588,14 @@ final class SourceStyleResolutionState
 
     public function setFormLayoutCss(string $css): void
     {
+        $this->authoredInheritedDeclarations = array();
         $this->formLayoutCss = $css;
         $this->containerStyleQueries = null;
+        // Derived cascades evaluated `@container` style queries against the
+        // previous stylesheet; the matched rules themselves still hold.
+        foreach ( $this->matchedRules as $key => $entry ) {
+            unset($this->matchedRules[$key]['derived']);
+        }
     }
 
     /** Viewport truth of the combined author stylesheet's container style queries. */

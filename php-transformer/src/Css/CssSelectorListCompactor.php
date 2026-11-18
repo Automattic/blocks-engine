@@ -486,11 +486,82 @@ final class CssSelectorListCompactor
         return null === $combinator ? $out : null;
     }
 
+    /**
+     * The arms compact() factored into one `:is()` compound, split back out:
+     * `X :is(.a,.b) Y` becomes `X .a Y` and `X .b Y`. Only a list of plain
+     * compounds with one weight is split, the lists compact() writes, so
+     * every arm keeps the specificity it had inside the list. A condition
+     * appended to the list compound later (`:is(.a,.b):where(:root.r)`)
+     * follows each arm. A selector without such a list is its own only arm.
+     *
+     * @return list<string>
+     */
+    public static function factoredArms(string $selector, int $limit = 64): array
+    {
+        $selector = trim($selector);
+        if ( ! str_contains($selector, ':is(') ) {
+            return array($selector);
+        }
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        if ( ! $tokens['supported'] ) {
+            return array($selector);
+        }
+        foreach ( $tokens['compound_spans'] as $position => $span ) {
+            $compound = $tokens['compounds'][ $position ];
+            if ( ! str_starts_with($compound, ':is(') ) {
+                continue;
+            }
+            $close = CssSyntaxScanner::matchingClose($compound, 3);
+            if ( null === $close ) {
+                continue;
+            }
+            $alternatives = CssStylesheetTransformer::splitSelectorList(substr($compound, 4, $close - 4));
+            if ( null === $alternatives || count($alternatives) < 2 ) {
+                continue;
+            }
+            $weights = array();
+            foreach ( $alternatives as $alternative ) {
+                $weights[ (string) self::plainCompoundWeight(trim($alternative)) ] = true;
+            }
+            if ( 1 !== count($weights) || isset($weights['']) ) {
+                continue;
+            }
+            $prefix = substr($selector, 0, $span['start']);
+            $suffix = substr($compound, $close + 1) . substr($selector, $span['end']);
+            $arms = array();
+            foreach ( $alternatives as $alternative ) {
+                foreach ( self::factoredArms($prefix . trim($alternative) . $suffix, $limit) as $arm ) {
+                    $arms[] = $arm;
+                    if ( count($arms) > $limit ) {
+                        return array($selector);
+                    }
+                }
+            }
+            return $arms;
+        }
+        return array($selector);
+    }
+
     public static function compact(string $prelude): string
     {
         if ( ! str_contains($prelude, ',') ) {
             return $prelude;
         }
+        if ( isset(self::$compacted[ $prelude ]) ) {
+            return self::$compacted[ $prelude ];
+        }
+        $result = self::compactUncached($prelude);
+        if ( count(self::$compacted) >= 4096 || self::$compactedBytes + strlen($prelude) + strlen($result) > 8388608 ) {
+            self::$compacted = array();
+            self::$compactedBytes = 0;
+        }
+        self::$compacted[ $prelude ] = $result;
+        self::$compactedBytes += strlen($prelude) + strlen($result);
+        return $result;
+    }
+
+    private static function compactUncached(string $prelude): string
+    {
         // Projection may already have wrapped per-node alternatives in :is().
         // Normalize those lists too: identical projected markers otherwise grow
         // with every occurrence of a repeated component on the page.
@@ -572,31 +643,63 @@ final class CssSelectorListCompactor
         return implode(',', $output);
     }
 
+    /**
+     * Bounded memo of compact() by prelude. Projection compacts one rule's
+     * selector list per projected rule, and a page restates the same lists
+     * across rules and passes; the result depends on the text alone.
+     *
+     * @var array<string, string>
+     */
+    private static array $compacted = array();
+
+    private static int $compactedBytes = 0;
+
+    private static int $nestedListScans = 0;
+
+    /**
+     * Selector bytes compactNestedLists() has scanned since process start;
+     * observable for tests. A list is scanned once per distinct prelude, and
+     * each scan is linear in the list's length (#6752).
+     */
+    public static function nestedListScanBytes(): int
+    {
+        return self::$nestedListScans;
+    }
+
     private static function compactNestedLists(string $selector): string
     {
         // Do not interpret punctuation inside comments or quoted syntax.
         // Attribute strings are skipped as a whole below.
-        if (str_contains($selector, '/*')) return $selector;
+        if (str_contains($selector, '/*') || ! str_contains($selector, '(')) return $selector;
         $out = '';
-        for ($i = 0, $length = strlen($selector); $i < $length; ++$i) {
+        $length = strlen($selector);
+        self::$nestedListScans += $length;
+        for ($i = 0; $i < $length; ) {
+            // Copy plain runs whole: only escapes, brackets and parentheses
+            // need reading.
+            $run = strcspn($selector, '\\[(', $i);
+            if ($run > 0) {
+                $out .= substr($selector, $i, $run);
+                $i += $run;
+                if ($i >= $length) break;
+            }
             $char = $selector[$i];
             if ('\\' === $char) {
                 $out .= substr($selector, $i, 2);
-                ++$i;
+                $i += 2;
                 continue;
             }
-            if ('[' === $char || '(' === $char) {
-                $close = CssSyntaxScanner::matchingClose($selector, $i);
-                if (null === $close) return $selector;
-                $inner = substr($selector, $i + 1, $close - $i - 1);
-                if ('(' === $char && preg_match('/:(?:is|where|not|has)$/i', $out)) {
-                    $inner = self::compact($inner);
-                }
-                $out .= $char . $inner . $selector[$close];
-                $i = $close;
-                continue;
+            $close = CssSyntaxScanner::matchingClose($selector, $i);
+            if (null === $close) return $selector;
+            $inner = substr($selector, $i + 1, $close - $i - 1);
+            // Only the output's tail can name the pseudo-class, so test that
+            // tail rather than the whole output (which made the scan
+            // quadratic in the list length).
+            if ('(' === $char && preg_match('/:(?:is|where|not|has)$/i', substr($out, -8))) {
+                $inner = self::compact($inner);
             }
-            $out .= $char;
+            $out .= $char . $inner . $selector[$close];
+            $i = $close + 1;
         }
         return $out;
     }

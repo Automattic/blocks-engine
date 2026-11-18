@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LayoutTableLowering;
@@ -51,6 +52,8 @@ final class AuthorStylesheetProjector
     /** Projects source selectors onto the block markup they convert to. */
     private readonly AuthorSelectorProjector $selectors;
 
+    private readonly NavigationContainerHostScope $navigationContainerScope;
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer,
@@ -59,6 +62,7 @@ final class AuthorStylesheetProjector
     ) {
         $this->buttonDeclarationRouting = new ButtonDeclarationRouting($styleResolver, $semanticPreparer);
         $this->selectors = new AuthorSelectorProjector($styleResolver, $semanticPreparer);
+        $this->navigationContainerScope = new NavigationContainerHostScope();
     }
 
     /**
@@ -70,18 +74,24 @@ final class AuthorStylesheetProjector
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
         $bridges = array();
+        $navigationHosts = array();
+        $navigationRoots = $this->navigationContainerScope->navigationRootClassLists($context->emittedMarkup);
         $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody(), $this->styleResolver);
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, &$bridges): string {
+            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, $navigationRoots, &$bridges, &$navigationHosts): string {
                 $css = $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions);
                 $css = $this->withProviderFieldWrapperHeight($prelude, $css, $context);
                 $bridge = $this->projectedLayerBridge($prelude, $css, $ancestors, $context);
                 if ( '' !== $bridge ) $bridges[$bridge] = true;
+                foreach ( $this->navigationContainerHosts($prelude, $context, $navigationRoots) as $host ) {
+                    if ( ! in_array($host, $navigationHosts, true) ) $navigationHosts[] = $host;
+                }
                 return $css;
             }
         );
         $projected .= implode('', array_keys($bridges));
+        $projected .= $this->navigationContainerScope->neutralizingRules($projected, $navigationHosts);
         $projected = $this->buttonLinkWidthRules($projected, $context);
         if ( str_contains($context->emittedMarkup, ImageLowering::BACKGROUND_IMAGE_CLASS) ) {
             // A materialized background is paint, not another author subject.
@@ -119,6 +129,24 @@ final class AuthorStylesheetProjector
     }
 
     /**
+     * Navigation wrapper hosts a source rule names (see NavigationContainerHostScope).
+     *
+     * @param list<list<string>> $roots Navigation root class lists for this projection.
+     * @return list<list<string>>
+     */
+    private function navigationContainerHosts(string $prelude, AuthorStylesheetProjectionContext $context, array $roots): array
+    {
+        return $this->navigationContainerScope->hostClassSets(
+            $prelude,
+            $roots,
+            function (string $compound) use ($context): array {
+                $parsed = $context->sourceStyles->parsedSelector($compound);
+                return $parsed['supported'] ? $this->selectors->matchingSourceElements($compound, $parsed, $context) : array();
+            }
+        );
+    }
+
+    /**
      * A provider-materialized form control sits inside the provider's field
      * wrapper, a box the source did not have between the control and its
      * authored parent. A percentage height on the control resolved against
@@ -132,6 +160,12 @@ final class AuthorStylesheetProjector
      * source, and an auto-height parent leaves the wrapper auto as before.
      * Nesting states the wrapper by the rule's own selector instead of
      * repeating it, and a control's own `height:100%` shares that rule.
+     *
+     * A control whose source parent is its own frame (an exclusive box below
+     * its caption level) keeps that frame as its parent: the provider renders
+     * the frame around its control inside the wrapper. The percentage already
+     * resolves against the source box there, and a nested `:has(>&)` would
+     * land on the frame itself and override the frame's own height.
      */
     private function withProviderFieldWrapperHeight(string $prelude, string $css, AuthorStylesheetProjectionContext $context): string
     {
@@ -143,7 +177,7 @@ final class AuthorStylesheetProjector
             if ( str_contains($selector, '::') ) return $css;
             foreach ( $this->selectors->matchingSourceElements($selector, $context->sourceStyles->parsedSelector($selector), $context) as $element ) {
                 $form = SourceDom::ancestorElement($element, 'form');
-                if ( null === $form || ! FormControlClassifier::isDataEntryControl($element) || array() === FormDispatcher::hostRenderedClasses($form) ) return $css;
+                if ( null === $form || ! FormControlClassifier::isDataEntryControl($element) || array() === FormDispatcher::hostRenderedClasses($form) || self::isInOwnControlFrame($element) ) return $css;
                 ++$controls;
             }
         }
@@ -173,6 +207,24 @@ final class AuthorStylesheetProjector
 
             return $selector . '{' . implode(';', $kept) . ( array() === $kept ? '' : ';' ) . $nested . '}';
         });
+    }
+
+    /**
+     * Whether the control's source parent is a frame of the control's own box:
+     * a wrapper holding only the control, below the level that holds its
+     * caption. Provider substitution renders that frame around the control.
+     */
+    private static function isInOwnControlFrame(DOMElement $control): bool
+    {
+        $parent = $control->parentNode;
+        if ( ! $parent instanceof DOMElement || in_array(strtolower($parent->tagName), array( 'form', 'fieldset', 'label' ), true) ) return false;
+        $label = FormControlLabel::element($control);
+        if ( null === $label || $parent->isSameNode($label) || SourceDom::elementContains($parent, $label) ) return false;
+        foreach ( $parent->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ! $child->isSameNode($control) ) return false;
+        }
+
+        return true;
     }
 
     /**
@@ -578,6 +630,8 @@ final class AuthorStylesheetProjector
                 && 'auto' === trim(str_replace('!important', '', $value)), ARRAY_FILTER_USE_BOTH);
         }
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
+        $svgLeaf = $this->svgImageLeafOwnership($prelude, $body, $declarations, $svgImagePrelude, $context);
+        $body = $svgLeaf['body'];
         $imageRule = '' === $imagePrelude
             ? ''
             : $this->imageProjectionBridgeRule($prelude, $imagePrelude, $declarations, $context);
@@ -631,12 +685,12 @@ final class AuthorStylesheetProjector
             . $this->syntheticParagraphItemRule($prelude, $declarations, $context)
             . $this->navigationToggleRowRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
-            $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
+            $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $svgLeaf['rules'] . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
 
             return $this->withEditorProjectionRules($css, $prelude, $body, $context);
         }
 
-        $inner = array_diff_key($declarations, $margins);
+        $inner = array_diff_key($declarations, $margins, $svgLeaf['owned']);
         $rules = '' === $this->styleResolver->cssDeclarationString($inner)
             ? ''
             : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context, $inConditional);
@@ -649,7 +703,8 @@ final class AuthorStylesheetProjector
         $marginGroups = array();
         foreach ( $margins as $property => $value ) {
             $marginPrelude = $this->marginSelectorPrelude($prelude, $context);
-            if ( '' !== $imagePlacement['rules'] && 1 !== preg_match('/\bauto\b/i', $value) ) {
+            // The SVG image leaf owns its margins, auto centering included.
+            if ( isset($svgLeaf['owned'][$property]) || ('' !== $imagePlacement['rules'] && 1 !== preg_match('/\bauto\b/i', $value)) ) {
                 // The leaf placement projection already spaces the image.
                 // Keep non-auto margins off its synthetic wrapper; real source
                 // boxes retain them. Auto margins can still center a wrapper
@@ -669,6 +724,7 @@ final class AuthorStylesheetProjector
         }
         $css = $rules
             . $marginRules
+            . $svgLeaf['rules']
             . $imageRule
             . $imagePlacement['rules']
             . $svgImageRule
@@ -682,12 +738,18 @@ final class AuthorStylesheetProjector
      * Project host display here, never in an after-author reference-value replay.
      * The host's cross-axis alignment rides along: the list-navigation baseline
      * outranks a bare class, and Core's toggle is a direct child of the host.
+     *
+     * A list wrapper that lowers onto the host keeps only a table-cell display:
+     * Core's flex layout (`body .is-layout-flex`) would otherwise take the
+     * host out of the source table row, so its percentage width resolves
+     * against an anonymous cell and the items wrap.
      */
     private function directNavigationHostRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
         $lifted = array_intersect_key($declarations, array('display' => true, 'align-items' => true));
         if (array() === $lifted) return '';
-        $targets = array();
+        $tableCell = 'table-cell' === CssValueInspector::declared($declarations, 'display');
+        $targets = $cellTargets = array();
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
             // Class compounds only (`.menus`, `.menus.res`): every lifted rule
             // gains the same prefix, so their relative specificity holds.
@@ -701,9 +763,31 @@ final class AuthorStylesheetProjector
                     $targets[] = ':root .wp-block-navigation' . $match[0];
                     break;
                 }
+                if ($tableCell && $this->navigationRootCarriesClasses($match[0], $context->emittedMarkup)) {
+                    $cellTargets[] = ':root .wp-block-navigation' . $match[0];
+                }
             }
         }
-        return array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($lifted) . '}';
+        $cellTargets = array_diff(array_unique($cellTargets), $targets);
+        return (array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($lifted) . '}')
+            . (array() === $cellTargets ? '' : implode(',', $cellTargets) . '{' . $this->styleResolver->cssDeclarationString(array('display' => $declarations['display'])) . '}');
+    }
+
+    /** Whether an emitted core/navigation root carries every class of a class compound (`.a.b`). */
+    private function navigationRootCarriesClasses(string $compound, string $markup): bool
+    {
+        $classes = array_map(static fn (string $class): string => stripslashes($class), array_values(array_filter(explode('.', $compound), static fn (string $class): bool => '' !== $class)));
+        if ( array() === $classes || ! preg_match_all('/<!-- wp:navigation (\{.*?\}) \/?-->/', $markup, $matches) ) {
+            return false;
+        }
+        foreach ( $matches[1] as $json ) {
+            $attributes = json_decode($json, true);
+            $tokens = SourceDom::tokens(is_array($attributes) ? (string) ($attributes['className'] ?? '') : '');
+            if ( array() === array_diff($classes, $tokens) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function withEditorProjectionRules(string $css, string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
@@ -1008,12 +1092,17 @@ final class AuthorStylesheetProjector
 
         // Linked author CSS precedes Gutenberg's inline flow resets, so authored margins cannot rely on source order.
         $shim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-        return implode(',', array_map(static function (string $selector) use ($shim): string {
+        $nativeFlex = 1 === preg_match('/class="(?=[^"]*\bis-layout-flex\b)(?=[^"]*\b' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '\b)[^"]*"/', $context->emittedMarkup);
+        return implode(',', array_map(static function (string $selector) use ($shim, $nativeFlex): string {
             $selector = trim($selector);
             // Legacy single-colon pseudo-elements must remain last. Appending the
             // shim after :before/:after invalidates their entire selector list.
             if ( 1 !== preg_match('/(?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?$/', $selector) ) {
-                return $selector . $shim;
+                // Native cover flex items need one more class tier than
+                // Core's inline reset and our UA-margin restoration. Apply
+                // it uniformly, so source specificity/order still arbitrate.
+                $flexItem = ':where(.wp-block-group.' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '.is-layout-flex>*)';
+                return $selector . $shim . ($nativeFlex ? ',' . $selector . $shim . $flexItem . $shim : '');
             }
             return preg_replace('/((?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?)$/', $shim . '$1', $selector, 1) ?? $selector;
         }, $selectors));
@@ -1138,6 +1227,9 @@ final class AuthorStylesheetProjector
             );
             return (array() === $static || '' === $projectedPrelude ? '' : $projectedPrelude . '{' . $this->styleResolver->cssDeclarationString($static) . '}')
                 . (array() === $motionSelectors ? '' : implode(',', $motionSelectors) . '{' . $this->styleResolver->cssDeclarationString($motion) . '}');
+        }
+        if ( $inConditional ) {
+            $projectedPrelude = $this->withoutMergedDeviceNavigationHide($prelude, $projectedPrelude, $body, $context);
         }
         // Centered source dropdown boxes are desktop presentation, not Core's
         // open-overlay stack. Keep the authored rule outside that stack rather
@@ -1695,6 +1787,45 @@ final class AuthorStylesheetProjector
      * @param list<string> $properties
      * @param list<string> $values
      */
+    /**
+     * A desktop menu and the equivalent copy the source shows at other widths
+     * become one core/navigation that serves every width. A width-gated
+     * `display:none` on the kept copy (`@media(max-width:780px){#menu{display:none}}`)
+     * swapped it for the absorbed copy; on the merged block it would hide the
+     * only menu there. Keep the rule for every other subject and add no weight.
+     */
+    private function withoutMergedDeviceNavigationHide(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( '' === $projectedPrelude
+            || ! str_contains($context->emittedMarkup, AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS)
+            || ! self::anyDeclaredAs($body, array( 'display' ), array( 'none' )) ) {
+            return $projectedPrelude;
+        }
+        $hidesMergedNavigation = false;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! ( $parsed['supported'] ?? false ) ) {
+                continue;
+            }
+            foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                if ( $context->selectorProjections->isMergedDeviceNavigationSource($element->getNodePath() ?? '') ) {
+                    $hidesMergedNavigation = true;
+                    break 2;
+                }
+            }
+        }
+        if ( ! $hidesMergedNavigation ) {
+            return $projectedPrelude;
+        }
+        $guard = ':where(:not(.' . AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS . '))';
+
+        return implode(',', array_map(static function (string $selector) use ($guard): string {
+            $selector = trim($selector);
+            $pseudo = strpos($selector, '::');
+            return false === $pseudo ? $selector . $guard : substr($selector, 0, $pseudo) . $guard . substr($selector, $pseudo);
+        }, CssStylesheetTransformer::splitSelectorList($projectedPrelude) ?? array()));
+    }
+
     private static function anyDeclaredAs(string $body, array $properties, array $values): bool
     {
         foreach ( CssRuleAnalyzer::declarations($body, $properties) as [ 'value' => $value ] ) {
@@ -2143,9 +2274,10 @@ final class AuthorStylesheetProjector
      * through a restatement, because the editor iframe's root does not carry
      * the source identity until the canvas runtime reconciles it. That
      * restatement never speaks over a body-level style: inherited
-     * presentation restates wholly inside `:where()`, weighing (0,0,0), so it
-     * stays the inherited default that any body rule — the source's own
-     * body rule or theme.json body typography — outranks, while root-owned
+     * presentation restates inside `:where()` plus one type shim, weighing
+     * (0,0,1), so it stays the inherited default that any body rule — the
+     * source's own body rule or theme.json body typography — outranks, yet
+     * beats editor-only zero-weight plugin body defaults, while root-owned
      * custom properties are tokens no body-level style competes with and
      * carry on the canvas-body carrier the reconciled canvas root
      * satisfies.
@@ -2203,10 +2335,15 @@ final class AuthorStylesheetProjector
         }
 
         // The root restatement carries disjoint declarations on two arms.
-        // Presentation restates wholly inside :where() and weighs (0,0,0): it
-        // acts as the inherited default and every body-level rule — theme.json
-        // body typography or the source's own body rule — outranks it, exactly
-        // as it does on the frontend where the declaration stays on the root.
+        // Presentation restates inside :where() plus one type shim, weighing
+        // (0,0,1): it acts as the inherited default and every body-level rule
+        // — theme.json body typography or the source's own body rule —
+        // outranks it, exactly as it does on the frontend where the
+        // declaration stays on the root. The type weight is the element
+        // default the frontend body inherits over: a plugin's editor-only
+        // zero-weight body default (Jetpack ships :where(body){font-family:
+        // -apple-system…} into the canvas) is not on the frontend and must
+        // not replace the source root's inherited font in the editor.
         // Custom properties are route-scoped tokens rather than presentation,
         // so they carry on the canvas-body carrier without any body-level
         // style to outrank.
@@ -2223,7 +2360,7 @@ final class AuthorStylesheetProjector
             $rootSelectors
         ));
         return $css
-            . ('' === $default ? '' : ':where(' . $defaultSelectors . '){' . $default . '}')
+            . ('' === $default ? '' : ':where(' . $defaultSelectors . '):not(' . $context->authorStyles->specificityShim() . '){' . $default . '}')
             . ('' === $carrier ? '' : ':where(' . $carrierSelectors . ') .editor-styles-wrapper{' . $carrier . '}');
     }
 
@@ -2461,6 +2598,74 @@ final class AuthorStylesheetProjector
             || NativeImageLeafPresentation::isPlacementProperty($property)
             || in_array($property, array('display', 'filter', 'opacity', 'object-fit', 'object-position', 'visibility'), true),
             ARRAY_FILTER_USE_KEY
+        );
+    }
+
+    /**
+     * A class-like subject of an SVG materialized as a standalone image moves
+     * to the synthetic figure, while the SVG image rule replays the same
+     * replaced-box declarations on the image leaf. Box, placement, opacity and
+     * filter declarations then apply twice (doubled margins and borders,
+     * compounded fades). The leaf owns them, as it owns an `<img>`'s
+     * placement: keep them off the synthetic figure, and on every other box
+     * the rule matches. Fill and flex SVGs have their own wrapper projection,
+     * and a rule that also reaches a bare `<img>` keeps its figure paint.
+     *
+     * @param array<string, string> $declarations
+     * @return array{body: string, owned: array<string, string>, rules: string}
+     */
+    private function svgImageLeafOwnership(string $prelude, string $body, array $declarations, string $svgImagePrelude, AuthorStylesheetProjectionContext $context): array
+    {
+        $unchanged = array( 'body' => $body, 'owned' => array(), 'rules' => '' );
+        if ( '' === $svgImagePrelude ) {
+            return $unchanged;
+        }
+        $owned = array_diff_key(
+            $this->imageApplicableSvgDeclarations($declarations),
+            array_flip(array( 'display', 'object-fit', 'object-position', 'visibility' ))
+        );
+        if ( array() === $owned ) {
+            return $unchanged;
+        }
+        $moves = false;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                return $unchanged;
+            }
+            // A root-child subject is projected onto the figure's marker.
+            $moves = $moves || ! $this->subjectStaysOnImage($selector, $context) || AuthorSelectorSemanticPreparer::isRootChildSelector($parsed);
+            foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                $tagName = strtolower($element->tagName);
+                if ( 'img' === $tagName
+                    || ( 'svg' === $tagName && ( $this->styleResolver->imageIsFlexOrGridItem($element) || $this->isProjectableFillSvg($element, $declarations) ) ) ) {
+                    return $unchanged;
+                }
+            }
+        }
+        if ( ! $moves ) {
+            return $unchanged;
+        }
+        // Margins keep their own projection; the caller guards it the same way.
+        $guarded = array_filter($owned, static fn (string $property): bool => 'margin' !== $property && ! str_starts_with($property, 'margin-'), ARRAY_FILTER_USE_KEY);
+        $retained = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array(';')) as $declaration ) {
+            $property = strtolower(trim((string) strtok($declaration, ':')));
+            if ( ! isset($guarded[$property]) ) {
+                $retained[] = $declaration;
+            }
+        }
+        $original = array_map(static fn (string $selector): string => self::canMatchSyntheticImageFigure($selector)
+            ? rtrim($selector) . ':not(:where(.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '))'
+            : rtrim($selector), CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context, false, false, true)) ?? array());
+        if ( array() === $original ) {
+            return $unchanged;
+        }
+
+        return array(
+            'body' => implode(';', $retained),
+            'owned' => $owned,
+            'rules' => array() === $guarded ? '' : implode(',', $original) . '{' . $this->styleResolver->cssDeclarationString($guarded) . '}',
         );
     }
 
@@ -2800,10 +3005,14 @@ final class AuthorStylesheetProjector
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if (!$parsed['supported']) continue;
             foreach ($this->selectors->matchingSourceElements($selector, $parsed, $context) as $element) {
-                $path = $element->getNodePath() ?? '';
+                $path = $context->authorStyles->sourcePath($element);
                 // Overlay lists still own an inner UL, not the opener's root.
                 $target = $context->selectorProjections->navigationListBoxSubject($path);
                 if ('' === $target) continue;
+                if ($context->selectorProjections->isMergedDeviceNavigationSource($path)
+                    && 'none' === CssValueInspector::comparable($box['display'] ?? '')) {
+                    $target .= ':where(:not(.' . AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS . '))';
+                }
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
                 $display = $this->navigationListBoxDisplay($box['display'] ?? null, $context->selectorProjections->navigationListShownDisplay($path));
                 $rendered = '' === $display ? $box : array('display' => $display) + $box;

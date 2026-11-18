@@ -3,10 +3,16 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use DOMElement;
+
 /** Validates optional, producer-neutral evidence for a topology reduction. */
 final class LayoutGeometryProof
 {
     public const SCHEMA = 'blocks-engine/layout-geometry-proof/v1';
+    /** Root-relative capture report a producer may declare instead of inlining the proof. */
+    public const REPORT_PATH = 'layout-geometry-proof.json';
+    private const MAX_REPORT_DEPTH = 16;
     private const MAX_NODES = 256;
     private const MAX_VIEWPORTS = 8;
     private const MAX_DECLARATIONS = 32;
@@ -28,6 +34,7 @@ final class LayoutGeometryProof
             $validNodes[$node['id']] = $node;
         }
         $valid = array();
+        $structures = array();
         foreach ($reductions as $reduction) {
             if (!is_array($reduction) || !is_string($reduction['wrapper'] ?? null) || !is_string($reduction['target'] ?? null) || !isset($validNodes[$reduction['wrapper']], $validNodes[$reduction['target']])) return self::rejected('layout_geometry_proof_reduction_incomplete');
             $wrapper = $validNodes[$reduction['wrapper']];
@@ -39,9 +46,73 @@ final class LayoutGeometryProof
                 'wrapper_selector' => $wrapper['selector'],
                 'target_selector' => $target['selector'],
                 'corrective_css' => $reduction['corrective_css'],
+                'source_structure' => $structures[$wrapper['source_path']] ??= self::sourceStructure($files, $wrapper['source_path']),
             );
         }
         return array('proof' => array('schema' => self::SCHEMA, 'reductions' => $valid), 'diagnostics' => array());
+    }
+
+    /**
+     * The proof a producer declared as the root `layout-geometry-proof.json`
+     * capture report, when the artifact does not inline one. The report is the
+     * same envelope, so it goes through the same all-or-nothing validation.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @return array<string,mixed>|null
+     */
+    public static function declaredReport(array $files): ?array
+    {
+        foreach ($files as $file) {
+            if (self::REPORT_PATH !== ($file['path'] ?? null) || ArtifactNormalizer::CAPTURE_REPORT_ROLE !== ($file['role'] ?? null) || !is_string($file['content'] ?? null)) continue;
+            $report = json_decode($file['content'], true, self::MAX_REPORT_DEPTH);
+            return is_array($report) ? $report : array();
+        }
+        return null;
+    }
+
+    /**
+     * Engine projections between normalization and conversion may rewrite a
+     * measured document's attributes, which changes its byte hash but not the
+     * structural `tag:nth-of-type(n)` selectors a proof is bound to. A proof
+     * stays bound to a rewritten document exactly when this element-tree
+     * digest is unchanged.
+     */
+    public static function structureDigest(string $html): string
+    {
+        $body = HtmlSerialization::parseDocument($html)->getElementsByTagName('body')->item(0);
+        $shape = '';
+        $walk = static function (DOMElement $element) use (&$walk, &$shape): void {
+            foreach ($element->childNodes as $child) {
+                if (!$child instanceof DOMElement) continue;
+                $shape .= '<' . strtolower($child->tagName);
+                $walk($child);
+                $shape .= '>';
+            }
+        };
+        if ($body instanceof DOMElement) $walk($body);
+        return hash('sha256', $shape);
+    }
+
+    /**
+     * True when a validated reduction still addresses the elements it was
+     * measured on in this (possibly projected) source document.
+     *
+     * @param array<string,mixed> $reduction
+     */
+    public static function boundTo(array $reduction, string $content, ?string &$structure = null): bool
+    {
+        if (hash('sha256', $content) === ($reduction['source_hash'] ?? null)) return true;
+        if (!is_string($reduction['source_structure'] ?? null) || '' === $reduction['source_structure']) return false;
+        return ($structure ??= self::structureDigest($content)) === $reduction['source_structure'];
+    }
+
+    /** @param array<int,array<string,mixed>> $files */
+    private static function sourceStructure(array $files, string $path): string
+    {
+        foreach ($files as $file) {
+            if ($path === ($file['path'] ?? null) && 'html' === ($file['kind'] ?? null) && is_string($file['content'] ?? null)) return self::structureDigest($file['content']);
+        }
+        return '';
     }
 
     /** @param array<string,mixed> $node @param array<string,string> $hashes */

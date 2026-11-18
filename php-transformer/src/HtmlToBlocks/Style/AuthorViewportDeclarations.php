@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use DOMElement;
@@ -19,7 +20,7 @@ final class AuthorViewportDeclarations
 {
     /** @var list<array<string, mixed>> */
     private array $ruleSource = array();
-    /** @var array<string, array{rules: list<array<string, mixed>>, parsed: array<string, array<string, mixed>>, declaring: array<string, list<array<string, mixed>>>}> */
+    /** @var array<string, array{rules: list<array<string, mixed>>, pseudo: array<string, list<array<string, mixed>>>, parsed: array<string, array<string, mixed>>, declaring: array<string, array{index: array<string, mixed>, collection: string}>}> */
     private array $rulesByViewport = array();
     /** @var list<array<string, mixed>>|null */
     private ?array $breakpointSource = null;
@@ -78,31 +79,39 @@ final class AuthorViewportDeclarations
     }
 
     /**
+     * `$pseudoElement` (`before` or `after`) resolves that generated box of
+     * the element instead: only rules whose subject is that pseudo-element
+     * apply, and the element's inline style and presentational hints do not.
+     *
      * @param list<string> $properties
      * @param list<string> $stateClasses
      * @return array<string, string>
      */
-    public function atViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false, array $stateClasses = array()): array
+    public function atViewport(DOMElement $element, array $properties, float $viewportWidth, bool $excludeCaptureDisclosure = false, array $stateClasses = array(), string $pseudoElement = '', ?float $viewportHeight = null): array
     {
+        $pseudoElement = strtolower($pseudoElement);
         $authorStyles = $this->session->authorStyleAnalysis();
         $styleRules = $authorStyles->styleRules();
         if ( $excludeCaptureDisclosure ) {
             $styleRules = array_values(array_filter($styleRules, static fn (array $rule): bool => empty($rule['capture_only'])));
         }
-        ['parsed' => $parsedBySelector] = $this->rules($styleRules, $viewportWidth);
-        $rules = $this->rulesDeclaring($viewportWidth, $properties);
+        ['parsed' => $parsedBySelector] = $this->rules($styleRules, $viewportWidth, $viewportHeight);
+        $declaring = $this->rulesDeclaring($viewportWidth, $properties, $pseudoElement, $viewportHeight);
         $selectorCache = $authorStyles->selectorMatchCache();
         if ( array() !== $stateClasses ) {
             $selectorCache = new CssSelectorMatchCache();
             $selectorCache->assumeClasses($element, $stateClasses);
         }
+        // Only rules one of whose selectors' subject the element could match
+        // are matched; every other rule is a supported non-match (#6752).
+        $rules = $selectorCache->styleRuleCandidates($element, $declaring['collection'], $declaring['index']);
         $matches = static function (string $selector) use ($element, $selectorCache, $parsedBySelector): bool {
             $match = $selectorCache->matches($element, $selector, $parsedBySelector[ $selector ] ?? array());
 
             return ( $match['supported'] ?? false ) && ( $match['matches'] ?? false );
         };
 
-        return $this->cascade->declarationsAtViewport($element, $properties, $rules, $matches, $viewportWidth);
+        return $this->cascade->declarationsAtViewport($element, $properties, $rules, $matches, $viewportWidth, '' === $pseudoElement, $viewportHeight);
     }
 
     /**
@@ -149,26 +158,41 @@ final class AuthorViewportDeclarations
      * @param list<array<string, mixed>> $styleRules
      * @return array{rules: list<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>, layer: mixed}>, parsed: array<string, array<string, mixed>>}
      */
-    private function rules(array $styleRules, float $viewportWidth): array
+    private function rules(array $styleRules, float $viewportWidth, ?float $viewportHeight = null): array
     {
         if ( $styleRules !== $this->ruleSource ) {
             $this->ruleSource = $styleRules;
             $this->rulesByViewport = array();
         }
-        $key = (string) $viewportWidth;
+        $key = self::viewportKey($viewportWidth, $viewportHeight);
         if ( isset($this->rulesByViewport[ $key ]) ) {
             return $this->rulesByViewport[ $key ];
         }
 
         $rules = array();
+        $pseudoRules = array( 'before' => array(), 'after' => array() );
         $parsedBySelector = array();
         foreach ( $styleRules as $rule ) {
             $selectors = array();
+            $pseudoSelectors = array( 'before' => array(), 'after' => array() );
             foreach ( ArrayField::array($rule, 'selectors') as $record ) {
                 $selector = (string) ( $record['selector'] ?? '' );
                 // Interaction states and generated content are not the
                 // resting element, as in the source-style collections.
-                if ( '' === $selector || StyleResolver::selectorCarriesPseudoState($selector) ) {
+                if ( '' === $selector ) {
+                    continue;
+                }
+                if ( StyleResolver::selectorCarriesPseudoState($selector) ) {
+                    // A resting `::before`/`::after` rule styles that generated
+                    // box: it is kept apart, matched through its host. All its
+                    // competitors carry the same pseudo-element, so the host's
+                    // specificity orders them the same.
+                    $host = \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher::pseudoElementHost($selector);
+                    if ( null !== $host && ! StyleResolver::selectorCarriesPseudoState($host['selector']) ) {
+                        $name = strtolower(ltrim($host['suffix'], ':'));
+                        $pseudoSelectors[ $name ][] = $host['selector'];
+                        $parsedBySelector[ $host['selector'] ] ??= $host['parsed'];
+                    }
                     continue;
                 }
                 $selectors[] = $selector;
@@ -185,7 +209,7 @@ final class AuthorViewportDeclarations
                     $conditions[] = $condition;
                 }
             }
-            if ( array() !== $conditions && ! $this->cascade->conditionsApplyAtViewport($conditions, $viewportWidth) ) {
+            if ( array() !== $conditions && ! $this->cascade->conditionsApplyAtViewport($conditions, $viewportWidth, $viewportHeight) ) {
                 continue;
             }
             $rules[] = array(
@@ -194,9 +218,20 @@ final class AuthorViewportDeclarations
                 'conditions' => array(),
                 'layer' => $rule['layer'] ?? null,
             );
+            foreach ( $pseudoSelectors as $name => $hosts ) {
+                if ( array() === $hosts ) {
+                    continue;
+                }
+                $pseudoRules[ $name ][] = array(
+                    'selectors' => $hosts,
+                    'declarations' => ArrayField::array($rule, 'declarations'),
+                    'conditions' => array(),
+                    'layer' => $rule['layer'] ?? null,
+                );
+            }
         }
 
-        return $this->rulesByViewport[ $key ] = array( 'rules' => $rules, 'parsed' => $parsedBySelector, 'declaring' => array() );
+        return $this->rulesByViewport[ $key ] = array( 'rules' => $rules, 'pseudo' => $pseudoRules, 'parsed' => $parsedBySelector, 'declaring' => array() );
     }
 
     /**
@@ -205,24 +240,39 @@ final class AuthorViewportDeclarations
      * A rule declaring none of them cannot contribute a fact, so matching its
      * selectors against every element asked about is wasted work. Callers ask
      * about a handful of fixed property sets, so each filtered list is built
-     * once per rule set, viewport and property set.
+     * once per rule set, viewport and property set, with a subject index so
+     * an element is matched only against the rules it could match.
      *
      * @param list<string> $properties
-     * @return list<array<string, mixed>>
+     * @return array{index: array<string, mixed>, collection: string}
      */
-    private function rulesDeclaring(float $viewportWidth, array $properties): array
+    private function rulesDeclaring(float $viewportWidth, array $properties, string $pseudoElement = '', ?float $viewportHeight = null): array
     {
-        $key = (string) $viewportWidth;
-        $set = implode("\0", $properties);
+        $key = self::viewportKey($viewportWidth, $viewportHeight);
+        $set = $pseudoElement . "\1" . implode("\0", $properties);
         if ( isset($this->rulesByViewport[ $key ]['declaring'][ $set ]) ) {
             return $this->rulesByViewport[ $key ]['declaring'][ $set ];
         }
         $requested = array_flip($properties);
         $rules = array_values(array_filter(
-            $this->rulesByViewport[ $key ]['rules'],
+            '' === $pseudoElement ? $this->rulesByViewport[ $key ]['rules'] : ( $this->rulesByViewport[ $key ]['pseudo'][ $pseudoElement ] ?? array() ),
             static fn(array $rule): bool => array() !== array_intersect_key($rule['declarations'], $requested)
         ));
 
-        return $this->rulesByViewport[ $key ]['declaring'][ $set ] = $rules;
+        $parsedBySelector = $this->rulesByViewport[ $key ]['parsed'];
+
+        return $this->rulesByViewport[ $key ]['declaring'][ $set ] = array(
+            'index' => CssSubjectIndex::buildForSelectorLists(
+                $rules,
+                static fn(array $rule): array => array_map(static fn(string $selector): array => $parsedBySelector[ $selector ] ?? array(), $rule['selectors'])
+            ),
+            'collection' => CssSelectorMatchCache::uniqueCandidateCollection('author-viewport'),
+        );
+    }
+
+    /** Width-only evaluations must not share rules with known-height evaluations. */
+    private static function viewportKey(float $viewportWidth, ?float $viewportHeight): string
+    {
+        return null === $viewportHeight ? (string) $viewportWidth : $viewportWidth . 'x' . $viewportHeight;
     }
 }

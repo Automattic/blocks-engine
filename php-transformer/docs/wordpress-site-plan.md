@@ -372,10 +372,10 @@ footer and the other routes.
 
 Clustering is deterministic:
 
-- A preset binding never changes a painted colour: a block attribute, stylesheet declaration or element style binds a colour only to a token whose value is that exact colour, so an import paints 1:1.
+- A preset binding never changes a painted colour: a block attribute, stylesheet declaration or element style binds a colour only to a token whose value is that exact colour, so an import paints 1:1. A near shade the palette omits follows its group's representative through stylesheets instead: the rule keeps the literal, and a copy under `@supports (color:rgb(from red r g b))` right after it restates the shade relative to the representative preset (`rgb(from var(--wp--preset--color--base) calc(r - 8) calc(g - 8) calc(b - 11))`), which paints the exact source value at the default palette and moves with the representative when a site owner edits it. Block attributes never carry a derivation (WordPress's safecss strips relative colours and `color-mix()` from inline styles), so a block-level near shade keeps its exact literal; class rules in the theme stylesheet carry the derivation. Theme.json styles keep the literal too, since they have no fallback slot.
 - Opaque colours within CIE76 ΔE 2.3 (one just-noticeable difference) group together for ranking.
 - Colours are ranked by prominence: the mean of their share of the document's text and background area and their share of its coloured runs (text runs and painted elements). A colour reached through an authored custom property (`color:var(--cyan)`) counts like a literal. An accent on many small elements (bullets, eyebrow labels) therefore ranks beside a grey on a few long paragraphs, though it covers far less area.
-- A group within ΔE 5 of a more prominent one joins it for ranking however much it is used, so a near-duplicate (`#1a1a1a` beside `#212121`, ΔE 3.5) does not compete with a distinct colour for a role. Grouping only names the roles (`base`, `contrast`, `primary`, `secondary`, each its group's heaviest colour) and breaks ranking ties. Every other painted colour takes an `accent-N` token of its own exact value by its own painted weight, heaviest first, whatever group it ranks in: a heavily painted near shade (`#ffffff` cards on a `#f7fafc` page, `#f6f8fa` sections beside a `#ffffff` card) keeps a token ahead of a distinct colour painted on one tiny element. On a tie a group's own colour goes before a near shade of another. The palette keeps at most 12; the painted colours past the bound are the lightest, keep their literal everywhere and are reported in the design-system report's `literal_colors` (and `literal_color_count` in the metrics), never bound to a near token.
+- A group within ΔE 5 of a more prominent one joins it however much it is used, so a near-duplicate (`#1a1a1a` beside `#212121`, ΔE 3.5) does not compete with a distinct colour for a role. Roles (`base`, `contrast`, `primary`, `secondary`) take each group's heaviest colour, and other distinct groups take `accent-N` tokens by painted weight, heaviest first. A near shade in a group (`#ffffff` cards on a `#f7fafc` page, `#f6f8fa` sections beside a `#ffffff` card) does not get a token of its own: it keeps its exact source value, stylesheet rules derive it from its group's representative (above), and it is reported in the design-system report's `literal_colors` and `near_shades` (shade => representative). Omitted shades still reserve their `accent-N` slot, so surviving slugs are stable.
 - Font sizes within 0.5px merge. The scale keeps the 8 heaviest steps.
 - Spacing merges only identical pixel lengths and keeps 10 steps.
 - Font stacks group by primary family, ignoring case and quotes, and keep the most used stack. Only families some rendered text uses as its primary become presets. A stack with a generic primary (`ui-monospace`) is not a token. A primary family that is declared but not rendered is reported as unused. Fallbacks and `@font-face` names are not reported.
@@ -465,6 +465,22 @@ site, records every text element's colour, gives each palette entry a new
 value in the user's Global Styles, and requires at least 80% of the text
 elements to change colour (`RESTYLE_MINIMUM`). It needs `RESTYLE_WP_CLI`,
 `RESTYLE_EVIDENCE_DIR` and `PLAYWRIGHT_MODULE`, and wipes the site's content.
+
+## Theme bootstrap units
+
+`functions.php` registers a hook only when the plan contains something it acts
+on: the navigation-submenu current-item pass needs a `core/navigation-submenu`,
+the template asset resolver needs a referenced asset token (the template-part
+renderer pass needs one in a template part), `body_class` needs a document
+body class and `template_include` needs body attributes beyond classes.
+`theme.bootstrap_units` lists every top-level hook registration in emitted
+order as `{hook, feature}`, naming the plan feature it serves (for example
+`navigation_submenus`, `template_assets`, `document_attributes`). ThemeBootstrap
+collects feature units containing source and hook metadata; both the report and
+`functions.php` are derived from that same list in one build. The report is
+informational, not a validation constraint: consumers editing a plan and
+regenerating its bootstrap may retain the original report. Validation still
+checks the actual bootstrap source.
 
 ## Reporting
 

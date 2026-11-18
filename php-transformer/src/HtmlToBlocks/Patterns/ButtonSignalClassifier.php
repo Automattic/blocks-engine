@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 
 final class ButtonSignalClassifier
@@ -60,36 +61,60 @@ final class ButtonSignalClassifier
             return false;
         }
 
-        $hasBoxPadding = false;
+        // Empty same-document links already keep their painted decoration in
+        // a native link host. Do not reroute those placeholder icon controls.
+        $href = trim(SourceDom::attr($element, 'href'));
+        $hasEmptyDestinationBox = '' === trim($element->textContent) && '' !== $href && '#' !== $href;
+        $hasExplicitControlBox = ($this->hasClassSignal($element) || $hasEmptyDestinationBox) && (
+            ($this->hasPositiveDimension($style, 'width') && $this->hasPositiveDimension($style, 'height'))
+            || $this->fillsPositionedContainer($style)
+        );
+        if ( ! $this->hasBoxPadding($style) && ! $hasExplicitControlBox ) {
+            return false;
+        }
+
+        return $this->paintsControlBox($style);
+    }
+
+    /**
+     * Detect a control surface whose box is split across an anchor and its sole
+     * phrasing label: the anchor paints the fill, border or rounding while the
+     * label carries the padding that sizes it. Together they draw one padded,
+     * painted box, the same evidence {@see self::hasStyleSignal()} reads on a
+     * single element. An anchor with its own width or height is sized by
+     * that box, not by its label, so the label's padding does not draw it.
+     */
+    public function hasSplitSurfaceSignal(string $anchorStyle, string $labelStyle): bool
+    {
+        $anchorStyle = strtolower($anchorStyle);
+
+        return $this->hasBoxPadding(strtolower($labelStyle))
+            && ! $this->hasPositiveDimension($anchorStyle, 'width')
+            && ! $this->hasPositiveDimension($anchorStyle, 'height')
+            && $this->paintsControlBox($anchorStyle);
+    }
+
+    private function hasBoxPadding(string $style): bool
+    {
         foreach ( CssRuleAnalyzer::declarations($style, self::PADDING_PROPERTIES) as [ 'value' => $paddingDeclaration ] ) {
             $padding = CssValueInspector::withoutImportant($paddingDeclaration);
             if ( '' === $padding || preg_match('/^(?:inherit|initial|revert(?:-layer)?|unset)$/', $padding) ) {
                 continue;
             }
 
-            $components = preg_split('/\s+/', $padding) ?: array();
-            $allZero    = true;
-            foreach ( $components as $component ) {
+            foreach ( preg_split('/\s+/', $padding) ?: array() as $component ) {
                 if ( ! preg_match('/^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$/', $component) ) {
-                    $allZero = false;
-                    break;
+                    return true;
                 }
             }
-
-            if ( ! $allZero ) {
-                $hasBoxPadding = true;
-                break;
-            }
         }
 
-        $hasExplicitControlBox = $this->hasClassSignal($element) && (
-            ($this->hasPositiveDimension($style, 'width') && $this->hasPositiveDimension($style, 'height'))
-            || $this->fillsPositionedContainer($style)
-        );
-        if ( ! $hasBoxPadding && ! $hasExplicitControlBox ) {
-            return false;
-        }
+        return false;
+    }
 
+    /** Visible rounding, a box-wide painted border, or a painting background. */
+    private function paintsControlBox(string $style): bool
+    {
         if ( array() !== CssRuleAnalyzer::declarations($style, self::RADIUS_PROPERTIES) ) {
             return true;
         }
@@ -108,6 +133,7 @@ final class ButtonSignalClassifier
                 return true;
             }
         }
+
         return false;
     }
 

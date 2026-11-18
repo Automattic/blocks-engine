@@ -57,6 +57,22 @@ are no shorthand aliases. A desktop document served separately from
 `html-mobile/…` needs only its desktop observation. Every declared viewport
 still requires an observation on every node. Producers must update in lockstep.
 
+## v3 compact encoding
+
+`blocks-engine/box-tree/v3` is a lossless encoding of v2 for long pages, which
+repeat a few distinct `used_styles` objects across thousands of observations.
+It is identical to v2 except that it declares that schema, adds a top-level
+`styles` list whose entries each have the v2 `used_styles` shape, and makes
+every node observation's and every pseudo observation's `used_styles` an
+integer index into `styles`. `Contract\BoxTree::expandCompact()` resolves the
+indexes and restores the v2 schema before validation, so validation and every
+consumer see v2. A `styles` value that is not a list, an entry that is not an
+object, or an index that is not an integer within the list rejects the sidecar
+with `box_tree_styles_invalid`; style content is then validated as in v2.
+Readers that predate v3 reject it with `box_tree_schema_invalid` and convert
+without evidence. Producers should keep writing v2 unless a sidecar would
+exceed an importer's per-file limit.
+
 ## v2 rendered styles and pseudo-elements
 
 The required vocabulary also covers typography, text color/decorations, placement
@@ -93,6 +109,17 @@ Invalid evidence produces a warning diagnostic (`box_tree_schema_invalid`,
 `box_tree_styles_invalid`, or `box_tree_duplicate_route`). Conversion proceeds
 without rejected evidence; this evidence never authorizes layout reductions.
 
+Routes may declare different viewport sets (a producer can sample mobile HTML
+per template cluster). After acceptance, routes whose header or footer shares a
+source identity and agrees on every viewport they have in common merge their
+chrome observations as a union of viewports, and record each other as chrome
+peers of that landmark root. A route that samples an extra viewport therefore
+joins the shared chrome, which gains that viewport's geometry instead of
+forking. The route's other nodes, its page content, keep route-local evidence. Classification treats an
+observation missing at one viewport conservatively: equal child geometry and
+containment inside a clip are unproven there. The contract is
+`tests/unit/shared-header-extra-viewport-box-tree.php`.
+
 Normalized HTML files carry `box_tree`. The compiler passes it into each HTML
 session; `HtmlTransformerSession::boxTreeEvidence(DOMElement)` exposes the
 viewport observations for that exact source element. This is independent of
@@ -115,6 +142,14 @@ and the deciding `criterion`. Criteria are `paints`, `clips`, `multi-child-layou
 `own-sizing`; neutral nodes have `equal-child-geometry`. Precedence follows that
 order. Neutrality requires one element child, no direct non-whitespace text, and
 matching x/y/width/height at **every** viewport (0.01 CSS pixel tolerance).
+Equal geometry is not neutral when reparenting the child would size it from
+content in the nearest non-collapsed flex ancestor. A block-level in-flow
+wrapper is kept as `own-sizing` (and cannot fold) if, at any capture, it is a
+row flex container's sole in-flow item, fills the content width including its
+margins (0.5 CSS pixel tolerance), and has zero flex-grow; or if it is a column
+flex item with a resolved non-stretch alignment such as `center` or `flex-end`.
+Siblings or a row item short of the line prove nothing. Column alignment uses
+known non-stretch values only: unknown values do not prove shrinkage.
 Containing-block ownership is resolved separately at each viewport, including
 transformed ancestors of fixed descendants. These are reports, not collapse
 instructions; converted blocks and author styles are unchanged.
@@ -182,6 +217,17 @@ node keeps its deciding `criterion` and lists the applied rules in `fold`;
 - `own-placement`: grid lines, `justify-self`/`align-self`, `order`, flex item
   factors, `float`/`clear` and margins move when the child's own values are
   initial and its margin box then equals the box's margin box.
+
+Inherited values move with every fold. When the box's inherited value
+(`color`, `font-*`, `line-height`, `letter-spacing`, `word-spacing`, `text-*`,
+`white-space`, word breaking, list style, `visibility`, `cursor`) differs from
+its block parent's at any capture, and the child repeats the box's value at every
+capture, the value moves to the child with the box's author bands. This keeps
+the subtree from re-basing on the new parent. If the child's value differs
+anywhere, the fold is refused when the property can be derived from the box's
+value (`font-size`, `line-height`, `text-indent`: an `em` or `%` of it). It is
+also refused when the child inherits the box's value at some captures but not
+others. Otherwise the child's own value stands.
 
 Never folded: rendering pseudo-elements, clipping overflow, transforms (even
 identity), filters, backdrop filters, opacity, blending, isolation, clip paths,

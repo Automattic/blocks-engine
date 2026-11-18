@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Closure;
 use DOMDocument;
 use DOMElement;
 use WeakMap;
@@ -32,6 +33,18 @@ final class FormControlClassifier
 
     /** @var WeakMap<DOMDocument, true>|null */
     private static ?WeakMap $wholeDocuments = null;
+
+    private static int $controlScanVisits = 0;
+
+    /**
+     * Elements {@see self::controlElements()} has visited since process
+     * start; observable for tests. Form conversion must keep this linear in
+     * the form's size, not grow with controls times descendants (#6707).
+     */
+    public static function controlScanVisits(): int
+    {
+        return self::$controlScanVisits;
+    }
 
     /**
      * The external label host emitted independently from its control: a label
@@ -86,16 +99,56 @@ final class FormControlClassifier
         if ( '' === $for || null === $document || !isset(self::$wholeDocuments[$document]) || self::namesLabelledElement($element) ) {
             return false;
         }
-        if ( $document->getElementById($for) instanceof DOMElement ) {
+        if ( self::indexedIdIsConnected($document, $for) || $document->getElementById($for) instanceof DOMElement ) {
             return false;
         }
-        foreach ( (new \DOMXPath($document))->query('//*[@id]') ?: array() as $candidate ) {
-            if ( $candidate instanceof DOMElement && $candidate->getAttribute('id') === $for ) {
-                return false;
-            }
-        }
+        // Documents assembled node by node register no ids, so look the id
+        // up with one XPath predicate rather than reading every id-bearing
+        // element in PHP for each label (#6752).
+        return true !== (new \DOMXPath($document))->evaluate('boolean(//*[@id = ' . SourceDom::xpathLiteral($for) . '])');
+    }
 
-        return true;
+    /** @var WeakMap<DOMDocument, array<string, string>>|null Node path of the first element per id, indexed once per document. */
+    private static ?WeakMap $idIndexes = null;
+
+    private static int $idIndexBuilds = 0;
+
+    /**
+     * Document id indexes {@see self::isDangling()} has built since process
+     * start; observable for tests. A document is indexed once, not searched
+     * once per label (#6752).
+     */
+    public static function idIndexBuilds(): int
+    {
+        return self::$idIndexBuilds;
+    }
+
+    /**
+     * Whether the element at the path the document's id index recorded for
+     * `$id` still carries it. The index is built once per document and may
+     * go stale as conversion edits the DOM, so only a confirmed hit counts;
+     * anything else falls through to the document lookups, which answer as
+     * before. Paths, not elements, are kept so the index holds no node of
+     * the document it is keyed by.
+     */
+    private static function indexedIdIsConnected(DOMDocument $document, string $id): bool
+    {
+        self::$idIndexes ??= new WeakMap();
+        $xpath = new \DOMXPath($document);
+        if ( ! isset(self::$idIndexes[$document]) ) {
+            ++self::$idIndexBuilds;
+            $index = array();
+            foreach ( $xpath->query('//*[@id]') ?: array() as $candidate ) {
+                if ( $candidate instanceof DOMElement ) {
+                    $index[$candidate->getAttribute('id')] ??= (string) $candidate->getNodePath();
+                }
+            }
+            self::$idIndexes[$document] = $index;
+        }
+        $path = self::$idIndexes[$document][$id] ?? '';
+        $candidate = '' === $path ? null : ($xpath->query($path) ?: null)?->item(0);
+
+        return $candidate instanceof DOMElement && $id === $candidate->getAttribute('id');
     }
 
     private static function hasContent(DOMElement $element): bool
@@ -177,6 +230,7 @@ final class FormControlClassifier
     {
         $controls = array();
         foreach ( $form->getElementsByTagName('*') as $control ) {
+            ++self::$controlScanVisits;
             if ( $control instanceof DOMElement && (self::isControlElement($control) || in_array($control, $additionalControls, true)) && ! self::isNonAuthoredControl($control) ) {
                 $controls[] = $control;
             }
@@ -625,7 +679,12 @@ final class FormControlClassifier
             || ('input' === $tagName && 'submit' === self::controlType($control));
     }
 
-    public static function isSubmitLikeControl(DOMElement $control): bool
+    /**
+     * @param (Closure(DOMElement): bool)|null $hasSoleActionControl Whole-form
+     *        fact resolver from {@see self::soleActionControlMemo()}, so a
+     *        caller classifying every control of one form asks it once.
+     */
+    public static function isSubmitLikeControl(DOMElement $control, ?Closure $hasSoleActionControl = null): bool
     {
         $tagName = strtolower($control->tagName);
         if ( 'button' !== $tagName && 'input' !== $tagName ) {
@@ -652,7 +711,29 @@ final class FormControlClassifier
         // A popup or disclosure trigger (a country picker, a menu button)
         // operates a widget, so being the form's only button is no evidence
         // that it submits.
-        return ! self::isWidgetTrigger($control) && self::isSoleFormActionControl($control);
+        if ( self::isWidgetTrigger($control) ) {
+            return false;
+        }
+        $form = self::owningForm($control);
+
+        return null !== $form && ( $hasSoleActionControl ?? self::hasSoleActionControl(...) )($form);
+    }
+
+    /**
+     * A resolver for {@see self::hasSoleActionControl()} that computes the
+     * fact once per form for as long as the caller holds it. Hold it only
+     * across reads that do not change the form.
+     *
+     * @return Closure(DOMElement): bool
+     */
+    public static function soleActionControlMemo(): Closure
+    {
+        /** @var WeakMap<DOMElement, bool> $facts */
+        $facts = new WeakMap();
+
+        return static function (DOMElement $form) use ($facts): bool {
+            return $facts[$form] ??= self::hasSoleActionControl($form);
+        };
     }
 
     private static function isWidgetTrigger(DOMElement $control): bool
@@ -806,21 +887,29 @@ final class FormControlClassifier
         'form',
     );
 
-    private static function isSoleFormActionControl(DOMElement $control): bool
+    /** The nearest `<form>` ancestor that owns a control's submission. */
+    private static function owningForm(DOMElement $control): ?DOMElement
     {
-        $form = null;
         for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
             if ( 'form' === strtolower($parent->tagName) ) {
-                $form = $parent;
-                break;
+                return $parent;
             }
         }
-        if ( ! $form instanceof DOMElement ) {
-            return false;
-        }
 
+        return null;
+    }
+
+    /** Whether the form's authored controls hold exactly one action control. */
+    public static function hasSoleActionControl(DOMElement $form): bool
+    {
+        return self::hasSoleActionControlAmong(self::controlElements($form));
+    }
+
+    /** @param list<DOMElement> $controls A form's authored controls ({@see self::controlElements()}). */
+    public static function hasSoleActionControlAmong(array $controls): bool
+    {
         $actions = 0;
-        foreach ( self::controlElements($form) as $candidate ) {
+        foreach ( $controls as $candidate ) {
             $tagName = strtolower($candidate->tagName);
             $type = self::controlType($candidate);
             if ( 'reset' === $type ) {

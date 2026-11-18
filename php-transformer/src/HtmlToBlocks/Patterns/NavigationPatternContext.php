@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAn
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\SourceTargetProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -87,6 +88,7 @@ final class NavigationPatternContext
         // particular inset and its logical forms) survive that filtering.
         $geometry = $this->styleResolver->inlineGeometryClassName($element);
         if ('' !== $geometry) $markers[] = $geometry;
+        $markers[] = $this->styleResolver->boxTreeElementCarrier($element);
         return $markers;
     }
 
@@ -438,47 +440,10 @@ final class NavigationPatternContext
         );
     }
 
-    /**
-     * Whether a navigation href names the document being compiled. Client
-     * routers (a React Router NavLink, for one) often mark the current item
-     * only through utility classes, with no aria-current or active/current
-     * token; the link targeting its own page is then the only current signal.
-     *
-     * Site-rooted hrefs (`/about/index.html`) resolve against the artifact's
-     * entry root, the single leading segment of the source path.
-     *
-     * A link with a fragment names a section, not the page: shared chrome
-     * linking to `/index.html#services` must compile the same on the route
-     * holding that section as on every other route.
-     */
+    /** Whether a navigation href names the document being compiled. */
     public function targetsCurrentDocument(string $href): bool
     {
-        $document = $this->session->sourcePath();
-        $href = trim($href);
-        if ( ArtifactPath::namesSection($href) ) {
-            return false;
-        }
-        $href = ArtifactPath::stripQueryAndFragment($href);
-        if ( '' === $href || ! str_contains($document, '.') || 1 === preg_match('~^(?:[a-z][a-z0-9+.-]*:|//)~i', $href) ) {
-            return false;
-        }
-        $rooted = str_starts_with($href, '/');
-        $path = ArtifactPath::resolveRelativePath($rooted ? ltrim($href, '/') : $href, $rooted ? '' : $document);
-        if ( '' === $path && ! ($rooted || str_ends_with($href, '/')) ) {
-            return false;
-        }
-        $candidates = '' === $path || str_ends_with($href, '/')
-            ? array( ltrim($path . '/index.html', '/') )
-            : array( $path, $path . '/index.html', $path . '.html' );
-        $slash = strpos($document, '/');
-        $withinEntryRoot = false === $slash ? '' : substr($document, $slash + 1);
-        foreach ( $candidates as $candidate ) {
-            if ( $document === $candidate || ($rooted && $withinEntryRoot === $candidate && ! str_contains(substr($document, 0, (int) $slash), '/')) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return ArtifactPath::targetsDocument($href, $this->session->sourcePath());
     }
 
     /**
@@ -1446,7 +1411,7 @@ final class NavigationPatternContext
             }
             if (1 !== count($children)) return array();
             $marker = $this->navigationSubjectMarker($node, 'box');
-            $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node))));
+            $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node)), $this->styleResolver->boxTreeElementCarrier($node)));
         }
         if (array() !== $boxes) {
             // These carriers exist only at frontend render time. Resolve the
@@ -1486,9 +1451,25 @@ final class NavigationPatternContext
             if (!$child instanceof DOMElement) continue;
             if ($child->isSameNode($branch)) { $after = true; continue; }
             if (!in_array(strtolower($child->tagName), array('span', 'div'), true) || $child->childElementCount || '' !== trim($child->textContent ?? '') || $child->hasAttribute('role') || $child->hasAttribute('tabindex')) continue;
-            $result[] = array('tag' => strtolower($child->tagName), 'after' => $after, 'className' => SourceDom::mergeClassNames($child->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($child))), 'style' => $child->getAttribute('style'));
+            $result[] = array('tag' => strtolower($child->tagName), 'after' => $after, 'className' => SourceDom::mergeClassNames($child->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($child)), $this->styleResolver->boxTreeElementCarrier($child)), 'style' => $child->getAttribute('style'));
         }
         return $result;
+    }
+
+    /**
+     * Core's item box stands for the source item once the anchor renders
+     * inside it with its own carrier: observed on the anchor, the item would
+     * restate the anchor's padding, display and cursor on the `<li>` too.
+     */
+    public function observeItemBoxOn(DOMElement $anchor, DOMElement $item): void
+    {
+        $this->session->substituteBoxTreeBlockBox($anchor, $item);
+    }
+
+    /** An evidence route's observed box for source markup an item keeps ({@see StyleResolver::boxTreeElementCarrier()}). */
+    public function boxTreeElementCarrier(DOMElement $element): string
+    {
+        return $this->styleResolver->boxTreeElementCarrier($element);
     }
 
     /** A text-free, link-free sibling of the link that paints only an SVG glyph. */
@@ -1504,7 +1485,7 @@ final class NavigationPatternContext
     private function navigationSubjectMarker(DOMElement $element, string $kind): string
     {
         $rules = array();
-        foreach ($this->session->authorStyleAnalysis()->styleRules() as $rule) {
+        foreach ($this->session->authorStyleAnalysis()->subjectRuleCandidates($element) as $rule) {
             foreach ($rule['selectors'] as $selector) {
                 $text = (string) ($selector['selector'] ?? '');
                 // Route state is not item identity: the same item on every route
@@ -1530,17 +1511,36 @@ final class NavigationPatternContext
         return $this->session->authorStyleAnalysis()->allocateStableMarker('navigation-' . $kind, (string) json_encode($identity));
     }
 
-    /** Preserve a single passive icon as artwork inside Core's native anchor. */
-    public function navigationAnchorArtwork(DOMElement $anchor): string
+    /**
+     * Preserve a single passive icon as artwork inside Core's native anchor.
+     *
+     * The anchor's only element child is the SVG. Either it is the whole
+     * anchor (the label is the hidden accessible name), or it leads visible
+     * text (the label stays painted after it). Returns the presentation the
+     * runtime reads: `svg`, plus `labelVisible` for the icon-and-label shape.
+     *
+     * @return array{svg?: string, labelVisible?: true}
+     */
+    public function navigationAnchorArtwork(DOMElement $anchor): array
     {
-        if (!$this->svgMaterializer instanceof SvgMaterializer || '' !== trim($anchor->textContent ?? '')) return '';
+        if (!$this->svgMaterializer instanceof SvgMaterializer) return array();
         $children = array_values(array_filter(iterator_to_array($anchor->childNodes), static fn($node): bool => $node instanceof DOMElement));
-        if (1 !== count($children) || 'svg' !== strtolower($children[0]->tagName)) return '';
+        if (1 !== count($children) || 'svg' !== strtolower($children[0]->tagName)) return array();
         $svg = $children[0];
-        if (!SvgMaterializer::isPassiveSvgMarkup($svg) || !SourceDom::svgHasDrawableContent($svg)) return '';
+        $leading = '';
+        $trailing = '';
+        $seen = false;
+        foreach ($anchor->childNodes as $node) {
+            if ($node->isSameNode($svg)) $seen = true;
+            elseif ($node instanceof \DOMText) $seen ? $trailing .= $node->textContent : $leading .= $node->textContent;
+        }
+        // Text before the icon would reorder around it at render time.
+        if ('' !== trim($leading)) return array();
+        $labelVisible = '' !== trim($trailing);
+        if (!SvgMaterializer::isPassiveSvgMarkup($svg) || !SourceDom::svgHasDrawableContent($svg)) return array();
         $nodes = array($svg);
         foreach ($svg->getElementsByTagName('*') as $node) {
-            if (!in_array(strtolower($node->tagName), array('g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon'), true)) return '';
+            if (!in_array(strtolower($node->tagName), array('g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon'), true)) return array();
             $nodes[] = $node;
         }
         $subjects = array();
@@ -1550,9 +1550,9 @@ final class NavigationPatternContext
             $node->setAttribute('class', SourceDom::mergeClassNames($node->getAttribute('class'), $marker));
         }
         $markup = $this->svgMaterializer->inlineSvgMarkup($svg);
-        if ('' === $markup || !SourceDom::isSafeSvgContent($markup)) return '';
+        if ('' === $markup || !SourceDom::isSafeSvgContent($markup)) return array();
         foreach ($subjects as [$path, $marker]) $this->pendingNavigationSubjects[$path] = array('marker' => $marker, 'target' => '.wp-block-navigation .wp-block-navigation-item .' . $marker);
-        return $markup;
+        return $labelVisible ? array('svg' => $markup, 'labelVisible' => true) : array('svg' => $markup);
     }
 
     /** Core's item can interrupt an anchor's authored or safely inherited line-height. */
@@ -1748,6 +1748,52 @@ final class NavigationPatternContext
         }
 
         return $overlayMenu;
+    }
+
+    /**
+     * A menu shown at the reference viewport whose source also shows an
+     * equivalent copy elsewhere: its navigation serves both widths, so the
+     * hides that swapped the copies must not hide it. Records the source
+     * menu and returns the marker its navigation carries, or ''.
+     */
+    public function mergedDeviceNavigationMarker(DOMElement $element, DOMElement $navigationSource): string
+    {
+        if ( $this->isHiddenAtReferenceViewport($element)
+            || ! ( $this->navigationToggleSuppressor?->hasEquivalentNavigationVariant($element) ?? false ) ) {
+            return '';
+        }
+        $projections = $this->session->authorSelectorProjectionState();
+        $projections->markMergedDeviceNavigationSource($element);
+        $projections->markMergedDeviceNavigationSource($navigationSource);
+
+        $expanded = $this->navigationToggleSuppressor?->expandedMobileNavigation($element);
+        if ( null !== $expanded ) {
+            $marker = $projections->ensureSemanticMarker($navigationSource->getNodePath() ?? '');
+            $host = '.wp-block-navigation.' . $marker;
+            $width = $expanded['breakpoint'];
+            $source = $expanded['source'];
+            $properties = array('background', 'background-color', 'color', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'font-family', 'font-size', 'font-weight', 'line-height', 'text-align', 'text-decoration', 'border', 'border-radius');
+            $declarations = fn (array $values): string => $this->styleResolver->cssDeclarationString($values);
+            $css = $host . '{display:flex!important;flex-direction:column!important;align-items:stretch!important;'
+                . $declarations($this->styleResolver->authorViewport->atViewport($source, $properties, $width)) . '}'
+                . $host . ' .wp-block-navigation__container{display:flex!important;flex-direction:column!important;align-items:stretch!important;width:100%}'
+                . $host . ' .wp-block-navigation__container>.wp-block-navigation-item{float:none!important;width:100%}';
+            $index = 0;
+            foreach ($source->childNodes as $item) {
+                if (! $item instanceof DOMElement || 'li' !== strtolower($item->tagName)) continue;
+                ++$index;
+                $target = $host . ' .wp-block-navigation__container>.wp-block-navigation-item:nth-child(' . $index . ')';
+                $css .= $target . '{' . $declarations($this->styleResolver->authorViewport->atViewport($item, $properties, $width)) . '}';
+                $anchor = $item->getElementsByTagName('a')->item(0);
+                if ($anchor instanceof DOMElement) {
+                    $css .= $target . '>.wp-block-navigation-item__content{' . $declarations($this->styleResolver->authorViewport->atViewport($anchor, $properties, $width)) . '}';
+                }
+            }
+            $this->registerMenuFoldRule($marker, '@media(max-width:' . $width . 'px){' . $css . '}');
+            return AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS . ' ' . $marker;
+        }
+
+        return AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS;
     }
 
     public function capturedMenuFold(DOMElement $row): ?CapturedMenuDialogFold
@@ -2165,11 +2211,13 @@ final class NavigationPatternContext
         }
 
         $declarations = $projected = array();
+        // Every property below walks the same anchors and ancestors.
+        $resolvedDeclarations = new \SplObjectStorage();
         // `font` first: builders commonly state menu type as the shorthand, and
         // a longhand found further out should not silently outrank it.
         foreach ( array( 'font', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
             if ($this->nativeNavigationParentOwnsPresentation($anchors, $navigation, $property)) continue;
-            $value = $this->sharedNavigationItemPresentationValue($anchors, $navigation, $property);
+            $value = $this->sharedNavigationItemPresentationValue($anchors, $navigation, $property, $resolvedDeclarations);
             // The source component resolves this formula against its own width.
             // Replaying it on Core's replacement anchor changes that reference
             // and inflates the label. The promoted item retains the source
@@ -2310,12 +2358,13 @@ final class NavigationPatternContext
      * Presentation every source anchor inside the navigation actually shares.
      *
      * @param list<DOMElement> $anchors
+     * @param \SplObjectStorage<DOMElement, array<string, string>> $resolvedDeclarations
      */
-    private function sharedNavigationItemPresentationValue(array $anchors, DOMElement $navigation, string $property): string
+    private function sharedNavigationItemPresentationValue(array $anchors, DOMElement $navigation, string $property, \SplObjectStorage $resolvedDeclarations): string
     {
         $shared = null;
         foreach ( $anchors as $anchor ) {
-            $value = $this->navigationItemPresentationValue($anchor, $navigation, $property);
+            $value = $this->navigationItemPresentationValue($anchor, $navigation, $property, $resolvedDeclarations);
             if ( null === $shared ) {
                 $shared = $value;
                 continue;
@@ -2472,8 +2521,9 @@ final class NavigationPatternContext
      */
     private function navigationDeclaresAny(DOMElement $navigation, array $properties): bool
     {
+        $resolvedDeclarations = new \SplObjectStorage();
         foreach ( $properties as $property ) {
-            $value = $this->navigationItemPresentationValue($navigation, $navigation, $property);
+            $value = $this->navigationItemPresentationValue($navigation, $navigation, $property, $resolvedDeclarations);
             if ( '' !== $value && ! in_array(strtolower($value), array( 'none', 'transparent', '0', '0px', 'rgba(0, 0, 0, 0)', 'medium none', '0 none' ), true) ) {
                 return true;
             }
@@ -2489,18 +2539,26 @@ final class NavigationPatternContext
      * document chrome that the destination theme legitimately supplies, and
      * reading it would recover the destination's own default rather than the
      * source's menu styling.
+     *
+     * A node's resolved declarations do not depend on the property, so a
+     * caller reading several properties across the same nodes passes one
+     * `$resolvedDeclarations` store and each node's cascade resolves once.
+     *
+     * @param \SplObjectStorage<DOMElement, array<string, string>> $resolvedDeclarations
      */
-    private function navigationItemPresentationValue(DOMElement $anchor, DOMElement $navigation, string $property): string
+    private function navigationItemPresentationValue(DOMElement $anchor, DOMElement $navigation, string $property, \SplObjectStorage $resolvedDeclarations): string
     {
         $node  = $anchor;
         $depth = 0;
         while ( $node instanceof DOMElement && $depth < 12 ) {
             ++$depth;
-            $resolved     = $this->styleResolver->customProperties->resolve(
-                $this->styleResolver->specificityResolvedPresentationStyle($node),
-                $node
-            );
-            $declarations = SourceDeclarations::parse($resolved);
+            if ( ! $resolvedDeclarations->offsetExists($node) ) {
+                $resolvedDeclarations[$node] = SourceDeclarations::parse($this->styleResolver->customProperties->resolve(
+                    $this->styleResolver->specificityResolvedPresentationStyle($node),
+                    $node
+                ));
+            }
+            $declarations = $resolvedDeclarations[$node];
             $value        = trim((string) ($declarations[$property] ?? ''));
             if ( '' === $value ) {
                 $value = $this->styleResolver->conditionalDeclaration($node, $property);

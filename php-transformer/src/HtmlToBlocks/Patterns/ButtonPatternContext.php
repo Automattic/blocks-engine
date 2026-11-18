@@ -95,6 +95,28 @@ final class ButtonPatternContext
         return SourceDeclarations::parse($this->resolvedStyle($element));
     }
 
+    /**
+     * Whether the element is a statically positioned `display:flex` box at
+     * every breakpoint the source declares, so a core/buttons flex root can
+     * stand in for it without changing its formatting context anywhere.
+     */
+    public function isUnconditionalFlexRow(DOMElement $element): bool
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) {
+            return false;
+        }
+        $inline = SourceDeclarations::inline($element)['display'] ?? null;
+        $declared = $this->styleResolver->declaredPresentation($element, 'display');
+        $displays = null === $inline ? array_merge(array( $declared->base() ), array_values($declared->conditional())) : array( $inline );
+        foreach ( $displays as $display ) {
+            if ( 'flex' !== CssValueInspector::comparable($this->styleResolver->customProperties->resolve((string) $display, $element)) ) {
+                return false;
+            }
+        }
+
+        return in_array(CssValueInspector::declared($this->resolvedDeclarations($element), 'position'), array( '', 'static' ), true);
+    }
+
     public function controlSurfaceStyle(DOMElement $element): string
     {
         if ( ! $this->styleResolver instanceof StyleResolver ) {
@@ -154,10 +176,37 @@ final class ButtonPatternContext
         $source = $this->styleResolver?->richTextSerializationSource($element) ?? $element;
         $copy = $source->cloneNode(true);
         if ( $copy instanceof DOMElement ) {
+            if ( 'button' === strtolower($element->tagName) ) $this->lowerLabelDivs($element, $copy);
             $this->pruneUnpaintedHiddenLabels($element, $copy);
             return SourceDom::innerHtml($copy);
         }
         return SourceDom::innerHtml($source);
+    }
+
+    /** Keep hidden, text-bearing DIV labels on RichText-safe carriers. */
+    private function lowerLabelDivs(DOMElement $source, DOMElement $copy): bool
+    {
+        $changed = false;
+        $sources = iterator_to_array($source->getElementsByTagName('*'));
+        $copies = iterator_to_array($copy->getElementsByTagName('*'));
+        foreach ( $sources as $index => $node ) {
+            $target = $copies[$index] ?? null;
+            if ( ! $target instanceof DOMElement || 'div' !== strtolower($node->tagName) ) continue;
+            $display = CssValueInspector::declared($this->resolvedDeclarations($node), 'display');
+            // Text-free DIVs must stay on the existing button-decoration path.
+            if ( 'none' !== $display || '' === trim($node->textContent ?? '') ) continue;
+            $span = $copy->ownerDocument->createElement('span');
+            foreach ( $target->attributes as $attribute ) {
+                $span->setAttribute($attribute->nodeName, $attribute->nodeValue ?? '');
+            }
+            if ( 'none' === $display && 'none' !== CssValueInspector::declared(SourceDeclarations::inline($span), 'display') ) {
+                $span->setAttribute('style', ltrim(rtrim($span->getAttribute('style'), '; ') . ';display:none', ';'));
+            }
+            while ( null !== $target->firstChild ) $span->appendChild($target->firstChild);
+            $target->parentNode?->replaceChild($span, $target);
+            $changed = true;
+        }
+        return $changed;
     }
 
     /** Prune only unpainted hidden leaves; wrappers around retained paint stay. */
@@ -202,6 +251,12 @@ final class ButtonPatternContext
 
     public function richText(DOMElement $element): string
     {
+        if ( 'button' === strtolower($element->tagName) && $element->getElementsByTagName('div')->length > 0 ) {
+            $copy = ($this->styleResolver?->richTextSerializationSource($element) ?? $element)->cloneNode(true);
+            if ( $copy instanceof DOMElement && $this->lowerLabelDivs($element, $copy) ) {
+                return SourceDom::innerHtml($copy);
+            }
+        }
         return $this->richTextMaterializer?->content($element) ?? SourceDom::innerHtml($element);
     }
 
@@ -265,6 +320,18 @@ final class ButtonPatternContext
             }
             $projections?->markRetainedSourcePath($path);
         }
+    }
+
+    /**
+     * Whether the saved label still renders this source descendant as its own
+     * RichText carrier, so the descendant keeps its box inside the link
+     * rather than being absorbed into it.
+     */
+    public function labelRendersDescendant(DOMElement $descendant, string $labelHtml): bool
+    {
+        $marker = $this->session?->authorSelectorProjectionState()->richTextMarker($descendant->getNodePath() ?? '') ?? '';
+
+        return '' !== $marker && str_contains($labelHtml, $marker);
     }
 
     /**

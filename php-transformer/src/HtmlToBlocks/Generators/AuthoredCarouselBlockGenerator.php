@@ -83,7 +83,7 @@ final class AuthoredCarouselBlockGenerator
     private const GEOMETRY_VALUE_PATTERN = '^[0-9a-zA-Z.%()+*/,_ -]+(?:\\s*!important)?$';
 
     /**
-     * @param Closure(DOMElement): ?array<string, mixed> $convertImage
+     * @param Closure(DOMElement, ?DOMElement=): ?array<string, mixed> $convertImage
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier = new SourceElementClassifier(),
@@ -635,6 +635,10 @@ JS;
         // auto-height wrappers so their controls do not inflate normal flow.
         $style .= '.blocks-engine-authored-carousel--positioned-stage>.blocks-engine-authored-carousel__source-stage{height:100%;flex-shrink:0}.blocks-engine-authored-carousel--positioned-stage .blocks-engine-authored-carousel__viewport{height:100%}';
         $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted)),.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted)){position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0}:where(.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__previous:not(.blocks-engine-authored-carousel__control--source-painted),.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__next:not(.blocks-engine-authored-carousel__control--source-painted)){transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted)){left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted)){right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
+        // A positioned slideshow stage fills its root: the viewport and track
+        // take the root height (a pixel viewport height still wins inline) and
+        // every slide fills the track, as the source percentage chain did.
+        $style .= '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--positioned-stage{--blocks-engine-carousel-height:100%}.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--positioned-stage .blocks-engine-authored-carousel__track>*{height:100%!important}';
         $style .= '.blocks-engine-authored-carousel__dots--source{position:static;inset:auto;gap:0;grid-column:1/-1}:where(.blocks-engine-authored-carousel__dots--source) .blocks-engine-authored-carousel__dot{width:revert;height:revert;border:revert;border-radius:revert;background:revert;color:inherit}';
         // A captured orientation is carried by the separate translate and scale
         // properties, as core/icon does, so the source's own transform cannot
@@ -1119,7 +1123,9 @@ JS;
             // retain their media, links and authored text through child conversion.
             $image = $this->sourceElementClassifier->isSingleMediaSlide($item, 'img') && ! $this->ownsAuthoredSlideBox($item, $styleResolver) ? $item->getElementsByTagName('img')->item(0) : null;
             if ( $image instanceof DOMElement ) {
-                $slide = $convertImage($image);
+                // A slide image wrapped in its own link keeps that link.
+                $link = $image->parentNode instanceof DOMElement && 'a' === strtolower($image->parentNode->tagName) && $image->parentNode !== $item ? $image->parentNode : null;
+                $slide = $convertImage($image, $link);
                 if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
                     if ( $temporary ) {
                         $item->parentNode?->removeChild($item);
@@ -1173,6 +1179,7 @@ JS;
         $geometryList = $localList instanceof DOMElement ? $localList : $list;
         $geometryDeclarations = $styleResolver->structuralPresentationDeclarations($geometryList);
         [$positionedStage, $viewportHeight, $stageMinHeight, $fullBleed] = $this->stageGeometry($element, $geometryDeclarations, $styleResolver);
+        $positionedStage = $positionedStage || ( 0 === $viewportHeight && $this->stageFillsRoot($element, $geometryDeclarations, $items, $styleResolver) );
 
         $thumbnails = $this->thumbnails($pagerItems, count($slides));
         $thumbnailPosition = array() === $thumbnails
@@ -1579,6 +1586,23 @@ JS;
             $presentation = 'slideshow';
         }
         $initialSlide = 0;
+        // Cross-faded frames (FlexSlider's fade animation): every frame
+        // declares its opacity and exactly one of them is opaque.
+        $opaque = array();
+        foreach ( $items as $index => $item ) {
+            $opacity = CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations($item)['opacity'] ?? ''));
+            if ( '' === $opacity || ! is_numeric($opacity) ) {
+                $opaque = array();
+                break;
+            }
+            if ( 0.0 < (float) $opacity ) {
+                $opaque[] = $index;
+            }
+        }
+        if ( 1 < count($items) && 1 === count($opaque) ) {
+            $presentation = 'slideshow';
+            $initialSlide = $opaque[0];
+        }
         foreach ( $items as $index => $item ) {
             if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
                 $presentation = 'slideshow';
@@ -1672,6 +1696,28 @@ JS;
         $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
             && 1 === preg_match('/^-\s*(?:[0-9]+|[0-9]*\.[0-9]+)(?:px|rem|em|%)$/', strtolower(trim((string) ($rootDeclarations['left'] ?? ''))));
         return array($positionedStage, $viewportHeight, $stageMinHeight, $fullBleed);
+    }
+
+    /**
+     * Whether the source track and its items fill a sized carousel root through
+     * full percentage heights, so the inserted stage wrappers must keep that
+     * chain instead of collapsing to the slide's natural ratio.
+     *
+     * @param array<string, mixed> $geometryDeclarations
+     * @param array<int, DOMElement> $items
+     */
+    private function stageFillsRoot(DOMElement $element, array $geometryDeclarations, array $items, StyleResolver $styleResolver): bool
+    {
+        $rootHeight = CssValueInspector::declared($styleResolver->structuralPresentationDeclarations($element), 'height');
+        if ( array() === $items || '' === $this->safeCssDimension($rootHeight) || '100%' !== CssValueInspector::declared($geometryDeclarations, 'height') ) {
+            return false;
+        }
+        foreach ( $items as $item ) {
+            if ( '100%' !== CssValueInspector::declared($styleResolver->structuralPresentationDeclarations($item), 'height') ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -2303,6 +2349,14 @@ JS;
         if ($this->slideIndex($element) !== null) {
             return true;
         }
+        $tag = strtolower($element->tagName);
+        $pagerItem = 'li' === $tag ? $element : ( in_array($tag, array('a', 'button'), true) ? $element->parentNode : null );
+        if ( $pagerItem instanceof DOMElement && 'li' === strtolower($pagerItem->tagName)
+            && ( 'li' === $tag || $pagerItem->firstElementChild === $element )
+            && $pagerItem->parentNode instanceof DOMElement && $this->isNumberedSlidePager($pagerItem->parentNode)
+        ) {
+            return true;
+        }
         if ( 'li' === strtolower($element->tagName) && ctype_digit(trim(SourceDom::attr($element, 'aria-label'))) ) {
             $list = $element->parentNode;
             if ( $list instanceof DOMElement && in_array(strtolower($list->tagName), array('ol', 'ul'), true)
@@ -2320,6 +2374,83 @@ JS;
             SourceDom::attr($element, 'data-testid'),
         ))));
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item)[^a-z0-9]*[0-9]+(?:[^a-z0-9]|$)/', $identity);
+    }
+
+    /**
+     * The items of a numbered pager list (jQuery FlexSlider's
+     * `ol.flex-control-paging`): two or more `li`, each holding only one link
+     * or button whose text is its 1-based position.
+     *
+     * @return list<DOMElement>
+     */
+    private function numberedPagerItems(DOMElement $list): array
+    {
+        if ( ! in_array(strtolower($list->tagName), array('ol', 'ul'), true) ) {
+            return array();
+        }
+        $items = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( $child instanceof DOMText ) {
+                if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->data)) ) {
+                    return array();
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $control = $child->firstElementChild;
+            if ( 'li' !== strtolower($child->tagName) || ! $control instanceof DOMElement || $control !== $child->lastElementChild
+                || ! in_array(strtolower($control->tagName), array('a', 'button'), true)
+                || null !== $control->firstElementChild
+                || (string) (count($items) + 1) !== trim(str_replace("\xc2\xa0", ' ', $control->textContent ?? ''))
+                || trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? '')) !== trim(str_replace("\xc2\xa0", ' ', $control->textContent ?? ''))
+            ) {
+                return array();
+            }
+            $items[] = $child;
+        }
+        return count($items) >= 2 ? $items : array();
+    }
+
+    /**
+     * A numbered pager is carousel pagination only inside a carousel-identified
+     * root whose slide list has exactly one item per number. Numbered page
+     * links elsewhere, or counting differently, stay ordinary navigation.
+     */
+    private function isNumberedSlidePager(DOMElement $list): bool
+    {
+        $memo = $this->recognitions[$list] ?? array();
+        if ( array_key_exists('numberedPager', $memo) ) {
+            return $memo['numberedPager'];
+        }
+        $result = false;
+        $count = count($this->numberedPagerItems($list));
+        if ( $count >= 2 ) {
+            for ( $root = $list->parentNode; $root instanceof DOMElement; $root = $root->parentNode ) {
+                if ( ! $this->sourceElementClassifier->hasCarouselIdentity($root) ) {
+                    continue;
+                }
+                foreach ( $root->getElementsByTagName('*') as $candidate ) {
+                    if ( $candidate instanceof DOMElement && $candidate !== $list
+                        && ! $this->containsNode($candidate, $list) && ! $this->containsNode($list, $candidate)
+                        && $this->sourceElementClassifier->isCarouselList($candidate)
+                        && array() === $this->numberedPagerItems($candidate)
+                    ) {
+                        $items = $this->carouselListItems($candidate);
+                        if ( count($items) === $count && $this->carouselItemsHaveContent($items) ) {
+                            $result = true;
+                            break 2;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        $memo = $this->recognitions[$list] ?? array();
+        $memo['numberedPager'] = $result;
+        $this->recognitions[$list] = $memo;
+        return $result;
     }
 
     /**
@@ -3164,7 +3295,9 @@ JS;
         $list = null;
         $items = array();
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root) ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root)
+                || $this->isNumberedSlidePager($candidate)
+            ) {
                 continue;
             }
             for ( $ancestor = $candidate->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
@@ -3187,7 +3320,9 @@ JS;
         $list = null;
         $items = array();
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root) ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root)
+                || $this->isNumberedSlidePager($candidate)
+            ) {
                 continue;
             }
             $candidateItems = $this->carouselListItems($candidate);

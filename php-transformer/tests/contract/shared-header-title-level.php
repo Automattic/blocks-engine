@@ -52,7 +52,9 @@ $assert(str_contains($titleAttrs['style']['typography']['fontFamily'], 'Georgia'
 $assert(array('700', '.06em', '1', 'uppercase') === array($titleAttrs['style']['typography']['fontWeight'] ?? null, $titleAttrs['style']['typography']['letterSpacing'] ?? null, $titleAttrs['style']['typography']['lineHeight'] ?? null, $titleAttrs['style']['typography']['textTransform'] ?? null), $cell . ': Title weight, tracking, leading and case survive lowering.');
 $assert('inherit' === $titleAttrs['style']['elements']['link']['color']['text'], $cell . ': The home link uses wordmark colour, not generic theme link colour.');
 if ('' !== $titlePresentation) {
-    $assert('rgba(51,51,51,1)' === $titleAttrs['style']['color']['text'], $cell . ': Title colour survives lowering.');
+    $palette = array_column(json_decode(array_column($plan['writes'], null, 'target_path')['theme.json']['payload']['data'], true)['settings']['color']['palette'] ?? array(), 'color', 'slug');
+    $titleColor = isset($titleAttrs['textColor']) ? ($palette[$titleAttrs['textColor']] ?? null) : ($titleAttrs['style']['color']['text'] ?? null);
+    $assert(in_array(strtolower((string) $titleColor), array('#333333', '#333', 'rgba(51,51,51,1)'), true), $cell . ': Title colour survives lowering (as its palette preset when one matches).');
     $assert('none' === $titleAttrs['style']['typography']['textDecoration'], $cell . ': Title decoration survives lowering.');
 }
 $assert(!str_contains($plan['menus'][0]['block_markup'], 'is-active-menu-item'), 'The shared menu does not freeze the captured selection.');
@@ -110,9 +112,12 @@ foreach (array('color:#933', 'font-size:32px') as $difference) {
     $differentFiles['index.html'] = str_replace('</style>', 'h1.' . $titleClass . '{' . $difference . '}</style>', $differentFiles['index.html']);
     $different = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $differentFiles))->toWordPressSitePlanView()['wordpress_site_plan'];
     $differentHeaders = array_values(array_filter($different['template_parts'], static fn(array $part): bool => 'header' === $part['area']));
-    $assert(1 === count($differentHeaders) && !str_contains($differentHeaders[0]['canonical_block_markup'], '<h1'), 'Different title presentation must not merge: ' . $difference);
+    // Same chrome, different title paint: the home binds its own variant part
+    // (#6723); the shared part never takes the home title level.
+    $sharedHeader = current(array_filter($differentHeaders, static fn(array $part): bool => 'header' === $part['slug']));
+    $assert(2 === count($differentHeaders) && is_array($sharedHeader) && !str_contains($sharedHeader['canonical_block_markup'], '<h1'), 'Different title presentation must not merge: ' . $difference);
     $home = array_values(array_filter($different['pages'], static fn(array $page): bool => !empty($page['entrypoint'])))[0];
-    $assert(str_contains($home['canonical_block_markup'], '<header'), 'Different home presentation stays in content: ' . $difference);
+    $assert(!str_contains($home['canonical_block_markup'], '<header'), 'Different home presentation leaves content for its variant part: ' . $difference);
 }
 $section = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<html><body><main><article><header><h1>Article title</h1></header><p>Article body</p></article></main></body></html>')))->toWordPressSitePlanView()['wordpress_site_plan'];
 $assert(str_contains($section['pages'][0]['canonical_block_markup'], '<header'), 'A single-page article header stays in content.');

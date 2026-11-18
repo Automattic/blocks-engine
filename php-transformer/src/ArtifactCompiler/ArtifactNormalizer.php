@@ -116,6 +116,7 @@ final class ArtifactNormalizer
             $this->contentAddressInlineFiles($this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles))),
             $limits['max_files']
         );
+        $rawFiles = array_values(self::reportsBeforeSidecars($rawFiles));
         $safeEntrypoints = array();
         foreach ( array_unique($entrypoints) as $entrypoint ) {
             $path = ArtifactPath::safeRelativePath($entrypoint);
@@ -192,7 +193,7 @@ final class ArtifactNormalizer
             if ( $capturedReport && $reportBytes + $payload['bytes'] > $limits['max_report_total_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_report_total_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = ArtifactDiagnostics::make('artifact_report_total_too_large', 'warning', 'A declared capture report was ignored because the bundle report byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_total_bytes' => $limits['max_report_total_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_report_total_too_large', 'warning', 'Capture evidence was ignored because the bundle report byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_total_bytes' => $limits['max_report_total_bytes']));
                 continue;
             }
 
@@ -346,7 +347,7 @@ final class ArtifactNormalizer
         }
 
         $runtimeDeclarations = RuntimeDeclarations::bindAssetPublications($runtimeDeclarations, $files);
-        $layoutGeometryProof = LayoutGeometryProof::normalize(is_array($artifact['layout_geometry_proof'] ?? null) ? $artifact['layout_geometry_proof'] : null, $files);
+        $layoutGeometryProof = LayoutGeometryProof::normalize(is_array($artifact['layout_geometry_proof'] ?? null) ? $artifact['layout_geometry_proof'] : LayoutGeometryProof::declaredReport($files), $files);
         $diagnostics = array_merge($diagnostics, $layoutGeometryProof['diagnostics']);
         foreach ($files as &$file) {
             if ('html' === $file['kind']) $file['layout_geometry_proof'] = $layoutGeometryProof['proof'];
@@ -399,6 +400,33 @@ final class ArtifactNormalizer
         return !str_starts_with($mime, 'text/')
             && !in_array($mime, self::REFERENCE_TEXT_MIME_TYPES, true)
             && !in_array($extension, self::REFERENCE_TEXT_EXTENSIONS, true);
+    }
+
+    /**
+     * Box-tree sidecars are optional evidence, declared or not. They come
+     * last, smallest first, so budget pressure drops the largest before it can
+     * displace a declared report or a smaller sidecar. Preserve source order
+     * for all other inputs and for equal-sized sidecars.
+     *
+     * @param array<array-key,array<string,mixed>> $files
+     * @return array<array-key,array<string,mixed>>
+     */
+    public static function reportsBeforeSidecars(array $files): array
+    {
+        $normalizer = new self();
+        $sizes = array();
+        foreach ($files as $key => $file) {
+            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
+            if (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isSidecarPath($path)) {
+                $sizes[$key] = $normalizer->payload($file, $path)['bytes'];
+            }
+        }
+        uksort($files, static function (int|string $left, int|string $right) use ($sizes): int {
+            if (!isset($sizes[$left])) return isset($sizes[$right]) ? -1 : 0;
+            if (!isset($sizes[$right])) return 1;
+            return $sizes[$left] <=> $sizes[$right];
+        });
+        return $files;
     }
 
     /** @param array<string,int> $counts @param array<int,array<string,mixed>> $samples @param array<string,mixed> $file */
@@ -873,7 +901,7 @@ final class ArtifactNormalizer
      * @param array<string, mixed> $file
      * @return array{accepted: bool, content: string, content_base64: string, encoding: string, binary: bool, bytes: int, diagnostics: array<int, array<string, mixed>>, payload_reference?: array{schema:string,id:string,bytes:int,sha256:string}}
      */
-    private function payload(array $file, string $path): array
+    public function payload(array $file, string $path): array
     {
         if (is_array($file['payload_reference'] ?? null)) {
             $reference = $file['payload_reference'];

@@ -140,21 +140,48 @@ final class TableAttributesBuilder
         // A single marker class ties core's .wp-block-table margin while later
         // source classes promoted onto the figure retain their authored margins.
         $rules = array( '.' . $marker . '{margin:0}' );
-        $borderModel = array();
-        foreach ( array( 'border-collapse', 'border-spacing' ) as $property ) {
+        $tablePresentation = array();
+        foreach ( array( 'border-collapse', 'border-spacing', 'width' ) as $property ) {
             $value = trim((string) ($tableDeclarations[$property] ?? ''));
             if ( '' !== $value ) {
-                $borderModel[] = $property . ':' . $value;
+                $tablePresentation[] = $property . ':' . $value;
             }
         }
         // Core's unlayered `.wp-block-table table{width:100%}` beats the layered
         // `width` hint. Unless author CSS sets the width, roll core back to the
         // layers so the hint sizes the table as in source.
         if ( null !== self::widthHint($table) && array() === $this->styleResolver->authorDeclaredPropertyValues($table, array( 'width', 'inline-size' )) ) {
-            $borderModel[] = 'width:revert-layer';
+            $tablePresentation[] = 'width:revert-layer';
         }
-        if ( array() !== $borderModel ) {
-            $rules[] = '.' . $marker . '>table{' . implode(';', $borderModel) . '}';
+        if ( array() !== $tablePresentation ) {
+            $rules[] = '.' . $marker . '>table{' . implode(';', $tablePresentation) . '}';
+        }
+
+        $align = strtolower(trim($table->getAttribute('align')));
+        if ( in_array($align, array( 'left', 'right' ), true)
+            && array() === $this->styleResolver->authorDeclaredPropertyValues($table, array( 'float' ))
+            && ! isset(SourceDeclarations::inline($table)['float'])
+        ) {
+            // Float the figure, not its inner table: following source content
+            // must flow beside the entire block, outside core's overflow box.
+            $float = $align;
+            $rules[] = '.' . $marker . '{float:' . $float . '}';
+            if ( in_array(strtolower($float), array( 'left', 'right' ), true) ) {
+                // Percentage widths must resolve against the original containing
+                // block, not the new shrink-to-fit figure introduced by core.
+                $width = trim((string) ($tableDeclarations['width'] ?? self::widthHint($table) ?? ''));
+                if ( '' !== $width ) {
+                    $rules[] = '.' . $marker . '{width:' . $width . '}';
+                    $rules[] = '.' . $marker . '>table{width:100%}';
+                }
+            }
+        }
+
+        $cellpadding = trim($table->getAttribute('cellpadding'));
+        if ( 1 === preg_match('/^\d+(?:\.\d+)?$/', $cellpadding) ) {
+            // Projected author cell selectors (and inline geometry below)
+            // override this table-wide fallback, which beats core's default.
+            $rules[] = '.' . $marker . '>table th,.' . $marker . '>table td{padding:' . $cellpadding . 'px}';
         }
 
         // Core supplies borders on every cell. Clear them before projected author
@@ -192,7 +219,40 @@ final class TableAttributesBuilder
             }
         }
 
+        // core/table saves its figcaption after the table, so it renders below.
+        // A source caption on the top side keeps that markup and reorders the
+        // figure's children for this block only.
+        if ( $this->captionRendersAtTop($table) ) {
+            $rules[] = '.' . $marker . '{display:flex;flex-direction:column}';
+            $rules[] = '.' . $marker . '>figcaption{order:-1}';
+        }
+
         $this->layoutGeometry()->registerRule($marker, implode("\n", $rules));
+    }
+
+    /**
+     * Whether the table's visible caption renders above it. `caption-side`
+     * inherits and defaults to `top`, so the nearest declared value from the
+     * caption outward decides.
+     */
+    private function captionRendersAtTop(DOMElement $table): bool
+    {
+        $caption = SourceDom::firstChildElement($table, 'caption');
+        if ( ! $caption instanceof DOMElement
+            || '' === trim($caption->textContent)
+            || 1 === preg_match('/(?:^|\s)(?:sr-only|screen-reader-only|screen-reader-text|visually-hidden)(?:\s|$)/i', $caption->getAttribute('class'))
+        ) {
+            return false;
+        }
+        for ( $node = $caption; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $side = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($node)['caption-side'] ?? '')));
+            $side = trim((string) preg_replace('/\s*!important$/', '', $side));
+            if ( '' === $side || 'inherit' === $side || 'unset' === $side ) {
+                continue;
+            }
+            return ! in_array($side, array( 'bottom', 'block-end' ), true);
+        }
+        return true;
     }
 
     /** `width`, `height` and `bgcolor` are hints, not inline styles: keep the entire selector at zero specificity. */
@@ -308,6 +368,14 @@ final class TableAttributesBuilder
     private function registerTableCellGeometry(DOMElement $table): void
     {
         $rules = array();
+        // A table's height is a minimum in its formatting context. Putting it
+        // on core/table's scrolling figure instead would clip overflowing rows.
+        $height = trim((string) (SourceDeclarations::inline($table)['height'] ?? ''));
+        $height = trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $height));
+        if ( '' !== $height && 1 !== preg_match('/[{};<>]/', $height) ) {
+            $marker = $this->authorSelectorProjections()->ensureTableMarker(SourceDom::sourceElementIdentity($table), $table);
+            $this->layoutGeometry()->appendRule($marker, '.' . $marker . '>table{height:' . $height . ' !important}');
+        }
         $sectionRows = array( 'thead' => 0, 'tbody' => 0, 'tfoot' => 0 );
         foreach ( $table->getElementsByTagName('tr') as $row ) {
             if ( ! $row instanceof DOMElement || ! SourceDom::belongsToTable($row, $table) ) {

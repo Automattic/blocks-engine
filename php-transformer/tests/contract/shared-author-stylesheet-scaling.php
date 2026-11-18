@@ -335,7 +335,8 @@ foreach ($routePlan['pages'] as $row) {
     $rootClasses = explode(' ', $row['document_metadata']['root_attributes']['class'] ?? '');
     $assert(in_array($class, $rootClasses, true) && in_array('be-r', $rootClasses, true), 'every plan document root carries exact plan marker and source route class: ' . $row['source_path']);
     $functions = array_column($routePlan['writes'], null, 'target_path')['functions.php']['payload']['data'];
-    $assert(str_contains($functions, $class) && str_contains($functions, 'blocksEngineDocumentContext') && str_contains($functions, 'language_attributes'), 'the same root registry reaches front end and editor: ' . $row['source_path']);
+    // The registry keeps a route class wherever published CSS gates on it.
+    $assert(str_contains($functions, $class) === str_contains($routeText, $class) && str_contains($functions, 'blocksEngineDocumentContext') && str_contains($functions, 'language_attributes'), 'the same root registry reaches front end and editor: ' . $row['source_path']);
 }
 $group = ':where(:root:is(.' . $classes['b.html'] . ',.' . $classes['c.html'] . '))';
 // Every `.sample` element left is a converted carrier, so the control-guarded

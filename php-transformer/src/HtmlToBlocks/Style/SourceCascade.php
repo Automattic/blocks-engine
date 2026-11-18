@@ -63,8 +63,13 @@ final class SourceCascade
      */
     public function specificity(string $selector): array
     {
-        return array_values(CssSelectorMatcher::specificityCounts($this->state->parsedSelector($selector)));
+        // A pure function of the selector text, asked once per matched rule
+        // per element; remember it per selector (#6789).
+        return $this->specificities[$selector] ??= array_values(CssSelectorMatcher::specificityCounts($this->state->parsedSelector($selector)));
     }
+
+    /** @var array<string, array{int, int, int}> Selector text to its specificity. */
+    private array $specificities = array();
 
     /**
      * Whether a declaration's at-rule conditions all hold at one viewport width.
@@ -77,7 +82,7 @@ final class SourceCascade
      *
      * @param list<string> $conditions
      */
-    public function conditionsApplyAtViewport(array $conditions, float $viewportWidth): bool
+    public function conditionsApplyAtViewport(array $conditions, float $viewportWidth, ?float $viewportHeight = null): bool
     {
         foreach ($conditions as $condition) {
             $condition = trim($condition);
@@ -85,13 +90,13 @@ final class SourceCascade
             if (preg_match('/^@supports\b/i', $condition)) {
                 if (!CssCascade::supportsConditionApplies((string) preg_replace('/^@supports\s*/i', '', $condition))) return false;
             } elseif (preg_match('/^@media\b/i', $condition)) {
-                if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), $viewportWidth)) return false;
+                if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), $viewportWidth, 16.0, $viewportHeight)) return false;
             } elseif (preg_match('/^@container\b/i', $condition)) {
                 // A style query on a viewport-switched custom property holds
                 // wherever the viewport sets the queried value.
                 $applies = $this->state->containerStyleQueries()->applies(
                     $condition,
-                    fn (array $own): bool => $this->conditionsApplyAtViewport($own, $viewportWidth)
+                    fn (array $own): bool => $this->conditionsApplyAtViewport($own, $viewportWidth, $viewportHeight)
                 );
                 if (true !== $applies) return false;
             } else return false;
@@ -326,15 +331,16 @@ final class SourceCascade
      * @param list<string> $properties
      * @param iterable<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>, layer?:int|null}> $rules
      * @param callable(string): bool $matches Whether one selector matches the element.
+     * @param bool $elementStyles Whether the element's inline style and presentational hints apply (not to its pseudo-elements).
      * @return array<string, string>
      */
-    public function declarationsAtViewport(DOMElement $element, array $properties, iterable $rules, callable $matches, float $viewportWidth = StyleResolver::MOBILE_REFERENCE_WIDTH): array
+    public function declarationsAtViewport(DOMElement $element, array $properties, iterable $rules, callable $matches, float $viewportWidth = StyleResolver::MOBILE_REFERENCE_WIDTH, bool $elementStyles = true, ?float $viewportHeight = null): array
     {
         $facts = array();
         $requested = array_flip($properties);
         $order = 0;
         foreach ( $rules as $rule ) {
-            if ( array() !== $rule['conditions'] && ! $this->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) ) continue;
+            if ( array() !== $rule['conditions'] && ! $this->conditionsApplyAtViewport($rule['conditions'], $viewportWidth, $viewportHeight) ) continue;
             $specificity = null;
             foreach ( $rule['selectors'] as $selector ) {
                 if ( $matches($selector) ) {
@@ -355,7 +361,7 @@ final class SourceCascade
                 ));
             }
         }
-        $inline = SourceDeclarations::inline($element);
+        $inline = $elementStyles ? SourceDeclarations::inline($element) : array();
         foreach ( $inline as $property => $value ) {
             if ( ! isset($requested[$property]) || '' === trim($value) ) continue;
             CssCascade::apply($facts, $property, array(
@@ -366,7 +372,7 @@ final class SourceCascade
         }
         uasort($facts, static fn(array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
         return array_replace(
-            array_intersect_key(self::presentationalHints($element), $requested),
+            $elementStyles ? array_intersect_key(self::presentationalHints($element), $requested) : array(),
             array_map(static fn(array $fact): string => $fact['value'], $facts)
         );
     }

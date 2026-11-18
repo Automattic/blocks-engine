@@ -213,7 +213,7 @@ $absorbed = $transform(
 $absorbedMarkup = (string) ( $absorbed['serialized_blocks'] ?? '' );
 $absorbedPlacement = $selectorsDeclaring($rules($css($absorbed)['author']), 'float:left');
 $assert(
-    str_contains($absorbedMarkup, '"className":"bar blocks-engine-list-navigation links"') && 1 === count($absorbedPlacement) && str_contains($absorbedPlacement[0], 'ul.links') && ! str_contains($absorbedPlacement[0], $wrapper),
+    str_contains($absorbedMarkup, '"className":"bar blocks-engine-list-navigation links ') && 1 === count($absorbedPlacement) && str_contains($absorbedPlacement[0], 'ul.links') && ! str_contains($absorbedPlacement[0], $wrapper),
     'when the block stands in for the wrapper, the list-type rule is left as authored',
     json_encode($absorbedPlacement)
 );

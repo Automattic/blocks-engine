@@ -38,6 +38,20 @@ $assert(str_contains($bootstrap, '.editor-styles-wrapper .blocks-engine-listing-
 $css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === $asset['kind']), 'content'));
 if (!str_contains($css, '.wp-block-post-template)>:where(li)')) fwrite(STDERR, $css . "\n");
 $assert(str_contains($css, '.blocks-engine-listing-query)>:where(.wp-block-post-template)>:where(li):not(:last-child)>:where(article)') && str_contains($css, 'margin-bottom:32px'), 'source child spacing and conditional cascade replay across native transport wrappers');
+// A route whose `.cards` children are not cards keeps the shared sheet's
+// child rule behind a route scope; the Query Loop alias keeps that scope.
+$linked = static fn(string $html): string => str_replace('<head>', '<head><link rel="stylesheet" href="/style.css">', $html);
+$scoped = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'style.css' => '.cards{display:flex}.cards>*{width:33%}',
+    'index.html' => '<html><head><link rel="stylesheet" href="/style.css"></head><body><main><section class="cards">' . $card('first', 'First', 'Jan 2, 2026', $first, 'Topic') . $card('second', 'Second', 'Jan 1, 2026', $second, 'Other label') . '</section></main></body></html>',
+    'first.html' => $linked($article('First', $first, '2026-01-02T00:00:00Z')),
+    'second.html' => $linked($article('Second', $second, '2026-01-01T00:00:00Z')),
+    'about.html' => '<html><head><title>About</title><link rel="stylesheet" href="/style.css"></head><body><main><div class="cards"><span>a</span><span>b</span></div></main></body></html>',
+    'category/topic/index.html' => '<main><h1>Topic</h1></main>',
+)))->toArray();
+$scopedCss = implode("\n", array_column(array_filter((new WordPressSitePlan())->fromCompilerResult($scoped)['assets'], static fn(array $asset): bool => 'css' === $asset['kind']), 'content'));
+$assert(1 === preg_match('/(:where\(:root:not\(\.be-r-[0-9a-f]+\)\)) \.cards>\*\{width:33%\}/', $scopedCss, $gate), 'the fixture route-scopes the shared child rule');
+$assert(1 === preg_match('/(?:^|[},])' . preg_quote($gate[1] . ' .cards>:where(.blocks-engine-listing-query)>:where(.wp-block-post-template)>:where(li)>:where(article)', '/') . '(?:,[^{}]*)?\{width:33%\}/m', $scopedCss), 'a route-scoped source child rule replays across native transport wrappers with its route scope');
 $body = static fn(string $name): string => '<p>Full ' . $name . ' article body with <a href="https://example.test/reference">an external reference</a> and substantial independent text.</p>';
 $full = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => '<main><section>' . str_replace('</article>', $body('first') . '</article>', $card('first', 'First', 'Jan 2, 2026', $first, 'Topic')) . str_replace('</article>', $body('second') . '</article>', $card('second', 'Second', 'Jan 1, 2026', $second, 'Topic')) . '</section></main>',

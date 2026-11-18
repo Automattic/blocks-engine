@@ -192,6 +192,12 @@ final class CssSelectorMatchCache
     /** Match lookups keyed by subject signature rather than element. */
     public int $subjectMatchLookups = 0;
 
+    /** Elements a {@see anySubjectMatches()} scan handed to the matcher. */
+    public int $subjectScanChecks = 0;
+
+    /** Elements a {@see anySubjectMatches()} scan skipped because they lack the subject's key. */
+    public int $subjectScanSkips = 0;
+
     public int $connectedElementKeyBuilds = 0;
 
     public int $connectedElementKeyHits = 0;
@@ -327,6 +333,86 @@ final class CssSelectorMatchCache
         return ! is_string($type) || '' === $type || '*' === $type || isset($tokens['tags'][strtolower($type)]);
     }
 
+    /**
+     * A fixed element set filed under the subject keys each element carries
+     * (id, editor-anchored id, classes, tag, selector-readable attribute
+     * names), for {@see anySubjectMatches()}.
+     *
+     * @param list<DOMElement> $elements
+     * @return array{all: list<DOMElement>, ids: array<string, list<int>>, classes: array<string, list<int>>, tags: array<string, list<int>>, attributes: array<string, list<int>>}
+     */
+    public function subjectElementIndex(array $elements): array
+    {
+        $index = array( 'all' => array_values($elements), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'attributes' => array() );
+        foreach ( $index['all'] as $position => $element ) {
+            $keys = array( 'tags' => array( strtolower($element->tagName) => true ), 'ids' => array(), 'classes' => array(), 'attributes' => array() );
+            $id = $this->attribute($element, 'id');
+            if ( null !== $id ) {
+                $keys['ids'][$id] = true;
+            }
+            foreach ( $this->classTokens($element) as $class ) {
+                $keys['classes'][$class] = true;
+                $anchoredId = EngineMarker::editorAnchorId($class);
+                if ( null !== $anchoredId ) {
+                    $keys['ids'][$anchoredId] = true;
+                }
+            }
+            foreach ( $this->attributeNames($element) as $name ) {
+                $keys['attributes'][$name] = true;
+            }
+            foreach ( $keys as $bucket => $values ) {
+                foreach ( $values as $value => $_ ) {
+                    $index[$bucket][(string) $value][] = $position;
+                }
+            }
+        }
+        return $index;
+    }
+
+    /**
+     * Whether the selector matches any element of the index, or, with
+     * $acceptUnsupported, whether the matcher cannot read it. Only elements
+     * carrying a key of the selector's rightmost compound
+     * ({@see CssSubjectIndex::buckets()}) are matched: no other element can
+     * be its subject. A keyless or unsupported selector checks every element,
+     * so an unsupported one still reports as such.
+     *
+     * @param array<string, mixed> $selector
+     * @param array{all: list<DOMElement>, ids: array<string, list<int>>, classes: array<string, list<int>>, tags: array<string, list<int>>, attributes: array<string, list<int>>} $index
+     */
+    public function anySubjectMatches(array $index, string $selectorText, array $selector, bool $acceptUnsupported): bool
+    {
+        $positions = null;
+        foreach ( CssSubjectIndex::buckets($selector) as [$bucket, $key] ) {
+            if ( 'universal' === $bucket ) {
+                $positions = null;
+                break;
+            }
+            foreach ( $index[$bucket][$key] ?? array() as $position ) {
+                $positions[$position] = $position;
+            }
+            $positions ??= array();
+        }
+        if ( null === $positions ) {
+            $elements = $index['all'];
+        } else {
+            ksort($positions);
+            $elements = array();
+            foreach ( $positions as $position ) {
+                $elements[] = $index['all'][$position];
+            }
+        }
+        $this->subjectScanSkips += count($index['all']) - count($elements);
+        foreach ( $elements as $element ) {
+            ++$this->subjectScanChecks;
+            $match = $this->matches($element, $selectorText, $selector);
+            if ( $match['matches'] || ($acceptUnsupported && ! $match['supported']) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** @param array<string, mixed> $selector @return array{supported: bool, matches: bool} */
     public function matches(DOMElement $element, string $selectorText, array $selector, bool $accountForPseudoStateSuffix = false): array
     {
@@ -405,6 +491,17 @@ final class CssSelectorMatchCache
         $this->candidateRulePeakRetained = max($this->candidateRulePeakRetained, $this->candidateRulesRetained);
         return $rules;
     }
+
+    /**
+     * A {@see styleRuleCandidates()} collection name no other index shares,
+     * for a caller that builds its own subject index over a rule list.
+     */
+    public static function uniqueCandidateCollection(string $label): string
+    {
+        return $label . '#' . ++self::$candidateCollections;
+    }
+
+    private static int $candidateCollections = 0;
 
     /** Clear results and selector inputs after a source-DOM mutation. */
     public function clear(): void
@@ -629,7 +726,8 @@ final class CssSelectorMatchCache
         return $this->signatureIds[$signature] ??= count($this->signatureIds) + 1;
     }
 
-    private function elementKey(DOMElement $element): string
+    /** Element identity within this cache revision, shared by per-element style memos. */
+    public function elementKey(DOMElement $element): string
     {
         if ( isset($this->connectedElementKeys[$element]) ) {
             ++$this->connectedElementKeyHits;

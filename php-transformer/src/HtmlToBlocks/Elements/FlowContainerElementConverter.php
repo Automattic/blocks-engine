@@ -31,6 +31,8 @@ final class FlowContainerElementConverter implements ElementConverter
 {
     private readonly NavigationPattern $navigationPattern;
 
+    private readonly CapturedImageFrameLowering $imageFrames;
+
     /** @var \WeakMap<\DOMDocument, array<string, true>> */
     private \WeakMap $controllerIds;
 
@@ -56,10 +58,12 @@ final class FlowContainerElementConverter implements ElementConverter
         private readonly ReadableFormControlBlockConverter $readableControls,
         private readonly AuthoredMarqueeRecognizer $marquees,
         private readonly AuthoredCarouselBlockGenerator $carousels,
-        private readonly EmptyVisualSpacerLowering $emptyVisualSpacers
+        private readonly EmptyVisualSpacerLowering $emptyVisualSpacers,
+        private readonly InFlowImageFrameLowering $inFlowImageFrames
     )
     {
         $this->navigationPattern = new NavigationPattern($this->createBlock);
+        $this->imageFrames = new CapturedImageFrameLowering($this->session, $this->runtimeIslands, $this->imageLowering);
         $this->controllerIds = new \WeakMap();
     }
 
@@ -178,6 +182,12 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( $this->emptyFeatureShells->isEmptyInteractiveFeatureShell($element) ) {
             return ConversionOutcome::handled(null);
         }
+        // A block box its lone in-flow image fills exactly is that image's
+        // figure, not a Group around it.
+        $framedImage = $this->inFlowImageFrames->block($element);
+        if ( null !== $framedImage ) {
+            return ConversionOutcome::handled($framedImage);
+        }
 
         // A form is a semantic runtime boundary. Convert nested children before
         // text and layout recognizers can flatten it into static presentation.
@@ -263,6 +273,14 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($cover);
         }
 
+        // A box the capture proves is its sole image's box is that image's figure.
+        if ( 'div' === $tagName ) {
+            $image = $this->imageFrames->blockFromElement($element);
+            if ( null !== $image ) {
+                return ConversionOutcome::handled($image);
+            }
+        }
+
         if ( 'button' !== strtolower(SourceDom::attr($element, 'role'))
             && ! SourceDom::hasClass($element, 'wp-block-columns')
             && ! $this->generatedComponents->isCandidate($element)
@@ -285,7 +303,8 @@ final class FlowContainerElementConverter implements ElementConverter
             // Native core/buttons save markup is laid out by its own block
             // CSS. Its author flex rules restate that layout, so the native
             // block keeps each button (and its width class) editable.
-            if ( SourceDom::hasClass($element, 'wp-block-buttons') && ! SourceDom::isDeviceVisibilityCarrier($element) ) {
+            // A flex row around one native button is that native container.
+            if ( ( SourceDom::hasClass($element, 'wp-block-buttons') || $this->hasSoleButtonChild($element) ) && ! SourceDom::isDeviceVisibilityCarrier($element) ) {
                 $buttons = $this->context->recognizePatterns($element, $fallbacks, array( ButtonsContainerPattern::class ));
                 if ( null !== $buttons ) {
                     return ConversionOutcome::handled($buttons);
@@ -465,7 +484,8 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( 'nav' === strtolower($element->tagName) || ! $this->context->shouldPreserveWrapper($element) || $this->isVerifiedCollectionItemList($element) ) {
             return false;
         }
-        if ( $this->isRepeatedLinkItemCluster($element) ) {
+        if ( $this->isRepeatedLinkItemCluster($element)
+            || $this->navigationPattern->ownsToggledPanelList($element, $this->context->patternContext()->navigationContext()) ) {
             return false;
         }
 
@@ -607,6 +627,13 @@ final class FlowContainerElementConverter implements ElementConverter
         return 3 <= $items;
     }
 
+    /** Cheap pre-check; ButtonsPattern decides whether the row is a native core/buttons. */
+    private function hasSoleButtonChild(DOMElement $element): bool
+    {
+        return 1 === $element->childElementCount
+            && 'button' === strtolower((string) $element->firstElementChild?->tagName);
+    }
+
     private function hasMultipleAddressableInlineChildren(DOMElement $element): bool
     {
         $count = 0;
@@ -653,7 +680,8 @@ final class FlowContainerElementConverter implements ElementConverter
     private function navigationClaim(DOMElement $element, array &$fallbacks): ?ConversionOutcome
     {
         if ( $this->shouldDeferNavigationPatternToChildren($element)
-            || ! $this->navigationPattern->claimsBeforeAuthorOwnedLayout($element)
+            || ( ! $this->navigationPattern->claimsBeforeAuthorOwnedLayout($element)
+                && ! $this->navigationPattern->ownsToggledPanelList($element, $this->context->patternContext()->navigationContext()) )
         ) {
             return null;
         }

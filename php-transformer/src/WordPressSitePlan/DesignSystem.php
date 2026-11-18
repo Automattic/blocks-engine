@@ -5,6 +5,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -26,20 +29,24 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   attribute, a stylesheet declaration or an element style binds a colour
  *   only to a token whose value is that exact 8-bit colour (colorSlug()),
  *   so an import paints 1:1 until a site owner edits the palette.
+ *   A near shade the palette omits (nearShades) follows its family's
+ *   representative instead through a stylesheet derivation
+ *   (nearShadeColor()): `rgb(from var(--wp--preset--color--base) calc(r - 8)
+ *   calc(g - 8) calc(b - 11))` paints the exact source shade at the default
+ *   palette and moves with the representative when the palette is edited
+ *   (#3043, #6754). Block attributes never carry a derivation: WordPress's
+ *   safecss strips relative colours and color-mix() from inline styles, so
+ *   a block-level near shade keeps its exact literal.
  *
- *   Grouping only names roles and breaks ties: opaque colours within
+ *   Grouping selects distinct palette entries: opaque colours within
  *   CIE76 ΔE*ab 2.3 (one just-noticeable difference) form a family, and
  *   each family within ΔE*ab 5 of a heavier one joins the nearest, however
  *   much it is used, so a near-duplicate neutral (`#1f2937` beside
  *   `#1e293b`) does not compete with a distinct colour for a role. Roles
- *   take each family's heaviest colour; every other painted colour then
- *   takes a token of its own exact value (`accent-N`) by its own painted
- *   weight, heaviest first, whatever family it ranks in (on a tie a
- *   family's own colour first, then the heavier family). So a near shade
- *   painted on many large surfaces keeps a token ahead of a distinct colour
- *   painted on one tiny element. Every painted colour keeps an exact token:
- *   a palette-size bound would leave source paint outside the editable design
- *   system. Unpainted stylesheet colours do not create palette entries.
+ *   take each family's heaviest colour. Other distinct families receive
+ *   exact tokens by painted weight. Near shades are not palette entries:
+ *   stylesheets derive them from their family's representative. Unpainted
+ *   stylesheet colours do not create palette entries.
  *
  *   Clustering, slot ranking and `accent-N` order use each colour's
  *   prominence: the mean of its share of the document's area (text mass
@@ -77,8 +84,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   buttons) on `base`, else the most used text colour.
  * - `primary`, `secondary`: the most used call-to-action backgrounds, else
  *   the most used chromatic colours.
- * - `accent-1` … : every other painted colour by its own weight, heaviest
- *   first.
+ * - `accent-1` … : other distinct colour families by painted weight,
+ *   heaviest first. Labels prefer source tokens, then hue and lightness;
+ *   every label is distinct within its category (distinctColorNames()).
  * - Font `body`: the root family every document renders, else the family
  *   of most non-heading text.
  * - Font `heading`: the family heading elements (`core/heading` blocks)
@@ -117,13 +125,16 @@ final class DesignSystem
     /** Float slack for lengths that are equal: binding never changes a rendered length. */
     private const EXACT_PX = 0.001;
     /**
-     * ΔE*ab within which a colour family joins a heavier one for slot
-     * ranking (see the class comment). It never decides what binds.
+     * ΔE*ab within which a colour family joins a heavier one, which then
+     * represents it in the palette; stylesheets derive the omitted shade
+     * from it (nearShadeColor()). It never decides what binds exactly.
      */
     public const COLOR_CONSOLIDATION_DISTANCE = 5.0;
 
     /** Bound on memoized colorSlug() answers per instance. */
     private const COLOR_SLUG_MEMO_LIMIT = 8192;
+    /** Entries literalPresetColors() lists before it stops. */
+    private const MAX_LITERAL_PRESET_COLORS = 50;
 
     /** Weight of one heading by level, before its size: a page title above section and entry titles. */
     public const HEADING_LEVEL_FACTOR = array(1 => 3, 2 => 2);
@@ -143,6 +154,8 @@ final class DesignSystem
     private const CHROMATIC = 20.0;
     /** Primary families of the platform UI font stacks. */
     private const SYSTEM_UI_FAMILIES = array('-apple-system', 'blinkmacsystemfont', 'system-ui', 'segoe ui', 'ui-sans-serif');
+    /** Lightness words for renaming colliding colour names, each with its exclusive HSL lightness upper bound. */
+    private const LIGHTNESS_WORDS = array('Deep' => 0.2, 'Dark' => 0.32, 'Dusky' => 0.44, 'Mid' => 0.56, 'Soft' => 0.68, 'Light' => 0.8, 'Pale' => 1.01);
     private const GENERIC_FAMILIES = array('serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'math', 'emoji', 'fangsong');
 
     /**
@@ -155,12 +168,20 @@ final class DesignSystem
      * @param array<string,mixed> $elements Shared element values and proven no-op per-level heading typography.
      * @param list<string> $literalColors Painted opaque colours without a token (retained for report compatibility).
      * @param array<string,string> $buttonVariation Dominant look scoped to matching button blocks when an element would reach unowned values.
+     * @param array<string,string> $nearShades Opaque hex of each near shade the palette omits => hex of its family's representative token (nearShadeColor()).
      */
+    /** @var list<array{slug:string,name:string,color:string,role:string,weight:int}> */
+    public readonly array $colors;
+    /** @var list<array{slug:string,name:string,size:string,px:float,weight:int}> */
+    public readonly array $fontSizes;
+    /** @var list<array{slug:string,name:string,size:string,px:float,weight:int}> */
+    public readonly array $spacing;
+
     private function __construct(
-        public readonly array $colors,
-        public readonly array $fontSizes,
+        array $colors,
+        array $fontSizes,
         public readonly array $fontFamilies,
-        public readonly array $spacing,
+        array $spacing,
         public readonly array $layout,
         public readonly array $root,
         public readonly array $elements,
@@ -168,7 +189,13 @@ final class DesignSystem
         public readonly int $documentCount,
         public readonly array $literalColors = array(),
         public readonly array $buttonVariation = array(),
+        public readonly array $nearShades = array(),
     ) {
+        // Every preset in a category gets a display name a person can tell
+        // apart from its siblings; slugs never change here.
+        $this->colors = self::distinctColorNames($colors);
+        $this->fontSizes = self::distinctLengthNames($fontSizes);
+        $this->spacing = self::distinctLengthNames($spacing);
     }
 
     /**
@@ -231,6 +258,29 @@ final class DesignSystem
     }
 
     /**
+     * The root font size each document renders, keyed by source path: null
+     * when a document authors a root the collector could not resolve.
+     *
+     * @param array<string,array<string,mixed>> $usageBySource Usage keyed by document source path.
+     * @return array<string,?float>
+     */
+    public static function renderedRoots(array $usageBySource): array
+    {
+        $roots = array();
+        foreach ($usageBySource as $source => $usage) {
+            if (is_array($usage) && self::USAGE_SCHEMA === ($usage['schema'] ?? null)) $roots[(string) $source] = self::renderedRootPx($usage);
+        }
+        return $roots;
+    }
+
+    /** @param array<string,mixed> $usage */
+    private static function renderedRootPx(array $usage): ?float
+    {
+        if (isset($usage['root_font_size_px'])) return (float) $usage['root_font_size_px'];
+        return ($usage['root_font_size_authored'] ?? false) ? null : 16.0;
+    }
+
+    /**
      * @param array<string,array<string,mixed>> $usageBySource Usage keyed by document source path.
      */
     public static function fromUsage(array $usageBySource): ?self
@@ -242,9 +292,11 @@ final class DesignSystem
         $textByColor = $backgroundByColor = $ctaByColor = $prominence = $sizeWeights = $bodySizeWeights = $spacingRows = $widthRows = array();
         $familyWeights = $familyStacks = $headingFamilyWeights = $headingFamilyProminence = $bodyFamilyWeights = array();
         $textOnBackground = $headingSizes = array();
-        $rootPx = $sourceRoles = array();
+        $rootPx = $renderedRoots = $sourceRoles = array();
         foreach ($usageBySource as $usage) {
             $px = (float) ($usage['root_font_size_px'] ?? 16);
+            $rendered = self::renderedRootPx($usage);
+            $renderedRoots[null === $rendered ? 'unknown' : CssLength::format($rendered)] = true;
             // Older usage payloads lack the evidence flag; retain their explicit
             // root values, but never let a collector's initial-value fallback vote.
             if (($usage['root_font_size_authored'] ?? true) && isset($usage['root_font_size_px']) && $px > 0) {
@@ -321,7 +373,10 @@ final class DesignSystem
                 break;
             }
         }
-        $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root, $sourceRoles);
+        $nearShades = array();
+        $colors = self::palette($prominence, $textByColor, $backgroundByColor, $ctaByColor, $textOnBackground, $root, $sourceRoles, $nearShades);
+        foreach ($colors as &$color) $color['name'] = self::sourceName($sourceRoles, $color['color']) ?? $color['name'];
+        unset($color);
         $literalColors = array_keys(array_diff_key($prominence, array_flip(array_column($colors, 'color'))));
         usort($literalColors, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: strcmp($a, $b));
         foreach ($usageBySource as $usage) foreach ($usage['heading_typography'] ?? array() as $heading) {
@@ -329,12 +384,26 @@ final class DesignSystem
         }
         $buttonLook = self::dominantButtonLook($usageBySource);
         if (isset($buttonLook['font_size'])) $headingSizes[$buttonLook['font_size']] = 1;
-        $fontSizes = self::fontSizes($sizeWeights, $bodySizeWeights, $rootFontPx, $headingSizes);
+        // A rem preset resolves against whichever root the rendering document
+        // has. Spell presets in rem only when every document renders the one
+        // root they were measured under; otherwise their pixel value. Font
+        // sizes, spacing steps and layout widths all follow this.
+        $sharedRoot = array(CssLength::format($rootFontPx) => true) === $renderedRoots;
+        $fontSizes = self::fontSizes($sizeWeights, $bodySizeWeights, $sharedRoot ? $rootFontPx : 16.0, $headingSizes);
         $fontFamilies = self::fontFamilies($familyWeights, $familyStacks, $headingFamilyWeights, $bodyFamilyWeights, self::familyKey((string) ($root['font_family'] ?? '')), self::unanimousHeadingFamily($usageBySource), $headingFamilyProminence);
-        $spacing = self::spacing($spacingRows);
-        $layout = self::layout($widthRows);
+        $spacing = self::spacing($spacingRows, $sharedRoot);
+        $lengthNames = array();
+        foreach ($usageBySource as $usage) foreach ($usage['root_design_tokens'] ?? array() as $name => $value) {
+            $px = CssLength::toPx($value, self::renderedRootPx($usage) ?? $rootFontPx);
+            if (null !== $px) $lengthNames[$name][CssLength::format($px)] = ($lengthNames[$name][CssLength::format($px)] ?? 0) + 1;
+        }
+        foreach ($fontSizes as &$size) $size['name'] = self::sourceName($lengthNames, CssLength::format($size['px'])) ?? $size['name'];
+        unset($size);
+        foreach ($spacing as &$step) $step['name'] = self::sourceName($lengthNames, CssLength::format($step['px'])) ?? $step['name'];
+        unset($step);
+        $layout = self::layout($widthRows, $sharedRoot);
 
-        $system = new self(array_slice($colors, 0, self::PRIMARY_COLORS), $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors);
+        $system = new self(array_slice($colors, 0, self::PRIMARY_COLORS), $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors, array(), $nearShades);
         // Observed translucent paint gets a preset even when its opaque RGB
         // is not painted anywhere. Prefer a derived tint when an exact base
         // exists; otherwise retain the source value, including its alpha.
@@ -360,12 +429,12 @@ final class DesignSystem
                         // boundaries. Encode the RGBA bytes with letters only so
                         // its save() class agrees with the compiler's class.
                         $slug = 'alpha-' . strtr(ltrim($hex, '#'), '0123456789abcdef', 'abcdefghijklmnop');
-                        $tints[$slug] = array('slug' => $slug, 'name' => 'Alpha ' . ltrim($hex, '#'), 'color' => $value, 'role' => $slug, 'weight' => 0);
+                        $tints[$slug] = array('slug' => $slug, 'name' => 'Translucent ' . self::colorName($value), 'color' => $value, 'role' => $slug, 'weight' => 0);
                     }
                     continue;
                 }
                 $slug = $tint['slug'] . '-alpha-' . $tint['percent'];
-                $tints[$slug] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', $tint['slug'])) . ' ' . $tint['percent'] . '%', 'color' => 'color-mix(in srgb, var(--wp--preset--color--' . $tint['slug'] . ') ' . $tint['percent'] . '%, transparent)', 'role' => $slug, 'weight' => 0);
+                $tints[$slug] = array('slug' => $slug, 'name' => 'Translucent ' . self::colorName((string) $system->color($tint['slug'])) . ' ' . $tint['percent'] . '%', 'color' => 'color-mix(in srgb, var(--wp--preset--color--' . $tint['slug'] . ') ' . $tint['percent'] . '%, transparent)', 'role' => $slug, 'weight' => 0);
             }
         }
         ksort($tints, SORT_STRING);
@@ -373,7 +442,7 @@ final class DesignSystem
         foreach (array('background' => 'colorSlug', 'color' => 'colorSlug', 'font_family' => 'fontFamilySlug', 'font_size' => 'fontSizeSlug') as $field => $method) {
             if (isset($buttonLook[$field]) && null === $system->{$method}($buttonLook[$field])) unset($buttonLook[$field]);
         }
-        return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, array_replace(self::unanimousElements($usageBySource, $system), array() === $buttonLook ? array() : array('button' => $buttonLook)), $system->rootPx, $system->documentCount, $literalColors);
+        return new self($colors, $fontSizes, $fontFamilies, $spacing, $layout, $root, array_replace(self::unanimousElements($usageBySource, $system), array() === $buttonLook ? array() : array('button' => $buttonLook)), $system->rootPx, $system->documentCount, $literalColors, array(), $nearShades);
     }
 
     /** Preserve the primary palette's stylesheet scope when adding block-only tokens. */
@@ -386,11 +455,45 @@ final class DesignSystem
     }
 
     /**
+     * A near shade the palette omits, restated as a CSS relative colour
+     * derived from its family's representative preset, or null. At the
+     * default palette it renders the exact source shade (the channel
+     * offsets are the source minus the representative, alpha kept); when a
+     * site owner edits the representative the shade moves with it:
+     * `#f7f7f4` beside `base` #ffffff is
+     * `rgb(from var(--wp--preset--color--base) calc(r - 8) calc(g - 8) calc(b - 11))`.
+     *
+     * Stylesheets only: safecss strips relative colours from block inline
+     * styles, so callers emit the source literal first as the fallback for
+     * engines without relative colour support.
+     */
+    public function nearShadeColor(string $value): ?string
+    {
+        $color = CssColor::parse($value);
+        if (null === $color || $color[3] <= 0.0) return null;
+        $rgb = array_map(static fn(float $channel): int => (int) round($channel), array_slice($color, 0, 3));
+        $hex = vsprintf('#%02x%02x%02x', $rgb);
+        $representative = $this->nearShades[$hex] ?? null;
+        $slug = null === $representative ? null : $this->stylesheetColorSlug($representative);
+        $base = null === $slug ? null : CssColor::parse($representative);
+        if (null === $base) return null;
+        $channels = array();
+        foreach (array('r', 'g', 'b') as $i => $name) {
+            $offset = $rgb[$i] - (int) round($base[$i]);
+            $channels[] = 0 === $offset ? $name : 'calc(' . $name . ($offset > 0 ? ' + ' : ' - ') . abs($offset) . ')';
+        }
+        $alpha = $color[3] < 1.0 ? ' / ' . rtrim(rtrim(sprintf('%.4F', $color[3]), '0'), '.') : '';
+        return 'rgb(from var(--wp--preset--color--' . $slug . ') ' . implode(' ', $channels) . $alpha . ')';
+    }
+
+    /**
      * Slug of the token whose value is exactly this colour, or null. The
      * one colour binding rule: block attributes, stylesheet bindings and
      * element styles all bind through this method, and only to a token
      * that paints the same 8-bit colour, so binding never changes what
-     * renders. Observed translucent colours bind to derived tint presets
+     * renders. A near shade the palette omits binds nothing here; stylesheets
+     * derive it from its representative (nearShadeColor()). Observed
+     * translucent colours bind to derived tint presets
      * when possible, otherwise to exact standalone alpha presets.
      */
     public function colorSlug(string $value): ?string
@@ -446,18 +549,39 @@ final class DesignSystem
      * fields are checked independently, including shape and spacing; matching
      * inherited typography and core's outline fill also establish ownership.
      *
+     * A button restyled from box-tree evidence carries its look in a carrier
+     * rule on its link instead of block attributes. That rule outranks the
+     * element style, so each field its unconditional declarations set is
+     * owned exactly as the matching attribute would own it.
+     *
      * @param list<string> $markups Every page's block markup.
+     * @param list<string> $stylesheets Stylesheets the pages load, read for button link carriers.
      */
-    public function withButtonElementsOwnedBy(array $markups): self
+    public function withButtonElementsOwnedBy(array $markups, array $stylesheets = array()): self
     {
         if (!isset($this->elements['button'])) return $this;
         $dominant = isset($this->elements['button']['padding']) || isset($this->elements['button']['radius']);
         $owned = array('color' => true, 'background' => true, 'font_family' => true, 'font_size' => true, 'font_weight' => true);
+        $carriers = self::buttonLinkCarriers($stylesheets);
         foreach ($markups as $markup) {
-            if (!preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $matches)) continue;
-            foreach ($matches[1] as $json) {
+            if (!preg_match_all('/<!-- (\/)?wp:(buttons?)(?: (\{.*?\}))? \/?-->/s', $markup, $blocks, PREG_SET_ORDER)) continue;
+            // Class tokens of each open core/buttons, innermost last.
+            $groups = array();
+            foreach ($blocks as $block) {
+                $json = $block[3] ?? '';
                 $attributes = '' === $json ? array() : json_decode($json, true);
                 if (!is_array($attributes)) $attributes = array();
+                if ('buttons' === $block[2]) {
+                    if ('/' === $block[1]) array_pop($groups);
+                    else $groups[] = self::classTokens($attributes);
+                    continue;
+                }
+                if ('/' === $block[1]) continue;
+                $carrier = self::buttonLinkCarrierProperties($carriers, self::classTokens($attributes), array() === $groups ? array() : $groups[count($groups) - 1]);
+                $declares = static function (array ...$alternatives) use ($carrier): bool {
+                    foreach ($alternatives as $properties) if (array() === array_diff($properties, $carrier)) return true;
+                    return false;
+                };
                 $style = ArrayField::array($attributes, 'style');
                 $carried = array(
                     'color' => isset($attributes['textColor']) || isset($style['color']['text']),
@@ -466,16 +590,21 @@ final class DesignSystem
                     'font_size' => isset($attributes['fontSize']) || isset($style['typography']['fontSize']),
                     'font_weight' => isset($style['typography']['fontWeight']),
                 );
+                $carried['color'] = $carried['color'] || $declares(array('color'));
+                $carried['background'] = $carried['background'] || $declares(array('background-color'), array('background'));
+                $carried['font_family'] = $carried['font_family'] || $declares(array('font-family'), array('font'));
+                $carried['font_size'] = $carried['font_size'] || $declares(array('font-size'), array('font'));
+                $carried['font_weight'] = $carried['font_weight'] || $declares(array('font-weight'), array('font'));
                 if ($dominant) {
                     // Missing ownership vetoes only this field, not the rest of
                     // the dominant look. Matching inherited defaults are safe.
                     $carried['font_family'] = $carried['font_family'] || self::familyKey((string) ($this->root['font_family'] ?? '')) === self::familyKey($this->elements['button']['font_family'] ?? '');
                     $carried['font_weight'] = $carried['font_weight'] || '400' === ($this->elements['button']['font_weight'] ?? null);
                     $carried['background'] = $carried['background'] || str_contains((string) ($attributes['className'] ?? ''), 'is-style-outline');
-                    $carried['radius'] = isset($style['border']['radius']);
-                    $carried['padding'] = isset($style['spacing']['padding']);
-                    $carried['text_transform'] = isset($style['typography']['textTransform']);
-                    $carried['letter_spacing'] = isset($style['typography']['letterSpacing']);
+                    $carried['radius'] = isset($style['border']['radius']) || $declares(array('border-radius'), array('border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius'));
+                    $carried['padding'] = isset($style['spacing']['padding']) || $declares(array('padding'), array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'));
+                    $carried['text_transform'] = isset($style['typography']['textTransform']) || $declares(array('text-transform'));
+                    $carried['letter_spacing'] = isset($style['typography']['letterSpacing']) || $declares(array('letter-spacing'));
                 }
                 foreach ($carried as $field => $present) if (!$present) $owned[$field] = false;
             }
@@ -488,7 +617,66 @@ final class DesignSystem
         }
         $elements = $this->elements;
         if (array() === $button) unset($elements['button']); else $elements['button'] = $button;
-        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $this->nearShades);
+    }
+
+    /** @return list<string> */
+    private static function classTokens(array $attributes): array
+    {
+        return array_values(array_filter(preg_split('/\s+/', is_string($attributes['className'] ?? null) ? $attributes['className'] : '') ?: array(), static fn(string $class): bool => '' !== $class));
+    }
+
+    /**
+     * Unconditional rules that style a button link through its block's class
+     * (`.c.c>a.wp-block-button__link`) or its core/buttons' class
+     * (`.c.c>.wp-block-button>a.wp-block-button__link`), the two shapes a
+     * box-tree carrier takes on button blocks. Media, state and pseudo rules
+     * only refine a look, so they do not establish ownership.
+     *
+     * @param list<string> $stylesheets
+     * @return list<array{classes: list<string>, group: bool, properties: list<string>}>
+     */
+    private static function buttonLinkCarriers(array $stylesheets): array
+    {
+        $carriers = array();
+        foreach ($stylesheets as $css) {
+            if (!str_contains($css, 'wp-block-button__link')) continue;
+            $tree = new CssRuleTree($css);
+            foreach ($tree->rules() as $rule) {
+                if ($rule['boundary'] === $rule['end']) continue;
+                $prelude = trim((string) preg_replace('#/\*.*?\*/#s', '', substr($css, $rule['start'], $rule['boundary'] - $rule['start'])));
+                if ('' === $prelude || '@' === $prelude[0] || !str_contains($prelude, 'wp-block-button__link')) continue;
+                $properties = array();
+                foreach (CssValueSplitter::splitTopLevel(substr($css, $rule['boundary'] + 1, $rule['end'] - $rule['boundary'] - 1), array(';')) as $declaration) {
+                    $name = strtolower(trim(explode(':', $declaration, 2)[0]));
+                    if ('' !== $name && str_contains($declaration, ':')) $properties[$name] = true;
+                }
+                if (array() === $properties) continue;
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
+                    if (!preg_match('/^((?:\.[A-Za-z_][\w-]*)+)\s*>\s*(\.wp-block-button\s*>\s*)?a\.wp-block-button__link$/', trim($selector), $match)) continue;
+                    $carriers[] = array('classes' => array_values(array_unique(explode('.', substr($match[1], 1)))), 'group' => '' !== ($match[2] ?? ''), 'properties' => array_keys($properties));
+                }
+            }
+        }
+        return $carriers;
+    }
+
+    /**
+     * CSS properties the carriers declare on one button's link.
+     *
+     * @param list<array{classes: list<string>, group: bool, properties: list<string>}> $carriers
+     * @param list<string> $buttonClasses
+     * @param list<string> $groupClasses The enclosing core/buttons' classes.
+     * @return list<string>
+     */
+    private static function buttonLinkCarrierProperties(array $carriers, array $buttonClasses, array $groupClasses): array
+    {
+        $properties = array();
+        foreach ($carriers as $carrier) {
+            if (array() !== array_diff($carrier['classes'], $carrier['group'] ? $groupClasses : $buttonClasses)) continue;
+            foreach ($carrier['properties'] as $property) $properties[$property] = true;
+        }
+        return array_keys($properties);
     }
 
     /**
@@ -504,11 +692,18 @@ final class DesignSystem
      * scale, its names and its roles are unchanged, and each new token is the
      * exact value, so binding never changes a rendered font.
      *
+     * A fluid size (`clamp(42px,6.5vw,84px)`) built only from absolute and
+     * viewport lengths renders the same for every block at a given viewport,
+     * whatever its parent, so it is one exact token too (fluidFontSize()).
+     * Its preset has no single pixel size (`px` 0), so an absolute literal
+     * never resolves to it through fontSizeSlug(); only the identical value
+     * binds to it.
+     *
      * @param list<string> $markups Every page's block markup.
      */
     public function withBlockTypography(array $markups): self
     {
-        $sizes = $families = array();
+        $sizes = $families = $fluid = array();
         foreach ($markups as $markup) {
             if (!preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) continue;
             foreach ($matches[1] as $json) {
@@ -523,6 +718,8 @@ final class DesignSystem
                         $pixel = CssLength::format($px);
                         if (!isset($sizes[$pixel]) || strcmp($size, $sizes[$pixel]) < 0) $sizes[$pixel] = $size;
                     }
+                } elseif (null !== ($range = $this->fluidFontSize($size)) && !in_array($size, array_column($this->fontSizes, 'size'), true)) {
+                    $fluid[$size] = $range;
                 }
                 $stack = is_string($typography['fontFamily'] ?? null) ? trim($typography['fontFamily']) : '';
                 $key = self::familyKey($stack);
@@ -530,7 +727,7 @@ final class DesignSystem
                 $families[$key][$stack] = ($families[$key][$stack] ?? 0) + 1;
             }
         }
-        if (array() === $sizes && array() === $families) return $this;
+        if (array() === $sizes && array() === $families && array() === $fluid) return $this;
         $fontSizes = $this->fontSizes;
         $used = array_fill_keys(array_column($fontSizes, 'slug'), true);
         uksort($sizes, static fn(string $a, string $b): int => (float) $a <=> (float) $b);
@@ -540,7 +737,17 @@ final class DesignSystem
             $slug = $base;
             for ($suffix = 2; isset($used[$slug]); $suffix++) $slug = $base . '-' . $suffix;
             $used[$slug] = true;
-            $fontSizes[] = array('slug' => $slug, 'name' => 'Size ' . $px, 'size' => $value, 'px' => (float) $px, 'weight' => 0);
+            $fontSizes[] = array('slug' => $slug, 'name' => self::sizeName((float) $px, $this->rootPx), 'size' => $value, 'px' => (float) $px, 'weight' => 0);
+        }
+        uksort($fluid, static fn(string $a, string $b): int => ($fluid[$a][1] <=> $fluid[$b][1]) ?: ($fluid[$a][0] <=> $fluid[$b][0]) ?: strcmp($a, $b));
+        foreach ($fluid as $value => [$min, $max]) {
+            $range = CssLength::format($min) === CssLength::format($max) ? rtrim(CssLength::format($max), 'px') : rtrim(CssLength::format($min), 'px') . '-' . rtrim(CssLength::format($max), 'px');
+            $base = self::presetSlug('fluid-' . $range);
+            $slug = $base;
+            for ($suffix = 2; isset($used[$slug]); $suffix++) $slug = $base . '-' . $suffix;
+            $used[$slug] = true;
+            $name = 'Fluid ' . (string) preg_replace('/\s*\([^)]*\)$/', '', self::sizeName($max, $this->rootPx)) . ' (' . $range . 'px)';
+            $fontSizes[] = array('slug' => $slug, 'name' => $name, 'size' => $value, 'px' => 0.0, 'weight' => 0);
         }
         $fontFamilies = $this->fontFamilies;
         $used = array_fill_keys(array_merge(array('body', 'heading'), array_column($fontFamilies, 'slug')), true);
@@ -559,13 +766,47 @@ final class DesignSystem
             $used[$slug] = true;
             $fontFamilies[] = array('slug' => $slug, 'name' => $name, 'fontFamily' => $stack, 'key' => (string) $key, 'role' => 'family', 'weight' => 0);
         }
-        return new self($this->colors, $fontSizes, $fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+        return new self($this->colors, $fontSizes, $fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $this->nearShades);
     }
 
     /**
-     * The system with an exact token for every opaque literal colour a block
-     * carries as its `style.color` text or background that no palette token
-     * paints.
+     * The smallest and largest absolute bound, in pixels, of a fluid font
+     * size: a `clamp()`, `min()` or `max()` whose terms are absolute lengths
+     * (`px`, `rem`), viewport lengths (`vw`, `vh`, `vmin`, `vmax` and their
+     * `s`/`l`/`d` variants) and plain numbers. Null for anything else: an
+     * `em`, `%`, `ch` or `var()` term renders differently under each parent.
+     *
+     * @return array{0:float,1:float}|null
+     */
+    private function fluidFontSize(string $value): ?array
+    {
+        if (1 !== preg_match('/^(?:clamp|min|max)\(.*\)$/is', $value)) return null;
+        $terms = (string) preg_replace('/\b(?:clamp|min|max|calc)\(|[(),+*\/\s]|(?<![\d.])-/i', ' ', $value);
+        $absolute = array();
+        foreach (preg_split('/\s+/', trim($terms)) ?: array() as $term) {
+            if ('' === $term) continue;
+            if (1 !== preg_match('/^(?:\d+\.?\d*|\.\d+)(px|rem|[sld]?v(?:w|h|i|b|min|max))?$/i', $term, $match)) return null;
+            $unit = strtolower($match[1] ?? '');
+            if ('px' === $unit || 'rem' === $unit) $absolute[] = (float) CssLength::toPx($term, $this->rootPx);
+        }
+        if (array() === $absolute || max($absolute) <= 0) return null;
+        // A clamp() names its own bounds; otherwise the absolute terms span it.
+        if (1 === preg_match('/^clamp\(\s*([^(),]+?)\s*,.*,\s*([^(),]+?)\s*\)$/is', $value, $bounds)) {
+            $low = CssLength::toPx($bounds[1], $this->rootPx);
+            $high = CssLength::toPx($bounds[2], $this->rootPx);
+            if (null !== $low && null !== $high && $low > 0 && $high >= $low) return array($low, $high);
+        }
+        return array(min($absolute), max($absolute));
+    }
+
+    /**
+     * The system with exact tokens for distinct opaque literal colours a block
+     * carries as its `style.color` text or background. A near shade of an
+     * existing preset (within COLOR_CONSOLIDATION_DISTANCE) does not re-enter
+     * the palette and keeps its exact literal on the block: safecss strips a
+     * relative colour from a block's inline style, and a preset attribute
+     * would repaint it. It is recorded in nearShades so stylesheet rules
+     * painting it derive it from that preset (nearShadeColor()).
      *
      * Like withBlockTypography(), this covers the colour the browser rendered
      * for a block's source node (box-tree evidence: a computed `rgb(0, 0, 0)`
@@ -602,12 +843,21 @@ final class DesignSystem
         $used = array_fill_keys(array_column($this->colors, 'slug'), true);
         $accent = 0;
         $colors = $this->colors;
+        $nearShades = $this->nearShades;
         foreach (array_keys($counts) as $hex) {
+            // A near shade keeps its block literal rather than re-entering
+            // the palette; stylesheets derive it from the nearest preset.
             do $slug = 'accent-' . (++$accent); while (isset($used[$slug]));
             $used[$slug] = true;
-            $colors[] = array('slug' => $slug, 'name' => ucwords(str_replace('-', ' ', $slug)), 'color' => $hex, 'role' => self::BLOCK_COLOR_ROLE, 'weight' => 0);
+            $near = $this->nearestColor($hex);
+            if (null !== $near) {
+                $nearShades[$hex] ??= $near;
+                continue;
+            }
+            $colors[] = array('slug' => $slug, 'name' => self::colorName($hex), 'color' => $hex, 'role' => self::BLOCK_COLOR_ROLE, 'weight' => 0);
         }
-        return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+        ksort($nearShades, SORT_STRING);
+        return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $nearShades);
     }
 
     /**
@@ -644,7 +894,7 @@ final class DesignSystem
             if (array() === $values) unset($elements[$element]); else $elements[$element] = $values;
         }
         if ($elements === $this->elements) return $this;
-        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+        return new self($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $this->nearShades);
     }
 
     public function buttonVariationSlug(): ?string
@@ -659,19 +909,23 @@ final class DesignSystem
         return null === $index ? null : $this->colors[$index]['color'];
     }
 
-    /** Slug of the font size that renders an absolute length exactly, or null. */
-    public function fontSizeSlug(string $value): ?string
+    /**
+     * Slug of the font size that renders an absolute length exactly, or null.
+     * A rem length is measured at `$rootPx`, the root of the document that
+     * renders it, or at the site's root when none is given.
+     */
+    public function fontSizeSlug(string $value, ?float $rootPx = null): ?string
     {
-        $px = CssLength::toPx($value, $this->rootPx);
+        $px = CssLength::toPx($value, $rootPx ?? $this->rootPx);
         if (null === $px || $px <= 0) return null;
         foreach ($this->fontSizes as $size) if (abs($size['px'] - $px) <= self::EXACT_PX) return $size['slug'];
         return null;
     }
 
-    /** Slug of the spacing step equal to an absolute length, or null. */
-    public function spacingSlug(string $value): ?string
+    /** Slug of the spacing step equal to an absolute length, or null; rem is measured as in fontSizeSlug(). */
+    public function spacingSlug(string $value, ?float $rootPx = null): ?string
     {
-        $px = CssLength::toPx($value, $this->rootPx);
+        $px = CssLength::toPx($value, $rootPx ?? $this->rootPx);
         if (null === $px || $px <= 0) return null;
         foreach ($this->spacing as $step) if (abs($step['px'] - $px) <= self::SPACING_TOLERANCE_PX) return $step['slug'];
         return null;
@@ -707,6 +961,7 @@ final class DesignSystem
             'tolerances' => array('color_delta_e76' => self::COLOR_TOLERANCE, 'color_consolidation_delta_e76' => self::COLOR_CONSOLIDATION_DISTANCE, 'font_size_px' => self::FONT_SIZE_TOLERANCE_PX, 'spacing_px' => self::SPACING_TOLERANCE_PX),
             'palette' => array_map(static fn(array $color): array => array('slug' => $color['slug'], 'color' => $color['color'], 'role' => $color['role'], 'weight' => $color['weight']), $this->colors),
             'literal_colors' => $this->literalColors,
+            'near_shades' => $this->nearShades,
             'font_sizes' => array_map(static fn(array $size): array => array('slug' => $size['slug'], 'size' => $size['size'], 'weight' => $size['weight']), $this->fontSizes),
             'font_families' => array_map(static fn(array $family): array => array('slug' => $family['slug'], 'name' => $family['name'], 'font_family' => $family['fontFamily'], 'weight' => $family['weight']), $this->fontFamilies),
             'spacing' => array_map(static fn(array $step): array => array('slug' => $step['slug'], 'size' => $step['size'], 'weight' => $step['weight']), $this->spacing),
@@ -740,12 +995,18 @@ final class DesignSystem
      *   here can still follow the palette through a bound stylesheet rule,
      *   which `restyle_coverage` measures.
      * - `palette_size`: colours in the palette.
+     * - `unnamed_preset_count`: presets labelled only by an index or raw value.
+     * - `duplicate_preset_name_count`: colour, font-size and spacing presets
+     *   whose display name repeats an earlier preset's in the same category.
      * - `literal_color_count`: painted opaque colours without a palette token
      *   (report `literal_colors`); zero when every usage colour is registered.
+     *   Near shades among them keep their exact paint and stylesheets derive
+     *   them from their family's representative (report `near_shades`).
      * - `literal_preset_color_count`: block colour attributes (text,
      *   background, border and its sides, link) that store a literal equal
      *   to a palette preset, so a palette edit skips them; zero when every
-     *   such colour is bound (see PresetBinding).
+     *   such colour is bound (see PresetBinding). literalPresetColors() says
+     *   where each one is.
      * - `unused_font_families`: primary families (the first name of a
      *   `font-family` stack, unquoted) the source stylesheets declare that no
      *   rendered text uses as its primary, so the theme does not offer them.
@@ -781,15 +1042,12 @@ final class DesignSystem
                 foreach ($matches[1] as $json) {
                     $attributes = json_decode($json, true);
                     if (!is_array($attributes)) continue;
-                    foreach (array('textColor', 'backgroundColor', 'fontSize', 'fontFamily') as $key) if (is_string($attributes[$key] ?? null)) $preset++;
+                    foreach (array('textColor', 'backgroundColor', 'overlayTextColor', 'overlayBackgroundColor', 'fontSize', 'fontFamily') as $key) if (is_string($attributes[$key] ?? null)) $preset++;
                     $style = ArrayField::array($attributes, 'style');
-                    $values = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $style['typography']['fontSize'] ?? null, $style['typography']['fontFamily'] ?? null);
+                    $values = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $attributes['customOverlayTextColor'] ?? null, $attributes['customOverlayBackgroundColor'] ?? null, $style['typography']['fontSize'] ?? null, $style['typography']['fontFamily'] ?? null);
                     foreach (array('padding', 'margin') as $box) foreach ((array) ($style['spacing'][$box] ?? array()) as $value) $values[] = $value;
                     foreach ((array) ($style['spacing']['blockGap'] ?? array()) as $value) $values[] = $value;
-                    $border = ArrayField::array($style, 'border');
-                    $colors = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $border['color'] ?? null, $style['elements']['link']['color']['text'] ?? null);
-                    foreach (array('top', 'right', 'bottom', 'left') as $side) $colors[] = $border[$side]['color'] ?? null;
-                    foreach ($colors as $color) if (is_string($color) && !str_starts_with($color, 'var:') && null !== $this->colorSlug($color)) $literalPreset++;
+                    $literalPreset += count($this->literalPresetColorsOf($attributes));
                     foreach ($values as $value) {
                         if (!is_string($value) || 1 === preg_match('/^(?:0[a-z%]*|auto|inherit|initial|unset|revert|revert-layer|)$/i', trim($value))) continue;
                         if (str_starts_with($value, 'var:preset|')) $preset++;
@@ -842,6 +1100,8 @@ final class DesignSystem
             'refused_value_count' => array_sum($refusals),
             'refusal_reasons' => $refusals,
             'palette_size' => count($this->colors),
+            'unnamed_preset_count' => $this->unnamedPresetCount(),
+            'duplicate_preset_name_count' => $this->duplicatePresetNameCount(),
             'literal_color_count' => count($this->literalColors),
             'literal_preset_color_count' => $literalPreset,
             'font_size_count' => count($this->fontSizes),
@@ -856,6 +1116,324 @@ final class DesignSystem
     }
 
     /**
+     * Where `literal_preset_color_count` comes from: each block colour
+     * attribute that stores a literal equal to a palette preset, with the
+     * document holding it, the block, the attribute path, the value and the
+     * preset it equals. At most MAX_LITERAL_PRESET_COLORS entries.
+     *
+     * @param array<string,string> $markups Emitted block documents by identity.
+     * @return list<array{document:string,block:string,attribute:string,value:string,preset:string}>
+     */
+    public function literalPresetColors(array $markups): array
+    {
+        $found = array();
+        foreach ($markups as $document => $markup) {
+            if (!preg_match_all('/<!-- wp:([a-z0-9\/-]+) (\{.*?\}) \/?-->/s', $markup, $matches, PREG_SET_ORDER)) continue;
+            foreach ($matches as [, $block, $json]) {
+                $attributes = json_decode($json, true);
+                if (!is_array($attributes)) continue;
+                foreach ($this->literalPresetColorsOf($attributes) as $attribute => [$value, $preset]) {
+                    $found[] = array('document' => (string) $document, 'block' => $block, 'attribute' => $attribute, 'value' => $value, 'preset' => $preset);
+                    if (count($found) >= self::MAX_LITERAL_PRESET_COLORS) return $found;
+                }
+            }
+        }
+        return $found;
+    }
+
+    /**
+     * Block colour attributes (text, background, border and its sides, link)
+     * storing a literal equal to a palette preset.
+     *
+     * @param array<string,mixed> $attributes
+     * @return array<string,array{0:string,1:string}> Attribute path => [literal, preset slug].
+     */
+    private function literalPresetColorsOf(array $attributes): array
+    {
+        $style = ArrayField::array($attributes, 'style');
+        $border = ArrayField::array($style, 'border');
+        $colors = array('style.color.text' => $style['color']['text'] ?? null, 'style.color.background' => $style['color']['background'] ?? null, 'customOverlayTextColor' => $attributes['customOverlayTextColor'] ?? null, 'customOverlayBackgroundColor' => $attributes['customOverlayBackgroundColor'] ?? null, 'style.border.color' => $border['color'] ?? null, 'style.elements.link.color.text' => $style['elements']['link']['color']['text'] ?? null);
+        foreach (array('top', 'right', 'bottom', 'left') as $side) $colors['style.border.' . $side . '.color'] = $border[$side]['color'] ?? null;
+        $literals = array();
+        foreach ($colors as $attribute => $color) {
+            $slug = is_string($color) && !str_starts_with($color, 'var:') ? $this->colorSlug($color) : null;
+            if (null !== $slug) $literals[$attribute] = array($color, $slug);
+        }
+        return $literals;
+    }
+
+    private function unnamedPresetCount(): int
+    {
+        $count = 0;
+        foreach (array_merge($this->colors, $this->fontSizes, $this->fontFamilies, $this->spacing) as $preset) {
+            $name = strtolower(trim($preset['name']));
+            // Semantic roles, scale words and typeface names may equal their
+            // slugs; numbered labels and raw values are not human names.
+            if ('' === $name || 1 === preg_match('/^(?:(?:accent|size|heading|alpha)[ -]*)?[#\d][\da-f.%-]*(?:px|rem|em)?$/i', $name) || in_array($name, array_map('strtolower', array_filter(array($preset['color'] ?? null, $preset['size'] ?? null))), true)) ++$count;
+        }
+        return $count;
+    }
+
+    /** @param array<string,array<string,int>> $votes */
+    private static function sourceName(array $votes, string $value): ?string
+    {
+        $names = array();
+        foreach ($votes as $name => $values) {
+            $label = ucwords(trim((string) preg_replace('/[-_]+/', ' ', ltrim($name, '-'))));
+            if (isset($values[$value]) && 1 === preg_match('/[a-z]{3}/i', $label) && 1 !== preg_match('/^(?:Color|Accent|Size|Spacing|Font)\s*\d+$/i', $label)) $names[$label] = ($names[$label] ?? 0) + $values[$value];
+        }
+        $labels = array_keys($names);
+        usort($labels, static fn(string $a, string $b): int => ($names[$b] <=> $names[$a]) ?: strcmp($a, $b));
+        return $labels[0] ?? null;
+    }
+
+    /** Hex of the nearest opaque preset within COLOR_CONSOLIDATION_DISTANCE of $hex, or null. */
+    private function nearestColor(string $hex): ?string
+    {
+        $nearest = null;
+        $nearestDistance = INF;
+        foreach ($this->colors as $color) {
+            $value = CssColor::opaque($color['color']) ? CssColor::hex($color['color']) : null;
+            $distance = null === $value ? null : CssColor::distance($hex, $value);
+            if (null === $distance || $distance > self::COLOR_CONSOLIDATION_DISTANCE || $distance >= $nearestDistance) continue;
+            $nearest = $value;
+            $nearestDistance = $distance;
+        }
+        return $nearest;
+    }
+
+    private function duplicatePresetNameCount(): int
+    {
+        $count = 0;
+        foreach (array($this->colors, $this->fontSizes, $this->spacing) as $presets) {
+            $seen = array();
+            foreach ($presets as $preset) {
+                $key = strtolower(trim($preset['name']));
+                if (isset($seen[$key])) ++$count;
+                $seen[$key] = true;
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Hue family, HSL lightness and saturation of a colour. Near-neutral
+     * colours are `Gray`, or `White` / `Black` at the extremes.
+     *
+     * @return array{family:string,lightness:float,saturation:float}
+     */
+    private static function colorTraits(string $value): array
+    {
+        [$r, $g, $b] = CssColor::parse($value) ?? array(0.0, 0.0, 0.0, 1.0);
+        $max = max($r, $g, $b);
+        $min = min($r, $g, $b);
+        $chroma = $max - $min;
+        $lightness = ($max + $min) / 510;
+        $saturation = $chroma <= 0 ? 0.0 : $chroma / max(1.0, 255 - abs($max + $min - 255));
+        if ($chroma < 18) {
+            $family = $lightness > 0.94 ? 'White' : ($lightness < 0.06 ? 'Black' : 'Gray');
+            return array('family' => $family, 'lightness' => $lightness, 'saturation' => $saturation);
+        }
+        $hue = $max === $r ? 60 * fmod(($g - $b) / $chroma, 6) : ($max === $g ? 60 * (($b - $r) / $chroma + 2) : 60 * (($r - $g) / $chroma + 4));
+        $hue = fmod($hue + 360, 360);
+        $family = match (true) {
+            $hue < 15, $hue >= 345 => 'Red',
+            $hue < 50 => $lightness > 0.6 ? 'Sand' : 'Brown',
+            $hue < 70 => 'Gold',
+            $hue < 165 => 'Green',
+            $hue < 200 => 'Teal',
+            $hue < 260 => 'Blue',
+            $hue < 295 => 'Purple',
+            default => 'Rose',
+        };
+        return array('family' => $family, 'lightness' => $lightness, 'saturation' => $saturation);
+    }
+
+    private static function colorName(string $value): string
+    {
+        $traits = self::colorTraits($value);
+        $lightness = $traits['lightness'];
+        return match ($traits['family']) {
+            'White', 'Black' => $traits['family'],
+            'Gray' => ($lightness > 0.65 ? 'Light' : ($lightness < 0.35 ? 'Dark' : 'Mid')) . ' Gray',
+            default => ($lightness < 0.3 ? 'Deep' : ($lightness > 0.75 ? 'Pale' : ($lightness > 0.55 ? 'Soft' : 'Rich'))) . ' ' . $traits['family'],
+        };
+    }
+
+    /**
+     * Gives every colour preset a distinct display name; slugs are kept.
+     *
+     * Source token names win. A derived name is a lightness word plus the
+     * hue family (`Rich Brown`). When derived names collide, every derived
+     * member of that family is renamed along one lightness ladder, darkest
+     * to lightest, near each colour's absolute lightness (`Dusky Brown`,
+     * `Mid Brown`, `Soft Brown`); colours of equal lightness are told apart
+     * by saturation (`Muted`, `Rich`, `Vivid`). Translucent presets name
+     * their final base colour and alpha. Only a collision none of this
+     * resolves (two equal source names) adds the colour value.
+     *
+     * @param list<array{slug:string,name:string,color:string,role:string,weight:int}> $colors
+     * @return list<array{slug:string,name:string,color:string,role:string,weight:int}>
+     */
+    private static function distinctColorNames(array $colors): array
+    {
+        $derived = array();
+        foreach ($colors as $index => $color) {
+            if (!CssColor::opaque($color['color'])) continue;
+            $traits = self::colorTraits($color['color']);
+            if (!self::isDerivedColorName($color['name'], $traits['family'])) continue;
+            // Re-derive from the value so each pass ranks the whole family.
+            $colors[$index]['name'] = self::colorName($color['color']);
+            $derived[$index] = $traits;
+        }
+        $counts = array_count_values(array_map(static fn(array $color): string => strtolower($color['name']), $colors));
+        $families = array();
+        foreach ($derived as $index => $traits) {
+            if ($counts[strtolower($colors[$index]['name'])] > 1) $families[$traits['family']] = true;
+        }
+        foreach (array_keys($families) as $family) {
+            $members = array_filter($derived, static fn(array $traits): bool => $traits['family'] === $family);
+            foreach (self::lightnessLadderNames($members, $family) as $index => $name) $colors[$index]['name'] = $name;
+        }
+        $names = array();
+        foreach ($colors as $color) $names[$color['slug']] ??= $color['name'];
+        foreach ($colors as $index => $color) {
+            if (1 === preg_match('/^color-mix\(in srgb, var\(--wp--preset--color--([a-z0-9-]+)\) ([\d.]+)%, transparent\)$/', $color['color'], $match)) {
+                if (isset($names[$match[1]])) $colors[$index]['name'] = 'Translucent ' . $names[$match[1]] . ' ' . $match[2] . '%';
+            } elseif (!CssColor::opaque($color['color']) && null !== ($parsed = CssColor::parse($color['color'])) && $parsed[3] > 0) {
+                $colors[$index]['name'] = 'Translucent ' . self::colorName($color['color']) . ' ' . round($parsed[3] * 100) . '%';
+            }
+        }
+        return self::withDistinctNames($colors, static fn(array $color): array => array(strtoupper((string) (CssColor::hex($color['color']) ?? $color['color'])), $color['slug']));
+    }
+
+    /** True for a name this class derives from a colour of $family. */
+    private static function isDerivedColorName(string $name, string $family): bool
+    {
+        $words = explode(' ', trim((string) preg_replace('/\s*\([^)]*\)$/', '', $name)));
+        if (array_pop($words) !== $family) return false;
+        $vocabulary = array_merge(array_keys(self::LIGHTNESS_WORDS), array('Rich', 'Muted', 'Vivid'));
+        return array() === array_diff($words, $vocabulary);
+    }
+
+    /**
+     * @param array<int,array{family:string,lightness:float,saturation:float}> $members
+     * @return array<int,string> Index => name, or nothing when the family has more lightness tiers than words.
+     */
+    private static function lightnessLadderNames(array $members, string $family): array
+    {
+        $order = array_keys($members);
+        usort($order, static fn(int $a, int $b): int => ($members[$a]['lightness'] <=> $members[$b]['lightness']) ?: ($members[$a]['saturation'] <=> $members[$b]['saturation']) ?: $a <=> $b);
+        // Colours whose lightness differs by under 2% share a tier.
+        $tiers = array();
+        $previous = null;
+        foreach ($order as $index) {
+            $lightness = $members[$index]['lightness'];
+            if (null === $previous || $lightness - $previous >= 0.02) $tiers[] = array();
+            $tiers[count($tiers) - 1][] = $index;
+            $previous = $lightness;
+        }
+        $words = array_keys(self::LIGHTNESS_WORDS);
+        $bounds = array_values(self::LIGHTNESS_WORDS);
+        $last = count($words) - 1;
+        if (count($tiers) > count($words)) return array();
+        // Each tier takes the word for its own lightness, shifted only as far
+        // as needed to keep darker tiers on strictly darker words.
+        $levels = array();
+        foreach ($tiers as $tier => $indexes) {
+            $level = 0;
+            while ($level < $last && $members[$indexes[0]]['lightness'] >= $bounds[$level]) ++$level;
+            $levels[$tier] = 0 === $tier ? $level : max($level, $levels[$tier - 1] + 1);
+        }
+        for ($tier = count($tiers) - 1; $tier >= 0; $tier--) {
+            $levels[$tier] = min($levels[$tier], $tier === count($tiers) - 1 ? $last : $levels[$tier + 1] - 1);
+        }
+        $names = array();
+        foreach ($tiers as $tier => $indexes) {
+            usort($indexes, static fn(int $a, int $b): int => ($members[$a]['saturation'] <=> $members[$b]['saturation']) ?: $a <=> $b);
+            $qualifiers = match (count($indexes)) {
+                1 => array(''),
+                2 => array('Muted', 'Vivid'),
+                3 => array('Muted', 'Rich', 'Vivid'),
+                default => array_fill(0, count($indexes), ''),
+            };
+            foreach ($indexes as $position => $index) {
+                $names[$index] = implode(' ', array_filter(array($words[$levels[$tier]], $qualifiers[$position], $family)));
+            }
+        }
+        return $names;
+    }
+
+    /**
+     * Gives length presets distinct names: a repeated name adds the value,
+     * then its slug.
+     *
+     * @param list<array{slug:string,name:string,size:string,px:float,weight:int}> $presets
+     * @return list<array{slug:string,name:string,size:string,px:float,weight:int}>
+     */
+    private static function distinctLengthNames(array $presets): array
+    {
+        return self::withDistinctNames($presets, static fn(array $preset): array => array($preset['size'], ucwords(str_replace('-', ' ', $preset['slug']))));
+    }
+
+    /**
+     * Keeps the first preset of each name and qualifies later repeats with
+     * the first detail that is not already in the name and makes it unique.
+     *
+     * @template T of array{slug:string,name:string}
+     * @param list<T> $presets
+     * @param callable(T):list<string> $details
+     * @return list<T>
+     */
+    private static function withDistinctNames(array $presets, callable $details): array
+    {
+        $taken = array();
+        foreach ($presets as $preset) $taken[strtolower($preset['name'])] = true;
+        $seen = array();
+        foreach ($presets as $index => $preset) {
+            $name = $preset['name'];
+            if (isset($seen[strtolower($name)])) {
+                $candidate = $name;
+                foreach ($details($preset) as $detail) {
+                    if (str_contains($name, $detail)) continue;
+                    $candidate = $name . ' (' . $detail . ')';
+                    if (!isset($taken[strtolower($candidate)])) break;
+                }
+                $name = $candidate;
+                $taken[strtolower($name)] = true;
+                $presets[$index]['name'] = $name;
+            }
+            $seen[strtolower($name)] = true;
+        }
+        return $presets;
+    }
+
+    private static function sizeName(float $px, float $rootPx): string
+    {
+        $ratio = $px / $rootPx;
+        return match (true) {
+            $ratio < 0.8 => 'Fine Print',
+            $ratio < 1 => 'Small Text',
+            $ratio < 1.2 => 'Body Text',
+            $ratio < 1.6 => 'Lead Text',
+            $ratio < 2.2 => 'Subheading',
+            $ratio < 3 => 'Title',
+            default => 'Display',
+        } . ' (' . CssLength::format($px) . ')';
+    }
+
+    private static function spacingName(float $px): string
+    {
+        return match (true) {
+            $px < 8 => 'Tight',
+            $px < 16 => 'Compact',
+            $px < 24 => 'Comfortable',
+            $px < 48 => 'Roomy',
+            default => 'Spacious',
+        };
+    }
+
+    /**
      * @param array<string,int> $prominence Colour => prominence (see the class comment), which ranks clusters.
      * @param array<string,int> $text Colour => text area, which with $backgrounds chooses `base` and `contrast`.
      * @param array<string,int> $backgrounds
@@ -863,9 +1441,10 @@ final class DesignSystem
      * @param array<string,array<string,int>> $textOnBackground
      * @param array<string,string> $root Root values every document agrees on.
      * @param array<string,array<string,int>> $sourceRoles Root token => colour => document count.
+     * @param array<string,string> $nearShades Set to each omitted painted shade's hex => its family representative's hex.
      * @return list<array{slug:string,name:string,color:string,role:string,weight:int}>
      */
-    private static function palette(array $prominence, array $text, array $backgrounds, array $cta, array $textOnBackground, array $root = array(), array $sourceRoles = array()): array
+    private static function palette(array $prominence, array $text, array $backgrounds, array $cta, array $textOnBackground, array $root = array(), array $sourceRoles = array(), array &$nearShades = array()): array
     {
         if (array() === $prominence) return array();
         $clusters = self::consolidateColors(self::clusterColors($prominence));
@@ -927,7 +1506,7 @@ final class DesignSystem
         }
         $token = static fn(string $slug, string $color, int $weight): array => array(
             'slug' => self::presetSlug($slug),
-            'name' => ucwords(str_replace('-', ' ', $slug)),
+            'name' => self::colorName($color),
             'color' => $color,
             'role' => preg_replace('/-\d+$/', '', $slug) ?? $slug,
             'weight' => $weight,
@@ -941,20 +1520,40 @@ final class DesignSystem
             $palette[] = $token($role, $color, $prominence[$color]);
             $taken[$color] = $role;
         }
-        // Every other painted colour receives an exact token ordered by its
-        // own painted weight, heaviest first, whatever family it ranks in:
-        // a heavy near shade precedes a barely used distinct colour without
-        // excluding that colour from the editable palette. Grouping only
-        // breaks ties: a family's own colour before a near shade of another,
-        // then the heavier family, then the value.
+        // Only distinct family representatives enter the palette. A near
+        // shade keeps its exact paint; stylesheets derive it from its
+        // family's representative (nearShades), so it follows a palette
+        // change with the rest of its family.
         $taken = array_flip(array_column($palette, 'color'));
         $rest = array_keys(array_diff_key($prominence, $taken));
         $isLead = static fn(string $color): int => $clusters[$memberOf[$color]]['color'] === $color ? 1 : 0;
         usort($rest, static fn(string $a, string $b): int => ($prominence[$b] <=> $prominence[$a]) ?: ($isLead($b) <=> $isLead($a)) ?: ($clusters[$memberOf[$b]]['weight'] <=> $clusters[$memberOf[$a]]['weight']) ?: strcmp($a, $b));
         $accent = 0;
         foreach ($rest as $color) {
-            $palette[] = $token('accent-' . (++$accent), $color, $prominence[$color]);
+            // Reserve the original slot even for an omitted shade: palette
+            // membership may change, but surviving preset slugs must not.
+            $slug = 'accent-' . (++$accent);
+            if ($clusters[$memberOf[$color]]['color'] !== $color) continue;
+            $palette[] = $token($slug, $color, $prominence[$color]);
         }
+        // Each family is represented by its lead when that is a token, else
+        // by its first token (a source role may name a non-lead member).
+        $representatives = array();
+        foreach ($palette as $entry) {
+            $family = $memberOf[$entry['color']];
+            if (!isset($representatives[$family]) || $clusters[$family]['color'] === $entry['color']) $representatives[$family] = $entry['color'];
+        }
+        $nearShades = array();
+        foreach (array_keys(array_diff_key($prominence, array_flip(array_column($palette, 'color')))) as $color) {
+            // A family member can sit further from the representative than the
+            // bound (it joined through a nearer member); it then stays a
+            // plain literal.
+            $representative = $representatives[$memberOf[$color]] ?? null;
+            $hex = CssColor::hex($color);
+            if (null === $hex || null === $representative || (CssColor::distance($color, $representative) ?? INF) > self::COLOR_CONSOLIDATION_DISTANCE) continue;
+            $nearShades[$hex] = (string) CssColor::hex($representative);
+        }
+        ksort($nearShades, SORT_STRING);
         return $palette;
     }
 
@@ -1037,9 +1636,9 @@ final class DesignSystem
      * Merge each cluster into the nearest heavier kept cluster within
      * COLOR_CONSOLIDATION_DISTANCE, however much it is used, so a shade a
      * reader cannot tell from a heavier colour does not outrank a distinct
-     * colour for a role. Merging only groups for roles and ties: a painted
-     * member still competes for a token of its own exact value on its own
-     * weight (see palette()). Clusters
+     * colour for a role. The merged cluster is one family: only its
+     * representative becomes a token and stylesheets derive its other
+     * members from that token (see palette()). Clusters
      * are visited heaviest first, so a cluster joins one that already holds
      * whatever merged into it; the heavier cluster keeps its colour.
      *
@@ -1123,16 +1722,17 @@ final class DesignSystem
             // and re-render as has-heading-28-px-font-size, so the editor
             // rejects the block. Keep the bare number, decimals dashed.
             $slug = self::presetSlug('heading-' . rtrim((string) $px, 'px'));
-            $sizes[] = array('slug' => $slug, 'name' => 'Heading ' . $px, 'size' => self::lengthText((float) $px, $rootPx), 'px' => (float) $px, 'weight' => $weight);
+            $sizes[] = array('slug' => $slug, 'name' => self::sizeName((float) $px, $rootPx), 'size' => self::lengthText((float) $px, $rootPx), 'px' => (float) $px, 'weight' => $weight);
         }
         return $sizes;
     }
 
     /**
      * @param list<array{value:string,px:float,weight:int}> $rows
+     * @param bool $sharedRoot Whether every document renders one root, so a rem spelling renders one size.
      * @return list<array{slug:string,name:string,size:string,px:float,weight:int}>
      */
-    private static function spacing(array $rows): array
+    private static function spacing(array $rows, bool $sharedRoot = true): array
     {
         $weights = array();
         $spellings = array();
@@ -1148,25 +1748,28 @@ final class DesignSystem
             $choices = $spellings[CssLength::format($cluster['px'])] ?? array();
             uksort($choices, static fn(string $a, string $b): int => ($choices[$b] <=> $choices[$a]) ?: strcmp($a, $b));
             $value = (string) (array_key_first($choices) ?? CssLength::format($cluster['px']));
+            if (!$sharedRoot && CssLength::rootRelative($value)) $value = CssLength::format($cluster['px']);
             $slug = self::presetSlug((string) (($index + 2) * 10));
-            $steps[] = array('slug' => $slug, 'name' => $value, 'size' => $value, 'px' => $cluster['px'], 'weight' => $cluster['weight']);
+            $steps[] = array('slug' => $slug, 'name' => self::spacingName($cluster['px']) . ' (' . $value . ')', 'size' => $value, 'px' => $cluster['px'], 'weight' => $cluster['weight']);
         }
         return $steps;
     }
 
     /**
      * @param list<array{value:string,px:float,weight:int}> $rows
+     * @param bool $sharedRoot As for spacing().
      * @return array{content?:array{value:string,px:float},wide?:array{value:string,px:float}}
      */
-    private static function layout(array $rows): array
+    private static function layout(array $rows, bool $sharedRoot = true): array
     {
         $weights = array();
         $values = array();
         foreach ($rows as $row) {
             $key = CssLength::format($row['px']);
             $weights[$key] = ($weights[$key] ?? 0) + $row['weight'];
-            $values[$key] ??= $row['value'];
-            if (strcmp($row['value'], $values[$key]) < 0) $values[$key] = $row['value'];
+            $value = !$sharedRoot && CssLength::rootRelative($row['value']) ? $key : $row['value'];
+            $values[$key] ??= $value;
+            if (strcmp($value, $values[$key]) < 0) $values[$key] = $value;
         }
         if (array() === $weights) return array();
         uksort($weights, static fn(string $a, string $b): int => ($weights[$b] <=> $weights[$a]) ?: ((float) $a <=> (float) $b));

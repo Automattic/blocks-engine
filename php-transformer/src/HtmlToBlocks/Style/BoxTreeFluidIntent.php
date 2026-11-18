@@ -15,19 +15,23 @@ use DOMElement;
  * (ADR 0005 §4), so widths between captures follow the author rather than
  * the nearest frozen capture.
  *
- * - A resting cascade winner that is a fluid expression (viewport units,
- *   `%`, `em`, CSS math, `var()`), reached directly or through the `font`,
- *   `margin` or `padding` shorthand, is lifted when it evaluates to the
- *   observed used value (±0.5px) at every capture. Every `var()` is expanded
- *   at the element's scope and width, so the carrier references no custom
- *   property.
+ * - A resting cascade winner, whatever CSS value it is (a pixel length,
+ *   viewport units including `sv*`/`lv*`/`dv*`, `%`, `em`/`rem`, CSS math,
+ *   `var()`), reached directly or through the `font`, `margin` or `padding`
+ *   shorthand, is lifted verbatim when it evaluates to the observed used
+ *   value (±0.5px) at every capture. Viewport units resolve against each
+ *   capture's own viewport width and height, and a `width` or `height` is
+ *   first clamped by the observed `min-*`/`max-*` on its axis, as layout
+ *   does. Every `var()` is expanded at the element's scope and width, so the
+ *   carrier references no custom property. Only a value nothing reproduces
+ *   keeps the captured pixels.
  * - `rem` lengths in a lifted expression are restated in pixels against
  *   the root font size the author's cascade gives the document at that
  *   width (the user-agent 16px when undeclared), so the carrier does not
  *   depend on the destination's root font size.
  * - A unitless `line-height` scales with the element's font size: it is
- *   lifted when the observed line height differs between captures and
- *   equals that factor times the observed font size at every capture.
+ *   lifted when it equals that factor times the observed font size at every
+ *   capture, including invariant values whose line-box rounding pixels lose.
  * - A `display` or `visibility` keyword winner (`none`, reached directly
  *   or through `var()`) that equals the observed value at every capture and
  *   differs between captures is lifted, so a box the author hides below a
@@ -65,6 +69,10 @@ use DOMElement;
  *   is restated as written, every `var()` expanded, rather than as the
  *   resolved track sizes the capture reports. Only a list of fixed lengths
  *   keeps its pixels; an absent one is restated as the initial value.
+ * - Grid placement lines (`grid-row-start` … `grid-column-end`) are read
+ *   through whichever of `grid-row`/`grid-column` or `grid-area` wins, its
+ *   omitted lines expanded per CSS Grid §8.4, so a placement the author
+ *   switches at a breakpoint lifts at that breakpoint, like `display`.
  *
  * `%` resolves against the observed CSS containing block: the content box
  * of the nearest ancestor that generates a block box (skipping
@@ -80,29 +88,40 @@ use DOMElement;
  * margin the author declared at every capture is restated as `auto`.
  *
  * Where the author's cascade switches between captures (a width query that
- * redefines a scaling token), the lift is a set of bands keyed by the
- * author's own breakpoint, not the capture width. Each band must contain a
- * capture that proves its value; otherwise the property keeps its pixels. A
- * flexible grid track list is exempt: it is exact by construction in every
- * band, and frozen tracks overflow the widths between captures.
+ * redefines a scaling token, or sets another pixel length such as an image
+ * height under a breakpoint), the lift is a set of bands keyed by the
+ * author's own breakpoint, not the capture width. Captures verify the
+ * declarations active there; resting author variants between captures and
+ * outside the captured range (below the narrowest or above the widest capture)
+ * are retained even when no capture falls inside that media condition. Thus a
+ * desktop-only route keeps the author's mobile-first rules. Only unexplained
+ * observations keep their capture bands.
  *
  * A `%` width or height is proven against the used value its observed
  * `min-*` and `max-*` pixels clamp it to, so a `width:100%` container capped
  * by its `max-width` at the widest capture still follows its container.
+ *
+ * A `::before`/`::after` box lifts under the same contract
+ * ({@see self::liftPseudo()}): its own author winners, its host as its
+ * parent, and `%` against the host's content box (the pseudo's containing
+ * block when it is in flow).
  */
 final class BoxTreeFluidIntent
 {
     private const TOLERANCE = 0.5;
 
-    /** Longhand => the shorthand that also sets it. */
+    /** Longhand => the shorthand(s) that also set it; the latest declared one wins. */
     private const SHORTHANDS = array(
         'font-size' => 'font', 'line-height' => 'font', 'font-family' => 'font',
         'font-weight' => 'font', 'font-style' => 'font',
         'margin-top' => 'margin', 'margin-right' => 'margin', 'margin-bottom' => 'margin', 'margin-left' => 'margin',
         'padding-top' => 'padding', 'padding-right' => 'padding', 'padding-bottom' => 'padding', 'padding-left' => 'padding',
         'top' => 'inset', 'right' => 'inset', 'bottom' => 'inset', 'left' => 'inset',
-        'flex-basis' => 'flex',
-        'row-gap' => 'gap', 'column-gap' => 'gap',
+        'flex-grow' => 'flex', 'flex-shrink' => 'flex', 'flex-basis' => 'flex',
+        'grid-column-start' => array('grid-column', 'grid-area'), 'grid-column-end' => array('grid-column', 'grid-area'),
+        'grid-row-start' => array('grid-row', 'grid-area'), 'grid-row-end' => array('grid-row', 'grid-area'),
+        // `grid-gap` and `grid-*-gap` are legacy name aliases (CSS Box Alignment §8.4).
+        'row-gap' => array('gap', 'grid-gap', 'grid-row-gap'), 'column-gap' => array('gap', 'grid-gap', 'grid-column-gap'),
     );
 
     /**
@@ -168,6 +187,8 @@ final class BoxTreeFluidIntent
     private const INHERITING_BLOCKS = array('core/heading');
 
     private DOMElement $element;
+    /** The pseudo-element being lifted (`before`, `after`), or '' for the element itself. */
+    private string $pseudo = '';
     private StyleResolver $resolver;
     /** @var list<string> */
     private array $requested = array();
@@ -193,6 +214,40 @@ final class BoxTreeFluidIntent
      */
     public function lift(DOMElement $element, StyleResolver $resolver, array $observations, array $viewports, array $parents, string $blockName = '', ?\Closure $evidence = null): array
     {
+        $this->pseudo = '';
+        return $this->liftSubject($element, $resolver, $observations, $viewports, $parents, $blockName, $evidence);
+    }
+
+    /**
+     * Lift an element's `::before` or `::after` box: its own author winners
+     * (rules whose subject is that pseudo-element), with the element as its
+     * parent, so a `%` resolves against the element's content box and an
+     * intrinsic keyword is restated as for the element itself. Nothing is
+     * lifted unless the pseudo renders at every capture.
+     *
+     * @param array<string, array<string, mixed>> $observations Captured observations of the host element, by viewport key.
+     * @param string $pseudo `before` or `after`.
+     * @return array<string, list<array{0: float|null, 1: string}>> {@see self::lift()}
+     */
+    public function liftPseudo(DOMElement $element, StyleResolver $resolver, array $observations, array $viewports, string $pseudo, ?\Closure $evidence = null): array
+    {
+        $pseudoObservations = array();
+        foreach ($observations as $key => $observation) {
+            $styles = $observation['pseudo'][$pseudo]['used_styles'] ?? null;
+            if (!is_array($styles) || !is_array($observation['used_styles'] ?? null)) return array();
+            $pseudoObservations[$key] = array('used_styles' => $styles);
+        }
+        $this->pseudo = $pseudo;
+        try {
+            return $this->liftSubject($element, $resolver, $pseudoObservations, $viewports, $observations, '', $evidence ?? static fn(DOMElement $node): array => $node === $element ? $observations : array());
+        } finally {
+            $this->pseudo = '';
+        }
+    }
+
+    /** @see self::lift() */
+    private function liftSubject(DOMElement $element, StyleResolver $resolver, array $observations, array $viewports, array $parents, string $blockName, ?\Closure $evidence): array
+    {
         if (array() === $observations) return array();
         $widths = array();
         foreach ($observations as $key => $_) {
@@ -211,28 +266,85 @@ final class BoxTreeFluidIntent
         $aliases = array();
         foreach (array_intersect_key(self::INTRINSIC, array_flip($properties)) as $intrinsic) $aliases = array_merge($aliases, array_slice($intrinsic, 1));
         foreach (array_intersect_key(self::MARGIN_ALIASES, array_flip($properties)) as $margin) $aliases = array_merge($aliases, $margin);
-        $this->requested = array_values(array_unique(array_merge($properties, array_values(array_intersect_key(self::SHORTHANDS, array_flip($properties))), $aliases)));
+        $shorthands = array();
+        foreach (array_intersect_key(self::SHORTHANDS, array_flip($properties)) as $names) $shorthands = array_merge($shorthands, (array) $names);
+        $this->requested = array_values(array_unique(array_merge($properties, $shorthands, $aliases)));
         // The widths where the author's cascade can change between captures.
         $samples = array();
+        $authorSamples = array();
         $widest = reset($widths);
         $narrowest = end($widths);
         foreach ($resolver->authorViewport->widthBreakpoints() as $breakpoint) {
             foreach (array(floor($breakpoint), floor($breakpoint) + 1) as $width) {
                 if ($width > $narrowest && $width < $widest) $samples[(string) $width] = $width;
             }
+            // Resting author lifts need no capture in every band. Sample both
+            // sides of each switch, including variants outside the captures.
+            foreach (array(floor($breakpoint) - 1, floor($breakpoint), floor($breakpoint) + 1) as $width) {
+                if ($width > 0) $authorSamples[(string) $width] = $width;
+            }
         }
-        foreach ($widths as $width) unset($samples[(string) $width]);
+        foreach ($widths as $width) unset($samples[(string) $width], $authorSamples[(string) $width]);
         $inheriting = in_array($blockName, self::INHERITING_BLOCKS, true);
         $lifted = array();
         foreach ($properties as $property) {
-            $bands = (isset(self::KEYWORD_SWITCHES[$property]) ? $this->liftedKeyword($property, $widths, $samples, $observations, $parents) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
-                ?? $this->liftedIntrinsic($property, $widths, $samples)
+            $bands = $this->liftedAuthor($property, $widths, $authorSamples, $observations, $viewports, $parents)
+                ?? (isset(self::KEYWORD_SWITCHES[$property]) ? $this->liftedKeyword($property, $widths, $samples, $observations, $parents) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
+                ?? $this->liftedIntrinsic($property, $widths, $samples, $observations)
                 ?? $this->liftedAutoMargin($property, $widths, $samples)
                 ?? $this->liftedMixed($property, $widths, $samples, $observations, $viewports, $parents)
-                ?? ($inheriting ? $this->liftedInheritance($property, $widths, $samples, $observations, $parents) : null);
+                ?? $this->liftedInheritance($property, $widths, $samples, $observations, $parents, $inheriting);
             if (null !== $bands) $lifted[$property] = $bands;
         }
         return $lifted;
+    }
+
+    /**
+     * Lift the resting author cascade, including variants with no capture.
+     * Captures disprove a declaration only where that declaration applies;
+     * an unobserved intermediate variant is still author intent, not missing
+     * evidence to replace with a neighbouring capture's pixels.
+     */
+    private function liftedAuthor(string $property, array $widths, array $samples, array $observations, array $viewports, array $parents): ?array
+    {
+        // This path needs author intent somewhere, not merely initial captures.
+        $declared = false;
+        foreach (array_merge(array_values($widths), array_values($samples)) as $width) {
+            if (null !== $this->declared($property, $width)) { $declared = true; break; }
+        }
+        if (!$declared) return null;
+        // Hidden panels expose computed placement, not a used containing block.
+        // Do not infer a new positioning scheme from an absent desktop winner
+        // and a media-only declaration observed solely on display:none boxes.
+        // Navigation recognition owns that panel's replacement with Core's
+        // overlay; these values are not evidence for moving its in-flow host.
+        if ('position' === $property || in_array($property, self::OFFSETS, true)) {
+            $visibleDeclaration = false;
+            $absent = false;
+            foreach ($widths as $key => $width) {
+                $value = $this->declared($property, $width);
+                $absent = $absent || null === $value;
+                if (null !== $value && 'none' !== ($observations[$key]['used_styles']['display'] ?? '')) $visibleDeclaration = true;
+            }
+            if ($absent && !$visibleDeclaration) return null;
+        }
+        // An absent winner proves only a known, non-inherited initial value.
+        // Keep this fallback at sampled widths too, so media-only rules lift.
+        $winner = fn(float $width): ?string => $this->declared($property, $width) ?? BoxTreeDeclarationPruner::cascadeInitial($property);
+        $proven = array();
+        foreach ($widths as $key => $width) {
+            $value = $winner($width);
+            if (null === $value || '' === $value) return null;
+            $actual = (string) ($observations[$key]['used_styles'][$property] ?? '');
+            if (in_array($property, self::GRID_TEMPLATES, true) && self::observedRepeatCount($value, $actual) !== $value) return null;
+            if ($value !== $actual
+                && !('0' === $value && '0px' === $actual)
+                && !('aspect-ratio' === $property && self::sameRatio($value, $actual))
+                && null === $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents)
+                && (!isset(self::INTRINSIC[$property]) || $value !== $this->intrinsicKeyword($property, $width))) return null;
+            $proven[$key] = $value;
+        }
+        return $this->bands($widths, $samples, $proven, $winner, false);
     }
 
     /**
@@ -243,16 +355,11 @@ final class BoxTreeFluidIntent
     private function liftedExpression(string $property, array $widths, array $samples, array $observations, array $viewports, array $parents): ?array
     {
         $proven = array();
-        $observed = array();
         foreach ($widths as $key => $width) {
             $value = $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents);
             if (null === $value) return null;
             $proven[$key] = $value;
-            $observed[(string) ($observations[$key]['used_styles'][$property] ?? '')] = true;
         }
-        // A unitless line height already equals its pixels at every capture
-        // when they agree: only a varying one carries intent pixels lose.
-        if ('line-height' === $property && count($observed) < 2 && preg_match('/^\d*\.?\d+$/', (string) reset($proven))) return null;
         return $this->bands($widths, $samples, $proven, function (float $width) use ($property): ?string {
             $value = $this->declared($property, $width);
             return '' === $value ? null : $value;
@@ -265,7 +372,7 @@ final class BoxTreeFluidIntent
         $value = $this->declared($property, $width);
         if (null === $value || '' === $value) return null;
         $factor = 'line-height' === $property && preg_match('/^\d*\.?\d+$/', $value);
-        if (!$factor && !self::expression($value)) return null;
+        if (!$factor && !self::expression($value) && !preg_match('/^-?(?:\d*\.)?\d+px$/i', $value)) return null;
         $styles = $observations[$key]['used_styles'] ?? array();
         $parent = $parents[$key]['used_styles'] ?? array();
         [$percent, $em] = $this->bases($property, $key, $styles, $parent);
@@ -278,10 +385,26 @@ final class BoxTreeFluidIntent
         return $value;
     }
 
+    /**
+     * Whether two `aspect-ratio` values name the same ratio: the computed
+     * value restates `1/var(--r)` as `1 / 1.11243`, rounded.
+     */
+    private static function sameRatio(string $declared, string $observed): bool
+    {
+        $ratio = static function (string $value): ?float {
+            if (!preg_match('/^\s*(?:auto\s+)?(\d*\.?\d+)\s*(?:\/\s*(\d*\.?\d+))?\s*$/i', $value, $m)) return null;
+            $denominator = isset($m[2]) ? (float) $m[2] : 1.0;
+            return $denominator > 0 ? (float) $m[1] / $denominator : null;
+        };
+        $a = $ratio($declared);
+        $b = $ratio($observed);
+        return null !== $a && null !== $b && $b > 0 && abs($a / $b - 1) < 1e-4;
+    }
+
     /** Whether a value is a viewport-, font- or containing-block-relative expression. */
     private static function expression(string $value): bool
     {
-        return 1 === preg_match('/%|\d(?:vw|vh|vmin|vmax|em)\b|\b(?:calc|clamp|min|max)\(/i', $value);
+        return 1 === preg_match('/%|\d(?:[sld]?v(?:w|h|i|b|min|max)|em)\b|\b(?:calc|clamp|min|max)\(/i', $value);
     }
 
     /**
@@ -340,13 +463,17 @@ final class BoxTreeFluidIntent
      * @param array<string, float> $samples
      * @return list<array{0: float|null, 1: string}>|null
      */
-    private function liftedIntrinsic(string $property, array $widths, array $samples): ?array
+    private function liftedIntrinsic(string $property, array $widths, array $samples, array $observations): ?array
     {
         if (!isset(self::INTRINSIC[$property])) return null;
         $keywords = array();
         foreach ($widths as $key => $width) {
             $keyword = $this->intrinsicKeyword($property, $width);
             if (null === $keyword) return null;
+            if (in_array($property, self::GRID_TEMPLATES, true)) {
+                $keyword = self::observedRepeatCount($keyword, (string) ($observations[$key]['used_styles'][$property] ?? ''));
+                if (null === $keyword) return null;
+            }
             $keywords[$key] = $keyword;
         }
         // A track list the author switches at a breakpoint between captures
@@ -391,13 +518,25 @@ final class BoxTreeFluidIntent
     {
         [$initial] = self::INTRINSIC[$property];
         foreach (array_slice(self::INTRINSIC[$property], 1) as $alias) {
-            if (null !== $this->declared($alias, $width)) return null;
+            $aliasValue = $this->declared($alias, $width);
+            if (null === $aliasValue) continue;
+            // Explicit logical auto sizes still leave block height to layout;
+            // they must not freeze grid/flex stretch as a physical height.
+            if (in_array($property, array('height', 'min-height'), true)
+                && in_array(strtolower($aliasValue), array('auto', 'initial', 'unset'), true)
+                && null === $this->declared($property, $width)) continue;
+            return null;
         }
         $grid = in_array($property, self::GRID_TEMPLATES, true);
         $offset = in_array($property, self::OFFSETS, true);
         $declared = $this->declared($property, $width);
         $value = null === $declared ? $initial : strtolower($declared);
         if (in_array($value, array('initial', 'unset'), true)) $value = $initial;
+        if ('inherit' === $value) {
+            $value = $this->inheritedKeyword($property, $width);
+            if (null === $value) return null;
+            $declared = $value;
+        }
         if ($grid) {
             if ($value === $initial) return $initial;
             return self::flexibleTrackList((string) $declared) ? (string) $declared : null;
@@ -405,16 +544,50 @@ final class BoxTreeFluidIntent
         if ($offset) return 'auto' === $value ? $value : null;
         if (null !== $declared && in_array($property, self::PERCENT_HEIGHTS, true) && self::percentHeight($declared)) return $declared;
         if (!in_array($value, self::INTRINSIC_KEYWORDS, true)) return null;
-        // A replaced or attribute-sized element's intrinsic size is not the author's to restate.
-        if (in_array(strtolower($this->element->tagName), self::REPLACED, true)) return null;
+        // A replaced or attribute-sized element's intrinsic size is not the
+        // author's to restate; a pseudo-element is neither.
+        if ('' !== $this->pseudo) return $value;
+        if (in_array(strtolower($this->element->tagName), self::REPLACED, true)) return $this->replacedHeightFromWidth($property, $value, $width);
         if (in_array($property, array('width', 'height'), true) && $this->element->hasAttribute($property)) return null;
         return $value;
+    }
+
+    /**
+     * An image's `height:auto` beside a width the author sets is the width
+     * times the image's own ratio, which the copy serves too. Restating it
+     * keeps that ratio at widths no capture saw, where the captured pixels
+     * (from a 402px capture, say) would stretch the image at 390px. Every
+     * other intrinsic size of a replaced element stays the source's pixels.
+     */
+    private function replacedHeightFromWidth(string $property, string $value, float $width): ?string
+    {
+        if ('height' !== $property || 'auto' !== $value || 'img' !== strtolower($this->element->tagName) || $this->element->hasAttribute('height')) return null;
+        foreach (array('width', 'inline-size') as $alias) {
+            $declared = $this->declared($alias, $width);
+            if (null !== $declared && '' !== $declared && !in_array(strtolower($declared), self::INTRINSIC_KEYWORDS, true)) return $value;
+        }
+        return null;
     }
 
     /** Whether a resolved height is a percentage the copy resolves against the same basis as the source. */
     private static function percentHeight(string $value): bool
     {
         return 1 === preg_match('/\d%/', $value) && 0 === preg_match('/\bvar\(|\battr\(|\benv\(/i', $value);
+    }
+
+    /**
+     * Restate a serialized repeat count only when a capture proves a different
+     * count of equal pixel tracks. Unequal tracks cannot prove that the same
+     * author track was repeated by a runtime resize handler.
+     */
+    private static function observedRepeatCount(string $declared, string $observed): ?string
+    {
+        if (!preg_match('/^repeat\(\s*(\d+)\s*,\s*([^,()]+(?:\([^()]*\))?[^,()]*)\)$/i', trim($declared), $match)) return $declared;
+        if (!preg_match_all('/(-?\d*\.?\d+)px/', $observed, $tracks) || count($tracks[1]) !== count(preg_split('/\s+/', trim($observed)))) return $declared;
+        $count = count($tracks[1]);
+        if ($count === (int) $match[1]) return $declared;
+        if (max($tracks[1]) - min($tracks[1]) > self::TOLERANCE) return null;
+        return 'repeat(' . $count . ', ' . trim($match[2]) . ')';
     }
 
     /**
@@ -487,13 +660,13 @@ final class BoxTreeFluidIntent
      * @param array<string, float> $samples
      * @return list<array{0: float|null, 1: string}>|null
      */
-    private function liftedInheritance(string $property, array $widths, array $samples, array $observations, array $parents): ?array
+    private function liftedInheritance(string $property, array $widths, array $samples, array $observations, array $parents, bool $allowAbsent): ?array
     {
         if (!in_array($property, BoxTree::INHERITED_PROPERTIES, true) || count($widths) < 2) return null;
         $values = array();
         foreach ($widths + $samples as $key => $width) {
             $declared = $this->declared($property, $width);
-            if (null !== $declared && 'inherit' !== strtolower($declared)) return null;
+            if (null === $declared ? !$allowAbsent : 'inherit' !== strtolower($declared)) return null;
             if (!isset($observations[$key])) continue;
             $own = $observations[$key]['used_styles'][$property] ?? null;
             $parent = $parents[$key]['used_styles'][$property] ?? null;
@@ -505,16 +678,16 @@ final class BoxTreeFluidIntent
     }
 
     /**
-     * Split the author's value into bands at the breakpoints where it
-     * switches between captures. Each band must hold a capture whose proven
-     * value it carries, unless the caller waives that proof.
+     * Split the author's value at its own breakpoints, not capture widths.
+     * Direct author declarations may cover unobserved bands; inferred intent
+     * still requires each band to hold a capture proving the inference.
      *
      * @param array<string, float> $widths
      * @param array<string, float> $samples
      * @param array<string, string> $proven Proven value by capture key.
      * @param callable(float): ?string $sample The author's value at a width between captures, or null when unresolved.
-     * @param bool $everyBandProven Whether a band no capture falls in rejects the lift. Only a value exact by
-     *        construction at every width (a flexible track list) may skip that proof.
+     * @param bool $everyBandProven Whether an unobserved band rejects inferred intent. Direct author
+     *        declarations and flexible grid tracks retain their unobserved variants.
      * @return list<array{0: float|null, 1: string}>|null
      */
     private function bands(array $widths, array $samples, array $proven, callable $sample, bool $everyBandProven = true): ?array
@@ -547,30 +720,201 @@ final class BoxTreeFluidIntent
     }
 
     /**
+     * The longhands set by `flex` (CSS Flexbox §7.2). A lone number uses a
+     * 0% basis; a lone basis grows and shrinks by 1. Unresolved variables
+     * and CSS-wide keywords other than the defined `initial` prove nothing.
+     *
+     * @return array<string, string>
+     */
+    private static function flexLonghands(string $value): array
+    {
+        $keyword = strtolower(trim($value));
+        $named = array('none' => array('0', '0', 'auto'), 'auto' => array('1', '1', 'auto'), 'initial' => array('0', '1', 'auto'));
+        if (isset($named[$keyword])) return array_combine(array('flex-grow', 'flex-shrink', 'flex-basis'), $named[$keyword]);
+        if ('' === $keyword || preg_match('/\bvar\(|^(?:inherit|unset|revert|revert-layer)$/i', $keyword)) return array();
+        $numbers = array();
+        $basis = null;
+        $basisAfterNumbers = false;
+        foreach (CssValueSplitter::splitTopLevelWhitespace(trim($value)) as $token) {
+            if (is_numeric($token) && $token >= 0) {
+                // Grow and shrink must be adjacent, not separated by the basis.
+                if ($basisAfterNumbers) return array();
+                $numbers[] = $token;
+            } elseif (null === $basis) {
+                $basis = $token;
+                $basisAfterNumbers = array() !== $numbers;
+            } else {
+                return array();
+            }
+        }
+        if ((array() === $numbers && null === $basis) || count($numbers) > 2) return array();
+        $grow = $numbers[0] ?? '1';
+        $shrink = $numbers[1] ?? '1';
+        return array('flex-grow' => (string) (0 + $grow), 'flex-shrink' => (string) (0 + $shrink), 'flex-basis' => $basis ?? '0%');
+    }
+
+    /**
+     * Use a capture's recorded height at its own width. Between captures, scale
+     * the nearest capture's aspect ratio to preserve its orientation: a portrait
+     * band then ends at the author's width breakpoint, not an arbitrary height.
+     * Without a recorded height, orientation and height queries remain unknown.
+     */
+    private function captureHeight(float $width): ?float
+    {
+        $nearest = null;
+        foreach ($this->viewports as $viewport) {
+            if (!isset($viewport['width'], $viewport['height']) || (float) $viewport['width'] <= 0 || (float) $viewport['height'] <= 0) continue;
+            $distance = abs((float) $viewport['width'] - $width);
+            if (null === $nearest || $distance < $nearest[0]) $nearest = array($distance, (float) $viewport['width'], (float) $viewport['height']);
+        }
+        if (null === $nearest) return null;
+        return $nearest[0] < 0.01 ? $nearest[2] : $width * $nearest[2] / $nearest[1];
+    }
+
+    /**
      * The author value that wins for a longhand at one width, read through
      * its shorthand when the shorthand is declared later in the cascade. null
      * when nothing is declared; '' when the declaration cannot be resolved.
      */
     private function declared(string $property, float $width): ?string
     {
-        $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width);
+        $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width, pseudoElement: $this->pseudo, viewportHeight: $this->captureHeight($width));
         $order = array_flip(array_keys($winners));
-        $shorthand = self::SHORTHANDS[$property] ?? null;
-        $fromShorthand = null !== $shorthand && isset($order[$shorthand]) && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
+        $shorthand = null;
+        foreach ((array) (self::SHORTHANDS[$property] ?? array()) as $candidate) {
+            if (isset($order[$candidate]) && (null === $shorthand || $order[$candidate] > $order[$shorthand])) $shorthand = $candidate;
+        }
+        $fromShorthand = null !== $shorthand && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
         $name = $fromShorthand ? $shorthand : $property;
+        // A later `inline-size` sets the used width in horizontal writing. It
+        // lifts only where the nearest ancestor that declares a width declares
+        // a fluid one: frozen there, the child keeps capture pixels its
+        // container no longer has (#5870). Elsewhere the logical alias keeps
+        // its projection (#6648).
+        if ('width' === $property && isset($order['inline-size']) && (!isset($order[$name]) || $order['inline-size'] > $order[$name])
+            && $this->parentWidthFluid($width) && $this->horizontalWriting($width)) {
+            $name = 'inline-size';
+            $fromShorthand = false;
+        }
         if (!isset($winners[$name])) return null;
         $value = trim(CssValueInspector::withoutImportant((string) $winners[$name]));
         if ('' === $value) return null;
+        if ('' !== $this->pseudo && $this->pseudoDefinesReferenced($value, $width)) return '';
+        if ($this->resolver->customProperties->isProvenInvalid($value, $this->element)) {
+            // Invalid at computed-value time means unset for the whole
+            // declaration, including every longhand of a shorthand.
+            return in_array($property, BoxTree::INHERITED_PROPERTIES, true) ? 'inherit' : 'unset';
+        }
         $value = $this->withRemInPixels(trim($this->resolver->customProperties->resolveAtViewport($value, $this->element, $width)), $width);
         if ('' === $value || !$fromShorthand) return $value;
         if ('font' === $shorthand) {
             return trim(CssValueInspector::withoutImportant(CssFontShorthand::expand($value, true)[$property] ?? ''));
         }
-        if ('flex' === $shorthand) return '';
+        if ('flex' === $shorthand) return self::flexLonghands($value)[$property] ?? '';
+        if ('grid-column' === $shorthand || 'grid-row' === $shorthand || 'grid-area' === $shorthand) {
+            return self::gridLines($value, $shorthand)[$property] ?? '';
+        }
         // `gap` is `<row-gap> <column-gap>?`, the first two box sides.
-        if ('gap' === $shorthand) return CssValueInspector::expandBoxShorthand($value)['row-gap' === $property ? 0 : 1];
+        if ('grid-row-gap' === $shorthand || 'grid-column-gap' === $shorthand) return $value;
+        if ('gap' === $shorthand || 'grid-gap' === $shorthand) return CssValueInspector::expandBoxShorthand($value)['row-gap' === $property ? 0 : 1];
         $side = self::SIDES['inset' === $shorthand ? $property : substr($property, (int) strrpos($property, '-') + 1)] ?? null;
         return null === $side ? '' : CssValueInspector::expandBoxShorthand($value)[$side];
+    }
+
+    /**
+     * Whether the nearest ancestor that declares a width (`width` or a later
+     * `inline-size`) at this width declares a fluid one. Ancestors that
+     * declare none take their width from above, so the walk passes them.
+     */
+    private function parentWidthFluid(float $width): bool
+    {
+        for ($node = $this->element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+            $winners = $this->resolver->authorViewport->atViewport($node, array('width', 'inline-size'), $width);
+            $order = array_flip(array_keys($winners));
+            $name = isset($order['inline-size']) && (!isset($order['width']) || $order['inline-size'] > $order['width']) ? 'inline-size' : 'width';
+            $value = trim(CssValueInspector::withoutImportant((string) ($winners[$name] ?? '')));
+            if ('' === $value || 'auto' === strtolower($value)) continue;
+            return self::expression(trim($this->resolver->customProperties->resolveAtViewport($value, $node, $width)));
+        }
+        return false;
+    }
+
+    /**
+     * The intrinsic keyword a sizing property's `inherit` takes from the
+     * nearest ancestor that does not itself inherit it, or null when that
+     * ancestor declares anything else (a length or percentage resolves
+     * against a different box there). A non-inherited property is
+     * otherwise its initial value: `.inner{height:inherit}` inside a
+     * content-sized parent is `auto`, so its captured pixels are layout's.
+     */
+    private function inheritedKeyword(string $property, float $width): ?string
+    {
+        [$initial] = self::INTRINSIC[$property];
+        $height = $this->captureHeight($width);
+        for ($node = $this->element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+            $winners = $this->resolver->authorViewport->atViewport($node, self::INTRINSIC[$property], $width, viewportHeight: $height);
+            unset($winners[$initial]);
+            if (array() !== array_diff_key($winners, array($property => true))) return null;
+            $value = strtolower(trim(CssValueInspector::withoutImportant((string) ($winners[$property] ?? ''))));
+            if ('inherit' === $value) continue;
+            if ('' === $value || in_array($value, array('initial', 'unset'), true)) return $initial;
+            return in_array($value, self::INTRINSIC_KEYWORDS, true) ? $value : null;
+        }
+        return $initial;
+    }
+
+    /** Whether the element's resolved `writing-mode` at this width is horizontal (`horizontal-tb`, the initial value). */
+    private function horizontalWriting(float $width): bool
+    {
+        for ($node = $this->element; $node instanceof DOMElement; $node = $node->parentNode) {
+            $winner = $this->resolver->authorViewport->atViewport($node, array('writing-mode'), $width);
+            $mode = strtolower(trim(CssValueInspector::withoutImportant((string) ($winner['writing-mode'] ?? ''))));
+            if ('' === $mode || 'inherit' === $mode || 'unset' === $mode) continue;
+            return in_array($mode, array('horizontal-tb', 'initial', 'revert', 'revert-layer'), true);
+        }
+        return true;
+    }
+
+    /**
+     * The grid line longhands a `grid-area`, `grid-row` or `grid-column`
+     * value sets (CSS Grid §8.4). An omitted line copies the line it pairs
+     * with when that is a lone `<custom-ident>`, and is `auto` otherwise:
+     * `grid-area` pairs column-start with row-start, row-end with row-start
+     * and column-end with column-start.
+     *
+     * @return array<string, string>
+     */
+    private static function gridLines(string $value, string $shorthand): array
+    {
+        $parts = array_map('trim', CssValueSplitter::splitTopLevel($value, array('/')));
+        $limit = 'grid-area' === $shorthand ? 4 : 2;
+        if (count($parts) > $limit || in_array('', $parts, true)) return array();
+        $omitted = static fn(string $line): string => 1 === preg_match('/^-?[a-z_][\w-]*$/i', $line)
+            && !in_array(strtolower($line), array('auto', 'span', 'inherit', 'initial', 'unset', 'revert', 'revert-layer'), true) ? $line : 'auto';
+        if ('grid-area' !== $shorthand) {
+            $axis = substr($shorthand, 5);
+            return array('grid-' . $axis . '-start' => $parts[0], 'grid-' . $axis . '-end' => $parts[1] ?? $omitted($parts[0]));
+        }
+        $rowStart = $parts[0];
+        $columnStart = $parts[1] ?? $omitted($rowStart);
+        return array(
+            'grid-row-start' => $rowStart,
+            'grid-column-start' => $columnStart,
+            'grid-row-end' => $parts[2] ?? $omitted($rowStart),
+            'grid-column-end' => $parts[3] ?? $omitted($columnStart),
+        );
+    }
+
+    /**
+     * Whether the pseudo-element itself defines a custom property the value
+     * references. The resolver expands `var()` from the host outward, which
+     * would miss that definition, so the value is left unresolved instead.
+     */
+    private function pseudoDefinesReferenced(string $value, float $width): bool
+    {
+        if (!preg_match_all('/var\(\s*(--[\w-]+)/', $value, $names)) return false;
+        $names = array_values(array_unique($names[1]));
+        return array() !== $this->resolver->authorViewport->atViewport($this->element, $names, $width, pseudoElement: $this->pseudo);
     }
 
     /**
@@ -662,7 +1006,8 @@ final class BoxTreeFluidIntent
             return isset($viewport['width'], $viewport['height']) ? array((float) $viewport['width'], (float) $viewport['height']) : null;
         }
         $absolute = 'absolute' === $position;
-        for ($node = $this->element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+        // A pseudo-element's box is a child of its host's.
+        for ($node = '' === $this->pseudo ? $this->element->parentNode : $this->element; $node instanceof DOMElement; $node = $node->parentNode) {
             $styles = ($this->evidence)($node)[$key]['used_styles'] ?? null;
             if (!is_array($styles)) {
                 // The document root boxes are rarely captured; an absolute
@@ -686,20 +1031,17 @@ final class BoxTreeFluidIntent
     }
 
     /**
-     * A normal, single-span item in an equal-column grid resolves percentages
-     * against one track, not the entire grid. Unequal tracks or explicit
-     * placement need a placement solver; keep their captured pixels instead.
+     * An item spanning one column of an equal-column grid resolves
+     * percentages against one track, not the entire grid. Unequal tracks or
+     * multi-column spans need a placement solver; keep their captured pixels
+     * instead.
      *
      * @return array{0: float, 1: float}|null
      */
     private function equalGridArea(array $styles, array $parent): ?array
     {
-        foreach (array('grid-area', 'grid-column', 'grid-column-start', 'grid-column-end') as $property) {
-            $value = strtolower(trim((string) ($styles[$property] ?? 'auto')));
-            if (!in_array($value, array('auto', 'auto / auto', 'auto / auto / auto / auto'), true)) return null;
-        }
         $tracks = CssValueSplitter::splitTopLevelWhitespace((string) ($parent['grid-template-columns'] ?? ''));
-        if (array() === $tracks) return null;
+        if (array() === $tracks || !self::spansOneColumn($styles, count($tracks))) return null;
         $width = self::pixels($tracks[0]);
         if (null === $width) return null;
         foreach ($tracks as $track) {
@@ -708,6 +1050,21 @@ final class BoxTreeFluidIntent
         }
         $box = self::box($parent, true);
         return null === $box ? null : array($width, $box[1]);
+    }
+
+    /**
+     * Whether the observed placement lines put an item in exactly one
+     * explicit column: auto placement, `span 1`, or line N to N+1 (or auto)
+     * within the explicit grid.
+     */
+    private static function spansOneColumn(array $styles, int $tracks): bool
+    {
+        $start = strtolower(trim((string) ($styles['grid-column-start'] ?? 'auto')));
+        $end = strtolower(trim((string) ($styles['grid-column-end'] ?? 'auto')));
+        $auto = static fn(string $line): bool => 'auto' === $line || 'span 1' === $line;
+        if ($auto($start)) return $auto($end);
+        if (1 !== preg_match('/^[1-9]\d*$/', $start) || (int) $start > $tracks) return false;
+        return $auto($end) || (string) ((int) $start + 1) === $end;
     }
 
     /** Whether a box is the containing block of its absolutely positioned descendants. */

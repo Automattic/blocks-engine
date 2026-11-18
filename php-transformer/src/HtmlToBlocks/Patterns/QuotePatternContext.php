@@ -47,6 +47,18 @@ final class QuotePatternContext
             : $content;
     }
 
+    /** Whether collapsing the caption would discard its independent line box. */
+    public function captionNeedsLineBox(DOMElement $caption): bool
+    {
+        $authored = $this->styleResolver->structuralPresentationDeclarations($caption);
+        foreach ( array( 'font-size', 'line-height' ) as $property ) {
+            if ( isset($authored[$property]) && '' !== $this->styleResolver->authoredInheritedPropertyWinner($caption, $property) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Preserve the typography of the caption consumed by a native quote. */
     public function figureCaptionContent(DOMElement $caption): string
     {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
@@ -28,6 +29,15 @@ final class LayoutTableLowering
     /** Class a lowered source table cell carries (`blocks-engine-layout-table-` . role). */
     public const LAYOUT_TABLE_CELL_CLASS = 'blocks-engine-layout-table-cell';
 
+    /**
+     * Class the group a whole source table lowers to carries. A table is a
+     * block formatting context: it never overlaps a preceding float and moves
+     * below one it cannot fit beside. The support CSS gives the group the same
+     * contract (`display:flow-root`) so its columns are not squeezed into the
+     * space beside the float.
+     */
+    public const LAYOUT_TABLE_ROOT_CLASS = 'blocks-engine-layout-table-root';
+
     public function __construct(
         private readonly SourceBlockCreator $blocks,
         private readonly HtmlTransformerSession $session,
@@ -47,7 +57,8 @@ final class LayoutTableLowering
         foreach ( $table->getElementsByTagName('tr') as $candidate ) {
             if ( $candidate instanceof DOMElement && SourceDom::belongsToTable($candidate, $table) ) {
                 ++$directRows;
-                if ( 1 < $directRows ) {
+                // A painted row needs its own box even in a one-row table.
+                if ( 1 < $directRows || null !== CssColor::legacy($candidate->getAttribute('bgcolor')) ) {
                     return $this->mediaLayoutTableColumnsBlock($table, $fallbacks);
                 }
             }
@@ -61,7 +72,7 @@ final class LayoutTableLowering
 
         $columns = array();
         foreach ( $row->childNodes as $cell ) {
-            if ( ! $cell instanceof DOMElement || 'td' !== strtolower($cell->tagName) ) {
+            if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
                 continue;
             }
 
@@ -96,7 +107,7 @@ final class LayoutTableLowering
             $attrs = $this->layoutTablePresentationCarrier($cell, $attrs, 'cell');
         }
 
-        return $attrs;
+        return $this->layoutTablePaintHints($cell, $attrs);
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks
@@ -183,6 +194,36 @@ final class LayoutTableLowering
             $carrier = $this->session->layoutGeometryState()->allocateCarrier('layout-table-hints' . "\n" . $rule);
             $this->session->layoutGeometryState()->registerRule($carrier, '.' . $carrier . $rule);
             $attrs['className'] .= ' ' . $carrier;
+        }
+        return $attrs;
+    }
+
+    /**
+     * Paint on the matching source box, not its descendants: transparent cells
+     * expose the row and table backgrounds just as they do in a source table.
+     * Keep hints below even layered author CSS and universal selectors.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function layoutTablePaintHints(DOMElement $element, array $attrs): array
+    {
+        $declarations = array();
+        $color = CssColor::legacy($element->getAttribute('bgcolor'));
+        if (null !== $color) {
+            $declarations[] = 'background-color:' . $color;
+        }
+        if ('table' === strtolower($element->tagName)) {
+            $border = trim($element->getAttribute('border'));
+            if (1 === preg_match('/^\d+$/', $border)) {
+                $declarations[] = 'border:' . $border . 'px outset';
+            }
+        }
+        if (array() !== $declarations) {
+            $rule = '{' . implode(';', $declarations) . '}';
+            $carrier = $this->session->layoutGeometryState()->allocateCarrier('layout-table-paint-hints' . "\n" . $rule);
+            $this->session->layoutGeometryState()->registerRule($carrier, '@layer blocks-engine-presentational-hints{:where(.' . $carrier . ')' . $rule . '}');
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
         }
         return $attrs;
     }
@@ -317,7 +358,7 @@ final class LayoutTableLowering
     /** @return array<string, mixed> */
     private function layoutTableColumnsAttributes(DOMElement $element): array
     {
-        $attrs = $this->styleResolver->presentationAttributes($element);
+        $attrs = $this->layoutTablePaintHints($element, $this->styleResolver->presentationAttributes($element));
         // A table has no implicit phone breakpoint, so Core's 782px stacking
         // stays off. Rows stack only where the source collapses their cells.
         $attrs['isStackedOnMobile'] = false;
@@ -536,7 +577,7 @@ final class LayoutTableLowering
         // to the edge its `align`, <center> or <div align> names; an aligned table without
         // a width shrinks to fit. A table width includes the spacing and padding
         // around the cell content; a cell width only its content.
-        $attrs     = $this->styleResolver->presentationAttributes($table);
+        $attrs     = $this->layoutTablePaintHints($table, $this->styleResolver->presentationAttributes($table));
         $tableWidth = $this->normalizeLayoutTableTrackWidth(SourceDom::attr($table, 'width'));
         $width      = $tableWidth ?? $cellWidth;
         if ( null !== $width && str_ends_with($width, 'px') ) {
@@ -553,7 +594,17 @@ final class LayoutTableLowering
             $attrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical', 'justifyContent' => $alignment );
         }
 
-        return $this->blocks->createBlock('core/group', $attrs, $children, $table);
+        return $this->blocks->createBlock('core/group', $this->layoutTableRootAttributes($attrs), $children, $table);
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function layoutTableRootAttributes(array $attrs): array
+    {
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYOUT_TABLE_ROOT_CLASS);
+        return $attrs;
     }
 
     /** Where a cell places its content vertically: `top`, `center` (the default) or `bottom`. */
@@ -599,7 +650,7 @@ final class LayoutTableLowering
 
             $columns = array();
             foreach ($row->childNodes as $cell) {
-                if (! $cell instanceof DOMElement || 'td' !== strtolower($cell->tagName)) {
+                if (! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true)) {
                     continue;
                 }
                 $columns[] = $this->blocks->createBlock(
@@ -614,16 +665,14 @@ final class LayoutTableLowering
             }
         }
 
-        $tableAttributes = $this->styleResolver->presentationAttributes($table);
+        $tableAttributes = $this->layoutTablePaintHints($table, $this->styleResolver->presentationAttributes($table));
         if ($this->layoutTableUsesAutoTracks($table)) {
             $tableAttributes = $this->layoutTablePresentationCarrier($table, $tableAttributes, 'table');
         }
-        if (1 === count($rows)) {
-            return array() === $tableAttributes
-                ? $rows[0]
-                : $this->blocks->createBlock('core/group', $tableAttributes, $rows, $table);
+        if (1 === count($rows) && array() === $tableAttributes) {
+            return $rows[0];
         }
 
-        return $this->blocks->createBlock('core/group', $tableAttributes, $rows, $table);
+        return $this->blocks->createBlock('core/group', $this->layoutTableRootAttributes($tableAttributes), $rows, $table);
     }
 }

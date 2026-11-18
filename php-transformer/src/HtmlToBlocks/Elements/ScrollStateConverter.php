@@ -17,7 +17,13 @@ final class ScrollStateConverter implements ElementConverter
         private readonly PatternTreeConverter $tree,
         private readonly StyleResolver $styleResolver,
         /** @var Closure(DOMElement, string): string Source projection classes, as on any converted block. */
-        private readonly Closure $sourceProjectionClassName
+        private readonly Closure $sourceProjectionClassName,
+        /**
+         * @var Closure(DOMElement, array<string, mixed>, list<string>): array<string, mixed> The box-tree
+         *      carrier every converted block gets (HtmlCompilation::projectBoxTreeCarrier()), withholding
+         *      the given properties; an identity outside evidence routes.
+         */
+        private readonly Closure $boxTreeCarrier
     ) {
     }
 
@@ -70,6 +76,12 @@ final class ScrollStateConverter implements ElementConverter
         ), static fn(mixed $value): bool => '' !== $value);
         $saveTag = in_array($tagName, array('div', 'header', 'footer', 'main', 'section', 'article', 'aside', 'nav'), true) ? $tagName : 'div';
         if ('div' !== $saveTag) $attrs['tagName'] = $saveTag;
+        // On an evidence route the author stylesheets are retired, so the
+        // wrapper's observed box rides a carrier class like any converted
+        // group's. The runtime toggles its own properties on the wrapper, so
+        // those stay out of the carrier and the toggle still wins.
+        $attrs = ($this->boxTreeCarrier)($element, $attrs, array_values(array_unique($toggled)));
+        $className = (string) ($attrs['className'] ?? '');
         $attrs['metadata']['blocksEngineScrollState'] = array(
             'tagName' => $tagName,
             'config' => $config,

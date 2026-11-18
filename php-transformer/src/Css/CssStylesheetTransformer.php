@@ -10,9 +10,13 @@ final class CssStylesheetTransformer
 {
     private CssRuleTreeCache $localTrees;
 
+    /** @var \WeakMap<CssRuleTree, array<int, list<array{start: int, boundary: int, end: int, prelude: string, body: string, kind: int}>>> */
+    private \WeakMap $renderScopes;
+
     public function __construct()
     {
         $this->localTrees = new CssRuleTreeCache();
+        $this->renderScopes = new \WeakMap();
     }
 
     private function tree(string $css): CssRuleTree
@@ -292,15 +296,18 @@ final class CssStylesheetTransformer
      * earlier rule's selector list. Projection restates one source rule for
      * each carrier it reaches (a class, its control twin, the editor canvas),
      * and each restatement otherwise ships the same declarations again. The
-     * folded selectors move to the earlier rule only when no rule between the
-     * two declares a property of the same cascade family, so every element
-     * keeps its computed values. Two lists join only when the pseudo-classes
+     * folded selectors move to the earlier rule only when every rule between
+     * the two either declares no property of the same cascade family or
+     * selects no element (or pseudo-element box) the folded selectors do
+     * ({@see selectorListsDisjoint()}), so every element keeps its computed
+     * values. Each selector joins the list as it is, never inside `:is()`,
+     * so it keeps its own specificity. Two lists join only when the pseudo-classes
      * and pseudo-elements outside the universally supported set are the same
      * in both: a browser that drops one list for an unknown pseudo drops the
      * other too, so joining them never discards a rule that used to apply.
      * Malformed input is returned unchanged.
      */
-    public function mergeRepeatedDeclarationRules(string $css, bool $includeDocumentRules = false): string
+    public function mergeRepeatedDeclarationRules(string $css, bool $includeDocumentRules = false, bool $classCarriersOnly = false): string
     {
         if ( ! str_contains($css, '{') || ! $this->isWellFormedStylesheet($css) ) {
             return $css;
@@ -309,6 +316,7 @@ final class CssStylesheetTransformer
         $this->collectRuleUnits($css, array(), $units);
         $anchors = array();
         $families = array();
+        $subjects = array();
         $merged = false;
         foreach ( $units as $index => $unit ) {
             $parts = $this->repeatableDeclarationRuleParts($unit, $includeDocumentRules);
@@ -316,6 +324,12 @@ final class CssStylesheetTransformer
                 continue;
             }
             [$lead, $prelude, $body] = $parts;
+            // Support rules also own structural roots and native descendants.
+            // Only independent class carriers may share a declaration body;
+            // keep those structural rules standalone for later consumers.
+            if ($classCarriersOnly && 1 !== preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?:\s*,\s*\.[a-zA-Z_][a-zA-Z0-9_-]*)*$/D', $prelude)) {
+                continue;
+            }
             $key = implode("\0", array_map(self::normalizedCss(...), $unit['context'])) . "\0" . self::normalizedCss($body) . "\0" . implode(',', self::uncommonPseudoNames($prelude));
             if ( isset($anchors[ $key ]) ) {
                 $anchor = $anchors[ $key ];
@@ -327,7 +341,8 @@ final class CssStylesheetTransformer
                         continue;
                     }
                     $families[ $between ] ??= $units[ $between ]['dedupable'] || str_contains($units[ $between ]['text'], '{') ? self::cascadePropertyFamilies(self::splitLeadingComments($units[ $between ]['text'])[1]) : array( '*' => true );
-                    $blocked = self::cascadeFamiliesOverlap($own, $families[ $between ]);
+                    $blocked = self::cascadeFamiliesOverlap($own, $families[ $between ])
+                        && ( isset($families[ $between ]['*']) || ! self::selectorListsDisjoint($prelude, $this->styleRulePrelude($units[ $between ]), $subjects) );
                 }
                 if ( ! $blocked ) {
                     [$anchorLead, $anchorPrelude, $anchorBody] = $this->repeatableDeclarationRuleParts($units[ $anchor ], $includeDocumentRules) ?? array( '', '', '' );
@@ -340,6 +355,171 @@ final class CssStylesheetTransformer
             $anchors[ $key ] = $index;
         }
         return $merged ? $this->serializeRuleUnits(array_values($units)) : $css;
+    }
+
+    /**
+     * The selector list of a plain style rule unit, or null for anything else
+     * (at-rules, nested rules, statements, comments inside the selector).
+     *
+     * @param array{context: list<string>, text: string, dedupable: bool} $unit
+     */
+    private function styleRulePrelude(array $unit): ?string
+    {
+        if ( ! $unit['dedupable'] ) {
+            return null;
+        }
+        $rule = rtrim(self::splitLeadingComments($unit['text'])[1]);
+        $brace = strpos($rule, '{');
+        if ( false === $brace || $this->isAtRule($rule) || ! str_ends_with($rule, '}') || str_contains(substr($rule, $brace + 1, -1), '{') ) {
+            return null;
+        }
+        $prelude = trim(substr($rule, 0, $brace));
+        return '' === $prelude || str_contains($prelude, '/*') ? null : $prelude;
+    }
+
+    /**
+     * Whether no element, nor any pseudo-element box, can be selected by an
+     * arm of each list. Two arms are disjoint when their subject compounds
+     * select different pseudo-elements (or one the element itself and the
+     * other a pseudo-element of it), or require two different ids: an
+     * element has one id. Ids count where they constrain the subject: as a
+     * simple selector, or as the only compound inside `:is()`/`:where()`
+     * (specificity markers and carriers write `:where(#id)`); never inside
+     * `:not()` or `:has()`. Ids compare case-insensitively, which also holds
+     * for documents in quirks mode. Anything this cannot read is not proven
+     * disjoint.
+     *
+     * @param array<string, array{ids: array<string, true>, pseudo: string}|null> $cache
+     */
+    private static function selectorListsDisjoint(string $first, ?string $second, array &$cache = array()): bool
+    {
+        if ( null === $second ) {
+            return false;
+        }
+        $read = static function (string $list) use (&$cache): ?array {
+            if ( array_key_exists($list, $cache) ) {
+                return $cache[ $list ];
+            }
+            $arms = self::splitSelectorList($list);
+            $subjects = null === $arms || array() === $arms ? null : array();
+            foreach ( $arms ?? array() as $arm ) {
+                $subject = self::subjectConstraints(trim($arm));
+                if ( null === $subject ) {
+                    $subjects = null;
+                    break;
+                }
+                $subjects[] = $subject;
+            }
+            if ( count($cache) >= 4096 ) {
+                $cache = array();
+            }
+            return $cache[ $list ] = $subjects;
+        };
+        $left = $read($first);
+        $right = $read($second);
+        if ( null === $left || null === $right ) {
+            return false;
+        }
+        foreach ( $left as $a ) {
+            foreach ( $right as $b ) {
+                if ( $a['pseudo'] === $b['pseudo'] && count($a['ids'] + $b['ids']) < 2 ) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The ids an arm's subject compound requires and the pseudo-element it
+     * selects ('' for the element itself), or null when the arm cannot be
+     * read safely.
+     *
+     * @return array{ids: array<string, true>, pseudo: string}|null
+     */
+    private static function subjectConstraints(string $arm): ?array
+    {
+        if ( '' === $arm || str_contains($arm, '/*') || false !== strpbrk($arm, '\\&|"\'') ) {
+            return null;
+        }
+        $tokens = CssSelectorTokenizer::tokenize($arm);
+        if ( ! $tokens['supported'] || '' === $tokens['rightmost_compound'] ) {
+            return null;
+        }
+        $ids = array();
+        $pseudo = '';
+        return self::compoundConstraints($tokens['rightmost_compound'], $ids, $pseudo) ? array( 'ids' => $ids, 'pseudo' => $pseudo ) : null;
+    }
+
+    /** @param array<string, true> $ids */
+    private static function compoundConstraints(string $compound, array &$ids, string &$pseudo, bool $nested = false): bool
+    {
+        $identifier = '-?[a-zA-Z_][a-zA-Z0-9_-]*|--[a-zA-Z0-9_-]*';
+        for ( $i = 0, $length = strlen($compound); $i < $length; ) {
+            $char = $compound[ $i ];
+            if ( '[' === $char ) {
+                $close = CssSyntaxScanner::matchingClose($compound, $i);
+                if ( null === $close ) {
+                    return false;
+                }
+                $i = $close + 1;
+                continue;
+            }
+            if ( '#' === $char ) {
+                if ( ! preg_match('/\G#(' . $identifier . ')/', $compound, $match, 0, $i) ) {
+                    return false;
+                }
+                $ids[ strtolower($match[1]) ] = true;
+                $i += strlen($match[0]);
+                continue;
+            }
+            if ( ':' === $char ) {
+                if ( ! preg_match('/\G(::?)(' . $identifier . ')(\()?/', $compound, $match, 0, $i) ) {
+                    return false;
+                }
+                $name = strtolower($match[2]);
+                $element = '::' === $match[1] || in_array($name, array( 'before', 'after', 'first-line', 'first-letter' ), true);
+                if ( $element ) {
+                    // A pseudo-element ends the subject; a functional one
+                    // (`::part()`, `::slotted()`) or one inside `:is()` is not read.
+                    if ( $nested || isset($match[3]) || '' !== $pseudo ) {
+                        return false;
+                    }
+                    $pseudo = $name;
+                    $i += strlen($match[0]);
+                    continue;
+                }
+                $i += strlen($match[0]);
+                if ( ! isset($match[3]) ) {
+                    continue;
+                }
+                $close = CssSyntaxScanner::matchingClose($compound, $i - 1);
+                if ( null === $close ) {
+                    return false;
+                }
+                $argument = trim(substr($compound, $i, $close - $i));
+                $i = $close + 1;
+                if ( ! in_array($name, array( 'is', 'where' ), true) ) {
+                    continue;
+                }
+                // Only a lone compound constrains the subject itself.
+                $inner = CssSelectorTokenizer::tokenize($argument);
+                if ( '' === $argument || str_contains($argument, ',') || ! $inner['supported'] || 1 !== count($inner['compounds']) ) {
+                    continue;
+                }
+                $innerPseudo = '';
+                $innerIds = array();
+                if ( self::compoundConstraints($argument, $innerIds, $innerPseudo, true) ) {
+                    $ids += $innerIds;
+                }
+                continue;
+            }
+            if ( '(' === $char || ')' === $char ) {
+                return false;
+            }
+            ++$i;
+        }
+        return true;
     }
 
     /**
@@ -370,16 +550,46 @@ final class CssStylesheetTransformer
     }
 
     /**
-     * Whether a selector list names the document (`:root`, `html`, `body`)
-     * or every element (`*`). Those rules are not restatements of one author
-     * block across carriers: they are the document-context and reset
-     * surfaces that Global Styles, the editor canvas and route-scoped resets
-     * each own by their own selector, so they stay standalone.
+     * Whether an arm of a selector list selects the document (`:root`,
+     * `html`, `body`, the editor canvas body) or every element (`*`). Those
+     * rules are not restatements of one author block across carriers: they
+     * are the document-context and reset surfaces that Global Styles, the
+     * editor canvas and route-scoped resets each own by their own selector,
+     * so they stay standalone.
+     *
+     * Only an arm's subject compound decides, outside functional
+     * pseudo-class arguments; an editor-canvas restatement keeps its own
+     * selector for the editor extract wherever it names the canvas. A route gate (`:where(:root.be-rs-…) a`,
+     * `X:where(:root:not(.be-rs-…),:root:not(.be-rs-…) *)`) or a specificity
+     * shim (`:root:root:root :is(…)`) names the root only to condition or
+     * weigh a carrier rule; the rule still styles that carrier, and its
+     * restatements for other carriers ship their shared block once.
      */
     private static function namesDocumentOrEveryElement(string $prelude): bool
     {
-        $bare = preg_replace(array( '/"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'/s', '/\\\\./s', '/\\[[^\\]]*\\]/' ), '', $prelude) ?? $prelude;
-        return 1 === preg_match('/(?:^|[\\s,>+~(])(?:\\*|html|body|:root)(?![\\w-])/i', $bare);
+        $strip = static fn (string $selector): string => preg_replace(array( '/"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'/s', '/\\\\./s', '/\\[[^\\]]*\\]/' ), '', $selector) ?? $selector;
+        $document = '/(?:^|[\\s,>+~(])(?:\\*|html|body|:root)(?![\\w-])/i';
+        foreach ( self::splitSelectorList($prelude) ?? array( $prelude ) as $arm ) {
+            if ( 1 === preg_match('/\\.editor-styles-wrapper(?![\\w-])/', $arm) ) {
+                return true;
+            }
+            $tokens = CssSelectorTokenizer::tokenize(trim($arm));
+            // An arm this cannot read keeps the whole-arm reading.
+            if ( ! $tokens['supported'] || '' === $tokens['rightmost_compound'] ) {
+                if ( 1 === preg_match($document, $strip($arm)) ) {
+                    return true;
+                }
+                continue;
+            }
+            $subject = $strip($tokens['rightmost_compound']);
+            do {
+                $subject = preg_replace('/\\([^()]*\\)/', '', $subject, -1, $count) ?? $subject;
+            } while ( $count > 0 );
+            if ( 1 === preg_match('/^(?:\\*|html|body)(?![\\w-])|:root(?![\\w-])/i', trim($subject)) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1670,26 +1880,47 @@ final class CssStylesheetTransformer
         return $this->renderTree($tree, -1, $transformSelectorPrelude, $transformStyleRule, $walkNested, $ancestors);
     }
 
+    /**
+     * Cache syntax only, never callback results: projection callbacks record
+     * bindings and depend on the current emitted markup and ancestor context.
+     *
+     * @return list<array{start: int, boundary: int, end: int, prelude: string, body: string, kind: int}>
+     */
+    private function renderScope(CssRuleTree $tree, int $scope): array
+    {
+        $scopes = $this->renderScopes[$tree] ?? array();
+        if (isset($scopes[$scope])) return $scopes[$scope];
+        $records = array();
+        foreach ($tree->rules($scope) as $rule) {
+            ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
+            if (';' === $tree->source[$boundary] || $tree->hasInvalidPrelude($start)) continue;
+            $prelude = substr($tree->source, $start, $boundary - $start);
+            $body = substr($tree->source, $boundary + 1, $end - $boundary - 1);
+            $kind = $this->isAtRule($prelude) ? ($this->walksNestedRules($prelude) ? 2 : 0) : ($this->isStylePrelude($prelude) ? 1 : 0);
+            $records[] = array_merge($rule, array('prelude' => $prelude, 'body' => $body, 'kind' => $kind));
+        }
+        $scopes[$scope] = $records;
+        $this->renderScopes[$tree] = $scopes;
+        return $records;
+    }
+
     private function renderTree(CssRuleTree $tree, int $scope, callable $selector, ?callable $style, bool $walkNested, array $ancestors): string
     {
         $css = $tree->source;
         $offset = $scope + 1;
         $limit = -1 === $scope ? strlen($css) : $tree->blockEnd($scope);
         $output = '';
-        foreach ($tree->rules($scope) as $rule) {
-            ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
-            if (';' === $css[$boundary] || $tree->hasInvalidPrelude($start)) continue;
-            $prelude = substr($css, $start, $boundary - $start);
-            $body = substr($css, $boundary + 1, $end - $boundary - 1);
+        foreach ($this->renderScope($tree, $scope) as $rule) {
+            ['start' => $start, 'boundary' => $boundary, 'end' => $end, 'prelude' => $prelude, 'body' => $body, 'kind' => $kind] = $rule;
             $replacement = null;
-            if ($this->isAtRule($prelude)) {
-                if ($walkNested && $this->walksNestedRules($prelude)) {
+            if (2 === $kind) {
+                if ($walkNested) {
                     $nested = $ancestors;
                     $nested[] = trim($prelude);
                     $changed = $this->renderTree($tree, $boundary, $selector, $style, true, $nested);
                     if ($changed !== $body) $replacement = $prelude . '{' . $changed . '}';
                 }
-            } elseif ($this->isStylePrelude($prelude)) {
+            } elseif (1 === $kind) {
                 if (null !== $style) $replacement = $style($prelude, $body, $ancestors);
                 else {
                     $changed = $selector($prelude, $body, $ancestors);

@@ -32,6 +32,32 @@ final class DocumentRootContext
         return preg_split('/[\x20\t\r\n\f]+/', trim($class), -1, PREG_SPLIT_NO_EMPTY) ?: array();
     }
 
+    /**
+     * Route classes (`be-r-…`) and route-set classes (`be-rs-…`) exist only
+     * for the CSS that gates rules on them. A class no published stylesheet
+     * or markup names matches nothing, so the root registry drops it and the
+     * routes that differed only by it share one attribute body. The bare
+     * `be-r` marker stays: route gates also match it.
+     *
+     * @param array<int,array<string,mixed>> $pages
+     * @param list<string> $sources Every published stylesheet and markup source.
+     * @return array<int,array<string,mixed>>
+     */
+    public static function withoutUnreferencedRouteClasses(array $pages, array $sources): array
+    {
+        preg_match_all('/be-rs?-[0-9a-f]+/', implode("\n", $sources), $found);
+        $referenced = array_fill_keys($found[0], true);
+        foreach ($pages as &$page) {
+            $class = $page['document_metadata']['root_attributes']['class'] ?? null;
+            if (!is_string($class)) continue;
+            $tokens = array_values(array_filter(preg_split('/[\x20\t\r\n\f]+/', trim($class), -1, PREG_SPLIT_NO_EMPTY) ?: array(), static fn(string $token): bool => 1 !== preg_match('/^be-rs?-[0-9a-f]+$/', $token) || isset($referenced[$token])));
+            $page['document_metadata']['root_attributes']['class'] = implode(' ', $tokens);
+            if (array() === $tokens) unset($page['document_metadata']['root_attributes']['class']);
+        }
+        unset($page);
+        return $pages;
+    }
+
     /** Stable per-document route class from the compile-time source identity, used by CSS and the root registry alike. */
     public static function routeClass(string $identity, int $length = 8): string
     {
@@ -172,7 +198,9 @@ PHP;
             self::assertValid($attributes);
             self::assertValid($bodyAttributes);
             if (!empty($page['synthetic'])) continue;
-            $rows[] = array('identity' => $page['reconciliation_identity'], 'path' => trim((string) ($page['route']['path'] ?? ''), '/'), 'front_page' => !empty($page['entrypoint']), 'attributes' => SourceClassIdentity::projectRoot($attributes), 'body_attributes' => SourceClassIdentity::projectRoot($bodyAttributes));
+            // A post matches by identity alone: neither an archive path nor a
+            // page URI can name it, so its route path is not emitted.
+            $rows[] = array('identity' => $page['reconciliation_identity'], 'path' => 'post' === ($page['post_type'] ?? null) ? null : trim((string) ($page['route']['path'] ?? ''), '/'), 'front_page' => !empty($page['entrypoint']), 'attributes' => SourceClassIdentity::projectRoot($attributes), 'body_attributes' => SourceClassIdentity::projectRoot($bodyAttributes));
         }
         if (array() === $rows) return '';
         $links = self::archiveLinks(array_values(array_filter($pages, static fn(array $page): bool => !isset($page['post_type']))));
@@ -204,6 +232,10 @@ $blocks_engine_document_attributes = static function ( string $element ) use ( &
     }
     return $blocks_engine_document_fallback[ 'body' === $element ? 'body_attributes' : 'attributes' ];
 };
+$blocks_engine_document_hooks = array();
+PHP;
+        $hooks = array();
+        $hooks['language_attributes'] = <<<'PHP'
 add_filter( 'language_attributes', static function ( string $output ) use ( $blocks_engine_document_attributes ): string {
     $attributes = $blocks_engine_document_attributes( 'html' );
     if ( array() === $attributes ) return $output;
@@ -215,10 +247,14 @@ add_filter( 'language_attributes', static function ( string $output ) use ( $blo
     }
     return substr( $tag->get_updated_html(), 6, -1 );
 } );
+PHP;
+        $hooks['body_class'] = <<<'PHP'
 add_filter( 'body_class', static function ( array $classes ) use ( $blocks_engine_document_attributes ): array {
     $source_classes = preg_split( '/\s+/', trim( $blocks_engine_document_attributes( 'body' )['class'] ?? '' ), -1, PREG_SPLIT_NO_EMPTY ) ?: array();
     return array_values( array_unique( array_merge( $classes, $source_classes ) ) );
 } );
+PHP;
+        $hooks['template_include'] = <<<'PHP'
 add_filter( 'template_include', static function ( string $template ) use ( $blocks_engine_document_attributes ): string {
     // Core's canvas exposes body_class(), but has no body-attribute hook.
     // Use the same native block rendering lifecycle when selector attributes
@@ -226,6 +262,8 @@ add_filter( 'template_include', static function ( string $template ) use ( $bloc
     if ( wp_normalize_path( $template ) === wp_normalize_path( ABSPATH . WPINC . '/template-canvas.php' ) && array_diff_key( $blocks_engine_document_attributes( 'body' ), array( 'class' => true ) ) ) return get_theme_file_path( 'document-canvas.php' );
     return $template;
 } );
+PHP;
+        $hooks['editor_context'] = <<<'PHP'
 add_filter( 'block_editor_settings_all', static function ( array $settings, $context ) use ( &$blocks_engine_document_roots, &$blocks_engine_document_fallback ): array {
     // Template parts, templates, and the Site Editor have no captured route.
     // Their canvas shows shared chrome, so it gets the root state every
@@ -244,26 +282,57 @@ add_filter( 'block_editor_settings_all', static function ( array $settings, $con
     return $settings;
 }, 20, 2 );
 PHP;
-        $code .= "\nadd_action( 'enqueue_block_editor_assets', static function (): void { wp_add_inline_script( 'wp-block-editor', " . var_export(self::editorScript(), true) . ", 'after' ); } );\n";
+        $hooks['editor_context'] .= "\nadd_action( 'enqueue_block_editor_assets', static function (): void { wp_add_inline_script( 'wp-block-editor', " . var_export(self::editorScript(), true) . ", 'after' ); } );\n";
+        // Each hook is registered only when a document carries the state it
+        // applies: html attributes, body classes, body attributes that need
+        // the document canvas, or any root state for the editor canvas.
+        $needs = array(
+            'language_attributes' => array() !== array_filter(array_column($rows, 'attributes')),
+            'body_class' => array() !== array_filter(array_column($rows, 'body_attributes'), static fn(array $attributes): bool => '' !== trim($attributes['class'] ?? '')),
+            'template_include' => self::needsCanvas($pages),
+            'editor_context' => array() !== array_filter(array_merge(array_column($rows, 'attributes'), array_column($rows, 'body_attributes'))),
+        );
         // Incremental imports append bootstrap files. One runtime owner reads
         // their combined route registry. Each authoritative identity replaces
         // its earlier record, including empty state, without dropping other
-        // routes or replacing the canvas resolver.
+        // routes or replacing the canvas resolver. A hook registers once, from
+        // the first batch whose documents need it.
+        $registered = '';
+        foreach ($hooks as $hook => $source) if ($needs[$hook]) $registered .= "if ( ! isset( \$blocks_engine_document_hooks['{$hook}'] ) ) {\n\$blocks_engine_document_hooks['{$hook}'] = true;\n" . rtrim($source, "\n") . "\n}\n";
         $fallback = array('attributes' => self::sharedAttributes(array_column($rows, 'attributes')), 'body_attributes' => self::sharedAttributes(array_column($rows, 'body_attributes')));
+        // Class tokens every route shares are emitted once, not in each
+        // route's attribute body: source roots repeat long class lists that
+        // differ by a token or two.
+        $shared = array();
+        foreach (array('attributes', 'body_attributes') as $field) $shared[] = preg_split('/\s+/', trim($fallback[$field]['class'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: array();
         $bodies = $indices = array();
-        foreach ($rows as &$row) foreach (array('attributes', 'body_attributes') as $field) {
+        foreach ($rows as &$row) foreach (array('attributes', 'body_attributes') as $position => $field) {
+            if (count($rows) > 1 && array() !== $shared[$position] && isset($row[$field]['class'])) {
+                $own = array_values(array_diff(preg_split('/\s+/', trim($row[$field]['class']), -1, PREG_SPLIT_NO_EMPTY) ?: array(), $shared[$position]));
+                if (array() === $own) unset($row[$field]['class']);
+                else $row[$field]['class'] = implode(' ', $own);
+            }
             $key = serialize($row[$field]);
             if (!isset($indices[$key])) { $indices[$key] = count($bodies); $bodies[] = $row[$field]; }
             $row[$field] = $indices[$key];
         }
         unset($row);
-        return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes, \$blocks_engine_document_fallback;\n"
+        $rowData = BootstrapData::literal(array_map(static fn(array $row): array => array($row['identity'], $row['path'], $row['front_page'] ? 1 : 0, $row['attributes'], $row['body_attributes']), $rows));
+        $fallbackCode = '$blocks_engine_document_fallback = ' . var_export($fallback, true) . ";\n";
+        // A single route has no factored classes. Keep its direct table lookup
+        // (and bootstrap bytes) instead of emitting unused reconstruction code.
+        $singleRowCode = 'foreach ( ' . $rowData . ' as [$identity, $path, $front_page, $attributes, $body_attributes] ) $blocks_engine_document_rows[] = array( \'identity\' => $identity, \'path\' => $path, \'front_page\' => 1 === $front_page, \'attributes\' => $blocks_engine_document_attribute_bodies[ $attributes ], \'body_attributes\' => $blocks_engine_document_attribute_bodies[ $body_attributes ] );' . "\n";
+        return "global \$blocks_engine_document_roots, \$blocks_engine_document_attributes, \$blocks_engine_document_fallback, \$blocks_engine_document_hooks;\n"
             . BootstrapData::table('blocks_engine_document_attribute_bodies', $bodies) . "\n"
-            . '$blocks_engine_document_rows = ' . var_export($rows, true) . ";\n"
-            . 'foreach ( $blocks_engine_document_rows as &$row ) foreach ( array( \'attributes\', \'body_attributes\' ) as $field ) $row[ $field ] = $blocks_engine_document_attribute_bodies[ $row[ $field ] ]; unset( $row );' . "\n"
-            . '$blocks_engine_document_fallback = ' . var_export($fallback, true) . ";\n"
+            // One positional row per route; the loop restores the keyed rows.
+            . '$blocks_engine_document_rows = array();' . "\n"
+            // Each batch reads its own shared classes before a later batch replaces the fallback.
+            . (count($rows) === 1 ? $singleRowCode . $fallbackCode : $fallbackCode
+            . '$blocks_engine_document_shared_classes = ' . 'array( $blocks_engine_document_fallback[\'attributes\'][\'class\'] ?? \'\', $blocks_engine_document_fallback[\'body_attributes\'][\'class\'] ?? \'\' )' . ";\n"
+            . '$blocks_engine_document_with_classes = static fn( array $attributes, string $shared ): array => \'\' === $shared ? $attributes : array_replace( $attributes, array( \'class\' => trim( $shared . \' \' . ( $attributes[\'class\'] ?? \'\' ) ) ) );' . "\n"
+            . 'foreach ( ' . $rowData . ' as [$identity, $path, $front_page, $attributes, $body_attributes] ) $blocks_engine_document_rows[] = array( \'identity\' => $identity, \'path\' => $path, \'front_page\' => 1 === $front_page, \'attributes\' => $blocks_engine_document_with_classes( $blocks_engine_document_attribute_bodies[ $attributes ], $blocks_engine_document_shared_classes[0] ), \'body_attributes\' => $blocks_engine_document_with_classes( $blocks_engine_document_attribute_bodies[ $body_attributes ], $blocks_engine_document_shared_classes[1] ) );' . "\n")
             . '$blocks_engine_document_roots = array_replace( array_column( $blocks_engine_document_roots ?? array(), null, \'identity\' ), array_column( $blocks_engine_document_rows, null, \'identity\' ) );' . "\n"
-            . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n" . $links;
+            . "if ( ! isset( \$blocks_engine_document_attributes ) ) {\n" . $code . "\n}\n" . $registered . $links;
     }
 
     /**
