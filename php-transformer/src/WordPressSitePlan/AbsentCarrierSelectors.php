@@ -29,6 +29,18 @@ final class AbsentCarrierSelectors
         'blocks-engine-synthetic-image-figure-inline' => 'blocks-engine-synthetic-image-figure-inline',
         'blocks-engine-synthetic-image-figure-strut' => 'blocks-engine-synthetic-image-figure-strut',
         'blocks-engine-layout-table-cell' => 'blocks-engine-layout-table-cell',
+        'blocks-engine-linked-image-figure' => 'blocks-engine-linked-image-figure',
+        // Engine support ships every layout-neutral button modifier, because
+        // per-route sheets coexist until the plan folds them. Once markup is
+        // final, a modifier no button carries restores nothing anywhere.
+        'blocks-engine-layout-child-button-conditional-width' => 'blocks-engine-layout-child-button-conditional-width',
+        'blocks-engine-layout-child-button-conditional-height' => 'blocks-engine-layout-child-button-conditional-height',
+        'blocks-engine-layout-child-button-display-inline-block' => 'blocks-engine-layout-child-button-display-inline-block',
+        'blocks-engine-layout-child-button-display-block' => 'blocks-engine-layout-child-button-display-block',
+        'blocks-engine-layout-child-button-display-flex' => 'blocks-engine-layout-child-button-display-flex',
+        'blocks-engine-layout-child-button-display-inline-flex' => 'blocks-engine-layout-child-button-display-inline-flex',
+        'blocks-engine-layout-child-button-display-inline-grid' => 'blocks-engine-layout-child-button-display-inline-grid',
+        'blocks-engine-layout-child-button-display-inline-table' => 'blocks-engine-layout-child-button-display-inline-table',
     );
 
     /** Pseudo-classes whose single argument the subject must itself match. */
@@ -48,28 +60,38 @@ final class AbsentCarrierSelectors
         if (array() === $absent) return $assets;
         $pattern = '/(?<!\\\\)\.(?:' . implode('|', $absent) . ')(?![\w\\\\-])/';
         foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference']) || 1 !== preg_match($pattern, $asset['content'])) continue;
-            $content = (new CssStylesheetTransformer())->transformStyleRules(
-                $asset['content'],
-                static function (string $prelude, string $body) use ($pattern): string {
-                    if (1 !== preg_match($pattern, $prelude)) return $prelude . '{' . $body . '}';
-                    $arms = CssStylesheetTransformer::splitSelectorList($prelude);
-                    if (null === $arms) return $prelude . '{' . $body . '}';
-                    $kept = array();
-                    foreach ($arms as $arm) {
-                        $live = self::live(trim($arm), $pattern);
-                        if (null !== $live) $kept[] = $live;
-                    }
-                    if (array() === $kept) return '';
-                    $selector = implode(',', $kept);
-                    return ($selector === implode(',', array_map('trim', $arms)) ? $prelude : $selector) . '{' . $body . '}';
-                }
-            );
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
+            $content = self::withoutArmsRequiring($asset['content'], $pattern);
             if ($content === $asset['content']) continue;
             $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
         return $assets;
+    }
+
+    /**
+     * The stylesheet without selector arms that require a class `$pattern`
+     * matches (see {@see live()}); a rule left with no arm is dropped.
+     */
+    public static function withoutArmsRequiring(string $css, string $pattern): string
+    {
+        if (1 !== preg_match($pattern, $css)) return $css;
+        return (new CssStylesheetTransformer())->transformStyleRules(
+            $css,
+            static function (string $prelude, string $body) use ($pattern): string {
+                if (1 !== preg_match($pattern, $prelude)) return $prelude . '{' . $body . '}';
+                $arms = CssStylesheetTransformer::splitSelectorList($prelude);
+                if (null === $arms) return $prelude . '{' . $body . '}';
+                $kept = array();
+                foreach ($arms as $arm) {
+                    $live = self::live(trim($arm), $pattern);
+                    if (null !== $live) $kept[] = $live;
+                }
+                if (array() === $kept) return '';
+                $selector = implode(',', $kept);
+                return ($selector === implode(',', array_map('trim', $arms)) ? $prelude : $selector) . '{' . $body . '}';
+            }
+        );
     }
 
     /**
@@ -81,10 +103,12 @@ final class AbsentCarrierSelectors
      * alternative is only dropped when the remaining ones weigh as much, so
      * the arm keeps its specificity.
      */
-    private static function live(string $selector, string $pattern): ?string
+    private static function live(string $selector, string $pattern, string &$requiredOut = ''): ?string
     {
         $live = '';
         $required = '';
+        // An unreadable selector requires nothing it can be pruned for.
+        $requiredOut = '';
         $length = strlen($selector);
         for ($i = 0; $i < $length; ++$i) {
             $char = $selector[$i];
@@ -126,14 +150,19 @@ final class AbsentCarrierSelectors
                 continue;
             }
             $alternatives = array_map('trim', $alternatives);
-            $alive = array();
+            $alive = $aliveRequired = array();
+            $alternativeRequired = '';
             foreach ($alternatives as $alternative) {
-                $kept = self::live($alternative, $pattern);
-                if (null !== $kept) $alive[] = $kept;
+                $kept = self::live($alternative, $pattern, $alternativeRequired);
+                if (null === $kept) continue;
+                $alive[] = $kept;
+                $aliveRequired[] = $alternativeRequired;
             }
             if (array() === $alive) return null;
+            // A lone alternative's requirements are the arm's too; what it
+            // excludes (`:not()`) or relates (`:has()`) still requires nothing.
             if (1 === count($alive)) {
-                $required .= $alive[0];
+                $required .= $aliveRequired[0];
             }
             if ($alive === $alternatives || ('where' !== $name && (null === self::weight($alternatives) || self::weight($alive) !== self::weight($alternatives)))) {
                 $live .= $group;
@@ -141,7 +170,9 @@ final class AbsentCarrierSelectors
             }
             $live .= $match[0] . implode(',', $alive) . ')';
         }
-        return 1 === preg_match($pattern, $required) ? null : $live;
+        if (1 === preg_match($pattern, $required)) return null;
+        $requiredOut = $required;
+        return $live;
     }
 
     /** @param list<string> $alternatives @return array{ids:int,classes:int,types:int}|null The weight of an `:is()` over them. */

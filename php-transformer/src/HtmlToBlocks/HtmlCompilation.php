@@ -11,6 +11,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\BoxTreeClassifier;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -277,6 +279,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     private readonly WrapperCoalescer $wrapperCoalescer;
 
+    /**
+     * Source node ids the box-tree classifier marked neutral, mapped to their
+     * sole observed child's node id. Empty on routes without box-tree evidence.
+     *
+     * @var array<string, string>
+     */
+    private array $neutralBoxChildren = array();
+
 
 
 
@@ -359,9 +369,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $backgroundImageExtractor = new BackgroundImageExtractor();
         $this->tableClassificationPolicy = new TableClassificationPolicy();
         $this->navigationBlockNormalizer = new NavigationBlockNormalizer($this->normalizedNavigationLabel(...));
-        $this->validation = new Diagnostics\CompilationValidation($this->runtime, $this->session, $this->analysisCache->cssFontAnalysis);
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->styleResolver = new StyleResolver($this->session, $this->createStyleResolutionContext(), $this->analysisCache);
+        $this->validation = new Diagnostics\CompilationValidation(
+            $this->runtime,
+            $this->session,
+            $this->analysisCache->cssFontAnalysis,
+            $this->styleResolver->isDisplayNoneAtEveryViewport(...)
+        );
         $this->sourceInterItemSpaces = new SourceInterItemSpaces($this->styleResolver, $this->sourceElementClassifier);
         $this->imageUrls = new ImageUrlResolver($this->session);
         $mediaLowering = new Elements\MediaLowering($this, $this->styleResolver, $this->imageUrls);
@@ -1168,6 +1183,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
         $this->session->installTransformOptions($options);
+        $this->neutralBoxChildren = $this->neutralBoxChildren($html, $options);
         $this->documentAuthorCss = '';
         $sharedStylesheetPaths = TransformOptions::sharedStylesheetPaths($options);
         $staticCss = (string) ($options['static_css'] ?? '');
@@ -1211,6 +1227,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         CapturedNavigationPanels::restoreRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
         $this->session->installCapturedGlyphColors(CapturedGlyphColor::detach($body));
+        $this->session->reusableComponentState()->liftRestingNavigation($body);
         if ( QuirksModeSource::isQuirksMode($html) ) {
             QuirksModeSource::normalize(
                 $body,
@@ -1593,8 +1610,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 continue;
             }
             $fallbackOffset = count($fallbacks);
+            // Link preservation needs the source box, not a generated block.
+            // A plain div has no native attributes requiring shell transport;
+            // keep its children editable without introducing Core flow spacing.
             $block = $preserveLinkContainers && 'div' === strtolower($child->tagName) && 0 === $child->attributes->length
-                ? $this->layoutShells->blockForElements(array($child), $this->convertChildren($child, $fallbacks, $captureUnsupported, true), $child)
+                ? $this->createBlock('core/group', $this->authorLayoutOwnership->cssOwnedGroupAttributes($child), $this->convertChildren($child, $fallbacks, $captureUnsupported, true), $child)
                 : $this->convertElement($child, $fallbacks, $captureUnsupported);
             if ( null !== $block ) {
                 // Retain the public source boundary rather than private metadata.
@@ -1845,11 +1865,65 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
+     * Neutral boxes on an evidence route, keyed by node id, each mapped to the
+     * node id of its sole observed child. The classifier is the only authority.
+     *
+     * @param array<string, mixed> $options
+     * @return array<string, string>
+     */
+    private function neutralBoxChildren(string $html, array $options): array
+    {
+        $tree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
+        if ( array() === ($tree['nodes'] ?? array()) ) {
+            return array();
+        }
+        $children = array();
+        foreach ( BoxTreeClassifier::report($html, $tree)['nodes'] as $id => $classification ) {
+            if ( 'neutral' === $classification['disposition'] ) {
+                $children[(string) $id] = (string) $tree['nodes'][$id]['children'][0];
+            }
+        }
+        return $children;
+    }
+
+    /** The source child that replaces a neutral box, or null when the box is kept. */
+    private function neutralBoxChild(DOMElement $element): ?DOMElement
+    {
+        $childId = $this->neutralBoxChildren[$element->getAttribute(BoxTree::NODE_ATTRIBUTE)] ?? null;
+        if ( null === $childId ) {
+            return null;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $childId === $child->getAttribute(BoxTree::NODE_ATTRIBUTE) ) {
+                return $child;
+            }
+        }
+        return null;
+    }
+
+    /** The nearest source ancestor that emits a block: neutral boxes are skipped. */
+    private function blockParentElement(DOMElement $element): ?DOMElement
+    {
+        $parent = $element->parentNode;
+        while ( $parent instanceof DOMElement && null !== $this->neutralBoxChild($parent) ) {
+            $parent = $parent->parentNode;
+        }
+        return $parent instanceof DOMElement ? $parent : null;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
+        // ADR 0005: a box the classifier proves neutral emits no block. Its sole
+        // child takes its place before any converter can make it a Group or
+        // register its engine rule; the child keeps its own rule.
+        $neutralChild = $this->neutralBoxChild($element);
+        if ( null !== $neutralChild ) {
+            return $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
+        }
         $tagName = strtolower($element->tagName);
 
         // An adopted dialog panel's bindings belong to the panel before any
@@ -2084,8 +2158,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             );
             $observations = $this->session->boxTreeEvidence($sourceElement);
             $viewports = $this->session->boxTreeViewports();
-            $parents = $sourceElement->parentNode instanceof DOMElement ? $this->session->boxTreeEvidence($sourceElement->parentNode) : array();
-            $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name);
+            $blockParent = $this->blockParentElement($sourceElement);
+            $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
+            $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->session->boxTreeEvidence(...));
             $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,

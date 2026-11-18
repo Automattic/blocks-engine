@@ -13,6 +13,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LayoutTableLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WordPressCommentForm;
@@ -73,6 +75,7 @@ final class AuthorStylesheetProjector
             $stylesheet,
             function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, &$bridges): string {
                 $css = $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions);
+                $css = $this->withProviderFieldWrapperHeight($prelude, $css, $context);
                 $bridge = $this->projectedLayerBridge($prelude, $css, $ancestors, $context);
                 if ( '' !== $bridge ) $bridges[$bridge] = true;
                 return $css;
@@ -113,6 +116,63 @@ final class AuthorStylesheetProjector
             });
         }
         return CssSelectorListCompactor::stylesheet($projected);
+    }
+
+    /**
+     * A provider-materialized form control sits inside the provider's field
+     * wrapper, a box the source did not have between the control and its
+     * authored parent. A percentage height on the control resolved against
+     * that parent in the source; against the auto-height wrapper it resolves
+     * to nothing, so `textarea{height:100%}` no longer fills its column.
+     *
+     * When every element the rule selects is such a control, its parent on
+     * the front end is the provider wrapper, so the projected rule passes the
+     * parent's height through it with a nested `:has(>&){height:100%}`: the
+     * control's percentage then resolves against the same box it did in the
+     * source, and an auto-height parent leaves the wrapper auto as before.
+     * Nesting states the wrapper by the rule's own selector instead of
+     * repeating it, and a control's own `height:100%` shares that rule.
+     */
+    private function withProviderFieldWrapperHeight(string $prelude, string $css, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( ! str_contains($css, '%') ) return $css;
+        $percentHeight = static fn (string $property, string $value): bool => in_array(strtolower($property), array( 'height', 'min-height', 'max-height' ), true) && 1 === preg_match('/\d%/', $value);
+        $controls = 0;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $selector = preg_replace(AuthorSelectorProjector::STATE_PSEUDO_CLASS_PATTERN, '', $selector) ?? $selector;
+            if ( str_contains($selector, '::') ) return $css;
+            foreach ( $this->selectors->matchingSourceElements($selector, $context->sourceStyles->parsedSelector($selector), $context) as $element ) {
+                $form = SourceDom::ancestorElement($element, 'form');
+                if ( null === $form || ! FormControlClassifier::isDataEntryControl($element) || array() === FormDispatcher::hostRenderedClasses($form) ) return $css;
+                ++$controls;
+            }
+        }
+        if ( 0 === $controls ) return $css;
+        $transformer = new CssStylesheetTransformer();
+
+        return $transformer->transformStyleRules($css, static function (string $selector, string $body) use ($transformer, $percentHeight): string {
+            $parts = $transformer->splitStyleRuleBody($body);
+            // An editor-canvas restatement has no provider wrapper, and a
+            // body that already nests rules is left as authored.
+            if ( str_contains($selector, EditorShellBoundary::EDITOR_SCOPE) || 1 !== count($parts) || ! isset($parts[0]['declarations']) ) return $selector . '{' . $body . '}';
+            $declarations = CssValueSplitter::splitTopLevel($body, array( ';' ));
+            $kept = array();
+            $percent = false;
+            $shared = null;
+            foreach ( $declarations as $declaration ) {
+                [$property, $value] = array_map('trim', explode(':', $declaration, 2)) + array( '', '' );
+                if ( $percentHeight($property, $value) ) $percent = true;
+                if ( null === $shared && 'height' === strtolower($property) && '100%' === $value && 1 === count(array_filter($declarations, static fn (string $other): bool => 1 === preg_match('/^\s*height\s*:/i', $other))) ) {
+                    $shared = $declaration;
+                    continue;
+                }
+                $kept[] = $declaration;
+            }
+            if ( ! $percent ) return $selector . '{' . $body . '}';
+            $nested = null === $shared ? ':has(>&){height:100%}' : '&,:has(>&){' . $shared . '}';
+
+            return $selector . '{' . implode(';', $kept) . ( array() === $kept ? '' : ';' ) . $nested . '}';
+        });
     }
 
     /**
@@ -168,9 +228,16 @@ final class AuthorStylesheetProjector
         if ( array() === $subjects ) return '';
         $rules = '';
         (new CssStylesheetTransformer())->visitStyleRules($css, function (string $selector, string $body) use (&$rules, $subjects): void {
-            // Only canonical block targets or source-instance projections own
-            // this escape. Never install a document-wide author reset.
-            if ( ! preg_match('/\\.(?:wp-block-|blocks-engine-)/', $selector) ) return;
+            // Only positive block targets own this escape. A projected arm in
+            // a mixed selector list must not lend ownership to authored inline
+            // subjects, nor do RichText carriers have Core block defaults.
+            $targets = array_filter(CssStylesheetTransformer::splitSelectorList($selector) ?? array(), static function (string $arm): bool {
+                $positive = CssSelectorCompoundInspector::positiveSelector($arm);
+                return 1 === preg_match('/\\.(?:wp-block-|blocks-engine-)/', $positive)
+                    && ! preg_match('/\\.blocks-engine-(?:role-richtext\\b|richtext-)/', $positive);
+            });
+            if ( array() === $targets ) return;
+            $selector = implode(',', $targets);
             $properties = array();
             foreach ( SourceDeclarations::verbatim($body) as $property => $value ) {
                 if ( str_starts_with($property, '--') || str_contains($value, '!important') ) continue;
@@ -1949,6 +2016,12 @@ final class AuthorStylesheetProjector
 
     private static function canMatchSyntheticImageFigure(string $selector): bool
     {
+        // A pseudo-element subject is generated content, never the wrapper
+        // element; a pseudo-class after it is invalid outside user-action
+        // states and would void the whole selector list in some engines.
+        if ( 1 === preg_match('/(?:::[\w-]+(?:\([^()]*\))?|:(?:before|after|first-line|first-letter))\s*$/i', $selector) ) {
+            return false;
+        }
         $compounds = CssSelectorMatcher::parse($selector)['compounds'] ?? array();
         $subject = end($compounds);
         if ( ! is_array($subject) ) {
@@ -2608,10 +2681,7 @@ final class AuthorStylesheetProjector
         }
 
         // A universal subject matches the image itself, exactly like `img`.
-        return in_array(strtolower((string) ($subject['type'] ?? '*')), array( 'img', 'svg', '*' ), true)
-            && array() === ($subject['classes'] ?? array())
-            && array() === ($subject['ids'] ?? array())
-            && array() === ($subject['attributes'] ?? array());
+        return CssSelectorCompoundInspector::isBareImageSubject($subject);
     }
 
     /** @param array<string, string> $declarations */
@@ -2848,6 +2918,11 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $matches = $this->selectors->matchingSourceElements($selector, $parsed, $context);
+            if ( null !== ( CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type'] ?? null )
+                && 'li' !== strtolower((string) CssSelectorCompoundInspector::rightmost($parsed['compounds'])['type']) ) {
+                array_push($carriers, ...$this->navigationSubjectItemSpaceCarriers($selector, $parsed, $matches, $context));
+                continue;
+            }
             if ( ! $this->selectors->matchesOnlyNavigationRole($matches, AuthorSelectorProjectionState::NAVIGATION_ITEM, $context) ) {
                 continue;
             }
@@ -2864,8 +2939,54 @@ final class AuthorStylesheetProjector
             return '';
         }
 
+        $carriers = array_values(array_unique($carriers));
+
         return implode(',', $carriers) . '{display:inline-flex' . ( CssValueInspector::isImportant($display) ? '!important' : '' ) . '}'
             . implode(',', array_map(static fn (string $carrier): string => $carrier . '::after', $carriers)) . '{content:"\\a0"' . ( CssValueInspector::isImportant($display) ? '!important' : '' ) . '}';
+    }
+
+    /**
+     * The item-space carriers for a rule whose items are not `li`s (a
+     * Squarespace `<nav>` of inline-block `<div>`s: `.nav-wrapper nav>div`).
+     *
+     * Such a rule reaches each rendered item through its native subject
+     * (`:root .wp-block-navigation.<instance> … >.wp-block-navigation-item
+     * :nth-child(n)` plus the rule's specificity shims), not through a typed
+     * item selector, so the carrier is that same projection followed by
+     * `:not(:last-child)`: one class heavier than the rule that made the item
+     * inline-block, at the same cascade position. The same selector can also
+     * match a copy of the menu that did not lower to core/navigation (a hidden
+     * mobile drawer kept as groups); those matches keep their own projection
+     * and do not count. Each rendered row must still have had the space
+     * between every pair of its items — {@see sourceItemsAreSpaceSeparated()}.
+     *
+     * @param array<string, mixed> $parsed
+     * @param list<DOMElement> $matches
+     * @return list<string>
+     */
+    private function navigationSubjectItemSpaceCarriers(string $selector, array $parsed, array $matches, AuthorStylesheetProjectionContext $context): array
+    {
+        if ( $context->selectorProjections->selectsCurrentNavigationState($selector)
+            || $context->selectorProjections->selectsRestingNavigationState($selector) ) {
+            return array();
+        }
+        $items = array_values(array_filter(
+            $matches,
+            static fn (DOMElement $element): bool => $context->selectorProjections->isNavigationSourcePath($element->getNodePath() ?? '', AuthorSelectorProjectionState::NAVIGATION_ITEM)
+        ));
+        if ( array() === $items || ! $this->sourceItemsAreSpaceSeparated($items, $context) || $this->authorsItemAfterContent($items, $context) ) {
+            return array();
+        }
+        $carriers = array();
+        foreach ( $items as $element ) {
+            $target = $context->selectorProjections->navigationSubject($element->getNodePath() ?? '');
+            // A submenu item has no published subject: the rule never reached it.
+            if ( '' !== $target && ! str_contains($target, '.wp-block-navigation-item__content') ) {
+                $carriers[] = ':root ' . $target . $this->selectors->selectorSpecificityShims($parsed, $context) . ':not(:last-child)';
+            }
+        }
+
+        return array_values(array_unique($carriers));
     }
 
     /**

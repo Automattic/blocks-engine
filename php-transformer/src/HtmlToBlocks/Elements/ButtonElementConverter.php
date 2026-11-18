@@ -57,6 +57,15 @@ final class ButtonElementConverter implements ElementConverter
             if ( null !== $container ) return ConversionOutcome::handled($container);
         }
 
+        // An image that fills the control's inline size is the control's
+        // content (a photo tile, its caption beside or over it), never an icon
+        // beside a label: core/button's phrasing label would replace it with
+        // its alt text. Keep one real button around the editable core/image.
+        if ( $this->hasControlFillingImage($element) ) {
+            $container = $this->context->convertButtonWrapperGroup($element, $fallbacks);
+            if ( null !== $container ) return ConversionOutcome::handled($container);
+        }
+
         if ( $this->context->isRuntimeDomTarget($element) && ( array() !== AuthoredButtonBlockGenerator::sourceSafeAttributes($element) || ! $this->sourceElementClassifier->isRichTextButtonLabel($element) ) ) {
             $runtimeButton = $this->context->runtimeButton($element);
             if ( null !== $runtimeButton ) {
@@ -128,6 +137,24 @@ final class ButtonElementConverter implements ElementConverter
                 if ( null !== $size[ $axis ] && self::ICON_SCALE_MAX_PX < $size[ $axis ] ) {
                     return true;
                 }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a direct image child spans the control's whole inline size at
+     * every viewport. Only a direct child's percentage resolves against the
+     * control; an image filling a small icon wrapper is still an icon.
+     */
+    private function hasControlFillingImage(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $image ) {
+            if ( $image instanceof DOMElement
+                && 'img' === strtolower($image->tagName)
+                && $this->presentationResolver->hasPropertyValueAtEveryViewport($image, 'width', '100%') ) {
+                return true;
             }
         }
 
