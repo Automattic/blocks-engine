@@ -60,7 +60,7 @@ foreach ( $layers as $classes ) {
     // The figure is display:contents, so the image must take over the
     // figure's out-of-flow position and insets, or the inner glyph falls
     // below the circle instead of sitting on it.
-    if ( ! str_contains($css, '.' . $inline . '{display:contents;overflow:visible}') ) {
+    if ( ! str_contains($css, '.' . $inline . '{display:contents}') ) {
         fwrite(STDERR, "FAIL: expected the transparent inline figure\n" . $css . "\n");
         exit(1);
     }

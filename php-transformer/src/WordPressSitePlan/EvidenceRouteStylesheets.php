@@ -39,13 +39,17 @@ final class EvidenceRouteStylesheets
     }
 
     /**
-     * The capture's device-island visibility rules, with their media
-     * conditions. A responsive capture folds each route's desktop and phone
-     * frames into sibling islands and ships the rules choosing one per
-     * viewport. They are capture runtime, not author presentation: box-tree
-     * evidence observed each island only at its own capture width, so no
-     * projected rule reproduces the switch, and retiring them would show both
-     * islands at every width.
+     * The capture's device-island visibility rules for the phone band, with
+     * their media condition. A responsive capture folds each route's desktop
+     * and phone frames into sibling islands and ships the rules choosing one
+     * per viewport. Box-tree evidence observed the desktop island only at the
+     * desktop capture, so below the device switch, where the phone capture
+     * governs the layout ({@see BoxTreeDeviceBands}), no projected rule hides
+     * it and its desktop pixels overflow the phone-width ancestors.
+     *
+     * Only rules under a single `max-width` condition are kept: widths above
+     * the switch are governed by the desktop capture's evidence, and the
+     * rules for that band are left retired so its rendering is unchanged.
      */
     private static function deviceIslandRules(string $css): string
     {
@@ -54,6 +58,7 @@ final class EvidenceRouteStylesheets
         $kept = '';
         (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $prelude, string $body, array $ancestors) use ($island, &$kept): void {
             if (1 !== preg_match($island, $prelude)) return;
+            if (1 !== count($ancestors) || 1 !== preg_match('/^@media\s*(?:(?:only\s+)?screen\s+and\s*)?\(\s*max-width\s*:\s*\d+(?:\.\d+)?px\s*\)$/i', trim($ancestors[0]))) return;
             $rule = trim($prelude) . '{' . $body . '}';
             foreach (array_reverse($ancestors) as $condition) $rule = $condition . '{' . $rule . '}';
             $kept .= $rule;

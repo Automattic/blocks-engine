@@ -3,10 +3,11 @@ declare(strict_types=1);
 
 // A responsive capture folds desktop and phone frames into sibling device
 // islands and ships the rules that pick one per viewport. On a box-tree route
-// the author stylesheet is retired, but that switch is capture runtime: losing
-// it showed both islands at every width (and the phone island, laid out in
-// desktop-pixel ancestors, off-screen at tablet widths). The phone capture
-// also governs every width up to the switch, not only up to its own width.
+// the author stylesheet is retired. The phone capture governs every width up
+// to the switch, not only up to its own width, and the desktop island, which
+// has no evidence there, hides in that band; losing that switch left tablet
+// widths in frozen desktop pixels with images pushed out of the viewport.
+// Widths above the switch keep the desktop capture's rendering unchanged.
 
 require __DIR__ . '/../../vendor/autoload.php';
 
@@ -43,7 +44,7 @@ foreach (ThemeBootstrap::documentStylesheets($plan, 'index.html') as $row) $deli
 $compact = (string) preg_replace('/\s+/', '', $delivered);
 $assert(!str_contains($compact, 'h1{opacity'), 'Author presentation is still retired on the evidence route.', $delivered);
 $assert(1 === preg_match('/@media\(max-width:1023px\)\{[^{}]*\.data-blocks-engine-capture-desktop-only\{display:none!important\}\}/', $compact), 'The desktop island hides below the capture device switch.', $delivered);
-$assert(1 === preg_match('/@media\(min-width:1024px\)\{[^{}]*\.data-blocks-engine-capture-mobile-only\{display:none!important\}\}/', $compact), 'The phone island hides above the capture device switch.', $delivered);
+$assert(!str_contains($compact, 'min-width:1024px'), 'Rules for the desktop band stay retired.', $delivered);
 
 $css = implode("\n", array_column(array_filter($result->toArray()['assets'], static fn(array $a): bool => 'css' === ($a['kind'] ?? null)), 'content'));
 $assert(str_contains($css, '@media (max-width:1023px)') && !str_contains($css, '@media (max-width:390px)'), 'The phone capture governs every width that shows the phone island.', $css);
