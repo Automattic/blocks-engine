@@ -29,5 +29,19 @@ $assert(str_contains($markup, 'href="/x/"') && str_contains($markup, 'background
 $padded = ( new HtmlTransformer() )->transform($page('.btn-inner{padding:20px}'))->toArray()['serialized_blocks'] ?? '';
 $assert(1 !== preg_match('/<!-- wp:buttons \{[^}]*"className":"btn-inner /', $padded), 'a wrapper with its own padding is not folded onto the buttons block');
 
+// Inline anchors rely on the retained parent's line box, even when their
+// painted padding makes them look like boxed buttons.
+$inline = (new HtmlTransformer())->transform(
+    '<style>.cta-host{font:16px/1.5 sans-serif}.cta{padding:12px 24px;background:#111;color:#fff}</style>'
+    . '<div class="cta-host"><a class="cta" href="/contact">Contact</a></div>'
+)->toArray();
+$assert('core/group' === ($inline['blocks'][0]['blockName'] ?? null), 'an inline anchor keeps its block parent and line box');
+
+$custom = (new HtmlTransformer())->transform(
+    '<div class="desktop-share"><share-control href="/article" aria-label="Share article"><span></span></share-control></div>'
+)->toArray();
+$assert('core/group' === ($custom['blocks'][0]['blockName'] ?? null)
+    && 'core/buttons' === ($custom['blocks'][0]['innerBlocks'][0]['blockName'] ?? null), 'custom controls keep their independent wrapper ancestry');
+
 fwrite(STDOUT, sprintf('button-wrapper-coalesces-into-buttons: %d failed%s', $failures, PHP_EOL));
 exit($failures > 0 ? 1 : 0);

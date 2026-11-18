@@ -770,6 +770,12 @@ final class WrapperCoalescer
         return array(
             array('missing_matching_source_child', fn (): bool => ! $sourceChild instanceof DOMElement),
             array('image_source_child_type_mismatch', fn (): bool => 'core/image' === ($childBlock['blockName'] ?? null) && ! in_array(strtolower($sourceChild->tagName), array( 'img', 'svg' ), true) && ! str_contains($sourceChild->tagName, '-')),
+            // Buttons introduce a synthetic layout box. An inline anchor
+            // still needs its parent's line box; a custom link control also
+            // keeps its independently addressable host ancestry.
+            array('buttons_require_boxed_source_anchor', fn (): bool => 'core/buttons' === ($childBlock['blockName'] ?? null)
+                && ('a' !== strtolower($sourceChild->tagName)
+                    || 'inline-block' !== CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($sourceChild)['display'] ?? '')))),
             array('source_child_has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($sourceChild)),
             array('box_affecting_declarations_not_neutral', fn (): bool => null === $proof && ! $redundantNestedLayout && ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element))),
             array('full_width_shell_child_not_normal_flow', fn (): bool => null === $proof && $fullWidthTransparentShell && ! $this->isNormalFlowFullWidthShellChild($sourceChild)),
