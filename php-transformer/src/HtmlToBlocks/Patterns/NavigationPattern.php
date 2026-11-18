@@ -5201,6 +5201,17 @@ final class NavigationPattern implements PatternRecognizerInterface
             return false;
         }
 
+        // A toggle-like identity alone does not make an empty capture a
+        // source-owned control. Do not let inert siblings claim the menu's
+        // wrapper and prevent its desktop/mobile copies from being recognized.
+        if ( '' === trim($element->textContent ?? '')
+            && ! in_array($tagName, array( 'a', 'button' ), true)
+            && ! AuthoredButtonBlockGenerator::isRoleButton($element)
+            && 0 === $element->getElementsByTagName('a')->length
+            && 0 === $element->getElementsByTagName('button')->length ) {
+            return false;
+        }
+
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:toggle|hamburger|menu-button|menu-toggle)(?:[^a-z0-9]|$)/', $tokens);
     }
 
