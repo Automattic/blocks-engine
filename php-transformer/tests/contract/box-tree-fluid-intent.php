@@ -314,6 +314,35 @@ $cases = array(
         array('n6.width' => array('704.4px', '368.7px'), 'n6::before.display' => array('block', 'block'), 'n6::before.width' => array('704.4px', '368.7px')),
         array('::before ;width:100%'), array('width:704.4px', 'width:368.7px'),
     ),
+    'a proven absent pseudo variable computes width as auto' => array(
+        'h1::before{content:"";display:block;width:var(--primaryLineWidth)}',
+        array('n6.width' => array('704.4px', '368.7px'), 'n6::before.display' => array('block', 'block'), 'n6::before.width' => array('704.4px', '368.7px')),
+        array('::before ;width:auto'), array('::before ;width:704.4px', '::before ;width:368.7px'),
+    ),
+    'a proven absent host variable computes width as auto' => array(
+        'h1{width:var(--missing)}', array('n6.width' => array('704.4px', '368.7px')),
+        array('h1 ;width:auto'), array('h1 ;width:704.4px', 'h1 ;width:368.7px'),
+    ),
+    'a proven absent inherited variable follows the parent' => array(
+        'main{font-size:5vw}h1{font-size:var(--missing)}',
+        array('n5.font-size' => array('72px', '20.1px'), 'n6.font-size' => array('72px', '20.1px')),
+        array('h1 ;font-size:inherit'), array('h1 ;font-size:72px', 'h1 ;font-size:20.1px'),
+    ),
+    'a conditional variable is not proven absent' => array(
+        '@container (min-width:500px){h1{--primaryLineWidth:100%}}h1::before{content:"";display:block;width:var(--primaryLineWidth)}',
+        array('n6::before.display' => array('block', 'block'), 'n6::before.width' => array('704.4px', '368.7px')),
+        array('::before ;width:704.4px'), array('::before ;width:auto'),
+    ),
+    'a registered variable is not proven absent' => array(
+        '@property --primaryLineWidth{syntax:"<length>";inherits:true;initial-value:10px}h1::before{content:"";display:block;width:var(--primaryLineWidth)}',
+        array('n6::before.display' => array('block', 'block'), 'n6::before.width' => array('704.4px', '368.7px')),
+        array('::before ;width:704.4px'), array('::before ;width:auto'),
+    ),
+    'a missing variable with a fallback still uses the fallback' => array(
+        'h1::before{content:"";display:block;width:var(--missing,100%)}',
+        array('n6.width' => array('704.4px', '368.7px'), 'n6::before.display' => array('block', 'block'), 'n6::before.width' => array('704.4px', '368.7px')),
+        array('::before ;width:100%'), array('::before ;width:auto'),
+    ),
     'an auto pseudo width in a stretched column lifts as auto' => array(
         'h1{display:flex;flex-direction:column}h1::before{content:"";display:block;width:auto}',
         array('n6.display' => array('flex', 'flex'), 'n6.flex-direction' => array('column', 'column'), 'n6.width' => array('704.4px', '368.7px'),

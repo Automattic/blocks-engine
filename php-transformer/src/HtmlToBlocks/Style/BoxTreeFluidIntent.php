@@ -255,7 +255,7 @@ final class BoxTreeFluidIntent
                 ?? $this->liftedIntrinsic($property, $widths, $samples)
                 ?? $this->liftedAutoMargin($property, $widths, $samples)
                 ?? $this->liftedMixed($property, $widths, $samples, $observations, $viewports, $parents)
-                ?? ($inheriting ? $this->liftedInheritance($property, $widths, $samples, $observations, $parents) : null);
+                ?? $this->liftedInheritance($property, $widths, $samples, $observations, $parents, $inheriting);
             if (null !== $bands) $lifted[$property] = $bands;
         }
         return $lifted;
@@ -482,13 +482,13 @@ final class BoxTreeFluidIntent
      * @param array<string, float> $samples
      * @return list<array{0: float|null, 1: string}>|null
      */
-    private function liftedInheritance(string $property, array $widths, array $samples, array $observations, array $parents): ?array
+    private function liftedInheritance(string $property, array $widths, array $samples, array $observations, array $parents, bool $allowAbsent): ?array
     {
         if (!in_array($property, BoxTree::INHERITED_PROPERTIES, true) || count($widths) < 2) return null;
         $values = array();
         foreach ($widths + $samples as $key => $width) {
             $declared = $this->declared($property, $width);
-            if (null !== $declared && 'inherit' !== strtolower($declared)) return null;
+            if (null === $declared ? !$allowAbsent : 'inherit' !== strtolower($declared)) return null;
             if (!isset($observations[$key])) continue;
             $own = $observations[$key]['used_styles'][$property] ?? null;
             $parent = $parents[$key]['used_styles'][$property] ?? null;
@@ -549,6 +549,11 @@ final class BoxTreeFluidIntent
         $value = trim(CssValueInspector::withoutImportant((string) $winners[$name]));
         if ('' === $value) return null;
         if ('' !== $this->pseudo && $this->pseudoDefinesReferenced($value, $width)) return '';
+        if ($this->resolver->customProperties->isProvenInvalid($value, $this->element)) {
+            // Invalid at computed-value time means unset for the whole
+            // declaration, including every longhand of a shorthand.
+            return in_array($property, BoxTree::INHERITED_PROPERTIES, true) ? 'inherit' : 'unset';
+        }
         $value = $this->withRemInPixels(trim($this->resolver->customProperties->resolveAtViewport($value, $this->element, $width)), $width);
         if ('' === $value || !$fromShorthand) return $value;
         if ('font' === $shorthand) {
