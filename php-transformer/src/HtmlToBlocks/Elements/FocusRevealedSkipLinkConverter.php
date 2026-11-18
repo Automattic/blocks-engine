@@ -17,8 +17,11 @@ final class FocusRevealedSkipLinkConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
-        return 'a' === $tagName && $this->styleResolver->isFocusRevealedSkipLink($element, $this->session->sourcePath())
-            ? ConversionOutcome::handled(null)
-            : ConversionOutcome::unhandled();
+        if ( 'a' !== $tagName || ! $this->styleResolver->isFocusRevealedSkipLink($element, $this->session->sourcePath()) ) {
+            return ConversionOutcome::unhandled();
+        }
+        $this->session->transformationEvidenceState()->recordOmittedSkipLink((string) $element->getNodePath());
+
+        return ConversionOutcome::handled(null);
     }
 }
