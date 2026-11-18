@@ -2,16 +2,17 @@
 declare(strict_types=1);
 
 /**
- * A visual iframe saves the classes its block attributes carry.
+ * A visual iframe renders the classes its block attributes carry.
  *
  * Device-scoped rules reach the iframe through a projection marker class the
- * block attributes record. The saved iframe must carry the same class, or the
- * rule matches nothing and the block's save output disagrees with its attributes.
+ * block attributes record. The theme-rendered iframe must carry the same class,
+ * or the rule matches nothing and the frame disagrees with its attributes.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture;
 
 $body = '<main><div class="slot"><iframe class="frame" src="https://forms.example.test/share" title="Signup" width="398" height="497"></iframe></div></main>';
 $scope = static fn (string $device): string => ':where([data-blocks-engine-capture-device-document="' . $device . '"]) ';
@@ -20,7 +21,10 @@ $html = '<!doctype html><html><head><style data-blocks-engine-capture-device-sty
     . '<div data-blocks-engine-capture-device-document="mobile">' . $body . '</div></body></html>';
 
 $plan = (new ArtifactCompiler())->compile(array( 'entrypoint' => 'index.html', 'files' => array( 'index.html' => $html ) ))->toArray()['source_reports']['wordpress_site_plan'];
-preg_match_all('/<!-- wp:\S+\/visual-iframe (\{.*?\}) -->(<iframe[^>]*>)/', (string) $plan['pages'][0]['canonical_block_markup'], $frames, PREG_SET_ORDER);
+$markup = (string) $plan['pages'][0]['canonical_block_markup'];
+preg_match_all('/<!-- wp:embed (\{.*?\}) -->/', $markup, $blocks);
+preg_match_all('/<iframe[^>]*>/', IframeEmbedRendererFixture::render($markup), $rendered);
+$frames = 2 === count($blocks[1]) && 2 === count($rendered[0]) ? array_map(null, array_fill(0, 2, ''), $blocks[1], $rendered[0]) : array();
 $css = implode('', array_map(static fn (array $asset): string => is_string($asset['content'] ?? null) ? $asset['content'] : '', $plan['assets']));
 
 $marker = '';
@@ -34,7 +38,7 @@ foreach ( $frames as $frame ) {
 }
 
 foreach ( array(
-    'every saved iframe carries its block className' => $saved,
+    'every rendered iframe carries its block className' => $saved,
     'the desktop rule reaches the iframe through its marker' => '' !== $marker && 1 === preg_match('/\.' . preg_quote($marker, '/') . '\)[^{}]*\{position:absolute\}/', $css),
 ) as $label => $ok ) {
     if ( ! $ok ) {

@@ -167,6 +167,7 @@ final class FormRuntimeRequirementAnalyzer
         $subscribe = false;
         $donate = 1 === preg_match('~(?:^|/)(?:donat(?:e|ion|ions)|give|giving)(?:[/.]|$)~', $path);
         $freeText = false;
+        $nonEmailEntry = false;
         $hasChoice = false;
         $onlyChoices = true;
         $hasSubmit = false;
@@ -203,7 +204,10 @@ final class FormRuntimeRequirementAnalyzer
                 $onlyChoices = false;
             }
             $quantity = $quantity || in_array($name, array( 'quantity', 'qty' ), true);
-            $email = $email || 'email' === $type || 'email' === $name;
+            $isEmail = 'email' === $type || 'email' === $name;
+            $email = $email || $isEmail;
+            $nonEmailEntry = $nonEmailEntry || 'textarea' === $tag
+                || ('input' === $tag && ! $isEmail && ! in_array($controlType, array( 'radio', 'checkbox', 'submit', 'reset', 'button', 'image' ), true));
             $message = $message || 'textarea' === $tag;
             $search = $search || 'search' === $type || in_array($name, array( 'q', 's', 'search', 'query' ), true);
             $select = $select || 'select' === $tag;
@@ -241,7 +245,14 @@ final class FormRuntimeRequirementAnalyzer
         // and omit `method`, but a search or filter form never collects an email.
         if ( $email && ($subscribe || preg_match('~(?:^|/)(?:newsletter|subscribe)(?:/|$)~', $path)) ) return 'newsletter';
         if ( $email && $message ) return 'contact';
-        if ( self::isClientSideTool($form) ) return 'client_side_tool';
+        // A form whose only free-entry control is an email address is a
+        // signup, whatever its submit label's language or sibling status.
+        if ( $email && ! $nonEmailEntry ) return 'newsletter';
+        // An email address is collected for the site owner: a form that asks
+        // for one submits it (a signup or lead form, whatever its submit label's
+        // language), so its status region announces that submission rather than
+        // a result computed in the page.
+        if ( ! $email && self::isClientSideTool($form) ) return 'client_side_tool';
         $method = strtolower(trim(SourceDom::attr($form, 'method')));
         if ( '' === $method || 'get' === $method ) {
             if ( $search || preg_match('~(?:^|/)search(?:/|$)~', $path) ) return 'search';

@@ -84,6 +84,11 @@ final class NavigationStyleProjector
             $this->session->generatedSupportStylesheetState()->navigationEditorTypographyRules(),
             $this->session->generatedSupportStylesheetState()->navigationEditorItemStyleRules()
         );
+        // Repairs that name only engine markup ship in their own engine-owned
+        // sheet: a route that retires author selectors (box-tree evidence)
+        // must still deliver them, or Gutenberg loses the selectable boxes
+        // and placeholders they restore (issue #5920).
+        $engineRules = array();
         // Source runtimes can hide an icon carrier until hover or animation.
         // They do not run in Gutenberg: expose the native image and its direct
         // group carrier there, so the image has a selectable box. Keep this in
@@ -95,8 +100,22 @@ final class NavigationStyleProjector
             && preg_match('/(?:^|[;{])\s*(?:visibility\s*:\s*hidden|display\s*:\s*none)\s*(?:!important\s*)?(?:[;}])/i', $this->session->authorStyleAnalysis()->combinedCss())
         ) {
             $image = 'figure.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '.wp-block-image';
-            $rules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
+            $engineRules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
                 . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){display:block!important;visibility:visible!important}';
+        }
+        // An inline layout carrier is `display:contents` so its inline content
+        // lays out in the source's own box. In the editor that paragraph is
+        // the RichText root, and a boxless element cannot take focus: putting
+        // the caret in it to replace its text (a `<time>` date line) left focus
+        // outside, and the typed text never reached the block (issue #5797).
+        // Give the carrier an inline box only while it is being edited: at
+        // rest the canvas keeps the front end's boxless layout, and the front
+        // end never matches this editor-only rule.
+        if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
+            $rules[] = ':root .editor-styles-wrapper p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '[contenteditable="true"]:is(.is-selected,:focus){display:inline}';
+        }
+        foreach ( self::focusedEmptyRichTextRepairRules($projectedAuthorCss) as $repairRule ) {
+            $rules[] = $repairRule;
         }
         $anchorProjectionCss = $this->editorAnchorProjectionCss($projectedAuthorCss);
         if ( '' !== $anchorProjectionCss ) {
@@ -162,7 +181,7 @@ final class NavigationStyleProjector
         }
         if ( $this->session->runtimeBehaviorState()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
-            $rules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
+            $engineRules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
                 . $selector . '>*{display:none!important}'
                 . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
         }
@@ -174,7 +193,7 @@ final class NavigationStyleProjector
             // reserve no height for it: the source layer is painted out of
             // normal flow, so any reserved height displaces every block after
             // it and moves the composition down the canvas.
-            $rules[] = $selector . '{min-height:0!important;overflow:hidden!important}'
+            $engineRules[] = $selector . '{min-height:0!important;overflow:hidden!important}'
                 . $selector . '>*{display:none!important}'
                 // Core's large empty-group placeholder has a more specific
                 // display declaration than the generic child selector.
@@ -196,6 +215,71 @@ final class NavigationStyleProjector
         }
 
         $this->context->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
+        $this->context->materializeStylesheetAsset($engineRules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor', EngineMarker::ENGINE_OWNED_STYLESHEET_ROLE);
+    }
+
+    /**
+     * Saved markup is never contenteditable, but a RichText is, and while an
+     * author replaces its text its DOM is briefly `:empty` (then
+     * `data-empty`). An authored `p:empty{display:none}` then hides the
+     * element being edited: typed text never lands, and its block toolbar
+     * anchors to a zero box over the canvas, covering the blocks beneath it
+     * (issue #5920). Keep the focused editable subject of such a rule shown.
+     * This is editor-only: the front end and saved-empty paragraphs keep the
+     * authored rule exactly as written.
+     *
+     * @return list<string>
+     */
+    private static function focusedEmptyRichTextRepairRules(string $projectedAuthorCss): array
+    {
+        if ( ! str_contains($projectedAuthorCss, ':empty') ) {
+            return array();
+        }
+        $rules = array();
+        ( new CssStylesheetTransformer() )->visitStyleRules(
+            $projectedAuthorCss,
+            static function (string $prelude, string $body, array $ancestors) use (&$rules): void {
+                if ( ! str_contains($prelude, ':empty') ) {
+                    return;
+                }
+                $display = strtolower(trim((string) (SourceDeclarations::parse($body)['display'] ?? '')));
+                if ( 'none' !== trim((string) preg_replace('/\s*!\s*important$/', '', $display)) ) {
+                    return;
+                }
+                $selectors = array();
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $selector = trim($selector);
+                    if ( str_contains($selector, '::') || str_contains($selector, '.editor-styles-wrapper') || 1 === preg_match('/:(?:before|after|first-line|first-letter)(?![\w-])/i', $selector) ) {
+                        continue;
+                    }
+                    $offset = null;
+                    if ( preg_match_all('/:empty(?![\w-])/', $selector, $matches, PREG_OFFSET_CAPTURE) ) {
+                        $offset = (int) end($matches[0])[1];
+                    }
+                    if ( null === $offset ) {
+                        continue;
+                    }
+                    // The empty compound must be the rule's subject, outside any
+                    // functional pseudo-class (`:not(:empty)`, `:has(:empty)`).
+                    $before = substr($selector, 0, $offset);
+                    $after = (string) preg_replace('/\([^()]*\)/', '', (string) preg_replace('/\([^()]*\)/', '', substr($selector, $offset + 6)));
+                    if ( substr_count($before, '(') !== substr_count($before, ')') || 1 === preg_match('/[\s>+~]/', $after) ) {
+                        continue;
+                    }
+                    $selectors[] = $before . ':focus:is(:empty,[data-empty="true"])[contenteditable="true"]' . substr($selector, $offset + 6);
+                }
+                if ( array() === $selectors ) {
+                    return;
+                }
+                $rule = ':root .editor-styles-wrapper :is(' . implode(',', $selectors) . '){display:revert!important}';
+                foreach ( array_reverse($ancestors) as $ancestor ) {
+                    $rule = $ancestor . '{' . $rule . '}';
+                }
+                $rules[$rule] = $rule;
+            }
+        );
+
+        return array_values($rules);
     }
 
     private function editorAnchorProjectionCss(string $projectedAuthorCss = ''): string

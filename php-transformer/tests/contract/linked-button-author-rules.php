@@ -28,7 +28,8 @@ foreach (array('none', 'plain', 'classed') as $variant) {
     $assert($link instanceof DOMElement, "$variant: link exists");
     $classes = explode(' ', $link->parentNode->getAttribute('class'));
     foreach (array('btn', 'h-9', 'bg-white', 'hover:bg-blue-50') as $class) {
-        $assert(in_array(EngineMarker::subjectClassClass($class), $classes, true), "$variant: source carrier for $class");
+        // A subject class is written exactly when an emitted rule names it.
+        $assert(str_contains($css, EngineMarker::subjectClassClass($class)) === in_array(EngineMarker::subjectClassClass($class), $classes, true), "$variant: source carrier for $class follows its rules");
     }
     $assert(!str_contains($link->getAttribute('style'), 'background-color:'), "$variant: background is stylesheet-owned, not an inline literal");
     $height = false;

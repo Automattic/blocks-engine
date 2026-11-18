@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-text-language-direction",
+  "description": "Keeps a text element's own lang and dir on the native block: core/paragraph's direction attribute saves dir on the <p>, and lang (and a heading or list item's dir, which core has no attribute for) wraps the RichText in one <span lang dir>.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-text-language-direction.json",
+    "notes": "Generic fixture for mixed-language, mixed-direction text."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<p lang=\"en\">English sentence.</p><p lang=\"ar\" dir=\"rtl\">هذه جملة عربية، مع علامة ترقيم.</p><p dir=\"RTL\">بدون لغة</p><h2 lang=\"he\" dir=\"rtl\">כותרת</h2><ul><li lang=\"fr\">Bonjour</li></ul><p>Plain <span lang=\"de\">Hallo</span> text.</p>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/paragraph", "attrs": { "content": "<span lang=\"en\">English sentence.</span>" } },
+    { "path": "blocks.1", "name": "core/paragraph", "attrs": { "direction": "rtl", "content": "<span lang=\"ar\">هذه جملة عربية، مع علامة ترقيم.</span>" } },
+    { "path": "blocks.2", "name": "core/paragraph", "attrs": { "direction": "rtl", "content": "بدون لغة" } },
+    { "path": "blocks.3", "name": "core/heading", "attrs": { "content": "<span lang=\"he\" dir=\"rtl\">כותרת</span>" } },
+    { "path": "blocks.4.innerBlocks.0", "name": "core/list-item", "attrs": { "content": "<span lang=\"fr\">Bonjour</span>" } },
+    { "path": "blocks.5", "name": "core/paragraph", "attrs": { "content": "Plain <span lang=\"de\">Hallo</span> text." } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"direction\":\"rtl\"} --><p dir=\"rtl\"><span lang=\"ar\">هذه جملة عربية، مع علامة ترقيم.</span></p><!-- /wp:paragraph -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p><span lang=\"en\">English sentence.</span></p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<h2 class=\"wp-block-heading\"><span lang=\"he\" dir=\"rtl\">כותרת</span></h2>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:html" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
+  ]
+}

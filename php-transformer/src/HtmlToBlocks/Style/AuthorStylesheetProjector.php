@@ -13,6 +13,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LayoutTableLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WordPressCommentForm;
@@ -73,6 +75,7 @@ final class AuthorStylesheetProjector
             $stylesheet,
             function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, &$bridges): string {
                 $css = $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions);
+                $css = $this->withProviderFieldWrapperHeight($prelude, $css, $context);
                 $bridge = $this->projectedLayerBridge($prelude, $css, $ancestors, $context);
                 if ( '' !== $bridge ) $bridges[$bridge] = true;
                 return $css;
@@ -113,6 +116,63 @@ final class AuthorStylesheetProjector
             });
         }
         return CssSelectorListCompactor::stylesheet($projected);
+    }
+
+    /**
+     * A provider-materialized form control sits inside the provider's field
+     * wrapper, a box the source did not have between the control and its
+     * authored parent. A percentage height on the control resolved against
+     * that parent in the source; against the auto-height wrapper it resolves
+     * to nothing, so `textarea{height:100%}` no longer fills its column.
+     *
+     * When every element the rule selects is such a control, its parent on
+     * the front end is the provider wrapper, so the projected rule passes the
+     * parent's height through it with a nested `:has(>&){height:100%}`: the
+     * control's percentage then resolves against the same box it did in the
+     * source, and an auto-height parent leaves the wrapper auto as before.
+     * Nesting states the wrapper by the rule's own selector instead of
+     * repeating it, and a control's own `height:100%` shares that rule.
+     */
+    private function withProviderFieldWrapperHeight(string $prelude, string $css, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( ! str_contains($css, '%') ) return $css;
+        $percentHeight = static fn (string $property, string $value): bool => in_array(strtolower($property), array( 'height', 'min-height', 'max-height' ), true) && 1 === preg_match('/\d%/', $value);
+        $controls = 0;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $selector = preg_replace(AuthorSelectorProjector::STATE_PSEUDO_CLASS_PATTERN, '', $selector) ?? $selector;
+            if ( str_contains($selector, '::') ) return $css;
+            foreach ( $this->selectors->matchingSourceElements($selector, $context->sourceStyles->parsedSelector($selector), $context) as $element ) {
+                $form = SourceDom::ancestorElement($element, 'form');
+                if ( null === $form || ! FormControlClassifier::isDataEntryControl($element) || array() === FormDispatcher::hostRenderedClasses($form) ) return $css;
+                ++$controls;
+            }
+        }
+        if ( 0 === $controls ) return $css;
+        $transformer = new CssStylesheetTransformer();
+
+        return $transformer->transformStyleRules($css, static function (string $selector, string $body) use ($transformer, $percentHeight): string {
+            $parts = $transformer->splitStyleRuleBody($body);
+            // An editor-canvas restatement has no provider wrapper, and a
+            // body that already nests rules is left as authored.
+            if ( str_contains($selector, EditorShellBoundary::EDITOR_SCOPE) || 1 !== count($parts) || ! isset($parts[0]['declarations']) ) return $selector . '{' . $body . '}';
+            $declarations = CssValueSplitter::splitTopLevel($body, array( ';' ));
+            $kept = array();
+            $percent = false;
+            $shared = null;
+            foreach ( $declarations as $declaration ) {
+                [$property, $value] = array_map('trim', explode(':', $declaration, 2)) + array( '', '' );
+                if ( $percentHeight($property, $value) ) $percent = true;
+                if ( null === $shared && 'height' === strtolower($property) && '100%' === $value && 1 === count(array_filter($declarations, static fn (string $other): bool => 1 === preg_match('/^\s*height\s*:/i', $other))) ) {
+                    $shared = $declaration;
+                    continue;
+                }
+                $kept[] = $declaration;
+            }
+            if ( ! $percent ) return $selector . '{' . $body . '}';
+            $nested = null === $shared ? ':has(>&){height:100%}' : '&,:has(>&){' . $shared . '}';
+
+            return $selector . '{' . implode(';', $kept) . ( array() === $kept ? '' : ';' ) . $nested . '}';
+        });
     }
 
     /**
@@ -518,6 +578,8 @@ final class AuthorStylesheetProjector
                 && 'auto' === trim(str_replace('!important', '', $value)), ARRAY_FILTER_USE_BOTH);
         }
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
+        $svgLeaf = $this->svgImageLeafOwnership($prelude, $body, $declarations, $svgImagePrelude, $context);
+        $body = $svgLeaf['body'];
         $imageRule = '' === $imagePrelude
             ? ''
             : $this->imageProjectionBridgeRule($prelude, $imagePrelude, $declarations, $context);
@@ -571,12 +633,12 @@ final class AuthorStylesheetProjector
             . $this->syntheticParagraphItemRule($prelude, $declarations, $context)
             . $this->navigationToggleRowRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
-            $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
+            $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $svgLeaf['rules'] . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
 
             return $this->withEditorProjectionRules($css, $prelude, $body, $context);
         }
 
-        $inner = array_diff_key($declarations, $margins);
+        $inner = array_diff_key($declarations, $margins, $svgLeaf['owned']);
         $rules = '' === $this->styleResolver->cssDeclarationString($inner)
             ? ''
             : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context, $inConditional);
@@ -589,7 +651,8 @@ final class AuthorStylesheetProjector
         $marginGroups = array();
         foreach ( $margins as $property => $value ) {
             $marginPrelude = $this->marginSelectorPrelude($prelude, $context);
-            if ( '' !== $imagePlacement['rules'] && 1 !== preg_match('/\bauto\b/i', $value) ) {
+            // The SVG image leaf owns its margins, auto centering included.
+            if ( isset($svgLeaf['owned'][$property]) || ('' !== $imagePlacement['rules'] && 1 !== preg_match('/\bauto\b/i', $value)) ) {
                 // The leaf placement projection already spaces the image.
                 // Keep non-auto margins off its synthetic wrapper; real source
                 // boxes retain them. Auto margins can still center a wrapper
@@ -609,6 +672,7 @@ final class AuthorStylesheetProjector
         }
         $css = $rules
             . $marginRules
+            . $svgLeaf['rules']
             . $imageRule
             . $imagePlacement['rules']
             . $svgImageRule
@@ -1427,6 +1491,7 @@ final class AuthorStylesheetProjector
                 }
                 $carriers[$selector][] = array(
                     'marker' => $marker,
+                    'element' => $element,
                     'flattened' => LayoutParticipation::resolve($element, $this->styleResolver)->neutralizeButtonWrapper(),
                     'outranked' => array_filter(
                         $this->styleResolver->outrankedAuthorLonghands($element, $selector, $body),
@@ -1448,6 +1513,7 @@ final class AuthorStylesheetProjector
             $exclusion = $this->nativeButtonEditedPropertyExclusion($name);
             $declarations[$exclusion][ButtonDeclarationRouting::isWrapperOwnedProperty($name) ? 1 : 0][] = array(
                 'declaration' => $name . ':' . $value,
+                'value' => $value,
                 'longhands' => array_map('strtolower', array_keys(SourceDeclarations::parse($name . ':' . CssValueInspector::withoutImportant($value)))),
             );
         }
@@ -1465,7 +1531,8 @@ final class AuthorStylesheetProjector
                     foreach ( $entries as $entry ) {
                         $markers = array_values(array_filter(
                             $matched,
-                            static fn (array $carrier): bool => array() === array_intersect_key($carrier['outranked'], array_flip($entry['longhands']))
+                            fn (array $carrier): bool => array() === array_intersect_key($carrier['outranked'], array_flip($entry['longhands']))
+                                && ! ( $wrapperOwned && $this->resolvesAgainstKeptButtonWrapper($entry['value'], $carrier) )
                         ));
                         if ( array() !== $markers ) {
                             $key = implode(' ', array_column($markers, 'marker'));
@@ -1486,6 +1553,20 @@ final class AuthorStylesheetProjector
             }
         }
         return implode('', $rules);
+    }
+
+    /**
+     * A kept (not flattened) save wrapper already carries the source's wrapper
+     * geometry and is the link's containing block. Restating a percentage on
+     * the link would resolve it a second time against that wrapper and shrink
+     * the painted control to a fraction of its source size.
+     *
+     * @param array{element: DOMElement, flattened: bool} $carrier
+     */
+    private function resolvesAgainstKeptButtonWrapper(string $value, array $carrier): bool
+    {
+        return ! $carrier['flattened']
+            && str_contains($this->styleResolver->customProperties->resolve($value, $carrier['element']), '%');
     }
 
     /**
@@ -1993,7 +2074,10 @@ final class AuthorStylesheetProjector
                 $retained[] = $declaration;
             }
         }
-        $original = CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context)) ?? array();
+        // Semantic and RichText arms take one shape whatever the rule
+        // declares, so the placement arm names their subjects like the rule's
+        // own projection rather than listing every carrier on the page.
+        $original = CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context, false, false, true)) ?? array();
         // Only an arm whose subject can be the synthetic figure (a figure,
         // an untyped compound, or an image whose identity moved to it) needs
         // the guard; a typed `body`/`p` subject never matches that wrapper.
@@ -2381,6 +2465,74 @@ final class AuthorStylesheetProjector
             || NativeImageLeafPresentation::isPlacementProperty($property)
             || in_array($property, array('display', 'filter', 'opacity', 'object-fit', 'object-position', 'visibility'), true),
             ARRAY_FILTER_USE_KEY
+        );
+    }
+
+    /**
+     * A class-like subject of an SVG materialized as a standalone image moves
+     * to the synthetic figure, while the SVG image rule replays the same
+     * replaced-box declarations on the image leaf. Box, placement, opacity and
+     * filter declarations then apply twice (doubled margins and borders,
+     * compounded fades). The leaf owns them, as it owns an `<img>`'s
+     * placement: keep them off the synthetic figure, and on every other box
+     * the rule matches. Fill and flex SVGs have their own wrapper projection,
+     * and a rule that also reaches a bare `<img>` keeps its figure paint.
+     *
+     * @param array<string, string> $declarations
+     * @return array{body: string, owned: array<string, string>, rules: string}
+     */
+    private function svgImageLeafOwnership(string $prelude, string $body, array $declarations, string $svgImagePrelude, AuthorStylesheetProjectionContext $context): array
+    {
+        $unchanged = array( 'body' => $body, 'owned' => array(), 'rules' => '' );
+        if ( '' === $svgImagePrelude ) {
+            return $unchanged;
+        }
+        $owned = array_diff_key(
+            $this->imageApplicableSvgDeclarations($declarations),
+            array_flip(array( 'display', 'object-fit', 'object-position', 'visibility' ))
+        );
+        if ( array() === $owned ) {
+            return $unchanged;
+        }
+        $moves = false;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                return $unchanged;
+            }
+            // A root-child subject is projected onto the figure's marker.
+            $moves = $moves || ! $this->subjectStaysOnImage($selector, $context) || AuthorSelectorSemanticPreparer::isRootChildSelector($parsed);
+            foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                $tagName = strtolower($element->tagName);
+                if ( 'img' === $tagName
+                    || ( 'svg' === $tagName && ( $this->styleResolver->imageIsFlexOrGridItem($element) || $this->isProjectableFillSvg($element, $declarations) ) ) ) {
+                    return $unchanged;
+                }
+            }
+        }
+        if ( ! $moves ) {
+            return $unchanged;
+        }
+        // Margins keep their own projection; the caller guards it the same way.
+        $guarded = array_filter($owned, static fn (string $property): bool => 'margin' !== $property && ! str_starts_with($property, 'margin-'), ARRAY_FILTER_USE_KEY);
+        $retained = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array(';')) as $declaration ) {
+            $property = strtolower(trim((string) strtok($declaration, ':')));
+            if ( ! isset($guarded[$property]) ) {
+                $retained[] = $declaration;
+            }
+        }
+        $original = array_map(static fn (string $selector): string => self::canMatchSyntheticImageFigure($selector)
+            ? rtrim($selector) . ':not(:where(.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '))'
+            : rtrim($selector), CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context, false, false, true)) ?? array());
+        if ( array() === $original ) {
+            return $unchanged;
+        }
+
+        return array(
+            'body' => implode(';', $retained),
+            'owned' => $owned,
+            'rules' => array() === $guarded ? '' : implode(',', $original) . '{' . $this->styleResolver->cssDeclarationString($guarded) . '}',
         );
     }
 

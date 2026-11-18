@@ -28,6 +28,12 @@ foreach (array('radio', 'checkbox') as $type) {
 }
 // A live form region announces its own submission, not a tool result.
 $cases['live form region'] = array('<form aria-live="polite"><input name="first"><input name="second"><button type="submit">Send</button></form>', 1, 'unknown');
+// A form that asks for the visitor's email address hands it to the site, so
+// its status region announces the submission, not a local tool result. The
+// submit label is not English; the lone email entry still marks a signup.
+$signup = '<label for="signup-email">E-Mail-Adresse<span aria-hidden="true">*</span></label><input id="signup-email" type="email" required placeholder="E-Mail-Adresse eingeben"><label><input type="checkbox" required> Ich möchte den Newsletter abonnieren.</label><button type="button">Abonnieren</button>';
+$cases['email signup with inner status'] = array('<form aria-label="Signup">' . $signup . '<div role="status"></div><div role="alert"></div></form>', 1, 'newsletter');
+$cases['email signup with trailing status'] = array('<div><form>' . $signup . '</form><p role="status" aria-live="polite"></p></div>', 1, 'newsletter');
 $cases['multiple fields result'] = array('<form><div><input name="first"><input name="second"><output></output></div><button>Calculate</button></form>', 1, 'client_side_tool');
 $cases['distinct checkbox groups result'] = array('<form><div><input type="checkbox" name="first"><input type="checkbox" name="second"><output></output></div><button>Calculate</button></form>', 1, 'client_side_tool');
 $cases['single wrapped date input'] = array('<form><label>Date<input type="date" name="date"></label><button>Calculate</button><output></output></form>', 1, 'client_side_tool');
