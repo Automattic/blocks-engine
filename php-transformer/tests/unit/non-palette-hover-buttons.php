@@ -17,7 +17,9 @@ foreach ($buttons[1] as $json) {
     $attributes = json_decode($json, true);
     if (isset($attributes['style']['color']['background']) || isset($attributes['backgroundColor'])) $errors[] = 'Background must render through the carried author rule';
     foreach (array('btn', 'bg-transparent', 'hover:bg-white/10') as $class) {
-        if (!in_array(EngineMarker::subjectClassClass($class), explode(' ', $attributes['className'] ?? ''), true)) $errors[] = 'Missing class carrier: ' . $class;
+        // A subject class is written exactly when an emitted rule names it.
+        $carrier = EngineMarker::subjectClassClass($class);
+        if (str_contains($css, $carrier) !== in_array($carrier, explode(' ', $attributes['className'] ?? ''), true)) $errors[] = 'Class carrier does not follow its rules: ' . $class;
     }
 }
 preg_match_all('/<a\b[^>]*class="[^"]*wp-block-button__link[^>]*>/', $markup, $links);

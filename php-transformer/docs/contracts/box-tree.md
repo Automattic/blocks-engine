@@ -109,7 +109,7 @@ is not a claim that a live capture pipeline has been implemented here.
 ## Report-only classification (ADR 0005 slice 2)
 
 `source_reports.box_tree[route].classification` contains `counts` keyed by
-`load-bearing` and `neutral`, and `nodes` keyed by source ID with `disposition`
+`load-bearing`, `neutral` and `folded`, and `nodes` keyed by source ID with `disposition`
 and the deciding `criterion`. Criteria are `paints`, `clips`, `multi-child-layout`,
 `containing-block`, `semantics/id/anchor`, `interaction/state`, `motion`, and
 `own-sizing`; neutral nodes have `equal-child-geometry`. Precedence follows that
@@ -155,6 +155,53 @@ capture producer lands; checked-in v2-shaped fixtures gate this slice.
 Run `php tests/contract/box-tree-classification.php` and
 `php tests/contract/box-tree.php` from `php-transformer` for criterion coverage,
 projection budgets, output invariance and staged/multi-route report parity.
+
+## Folding style-only boxes (ADR 0005 slice 5)
+
+On an evidence route, a single-child box whose criterion is `paints`,
+`containing-block`, `own-sizing` or `own-placement` is classified `folded` when
+its declarations can move onto its sole child, proved by geometry at **every**
+captured viewport. Like a neutral box, a folded box emits no block; its child
+takes its place and carries the moved declarations in its own engine rule. The
+node keeps its deciding `criterion` and lists the applied rules in `fold`;
+`counts.folded` counts folded boxes and `fold_counts` counts folds per rule
+(one box can apply several rules).
+
+- `own-sizing`: each padding side becomes the child's margin on that side when
+  the child has no margin there and its border box sits exactly inside the
+  box's padding edge (0.01px). A vertical side needs a flex or grid parent, where
+  the new margin cannot collapse. Sizing constraints (`min-*`, `max-*`) move only
+  when the child's border box equals the box's and neither has padding or
+  borders; otherwise non-initial constraints refuse the fold.
+- `paint`: background longhands, `border-radius`, `box-shadow` and `outline`
+  move when the child's border box equals the box's and the child paints none
+  of them. A painting border has a width, so it never folds.
+- `containing-block`: `position: relative` and its offsets move to a static
+  child whose border box equals the box's, so positioned descendants resolve
+  against the same padding box.
+- `own-placement`: grid lines, `justify-self`/`align-self`, `order`, flex item
+  factors, `float`/`clear` and margins move when the child's own values are
+  initial and its margin box then equals the box's margin box.
+
+Never folded: rendering pseudo-elements, clipping overflow, transforms (even
+identity), filters, backdrop filters, opacity, blending, isolation, clip paths,
+masks, z-index, non-static/relative boxes or children, inline or `contents`
+children, a box that is a flex/grid/flow-root formatting context inside a block
+parent (unless the child establishes one itself), and every behavior criterion
+(semantics, references, interaction or state rules of any tag, capture markers,
+motion, unobserved children, direct text). Boxes are classified in document
+order on effective observations, so a chain of folds composes.
+
+Moved declarations keep the box's author bands: the box's own fluid lift (in
+the box's context) replaces the child's for every moved property, renamed from
+padding to margin where needed (an `em` band moves only when the font sizes
+agree). The child's `width`/`height` keep its captured pixels unless the box's
+intent is an intrinsic keyword that also holds for the child. Lifting treats
+every collapsed box as `display: contents`, so percentages resolve against the
+containing block the output actually has. A projected style group the block
+cannot serialize (a paragraph's shadow) stays in the engine rule.
+
+Run `php tests/contract/box-tree-fold.php` for one fold and one refusal per rule.
 
 ## Layout reduction proof
 

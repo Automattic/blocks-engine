@@ -27,11 +27,20 @@ try {
     // Front end: the carrier stays boxless.
     await page.setContent(`<style>${frontEndCss}</style>${result.serialized_blocks}`);
     assert.equal(await display(), 'contents', 'the front-end carrier keeps the source layout');
+    const frontendMarkup = await page.locator('body').innerHTML();
+    // Even if an editor asset is loaded for a preview, saved markup must not
+    // acquire a new box. This also catches accidentally unscoped repairs.
+    await page.addStyleTag({ content: editorCss });
+    assert.equal(await display(), 'contents', 'editor repairs do not restyle the frontend');
+    assert.equal(await page.locator('body').innerHTML(), frontendMarkup, 'the repair leaves saved markup untouched');
 
     // Editor: mirror core's RichText before selection, with the paragraph
     // itself as the contenteditable root.
     await page.setContent(`<style>${editorCss}</style><div class="editor-styles-wrapper">${result.serialized_blocks}</div>`);
     await carrier.evaluate(node => node.setAttribute('contenteditable', 'true'));
+    const ordinary = page.locator('p.post-author');
+    await ordinary.evaluate(node => node.setAttribute('contenteditable', 'true'));
+    assert.equal(await ordinary.evaluate(node => getComputedStyle(node).display), 'block', 'ordinary editable paragraphs keep their block layout');
     assert.equal(await display(), 'inline', 'an unselected editable carrier has a focusable box');
     // Direct replacement must work without first manufacturing Gutenberg's
     // selection class: the initial focus is what delivers input to RichText.
