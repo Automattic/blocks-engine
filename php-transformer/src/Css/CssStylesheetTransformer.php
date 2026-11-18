@@ -31,7 +31,7 @@ final class CssStylesheetTransformer
      */
     public function transform(string $stylesheet, callable $transformSelectorPrelude): string
     {
-        if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
+        if ( ! $this->tree($stylesheet)->recoverable ) {
             return $stylesheet;
         }
         return $this->transformRules($stylesheet, $transformSelectorPrelude, null);
@@ -44,7 +44,7 @@ final class CssStylesheetTransformer
      */
     public function transformStyleRules(string $stylesheet, callable $transformStyleRule): string
     {
-        if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
+        if ( ! $this->tree($stylesheet)->recoverable ) {
             return $stylesheet;
         }
         return $this->transformRules($stylesheet, static fn (string $prelude): string => $prelude, $transformStyleRule);
@@ -300,7 +300,7 @@ final class CssStylesheetTransformer
      * other too, so joining them never discards a rule that used to apply.
      * Malformed input is returned unchanged.
      */
-    public function mergeRepeatedDeclarationRules(string $css, bool $includeDocumentRules = false): string
+    public function mergeRepeatedDeclarationRules(string $css, bool $includeDocumentRules = false, bool $classCarriersOnly = false): string
     {
         if ( ! str_contains($css, '{') || ! $this->isWellFormedStylesheet($css) ) {
             return $css;
@@ -316,6 +316,12 @@ final class CssStylesheetTransformer
                 continue;
             }
             [$lead, $prelude, $body] = $parts;
+            // Support rules also own structural roots and native descendants.
+            // Only independent class carriers may share a declaration body;
+            // keep those structural rules standalone for later consumers.
+            if ($classCarriersOnly && 1 !== preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?:\s*,\s*\.[a-zA-Z_][a-zA-Z0-9_-]*)*$/D', $prelude)) {
+                continue;
+            }
             $key = implode("\0", array_map(self::normalizedCss(...), $unit['context'])) . "\0" . self::normalizedCss($body) . "\0" . implode(',', self::uncommonPseudoNames($prelude));
             if ( isset($anchors[ $key ]) ) {
                 $anchor = $anchors[ $key ];
@@ -1678,7 +1684,7 @@ final class CssStylesheetTransformer
         $output = '';
         foreach ($tree->rules($scope) as $rule) {
             ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
-            if (';' === $css[$boundary]) continue;
+            if (';' === $css[$boundary] || $tree->hasInvalidPrelude($start)) continue;
             $prelude = substr($css, $start, $boundary - $start);
             $body = substr($css, $boundary + 1, $end - $boundary - 1);
             $replacement = null;
@@ -1717,7 +1723,7 @@ final class CssStylesheetTransformer
     {
         foreach ($tree->rules($scope) as $rule) {
             ['start' => $start, 'boundary' => $boundary, 'end' => $end] = $rule;
-            if (';' === $tree->source[$boundary]) continue;
+            if (';' === $tree->source[$boundary] || $tree->hasInvalidPrelude($start)) continue;
             $prelude = CssSyntaxScanner::withoutComments(substr($tree->source, $start, $boundary - $start));
             $body = substr($tree->source, $boundary + 1, $end - $boundary - 1);
             if ($this->isAtRule($prelude)) {

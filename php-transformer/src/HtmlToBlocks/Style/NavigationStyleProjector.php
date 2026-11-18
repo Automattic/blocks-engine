@@ -103,6 +103,17 @@ final class NavigationStyleProjector
             $engineRules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
                 . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){display:block!important;visibility:visible!important}';
         }
+        // An inline layout carrier is `display:contents` so its inline content
+        // lays out in the source's own box. In the editor that paragraph is
+        // the RichText root, and a boxless element cannot take focus: putting
+        // the caret in it to replace its text (a `<time>` date line) left focus
+        // outside, and the typed text never reached the block (issue #5797).
+        // Give the carrier an inline box only while it is being edited: at
+        // rest the canvas keeps the front end's boxless layout, and the front
+        // end never matches this editor-only rule.
+        if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
+            $rules[] = ':root .editor-styles-wrapper p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '[contenteditable="true"]:is(.is-selected,:focus){display:inline}';
+        }
         foreach ( self::focusedEmptyRichTextRepairRules($projectedAuthorCss) as $repairRule ) {
             $rules[] = $repairRule;
         }

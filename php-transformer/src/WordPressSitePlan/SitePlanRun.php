@@ -531,9 +531,10 @@ final class SitePlanRun
             // A declaration a later one in its block always overrides never
             // decides a value; dropping it first also lets identical blocks fold.
             $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune($asset['content']));
-            // Engine support restates one declaration block per carrier class
-            // too (each element's inline geometry, say): it folds the same way.
-            if (in_array($asset['source'] ?? null, array('files', 'engine-support'), true)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
+            if ('files' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
+            // Fold independent support carriers, not structural roots or native
+            // descendants whose standalone rules are consumed by other stages.
+            if ('engine-support' === ($asset['source'] ?? null)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted, false, true);
             // Compatibility replays use :root only as a specificity shim,
             // not as a document reset. Their repeated native-host arms can
             // share a declaration body after preset binding has settled it.

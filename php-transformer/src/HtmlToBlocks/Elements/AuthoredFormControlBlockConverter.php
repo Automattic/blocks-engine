@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredLabel
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
@@ -79,8 +80,6 @@ final class AuthoredFormControlBlockConverter
             return null;
         }
         $generator = new AuthoredLabelBlockGenerator();
-        $registry = $this->session->requireGeneratedBlockRegistry();
-        $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
         $projected = ($this->projectSourceTags)($label) ?? $label;
         $attrs = array_filter(array(
             'htmlFor' => SourceDom::attr($label, 'for'),
@@ -90,7 +89,21 @@ final class AuthoredFormControlBlockConverter
             'content' => $this->labelContent($label),
             'sourceAttributes' => SourceAttribute::staticAttributes(SourceDom::htmlAttributes($label), array_values(AuthoredLabelBlockGenerator::HOST_ATTRIBUTES)),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
+        if (FormControlClassifier::isDanglingCaptionLabel($label)) {
+            // Caption text, not an association: the caption is the core
+            // paragraph's own box, carrying the label's classes and its text as
+            // core RichText (a <label> inside RichText is structural markup the
+            // editor cannot edit). It keeps the block box every label of the
+            // materialized form takes, so the field lays out as before.
+            return $this->createBlock->createBlock('core/paragraph', array_filter(array(
+                'className' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS),
+                'anchor' => (string) ($attrs['id'] ?? ''),
+                'content' => (string) ($attrs['content'] ?? ''),
+            ), static fn (string $value): bool => '' !== $value), array(), $label);
+        }
         $markup = $generator->markup($attrs);
+        $registry = $this->session->requireGeneratedBlockRegistry();
+        $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
         return BlockFactory::leaf($registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 
