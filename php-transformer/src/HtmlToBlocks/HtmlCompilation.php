@@ -2205,6 +2205,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             );
             $observations = $this->session->boxTreeEvidence($sourceElement);
             $viewports = $this->session->boxTreeViewports();
+            if ('core/group' === $name && array() !== $viewports && array() === $observations && $sourceElement->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)) {
+                $attrs = (new Style\UnobservedBoxStyleProjector())->project($attrs, $sourceElement, $this->styleResolver, $this->session->layoutGeometryState());
+            }
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
             $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->session->boxTreeEvidence(...));
