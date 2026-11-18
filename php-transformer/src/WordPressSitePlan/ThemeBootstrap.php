@@ -28,6 +28,18 @@ final class ThemeBootstrap
 
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
 
+    /**
+     * The shell transport is boxless on the frontend (display:contents), but
+     * the editor keeps its box for selection, and Gutenberg gives every block
+     * pointer-events:auto. As a grid or flex item that box stretches across
+     * its track, so a transport inside a fixed overlay (a pinned header layer
+     * whose authored pointer-events:none lets clicks through) covers the whole
+     * canvas and swallows clicks meant for the content beneath. Only the
+     * transport's own box lets pointers through; its blocks still take them,
+     * so clicking the part's content still selects the part.
+     */
+    public const EDITOR_SHELL_TRANSPORT_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-template-part.blocks-engine-shell-transport{pointer-events:none}:root .block-editor-block-list__block.wp-block-template-part.blocks-engine-shell-transport>.block-editor-block-list__block{pointer-events:auto}';
+
     public const LISTING_QUERY_CSS = '.wp-block-query.blocks-engine-listing-query,.wp-block-query.blocks-engine-listing-query .wp-block-post-template,.wp-block-query.blocks-engine-listing-query .wp-block-post,.wp-block-query.blocks-engine-listing-query .wp-block-post-content{display:contents;list-style:none;margin:0;padding:0}.blocks-engine-listing-query .blocks-engine-authored-excerpt>p{margin:0}.blocks-engine-listing-overlay{width:auto}.blocks-engine-listing-card{position:relative}.blocks-engine-listing-card>.blocks-engine-listing-overlay{position:absolute;inset:0;z-index:2}.blocks-engine-listing-card>.blocks-engine-listing-background{position:absolute;inset:0;margin:0;pointer-events:none;z-index:0}.blocks-engine-listing-background img{width:100%;height:100%;object-fit:cover}.blocks-engine-listing-card>:not(.blocks-engine-listing-background):not(.blocks-engine-listing-overlay){position:relative;z-index:1}';
 
     /**
@@ -640,6 +652,7 @@ PHP;
         $lines[] = "}, 10, 1 );";
         $hasListingQuery = self::markupContains(array_merge($pages, $templates, $parts), WordPressSitePlan::LISTING_QUERY_CLASS);
         $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS;
+        if (array() !== $parts) $editorCss .= self::EDITOR_SHELL_TRANSPORT_INTERACTION_CSS;
         foreach ($pages as $page) if (str_contains((string) ($page['canonical_block_markup'] ?? ''), WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX)) {
             $editorCss .= SyncedPatternProjection::EDITOR_CONTAINER_CSS;
             break;

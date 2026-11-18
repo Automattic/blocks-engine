@@ -13,8 +13,8 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 // at 1440px and the page scrolled sideways at every width.
 // Evidence: n5 <main> (positioned container), n6 the <button>.
 $html = str_replace(
-    '<h1 data-blocks-engine-node-id="n6">Hello</h1>',
-    '<button class="skip" id="skip" data-blocks-engine-node-id="n6">Skip to content</button>',
+    array('<h1 data-blocks-engine-node-id="n6">Hello</h1>', '</head>'),
+    array('<button class="skip" id="skip" data-blocks-engine-node-id="n6">Skip to content</button>', '<style>#skip{position:absolute;top:60px;left:720px}@media (max-width:767px){#skip{left:195px}}</style></head>'),
     (string) file_get_contents(__DIR__ . '/../fixtures/box-tree/index.html')
 );
 $tree = json_decode((string) file_get_contents(__DIR__ . '/../fixtures/box-tree/index.json'), true, 32, JSON_THROW_ON_ERROR);

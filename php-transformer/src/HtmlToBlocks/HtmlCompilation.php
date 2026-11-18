@@ -2187,7 +2187,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $viewports = $this->session->boxTreeViewports();
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = null !== $blockParent ? $this->session->boxTreeEvidence($blockParent) : array();
-            $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name);
+            $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name, $this->session->boxTreeEvidence(...));
             $flow = (new Style\BoxTreeFlowSizing())->lift($sourceTagName, $name, $observations, $this->session->boxTreeContainerEvidence($sourceElement));
             // One captured box is one rendered box. A wrapper made from the same
             // source node as its inner block keeps the block attributes, but

@@ -60,11 +60,13 @@ foreach (array('width:1440px', 'width:1280px', 'width:600px', 'width:350px', 'ma
 }
 flow_sizing_assert(str_contains($css, 'margin-right:auto;margin-left:auto') && str_contains($css, 'max-width:1280px'), 'A box centred at its max-width keeps auto margins and its max-width on the carrier', $css);
 flow_sizing_assert(str_contains($css, 'grid-template-columns:repeat(2, minmax(0, 1fr))') && str_contains($css, 'grid-template-columns:repeat(1, minmax(0, 1fr))'), 'Tracks filling the grid become fractions at every capture', $css);
-flow_sizing_assert(str_contains($css, 'width:100%'), 'A grid item spanning its tracks fills its grid area', $css);
+// `width:100%` from the tracks, or the `auto` the author's cascade left it.
+flow_sizing_assert((bool) preg_match('/(?<![\w-])width:(?:100%|auto)/', $css), 'A grid item spanning its tracks fills its grid area', $css);
 
 // A box narrower than its container did not take its width from it.
+// The author sized it (`w-[300px]`), so no keyword stands in for the pixels.
 $observed['n7']['desktop'] = $item(740, 300);
-$css = flow_sizing_css($html, $tree, $observed);
+$css = flow_sizing_css(str_replace('</head>', '<style>p{width:300px}</style></head>', $html), $tree, $observed);
 flow_sizing_assert((bool) preg_match('/(?<![\w-])width:300px/', $css), 'A width the container did not decide keeps its pixels', $css);
 
 // Only what varies between captures can leak a wrong size between them. A
@@ -76,7 +78,7 @@ $fixedObserved = array(
     'n5' => array('desktop' => array(array('x' => 0, 'width' => 600), $fixed), 'mobile' => array(array('x' => 0, 'width' => 600), $fixed)),
     'n6' => array('desktop' => array(array('x' => 0, 'width' => 600), $fixed + array('color' => 'rgb(1, 2, 3)')), 'mobile' => array(array('x' => 0, 'width' => 600), $fixed + array('color' => 'rgb(1, 2, 3)'))),
 );
-$css = flow_sizing_css($html, $tree, $fixedObserved);
-flow_sizing_assert(!str_contains($css, 'width:auto') && (bool) preg_match('/(?<![\w-])width:600px/', $css), 'A fill observed identically at every capture keeps its frozen width', $css);
+$css = flow_sizing_css(str_replace('</head>', '<style>body,main,h1,p{width:600px}</style></head>', $html), $tree, $fixedObserved);
+flow_sizing_assert(!preg_match('/(?<![\w-])width:auto/', $css) && (bool) preg_match('/(?<![\w-])width:600px/', $css), 'A fill observed identically at every capture keeps its frozen width', $css);
 
 echo "Box-tree flow sizing contract passed\n";
