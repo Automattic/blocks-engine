@@ -540,7 +540,17 @@ final class WrapperCoalescer
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
         if (null !== $proof) $this->session->layoutGeometryState()->recordProof($proof);
 
-        return $this->createBlock->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+        // A Buttons root now replaces the wrapper's box, not the anchor.
+        // Re-projecting the anchor onto it would mark it display:contents
+        // and remove the very line box this coalescing is meant to retain.
+        $source = $sourceChild;
+        if ('core/buttons' === ($childBlock['blockName'] ?? null)) {
+            $source = $element;
+            // Anchor selector carriers and layout-neutral markers still belong
+            // to the inner button. Only the parent's carriers own this root.
+            $childAttrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::COALESCED_BUTTONS_BOX_CLASS, ...SourceDom::classNames($element));
+        }
+        return $this->createBlock->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $source);
     }
 
     /**

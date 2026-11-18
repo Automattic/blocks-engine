@@ -345,6 +345,11 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::INLINE_FLOW_WRAPPER_CLASS) ) {
             $parts[] = ':where(.' . SourceBlockAttributeProjector::INLINE_FLOW_WRAPPER_CLASS . '){display:contents}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::COALESCED_BUTTONS_BOX_CLASS) ) {
+            // This root replaces a real normal-flow div, not a synthetic flex
+            // row. Keep its line box and inherited text-align for the control.
+            $parts[] = '.wp-block-buttons.' . SourceBlockAttributeProjector::COALESCED_BUTTONS_BOX_CLASS . '{display:block}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS) ) {
             // A synthesized core/buttons wrapper is required for validity, but it
             // did not exist in the source. Flatten it so the next real box is the
