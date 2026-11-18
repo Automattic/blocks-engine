@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\FontPresetReads;
 
 $page = static function (string $title): string {
     $documents = '';
@@ -34,7 +35,7 @@ foreach ($texts as $text) {
         $found = false;
         foreach ($plan['assets'] as $asset) {
             if ('css' !== ($asset['kind'] ?? null)) continue;
-            (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $prelude, string $body) use ($text, $property, $value, &$found): void {
+            (new CssStylesheetTransformer())->visitStyleRules(FontPresetReads::resolve($asset['content'], $plan), static function (string $prelude, string $body) use ($text, $property, $value, &$found): void {
                 if (!preg_match('/' . preg_quote($property, '/') . ':(?:var\([^;{}]*,)?' . preg_quote($value, '/') . '(?:\))?(?:;|$)/', $body)) return;
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     // The source matcher does not implement :has(). Resolve the

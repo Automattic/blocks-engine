@@ -71,13 +71,14 @@ $assert(
 );
 
 // Utility classes commonly give an image a deliberate crop that differs from
-// its file ratio. Intrinsic HTML dimensions must not become native inline
-// dimensions, or they override the promoted crop in core/image.
+// its file ratio. With an authored `height:auto`, intrinsic HTML dimensions
+// must not become native inline dimensions, or they override the promoted
+// crop in core/image.
 $utilityCrop = $compiler->compileFragment(
-    '<img class="aspect-[4/5] w-full object-cover" src="https://example.com/portrait.jpg" width="1200" height="1400" alt="Portrait">',
+    '<img class="aspect-[4/5] w-full h-auto object-cover" src="https://example.com/portrait.jpg" width="1200" height="1400" alt="Portrait">',
     'design/home.html',
     'html',
-    array( 'static_css' => '.aspect-\\[4\\/5\\]{aspect-ratio:4/5}.w-full{width:100%}.object-cover{object-fit:cover}' )
+    array( 'static_css' => '.aspect-\\[4\\/5\\]{aspect-ratio:4/5}.w-full{width:100%}.h-auto{height:auto}.object-cover{object-fit:cover}' )
 );
 $utilityCropAttrs = is_array($utilityCrop->blocks[0]['attrs'] ?? null) ? $utilityCrop->blocks[0]['attrs'] : array();
 $assert(
@@ -97,6 +98,20 @@ $assert(
 $assert(
     str_contains($utilityCrop->serializedBlocks, 'style="aspect-ratio:4/5;object-fit:cover;width:100%;height:auto"'),
     'CSS-owned percentage crop uses the WordPress 7.1 core/image save shape'
+);
+
+// Without an authored height, the HTML height attribute is the presentational
+// hint for CSS `height`: beside a CSS width both axes are definite, so the
+// browser renders the attribute height and aspect-ratio does not apply.
+$hintedCrop = $compiler->compileFragment(
+    '<img class="aspect-[4/5] w-full object-cover" src="https://example.com/portrait.jpg" width="1200" height="1400" alt="Portrait">',
+    'design/home.html',
+    'html',
+    array( 'static_css' => '.aspect-\\[4\\/5\\]{aspect-ratio:4/5}.w-full{width:100%}.object-cover{object-fit:cover}' )
+);
+$assert(
+    str_contains($hintedCrop->serializedBlocks, 'style="aspect-ratio:4/5;object-fit:cover;width:100%;height:1400px"'),
+    'a presentational height beside a CSS width stays the used height'
 );
 
 $fillImage = $compiler->compileFragment(
