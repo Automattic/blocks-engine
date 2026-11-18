@@ -244,7 +244,8 @@ $cases = array(
             'n5.padding-left' => array('10px', '10px'), 'n5.padding-right' => array('10px', '10px'), 'n5.padding-top' => array('0px', '0px'), 'n5.padding-bottom' => array('0px', '0px'),
             'n6.position' => array('absolute', 'absolute'), 'n6.left' => array('110px', '60px'), 'n6.top' => array('25px', '15px'),
             'n6.right' => array('110px', '60px'), 'n6.bottom' => array('25px', '15px')),
-        array('left:50%', 'top:50%', 'h1 right:auto', 'h1 bottom:auto'), array('left:110px', 'left:60px', 'top:25px', 'top:15px', 'right:110px', 'bottom:25px'),
+        // The four offsets fold into one inset shorthand, in top/right/bottom/left order.
+        array('h1 inset:50% auto auto 50%'), array('h1 110px', 'h1 60px', 'h1 25px', 'h1 15px'),
     ),
     'a calc(% - px) offset lifts through the inset shorthand' => array(
         'main{position:relative}h1{position:absolute;inset:0 auto auto calc(50% - 24px)}',
@@ -289,7 +290,7 @@ $cases = array(
     'a % column gap through the gap shorthand lifts against the own content box' => array(
         'main{display:flex;gap:0 10%}',
         array('n5.display' => array('flex', 'flex'), 'n5.width' => array('1000px', '400px'), 'n5.column-gap' => array('100px', '40px')),
-        array('column-gap:10%'), array('column-gap:100px', 'column-gap:40px'),
+        array('gap:none 10%'), array('column-gap:100px', 'column-gap:40px', 'gap:none 100px', 'gap:none 40px'),
     ),
 );
 /** The heading's carrier rules: needles prefixed `h1 ` are matched there only. */
