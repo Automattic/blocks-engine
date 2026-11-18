@@ -77,6 +77,48 @@ final class BindingAnchors
         }
     }
 
+    /**
+     * Bindings re-anchored after `$rewrite` changed their documents without
+     * touching a bound block's bytes: each block moves to where the rewritten
+     * prefix before it ends. Null when a bound block did not survive byte for
+     * byte, so the caller keeps the documents it had.
+     *
+     * @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $records
+     * @param array<string,string> $before @param array<string,string> $after Document markup by source path.
+     * @param callable(string):string $rewrite
+     * @return array{declarations:array<int,array<string,mixed>>,records:array<int,array<string,mixed>>}|null
+     */
+    public static function rebased(array $declarations, array $records, array $before, array $after, callable $rewrite): ?array
+    {
+        $indexes = array();
+        $detached = false;
+        $rebase = static function (array $binding) use ($before, $after, $rewrite, &$indexes, &$detached): array {
+            $source = $binding['source_path'] ?? null; $search = $binding['search_block_markup'] ?? null; $occurrence = $binding['occurrence'] ?? null;
+            if (!is_string($source) || !isset($before[$source], $after[$source]) || $before[$source] === $after[$source] || !is_string($search) || !is_int($occurrence)) return $binding;
+            $offset = is_int($binding['position']['offset'] ?? null) ? $binding['position']['offset'] : self::occurrenceOffset($before[$source], $search, $occurrence);
+            $moved = null === $offset ? null : strlen($rewrite(substr($before[$source], 0, $offset)));
+            $index = $indexes[$source] ??= new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($after[$source]);
+            $blockIndex = null;
+            foreach ($index->ranges() as $candidate => $range) if ($range['offset'] === $moved && $search === substr($after[$source], $range['offset'], $range['length'])) { $blockIndex = $candidate; break; }
+            if (null === $blockIndex) {
+                $detached = true;
+                return $binding;
+            }
+            $binding['occurrence'] = \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::occurrenceAtOffset($after[$source], $search, $moved);
+            if (isset($binding['position'])) $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $moved, 'length' => strlen($search));
+            return $binding;
+        };
+        $projection = RuntimeEntityManifest::project($declarations, $records, static function (array $inline) use ($rebase): array {
+            foreach ($inline as &$declaration) foreach ($declaration['payload']['entities'] ?? array() as $entityIndex => $entity) {
+                if (!is_array($entity) || !is_array($entity['bindings'] ?? null)) continue;
+                foreach ($entity['bindings'] as $bindingIndex => $binding) if (is_array($binding)) $declaration['payload']['entities'][$entityIndex]['bindings'][$bindingIndex] = $rebase($binding);
+            }
+            unset($declaration);
+            return $inline;
+        });
+        return $detached ? null : $projection;
+    }
+
     /** @param array<string,mixed>|mixed $position */
     public static function positionMatches(mixed $position, \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $documentIndex, string $search): bool
     {
