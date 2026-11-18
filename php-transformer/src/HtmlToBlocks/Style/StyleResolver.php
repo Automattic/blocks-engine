@@ -824,7 +824,8 @@ final class StyleResolver implements ElementPresentationResolver
             $parents = $this->session->boxTreeEvidence($parent);
             if (array() === $observations || array() === $parents) continue;
             $fluid = (new BoxTreeFluidIntent())->lift($source, $this, $observations, $viewports, $parents);
-            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
+            $switches = new AuthorSwitchWidth($source, $this, array_keys((array) (reset($observations)['used_styles'] ?? array())));
+            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid, $switches);
             if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
         }
     }

@@ -21,8 +21,10 @@ final class BoxTreeStyleProjector
      * @param string $blockName The block carrying the rule, whose WordPress base styles a pruned declaration falls back to.
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid Lifted author values: property => bands, widest
      *        first, each [max-width (null for the base rule), value] ({@see BoxTreeFluidIntent::lift()}).
+     * @param AuthorSwitchWidth|null $switches Where the author's cascade switches each property between captures,
+     *        so a narrower capture's delta applies from the author's breakpoint rather than the capture width.
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array()): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), ?AuthorSwitchWidth $switches = null): array
     {
         if (array() === $observations) return $attrs;
         $keys = array_keys($observations);
@@ -60,7 +62,7 @@ final class BoxTreeStyleProjector
         $consumed = SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
-        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true);
+        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $switches);
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
@@ -77,7 +79,7 @@ final class BoxTreeStyleProjector
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
      * @return string The carrier class, or '' when the inline inherits everything observed.
      */
-    public function inlineCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, array $fluid = array()): string
+    public function inlineCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, array $fluid = array(), ?AuthorSwitchWidth $switches = null): string
     {
         $properties = array_flip(self::INLINE_TYPOGRAPHY);
         $typography = array();
@@ -96,7 +98,7 @@ final class BoxTreeStyleProjector
             $declarations[$key] = $this->kept($typography[$key]['used_styles'], $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, array_intersect_key($fluid, $properties));
-        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $typography, $viewports, $bands, false), $state);
+        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $typography, $viewports, $bands, false, $switches), $state);
     }
 
     /**
@@ -131,20 +133,40 @@ final class BoxTreeStyleProjector
         return $bands;
     }
 
-    /** The base rule, then each narrower capture's delta, then the lifted bands. */
-    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos): string
+    /**
+     * The base rule, then each narrower capture's delta, then the lifted
+     * bands. A delta property the author switches exactly once between the
+     * capture and the next wider one applies from the author's breakpoint
+     * ({@see AuthorSwitchWidth}); the rest, and pseudo-elements, from the
+     * capture width.
+     */
+    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, ?AuthorSwitchWidth $switches = null): string
     {
         $baseKey = $keys[0];
         $css = $this->rule(self::SELECTOR, $base);
         $effective = $declarations[$baseKey];
         $pseudoEffective = array();
         if ($pseudos) $css .= $this->pseudoRules($observations[$baseKey], $pseudoEffective);
+        $wider = (float) $viewports[$baseKey]['width'];
         foreach (array_slice($keys, 1) as $key) {
             $delta = $this->delta($effective, $declarations[$key], $status[$key], $observations[$key]['used_styles']);
             $effective = array_replace($effective, $delta);
             $pseudo = $pseudos ? $this->pseudoRules($observations[$key], $pseudoEffective) : '';
-            if (array() === $delta && '' === $pseudo) continue;
-            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule(self::SELECTOR, $delta) . $pseudo . '}';
+            $width = (float) $viewports[$key]['width'];
+            $groups = array();
+            foreach ($delta as $property => $value) {
+                $boundary = null !== $switches ? $switches->boundary($property, $width, $wider) : null;
+                $groups[(int) ($boundary ?? $width)][$property] = $value;
+            }
+            $wider = $width;
+            // The capture's own band last: its pseudo rules and narrowest values win.
+            $groups[(int) $width] ??= array();
+            krsort($groups);
+            foreach ($groups as $maxWidth => $group) {
+                $rules = $this->rule(self::SELECTOR, $group) . ($maxWidth === (int) $width ? $pseudo : '');
+                if ('' === $rules) continue;
+                $css .= '@media (max-width:' . $maxWidth . 'px){' . $rules . '}';
+            }
         }
         // Numeric keys become ints: compare them as widths, narrowest last.
         uksort($bands, static fn(int|string $a, int|string $b): int => (float) $b <=> (float) $a);

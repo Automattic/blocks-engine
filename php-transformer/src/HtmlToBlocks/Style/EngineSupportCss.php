@@ -232,8 +232,11 @@ final class EngineSupportCss
             // This figure has no source box. Remove its layout box so image
             // percentages keep the source containing block, rather than a
             // cyclic shrink-to-fit basis. Keep the image itself inline too.
+            // Without a box it clips nothing: drop the `overflow:clip` its
+            // captured image geometry carries (a replaced element's default),
+            // so the computed style does not claim a zero-size clip.
             $inlineFigure = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS;
-            $parts[] = $inlineFigure . '{display:contents}'
+            $parts[] = $inlineFigure . '{display:contents}' . $inlineFigure . ':not(.editor-styles-wrapper *){overflow:visible}'
                 // Keep a selectable, shrink-wrapped root in Gutenberg only.
                 // Source positioning belongs to the image's transparent front-end
                 // carrier. Applying it to an editor box can stack block roots on

@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+
 /** Author selectors are analysis input, never delivery for captured routes. */
 final class EvidenceRouteStylesheets
 {
@@ -27,10 +30,35 @@ final class EvidenceRouteStylesheets
             }
             // Preserve resource identities referenced by document metadata. Font
             // faces have already been projected into theme.json at this point.
-            preg_match_all('/@font-face\s*\{[^{}]*\}/i', (string) ($asset['content'] ?? ''), $faces);
-            $asset = CompiledAssets::withRewrittenTextContent($asset, implode("\n", $faces[0]));
+            $content = (string) ($asset['content'] ?? '');
+            preg_match_all('/@font-face\s*\{[^{}]*\}/i', $content, $faces);
+            $asset = CompiledAssets::withRewrittenTextContent($asset, implode("\n", array_merge($faces[0], self::deviceIslandRules($content))));
         }
         unset($asset);
         return $assets;
+    }
+
+    /**
+     * The capture's device visibility sheet is not author styling: it is the
+     * only thing that hides a route's desktop-only island at phone widths and
+     * its mobile-only island at desktop widths. Box-tree evidence describes
+     * each island's boxes, not which one the viewport shows, and engine
+     * support mirrors these gates only in the editor. Retiring them would
+     * render both device copies of every island on the front end.
+     *
+     * @return list<string> Each island rule, wrapped in its conditional groups.
+     */
+    private static function deviceIslandRules(string $css): array
+    {
+        if (!str_contains($css, CaptureEvidence::DESKTOP_ONLY_CLASS) && !str_contains($css, CaptureEvidence::MOBILE_ONLY_CLASS)) return array();
+        $island = '/\.(?:' . preg_quote(CaptureEvidence::DESKTOP_ONLY_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_ONLY_CLASS, '/') . ')(?![\w-])/';
+        $rules = array();
+        (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $prelude, string $body, array $ancestors) use ($island, &$rules): void {
+            if (1 !== preg_match($island, $prelude)) return;
+            $rule = trim($prelude) . '{' . $body . '}';
+            foreach (array_reverse($ancestors) as $group) $rule = $group . '{' . $rule . '}';
+            $rules[] = $rule;
+        });
+        return $rules;
     }
 }
