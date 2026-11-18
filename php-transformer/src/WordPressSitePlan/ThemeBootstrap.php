@@ -29,6 +29,18 @@ final class ThemeBootstrap
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
 
     /**
+     * The editor canvas renders imported blocks before Gutenberg injects the
+     * theme's styles into its iframe, so every block is restyled once after it
+     * first paints. A captured transition (a `transition-colors` hover effect
+     * kept in instance CSS) animates that restyle: for its duration the canvas
+     * paints an interpolated colour the front end never shows.
+     * The canvas has no hover or interaction state to animate (links are
+     * inert, above), so it renders the resting style at once. Front-end
+     * transitions stay as captured.
+     */
+    public const EDITOR_TRANSITION_CSS = ':root .editor-styles-wrapper *{transition:none!important}';
+
+    /**
      * The shell transport is boxless on the frontend (display:contents), but
      * the editor keeps its box for selection, and Gutenberg gives every block
      * pointer-events:auto. As a grid or flex item that box stretches across
@@ -651,7 +663,7 @@ PHP;
         $lines[] = "    \$block['innerContent'] = \$content; return \$block;";
         $lines[] = "}, 10, 1 );";
         $hasListingQuery = self::markupContains(array_merge($pages, $templates, $parts), WordPressSitePlan::LISTING_QUERY_CLASS);
-        $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS;
+        $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS . self::EDITOR_TRANSITION_CSS;
         if (array() !== $parts) $editorCss .= self::EDITOR_SHELL_TRANSPORT_INTERACTION_CSS;
         foreach ($pages as $page) if (str_contains((string) ($page['canonical_block_markup'] ?? ''), WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX)) {
             $editorCss .= SyncedPatternProjection::EDITOR_CONTAINER_CSS;
