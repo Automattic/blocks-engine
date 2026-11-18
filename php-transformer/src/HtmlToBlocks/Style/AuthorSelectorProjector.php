@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityProjection;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\AddressableInlineLayoutLeaf;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -41,10 +42,39 @@ final class AuthorSelectorProjector
 
     private const SEMANTIC_ROLE_CLASS = 'blocks-engine-role-semantic';
 
+    private ?string $loweredAnchorMarkup = null;
+
+    private bool $loweredAnchorCarrier = false;
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer
     ) {
+    }
+
+    /**
+     * Whether a source `<a>` was lowered to a non-anchor carrier (a link card
+     * with block children becomes a group). Only then do author `a` type
+     * selectors need the subject-tag bridge; other pages keep native `a`.
+     */
+    private function hasLoweredAnchorCarrier(string $markup): bool
+    {
+        if ( $markup !== $this->loweredAnchorMarkup ) {
+            $this->loweredAnchorMarkup = $markup;
+            $this->loweredAnchorCarrier = false;
+            if ( str_contains($markup, EngineMarker::subjectTagClass('a'))
+                && preg_match_all('/<(?!a[\s>])[a-z][a-z0-9]*\b[^>]*\sclass="([^"]*\b' . EngineMarker::subjectTagClass('a') . '\b[^"]*)"/i', $markup, $carriers)
+            ) {
+                foreach ( $carriers[1] as $classes ) {
+                    // Button wrappers restate the tag but are control carriers.
+                    if ( ! str_contains(' ' . $classes . ' ', ' blocks-engine-role-control ') ) {
+                        $this->loweredAnchorCarrier = true;
+                        break;
+                    }
+                }
+            }
+        }
+        return $this->loweredAnchorCarrier;
     }
 
     /**
@@ -262,7 +292,8 @@ final class AuthorSelectorProjector
             $arms[] = $documentVariantBody;
             return $arms;
         }
-        if ( $structuralParsed['supported'] && $this->hasUniversalStructuralLeaf($structuralParsed) ) {
+        if ( $structuralParsed['supported'] && $this->hasUniversalStructuralLeaf($structuralParsed)
+            && ! $this->hasDroppedDataAncestry($selector, $structuralParsed, $context) ) {
             $arms[] = $this->rewriteSourceTagTypes($selector, $structuralParsed, $context);
             return $arms;
         }
@@ -455,6 +486,9 @@ final class AuthorSelectorProjector
     private function projectPseudoElementSelector(string $selector, AuthorStylesheetProjectionContext $context, bool $controlWrapper, bool $subjectArms, bool $semanticSubjectArms): ?array
     {
         $host = CssSelectorMatcher::pseudoElementHost($selector);
+        if (null === $host) {
+            return $this->projectTrailingPseudoElementSelector($selector, $context);
+        }
         if (null !== $host) {
             // Project the originating element through the same subject
             // pipeline as a non-pseudo rule, then restore the suffix on
@@ -482,6 +516,35 @@ final class AuthorSelectorProjector
             ));
         }
         return null;
+    }
+
+    /**
+     * Any other trailing pseudo-element (`::placeholder`,
+     * `::-webkit-input-placeholder`, `::selection`, `::marker`, ...) puts the
+     * selector outside the static matcher's subset, so the unsupported-selector
+     * fallback finds no type spans and the rule keeps naming source tags the
+     * block tree lowered (`form#contact ::placeholder` once the form became a
+     * group), and matches nothing. Read the type spans of its originating
+     * element instead: they sit at the same offsets, so the authored selector
+     * keeps its shape, suffix and weight, with only the lowered tags replaced
+     * by their source identity markers.
+     *
+     * @return array<int, string>|null
+     */
+    private function projectTrailingPseudoElementSelector(string $selector, AuthorStylesheetProjectionContext $context): ?array
+    {
+        $selector = trim($selector);
+        if (1 !== preg_match('/::-?[A-Za-z_][\w-]*$/', $selector, $suffix)) {
+            return null;
+        }
+        $host = substr($selector, 0, -strlen($suffix[0]));
+        // A bare or combinator-ended host originates on any element.
+        $parsed = CssSelectorMatcher::parse('' === trim($host) || preg_match('/[\s>+~]$/', $host) ? $host . '*' : $host);
+        if (!$parsed['supported'] || array() === $parsed['type_spans']) {
+            return null;
+        }
+        $projected = $this->rewriteSourceTagTypes($selector, $parsed, $context);
+        return $projected === $selector ? null : array($projected);
     }
 
     /**
@@ -584,6 +647,9 @@ final class AuthorSelectorProjector
                 $remainingSubjects[] = $element;
                 continue;
             }
+            if ( $inner['universal_reached'] && self::hasBareUniversalSubject($parsed) ) {
+                continue;
+            }
             $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
             if ($inner['author_precedence']) {
                 $innerArms[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
@@ -596,6 +662,22 @@ final class AuthorSelectorProjector
             $innerArms[] = $inner['selector'] . $baseline . $this->selectorSpecificityShims($parsed, $context) . $suffix . $inner['pseudo_element'];
         }
         return array($innerArms, $remainingSubjects);
+    }
+
+    /**
+     * The rule's subject is any element: a bare `*` with no simple selector
+     * of its own (`*`, `.x > *`, `*::before`).
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private static function hasBareUniversalSubject(array $parsed): bool
+    {
+        $subject = $parsed['compounds'][count($parsed['compounds'] ?? array()) - 1] ?? null;
+
+        return is_array($subject) && ($subject['universal'] ?? false) && null === $subject['type']
+            && array() === $subject['classes'] && array() === $subject['ids'] && array() === $subject['attributes']
+            && array() === $subject['not'] && array() === $subject['any'] && null === $subject['nth_child']
+            && ! $subject['first_child'] && ! $subject['last_child'] && ! $subject['root'];
     }
 
     /**
@@ -1183,7 +1265,7 @@ final class AuthorSelectorProjector
                         if ( 'svg' === strtolower((string) $typeSpan['name']) && (int) $typeSpan['start'] >= (int) $span['end'] ) {
                             $replacements[$typeSpan['start']] = array(
                                 'end' => $typeSpan['end'],
-                                'value' => ':is(svg,:where(.wp-block-button__link > img[src*="assets/materialized-svg/inline-svg-"]))',
+                                'value' => ':is(svg,:where(.wp-block-button__link > img[src*="' . AssetMaterializationState::INLINE_SVG_FILE_PREFIX . '"]))',
                             );
                         }
                     }
@@ -1444,10 +1526,8 @@ final class AuthorSelectorProjector
         // Only the attribute predicates become static identity. Class tokens
         // survive lowering and can change at runtime, so keep their conditions
         // inside :where() while the shims retain the authored specificity.
-        $attributeTarget = '';
-        foreach ( $rightmost['classes'] ?? array() as $class ) {
-            $attributeTarget .= '.' . CssIdent::escape((string) $class);
-        }
+        $attributeTarget = CssSelectorCompoundInspector::markerClassConditions($rightmost);
+        if (null === $attributeTarget) return null;
         $attributeTarget .= in_array(true, $controlOwned, true) ? ':not(.wp-block-buttons):not(.wp-block-button)' : '';
         foreach ( $matches as $index => $element ) {
             $path = $element->getNodePath() ?? '';
@@ -1496,7 +1576,23 @@ final class AuthorSelectorProjector
      */
     public function rewriteSourceTagTypes(string $selector, array $parsed, AuthorStylesheetProjectionContext $context, string $rightmostInsertion = '', array $replacements = array()): string
     {
-        foreach ( array_merge($parsed['type_spans'], CssSelectorMatcher::functionalTypeSpans($selector)) as $typeSpan ) {
+        $typeSpans = $parsed['type_spans'];
+        $bridgeAnchors = $this->hasLoweredAnchorCarrier($context->emittedMarkup);
+        if ($bridgeAnchors && ! $parsed['supported']) {
+            // Ancestor states are outside the matcher's static subset, but
+            // tokenization still identifies each compound's leading type.
+            $tokens = CssSelectorTokenizer::tokenize($selector);
+            foreach ($tokens['compounds'] as $index => $compound) {
+                $resting = preg_replace(self::STATE_PSEUDO_CLASS_PATTERN, '', $compound) ?? $compound;
+                $compoundParsed = CssSelectorMatcher::parse($resting);
+                foreach ($compoundParsed['type_spans'] as $span) {
+                    if (0 !== $span['start'] || 'a' !== strtolower($span['name'])) continue;
+                    $start = $tokens['compound_spans'][$index]['start'];
+                    $typeSpans[] = array('start' => $start, 'end' => $start + $span['end'], 'name' => $span['name']);
+                }
+            }
+        }
+        foreach ( array_merge($typeSpans, CssSelectorMatcher::functionalTypeSpans($selector)) as $typeSpan ) {
             // A caller that already replaced the compound holding this type has
             // decided where that type goes; the marker must not take it back.
             foreach ( $replacements as $replacementStart => $replacement ) {
@@ -1513,6 +1609,16 @@ final class AuthorSelectorProjector
                     ? ':is(' . substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ',:where(.' . $marker . '))'
                     : ':where(.' . $marker . ')' . $this->typeSpecificityShim($context);
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => $value );
+            } elseif ( $bridgeAnchors && 'a' === strtolower((string) $typeSpan['name']) ) {
+                // Block-child links lower to groups but retain their source
+                // subject tag. Keep native anchors in the same arm: inline
+                // links and lowered cards can share a rule. :is() preserves
+                // the type weight, including in functional pseudos/negations.
+                // Button wrappers keep their own control projection.
+                $replacements[$typeSpan['start']] = array(
+                    'end' => $typeSpan['end'],
+                    'value' => ':is(a,:where(.' . EngineMarker::subjectTagClass('a') . ':not(.blocks-engine-role-control)))',
+                );
             } elseif ( 'img' === strtolower((string) $typeSpan['name'])
                 && str_contains($context->emittedMarkup, 'assets/materialized-svg/inline-svg-')
             ) {
@@ -1524,7 +1630,7 @@ final class AuthorSelectorProjector
                 // must still reach their intended materialized image leaf.
                 $replacements[$typeSpan['start']] = array(
                     'end' => $typeSpan['end'],
-                    'value' => substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ':not(:where([src*="assets/materialized-svg/inline-svg-"]))',
+                    'value' => substr($selector, $typeSpan['start'], $typeSpan['end'] - $typeSpan['start']) . ':not(:where([src*="' . AssetMaterializationState::INLINE_SVG_FILE_PREFIX . '"]))',
                 );
             } elseif ( 'span' === strtolower((string) $typeSpan['name']) ) {
                 // Core's label span has no source identity. Even a dormant
@@ -1657,11 +1763,12 @@ final class AuthorSelectorProjector
 
     /**
      * The child step onto core's button link for an authored rule. Core's
-     * global-styles `:root :where(.wp-element-button, .wp-block-button__link)`
-     * weighs (0,1,0), and the editor prints global styles after every other
-     * style, so a tie loses there. One type weight on every projected link
-     * arm outranks it by specificity on every surface, and leaves the order
-     * among authored link rules as it was.
+     * buttons stylesheet uses `.wp-block-buttons .wp-block-button__link`
+     * (0,2,0), in addition to the global-styles button rule (0,1,0).
+     * Keep the source specificity for presentation: generic link resets must
+     * still lose to button values lifted into theme.json. The stylesheet
+     * projector adds class weight only to width declarations competing with
+     * core's buttons default, retaining the authored conditional cascade.
      */
     public function buttonLinkTarget(AuthorStylesheetProjectionContext $context): string
     {
@@ -2559,10 +2666,13 @@ final class AuthorSelectorProjector
      * `ul.wp-block-navigation__container` that holds the items. An item rule
      * whose parent compound is that list (`#menu > ul > li`) therefore has to
      * step through both: the list compound addresses the root through the
-     * list's semantic identity, and a child hop reaches core's container.
+     * list's semantic identity, and a descendant hop through Core's responsive
+     * wrappers reaches the container.
      * Otherwise `#menu > ul` looks for a UL child of `#menu` that no longer
      * exists, and the item loses its authored box (padding, height, display).
-     * Only applies when every matched item's parent is such a root-owning list.
+     * When the carrier owns the root instead, the source list maps directly
+     * to the inner container, with a descendant hop through Core's wrappers.
+     * Mixed root ownership is left alone.
      *
      * @param array<string, mixed> $parsed
      * @param list<DOMElement> $matches
@@ -2581,14 +2691,30 @@ final class AuthorSelectorProjector
             return array();
         }
         $identities = array();
+        $ownsRoot = null;
         foreach ( $matches as $item ) {
             $list = $item->parentNode;
             if ( ! $list instanceof DOMElement ) {
                 return array();
             }
             $path = $list->getNodePath() ?? '';
-            if ( ! $context->selectorProjections->navigationListOwnsRoot($path) ) {
+            $listOwnsRoot = $context->selectorProjections->navigationListOwnsRoot($path);
+            if ( null !== $ownsRoot && $ownsRoot !== $listOwnsRoot ) {
                 return array();
+            }
+            $ownsRoot = $listOwnsRoot;
+            if ( ! $ownsRoot ) {
+                if ( $parentIndex < 1 || '>' !== ($combinators[$parentIndex - 1] ?? null)
+                    || ! $context->selectorProjections->isNavigationSourcePath($item->getNodePath() ?? '', AuthorSelectorProjectionState::NAVIGATION_ITEM) ) {
+                    return array();
+                }
+                // Submenu lists live inside an item, not in the root container.
+                for ( $ancestor = $list->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                    if ( $context->selectorProjections->isNavigationSourcePath($ancestor->getNodePath() ?? '', AuthorSelectorProjectionState::NAVIGATION_ITEM) ) {
+                        return array();
+                    }
+                }
+                continue;
             }
             if ( '' === $type ) {
                 continue;
@@ -2599,6 +2725,31 @@ final class AuthorSelectorProjector
             }
             $identities[$marker] = '.wp-block-navigation.' . $marker;
         }
+        if ( false === $ownsRoot ) {
+            // The carrier, rather than this list, owns the navigation root.
+            // Core inserts responsive wrappers before the item container: relax
+            // the hop into the list, but keep its direct-child hop to the item.
+            foreach ( $parsed['type_spans'] as $typeSpan ) {
+                if ( $parentIndex !== ($typeSpan['compound'] ?? null) ) {
+                    continue;
+                }
+                $listStart = (int) $typeSpan['start'];
+                $replacements = array(
+                    $listStart => array(
+                        'end' => (int) $typeSpan['end'],
+                        'value' => ':where(.wp-block-navigation__container)' . $this->typeSpecificityShim($context),
+                    ),
+                );
+                if ( $parentIndex > 0 && '>' === ($combinators[$parentIndex - 1] ?? null) ) {
+                    $hop = $listStart;
+                    while ( $hop > 0 && ctype_space($selector[$hop - 1]) ) --$hop;
+                    if ( $hop < 1 || '>' !== $selector[$hop - 1] ) return array();
+                    $replacements[$hop - 1] = array( 'end' => $hop, 'value' => ' ' );
+                }
+                return $replacements;
+            }
+            return array();
+        }
         // The parent compound ends where the `>` before the item begins.
         $parentEnd = (int) $parsed['rightmost_compound_span']['start'];
         while ( $parentEnd > 0 && ctype_space($selector[$parentEnd - 1]) ) --$parentEnd;
@@ -2608,7 +2759,7 @@ final class AuthorSelectorProjector
         --$parentEnd;
         while ( $parentEnd > 0 && ctype_space($selector[$parentEnd - 1]) ) --$parentEnd;
         $replacements = array(
-            $parentEnd => array( 'end' => $parentEnd, 'value' => ' > :where(.wp-block-navigation__container)' ),
+            $parentEnd => array( 'end' => $parentEnd, 'value' => ' :where(.wp-block-navigation__container)' ),
         );
         if ( '' !== $type ) {
             foreach ( $parsed['type_spans'] as $typeSpan ) {
@@ -2624,6 +2775,21 @@ final class AuthorSelectorProjector
             }
         }
         return $replacements;
+    }
+
+    /**
+     * A data predicate on an ancestor compound does not survive lowering: the
+     * block wrapper drops the attribute. Such a selector must bind through the
+     * attribute markers its source matches carry instead of staying live.
+     *
+     * @param array<string, mixed> $parsed
+     */
+    private function hasDroppedDataAncestry(string $selector, array $parsed, AuthorStylesheetProjectionContext $context): bool
+    {
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $ancestry = is_array($rightmost) ? substr($selector, 0, (int) $rightmost['start']) : '';
+        return 1 === preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry)
+            && ! SourceAttributeSubjects::retainsDataPredicates($parsed, $context->authorStyles);
     }
 
     /** @param array<string, mixed> $parsed */

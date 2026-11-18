@@ -202,7 +202,20 @@ final class EmptyVisualRetentionPolicy implements EmptyVisualRetention
             return false;
         }
 
-        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->session->authorSelectorProjectionState()->hasSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
+        return ( ShellLandmarkPolicy::isWrapperPreservingTag($tag) || RichTextInlineTags::isUnknownHtmlElement($element) ) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->session->authorSelectorProjectionState()->hasSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || $this->responsiveStylesheetOwnsWrapperBox($element) || array() !== $this->sourceElementDescription->structureSignals($element, array()) || $this->styledClassBoundaries->hasStyledSourceClassBoundary($element) );
+    }
+
+    /**
+     * A box styled only by declarations that have media/container variants
+     * stays stylesheet-owned, so presentationAttributes() is empty. The rule
+     * still paints the source wrapper: keep it as its own editable group,
+     * without freezing one breakpoint's value inline (#6346). A styled class
+     * boundary already owns its wrapper through the class hook.
+     */
+    public function responsiveStylesheetOwnsWrapperBox(DOMElement $element): bool
+    {
+        return array() !== $this->styleResolver->responsiveStylesheetOwnedBoxDeclarations($element)
+            && ! $this->styledClassBoundaries->hasStyledSourceClassBoundary($element);
     }
 
     private function containsGeneratedComponentCandidate(DOMElement $element): bool

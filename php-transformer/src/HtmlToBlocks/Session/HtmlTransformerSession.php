@@ -304,6 +304,8 @@ final class HtmlTransformerSession
      * @param array<string, mixed> $options
      */
     private array $boxTree = array();
+    /** @var array<string, string>|null Child node id => parent node id. */
+    private ?array $boxTreeParents = null;
 
     /** Browser observations for the source element, keyed by captured viewport. */
     public function boxTreeViewports(): array
@@ -316,9 +318,17 @@ final class HtmlTransformerSession
         return \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::forElement($this->boxTree, $element);
     }
 
+    /** Observations of the box the capture laid this element out in. */
+    public function boxTreeParentEvidence(\DOMElement $element): array
+    {
+        $this->boxTreeParents ??= \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::parentIds($this->boxTree);
+        return \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::parentForElement($this->boxTree, $this->boxTreeParents, $element);
+    }
+
     public function installTransformOptions(array $options): void
     {
         $this->boxTree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
+        $this->boxTreeParents = null;
         $this->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
         $this->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));
         $this->installAssetMaterializationState(new AssetMaterializationState(

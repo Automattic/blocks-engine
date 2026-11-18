@@ -102,6 +102,18 @@ final class FormDispatcher
             }
         }
 
+        // Variant choices are part of the purchase, not a reason to freeze the
+        // add-to-cart form as raw HTML: keep native blocks and report the
+        // commerce controls finding a shop provider binds (#6442).
+        if ( FormRuntimeRequirementAnalyzer::collectsOnlyPurchaseChoices($element) ) {
+            $readableFormBlock = $this->context->buildReadableFormBlock($element, true, $fallbacks);
+            if ( null !== $readableFormBlock ) {
+                $fallbacks[] = $this->context->buildFallbackFinding($element, $readableFormBlock);
+                $this->context->recordForm($element, $readableFormBlock);
+                return $readableFormBlock;
+            }
+        }
+
         $hasChoiceGroups = FormControlClassifier::hasCapturedChoiceGroups($element);
         // Nested wrapping labels have a native source-owned subtree even
         // when their control has no prose summary (for example a date input).

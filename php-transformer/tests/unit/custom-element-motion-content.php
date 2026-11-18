@@ -7,7 +7,19 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 // Reduced from #6075: incidental motion names must not hide editable light DOM.
 $reveal = (string) file_get_contents(__DIR__ . '/fixtures/custom-element-scroll-reveal.html');
+$variableReveal = (string) file_get_contents(__DIR__ . '/fixtures/custom-element-variable-scroll-reveal.html');
 $cases = array(
+    'variable scroll reveal with calculated delay (#6262, #6282)' => array($variableReveal, array('core/heading', 'core/paragraph', 'core/image')),
+    'variable animation longhands' => array(str_replace(
+        'animation: var(--animation-slide-in)',
+        'animation-name: var(--reveal-name); animation-duration: var(--duration); animation-iteration-count: var(--iterations); animation-direction: var(--direction); animation-fill-mode: forwards',
+        str_replace(':root {', ':root { --reveal-name: slideIn; --duration: 0.6s; --iterations: 1; --direction: normal;', $variableReveal)
+    ), array('core/heading', 'core/paragraph', 'core/image')),
+    'nested animation variables' => array(str_replace(
+        'slideIn 0.6s cubic-bezier(0, 0, 0.3, 1) forwards',
+        'slideIn var(--duration, 0.6s) var(--easing) forwards',
+        str_replace(':root {', ':root { --easing: var(--curve); --curve: cubic-bezier(0, 0, 0.3, 1);', $variableReveal)
+    ), array('core/heading', 'core/paragraph', 'core/image')),
     'scroll reveal (#6212)' => array($reveal, array('core/heading', 'core/paragraph', 'core/image')),
     'unconditional reveal' => array(str_replace('@media (prefers-reduced-motion: no-preference)', '@media all', $reveal), array('core/heading', 'core/paragraph', 'core/image')),
     'product modifier' => array(
@@ -39,7 +51,19 @@ foreach ( $cases as $name => [$html, $expected] ) {
     }
 }
 
-$result = (new HtmlTransformer())->transform($reveal)->toArray();
+// These longhands affect presentation, not the finite entrance classification (#6282).
+foreach ( array('animation-delay', 'animation-fill-mode', 'animation-play-state', 'animation-timing-function', 'animation-duration') as $property ) {
+    foreach ( array('calc(var(--animation-order) * 75ms)', 'var(--missing-value)') as $value ) {
+        $html = str_replace('animation-delay: calc(var(--animation-order) * 75ms)', "{$property}: {$value}", $variableReveal);
+        $result = (new HtmlTransformer())->transform($html)->toArray();
+        if ( array() !== ($result['fallbacks'] ?? array()) ) {
+            fwrite(STDERR, "FAIL: {$property}: {$value} must not prevent a reveal\n");
+            exit(1);
+        }
+    }
+}
+
+$result = (new HtmlTransformer())->transform($variableReveal)->toArray();
 $markup = json_encode($result['blocks']);
 foreach ( array('Item one', 'Item two', '$10.00', '$12.00', 'Description of the item.', 'one.jpg') as $content ) {
     if ( ! str_contains((string) $markup, $content) ) {
@@ -51,6 +75,13 @@ foreach ( array('Item one', 'Item two', '$10.00', '$12.00', 'Description of the 
 // Real motion surfaces must not become transparent, whether CSS is inline
 // or supplied by an author stylesheet.
 foreach ( array(
+    str_replace('animation: var(--animation-slide-in)', 'animation: var(--missing-animation)', $variableReveal),
+    str_replace('slideIn 0.6s cubic-bezier', 'slideIn 0.6s infinite cubic-bezier', $variableReveal),
+    str_replace('animation: var(--animation-slide-in)', 'animation: var(--animation-slide-in); animation-iteration-count: var(--iterations, 2)', $variableReveal),
+    str_replace('animation: var(--animation-slide-in)', 'animation: var(--animation-slide-in); animation-direction: var(--direction, alternate)', $variableReveal),
+    str_replace('animation: var(--animation-slide-in)', 'animation: var(--animation-slide-in); animation-direction: var(--missing-direction)', $variableReveal),
+    str_replace('to { transform: translateY(0);', 'to { transform: translateY(-100%);', $variableReveal),
+    str_replace('<item-slider class=', '<item-slider onclick="advanceSlide()" class=', $variableReveal),
     str_replace('slideIn 0.6s ease', 'slideIn 0.6s ease infinite', $reveal),
     str_replace('slideIn 0.6s ease', 'slideIn 0.6s ease 2', $reveal),
     str_replace('to { transform: translateY(0);', 'to { transform: translateY(-100%);', $reveal),

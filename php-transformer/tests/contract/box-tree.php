@@ -88,6 +88,53 @@ $staged = $compiler->compose($shared, array_values($receipts))->toArray();
 $assert(!array_filter($staged['diagnostics'], static fn(array $row): bool => str_starts_with($row['code'], 'box_tree_')), 'Staged multi-route intake does not leak sidecars between page workers.');
 $assert($whole['source_reports']['box_tree'] === $staged['source_reports']['box_tree'], 'Staged and monolithic route classifications and projections agree.');
 
+// Export may insert wrappers without browser observations.
+$exportHtml = str_replace('<h1 ', '<div class="export-wrapper"><h1 ', str_replace('</h1>', '</h1></div>', $html));
+$exportTree = $tree;
+$exportTree['source_path'] = 'website/index.html';
+$exportTree['source_hash'] = hash('sha256', $exportHtml);
+$exportArtifact = array('entrypoint' => 'website/index.html', 'files' => array(
+    'website/index.html' => $exportHtml,
+    'website/box-tree/index.json' => json_encode($exportTree),
+    'website/box-tree/invalid.json' => '{',
+));
+$export = (new ArtifactCompiler())->compile($exportArtifact)->toArray();
+$report = $export['source_reports']['box_tree']['website/index.html'];
+$assert(count($tree['nodes']) === $report['nodes_with_evidence'] && $report['coverage'] < 1, 'Exported route accepts nearest observed children through an inserted wrapper.');
+$assert(!isset($report['classification']['nodes']['']), 'Unobserved wrappers are never classified neutral.');
+$assert(str_contains($export['serialized_blocks'], 'export-wrapper'), 'Inserted wrapper survives conversion.');
+$normalizedExport = (new ArtifactNormalizer())->normalize($exportArtifact);
+foreach ($normalizedExport['files'] as $file) {
+    if (BoxTree::isSidecarPath($file['path'])) $assert(ArtifactNormalizer::CAPTURE_REPORT_ROLE === $file['role'], 'Sidecars are evidence even without a reports declaration.');
+}
+$assert(!str_contains(json_encode($export['assets']), 'box-tree/'), 'Valid and rejected sidecars never enter the asset manifest.');
+$exportCompiler = new ArtifactCompiler();
+$exportShared = $exportCompiler->prepareShared($exportArtifact);
+$exportPages = $exportCompiler->preparePages($exportArtifact, $exportShared);
+$exportReceipts = $exportCompiler->compilePreparedPages($exportShared, array_values($exportPages));
+$exportStaged = $exportCompiler->compose($exportShared, array_values($exportReceipts))->toArray();
+$assert($exportStaged['source_reports']['box_tree'] === $export['source_reports']['box_tree'], 'Staged export intake preserves partial evidence coverage and classification.');
+$assert(!str_contains(json_encode($exportStaged['assets']), 'box-tree/'), 'Staged delivery excludes sidecars too.');
+foreach (array('missing', 'duplicate', 'hash', 'topology') as $mode) {
+    $invalidArtifact = $exportArtifact;
+    unset($invalidArtifact['files']['website/box-tree/invalid.json']);
+    $invalidHtml = match ($mode) {
+        'missing' => str_replace('data-blocks-engine-node-id="n6"', '', $exportHtml),
+        'duplicate' => str_replace('class="export-wrapper"', 'data-blocks-engine-node-id="n6"', $exportHtml),
+        'empty' => str_replace('class="export-wrapper"', 'data-blocks-engine-node-id=""', $exportHtml),
+        default => $exportHtml,
+    };
+    $invalidTree = $exportTree;
+    if ('hash' !== $mode) $invalidTree['source_hash'] = hash('sha256', $invalidHtml);
+    else $invalidTree['source_hash'] = str_repeat('0', 64);
+    if ('topology' === $mode) $invalidTree['nodes']['n5']['children'] = array('n7', 'n6');
+    $invalidArtifact['files']['website/index.html'] = $invalidHtml;
+    $invalidArtifact['files']['website/box-tree/index.json'] = json_encode($invalidTree);
+    $rejected = (new ArtifactCompiler())->compile($invalidArtifact)->toArray();
+    $diagnostic = array_values(array_filter($rejected['diagnostics'], static fn(array $row): bool => 'box_tree_identity_stale' === $row['code']))[0] ?? array();
+    $assert('website/index.html' === ($diagnostic['context']['source_path'] ?? null), "$mode rejection identifies the exported route.");
+}
+
 $bad = $tree;
 $bad['nodes']['n5']['children'] = array('n7', 'n6');
 $assert(in_array('box_tree_identity_stale', array_column($compile($bad)['diagnostics'], 'code'), true), 'Stale DOM topology is rejected.');

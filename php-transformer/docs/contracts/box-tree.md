@@ -9,14 +9,29 @@ The producer-neutral schema is `blocks-engine/box-tree/v2`, published in
 
 Write one `box-tree/<route>.json` artifact file for each captured route. Set
 `source_path` to the exact artifact-relative HTML path and `source_hash` to the
-SHA-256 of its final UTF-8 bytes (including node attributes). Declare large
-sidecars in the artifact `reports` list to use capture-report byte budgets.
+SHA-256 of its final UTF-8 page bytes (including node attributes, before include
+expansion). For pages using `<!--#include virtual="/parts/…" -->`, supply
+`includes: { "<artifact-relative part path>": "<sha256 of raw part bytes>" }`
+for every transitively included part. The set must be exact; missing, extra or
+changed hashes reject the sidecar. Paths include the artifact's virtual root
+(e.g. `website/parts/header.html`). Without includes this field may be omitted.
+Topology is checked on the include-resolved document, using the compiler's
+canonical include expansion, not on the page bytes alone. Sidecars under
+`box-tree/**/*.json`, including `website/box-tree/`, automatically use
+capture-report byte budgets and are never delivered as theme assets or copied
+files, whether accepted or rejected.
 The reader also applies a hard 32 MiB decoded sidecar limit, 100,000 nodes,
 1–8 viewports, viewport dimensions of 1–32,768 CSS pixels, geometry bounded
 by 100,000,000 CSS pixels, and 4,096 bytes per used style string.
 
-Every element, including `html`, `head` and non-rendering elements, must carry
-`data-blocks-engine-node-id`. IDs are route-local, unique, 1–80 ASCII letters,
+An element is observed only when its `data-blocks-engine-node-id` occurs exactly
+once in the resolved document and is a key in `nodes`. All other elements are
+unobserved: missing, empty or foreign IDs, and every occurrence of a duplicated
+ID. They receive no evidence-based restyling and cannot be classified neutral
+or collapsed using evidence. Every recorded node must be observed; a record
+for a missing or duplicated ID rejects the whole sidecar. Producers must project
+nodes from the resolved document, dropping duplicated IDs and IDs absent from
+that route's capture. Recorded IDs are route-local, 1–80 ASCII letters,
 digits, dots, underscores, colons or hyphens. They identify a source element,
 not a viewport position: preserve the same ID in desktop/mobile documents and
 all observations. Do not regenerate IDs after resizing; a genuinely different
@@ -26,7 +41,8 @@ elements. No IDs are synthesized by the transformer.
 The sidecar has `viewports` keyed by the names served by that document, each
 with integer `width` and `height`, and `nodes` keyed by node ID. Each node has:
 
-- `children`: immediate element child IDs in DOM order (no text/comment IDs);
+- `children`: nearest observed descendant IDs in DOM order, traversing through
+  unobserved wrappers but stopping at observed elements (no text/comment IDs);
 - `viewports`: exactly one observation for every declared viewport;
 - each observation: `border_box: {x, y, width, height}` in viewport-relative CSS
   pixels, and `used_styles`, containing every property in the published schema.
@@ -67,8 +83,10 @@ the producer pipeline.
 ## Transformer behavior
 
 The artifact normalizer reads sidecars directly from `files`, validates the
-schema, bounds, source hash, unique node IDs, complete viewport observations
-and exact DOM child topology. A route's evidence is accepted atomically.
+schema, bounds, page and included-part hashes, unique observed node IDs,
+complete viewport observations and exact include-resolved observed DOM child topology. A route's evidence is accepted atomically.
+Rejection diagnostics retain the sidecar `path` and, when available, its declared
+`source_path`, so import reports can attribute the rejection code to a route.
 Invalid evidence produces a warning diagnostic (`box_tree_schema_invalid`,
 `box_tree_bounds_invalid`, `box_tree_identity_stale`,
 `box_tree_viewport_invalid`, `box_tree_geometry_invalid`,

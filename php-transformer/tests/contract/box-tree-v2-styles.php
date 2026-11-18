@@ -14,6 +14,7 @@ $assert = static function (bool $ok, string $message): void {
 $parent = $tree['nodes']['n1']['viewports'];
 $observations = $parent;
 $observations['desktop']['used_styles']['color'] = 'rgb(255, 0, 0)';
+$observations['desktop']['used_styles']['position'] = 'relative';
 $observations['desktop']['used_styles']['top'] = '12px';
 $pseudo = $observations['desktop'];
 $pseudo['content'] = '"hello"';
@@ -26,4 +27,6 @@ $assert(str_contains($css, 'top:12px'), 'Placement is projected.');
 $assert(str_contains($css, '::before'), 'Rendering pseudo gets its own selector.');
 $assert(str_contains($css, 'content:none'), 'Missing mobile pseudo resets desktop content.');
 $assert(str_contains($css, 'color:inherit'), 'Mobile value equal to parent resets desktop override to inheritance.');
-$assert(isset($attrs['style']['color']['text']), 'Differing inherited color is mapped on the originating node.');
+// The desktop-only color varies by viewport, so an inline attribute would beat the mobile reset (#6377).
+$assert(!isset($attrs['style']['color']['text']), 'A color that varies by viewport is not a block attribute.');
+$assert(str_contains($css, 'color:rgb(255, 0, 0)'), 'A differing inherited color is declared by the originating node carrier.');

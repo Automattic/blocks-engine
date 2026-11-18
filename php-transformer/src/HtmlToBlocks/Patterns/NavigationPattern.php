@@ -22,6 +22,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CoreSelectorScopin
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CapturedMenuDialogFold;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LoweredLinkHost;
 use DOMElement;
 
 final class NavigationPattern implements PatternRecognizerInterface
@@ -544,6 +545,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             $scopedClasses,
             $listSource
         );
+        if ( null === $listSource && ! $label instanceof DOMElement && $this->linksAreDirectAnchorsOf($links, $directAnchors, $navigationSource) ) {
+            $navigationContext->recordBareAnchorRowStretch($navigationSource, $scopedClasses);
+        }
         $this->recordNavigationSources($links, $directAnchors, $listItems, $navigationSource, $navigationContext);
 
         if ( ! $label instanceof DOMElement ) {
@@ -797,7 +801,15 @@ final class NavigationPattern implements PatternRecognizerInterface
                 : array( array( 'kind' => 'cluster' ), array( 'kind' => 'brand' ) );
         }
 
-        foreach ( null === $nonAnchorShape ? $element->childNodes : array() as $child ) {
+        // A landmark often wraps its row in one authored layout box
+        // (`<nav><div class="container">brand, links, CTA</div></nav>`).
+        // That box owns the row's width, centring and flex distribution, so
+        // the carrier reads the row inside it and keeps the box as its own
+        // group instead of folding brand, links and CTA into one flat menu.
+        $layoutWrapper = null === $nonAnchorShape ? $this->carrierLayoutWrapper($element) : null;
+        $scope = $layoutWrapper ?? $element;
+
+        foreach ( null === $nonAnchorShape ? $scope->childNodes : array() as $child ) {
             if ( XML_COMMENT_NODE === $child->nodeType ) {
                 continue;
             }
@@ -821,7 +833,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            if ( $this->isCollapsedNavigationDuplicate($child, $element, $navigationContext) ) {
+            if ( $this->isCollapsedNavigationDuplicate($child, $scope, $navigationContext) ) {
                 continue;
             }
 
@@ -926,6 +938,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         } else {
             $clusterAnchors = null;
             $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, false, true, $clusterAnchors, $listItems);
+            // Retain the responsive visibility contract when the layout carrier
+            // recognizes a link run before ordinary navigation flattens it.
+            $links = $this->withFlattenedWrapperVisibility($links, $cluster, $navigationContext);
         }
         if ( 2 > count($links) ) {
             return null;
@@ -1056,7 +1071,15 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $extraBlocks = array();
         foreach ( $extras as $extra ) {
-            $extraBlock = $converter->element($extra, $fallbacks, true);
+            // A link beside the menu remains a link, not a new source of
+            // site-wide button defaults. Preserve its authored anchor and
+            // presentation without introducing button wrapper projections.
+            $extraBlock = $layoutWrapper instanceof DOMElement
+                ? $createBlock('core/paragraph', array_merge(
+                    LoweredLinkHost::attributes($presentationAttributes($extra), $extra),
+                    array( 'content' => SourceDom::outerHtml($extra) )
+                ), array(), $extra)
+                : $converter->element($extra, $fallbacks, true);
             $extraName = is_array($extraBlock) ? (string) ($extraBlock['blockName'] ?? '') : '';
             if ( '' === $extraName || 'core/html' === $extraName ) {
                 return null;
@@ -1076,7 +1099,12 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         if ( array() === $extraBlocks ) {
-            return $createBlock('core/group', $carrierAttrs, $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ), $element);
+            $children = $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand );
+            if ( $layoutWrapper instanceof DOMElement ) {
+                $children = array( $createBlock('core/group', $presentationAttributes($layoutWrapper), $children, $layoutWrapper) );
+            }
+
+            return $createBlock('core/group', $carrierAttrs, $children, $element);
         }
 
         // Authored order is the only order that reproduces the design: the CTA
@@ -1093,8 +1121,45 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
             $children[] = $extraBlocks[$slot['index']];
         }
+        if ( $layoutWrapper instanceof DOMElement ) {
+            $children = array( $createBlock('core/group', $presentationAttributes($layoutWrapper), $children, $layoutWrapper) );
+        }
 
         return $createBlock('core/group', $carrierAttrs, $children, $element);
+    }
+
+    /**
+     * The landmark's sole layout box, when the brand row sits one level down.
+     *
+     * Only a `div` that is the landmark's one significant child and itself
+     * holds at least two element children qualifies: that is a row container,
+     * not a menu list, link or chrome control.
+     */
+    private function carrierLayoutWrapper(DOMElement $nav): ?DOMElement
+    {
+        $wrapper = null;
+        foreach ( $nav->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType
+                || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || $wrapper instanceof DOMElement ) {
+                return null;
+            }
+            $wrapper = $child;
+        }
+        if ( ! $wrapper instanceof DOMElement || 'div' !== strtolower($wrapper->tagName)
+            || $this->isNavigationChromeElement($wrapper) ) {
+            return null;
+        }
+        $elements = 0;
+        foreach ( $wrapper->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                ++$elements;
+            }
+        }
+
+        return 2 <= $elements ? $wrapper : null;
     }
 
     /**
@@ -1802,7 +1867,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
                 continue;
             }
-            if ( ! in_array($navigationContext->resolvedDisplay($child), array( 'inline', 'inline-block' ), true) ) {
+            $display = $navigationContext->resolvedDisplay($child);
+            if ( 'none' === $display ) {
+                continue;
+            }
+            if ( ! in_array($display, array( 'inline', 'inline-block' ), true) ) {
                 return false;
             }
             ++$items;
@@ -2516,7 +2585,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $wrappedAnchors = null;
                     $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, $allowsDescriptiveChrome, $allowsDirectItems || $this->hasButtonDropdownChild($child), $wrappedAnchors, $collected);
                     if ( array() !== $wrappedBlocks ) {
-                        $blocks = array_merge($blocks, $wrappedBlocks);
+                        $blocks = array_merge($blocks, $this->withFlattenedWrapperVisibility($wrappedBlocks, $child, $navigationContext));
                         continue;
                     }
                 }
@@ -2530,6 +2599,87 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $blocks;
+    }
+
+    /**
+     * Properties a flattened wrapper may state and still hand to each of its
+     * items unchanged: its visibility, the packing of its (now per-item)
+     * children, and inherited text presentation. Anything that paints or sizes
+     * the wrapper's own box would be repeated once per item.
+     */
+    private const FLATTENED_WRAPPER_DISTRIBUTABLE_PROPERTIES = array(
+        'display', 'visibility', 'align-items', 'align-content', 'justify-content', 'justify-items', 'place-items',
+        'place-content', 'gap', 'row-gap', 'column-gap', 'flex-direction', 'flex-wrap', 'flex-flow', 'list-style',
+        'list-style-type', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'line-height',
+        'letter-spacing', 'text-transform', 'text-decoration', 'text-align', 'white-space', 'cursor', 'transition',
+    );
+
+    /**
+     * A link run wrapper core/navigation flattens into the menu takes its
+     * responsive visibility with it: `.nav-links{display:none}` at a
+     * breakpoint hides those links while the brand and CTA beside them stay.
+     * Each item replacing the wrapper carries a carrier class its author
+     * rules project onto, so they hide exactly those items where they hid
+     * the wrapper. Only
+     * a wrapper the cascade hides at some viewport, and whose rules state
+     * nothing a per-item copy would repeat (a box, a background), qualifies.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function withFlattenedWrapperVisibility(array $blocks, DOMElement $wrapper, ?NavigationPatternContext $navigationContext): array
+    {
+        if ( null === $navigationContext || $navigationContext->isDisplayNoneAtEveryViewport($wrapper) ) {
+            return $blocks;
+        }
+        $declared = $navigationContext->declaredValuesAtAnyViewport($wrapper, null);
+        $hides = in_array('none', array_map(static fn (string $value): string => strtolower(trim(preg_replace('/!\s*important\s*$/i', '', $value) ?? $value)), $declared['display'] ?? array()), true);
+        if ( ! $hides ) {
+            return $blocks;
+        }
+        foreach ( $declared as $property => $values ) {
+            if ( ! self::isDistributableWrapperDeclaration((string) $property, $values) ) {
+                return $blocks;
+            }
+        }
+        $className = $navigationContext->recordFlattenedWrapperSubject($wrapper);
+        if ( '' === $className ) {
+            return $blocks;
+        }
+        foreach ( $blocks as &$block ) {
+            if ( 'core/navigation-link' === ( $block['blockName'] ?? '' ) || 'core/navigation-submenu' === ( $block['blockName'] ?? '' ) ) {
+                $block['attrs'] = $this->withClassName(ArrayField::array($block, 'attrs'), $className);
+            }
+        }
+        unset($block);
+
+        return $blocks;
+    }
+
+    /**
+     * Whether a wrapper declaration repeats harmlessly on each item: a
+     * distributable property, a custom property, or a reset (`margin:0`,
+     * `border:0 solid`) that leaves the box unpainted and unsized.
+     *
+     * @param list<string> $values
+     */
+    private static function isDistributableWrapperDeclaration(string $property, array $values): bool
+    {
+        if ( str_starts_with($property, '--') || in_array($property, self::FLATTENED_WRAPPER_DISTRIBUTABLE_PROPERTIES, true)
+            || in_array($property, array( 'box-sizing', 'border-color', 'outline-color' ), true) ) {
+            return true;
+        }
+        if ( 1 !== preg_match('/^(?:margin|padding|border|outline)(?:-[a-z-]+)?$/', $property) ) {
+            return false;
+        }
+        foreach ( $values as $value ) {
+            $value = strtolower(trim(preg_replace('/!\s*important\s*$/i', '', $value) ?? $value));
+            if ( 1 !== preg_match('/^(?:0(?:px|em|rem|%)?|none)(?:\s+(?:0(?:px|em|rem|%)?|none|solid|dashed|dotted|double|currentcolor))*$/', $value) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** Reused resting panels still depend on the capture runtime's wiring. */
@@ -3265,6 +3415,13 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function withSourceSubmenuIndicator(array $attrs, DOMElement $source, NavigationPatternContext $navigationContext): array
     {
+        // Every label is its submenu's toggle button and paints no indicator:
+        // core's click mode renders that focusable label button, and the
+        // stylesheet hides core's decorative icon and restates the hover reveal.
+        if ( ! isset($attrs['openSubmenusOnClick']) && $navigationContext->labelTogglesEverySubmenuWithin($source) ) {
+            $attrs['openSubmenusOnClick'] = true;
+            return $this->withClassName($attrs, NavigationPatternContext::LABEL_TOGGLE_SUBMENUS_CLASS);
+        }
         if ( ( $navigationContext->hasSubmenuToggleIndicatorWithin($source)
                 || $navigationContext->hasUnindicatedSubmenuParentWithin($source) ) ) {
             $attrs['showSubmenuIcon'] = false;
@@ -3291,6 +3448,27 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
         return false;
+    }
+
+    /**
+     * Whether the label is the submenu's only disclosure control (a button,
+     * or a link declared one, leading nowhere) and the source also reveals
+     * the submenu on its item's hover/focus. A plain link label stays a
+     * hover target: core keeps it a link.
+     */
+    private function isHoverRevealedToggleLabel(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, ?NavigationPatternContext $navigationContext): bool
+    {
+        if ( ! $this->isSubmenuToggleControl($anchor) || $this->leadsToPage($anchor) || null === $submenuContainer
+            || true !== $navigationContext?->revealsSubmenuOnItemState($item, $submenuContainer)
+            || $this->isHoverRevealedLabel($item, $anchor, $submenuContainer, $navigationContext) ) return false;
+        foreach ( $item->getElementsByTagName('button') as $button ) {
+            if ( ! $button instanceof DOMElement || $button->isSameNode($anchor) || $navigationContext->isVisuallyHiddenControl($button) ) continue;
+            for ( $node = $button; $node instanceof DOMElement; $node = $node->parentNode ) {
+                if ( $node->isSameNode($submenuContainer) ) continue 2;
+            }
+            return false;
+        }
+        return true;
     }
 
     private function isHoverRevealedLabel(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, ?NavigationPatternContext $navigationContext): bool
@@ -3382,8 +3560,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( '' === $iconMarker && ! $item->isSameNode($anchor) ) {
                 $navigationContext?->recordSubmenuToggle(
                     $anchor,
-                    $this->hasSubmenuDisclosureControl($item, $anchor, $submenuContainer, $navigationContext)
+                    $this->hasSubmenuDisclosureControl($item, $anchor, $submenuContainer, $navigationContext),
+                    $this->isHoverRevealedToggleLabel($item, $anchor, $submenuContainer, $navigationContext)
                 );
+            } else {
+                $navigationContext?->recordSubmenuParent($anchor);
             }
         }
         $submenuAttrs = $submenuContainer instanceof DOMElement ? $this->withoutCoreNavigationClasses($presentationAttributes($submenuContainer)) : array();
@@ -4044,6 +4225,27 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function isListNavigationSource(DOMElement $element): bool
     {
         return $this->navigationListSource($element) instanceof DOMElement;
+    }
+
+    /**
+     * Whether each emitted link stands in for one anchor the navigation holds
+     * directly: the anchors are then the source row's own flex items.
+     *
+     * @param array<int, array<string, mixed>> $links
+     * @param list<DOMElement> $directAnchors
+     */
+    private function linksAreDirectAnchorsOf(array $links, array $directAnchors, DOMElement $navigation): bool
+    {
+        if ( array() === $directAnchors || count($links) !== count($directAnchors) ) {
+            return false;
+        }
+        foreach ( $directAnchors as $anchor ) {
+            if ( ! $anchor->parentNode instanceof DOMElement || ! $anchor->parentNode->isSameNode($navigation) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function navigationListSource(DOMElement $element): ?DOMElement

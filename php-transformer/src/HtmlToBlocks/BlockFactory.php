@@ -1145,12 +1145,18 @@ final class BlockFactory
         $typographyMap = array(
             // A raw authored family is a custom value, so core's style engine
             // serializes it inline rather than as a has-*-font-family class.
-            'fontFamily'    => 'font-family',
-            'fontSize'      => 'font-size',
-            'fontWeight'    => 'font-weight',
-            'letterSpacing' => 'letter-spacing',
-            'lineHeight'    => 'line-height',
-            'textTransform' => 'text-transform',
+            'fontFamily'     => 'font-family',
+            'fontSize'       => 'font-size',
+            // core/button supports every typography key below, and save()
+            // inlines each one: a key the attributes carry but the markup
+            // omits fails block validation in the editor.
+            'fontStyle'      => 'font-style',
+            'fontWeight'     => 'font-weight',
+            'letterSpacing'  => 'letter-spacing',
+            'lineHeight'     => 'line-height',
+            'textDecoration' => 'text-decoration',
+            'textTransform'  => 'text-transform',
+            'writingMode'    => 'writing-mode',
         );
         foreach ( $typographyMap as $attrName => $cssName ) {
             if ( isset($typography[$attrName]) && '' !== (string) $typography[$attrName] ) {

@@ -26,6 +26,8 @@ $result = (new HtmlTransformer())->transform($source)->toArray();
 $flatten = static function (array $blocks) use (&$flatten): array { $out = array(); foreach ($blocks as $block) { $out[] = $block; $out = array_merge($out, $flatten($block['innerBlocks'] ?? array())); } return $out; };
 $blocks = $flatten($result['blocks']);
 $byId = array(); foreach ($blocks as $block) if (isset($block['attrs']['id'])) $byId[$block['attrs']['id']] = $block;
+// Captured textareas are core paragraphs whose native attributes are renderer metadata.
+foreach ($blocks as $block) if (isset($block['attrs']['metadata']['blocksEngineTextarea']['id'])) $byId[$block['attrs']['metadata']['blocksEngineTextarea']['id']] = array('attrs' => $block['attrs']['metadata']['blocksEngineTextarea']) + $block;
 $assert(array() === $result['fallbacks'], 'typed native controls have no fallback');
 $assert('custom/authored-native-form' === $byId['owner']['blockName'], 'admitted GET form keeps native ownership of its typed controls');
 $assert('owner' === $byId['text']['attrs']['form'] && 'owner' === $byId['file']['attrs']['form'], 'externally owned typed controls keep their native form owner');
@@ -144,8 +146,8 @@ $assert('hello' === $untyped['attrs']['value'] && str_contains($untyped['innerHT
 $assert(!array_key_exists('dataAttributes', $untyped['attrs']) && !str_contains($untyped['innerHTML'], AuthoredControlState::ATTRIBUTE), 'untyped textarea keeps base attributes without an empty object or state payload');
 $kept = $textareaBlock("<textarea class=\"t\" style=\"height:40px\">\n\nkeep</textarea>");
 $assert("\nkeep" === $kept['attrs']['value'] && str_contains($kept['innerHTML'], ">\n\nkeep</textarea>"), 'a genuine leading LF survives through the serialization guard');
-$typedLf = $textareaBlock('<textarea' . $marker(array('version' => 1, 'kind' => 'textarea', 'value' => "\nNow", 'defaultValue' => "\nDefault")) . ">\nDefault</textarea>");
-$assert("\nDefault" === $typedLf['attrs']['value'] && "\nNow" === $typedLf['attrs']['initialValue'] && str_contains($typedLf['innerHTML'], ">\n\nDefault</textarea>"), 'typed default/current LF semantics stay exact');
+$typedLf = array_values(array_filter($flatten((new HtmlTransformer())->transform('<main><textarea' . $marker(array('version' => 1, 'kind' => 'textarea', 'value' => "\nNow", 'defaultValue' => "\nDefault")) . ">\nDefault</textarea></main>")->toArray()['blocks']), static fn (array $block): bool => isset($block['attrs']['metadata']['blocksEngineTextarea'])))[0];
+$assert("\nDefault" === $typedLf['attrs']['metadata']['blocksEngineTextarea']['value'] && "\nNow" === $typedLf['attrs']['metadata']['blocksEngineTextarea']['initialValue'] && '<br>Default' === $typedLf['attrs']['content'], 'typed default/current LF semantics stay exact');
 
 // No-op typed state needs no payload; native markup already reproduces it.
 $noop = (new HtmlTransformer())->transform('<main><input id="same" value="v"' . $marker($text('text', 'v', 'v')) . '><textarea id="same-area"' . $marker(array('version' => 1, 'kind' => 'textarea', 'value' => 'x', 'defaultValue' => 'x')) . '>x</textarea></main>')->toArray();

@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocab
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use DOMElement;
@@ -115,6 +116,38 @@ final class NavigationStyleProjector
             // negative delay lands on an animation that never advances, and the
             // element stays on whatever keyframe its fill mode paints.
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important}';
+            // A looping animation has no settled end state. Retaining its last
+            // keyframe can translate a marquee's editable children off canvas.
+            // Remove motion only for loops carrying image blocks: those children
+            // need selectable resting boxes. Do not disable keyframe fill: loops
+            // can also own text color or opacity, which must remain settled.
+            ( new CssStylesheetTransformer() )->visitStyleRules(
+                $this->session->authorStyleAnalysis()->combinedCss() . "\n" . $anchorProjectionCss,
+                static function (string $selector, string $body, array $ancestors) use (&$rules): void {
+                    $declarations = array_intersect_key(SourceDeclarations::parse($body), array_flip(
+                        array( 'animation', 'animation-iteration-count', '-webkit-animation', '-webkit-animation-iteration-count' )
+                    ));
+                    $looping = false;
+                    foreach ( $declarations as $value ) {
+                        foreach ( CssValueSplitter::splitTopLevel(strtolower($value), array( ',' )) as $animation ) {
+                            if ( in_array('infinite', CssValueSplitter::splitTopLevelWhitespace($animation), true) ) {
+                                $looping = true;
+                            }
+                        }
+                    }
+                    if ( ! $looping ) {
+                        return;
+                    }
+                    // Also guard the rule in CSS: saved/editor styles may be
+                    // present during a front-end preview, where the live loop
+                    // must retain its authored fill behavior.
+                    $rule = ':root .editor-styles-wrapper :is(' . trim($selector) . '):has(figure.wp-block-image){transform:none!important}';
+                    foreach ( array_reverse($ancestors) as $ancestor ) {
+                        $rule = $ancestor . '{' . $rule . '}';
+                    }
+                    $rules[] = $rule;
+                }
+            );
             // Editable roots do not carry render-time capture attributes.
             // Address only replay owners through their editor identity, and
             // leave their authored resting geometry intact.
@@ -1295,7 +1328,11 @@ final class NavigationStyleProjector
                 if ( $this->navigationPropertyIsItemLayout($property) ) {
                     return null;
                 }
-                $values['revert'] = true;
+                // A line width reverts to the user-agent `medium`, which an
+                // author's universal `border-style:solid` (Tailwind preflight)
+                // paints as a 3px frame the source never had: the item had no
+                // edge at all, so its width is zero.
+                $values[$this->navigationPropertyIsLineWidth($property) ? '0' : 'revert'] = true;
                 continue;
             }
 
@@ -1410,6 +1447,11 @@ final class NavigationStyleProjector
         }
 
         return $siblingAnchors > 1;
+    }
+
+    private function navigationPropertyIsLineWidth(string $property): bool
+    {
+        return 1 === preg_match('/^(?:border(?:-(?:top|right|bottom|left|block|inline|block-start|block-end|inline-start|inline-end))?|outline)-width$/', $property);
     }
 
     private function navigationPropertyIsItemLayout(string $property): bool

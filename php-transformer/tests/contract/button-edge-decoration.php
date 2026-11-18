@@ -17,4 +17,13 @@ if ( 1 !== preg_match('/' . $link . '[^{,]*::after\{content:""/', $css)
     || 1 !== preg_match('/' . $link . '[^{,]*::after\{width:16px;height:16px;border:1px solid #94a3b8;border-radius:9999px/', $css) ) {
     throw new RuntimeException('The indicator paints the native link\'s ::after with its author box.');
 }
+// A carousel arrow's painted circle sits before its icon, with the source's
+// formatting whitespace inside it; it is still a text-free decoration.
+$arrow = (new HtmlTransformer())->transform('<style>.arrow{position:relative;width:60px;height:60px;border-radius:50%;overflow:hidden}.arrow-bg{position:absolute;inset:0;background-color:#1d2e4d}</style><button class="arrow" aria-label="Next"><div class="arrow-bg">
+  </div><svg viewBox="0 0 44 18"><path d="M1 9h40" stroke="#fff"/></svg></button>')->toArray();
+$arrowCss = implode("\n", array_column(array_filter($arrow['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+if ( 1 !== preg_match('/class="wp-block-button[^"]*\b(blocks-engine-button-decoration-[a-f0-9]+)\b/', (string) ($arrow['serialized_blocks'] ?? ''), $arrowMarker)
+    || 1 !== preg_match('/' . preg_quote(':where(.wp-block-button.' . $arrowMarker[1] . ')>:where(.wp-block-button__link)', '/') . '[^{,]*::before\{[^}]*background-color:#1d2e4d/', $arrowCss) ) {
+    throw new RuntimeException('A whitespace-formatted leading circle paints the native link\'s ::before.');
+}
 echo "Button edge decoration contract passed.\n";

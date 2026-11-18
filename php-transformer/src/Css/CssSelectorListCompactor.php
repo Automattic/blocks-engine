@@ -44,11 +44,15 @@ final class CssSelectorListCompactor
     }
 
     /**
-     * Merge arms identical but for the page-local marker class inside one
-     * top-level `:where(.marker)`: `X:where(.m1)Y,X:where(.m2)Y` becomes
-     * `X:where(.m1,.m2)Y`. `:where()` weighs nothing and matches when any
-     * argument does, and every argument is a plain class, so the list is
-     * equivalent. expand() splits such lists back into arms.
+     * Merge arms identical but for the page-local marker inside one
+     * top-level `:where(marker)`: `X:where(.m1)Y,X:where(.m2)Y` becomes
+     * `X:where(.m1,.m2)Y`. A marker is a plain class, or a RichText carrier
+     * (`mark[style*=…]`, `mark[style$=…]`, `span[data-…-marker=…]`) whose
+     * lists never mix with class lists. `:where()` weighs nothing and matches
+     * when any argument does, so the list is equivalent, also when Y ends in
+     * a pseudo-element: `X:where(.m1,.m2)::before` generates exactly the
+     * boxes `X:where(.m1)::before,X:where(.m2)::before` do. expand() splits
+     * such lists back into arms.
      */
     public static function mergeMarkerLists(string $prelude): string
     {
@@ -65,16 +69,10 @@ final class CssSelectorListCompactor
             $arm = trim($arm);
             $key = "\1" . $index;
             $markers = array();
-            if ( ! preg_match('/::|:(?:before|after|first-line|first-letter)\b/i', $arm) && ! str_contains($arm, '/*') && false === strpbrk($arm, '\\"\'') && preg_match_all(self::MARKER_WHERE, $arm, $matches, PREG_OFFSET_CAPTURE) ) {
-                foreach ( $matches[0] as $index2 => [$text, $offset] ) {
-                    $before = substr($arm, 0, $offset);
-                    if ( substr_count($before, '(') !== substr_count($before, ')') ) {
-                        continue;
-                    }
-                    $key = substr($arm, 0, $offset) . "\0" . substr($arm, $offset + strlen($text));
-                    $markers = explode(',', $matches[1][ $index2 ][0]);
-                    break;
-                }
+            $list = self::markerList($arm);
+            if ( null !== $list ) {
+                [$kind, $prefix, $markers, $suffix] = $list;
+                $key = $kind . "\0" . $prefix . "\0" . $suffix;
             }
             if ( ! isset($groups[ $key ]) ) {
                 $order[] = $key;
@@ -94,10 +92,48 @@ final class CssSelectorListCompactor
                 $output[] = $group['arm'];
                 continue;
             }
-            [$prefix, $suffix] = explode("\0", $key, 2);
+            [, $prefix, $suffix] = explode("\0", $key, 3);
             $output[] = $prefix . ':where(' . implode(',', array_keys($group['markers'])) . ')' . $suffix;
         }
         return implode(',', $output);
+    }
+
+    /** One RichText carrier selector of a page-local marker. */
+    private const RICHTEXT_CARRIER = '(?:mark\[style\*="--blocks-engine-richtext-marker:blocks-engine-richtext-[a-f0-9]{12}-[0-9]+;"\]|mark\[style\$="--blocks-engine-richtext-marker:blocks-engine-richtext-[a-f0-9]{12}-[0-9]+"\]|span\[data-blocks-engine-richtext-marker="blocks-engine-richtext-[a-f0-9]{12}-[0-9]+"\])';
+
+    /**
+     * The first top-level `:where()` of an arm listing only page-local
+     * markers of one kind, as [kind, prefix, markers, suffix]. Quotes are
+     * accepted only inside RichText carriers, so parentheses outside them
+     * count as selector nesting.
+     *
+     * @return array{0:string,1:string,2:list<string>,3:string}|null
+     */
+    private static function markerList(string $arm): ?array
+    {
+        if ( str_contains($arm, '/*') || str_contains($arm, '\\') ) {
+            return null;
+        }
+        $kind = 'c';
+        $pattern = self::MARKER_WHERE;
+        if ( false !== strpbrk($arm, '"\'') ) {
+            if ( false !== strpbrk((string) preg_replace('/' . self::RICHTEXT_CARRIER . '/', '', $arm), '"\'') ) {
+                return null;
+            }
+            $kind = 'r';
+            $pattern = '/:where\(((?:' . self::RICHTEXT_CARRIER . ',)*' . self::RICHTEXT_CARRIER . ')\)/';
+        }
+        if ( ! preg_match_all($pattern, $arm, $matches, PREG_OFFSET_CAPTURE) ) {
+            return null;
+        }
+        foreach ( $matches[0] as $index => [$text, $offset] ) {
+            $before = substr($arm, 0, $offset);
+            if ( substr_count($before, '(') !== substr_count($before, ')') ) {
+                continue;
+            }
+            return array($kind, $before, explode(',', $matches[1][ $index ][0]), substr($arm, $offset + strlen($text)));
+        }
+        return null;
     }
 
     /** A `:where()` whose arguments are page-local marker classes only. */
@@ -243,6 +279,211 @@ final class CssSelectorListCompactor
             }
         } while ( $merged );
         return $changed ? implode(',', $arms) : $prelude;
+    }
+
+    /**
+     * The stylesheet with every style rule prelude passed through
+     * withoutRedundantSelectorWhitespace(). Declaration blocks, at-rule
+     * preludes and comments are kept byte for byte.
+     */
+    public static function withoutRedundantSelectorWhitespaceInStylesheet(string $css): string
+    {
+        if ( ! preg_match('/\s[,>+~]|[,>+~]\s/', $css) ) {
+            return $css;
+        }
+        return (new CssStylesheetTransformer())->transformStyleRules($css, static fn(string $prelude, string $body): string => self::withoutRedundantSelectorWhitespace($prelude) . '{' . $body . '}');
+    }
+
+    /**
+     * The selector list without top-level whitespace that separates no
+     * tokens: none beside a `,`, `>`, `+` or `~` combinator or at either
+     * end, and every other run collapsed to one space (a descendant
+     * combinator). Strings, comments, escapes (including an escape's
+     * terminating space), attribute brackets and functional pseudo-class
+     * arguments are kept byte for byte, so `[class~="a b"]`, `.a\ b` and
+     * `:has(> img)` are unchanged. Every arm matches the same elements with
+     * the same specificity. A malformed selector is returned unchanged.
+     */
+    public static function withoutRedundantSelectorWhitespace(string $prelude): string
+    {
+        $state     = CssSyntaxScanner::state();
+        $output    = '';
+        $length    = strlen($prelude);
+        $pending   = false;
+        $delimiter = ',';
+        for ( $offset = 0; $offset < $length; ) {
+            $character = $prelude[ $offset ];
+            $inert = $state['comment'] || $state['url'] || '' !== $state['quote'] || 0 < $state['brackets'] || 0 < $state['parens'];
+            if ( ! $inert && CssSyntaxScanner::isCssWhitespace($character) ) {
+                $pending = true;
+                ++$offset;
+                continue;
+            }
+            if ( $pending && ! in_array($delimiter, array( ',', '>', '+', '~' ), true) && ! in_array($character, array( ',', '>', '+', '~' ), true) ) {
+                $output .= ' ';
+            }
+            $pending = false;
+            $next = CssSyntaxScanner::consume($prelude, $offset, $state);
+            if ( null === $next ) {
+                return $prelude;
+            }
+            $delimiter = ! $inert && $next === $offset + 1 && '' === $state['quote'] && ! $state['comment'] && in_array($character, array( ',', '>', '+', '~' ), true) ? $character : '';
+            $output .= substr($prelude, $offset, $next - $offset);
+            $offset = $next;
+        }
+        return CssSyntaxScanner::isComplete($state) && ! $state['comment'] && '' === $state['quote'] ? $output : $prelude;
+    }
+
+    /**
+     * The stylesheet with every selector arm dropped that another arm of the
+     * same rule already covers. See withoutSubsumedArms().
+     */
+    public static function withoutSubsumedArmsInStylesheet(string $css): string
+    {
+        if ( ! str_contains($css, ',') || ! str_contains($css, ':') ) {
+            return $css;
+        }
+        return (new CssStylesheetTransformer())->transformStyleRules($css, static fn(string $prelude, string $body): string => self::withoutSubsumedArms($prelude) . '{' . $body . '}');
+    }
+
+    /**
+     * Drop each arm that matches a subset of another arm of the same list
+     * with the same specificity. Projection restates a source arm with
+     * zero-specificity restrictions (`.btn:not(:where(.role))`,
+     * `:where(.marker)` beside `*`), and folding repeated declaration blocks
+     * puts the restatement in one list with the original. Removing every
+     * top-level `:where(…)` and `:not(:where(…))` from such an arm only
+     * widens what it matches and leaves its specificity unchanged, so when
+     * that relaxed arm is itself in the list, every element the restricted
+     * arm matches is matched by the other arm with the same weight, in the
+     * same rule: the rule applies exactly as before. Validity is unchanged
+     * too, since `:where()` is forgiving. Arms with comments, escapes,
+     * namespaces or nesting are left alone.
+     */
+    public static function withoutSubsumedArms(string $prelude): string
+    {
+        if ( ! str_contains($prelude, ',') || ! str_contains($prelude, ':where(') ) {
+            return $prelude;
+        }
+        $arms = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $arms || count($arms) < 2 ) {
+            return $prelude;
+        }
+        $present = array();
+        foreach ( $arms as $arm ) {
+            $canonical = self::canonicalArm(trim($arm));
+            if ( null !== $canonical ) {
+                $present[ $canonical ] = true;
+            }
+        }
+        $kept = array();
+        foreach ( $arms as $arm ) {
+            $relaxed = self::relaxedArm(trim($arm));
+            $relaxed = null === $relaxed ? null : self::canonicalArm($relaxed);
+            if ( null !== $relaxed && isset($present[ $relaxed ]) && $relaxed !== self::canonicalArm(trim($arm)) ) {
+                continue;
+            }
+            $kept[] = $arm;
+        }
+        if ( count($kept) === count($arms) || array() === $kept ) {
+            return $prelude;
+        }
+        // Comments ahead of the first arm (licenses) stay ahead of the rule.
+        if ( $kept[0] !== $arms[0] && preg_match('#^(?:\s*/\*.*?\*/)+\s*#s', $arms[0], $leading) ) {
+            $kept[0] = $leading[0] . ltrim($kept[0]);
+        }
+        return implode(',', $kept);
+    }
+
+    /** The arm without its top-level `:where(…)` and `:not(:where(…))`, or null when it cannot be read safely. */
+    private static function relaxedArm(string $arm): ?string
+    {
+        if ( '' === $arm || str_contains($arm, '/*') || false !== strpbrk($arm, '\\|&') ) {
+            return null;
+        }
+        $out = '';
+        $pseudoElement = false;
+        for ( $i = 0, $length = strlen($arm); $i < $length; ++$i ) {
+            $char = $arm[ $i ];
+            if ( '[' === $char || '(' === $char ) {
+                $close = CssSyntaxScanner::matchingClose($arm, $i);
+                if ( null === $close ) {
+                    return null;
+                }
+                $out .= substr($arm, $i, $close - $i + 1);
+                $i = $close;
+                continue;
+            }
+            // Nothing after a pseudo-element is relaxed: a `:where()` there
+            // could be what makes a browser reject the whole list.
+            if ( ':' === $char && ( ':' === ($arm[ $i + 1 ] ?? '') || preg_match('/\G:(?:before|after|first-line|first-letter)\b/i', $arm, $match, 0, $i) ) ) {
+                $pseudoElement = true;
+            }
+            if ( ':' === $char && ! $pseudoElement ) {
+                $piece = null;
+                if ( 0 === substr_compare($arm, ':where(', $i, 7, true) ) {
+                    $close = CssSyntaxScanner::matchingClose($arm, $i + 6);
+                    $piece = null === $close ? null : $close;
+                } elseif ( 0 === substr_compare($arm, ':not(:where(', $i, 12, true) ) {
+                    $inner = CssSyntaxScanner::matchingClose($arm, $i + 11);
+                    $close = null === $inner ? null : CssSyntaxScanner::matchingClose($arm, $i + 4);
+                    $piece = null !== $close && $close === $inner + 1 ? $close : null;
+                }
+                if ( null !== $piece ) {
+                    // A compound left without a simple selector is `*`.
+                    if ( '' === $out || false !== strpos(" \t\n\r\f>+~", substr($out, -1)) ) {
+                        $out .= '*';
+                    }
+                    $i = $piece;
+                    continue;
+                }
+            }
+            $out .= $char;
+        }
+        return $out;
+    }
+
+    /**
+     * The arm with normalized combinator whitespace and without a `*` that
+     * other simple selectors in its compound make implicit, or null when it
+     * cannot be read safely.
+     */
+    private static function canonicalArm(string $arm): ?string
+    {
+        if ( '' === $arm || str_contains($arm, '/*') || false !== strpbrk($arm, '\\|&') ) {
+            return null;
+        }
+        $out = '';
+        $combinator = null;
+        for ( $i = 0, $length = strlen($arm); $i < $length; ++$i ) {
+            $char = $arm[ $i ];
+            if ( false !== strpos(" \t\n\r\f", $char) ) {
+                $combinator ??= ' ';
+                continue;
+            }
+            if ( false !== strpos('>+~', $char) ) {
+                $combinator = $char;
+                continue;
+            }
+            if ( null !== $combinator ) {
+                $out .= $combinator;
+                $combinator = null;
+            }
+            if ( '[' === $char || '(' === $char ) {
+                $close = CssSyntaxScanner::matchingClose($arm, $i);
+                if ( null === $close ) {
+                    return null;
+                }
+                $out .= substr($arm, $i, $close - $i + 1);
+                $i = $close;
+                continue;
+            }
+            if ( '*' === $char && isset($arm[ $i + 1 ]) && false !== strpos('.#:[', $arm[ $i + 1 ]) ) {
+                continue;
+            }
+            $out .= $char;
+        }
+        return null === $combinator ? $out : null;
     }
 
     public static function compact(string $prelude): string

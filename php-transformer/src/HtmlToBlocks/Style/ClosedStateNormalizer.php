@@ -87,6 +87,14 @@ final class ClosedStateNormalizer
      */
     public function repairRules(array $findings): array
     {
+        // One rule serves every element sharing a selector, so a single
+        // placed member keeps the transform for all of them.
+        $placed = array();
+        foreach ( $findings as $finding ) {
+            if ( ! empty($finding['placed']) ) {
+                $placed[trim((string) ($finding['editor_selector'] ?? ''))] = true;
+            }
+        }
         $repairs = array();
         foreach ( $findings as $finding ) {
             $selector = trim((string) ($finding['editor_selector'] ?? ''));
@@ -94,6 +102,11 @@ final class ClosedStateNormalizer
                 continue;
             }
             foreach ( $this->repairs((array) ($finding['declarations'] ?? array())) as $property => $value ) {
+                // Reset only an entrance offset the hidden state declares, never
+                // a placement transform another element sharing the selector owns.
+                if ( 'transform' === $property && ( empty($finding['offset']) || isset($placed[$selector]) ) ) {
+                    continue;
+                }
                 $repairs[$selector][$property] = $value;
             }
         }

@@ -36,6 +36,18 @@ $named = $transform('<div><span id="mark-title" hidden>Acme</span><svg aria-labe
 $assert(!str_contains($named, '<!-- wp:html'), 'a standalone SVG named by aria-labelledby emits no core/html', $named);
 $assert(str_contains($named, '<!-- wp:image') && str_contains($named, 'alt="Acme Logo mark"'), 'the referenced text, in order and whitespace-collapsed, becomes the image alt', $named);
 
+// Non-rendered labels (including nested and stylesheet-hidden labels) must
+// name the artwork without turning its wrapper into an inline paragraph.
+foreach ( array(
+    '<span id="mark-title" style="display:none">Acme</span>',
+    '<span id="mark-title" aria-hidden="true">Acme</span>',
+    '<span><span id="mark-title" hidden>Acme</span></span>',
+    '<style>.label-only{display:none}</style><span id="mark-title" class="label-only">Acme</span>',
+) as $label ) {
+    $named = $transform('<div>' . $label . '<svg aria-labelledby="mark-title" viewBox="0 0 10 10">' . $path . '</svg></div>');
+    $assert(str_contains($named, '<!-- wp:image') && str_contains($named, 'alt="Acme"'), 'a non-rendered reference preserves the native image and accessible name', $named);
+}
+
 // A dangling reference falls through to aria-label.
 $dangling = $transform('<div><svg aria-labelledby="missing" aria-label="Fallback name" viewBox="0 0 10 10">' . $path . '</svg></div>');
 $assert(str_contains($dangling, 'alt="Fallback name"'), 'an unresolved reference falls through to aria-label', $dangling);

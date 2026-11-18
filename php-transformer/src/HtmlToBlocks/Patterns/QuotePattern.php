@@ -87,7 +87,7 @@ final class QuotePattern implements PatternRecognizerInterface
         }
 
         $citation = $quotes->citationFromElement($element);
-        $value = SourceDom::innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
+        $value = $quotes->quotationContent($element, SourceDom::innerHtmlWithoutTags($element, array( 'cite', 'footer' )));
         if ( ! $this->runtime->hasVisibleText($value) ) {
             return null;
         }
@@ -154,14 +154,14 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
         if ( '' === $citation && $caption instanceof DOMElement ) {
-            $citation = SourceDom::innerHtml($caption);
+            $citation = $quotes->figureCaptionContent($caption);
             $captionClass = trim(SourceDom::attr($caption, 'class'));
             if ( '' !== $captionClass ) {
                 $citation = '<span class="' . htmlspecialchars($captionClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $citation . '</span>';
             }
         }
 
-        $value = SourceDom::innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' ));
+        $value = $quotes->quotationContent($blockquote, SourceDom::innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' )));
         if ( ! $this->runtime->hasVisibleText($value) ) {
             return null;
         }
@@ -185,7 +185,17 @@ final class QuotePattern implements PatternRecognizerInterface
             }
             $innerBlocks[] = $createBlock('core/paragraph', array_merge($context->presentationAttributes($child), array( 'content' => $content )), array(), $child);
         }
-        $innerBlocks = array_merge($innerBlocks, $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes));
+        $quoteChildren = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes);
+        if ( array() !== $quoteChildren ) {
+            // Only transfer text presentation: the consumed blockquote's box
+            // (especially margins) must not become the synthetic paragraph's box.
+            $quoteChildren[0] = $createBlock('core/paragraph', array(
+                'content' => $value,
+                'className' => 'blocks-engine-synthetic-paragraph',
+                'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
+            ));
+        }
+        $innerBlocks = array_merge($innerBlocks, $quoteChildren);
         if ( array() === $innerBlocks ) {
             $innerBlocks = $converter->childrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' ));
         }

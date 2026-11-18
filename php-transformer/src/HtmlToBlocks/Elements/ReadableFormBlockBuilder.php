@@ -181,6 +181,10 @@ final class ReadableFormBlockBuilder
         foreach ( $block['innerBlocks'] ?? array() as $index => $child ) {
             $block['innerBlocks'][$index] = $this->inactiveControlBlock($child);
         }
+        if ( isset($block['attrs']['metadata']['blocksEngineInput']) && is_array($block['attrs']['metadata']['blocksEngineInput']) ) {
+            $block['attrs']['metadata']['blocksEngineInput']['disabled'] = true;
+            return $block;
+        }
         $localName = explode('/', $block['blockName'] ?? '')[1] ?? '';
         $generator = match ($localName) {
             AuthoredInputBlockGenerator::LOCAL_NAME => new AuthoredInputBlockGenerator(),
@@ -632,7 +636,8 @@ final class ReadableFormBlockBuilder
         // including responsive navigation alternatives built from selects.
         for ( $form = $control->parentNode; $form instanceof DOMElement; $form = $form->parentNode ) {
             if ( 'form' === strtolower($form->tagName) ) {
-                $forceNative = $forceNative || FormRuntimeRequirementAnalyzer::collectsOnlyChoices($form);
+                $forceNative = $forceNative || FormRuntimeRequirementAnalyzer::collectsOnlyChoices($form)
+                    || FormRuntimeRequirementAnalyzer::collectsOnlyPurchaseChoices($form);
                 break;
             }
         }

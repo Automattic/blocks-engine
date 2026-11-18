@@ -182,7 +182,17 @@ PHP;
         return $routes;
     }
 
-    /** @param array<string,array<string,mixed>> $routes @return list<string> */
+    /**
+     * The route stylesheet table in two parts. `selection` picks the request's
+     * route sequences and sets the route flag; it runs before the first flag-guarded
+     * enqueue and the route sequences, so
+     * every fallback guarded by the flag (before-author ones included) reads
+     * the request's final answer. `enqueue` loads the selected sequences at
+     * their cascade position.
+     *
+     * @param array<string,array<string,mixed>> $routes
+     * @return array{selection:list<string>,enqueue:list<string>}
+     */
     private static function routeStylesheetTable(array $routes): array
     {
         $sequences = $indices = $matches = array();
@@ -193,15 +203,19 @@ PHP;
             // into a sequence shared by different source documents.
             $matches[] = '    if ( ' . $route['condition'] . ' ) $blocks_engine_style_routes[] = [' . $indices[$key] . ',' . BootstrapData::literal($route['handles']) . '];';
         }
-        return array_merge(array(
-            '    $blocks_engine_style_sequences = ' . BootstrapData::literal($sequences) . ';',
-            '    $blocks_engine_style_routes = [];',
-        ), $matches, array(
-            '    foreach ( $blocks_engine_style_routes as [$sequence, $handles] ) {',
-            '        $blocks_engine_route_styles = true;',
-            '        foreach ( $blocks_engine_style_sequences[$sequence] as $position => $style ) wp_enqueue_style( $handles[$position], get_theme_file_uri( $style[0] ), array(), null, \'\' !== $style[1] ? $style[1] : \'all\' );',
-            '    }',
-        ));
+        return array(
+            'selection' => array_merge(array(
+                '    $blocks_engine_style_sequences = ' . BootstrapData::literal($sequences) . ';',
+                '    $blocks_engine_style_routes = [];',
+            ), $matches, array(
+                '    $blocks_engine_route_styles = array() !== $blocks_engine_style_routes;',
+            )),
+            'enqueue' => array(
+                '    foreach ( $blocks_engine_style_routes as [$sequence, $handles] ) {',
+                '        foreach ( $blocks_engine_style_sequences[$sequence] as $position => $style ) wp_enqueue_style( $handles[$position], get_theme_file_uri( $style[0] ), array(), null, \'\' !== $style[1] ? $style[1] : \'all\' );',
+                '    }',
+            ),
+        );
     }
 
     /** @param array<int,array<string,mixed>> $assets */
@@ -256,7 +270,12 @@ PHP;
         if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
         $routeRows = array();
         foreach ($evidencePages as $page) $routeRows[$page['source_path']] = array('condition' => self::bootstrapScopeCondition(PageStylesheets::documentScope($page), true), 'styles' => array(), 'handles' => array());
-        $routePosition = array() !== $routeRows ? count($lines) : null;
+        // The route table sits where the first route instance falls in the
+        // stylesheet order, so sheets ordered ahead of the author CSS (the
+        // engine reset sheets that also declare the cascade layer order) keep
+        // their place in the document. Pinning the table at the top would let
+        // a route's author sheet name its layers first and invert that order.
+        $routePosition = $fallbackPosition = null;
         foreach ($stylesheetEnqueues as $enqueue) {
             $asset = $enqueue['asset'];
             if ('editor' === ($asset['stylesheet_target'] ?? 'both') || isset($importLoaded[$asset['target_path']])) continue;
@@ -278,10 +297,20 @@ PHP;
                 $routeRows[$enqueue['route']]['handles'][] = $enqueue['handle'];
                 continue;
             }
+            // A fallback reads the flag the route table sets: the table goes first.
+            if (!empty($enqueue['fallback']) && null === $routePosition && array() !== $routeRows) $routePosition = count($lines);
+            if (!empty($enqueue['fallback']) && null === $fallbackPosition) $fallbackPosition = count($lines);
             $condition = empty($enqueue['fallback']) ? $enqueue['condition'] : '! $blocks_engine_route_styles';
             $lines[] = "    if ( {$condition} ) {$call}";
         }
-        if (null !== $routePosition) array_splice($lines, $routePosition, 0, self::routeStylesheetTable($routeRows));
+        if (null === $routePosition && array() !== $routeRows) $routePosition = count($lines);
+        if (null !== $routePosition) {
+            $table = self::routeStylesheetTable($routeRows);
+            array_splice($lines, $routePosition, 0, $table['enqueue']);
+            // The selection sets the route flag ahead of the first fallback
+            // that reads it, even one ordered before every route instance.
+            array_splice($lines, min($routePosition, $fallbackPosition ?? $routePosition), 0, $table['selection']);
+        }
         $attributes = array();
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
@@ -533,6 +562,9 @@ PHP;
             $entranceScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ViewportEntranceRuntime::script('__BLOCKS_ENGINE_VIEWPORT_QUERIES__');
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { \$queries = array(); if ( method_exists( 'WP_Theme_JSON', 'get_viewport_media_queries' ) ) { foreach ( WP_Theme_JSON::get_viewport_media_queries( wp_get_global_settings( array( 'viewport' ) ), array( 'include_desktop' => true ) ) as \$state => \$query ) { \$queries[ ltrim( \$state, '@' ) ] = preg_replace( '/^@media\\s+/', '', \$query ); } } wp_register_script( 'blocks-engine-viewport-entrances', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-viewport-entrances' ); wp_add_inline_script( 'blocks-engine-viewport-entrances', str_replace( '__BLOCKS_ENGINE_VIEWPORT_QUERIES__', (string) wp_json_encode( (object) \$queries ), " . var_export($entranceScript, true) . " ) ); } );";
         }
+        if (self::markupContains($documents, 'blocksEngineScrollState')) {
+            $lines[] = ScrollStateRuntime::bootstrap();
+        }
         if (self::markupContains($documents, 'blocksEngineChoiceGroup')) {
             $lines[] = CapturedChoiceGroupRuntime::bootstrap();
         }
@@ -552,6 +584,16 @@ PHP;
             $selectStateScript = \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredControlStateScript::viewScript();
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-select-state', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-select-state' ); wp_add_inline_script( 'blocks-engine-select-state', " . var_export($selectStateScript, true) . " ); } );";
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-select-wrapper', false ); wp_enqueue_style( 'blocks-engine-select-wrapper' ); wp_add_inline_style( 'blocks-engine-select-wrapper', '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}' ); } );";
+        }
+        if (self::markupContains($documentsWithMenus, 'blocksEngineTextarea')) {
+            $lines[] = NativeTextareaRuntime::source();
+            if (!self::markupContains($documentsWithMenus, 'blocksEngineSelect')) {
+                $textareaStateScript = \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredControlStateScript::viewScript();
+                $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-select-state', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-select-state' ); wp_add_inline_script( 'blocks-engine-select-state', " . var_export($textareaStateScript, true) . " ); } );";
+            }
+        }
+        if (self::markupContains($documentsWithMenus, 'blocksEngineInput')) {
+            $lines[] = NativeInputRuntime::source();
         }
         $breadcrumbLabels = BreadcrumbLabelRuntime::labels($documents, $pages);
         $breadcrumbPostTrails = BreadcrumbLabelRuntime::postTrails($pages);
@@ -586,13 +628,7 @@ PHP;
         $lines[] = "    }";
         $lines[] = "    \$block['innerContent'] = \$content; return \$block;";
         $lines[] = "}, 10, 1 );";
-        $hasListingQuery = false;
-        foreach ($pages as $page) {
-            if (str_contains((string) ($page['canonical_block_markup'] ?? ''), WordPressSitePlan::LISTING_QUERY_CLASS)) {
-                $hasListingQuery = true;
-                break;
-            }
-        }
+        $hasListingQuery = self::markupContains(array_merge($pages, $templates, $parts), WordPressSitePlan::LISTING_QUERY_CLASS);
         $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS;
         foreach ($pages as $page) if (str_contains((string) ($page['canonical_block_markup'] ?? ''), WordPressSitePlan::SYNCED_PATTERN_TOKEN_PREFIX)) {
             $editorCss .= SyncedPatternProjection::EDITOR_CONTAINER_CSS;
@@ -695,7 +731,10 @@ PHP;
                 $scope = PageStylesheets::documentScope($documentsBySource[$source]);
                 $instances[$source][] = array('asset' => $asset, 'scope' => $scope, 'route' => $source, 'condition' => self::bootstrapScopeCondition($scope, true), 'media' => $occurrence['media'], 'handle' => 'blocks-engine-instance-' . substr(hash('sha256', $asset['target_path'] . "\0" . $source . "\0" . $occurrence['order']), 0, 16), 'order' => $occurrence['order'], 'resource_order' => $index) + PageStylesheets::deviceAttributes($occurrence);
             }
-            if (!empty($asset['frame_fallback'])) {
+            // A global resource without document instances already loads on
+            // every view, so lending it as a frame fallback would load it twice.
+            $everywhere = array() === $occurrences && array() !== array_filter($asset['scopes'], static fn(array $scope): bool => 'global' === $scope['kind']);
+            if (!empty($asset['frame_fallback']) && !$everywhere) {
                 $row = array('asset' => $asset, 'scope' => array('kind' => 'global'), 'condition' => 'true', 'media' => (string) ($asset['media'] ?? ''), 'handle' => 'blocks-engine-frame-fallback-' . substr(hash('sha256', $asset['target_path']), 0, 12), 'fallback' => true);
                 if ('before-author' === ($asset['stylesheet_placement'] ?? '')) $before[] = $row; else $after[] = $row;
             }

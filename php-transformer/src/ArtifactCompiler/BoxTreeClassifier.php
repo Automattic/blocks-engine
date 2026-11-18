@@ -17,12 +17,14 @@ final class BoxTreeClassifier
         foreach ($dom->getElementsByTagName('*') as $element) {
             $id = $element->getAttribute(BoxTree::NODE_ATTRIBUTE);
             // Missing evidence must not invent source identities.
-            if (!$tree) continue;
+            if (!isset($tree['nodes'][$id])) continue;
             $elements[$id] = $element;
-            $parents[$id] = $element->parentNode instanceof DOMElement ? $element->parentNode->getAttribute(BoxTree::NODE_ATTRIBUTE) : null;
+            $parent = $element->parentNode;
+            while ($parent instanceof DOMElement && !$parent->hasAttribute(BoxTree::NODE_ATTRIBUTE)) $parent = $parent->parentNode;
+            $parents[$id] = $parent instanceof DOMElement ? $parent->getAttribute(BoxTree::NODE_ATTRIBUTE) : null;
         }
         $references = array();
-        foreach ($elements as $element) {
+        foreach ($dom->getElementsByTagName('*') as $element) {
             $href = $element->getAttribute('href');
             if (str_starts_with($href, '#')) $references[rawurldecode(substr($href, 1))] = true;
             foreach (array('aria-controls', 'aria-labelledby', 'aria-describedby', 'aria-owns', 'for') as $attribute) {
@@ -96,6 +98,10 @@ final class BoxTreeClassifier
             $s = $observation['used_styles'];
             if (isset($s['animation-name']) && 'none' !== $s['animation-name']) return 'motion';
             if (isset($s['transition-duration']) && preg_match('/[1-9]/', $s['transition-duration']) && 'none' !== ($s['transition-property'] ?? 'all')) return 'motion';
+        }
+        // Unknown boxes between observations cannot prove wrapper neutrality.
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement && !isset($tree['nodes'][$child->getAttribute(BoxTree::NODE_ATTRIBUTE)])) return 'unobserved-child';
         }
         if (1 !== count($node['children'])) return 'own-sizing';
         foreach ($element->childNodes as $child) {
