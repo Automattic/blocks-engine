@@ -997,6 +997,14 @@ final class ShellExtraction
         return is_array($shell) && 'dropdown' !== ($shell['attributes']['data-blocks-engine-presentation'] ?? null);
     }
 
+    /** A block holding nothing but one in-page fragment link (a skip link). */
+    private static function isFragmentLinkOnly(string $markup): bool
+    {
+        $html = trim(preg_replace('/<!--.*?-->/s', '', $markup) ?? '');
+        $html = trim(preg_replace('/^<p\b[^>]*>|<\/p>$/i', '', $html) ?? '');
+        return 1 === preg_match('/^<a\b[^>]*\bhref="#[^"]*"[^>]*>[^<]*<\/a>$/i', $html);
+    }
+
     /**
      * A short text-only paragraph or group (an announcement bar): no heading,
      * landmark, navigation, media or nested part, so it holds no page content.
@@ -1004,7 +1012,10 @@ final class ShellExtraction
     private static function isLeadingAnnouncement(string $markup): bool
     {
         if (1 !== preg_match('/^<!--\s*wp:(?:paragraph|group|[a-z0-9-]+\/layout-shell)(?:\s|\/|-)/', ltrim($markup)) || self::isCapturedModalDialogBlock($markup) || self::containsNavigation($markup) || self::containsMainLandmark($markup)) return false;
-        if (str_contains($markup, '<!-- wp:heading') || str_contains($markup, 'wp:template-part') || 1 === preg_match('/"tagName":"(?:header|footer|nav|section|article|aside)"|<h[1-6]\b|<(?:img|picture|video|audio|iframe|svg|canvas|form|input|button)\b/i', $markup)) return false;
+        // A decorative inline icon (an empty-alt image inside the bar's text,
+        // such as an external-link glyph) is phrasing, not media.
+        $media = preg_replace('/<img\b(?=[^>]*\balt="")[^>]*>/i', '', $markup) ?? $markup;
+        if (str_contains($markup, '<!-- wp:heading') || str_contains($markup, 'wp:template-part') || str_contains($markup, '<!-- wp:image') || 1 === preg_match('/"tagName":"(?:header|footer|nav|section|article|aside)"|<h[1-6]\b|<(?:img|picture|video|audio|iframe|svg|canvas|form|input|button)\b/i', $media)) return false;
         $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags(preg_replace('/<!--.*?-->/s', '', $markup) ?? ''))) ?? '');
         return '' !== $text && mb_strlen($text) <= 200;
     }
@@ -1077,20 +1088,23 @@ final class ShellExtraction
     }
 
     /**
-     * A top-level header the document opens with announcement bars (a utility
-     * or language bar) before: they render above it on every route, so the
-     * header shell starts at the first of them and keeps their source order.
+     * Announcement bars (a utility or language bar) directly before a
+     * top-level header render above it on every route, so the header shell
+     * starts at the first of them and keeps their source order. Only the
+     * contiguous run ending at the header counts; a skip link or any other
+     * block ends it, so skip links keep their own handling on every route.
      *
      * @param array<string,mixed> $row
      * @return array<string,mixed>
      */
     private static function withLeadingAnnouncements(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $row): array
     {
+        $before = array_values(array_filter($index->topLevel(), static fn (array $range): bool => $range['offset'] < $row['offset']));
         $start = null;
-        foreach ($index->topLevel() as $range) {
-            if ($range['offset'] >= $row['offset']) break;
-            if (!self::isLeadingAnnouncement(substr($index->markup, $range['offset'], $range['length']))) return $row;
-            $start ??= $range['offset'];
+        for ($i = count($before) - 1; $i >= 0; --$i) {
+            $markup = substr($index->markup, $before[$i]['offset'], $before[$i]['length']);
+            if (self::isFragmentLinkOnly($markup) || !self::isLeadingAnnouncement($markup)) break;
+            $start = $before[$i]['offset'];
         }
         if (null === $start) return $row;
         $markup = substr($index->markup, $start, $row['offset'] + $row['length'] - $start);

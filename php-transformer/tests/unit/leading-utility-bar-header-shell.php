@@ -22,6 +22,11 @@ $html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Utili
 $cases = array(
     'one page' => array('index.html' => $html),
     'two pages' => array('index.html' => $html, 'about.html' => str_replace(array('Welcome', 'Intro.'), array('About us', 'Other copy.'), $html)),
+    // Only the run of announcement bars directly before the header joins it:
+    // a skip link and an icon sprite ahead of the bar keep their own handling.
+    'skip link and sprite before the bar' => array('index.html' => str_replace('<div class="utility-bar">', '<a class="skip-link" href="#top">Skip to content</a><svg aria-hidden="true" style="display:none"><symbol id="i-dot" viewBox="0 0 2 2"><circle cx="1" cy="1" r="1"/></symbol></svg><div class="utility-bar">', $html)),
+    // A decorative link icon (empty alt) is phrasing inside the bar, not media.
+    'bar with a decorative link icon' => array('index.html' => str_replace('Nederlands</a>', 'Nederlands <img src="external.svg" alt="" width="12" height="12"></a>', $html)),
 );
 foreach ($cases as $label => $files) {
     $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray();
