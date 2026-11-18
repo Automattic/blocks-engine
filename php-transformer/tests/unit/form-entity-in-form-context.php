@@ -280,15 +280,15 @@ $assert(
 $unformatted = $formContext(
     '<main><form method="post"><p class="intro">We reply within a day.</p>'
     . '<h2>Title <div>boxed</div></h2>'
-    . '<p>Search this site:</p><input type="search" name="q" aria-label="Search">'
+    . '<p>Leave your email:</p><input type="email" name="email" aria-label="Email">'
     . '<input type="submit" value="Go"></form></main>'
 );
 $unformattedItems = array_column($unformatted['context_before'] ?? array(), null, 'text');
 $assert(
-    isset($unformattedItems['We reply within a day.'], $unformattedItems['Title boxed'], $unformattedItems['Search this site:'])
+    isset($unformattedItems['We reply within a day.'], $unformattedItems['Title boxed'], $unformattedItems['Leave your email:'])
         && ! isset($unformattedItems['We reply within a day.']['rich_text'])
         && ! isset($unformattedItems['Title boxed']['rich_text'])
-        && ! isset($unformattedItems['Search this site:']['rich_text']),
+        && ! isset($unformattedItems['Leave your email:']['rich_text']),
     'plain copy and markup a paragraph cannot hold carry no rich text field',
     json_encode($unformatted)
 );

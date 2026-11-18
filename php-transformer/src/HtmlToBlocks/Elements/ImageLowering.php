@@ -865,7 +865,7 @@ final class ImageLowering
                 $this->styleResolver->syntheticFlexImageBoxClassName($image)
             );
         }
-        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->imageLeafPlacementClassName($image));
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->imageLeafPlacementClassName($image, $figure instanceof DOMElement));
         if ( $figure instanceof DOMElement ) {
             // Separate source boxes must keep separate selector ownership. Only
             // inert identities retain the historical class transport.
