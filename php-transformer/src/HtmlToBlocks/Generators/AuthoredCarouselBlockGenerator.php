@@ -66,8 +66,15 @@ final class AuthoredCarouselBlockGenerator
      * around the carousel, and nothing under them could be selected. Each
      * slide keeps the captured stage height and contains its own positioned
      * content.
+     *
+     * The editor host is wrapped in a scope that carries the root's source
+     * presentation classes, so source descendant selectors (a slideshow's
+     * caption colour under its gallery class) style the slides as the saved
+     * root does. The scope generates no box: those classes' root paint and
+     * geometry belong to the frontend root, not the editor list.
      */
-    private const SLIDESHOW_EDITOR_STYLE = '.blocks-engine-authored-carousel-editor--slideshow{position:relative;isolation:isolate}'
+    private const SLIDESHOW_EDITOR_STYLE = '.blocks-engine-authored-carousel-editor__source-scope{display:contents!important}'
+        . '.blocks-engine-authored-carousel-editor--slideshow{position:relative;isolation:isolate}'
         . '.blocks-engine-authored-carousel-editor--slideshow>.block-editor-inner-blocks>.block-editor-block-list__layout>.wp-block{position:relative!important;inset:auto!important;z-index:auto!important;transform:none!important;opacity:1!important;visibility:visible!important;height:var(--blocks-engine-carousel-height,auto)!important;overflow:hidden;contain:paint}';
     private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right', 'position');
     private const SLIDE_INDEX_ATTRIBUTES = array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item');
@@ -212,6 +219,13 @@ final class AuthoredCarouselBlockGenerator
         Object.keys( attributes.sourceRootGeometry || {} ).forEach( function( name ) { var value = attributes.sourceRootGeometry[ name ]; if ( -1 === rootGeometryProperties.indexOf( name ) || 'string' !== typeof value || ! geometryValuePattern.test( value.trim() ) ) return; var key = name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); props.style[ key ] = value.trim(); } );
         return props;
     }
+    // The saved root carries the source presentation classes; the editor
+    // host must sit under them too or source descendant rules miss its slides.
+    function editorSourceScope( attributes, child ) {
+        var classes = 'string' === typeof attributes.sourcePresentationClasses ? attributes.sourcePresentationClasses.trim() : '';
+        if ( ! classes ) return child;
+        return createElement( 'div', { className: 'blocks-engine-authored-carousel-editor__source-scope ' + classes, style: { display: 'contents' } }, child );
+    }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
         supports: { html: false, customClassName: false },
@@ -267,7 +281,7 @@ final class AuthoredCarouselBlockGenerator
                         )
                         : null
                 ),
-                createElement( 'div', { className: 'blocks-engine-authored-carousel-editor' + ( 'slideshow' === props.attributes.presentation ? ' blocks-engine-authored-carousel-editor--slideshow' : '' ), style: 'slideshow' === props.attributes.presentation && props.attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( props.attributes.viewportHeight ) + 'px' } : undefined }, createElement( 'strong', null, props.attributes.ariaLabel || 'Carousel' ), createElement( InnerBlocks, { allowedBlocks: [ 'core/image', 'core/group' ], renderAppender: InnerBlocks.ButtonBlockAppender } ) )
+                editorSourceScope( props.attributes, createElement( 'div', { className: 'blocks-engine-authored-carousel-editor' + ( 'slideshow' === props.attributes.presentation ? ' blocks-engine-authored-carousel-editor--slideshow' : '' ), style: 'slideshow' === props.attributes.presentation && props.attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( props.attributes.viewportHeight ) + 'px' } : undefined }, createElement( 'strong', null, props.attributes.ariaLabel || 'Carousel' ), createElement( InnerBlocks, { allowedBlocks: [ 'core/image', 'core/group' ], renderAppender: InnerBlocks.ButtonBlockAppender } ) ) )
             );
         },
         save: function( props ) {
