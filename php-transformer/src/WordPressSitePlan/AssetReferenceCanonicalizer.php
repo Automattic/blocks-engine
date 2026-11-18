@@ -393,6 +393,10 @@ final class AssetReferenceCanonicalizer
                     // marker is the exact `/-->` closer; `} / -->` stops parsing.
                     if ( '' !== $encoded ) return '<!-- wp:' . $opener[1] . ' ' . $encoded . ( ! empty($opener[3]) ? ' /-->' : ' -->' );
                 }
+                // The decoded model is authoritative. Scanning its raw text
+                // would reach `url`-shaped keys serialized inside an opaque
+                // string (a data-* attribute value) that save() mirrors verbatim.
+                if ( $rewritten === $attributes ) return $comment;
             }
         }
         // Route-bearing blocks keep their own resolve-or-neutralize recovery, so
