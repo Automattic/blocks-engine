@@ -89,15 +89,19 @@ final class AuthoredFormControlBlockConverter
             'content' => $this->labelContent($label),
             'sourceAttributes' => SourceAttribute::staticAttributes(SourceDom::htmlAttributes($label), array_values(AuthoredLabelBlockGenerator::HOST_ATTRIBUTES)),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
-        $markup = $generator->markup($attrs);
         if (FormControlClassifier::isDanglingCaptionLabel($label)) {
-            // Caption text, not an association: the label rides as inline
-            // content of a core paragraph, so it renders as the same element.
-            return $this->createBlock->createBlock('core/paragraph', array(
-                'className' => SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS,
-                'content' => $markup,
-            ), array(), $label);
+            // Caption text, not an association: the caption is the core
+            // paragraph's own box, carrying the label's classes and its text as
+            // core RichText (a <label> inside RichText is structural markup the
+            // editor cannot edit). It keeps the block box every label of the
+            // materialized form takes, so the field lays out as before.
+            return $this->createBlock->createBlock('core/paragraph', array_filter(array(
+                'className' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS),
+                'anchor' => (string) ($attrs['id'] ?? ''),
+                'content' => (string) ($attrs['content'] ?? ''),
+            ), static fn (string $value): bool => '' !== $value), array(), $label);
         }
+        $markup = $generator->markup($attrs);
         $registry = $this->session->requireGeneratedBlockRegistry();
         $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
         return BlockFactory::leaf($registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME), $attrs, $markup);
