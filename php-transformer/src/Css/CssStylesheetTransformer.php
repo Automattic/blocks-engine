@@ -143,8 +143,26 @@ final class CssStylesheetTransformer
             return $css;
         }
         $units = array();
+        $css = $this->transformStyleRules($css, static fn (string $prelude, string $body): string => $prelude . '{' . self::compactDeclarationFormatting($body) . '}');
         $this->collectRuleUnits($css, array(), $units);
         return $this->serializeRuleUnits($this->withoutDominatedUnits($this->withoutEarlierDuplicates(array($this->withoutEmptyStyleRules($units)))));
+    }
+
+    /**
+     * Drop declaration separators' formatting, never value tokens. Custom
+     * properties retain their spelling: whitespace is part of substitution.
+     * Comments, escapes and nested rules stay untouched.
+     */
+    private static function compactDeclarationFormatting(string $body): string
+    {
+        if (str_contains($body, '/*') || str_contains($body, '\\') || str_contains($body, '{')) return $body;
+        $declarations = CssValueSplitter::splitTopLevel($body, array(';'));
+        $kept = array();
+        foreach ($declarations as $declaration) {
+            if (!preg_match('/^(-?[a-zA-Z][a-zA-Z0-9-]*)\\s*:(.*)$/s', $declaration, $match)) return $body;
+            $kept[] = $match[1] . ':' . trim($match[2]);
+        }
+        return implode(';', $kept);
     }
 
     /**
