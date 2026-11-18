@@ -83,10 +83,42 @@ final class BoxTreeStyleProjector
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
         $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs), $pseudoFluid);
+        if ('core/button' === $blockName && self::laysOutChildren($observations)) {
+            $css .= $this->buttonLinkLayout($keys, $declarations, $status, $observations, $viewports, $bands, $parents);
+        }
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
+    }
+
+    /**
+     * core/button saves the source anchor as `.wp-block-button__link` inside
+     * a `.wp-block-button` wrapper, and the carrier lands on the wrapper,
+     * which control and layout rules may still force to `display:block`. A
+     * flex or grid anchor laid out its own children (a logo badge beside its
+     * wordmark), so the link restates the anchor's observed container at each
+     * capture instead of keeping core's `inline-block`.
+     */
+    private const BUTTON_LINK_LAYOUT = array('display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-content', 'row-gap', 'column-gap', 'grid-template-columns', 'grid-template-rows', 'grid-auto-flow');
+
+    private function buttonLinkLayout(array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, array $parents): string
+    {
+        $layout = array_flip(self::BUTTON_LINK_LAYOUT);
+        foreach ($declarations as $key => $declared) $declarations[$key] = array_intersect_key($declared, $layout);
+        foreach ($bands as $maxWidth => $declared) $bands[$maxWidth] = array_intersect_key($declared, $layout);
+        $bands = array_filter($bands);
+        if (array() === $declarations[$keys[0]]) return '';
+        return $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, false, $parents, false, array(), self::SELECTOR . '>.wp-block-button__link');
+    }
+
+    private static function laysOutChildren(array $observations): bool
+    {
+        foreach ($observations as $observation) {
+            $display = strtolower(trim((string) ($observation['used_styles']['display'] ?? '')));
+            if (in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) return true;
+        }
+        return false;
     }
 
     private static function runtime(): Runtime
@@ -155,18 +187,25 @@ final class BoxTreeStyleProjector
      * attributes: its observed typography that differs from its source
      * parent's goes entirely to a carrier class. A value equal to the
      * parent's is left to inheritance, so a lifted fluid block value keeps
-     * reaching it between captures.
+     * reaching it between captures. An element observed generating its own
+     * box ({@see self::generatesOwnBox()}) also keeps its box: display,
+     * sizing, spacing and borders, lifted to author intent where proven.
      *
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
      * @return string The carrier class, or '' when the inline inherits everything observed.
      */
-    public function inlineCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, array $fluid = array()): string
+    public function inlineCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, array $fluid = array(), string $sourceTag = ''): string
     {
+        $boxed = self::generatesOwnBox($observations);
         $properties = array_flip(self::INLINE_TYPOGRAPHY);
         $typography = array();
         foreach ($observations as $key => $observation) {
             if (!isset($viewports[$key]['width']) || !is_array($observation['used_styles'] ?? null)) continue;
-            $typography[$key] = array('used_styles' => array_intersect_key($observation['used_styles'], $properties));
+            // Color stays with the link and state styles that already own it.
+            $typography[$key] = array('used_styles' => $boxed
+                ? array_diff_key($observation['used_styles'], array('color' => true))
+                : array_intersect_key($observation['used_styles'], $properties));
+            if ($boxed) $properties += array_fill_keys(array_keys($typography[$key]['used_styles']), true);
         }
         if (array() === $typography) return '';
         $keys = array_keys($typography);
@@ -175,11 +214,27 @@ final class BoxTreeStyleProjector
         $declarations = array();
         foreach ($keys as $key) {
             $parent = $parents[$key]['used_styles'] ?? null;
-            $status[$key] = $this->pruner->classify($typography[$key]['used_styles'], is_array($parent) ? $parent : null);
+            $status[$key] = $this->pruner->classify($typography[$key]['used_styles'], is_array($parent) ? $parent : null, '', $boxed ? $sourceTag : '');
             $declarations[$key] = $this->kept($typography[$key]['used_styles'], $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, array_intersect_key($fluid, $properties));
         return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $typography, $viewports, $bands, false, $parents), $state);
+    }
+
+    /**
+     * Whether an inline-level source element was observed generating its own
+     * box (a `display:flex` badge span, an `inline-block` chip) at some
+     * capture. Its box geometry then exists nowhere but in the evidence: the
+     * author stylesheet is not shipped (ADR 0005) and RichText keeps only
+     * the element itself.
+     */
+    private static function generatesOwnBox(array $observations): bool
+    {
+        foreach ($observations as $observation) {
+            $display = strtolower(trim((string) ($observation['used_styles']['display'] ?? 'inline')));
+            if (!in_array($display, array('', 'inline', 'contents'), true)) return true;
+        }
+        return false;
     }
 
     /**
