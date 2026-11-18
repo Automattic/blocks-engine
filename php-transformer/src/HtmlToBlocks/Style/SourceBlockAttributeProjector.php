@@ -16,6 +16,12 @@ final class SourceBlockAttributeProjector
     /** A synthetic paragraph that is itself a lowered block-level source box, not a transparent carrier. */
     public const SOURCE_BOX_PARAGRAPH_CLASS = 'blocks-engine-source-box-paragraph';
     public const SYNTHETIC_SVG_PARAGRAPH_CLASS = 'blocks-engine-synthetic-svg-paragraph';
+    /**
+     * A synthetic paragraph whose RichText keeps its source item (a classed
+     * link) with the same classes. The paragraph shares those classes only for
+     * sibling matching; the retained element is the item's one box.
+     */
+    public const RETAINED_ITEM_CARRIER_CLASS = 'blocks-engine-retained-item';
     public const HIDDEN_RICH_TEXT_MARKER_CLASS = 'blocks-engine-hidden-richtext-marker';
     public const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
     public const SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS = 'blocks-engine-synthetic-anchor-block-display';
@@ -66,6 +72,7 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_PARAGRAPH_CLASS,
             self::SOURCE_BOX_PARAGRAPH_CLASS,
             self::SYNTHETIC_SVG_PARAGRAPH_CLASS,
+            self::RETAINED_ITEM_CARRIER_CLASS,
             'blocks-engine-stretched-link-carrier',
             self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS,
             self::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS,
