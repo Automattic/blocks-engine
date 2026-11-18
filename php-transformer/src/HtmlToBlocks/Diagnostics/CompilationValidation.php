@@ -107,6 +107,7 @@ final class CompilationValidation
             $sourcePath,
             fn (DOMElement $element): bool => $this->session->navigationProjectionState()->isSuppressed($element)
                 || $this->session->authorSelectorProjectionState()->isSupersededControlPath((string) $element->getNodePath())
+                || $this->session->transformationEvidenceState()->isOmittedSkipLink((string) $element->getNodePath())
                 || ( null !== $this->isDisplayNoneAtEveryViewport && ($this->isDisplayNoneAtEveryViewport)($element) )
         );
         $timer->start('transform.diagnostics');
