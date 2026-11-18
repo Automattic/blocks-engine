@@ -33,7 +33,9 @@ foreach (array(3 => $small, 12 => $large) as $pages => $sheets) {
     $content = $css($sheets);
     echo $pages, ' pages: ', count($sheets), ' before-author sheet(s), ', strlen($content), " bytes\n";
     $assert(str_contains($content, 'blocks-engine-synthetic-paragraph'), 'The fixture emits synthetic-paragraph support on every page.');
-    $assert(1 === substr_count($content, '@layer blocks-engine-reset,theme,utilities;'), 'The layer order is stated once.');
+    // Each resource loads on its own, so each states the order once, first.
+    foreach ($sheets as $sheet) $assert(str_starts_with($sheet['content'], '@layer blocks-engine-reset,theme,utilities;') && 1 === substr_count($sheet['content'], '@layer blocks-engine-reset,theme,utilities;'), 'Each support sheet states the layer order once, ahead of its rules.');
+    $assert(1 === count(array_filter($sheets, static fn(array $sheet): bool => str_contains($sheet['content'], 'blocks-engine-synthetic-paragraph'))), 'Support every page emits is written to one sheet.');
     $assert(!str_contains($content, ':root:is('), 'Support every page emits carries no route gate.');
     }
 $perPage = static fn(string $content): int => substr_count($content, 'blocks-engine-synthetic-paragraph');

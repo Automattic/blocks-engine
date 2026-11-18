@@ -12,7 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssFluidLength;
 $html = file_get_contents(__DIR__ . '/../fixtures/box-tree/index.html');
 $tree = json_decode(file_get_contents(__DIR__ . '/../fixtures/box-tree/index.json'), true, 32, JSON_THROW_ON_ERROR);
 
-/** @param array<string, array{0: string, 1: string}> $observed node.property => [desktop, mobile] */
+/** @param array<string, array{0: string|float, 1: string|float}> $observed node.property (or node.@width for the border box) => [desktop, mobile] */
 function fluid_carrier_output(string $html, array $tree, string $author, array $observed): string
 {
     $source = str_replace('</head>', '<style>' . $author . '</style></head>', $html);
@@ -20,6 +20,12 @@ function fluid_carrier_output(string $html, array $tree, string $author, array $
     $tree['viewports']['mobile']['width'] = 402;
     foreach ($observed as $target => [$desktop, $mobile]) {
         [$node, $property] = explode('.', $target, 2);
+        if ('@width' === $property) {
+            // The observed border-box width, not a used style.
+            $tree['nodes'][$node]['viewports']['desktop']['border_box']['width'] = $desktop;
+            $tree['nodes'][$node]['viewports']['mobile']['border_box']['width'] = $mobile;
+            continue;
+        }
         $tree['nodes'][$node]['viewports']['desktop']['used_styles'][$property] = $desktop;
         $tree['nodes'][$node]['viewports']['mobile']['used_styles'][$property] = $mobile;
     }
@@ -78,6 +84,22 @@ $cases = array(
     ),
     'clamp() lifts' => array(
         'h1{font-size:clamp(10px,5.2vw,100px)}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:clamp(10px,5.2vw,100px)'), array('font-size:75px'),
+    ),
+    // imb-culinary-craft hero: a rem-bounded clamp() with a unitless line
+    // height; the 768px width between captures must follow the author.
+    'rem bounds lift in root pixels with a unitless line height' => array(
+        'h1{font-size:clamp(2.5rem,5vw,4.5rem);line-height:1.05}', array('n6.font-size' => array('72px', '40px'), 'n6.line-height' => array('75.6px', '42px')),
+        array('font-size:clamp(40px,5vw,72px)', 'line-height:1.05'), array('font-size:72px', 'font-size:40px', 'line-height:75.6px', 'rem'),
+    ),
+    'rem resolves against the author root font size' => array(
+        'html{font-size:62.5%}h1{font-size:clamp(4rem,5vw,7.2rem)}', array('n6.font-size' => array('72px', '40px')),
+        array('font-size:clamp(40px,5vw,72px)'), array('font-size:72px'),
+    ),
+    'a rem clamp not reproducing a capture stays in pixels' => array(
+        'h1{font-size:clamp(2.5rem,5vw,4.5rem)}', array('n6.font-size' => array('72px', '30px')), array('font-size:72px', 'font-size:30px'), array('clamp('),
+    ),
+    'an invariant unitless line height stays in pixels' => array(
+        'h1{font-size:5.2vw;line-height:1.5}', array('n6.font-size' => array('20px', '20px'), 'n6.line-height' => array('30px', '30px')), array('30px'), array('line-height:1.5'),
     ),
     'custom-property math lifts with every var() expanded' => array(
         ':root{--scale:100vw;--scrollbar:0px}h1{font-size:max(0.5px, 0.0410256 * (var(--scale) - var(--scrollbar)))}',
@@ -139,6 +161,25 @@ $cases = array(
             'n6.font-size' => array('270px', '40px'), 'n6.line-height' => array('216px', '60.3px'),
         ),
         array('font-size:270px', 'font-size:40px'), array('font-size:inherit'),
+    ),
+    // sdnunca home (#5870): a grid sized by a free-space share, and an
+    // undeclared-width item stretched across it, follow the viewport instead
+    // of freezing the 402px mobile capture into every narrower width.
+    'a fr track list and a stretched auto-width grid item lift' => array(
+        'main{display:grid;grid-template-columns:minmax(0,1fr)}',
+        array(
+            'n4.@width' => array(1440, 402), 'n4.padding-left' => array('0px', '0px'), 'n4.padding-right' => array('0px', '0px'),
+            'n5.@width' => array(1440, 402), 'n5.display' => array('grid', 'grid'), 'n5.width' => array('1440px', '402px'),
+            'n5.grid-template-columns' => array('1440px', '402px'), 'n5.column-gap' => array('normal', 'normal'),
+            'n5.justify-content' => array('normal', 'normal'), 'n5.grid-auto-columns' => array('auto', 'auto'),
+            'n5.margin-left' => array('0px', '0px'), 'n5.margin-right' => array('0px', '0px'),
+            'n5.padding-left' => array('0px', '0px'), 'n5.padding-right' => array('0px', '0px'),
+            'n6.@width' => array(1440, 402), 'n6.width' => array('1440px', '402px'), 'n6.justify-self' => array('auto', 'auto'),
+            'n6.grid-column-start' => array('auto', 'auto'), 'n6.grid-column-end' => array('auto', 'auto'),
+            'n6.margin-left' => array('0px', '0px'), 'n6.margin-right' => array('0px', '0px'),
+        ),
+        array('grid-template-columns:minmax(0,1fr)'),
+        array('width:1440px', 'width:402px', 'grid-template-columns:1440px', 'grid-template-columns:402px'),
     ),
     'an authored heading size is not replaced by inherit' => array(
         $wixFont . 'main{font:var(--wst-heading-1-font)}h1{font-size:270px}@media (max-width:500px){h1{font-size:75.375px}}',

@@ -802,6 +802,33 @@ final class StyleResolver implements ElementPresentationResolver
             && 'nowrap' === $wrap;
     }
 
+    /**
+     * With box-tree evidence the author stylesheet is not shipped (ADR 0005),
+     * so an inline inside RichText (a list item's link, a span in a heading)
+     * keeps its observed typography only through an engine carrier. The
+     * RichText root is the block itself, restyled with the block.
+     *
+     * @param list<DOMElement> $sources Source elements, the RichText root first.
+     * @param list<DOMElement> $targets Their serialization clones, in the same order.
+     */
+    private function restyleRichTextInlines(array $sources, array $targets): void
+    {
+        $viewports = $this->session->boxTreeViewports();
+        if (array() === $viewports) return;
+        $projector = null;
+        foreach (array_slice($sources, 1, null, true) as $index => $source) {
+            $target = $targets[$index] ?? null;
+            $parent = $source->parentNode;
+            if (!$target instanceof DOMElement || !$parent instanceof DOMElement) continue;
+            $observations = $this->session->boxTreeEvidence($source);
+            $parents = $this->session->boxTreeEvidence($parent);
+            if (array() === $observations || array() === $parents) continue;
+            $fluid = (new BoxTreeFluidIntent())->lift($source, $this, $observations, $viewports, $parents);
+            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
+            if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
+        }
+    }
+
     /** Preserve authored inline CSS except typography already supplied by the parent. */
     public function serializedInlineStyle(DOMElement $element): string
     {
@@ -839,6 +866,7 @@ final class StyleResolver implements ElementPresentationResolver
         // and pre-line content must retain its meaningful line endings.
         $sources = array_merge(array($element), iterator_to_array($element->getElementsByTagName('*')));
         $targets = array_merge(array($clone), iterator_to_array($clone->getElementsByTagName('*')));
+        $this->restyleRichTextInlines($sources, $targets);
         foreach ($sources as $index => $source) {
             $collapse = '';
             for ($ancestor = $source; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
@@ -2002,15 +2030,79 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->inlineGeometry()->syntheticFlexImageBoxClassName($image);
     }
 
-    /** Carry runtime-authored inline image placement on the native image leaf. */
-    public function imageLeafPlacementClassName(DOMElement $image): string
+    /**
+     * Carry runtime-authored inline image placement on the native image leaf.
+     *
+     * When the image keeps its source figure, the figure block is that box,
+     * not the image, so the image's own relative offsets have no other
+     * carrier. A relatively positioned image (a focal-point crop that shifts
+     * the image inside its clipping frame, `position:relative;top:-156px`)
+     * keeps those offsets on the leaf. Without a source figure the synthetic
+     * figure takes the image's positioning instead.
+     */
+    public function imageLeafPlacementClassName(DOMElement $image, bool $sourceFigure = false): string
     {
         $declarations = SourceDeclarations::inline($image);
         $placement = array_keys(array_filter($declarations, NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
+        $overrides = array();
+        if ( $sourceFigure ) {
+            $position = CssValueInspector::declared($declarations, 'position');
+            if ( '' === $position ) {
+                $position = CssValueInspector::comparable((string) ($this->structuralPresentationDeclarations($image)['position'] ?? ''));
+            }
+            if ( 'relative' === $position ) {
+                $placement = array_merge($placement, array_keys(array_intersect_key(
+                    $declarations,
+                    array_flip(array( 'position', 'top', 'right', 'bottom', 'left', 'inset' ))
+                )));
+                $overrides = $this->fluidCropOffsets($image, $declarations);
+            }
+        }
         if ( array() === $placement ) {
             return '';
         }
-        return $this->inlineGeometry()->className($image, array_values(array_diff(array_keys($declarations), $placement)), $placement, array(), false, true);
+        return $this->inlineGeometry()->className($image, array_values(array_diff(array_keys($declarations), $placement)), $placement, array(), false, true, false, $overrides);
+    }
+
+    /**
+     * Re-express a cover crop's captured pixel offsets for every viewport.
+     *
+     * A crop runtime (Squarespace's `content-fill`) sizes the image to cover
+     * its clipping frame with viewport units (`height:max(449px, 66.64vw)`)
+     * and writes the offset that centres the focal point as pixels measured
+     * at the capture width (`top:-226.312px`). Those pixels are only right at
+     * that width: narrower, the frame is covered horizontally and the image
+     * must shift left with no vertical offset. The runtime offset is
+     * `-clamp(0, focal * size - frame / 2, size - frame)`, which CSS states
+     * directly with the frame as the percentage basis of `top`/`left`.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private function fluidCropOffsets(DOMElement $image, array $declarations): array
+    {
+        $focal = array_map('trim', explode(',', $image->getAttribute('data-image-focal-point')));
+        $overrides = array();
+        foreach (array( 'left' => array( 'width', 'right', 0 ), 'top' => array( 'height', 'bottom', 1 ) ) as $offset => [$size, $opposite, $axis]) {
+            $value = CssValueInspector::comparable(CssValueInspector::withoutImportant((string) ($declarations[$offset] ?? '')));
+            $extent = CssValueInspector::comparable(CssValueInspector::withoutImportant((string) ($declarations[$size] ?? '')));
+            if (
+                1 !== preg_match('/^(?:0|-?(?:\d+|\d*\.\d+)px)$/', $value)
+                || 0.0 < (float) $value
+                || isset($declarations[$opposite])
+                || 1 !== preg_match('/\d(?:[sld]?v[whib]|[sld]?vmin|[sld]?vmax)\b/', $extent)
+                || 1 !== preg_match('/^[\d\s.,+\-*\/a-z()]+$/', $extent)
+                || str_contains($extent, '%')
+            ) {
+                continue;
+            }
+            $point = isset($focal[$axis]) && is_numeric($focal[$axis]) ? max(0.0, min(1.0, (float) $focal[$axis])) : 0.5;
+            $point = rtrim(rtrim(number_format($point, 4, '.', ''), '0'), '.');
+            $point = '' === $point ? '0' : $point;
+            $overrides[$offset] = 'calc(-1 * clamp(0px, ' . $point . ' * ' . $extent . ' - 50%, ' . $extent . ' - 100%))';
+        }
+
+        return $overrides;
     }
 
     /** @param array<string, string> $declarations */
@@ -2104,6 +2196,13 @@ final class StyleResolver implements ElementPresentationResolver
         // this axis in CSS; it must never become a native inline dimension.
         foreach ($this->session->sourceStyleResolutionState()->matchingRules($image, 'image-shape') as $rule) {
             if ($property !== ($rule['property'] ?? '')) continue;
+            // A print or speech rule (`@media print{img{max-width:100%}}`)
+            // never draws a screen box, so it is not a viewport variant.
+            foreach ($rule['conditions'] ?? array() as $condition) {
+                if (preg_match('/^@media\s*(.*)$/is', trim($condition), $media) && ! CssCascade::mediaConditionTargetsScreen($media[1])) {
+                    continue 2;
+                }
+            }
             foreach ($rule['conditions'] ?? array() as $condition) {
                 if (! preg_match('/^@layer\b/i', trim($condition))) return true;
             }
@@ -2285,16 +2384,17 @@ final class StyleResolver implements ElementPresentationResolver
         // heights depend on the containing block and may become auto when
         // positioning moves to a wrapper; they must not lift the clamp.
         //
-        // The same holds for an author width that never refers to the
-        // container (`width:1440px`, `width:max(674px,100vw)`): with the
-        // source's max-width at `none` that width overflows a narrower
-        // container in the source, and core's clamp would shrink it instead.
+        // An inline definite width the source does not clamp (a focal-point
+        // crop sized `width:1440px` or `width:max(674px, 100vw)` inside a
+        // narrower clipping frame) overflowed its container the same way. A
+        // clamp scoped to another output medium (`@media print`) does not
+        // constrain it on screen.
         $derivesWidth = '' === $nativeWidth
             && (1 === preg_match('/^(?:\d+|\d*\.\d+)(?:px|em|rem|ch|ex|cap|ic|lh|rlh|cm|mm|q|in|pt|pc|[sld]?v[whib]|[sld]?vmin|[sld]?vmax)?$/i', $nativeHeight)
                 || $this->imageHasViewportDerivedWidth($image))
             && ! $this->imageAxisVariesByViewport($image, 'max-width');
         $overflowsContainer = ! $derivesWidth
-            && $this->imageWidthIgnoresContainer($image, $declarations)
+            && $this->imageInlineWidthIsDefinite($declarations)
             && ! $this->imageAxisVariesOnScreen($image, 'max-width');
         if (
             ($derivesWidth || $overflowsContainer)
@@ -2473,34 +2573,23 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * Whether the image's inline author width is a definite length that
-     * never resolves against the containing block: no percentage, no
-     * keyword sizing, and the same at every viewport. That inline width is
-     * carried onto the emitted image (native attribute or box carrier), so
-     * core's clamp is the only thing that would shrink it. HTML width
-     * attributes describe the file and are not considered.
+     * Whether the image's winning width is an inline definite length that
+     * does not depend on its container (`1440px`, `max(674px, 100vw)`).
      *
      * @param array<string, array<string, mixed>> $declarations
      */
-    private function imageWidthIgnoresContainer(DOMElement $image, array $declarations): bool
+    private function imageInlineWidthIsDefinite(array $declarations): bool
     {
-        $value = $this->comparableImageShapeConstraintValue($declarations, 'width');
-        if ('' === $value || ! ($declarations['width']['inline'] ?? false) || $this->imageAxisVariesByViewport($image, 'width')) {
+        if (! ($declarations['width']['inline'] ?? false)) {
             return false;
         }
-        $value = strtolower(trim(CssValueInspector::withoutImportant($this->customProperties->resolveCascaded($value, $image))));
-        if ('' === $value || str_contains($value, '%') || str_contains($value, 'var(')) {
-            return false;
-        }
-        $length = '(?:\d+|\d*\.\d+)(?:px|em|rem|ch|ex|cap|ic|lh|rlh|cm|mm|q|in|pt|pc|[sld]?v[whib]|[sld]?vmin|[sld]?vmax)';
-        if (1 === preg_match('/^' . $length . '$/', $value)) {
-            return '0' !== $value;
-        }
-        // Math functions over lengths only (`max(674px, 100vw)`).
-        return 1 === preg_match('/^(?:min|max|calc|clamp)\(/', $value)
-            && 1 === preg_match('/' . $length . '/', $value)
-            && 0 === preg_match('/[a-z-]+\(/', preg_replace('/^(?:min|max|calc|clamp)\(/', '', $value) ?? '')
-            && 0 === preg_match('/(?<![0-9.])(?:auto|fit-content|min-content|max-content|stretch)/', $value);
+        $value = CssValueInspector::comparable(CssValueInspector::withoutImportant((string) ($declarations['width']['value'] ?? '')));
+
+        return '' !== $value
+            && ! str_contains($value, '%')
+            && ! str_contains($value, 'var(')
+            && 1 === preg_match('/^(?:(?:\d+|\d*\.\d+)(?:px|[sld]?v[whib]|[sld]?vmin|[sld]?vmax)|(?:max|min|clamp|calc)\([\d\s.,+\-*\/a-z()]*\))$/', $value)
+            && 1 === preg_match('/\d/', $value);
     }
 
     /** Whether the cascade leaves this image's max-width at its initial `none`. */
@@ -5380,6 +5469,35 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function authoredInheritedPropertyWinner(DOMElement $element, string $property, bool $navigationEditor = false, array $conditions = array()): string
     {
+        return $this->authoredInheritedPropertyOrigin($element, $property, $navigationEditor, $conditions, false)['value'];
+    }
+
+    /**
+     * The authored inherited winner under exactly one media stack, and how
+     * many boxes above the element declares it (0 is the element itself, -1
+     * when no box does).
+     *
+     * Unlike {@see authoredInheritedPropertyWinner()}, a rule under some other
+     * condition is left out rather than blocking inheritance: the answer is
+     * the value for the part of the stack that condition does not cover. A
+     * caller replaying several stacks orders them by that distance, so where
+     * two stacks overlap the nearer declaration wins, as it does in the source.
+     *
+     * @param list<string> $conditions
+     * @return array{value: string, depth: int}
+     */
+    public function conditionedInheritedPropertyOrigin(DOMElement $element, string $property, array $conditions): array
+    {
+        return $this->authoredInheritedPropertyOrigin($element, $property, true, $conditions, true);
+    }
+
+    /**
+     * @param list<string> $conditions
+     * @return array{value: string, depth: int}
+     */
+    private function authoredInheritedPropertyOrigin(DOMElement $element, string $property, bool $navigationEditor, array $conditions, bool $skipForeignConditions): array
+    {
+        $none = array( 'value' => '', 'depth' => -1 );
         $property = strtolower(trim($property));
         if ( ! in_array($property, array(
             'color',
@@ -5393,18 +5511,20 @@ final class StyleResolver implements ElementPresentationResolver
             'text-transform',
             'white-space',
         ), true) ) {
-            return '';
+            return $none;
         }
 
+        $depth = -1;
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-            $declarations = $this->authoredInheritedDeclarations($current, $navigationEditor, $conditions);
+            ++$depth;
+            $declarations = $this->authoredInheritedDeclarations($current, $navigationEditor, $conditions, $skipForeignConditions);
             if ( ! array_key_exists($property, $declarations) ) {
                 continue;
             }
 
             $rawValue = (string) $declarations[$property];
             if ( 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue) ) {
-                return '';
+                return $none;
             }
             $value = trim($rawValue);
             $keyword = strtolower($value);
@@ -5412,13 +5532,13 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             if ( in_array($keyword, array( 'initial', 'revert', 'revert-layer' ), true) ) {
-                return '';
+                return $none;
             }
 
-            return $this->customProperties->resolve($value, $current);
+            return array( 'value' => $this->customProperties->resolve($value, $current), 'depth' => $depth );
         }
 
-        return '';
+        return $none;
     }
 
     /** @return list<list<string>> Media stacks needed by omitted navigation boxes. */
@@ -5471,7 +5591,7 @@ final class StyleResolver implements ElementPresentationResolver
      *
      * @return array<string, string>
      */
-    private function authoredInheritedDeclarations(DOMElement $element, bool $navigationEditor = false, array $conditions = array()): array
+    private function authoredInheritedDeclarations(DOMElement $element, bool $navigationEditor = false, array $conditions = array(), bool $skipForeignConditions = false): array
     {
         $cascade = array();
         $sequence = 0;
@@ -5507,6 +5627,7 @@ final class StyleResolver implements ElementPresentationResolver
             // projected condition it blocks inheritance, rather than exposing
             // a body reset. Rank the blocker normally against base declarations.
             if ($navigationEditor && array() !== $ruleConditions && array() !== array_diff($ruleConditions, $conditions)) {
+                if ($skipForeignConditions) continue;
                 $declarations = array_map(static fn(string $value): string => 'initial' . (CssValueInspector::isImportant($value) ? ' !important' : ''), $declarations);
                 if (null !== $font) $font = 'initial' . (CssValueInspector::isImportant($font) ? ' !important' : '');
             }
@@ -5938,6 +6059,7 @@ final class StyleResolver implements ElementPresentationResolver
                 'value' => $rule['value'],
                 'important' => CssValueInspector::isImportant($rule['value']),
                 'specificity' => $this->cascade->specificity($rule['selector']), 'order' => $rule['order'], 'inline' => false, 'layer' => $rule['layer'] ?? null, 'conditions' => $rule['conditions'],
+                'selector' => $rule['selector'],
             ));
         }
         foreach ($this->imageShapeDeclarationEntries(SourceDom::attr($element, 'style')) as $order => $entry) {
