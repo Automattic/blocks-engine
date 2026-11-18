@@ -168,9 +168,16 @@ final class AuthorStylesheetProjector
         if ( array() === $subjects ) return '';
         $rules = '';
         (new CssStylesheetTransformer())->visitStyleRules($css, function (string $selector, string $body) use (&$rules, $subjects): void {
-            // Only canonical block targets or source-instance projections own
-            // this escape. Never install a document-wide author reset.
-            if ( ! preg_match('/\\.(?:wp-block-|blocks-engine-)/', $selector) ) return;
+            // Only positive block targets own this escape. A projected arm in
+            // a mixed selector list must not lend ownership to authored inline
+            // subjects, nor do RichText carriers have Core block defaults.
+            $targets = array_filter(CssStylesheetTransformer::splitSelectorList($selector) ?? array(), static function (string $arm): bool {
+                $positive = CssSelectorCompoundInspector::positiveSelector($arm);
+                return 1 === preg_match('/\\.(?:wp-block-|blocks-engine-)/', $positive)
+                    && ! preg_match('/\\.blocks-engine-(?:role-richtext\\b|richtext-)/', $positive);
+            });
+            if ( array() === $targets ) return;
+            $selector = implode(',', $targets);
             $properties = array();
             foreach ( SourceDeclarations::verbatim($body) as $property => $value ) {
                 if ( str_starts_with($property, '--') || str_contains($value, '!important') ) continue;
@@ -1949,6 +1956,12 @@ final class AuthorStylesheetProjector
 
     private static function canMatchSyntheticImageFigure(string $selector): bool
     {
+        // A pseudo-element subject is generated content, never the wrapper
+        // element; a pseudo-class after it is invalid outside user-action
+        // states and would void the whole selector list in some engines.
+        if ( 1 === preg_match('/(?:::[\w-]+(?:\([^()]*\))?|:(?:before|after|first-line|first-letter))\s*$/i', $selector) ) {
+            return false;
+        }
         $compounds = CssSelectorMatcher::parse($selector)['compounds'] ?? array();
         $subject = end($compounds);
         if ( ! is_array($subject) ) {
@@ -2608,10 +2621,7 @@ final class AuthorStylesheetProjector
         }
 
         // A universal subject matches the image itself, exactly like `img`.
-        return in_array(strtolower((string) ($subject['type'] ?? '*')), array( 'img', 'svg', '*' ), true)
-            && array() === ($subject['classes'] ?? array())
-            && array() === ($subject['ids'] ?? array())
-            && array() === ($subject['attributes'] ?? array());
+        return CssSelectorCompoundInspector::isBareImageSubject($subject);
     }
 
     /** @param array<string, string> $declarations */

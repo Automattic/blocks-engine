@@ -49,4 +49,33 @@ $sheets = implode("\n", array_map(static fn (array $asset): string => 'css' === 
 $assert(1 === preg_match('/\.icon\.wp-block-image:where\(\.blocks-engine-synthetic-flex-image-figure\)[^{]*\{[^}]*width:24px/', $sheets), 'The live image figure keeps its projected box rule.');
 $assert(!str_contains($sheets, 'wp-block-post-featured-image'), 'Theme stylesheets ship no selector requiring a featured image no route renders.');
 
+// A source button in a grid lowers to a layout-neutral core/button. Support
+// CSS restores each source display through a modifier class, and ships every
+// modifier so per-route sheets can coexist. Once the plan's markup is final,
+// only the modifiers some button carries can match anything.
+$buttonCss = '.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.opt{display:flex;flex-direction:column;padding:12px;border:1px solid #ccc}';
+$buttonPage = static fn (string $title): string => '<!doctype html><html><head><title>' . $title . '</title><link rel="stylesheet" href="site.css"></head><body>'
+    . '<main><div class="grid"><button type="button" class="opt"><span>' . $title . '</span><span>One</span></button><button type="button" class="opt"><span>Two</span><span>Three</span></button></div></main></body></html>';
+$buttonPlan = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array('site.css' => $buttonCss, 'index.html' => $buttonPage('Home'), 'about.html' => $buttonPage('About')),
+))->toWordPressSitePlanView()['wordpress_site_plan'];
+$buttonMarkup = '';
+foreach (array_merge($buttonPlan['pages'] ?? array(), $buttonPlan['template_parts'] ?? array(), $buttonPlan['templates'] ?? array()) as $unit) {
+    $buttonMarkup .= (string) ($unit['canonical_block_markup'] ?? '');
+}
+$neutral = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
+$assert(str_contains($buttonMarkup, $neutral . '-display-flex'), 'The grid buttons are layout-neutral with their flex display modifier.');
+$buttonSheets = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? null) ? (string) ($asset['content'] ?? '') : '', $buttonPlan['assets'] ?? array()));
+// An excluded modifier (`:not(.modifier)`) requires nothing.
+$requiredSheets = (string) preg_replace('/:not\([^()]*\)/', '', $buttonSheets);
+$assert(str_contains($buttonSheets, '.' . $neutral . '-display-flex)'), 'The carried display modifier keeps its support rule.');
+// A modifier the rule excludes is no carrier it requires: the shrink-to-fit
+// reset for buttons without a conditional width still reaches these buttons.
+$assert(str_contains($buttonSheets, ':where(.' . $neutral . ':not(.' . $neutral . '-author-width):not(.' . $neutral . '-conditional-width))>.wp-block-button__link{width:fit-content!important}'), 'The reset that excludes an absent modifier stays.');
+foreach (array('-display-inline-block', '-display-block', '-display-inline-flex', '-display-inline-grid', '-display-inline-table', '-conditional-width', '-conditional-height') as $modifier) {
+    $assert(isset(AbsentCarrierSelectors::CARRIERS[$neutral . $modifier]), 'Absent-carrier pruning knows the ' . $neutral . $modifier . ' modifier.');
+    $assert(1 !== preg_match('/\.' . preg_quote($neutral . $modifier, '/') . '(?![\w-])/', $requiredSheets), 'Theme stylesheets ship no rule for the ' . $modifier . ' modifier no button carries.');
+}
+
 echo "Absent carrier selectors passed\n";

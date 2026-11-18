@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Closure;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -227,6 +228,15 @@ final class AuthorSelectorProjectionState
     private array $innerSubjects = array();
 
     /**
+     * Markers whose carrier is itself an inner subject with author precedence
+     * (a linked image's link). Every rule matching its source projects onto it
+     * through that arm, above the rule's source specificity.
+     *
+     * @var array<string, true>
+     */
+    private array $selfAddressedInnerSubjects = array();
+
+    /**
      * A source element whose presentation a native block renders on one of
      * its inner parts (optionally a pseudo-element of it). Author precedence
      * requests the shared native-subject baseline above Core defaults; every
@@ -238,6 +248,9 @@ final class AuthorSelectorProjectionState
     public function installInnerSubject(string $path, string $selector, string $pseudoElement = '', bool $authorPrecedence = false, bool $universalReached = false): void
     {
         $this->innerSubjects[$path] = array( 'selector' => $selector, 'pseudo_element' => $pseudoElement, 'author_precedence' => $authorPrecedence, 'universal_reached' => $universalReached );
+        if ( $authorPrecedence && '' === $pseudoElement && 1 === preg_match('/^:where\(\.([\w-]+)\)$/', $selector, $marker) ) {
+            $this->selfAddressedInnerSubjects[$marker[1]] = true;
+        }
     }
 
     /** @return array{selector:string, pseudo_element:string, author_precedence:bool, universal_reached:bool}|null */
@@ -480,6 +493,28 @@ final class AuthorSelectorProjectionState
     }
 
     /**
+     * Class tokens a captured viewport entrance replays on the control that
+     * owns `$marker`: the tokens its before and after class poses disagree on.
+     *
+     * @return list<string>
+     */
+    public function controlEntranceClasses(string $marker): array
+    {
+        $path = array_search($marker, $this->controlMarkers, true);
+        $element = false === $path ? null : $this->authorStyles?->sourceElementAtPath((string) $path);
+        if ( null === $element || ! $element->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) ) {
+            return array();
+        }
+        $pose = json_decode($element->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE), true)['attributes']['class'] ?? null;
+        if ( ! is_array($pose) ) {
+            return array();
+        }
+        $before = SourceDom::tokens((string) ($pose['before'] ?? ''));
+        $after = SourceDom::tokens((string) ($pose['after'] ?? ''));
+        return array_values(array_unique(array_merge(array_diff($before, $after), array_diff($after, $before))));
+    }
+
+    /**
      * Classes for the block that carries the control at `$path`: its marker,
      * the control role class, and the subject classes of the source element
      * (see EngineMarker::subjectTagClass()). The carrier is recorded with the
@@ -655,6 +690,11 @@ final class AuthorSelectorProjectionState
         foreach ( $this->subjectCarriers[$kind] ?? array() as $marker => $carrier ) {
             if ( null === $carrier ) {
                 return null;
+            }
+            // A subject arm that also reaches a self-addressed inner subject
+            // restates a rule its own arm already applies more strongly.
+            if ( isset($this->selfAddressedInnerSubjects[$marker]) ) {
+                continue;
             }
             if ( null !== $type && $type !== $carrier['tag'] ) {
                 continue;

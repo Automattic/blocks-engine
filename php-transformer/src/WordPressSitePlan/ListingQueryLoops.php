@@ -1048,6 +1048,66 @@ final class ListingQueryLoops
         return $anchors;
     }
 
+    /**
+     * The term each post's related listing is scoped to, or null when no term
+     * explains every post's cards (the listing then stays latest posts).
+     *
+     * A post's cards are explained by a term it belongs to when they are
+     * distinct other members of it, and their count is min(perPage,
+     * members - 1) for the largest card count perPage. Sources may shuffle
+     * related cards on each load, so membership is the proof, not order: a
+     * term's listings keep date order only when every card list is its
+     * newest other members, newest first, with no tied timestamps among them.
+     * Otherwise they are random, as the source showed. When several terms
+     * explain a post, the smallest one is the closest description.
+     *
+     * @param array<string,list<?string>> $cardsByPost Card source paths each post lists, in order (null for an unmatched card).
+     * @param array<int,array<string,mixed>> $posts Every site post, for publication timestamps.
+     * @param array<int,array<string,mixed>> $terms The plan's taxonomy entities.
+     * @param bool $uniform Whether every post renders one template, so they all need the same scope.
+     * @return array<string,array{taxonomy:string,slug:string,order_by:string,per_page:int}>|null
+     */
+    public static function relatedTermScopes(array $cardsByPost, array $posts, array $terms, bool $uniform): ?array
+    {
+        if (array() === $cardsByPost) return null;
+        $timestamps = array();
+        foreach ($posts as $post) if (is_string($post['source_path'] ?? null) && is_string($post['publication_timestamp'] ?? null)) $timestamps[$post['source_path']] = $post['publication_timestamp'];
+        $perPage = max(array_map('count', $cardsByPost));
+        $choices = array();
+        foreach ($cardsByPost as $source => $cards) {
+            if (array() === $cards || in_array(null, $cards, true) || in_array($source, $cards, true) || count(array_unique($cards)) !== count($cards)) return null;
+            $best = null;
+            foreach ($terms as $term) {
+                if ('taxonomy_term' !== ($term['kind'] ?? null) || !is_string($term['taxonomy'] ?? null) || !is_string($term['slug'] ?? null)) continue;
+                $members = $term['membership_source_paths'] ?? array();
+                if (!in_array($source, $members, true)) continue;
+                $others = array_values(array_diff($members, array($source)));
+                if (array() !== array_diff($cards, $others) || count($cards) !== min($perPage, count($others))) continue;
+                if (null === $best || count($others) < count($best['others'])) $best = array('taxonomy' => $term['taxonomy'], 'slug' => $term['slug'], 'others' => $others);
+            }
+            if (null === $best) return null;
+            $choices[$source] = $best;
+        }
+        $newestFirst = array();
+        foreach ($choices as $source => $choice) {
+            $key = $choice['taxonomy'] . ':' . $choice['slug'];
+            $stamps = array_map(static fn(string $member): ?string => $timestamps[$member] ?? null, $choice['others']);
+            $ordered = !in_array(null, $stamps, true) && count(array_unique($stamps)) === count($stamps);
+            if ($ordered) {
+                $newest = array_combine($choice['others'], $stamps);
+                arsort($newest, SORT_STRING);
+                $ordered = array_slice(array_keys($newest), 0, count($cardsByPost[$source])) === $cardsByPost[$source];
+            }
+            $newestFirst[$key] = ($newestFirst[$key] ?? true) && $ordered;
+        }
+        if ($uniform && count($newestFirst) > 1) return null;
+        $scopes = array();
+        foreach ($choices as $source => $choice) {
+            $scopes[$source] = array('taxonomy' => $choice['taxonomy'], 'slug' => $choice['slug'], 'order_by' => $newestFirst[$choice['taxonomy'] . ':' . $choice['slug']] ? 'date' : 'rand', 'per_page' => $perPage);
+        }
+        return $scopes;
+    }
+
     /** A stable set of linked routes, independent of slider state and geometry. */
     public function cardRouteIdentity(string $markup): string
     {
