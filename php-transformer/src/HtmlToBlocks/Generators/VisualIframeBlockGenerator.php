@@ -15,15 +15,18 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttribu
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\EmbedFrameMetadata;
 use Closure;
 use DOMElement;
 use LogicException;
 
-/** Builds the typed companion block for bounded external visual iframe surfaces. */
+/**
+ * Lowers bounded external visual iframe surfaces to core/embed: provider URLs
+ * through core's oEmbed, any other safe frame with its attributes in metadata
+ * for the theme's frame renderer (WordPressSitePlan\IframeEmbedRuntime).
+ */
 final class VisualIframeBlockGenerator
 {
-    public const LOCAL_NAME = 'visual-iframe';
-
     /**
      * Mirrors core's `@wordpress/block-library` embed block aspect-ratio
      * table (`ASPECT_RATIOS` in `embed/constants.js`) so a source iframe's
@@ -59,144 +62,6 @@ final class VisualIframeBlockGenerator
     ) {
     }
 
-    /** @return array<string, mixed> */
-    public function blockJson(string $namespace): array
-    {
-        return array(
-            'apiVersion' => 3,
-            'name' => $namespace . '/' . self::LOCAL_NAME,
-            'title' => 'Embedded Content',
-            'category' => 'embed',
-            'description' => 'A bounded external visual surface.',
-            'editorScript' => 'file:./index.js',
-            'style' => 'file:./style.css',
-            'attributes' => array(
-                'src' => array( 'type' => 'string', 'default' => '' ),
-                'title' => array( 'type' => 'string', 'default' => '' ),
-                'width' => array( 'type' => 'string', 'default' => '' ),
-                'height' => array( 'type' => 'string', 'default' => '' ),
-                'className' => array( 'type' => 'string', 'default' => '' ),
-                'allow' => array( 'type' => 'string', 'default' => '' ),
-                'loading' => array( 'type' => 'string', 'default' => '' ),
-                'sandbox' => array( 'type' => 'string', 'default' => '' ),
-                'referrerPolicy' => array( 'type' => 'string', 'default' => '' ),
-                'allowFullScreen' => array( 'type' => 'boolean', 'default' => false ),
-            ),
-            'supports' => array( 'html' => false ),
-        );
-    }
-
-    /** @return array<string, string> */
-    public function assets(string $blockName): array
-    {
-        $namespace = strstr($blockName, '/', true) ?: '';
-        $script = <<<'JS'
-( function( blocks, blockEditor, components, element ) {
-    var createElement = element.createElement;
-    var attributes = __BLOCK_ATTRIBUTES__;
-    function isSafeVisualIframeUrl( value ) {
-        try {
-            var url = new URL( value );
-            return url.protocol === 'https:' && !! url.hostname && ! url.username && ! url.password;
-        } catch ( error ) {
-            return false;
-        }
-    }
-    function iframeProps( attributes ) {
-        var props = { style: { maxWidth: '100%' } };
-        [ 'src', 'title', 'width', 'height', 'allow', 'loading', 'sandbox', 'referrerPolicy' ].forEach( function( name ) { if ( attributes[ name ] ) { props[ name ] = attributes[ name ]; } } );
-        if ( attributes.className ) { props.className = attributes.className; }
-        if ( attributes.allowFullScreen ) { props.allowFullScreen = true; }
-        return props;
-    }
-    function edit( props ) {
-        var useState = element.useState;
-        var useEffect = element.useEffect;
-        var state = useState( props.attributes.src || '' );
-        var draftSrc = state[ 0 ];
-        var setDraftSrc = state[ 1 ];
-        var overlayState = useState( ! props.isSelected );
-        var keepClickOverlay = overlayState[ 0 ];
-        var setKeepClickOverlay = overlayState[ 1 ];
-        useEffect( function() {
-            if ( ! props.isSelected ) {
-                setKeepClickOverlay( true );
-            }
-        }, [ props.isSelected ] );
-        var setAttribute = function( name ) { return function( value ) { props.setAttributes( { [ name ]: value } ); }; };
-        var inspector = props.isSelected ? createElement( blockEditor.InspectorControls, {},
-            createElement( components.PanelBody, { title: 'Embedded content' },
-                createElement( components.TextControl, {
-                    label: 'URL', value: draftSrc,
-                    help: draftSrc && ! isSafeVisualIframeUrl( draftSrc ) ? 'Enter an HTTPS URL without credentials.' : undefined,
-                    onChange: setDraftSrc,
-                    onBlur: function() { var src = draftSrc.trim(); if ( isSafeVisualIframeUrl( src ) ) { props.setAttributes( { src: src } ); setDraftSrc( src ); } else { setDraftSrc( props.attributes.src || '' ); } }
-                } ),
-                createElement( components.TextControl, { label: 'Title', value: props.attributes.title || '', onChange: setAttribute( 'title' ) } ),
-                createElement( components.TextControl, { label: 'Width', value: props.attributes.width || '', onChange: setAttribute( 'width' ) } ),
-                createElement( components.TextControl, { label: 'Height', value: props.attributes.height || '', onChange: setAttribute( 'height' ) } ),
-                createElement( components.TextControl, { label: 'Allow permissions', value: props.attributes.allow || '', onChange: setAttribute( 'allow' ) } ),
-                createElement( components.SelectControl, { label: 'Loading', value: props.attributes.loading || '', options: [ { label: 'Default', value: '' }, { label: 'Lazy', value: 'lazy' }, { label: 'Eager', value: 'eager' } ], onChange: setAttribute( 'loading' ) } ),
-                createElement( components.TextControl, { label: 'Sandbox', value: props.attributes.sandbox || '', onChange: setAttribute( 'sandbox' ) } ),
-                createElement( components.TextControl, { label: 'Referrer policy', value: props.attributes.referrerPolicy || '', onChange: setAttribute( 'referrerPolicy' ) } ),
-                createElement( components.ToggleControl, { label: 'Allow fullscreen', checked: !! props.attributes.allowFullScreen, onChange: setAttribute( 'allowFullScreen' ) } )
-            )
-        ) : null;
-        return createElement( element.Fragment, {}, inspector,
-                createElement( 'div', blockEditor.useBlockProps( { style: { position: 'relative' } } ),
-                    createElement( 'iframe', iframeProps( props.attributes ) ),
-                    keepClickOverlay && createElement( 'div', {
-                        'aria-hidden': true,
-                        onMouseUp: function() { setKeepClickOverlay( false ); },
-                        style: { position: 'absolute', inset: 0, cursor: 'pointer' }
-                    } )
-            )
-        );
-    }
-    function save( props ) { return createElement( 'iframe', iframeProps( props.attributes ) ); }
-    blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
-} )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
-JS;
-
-        return array(
-            'index.js' => EditorScript::bind($script, $blockName, $this->blockJson($namespace)['attributes']),
-            'style.css' => 'iframe{max-width:100%}',
-        );
-    }
-
-    /** @param array<string, mixed> $attributes */
-    public function markup(array $attributes): string
-    {
-        $names = array(
-            'className' => 'class', 'src' => 'src', 'title' => 'title', 'width' => 'width', 'height' => 'height',
-            'allow' => 'allow', 'loading' => 'loading', 'sandbox' => 'sandbox', 'referrerPolicy' => 'referrerpolicy',
-        );
-        $markup = '<iframe';
-        foreach ( $names as $attribute => $htmlName ) {
-            $value = trim((string) ($attributes[$attribute] ?? ''));
-            if ( '' !== $value ) {
-                $markup .= ' ' . $htmlName . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-            }
-        }
-        if ( true === ($attributes['allowFullScreen'] ?? false) ) {
-            $markup .= ' allowfullscreen=""';
-        }
-        $markup .= ' style="max-width:100%"';
-
-        return $markup . '></iframe>';
-    }
-
-    /** @return array<string, mixed> */
-    public function definition(string $namespace): array
-    {
-        return array(
-            'name' => self::LOCAL_NAME,
-            'block_json' => $this->blockJson($namespace),
-            'assets' => $this->assets($namespace . '/' . self::LOCAL_NAME),
-            'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ),
-        );
-    }
-
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
@@ -210,9 +75,6 @@ JS;
         $isInertRuntimeMediaPlaceholder = $this->isInertRuntimeMediaPlaceholder ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
         $sourceElementStartsHidden = $this->sourceElementStartsHidden ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
         $sourceElementDescription = $this->sourceElementDescription ?? throw new LogicException('VisualIframeBlockGenerator was not wired for conversion.');
-        $registry = $session->generatedBlockRegistry()
-            ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
-
         $customHost = 'iframe' !== strtolower($iframe->tagName) ? $iframe : null;
         $surface = $iframe;
         $url = '';
@@ -280,17 +142,23 @@ JS;
                 'preservation_strategy' => 'typed_visual_iframe_companion',
                 'attributes' => array_merge($this->safeEmbedAttributes($surface), array( 'src' => $url )),
             ));
-            $registry->register(self::class, $this->definition($registry->namespace()));
+            // A frame no oEmbed provider serves stays a core/embed of its URL.
+            // Its frame attributes ride in block metadata and the theme renders
+            // the source's bare iframe from them (WordPressSitePlan\IframeEmbedRuntime),
+            // so author rules keep sizing the frame itself, not a wrapper.
+            $frame = $visualIframeAttributes;
+            unset($frame['src'], $frame['className']);
             $block = $createBlock->createBlock(
-                $registry->blockName(self::LOCAL_NAME),
-                $visualIframeAttributes,
+                'core/embed',
+                array_filter(array(
+                    'url' => $url,
+                    'type' => 'rich',
+                    'className' => $visualIframeAttributes['className'] ?? '',
+                    'metadata' => array( EmbedFrameMetadata::KEY => $frame ),
+                ), static fn (mixed $value): bool => '' !== $value),
                 array(),
                 $surface
             );
-            // Save from the created block's attributes: they carry the source
-            // projection markers that author rules address.
-            $block['innerHTML'] = $this->markup($block['attrs'] ?? $visualIframeAttributes);
-            $block['innerContent'] = array( $block['innerHTML'] );
             return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block, $styleResolver, $createBlock) : $block;
         }
 

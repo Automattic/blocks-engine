@@ -169,8 +169,8 @@ $unresolved = ( new HtmlTransformer() )->transform(
 )->toArray();
 $assert(null === $findCopy($unresolved['blocks'] ?? array()), 'copy intent without a resolvable target does not emit a dead copy block');
 $loss = array_values(array_filter(
-    is_array($unresolved['fallbacks'] ?? null) ? $unresolved['fallbacks'] : array(),
-    static fn (mixed $fallback): bool => is_array($fallback) && 'interactive_control_behavior_lost' === ($fallback['diagnostic_code'] ?? '')
+    is_array($unresolved['diagnostics'] ?? null) ? $unresolved['diagnostics'] : array(),
+    static fn (mixed $diagnostic): bool => is_array($diagnostic) && 'interactive_control_behavior_lost' === ($diagnostic['code'] ?? '')
 ));
 $assert(array() !== $loss && 'interactive_behavior_loss' === ($loss[0]['loss_class'] ?? null), 'an unresolved copy target records the canonical interactive_behavior_loss class');
 

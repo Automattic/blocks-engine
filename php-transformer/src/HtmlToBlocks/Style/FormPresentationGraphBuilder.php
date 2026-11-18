@@ -39,6 +39,8 @@ final class FormPresentationGraphBuilder
     private const MAX_PROVENANCE = 32;
     /** Authored values such as system font stacks exceed a few hundred bytes; bound like selectors and conditions. */
     private const MAX_STYLE_VALUE_BYTES = 1024;
+    /** Longer source selectors are recorded as a token-boundary prefix plus `selector_sha256` of the full selector. */
+    private const MAX_PROVENANCE_SELECTOR_BYTES = 1024;
     private const MAX_DIAGNOSTICS = 32;
     /**
      * The inherited text properties a label or button caption reads from its
@@ -1447,8 +1449,8 @@ final class FormPresentationGraphBuilder
     {
         if ( count($provenance) > self::MAX_PROVENANCE ) throw new InvalidArgumentException('Form presentation provenance exceeds its limit.');
         foreach ( $provenance as $fact ) {
-            if ( is_array($fact) && array_diff(array_keys($fact), array( 'source_path', 'source_sha256', 'selector', 'condition', 'properties' )) ) throw new InvalidArgumentException('Form presentation provenance has unknown keys.');
-            if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || '' === ArtifactPath::safeRelativePath($fact['source_path']) || ArtifactPath::safeRelativePath($fact['source_path']) !== $fact['source_path'] || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, $properties, true) || ! isset($styles[self::key($property)])) || ($condition !== null && ($fact['condition'] ?? null) !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) throw new InvalidArgumentException('Form presentation provenance is invalid.');
+            if ( is_array($fact) && array_diff(array_keys($fact), array( 'source_path', 'source_sha256', 'selector', 'selector_sha256', 'condition', 'properties' )) ) throw new InvalidArgumentException('Form presentation provenance has unknown keys.');
+            if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || '' === ArtifactPath::safeRelativePath($fact['source_path']) || ArtifactPath::safeRelativePath($fact['source_path']) !== $fact['source_path'] || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > self::MAX_PROVENANCE_SELECTOR_BYTES || (array_key_exists('selector_sha256', $fact) && ! preg_match('/^[a-f0-9]{64}$/', is_string($fact['selector_sha256']) ? $fact['selector_sha256'] : '')) || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, $properties, true) || ! isset($styles[self::key($property)])) || ($condition !== null && ($fact['condition'] ?? null) !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) throw new InvalidArgumentException('Form presentation provenance is invalid.');
         }
     }
 
@@ -1796,13 +1798,31 @@ final class FormPresentationGraphBuilder
     }
 
     private static function declarationKey(array $fact, string $property): string { return $fact['path'] . "\n" . $fact['selector'] . "\n" . $property; }
+
+    /**
+     * A provenance fact names its source selector. A selector over the bound is
+     * recorded as a prefix cut at a token boundary plus the full selector's
+     * sha256, so the fact stays attributable to the exact source rule while the
+     * style it evidences is kept.
+     *
+     * @return array{selector: string, selector_sha256?: string}
+     */
+    private function provenanceSelector(string $selector): array
+    {
+        if ( strlen($selector) <= self::MAX_PROVENANCE_SELECTOR_BYTES ) return array( 'selector' => $selector );
+        $this->diagnostics[] = 'provenance_selector_limit';
+        $cut = mb_strcut($selector, 0, self::MAX_PROVENANCE_SELECTOR_BYTES, 'UTF-8');
+        $boundary = max((int) strrpos($cut, ','), (int) strrpos($cut, ' '));
+        $prefix = rtrim(substr($cut, 0, $boundary));
+        return array( 'selector' => '' !== $prefix ? $prefix : $cut, 'selector_sha256' => hash('sha256', $selector) );
+    }
     private static function key(string $property): string { return str_replace('-', '_', $property); }
     /** @return array<string, int> */
     private function intrinsicSize(DOMElement $svg): array { $width = $this->dimension(SourceDom::attr($svg, 'width')); $height = $this->dimension(SourceDom::attr($svg, 'height')); return null !== $width && null !== $height ? array( 'width' => $width, 'height' => $height ) : array(); }
     private function dimension(string $value): ?int { return 1 === preg_match('/^[1-9][0-9]{0,3}$/D', trim($value)) && (int) $value <= self::MAX_VISUAL_DIMENSION ? (int) $value : null; }
     private static function validDimension(mixed $value): bool { return is_int($value) && $value > 0 && $value <= self::MAX_VISUAL_DIMENSION; }
     private function precedence(array $facts): array { $result = array(); foreach ( $facts as $property => $fact ) if ( ! isset($this->unrepresentable[self::declarationKey($fact, $property)]) ) $result[$property] = array( 'source_order' => $fact['order'], 'specificity' => $fact['specificity'], 'important' => $fact['important'] ); ksort($result); return $result; }
-    private function provenance(array $facts, ?array $condition): array { $grouped = array(); foreach ( $facts as $property => $fact ) { if ( isset($this->unrepresentable[self::declarationKey($fact, $property)]) ) continue; $key = $fact['path'] . "\n" . $fact['selector']; $grouped[$key] ??= array( 'source_path' => $fact['path'], 'source_sha256' => $fact['hash'], 'selector' => $fact['selector'], 'condition' => $condition, 'properties' => array() ); $grouped[$key]['properties'][] = $property; } foreach ( $grouped as &$item ) sort($item['properties'], SORT_STRING); unset($item); if ( count($grouped) > self::MAX_PROVENANCE ) { $this->truncated = true; $this->diagnostics[] = 'provenance_limit'; } return array_slice(array_values($grouped), 0, self::MAX_PROVENANCE); }
+    private function provenance(array $facts, ?array $condition): array { $grouped = array(); foreach ( $facts as $property => $fact ) { if ( isset($this->unrepresentable[self::declarationKey($fact, $property)]) ) continue; $key = $fact['path'] . "\n" . $fact['selector']; $grouped[$key] ??= array( 'source_path' => $fact['path'], 'source_sha256' => $fact['hash'] ) + $this->provenanceSelector($fact['selector']) + array( 'condition' => $condition, 'properties' => array() ); $grouped[$key]['properties'][] = $property; } foreach ( $grouped as &$item ) sort($item['properties'], SORT_STRING); unset($item); if ( count($grouped) > self::MAX_PROVENANCE ) { $this->truncated = true; $this->diagnostics[] = 'provenance_limit'; } return array_slice(array_values($grouped), 0, self::MAX_PROVENANCE); }
 
     private static function validCondition(array $condition, int $depth = 0): bool
     {

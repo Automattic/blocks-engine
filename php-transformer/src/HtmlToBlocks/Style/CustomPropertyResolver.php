@@ -89,6 +89,36 @@ final class CustomPropertyResolver
     }
 
     /**
+     * Prove a missing-variable invalidation, rather than confusing it with an
+     * unevaluable declaration. Deliberately reject definitions anywhere in the
+     * stylesheet (including unsupported queries and @property registrations).
+     * Scripts may supply arbitrary names, so their presence also blocks proof.
+     */
+    public function isProvenInvalid(string $value, DOMElement $element): bool
+    {
+        if (!str_contains($value, 'var(')) return false;
+        $analysis = $this->session->authorStyleAnalysis();
+        $document = $element->ownerDocument;
+        if (null === $document || $document->getElementsByTagName('script')->length > 0) return false;
+        $unknown = false;
+        $expanded = CssVariableExpander::expand($value, function (string $name) use ($analysis, $element, &$unknown): ?string {
+            $quoted = preg_quote($name, '/');
+            if (preg_match('/(?:' . $quoted . '\\s*:|@property\\s+' . $quoted . '(?![\\w-]))/', $analysis->combinedCss())) {
+                $unknown = true;
+            }
+            for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode) {
+                if (preg_match('/(?:^|;)\\s*' . $quoted . '\\s*:/', $node->getAttribute('style'))) $unknown = true;
+                // An event handler can set properties just as a script can.
+                foreach ($node->attributes as $attribute) {
+                    if (str_starts_with(strtolower($attribute->name), 'on')) $unknown = true;
+                }
+            }
+            return null;
+        });
+        return null === $expanded && !$unknown;
+    }
+
+    /**
      * Empty-box evidence asks whether paint is possible at any viewport, not
      * what its computed value is at the reference viewport. A conditional
      * definition on this element or an ancestor must not become a missing
