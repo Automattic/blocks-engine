@@ -306,7 +306,13 @@ final class RichTextStylingHookNormalizer
         // nested inside it (format tags). Only a replacing carrier keeps the
         // author's classes, so only there can a media-conditional class rule
         // keep answering after conversion.
-        $carrierReplacesSource = in_array(strtolower($element->tagName), array( 'span', 'font', 'mark' ), true) || RichTextInlineTags::isUnknownHtmlElement($element);
+        // An empty generated glyph has no italic/bold text semantics to
+        // preserve. Keeping its format tag would let descendant tag rules
+        // paint a second box around the mark that already owns that box.
+        $sourceIsFontGlyph = ! $sourceIsLink && '' === trim($element->textContent ?? '')
+            && 0 === $element->childElementCount
+            && $this->styleResolver->hasBeforeFontGlyph($element);
+        $carrierReplacesSource = $sourceIsFontGlyph || in_array(strtolower($element->tagName), array( 'span', 'font', 'mark' ), true) || RichTextInlineTags::isUnknownHtmlElement($element);
 
         $declarations = $this->richTextMaterializer->inlineVisualDeclarations($element);
         if ( $carrierReplacesSource ) {
