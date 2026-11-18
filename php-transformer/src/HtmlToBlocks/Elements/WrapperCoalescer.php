@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
@@ -199,7 +200,7 @@ final class WrapperCoalescer
     private function isCapturedControlBox(array $block): bool
     {
         return 'core/group' === ($block['blockName'] ?? null)
-            && !empty($block['attrs']['metadata']['blocksEngineControlBox']['data-blocks-engine-capture-dialog-trigger']);
+            && !empty($block['attrs']['metadata']['blocksEngineControlBox'][CaptureEvidence::DIALOG_TRIGGER]);
     }
 
     /** @param array<string,mixed> $block */
