@@ -353,9 +353,10 @@ final class SitePlanRun
         // A source arm guarded against role carriers is dead once every
         // element naming its class is one of them.
         $assets = ConvertedSourceClassSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
-        // An image arm requiring classes no emitted image figure carries
-        // together matches nothing on any route.
-        $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup, array($runtimeDeclarations, $runtimeEntityRecords));
+        // A carrier arm restating an emitted image figure on a carrier it
+        // never becomes matches nothing on any route. Menus keep their markup
+        // in `block_markup`: their figures are emitted too.
+        $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
         $themeAssetWrites = new ThemeAssetWrites();
         $assetWrites = $themeAssetWrites->writes($assets, $this->references);
