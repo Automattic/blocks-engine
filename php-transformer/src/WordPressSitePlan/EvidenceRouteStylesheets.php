@@ -3,19 +3,21 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
-use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
-
 /** Author selectors are analysis input, never delivery for captured routes. */
 final class EvidenceRouteStylesheets
 {
-    public static function retire(array $assets, array $pages): array
+    /**
+     * @param list<array<string, mixed>> $parts Template parts every route renders; their markup counts as emitted.
+     */
+    public static function retire(array $assets, array $pages, array $parts = array()): array
     {
         $evidence = array();
         foreach ($pages as $page) if (!empty($page['document_metadata']['engine_owned_styles'])) $evidence[$page['source_path']] = true;
         if (array() === $evidence) return $assets;
+        $markup = (string) json_encode(array_values(array_map(static fn(array $page): array => array($page['canonical_block_markup'] ?? null, $page['resolved_block_markup'] ?? null), array_filter($pages, static fn(array $page): bool => isset($evidence[$page['source_path']])))), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $retired = array();
         $legacy = array_values(array_filter($pages, static fn(array $page): bool => !isset($evidence[$page['source_path']])));
-        foreach ($assets as &$asset) {
+        foreach ($assets as $key => &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || in_array($asset['source'] ?? '', array('engine-support', 'wordpress-compat'), true)) continue;
             $scopes = array();
             foreach ($asset['scopes'] as $scope) {
@@ -28,41 +30,29 @@ final class EvidenceRouteStylesheets
                 $asset['scopes'] = $scopes;
                 continue;
             }
-            // Preserve resource identities referenced by document metadata. Font
-            // faces have already been projected into theme.json at this point.
-            $content = (string) ($asset['content'] ?? '');
-            preg_match_all('/@font-face\s*\{[^{}]*\}/i', $content, $faces);
-            $asset = CompiledAssets::withRewrittenTextContent($asset, implode("\n", array_filter(array_merge($faces[0], array(self::deviceIslandRules($content))))));
+            $retired[] = $key;
         }
         unset($asset);
+        if (array() === $retired) return $assets;
+        // Preserve resource identities referenced by document metadata (font
+        // faces have already been projected into theme.json at this point),
+        // and the state rules carriers cannot replace.
+        $context = '';
+        foreach ($assets as $key => $asset) if ('css' === ($asset['kind'] ?? null) && !in_array($key, $retired, true)) $context .= (string) ($asset['content'] ?? '');
+        // Editor static state sheets are editor projections of author rules
+        // the author sheets themselves still carry: keeping their state rules
+        // would deliver every kept rule twice.
+        $editor = array_values(array_filter($retired, static fn(int|string $key): bool => 'editor-static-state' === ($assets[$key]['source'] ?? null)));
+        $author = array_values(array_diff($retired, $editor));
+        foreach ($editor as $key) {
+            preg_match_all('/@font-face\s*\{[^{}]*\}/i', (string) ($assets[$key]['content'] ?? ''), $faces);
+            $assets[$key] = CompiledAssets::withRewrittenTextContent($assets[$key], implode("\n", $faces[0]));
+        }
+        if (array() === $author) return $assets;
+        $reach = $markup . (string) json_encode(array_column($parts, 'canonical_block_markup'), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $rules = new EvidenceRouteStateRules(EvidenceRouteStateRules::stateAttributes($markup), $markup, $reach);
+        $kept = $rules->retain(array_map(static fn(int|string $key): string => (string) ($assets[$key]['content'] ?? ''), $author), $context);
+        foreach ($author as $index => $key) $assets[$key] = CompiledAssets::withRewrittenTextContent($assets[$key], $kept[$index]);
         return $assets;
-    }
-
-    /**
-     * The capture's device-island visibility rules for the phone band, with
-     * their media condition. A responsive capture folds each route's desktop
-     * and phone frames into sibling islands and ships the rules choosing one
-     * per viewport. Box-tree evidence observed the desktop island only at the
-     * desktop capture, so below the device switch, where the phone capture
-     * governs the layout ({@see BoxTreeDeviceBands}), no projected rule hides
-     * it and its desktop pixels overflow the phone-width ancestors.
-     *
-     * Only rules under a single `max-width` condition are kept: widths above
-     * the switch are governed by the desktop capture's evidence, and the
-     * rules for that band are left retired so its rendering is unchanged.
-     */
-    private static function deviceIslandRules(string $css): string
-    {
-        if (!str_contains($css, CaptureEvidence::DESKTOP_ONLY_CLASS) && !str_contains($css, CaptureEvidence::MOBILE_ONLY_CLASS)) return '';
-        $island = '/\.(?:' . preg_quote(CaptureEvidence::DESKTOP_ONLY_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_ONLY_CLASS, '/') . ')(?![\w-])/';
-        $kept = '';
-        (new CssStylesheetTransformer())->visitStyleRules($css, static function (string $prelude, string $body, array $ancestors) use ($island, &$kept): void {
-            if (1 !== preg_match($island, $prelude)) return;
-            if (1 !== count($ancestors) || 1 !== preg_match('/^@media\s*(?:(?:only\s+)?screen\s+and\s*)?\(\s*max-width\s*:\s*\d+(?:\.\d+)?px\s*\)$/i', trim($ancestors[0]))) return;
-            $rule = trim($prelude) . '{' . $body . '}';
-            foreach (array_reverse($ancestors) as $condition) $rule = $condition . '{' . $rule . '}';
-            $kept .= $rule;
-        });
-        return $kept;
     }
 }

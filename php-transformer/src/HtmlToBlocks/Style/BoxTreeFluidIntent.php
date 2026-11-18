@@ -27,6 +27,12 @@ use DOMElement;
  * - A unitless `line-height` scales with the element's font size: it is
  *   lifted when the observed line height differs between captures and
  *   equals that factor times the observed font size at every capture.
+ * - A `display` keyword winner (`none`, reached directly or through
+ *   `var()`) that equals the observed value at every capture and differs
+ *   between captures is lifted, so a box the author hides below a breakpoint
+ *   (a menu bar that becomes a hamburger) stops rendering at that
+ *   breakpoint rather than at the narrower capture's width. Other keyword
+ *   switches only move layout between captures and keep their pixels.
  * - On a heading, an inherited property with no author winner whose observed
  *   value equals the parent's at every capture, and varies between captures,
  *   is lifted as `inherit`. That overrides the heading's user-agent default
@@ -204,7 +210,7 @@ final class BoxTreeFluidIntent
         $inheriting = in_array($blockName, self::INHERITING_BLOCKS, true);
         $lifted = array();
         foreach ($properties as $property) {
-            $bands = $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents)
+            $bands = ('display' === $property ? $this->liftedDisplay($widths, $samples, $observations) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
                 ?? $this->liftedIntrinsic($property, $widths, $samples)
                 ?? $this->liftedAutoMargin($property, $widths, $samples)
                 ?? ($inheriting ? $this->liftedInheritance($property, $widths, $samples, $observations, $parents) : null);
@@ -234,6 +240,7 @@ final class BoxTreeFluidIntent
             $predicted = $factor
                 ? (null === $em ? null : (float) $value * $em)
                 : CssFluidLength::evaluate($value, $width, (float) ($viewports[$key]['height'] ?? 0), $percent, $em);
+            if (null !== $predicted && isset(self::SIZE_LIMITS[$property])) $predicted = self::clamped($predicted, $styles, ...self::SIZE_LIMITS[$property]);
             if (null === $actual || null === $predicted || abs($actual - $predicted) > self::TOLERANCE) return null;
             $proven[$key] = $value;
             $observed[(string) ($styles[$property] ?? '')] = true;
@@ -245,6 +252,23 @@ final class BoxTreeFluidIntent
             $value = $this->declared($property, $width);
             return '' === $value ? null : $value;
         });
+    }
+
+    /** A size => the min and max longhands that bound its used value. */
+    private const SIZE_LIMITS = array('width' => array('min-width', 'max-width'), 'height' => array('min-height', 'max-height'));
+
+    /**
+     * A size's used value is its computed value bounded by its own min and
+     * max sizes (CSS 2.2 §10.4, §10.7): a `width: 100%` under `max-width:
+     * 80rem` uses 1280px at a 1440px capture. The bounds are the captured
+     * used values, which the carrier restates alongside the lifted size.
+     */
+    private static function clamped(float $size, array $styles, string $min, string $max): float
+    {
+        $upper = self::pixels((string) ($styles[$max] ?? ''));
+        if (null !== $upper) $size = min($size, $upper);
+        $lower = self::pixels((string) ($styles[$min] ?? ''));
+        return null === $lower ? $size : max($size, $lower);
     }
 
     /**
@@ -339,6 +363,31 @@ final class BoxTreeFluidIntent
         if ('' === trim($value) || preg_match('/\b(?:var|attr|env)\(/i', $value)) return false;
         $tracks = (string) preg_replace('/\[[^\]]*\]/', ' ', strtolower($value));
         return 1 === preg_match('/\b(?:auto|min-content|max-content|fit-content|minmax|auto-fill|auto-fit|subgrid|masonry)\b|\d(?:fr|%|[sld]?v(?:w|h|i|b|min|max))\b|\d%/', $tracks);
+    }
+
+    /**
+     * The author's `display` keyword, proven when it equals the observed
+     * display at every capture. One the captures agree on is already exact;
+     * one that switches between them switches at the author's breakpoint.
+     *
+     * @param array<string, float> $widths
+     * @param array<string, float> $samples
+     * @return list<array{0: float|null, 1: string}>|null
+     */
+    private function liftedDisplay(array $widths, array $samples, array $observations): ?array
+    {
+        $proven = array();
+        foreach ($widths as $key => $width) {
+            $value = strtolower((string) $this->declared('display', $width));
+            if (1 !== preg_match('/^[a-z][a-z-]*$/', $value) || in_array($value, array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) return null;
+            if ($value !== ($observations[$key]['used_styles']['display'] ?? null)) return null;
+            $proven[$key] = $value;
+        }
+        if (count(array_unique($proven)) < 2) return null;
+        return $this->bands($widths, $samples, $proven, function (float $width): ?string {
+            $value = $this->declared('display', $width);
+            return null === $value || '' === $value ? null : strtolower($value);
+        });
     }
 
     /**

@@ -75,7 +75,6 @@ final class HtmlTransformerSession
     public function installAuthorStyleAnalysis(AuthorStyleAnalysis $analysis): void
     {
         $this->authorStyleAnalysis = $analysis;
-        $this->boxTreeBands = null;
         $this->authorSelectorProjectionState->installAuthorStyles($analysis);
     }
 
@@ -309,13 +308,8 @@ final class HtmlTransformerSession
     /** Browser observations for the source element, keyed by captured viewport. */
     public function boxTreeViewports(): array
     {
-        $viewports = $this->boxTree['viewports'] ?? array();
-        if (array() === $viewports || null === $this->authorStyleAnalysis) return $viewports;
-        return $this->boxTreeBands ??= \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\BoxTreeDeviceBands::withDeviceSwitch($viewports, $this->authorStyleAnalysis->combinedCss());
+        return $this->boxTree['viewports'] ?? array();
     }
-
-    /** @var array<string, array<string, mixed>>|null Captured viewports with their device bands, once author styles are known. */
-    private ?array $boxTreeBands = null;
 
     public function boxTreeEvidence(\DOMElement $element): array
     {
@@ -325,7 +319,6 @@ final class HtmlTransformerSession
     public function installTransformOptions(array $options): void
     {
         $this->boxTree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
-        $this->boxTreeBands = null;
         $this->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
         $this->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));
         $this->installAssetMaterializationState(new AssetMaterializationState(

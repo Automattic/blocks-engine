@@ -76,6 +76,16 @@ $cases = array(
     '% width against the parent content width lifts' => array(
         'h1{width:50%}', array('n5.width' => array('200px', '100px'), 'n6.width' => array('100px', '50px')), array('width:50%'), array('width:50px'),
     ),
+    // imb-culinary-craft .container-imb: width:100% under max-width:80rem
+    // uses the 1280px cap at the 1440px capture; freezing it overflows 768px.
+    '% width capped by its max-width at a capture lifts' => array(
+        'h1{width:100%;max-width:80rem}', array('n5.width' => array('1440px', '402px'), 'n6.width' => array('1280px', '402px'), 'n6.max-width' => array('1280px', '1280px')),
+        array('width:100%', 'max-width:1280px'), array(';width:1280px', ';width:402px'),
+    ),
+    '% width a max-width does not explain stays in pixels' => array(
+        'h1{width:100%;max-width:80rem}', array('n5.width' => array('1440px', '402px'), 'n6.width' => array('1200px', '402px'), 'n6.max-width' => array('1280px', '1280px')),
+        array('width:1200px'), array('width:100%'),
+    ),
     'clamp() lifts' => array(
         'h1{font-size:clamp(10px,5.2vw,100px)}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:clamp(10px,5.2vw,100px)'), array('font-size:75px'),
     ),
@@ -244,7 +254,8 @@ $cases = array(
             'n5.padding-left' => array('10px', '10px'), 'n5.padding-right' => array('10px', '10px'), 'n5.padding-top' => array('0px', '0px'), 'n5.padding-bottom' => array('0px', '0px'),
             'n6.position' => array('absolute', 'absolute'), 'n6.left' => array('110px', '60px'), 'n6.top' => array('25px', '15px'),
             'n6.right' => array('110px', '60px'), 'n6.bottom' => array('25px', '15px')),
-        array('left:50%', 'top:50%', 'h1 right:auto', 'h1 bottom:auto'), array('left:110px', 'left:60px', 'top:25px', 'top:15px', 'right:110px', 'bottom:25px'),
+        // The four offsets fold into one inset shorthand, in top/right/bottom/left order.
+        array('h1 inset:50% auto auto 50%'), array('h1 110px', 'h1 60px', 'h1 25px', 'h1 15px'),
     ),
     'a calc(% - px) offset lifts through the inset shorthand' => array(
         'main{position:relative}h1{position:absolute;inset:0 auto auto calc(50% - 24px)}',
@@ -289,7 +300,7 @@ $cases = array(
     'a % column gap through the gap shorthand lifts against the own content box' => array(
         'main{display:flex;gap:0 10%}',
         array('n5.display' => array('flex', 'flex'), 'n5.width' => array('1000px', '400px'), 'n5.column-gap' => array('100px', '40px')),
-        array('column-gap:10%'), array('column-gap:100px', 'column-gap:40px'),
+        array('gap:none 10%'), array('column-gap:100px', 'column-gap:40px', 'gap:none 100px', 'gap:none 40px'),
     ),
 );
 /** The heading's carrier rules: needles prefixed `h1 ` are matched there only. */
