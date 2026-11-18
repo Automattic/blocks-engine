@@ -870,10 +870,16 @@ final class ThemeJsonProjection
         foreach (array('link', 'heading') as $element) {
             // A source-owned heading family must not be reset to the body font
             // by the later Global Styles stylesheet, even if it cannot project.
+            // A level whose own element style states its family is safe: core
+            // prints `h1`..`h6` after `heading`, so that level keeps its family
+            // while the shared heading element stays editable.
             if ('heading' === $element) {
-                $hasAuthoredFamily = false;
-                foreach (array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) $hasAuthoredFamily = $hasAuthoredFamily || isset($authored['element:' . $tag . "\nfont-family"]);
-                if ($hasAuthoredFamily) continue;
+                $unownedAuthoredFamily = false;
+                foreach (array('h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) {
+                    if (!isset($authored['element:' . $tag . "\nfont-family"])) continue;
+                    $unownedAuthoredFamily = $unownedAuthoredFamily || !is_string($styles['elements'][$tag]['typography']['fontFamily'] ?? null);
+                }
+                if ($unownedAuthoredFamily) continue;
             }
             $styles['elements'][$element]['typography']['fontFamily'] ??= 'inherit';
         }

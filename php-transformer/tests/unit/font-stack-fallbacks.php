@@ -33,7 +33,11 @@ foreach ($headings[1] as $attributes) {
 
 // Generic primaries are distinct families, not interchangeable fallbacks.
 [$genericTheme, $genericMarkup] = $compile('<style>body{font-family:serif}h2{font-family:sans-serif}h3{font-family:monospace}</style><main><p>Body</p><h2>Title</h2><h3>Subtitle</h3></main>');
-$assert(!isset($genericTheme['styles']['elements']['heading']['typography']['fontFamily']), 'Different authored generic primaries must not receive a shared heading inheritance reset');
+// Each authored level owns its family through its own element style, which
+// core prints after `heading`, so the shared heading element stays editable
+// in Global Styles without resetting those levels (#5646).
+$assert('inherit' === ($genericTheme['styles']['elements']['heading']['typography']['fontFamily'] ?? null), 'Levels whose element owns the authored family keep a shared heading element (' . json_encode($genericTheme['styles']['elements'] ?? array()) . ')');
+foreach (array('h2', 'h3') as $level) $assert(str_starts_with($genericTheme['styles']['elements'][$level]['typography']['fontFamily'] ?? '', 'var:preset|font-family|'), 'Authored generic primaries stay owned by their ' . $level . ' element');
 $genericFamilies = array_column($genericTheme['settings']['typography']['fontFamilies'], 'fontFamily', 'slug');
 preg_match_all('/<!-- wp:heading\b(.*?)-->/s', $genericMarkup, $genericHeadings);
 foreach ($genericHeadings[1] as $index => $attributes) {
