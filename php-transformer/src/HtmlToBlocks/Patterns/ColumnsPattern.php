@@ -201,8 +201,6 @@ final class ColumnsPattern implements PatternRecognizerInterface
             return true;
         }
 
-        $className = strtolower(SourceDom::attr($element, 'class'));
-
         if ( in_array($display, array( 'flex', 'inline-flex' ), true) && null !== SourceDom::firstChildElement($element, 'svg') ) {
             return false;
         }
@@ -231,12 +229,11 @@ final class ColumnsPattern implements PatternRecognizerInterface
             return false;
         }
 
-        // Only a complete column class names a layout. A fragment in a theme
-        // option such as theme-single-column-width-full describes no geometry.
+        // column/columns class tokens do not establish a columns container:
+        // they can name a full-width content wrapper in normal document flow.
         // Split-layout names describe two-pane structures. Multi-child content
         // stacks such as hero copy must stay groups so source CSS controls flow.
-        return (bool) preg_match('/(?:^|\s)columns?(?:$|\s)/', $className)
-            || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::childElementCount($element) )
+        return ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::childElementCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element, $referenceViewportStyle) )
             || $this->hasSidebarAndContentChildren($element, $referenceViewportStyle)
             || in_array(CssValueInspector::declared(SourceDeclarations::parse($inlineStyle), 'display'), array( 'flex', 'inline-flex' ), true);
