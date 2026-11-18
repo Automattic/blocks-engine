@@ -728,4 +728,30 @@ foreach ($dots as $index => $dot) {
     $assert((string) $index === $dot->getAttribute('data-carousel-index') && 'bullet-active' === $dot->getAttribute('data-carousel-active-classes') && !str_contains($dot->getAttribute('class'), 'bullet-active'), 'bullet active class follows carousel selection');
 }
 
+// #6541: an empty control whose arrow the author paints as ::before content is
+// source artwork; the engine adds no glyph or disc chrome over it. A control
+// with child artwork keeps the engine chrome.
+$output = (new HtmlTransformer())->transform('<style>.prev{position:absolute;bottom:0;color:#123}.fas:before{font-family:sans-serif}.arrow-left:before{content:"\2190"}</style><div class="slider" id="pg" data-blocks-engine-capture-gallery data-blocks-engine-capture-gallery-source="#pg" data-blocks-engine-capture-gallery-index="0"><div class="track" data-blocks-engine-capture-gallery-stage data-blocks-engine-capture-gallery-initial="0">' . $slides . '</div><div class="prev fas arrow-left" role="button" tabindex="0" aria-label="Previous slide" data-blocks-engine-capture-gallery-direction="-1"></div><div class="next" role="button" tabindex="0" aria-label="Next slide" data-blocks-engine-capture-gallery-direction="1"><span>Next</span></div></div>')->toArray();
+$assert('pass' === ($output['source_reports']['wp_block_validity']['status'] ?? null), 'pseudo-painted control carousel serialization is editor-valid');
+$document = new DOMDocument();
+@$document->loadHTML((string) $output['serialized_blocks']);
+$xpath = new DOMXPath($document);
+$painted = $xpath->query('//button[@data-carousel-previous]')->item(0);
+$childArtwork = $xpath->query('//button[@data-carousel-next]')->item(0);
+$assert($painted instanceof DOMElement && $childArtwork instanceof DOMElement && str_contains($painted->getAttribute('class'), 'arrow-left'), 'pseudo-painted control keeps its source classes');
+$chrome = static function (DOMElement $button, string $css): array {
+    $hits = array();
+    preg_match_all('/([^{}]+)\{([^{}]*)\}/', $css, $rules, PREG_SET_ORDER);
+    foreach ($rules as [, $prelude, $body]) {
+        if (1 !== preg_match('/content:"\\\\2039"|rgba\(0,0,0,\.32\)|font-size:0(?:;|$)/', $body, $hit)) continue;
+        foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {
+            if (str_contains($selector, 'blocks-engine-authored-carousel__') && CssSelectorMatcher::matches($button, CssSelectorMatcher::parse(trim(str_replace('::before', '', $selector))))['matches']) $hits[] = $hit[0];
+        }
+    }
+    return $hits;
+};
+$carouselCss = (string) ($output['source_reports']['generated_blocks'][0]['assets']['style.css'] ?? '');
+$assert(array() === $chrome($painted, $carouselCss), 'a pseudo-painted control gets no engine glyph, disc background or font-size:0 chrome');
+$assert(array() !== $chrome($childArtwork, $carouselCss), 'a control with child artwork keeps the engine slideshow chrome');
+
 fwrite(STDOUT, "Authored carousel companion tests passed\n");
