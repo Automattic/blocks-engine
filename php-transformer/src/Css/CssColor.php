@@ -12,7 +12,10 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
  * `lab()`/`lch()` (Lightning CSS emits these after a hex fallback),
  * `color(srgb …)`/`color(srgb-linear …)` (browsers serialize computed colours
  * authored in those spaces this way), the CSS named colours, and
- * `transparent`. Any other notation (`color-mix()`,
+ * `transparent`. `light-dark(<light>, <dark>)` reads as its light argument:
+ * a WordPress theme renders the light scheme unless the visitor's preference
+ * selects another, so the light value is the colour a design token carries
+ * (lightDark() exposes both arguments). Any other notation (`color-mix()`,
  * `currentColor`, system colours, relative colour syntax) is null: it is
  * either not a design token or cannot be resolved without a rendering engine.
  *
@@ -65,6 +68,8 @@ final class CssColor
         $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
         if ('' === $value) return null;
         if ('transparent' === $value) return array(0.0, 0.0, 0.0, 0.0);
+        $schemes = self::lightDark($value);
+        if (null !== $schemes) return self::parse($schemes[0]);
         if (isset(self::NAMED[$value])) $value = '#' . self::NAMED[$value];
         if (1 === preg_match('/^#([0-9a-f]{3,8})$/', $value, $match)) {
             $hex = $match[1];
@@ -91,6 +96,20 @@ final class CssColor
         if (null === $color) return null;
         $color[] = $alpha;
         return $color;
+    }
+
+    /**
+     * The light and dark arguments of a `light-dark()` value, or null when the
+     * value is not exactly one well-formed `light-dark()` call.
+     *
+     * @return array{0:string,1:string}|null
+     */
+    public static function lightDark(string $value): ?array
+    {
+        $value = trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value));
+        if (1 !== preg_match('/^light-dark\((.*)\)$/is', $value, $match) || !CssValueSplitter::hasBalancedParens($match[1])) return null;
+        $arguments = CssValueSplitter::splitTopLevel($match[1], array(','));
+        return 2 === count($arguments) ? array($arguments[0], $arguments[1]) : null;
     }
 
     /**

@@ -32,12 +32,14 @@ use DOMElement;
  * - A unitless `line-height` scales with the element's font size: it is
  *   lifted when the observed line height differs between captures and
  *   equals that factor times the observed font size at every capture.
- * - A `display` keyword winner (`none`, reached directly or through
- *   `var()`) that equals the observed value at every capture and differs
- *   between captures is lifted, so a box the author hides below a breakpoint
- *   (a menu bar that becomes a hamburger) stops rendering at that
- *   breakpoint rather than at the narrower capture's width. Other keyword
- *   switches only move layout between captures and keep their pixels.
+ * - A `display` or `visibility` keyword winner (`none`, reached directly
+ *   or through `var()`) that equals the observed value at every capture and
+ *   differs between captures is lifted, so a box the author hides below a
+ *   breakpoint (a menu bar that becomes a hamburger, a device-only variant
+ *   of an assembled capture) stops rendering at that breakpoint rather than
+ *   at the narrower capture's width. A capture with no winner is explained
+ *   by the element's default `display` or an inherited `visibility`. Other
+ *   keyword switches only move layout between captures and keep their pixels.
  * - On a heading, an inherited property with no author winner whose observed
  *   value equals the parent's at every capture, and varies between captures,
  *   is lifted as `inherit`. That overrides the heading's user-agent default
@@ -131,6 +133,9 @@ final class BoxTreeFluidIntent
         'bottom' => array('auto', 'inset-block', 'inset-block-end'),
         'left' => array('auto', 'inset-inline', 'inset-inline-start'),
     );
+
+    /** Keyword properties the author switches by width, lifted per author band. */
+    private const KEYWORD_SWITCHES = array('display' => true, 'visibility' => true);
 
     private const GRID_TEMPLATES = array('grid-template-columns', 'grid-template-rows', 'grid-auto-columns', 'grid-auto-rows');
 
@@ -228,7 +233,7 @@ final class BoxTreeFluidIntent
         $lifted = array();
         foreach ($properties as $property) {
             $bands = $this->liftedAuthor($property, $widths, $samples, $observations, $viewports, $parents)
-                ?? ('display' === $property ? $this->liftedDisplay($widths, $samples, $observations) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
+                ?? (isset(self::KEYWORD_SWITCHES[$property]) ? $this->liftedKeyword($property, $widths, $samples, $observations, $parents) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
                 ?? $this->liftedIntrinsic($property, $widths, $samples)
                 ?? $this->liftedAutoMargin($property, $widths, $samples)
                 ?? $this->liftedMixed($property, $widths, $samples, $observations, $viewports, $parents)
@@ -458,27 +463,53 @@ final class BoxTreeFluidIntent
     }
 
     /**
-     * The author's `display` keyword, proven when it equals the observed
-     * display at every capture. One the captures agree on is already exact;
-     * one that switches between them switches at the author's breakpoint.
+     * The author's keyword for a property the author switches by width
+     * (`display`, `visibility`), proven when it explains the observed value
+     * at every capture. One the captures agree on is already exact; one that
+     * switches between them switches at the author's breakpoint.
+     *
+     * A capture with no author winner is explained by the value the author
+     * did not set: for `display` the element's own default, which does not
+     * depend on the width (every such capture must agree on it); for an
+     * inherited property `inherit`, when the observed value equals the
+     * parent's. A width between captures with no author winner takes the
+     * same value, so a switch declared only under a width query (an
+     * identity-subset sheet hiding one device's variant) lifts at its query.
      *
      * @param array<string, float> $widths
      * @param array<string, float> $samples
      * @return list<array{0: float|null, 1: string}>|null
      */
-    private function liftedDisplay(array $widths, array $samples, array $observations): ?array
+    private function liftedKeyword(string $property, array $widths, array $samples, array $observations, array $parents): ?array
     {
+        $inherited = in_array($property, BoxTree::INHERITED_PROPERTIES, true);
+        $absent = null;
         $proven = array();
         foreach ($widths as $key => $width) {
-            $value = strtolower((string) $this->declared('display', $width));
+            $observed = $observations[$key]['used_styles'][$property] ?? null;
+            if (!is_string($observed) || '' === $observed) return null;
+            $declared = $this->declared($property, $width);
+            if (null === $declared) {
+                if ($inherited) {
+                    if ($observed !== ($parents[$key]['used_styles'][$property] ?? null)) return null;
+                    $value = 'inherit';
+                } else {
+                    if (null !== $absent && $absent !== $observed) return null;
+                    $value = $absent = $observed;
+                }
+                $proven[$key] = $value;
+                continue;
+            }
+            $value = strtolower($declared);
             if (1 !== preg_match('/^[a-z][a-z-]*$/', $value) || in_array($value, array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) return null;
-            if ($value !== ($observations[$key]['used_styles']['display'] ?? null)) return null;
+            if ($value !== $observed) return null;
             $proven[$key] = $value;
         }
         if (count(array_unique($proven)) < 2) return null;
-        return $this->bands($widths, $samples, $proven, function (float $width): ?string {
-            $value = $this->declared('display', $width);
-            return null === $value || '' === $value ? null : strtolower($value);
+        return $this->bands($widths, $samples, $proven, function (float $width) use ($property, $inherited, $absent): ?string {
+            $value = $this->declared($property, $width);
+            if (null === $value) return $inherited ? 'inherit' : $absent;
+            return '' === $value ? null : strtolower($value);
         });
     }
 

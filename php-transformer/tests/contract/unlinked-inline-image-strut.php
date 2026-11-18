@@ -18,8 +18,10 @@ if (false === $figures || 2 !== $figures->length) {
 }
 $strutClass = 'blocks-engine-synthetic-image-figure-strut';
 $positionedClass = 'blocks-engine-synthetic-image-figure-inline';
+// Require the hidden guard inside :where(): it adds zero specificity, keeping
+// the original :root + class specificity (0,2,0), unlike bare :not([hidden]).
 if (!str_contains($figures->item(0)->getAttribute('class'), $strutClass)
-    || !str_contains($css, ':root .' . $strutClass . '{display:contents}')
+    || !str_contains($css, ':root .' . $strutClass . ':where(:not([hidden])){display:contents}')
     || !str_contains($css, '.' . $strutClass . ' img{display:inline}')
     || !str_contains($css, 'figure.wp-block-image:where(.' . $strutClass . ') img{vertical-align:baseline}')) {
     throw new RuntimeException('The unlinked inline image must keep its parent line box through a transparent strut figure on the source baseline.');
