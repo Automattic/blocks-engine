@@ -466,6 +466,18 @@ value in the user's Global Styles, and requires at least 80% of the text
 elements to change colour (`RESTYLE_MINIMUM`). It needs `RESTYLE_WP_CLI`,
 `RESTYLE_EVIDENCE_DIR` and `PLAYWRIGHT_MODULE`, and wipes the site's content.
 
+## Theme bootstrap units
+
+`functions.php` registers a hook only when the plan contains something it acts
+on: the navigation-submenu current-item pass needs a `core/navigation-submenu`,
+the template asset resolver needs a referenced asset token (the template-part
+renderer pass needs one in a template part), `body_class` needs a document
+body class and `template_include` needs body attributes beyond classes.
+`theme.bootstrap_units` lists every top-level hook registration in emitted
+order as `{hook, feature}`, naming the plan feature it serves (for example
+`navigation_submenus`, `template_assets`, `document_attributes`). Validation
+rebuilds the list with the bootstrap and rejects a mismatch.
+
 ## Reporting
 
 `reporting` is a compiler-output summary:
