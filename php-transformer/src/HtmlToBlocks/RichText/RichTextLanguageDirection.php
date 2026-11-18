@@ -41,6 +41,11 @@ final class RichTextLanguageDirection
         if ( 1 !== preg_match('/^[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*$/', $lang) ) {
             $lang = '';
         }
+        // A lang equal to the document's, which the element inherits unchanged,
+        // adds nothing. Exact tags only: `en` and `en-GB` differ.
+        if ( '' !== $lang && strtolower($lang) === strtolower(self::documentLanguage($sourceElement)) ) {
+            $lang = '';
+        }
         $dir = strtolower(trim(SourceDom::attr($sourceElement, 'dir')));
         if ( ! in_array($dir, array( 'ltr', 'rtl', 'auto' ), true) ) {
             $dir = '';
@@ -59,6 +64,23 @@ final class RichTextLanguageDirection
         $attrs['content'] = '<span' . HtmlSerialization::attributes(array( 'lang' => $lang, 'dir' => $dir )) . '>' . $content . '</span>';
 
         return $attrs;
+    }
+
+    /**
+     * The `<html lang>` the element inherits, or '' when an intermediate
+     * ancestor declares its own lang. Container blocks do not carry an
+     * ancestor's lang, so only the document's own is still inherited after
+     * conversion.
+     */
+    private static function documentLanguage(DOMElement $element): string
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( $ancestor->hasAttribute('lang') ) {
+                return 'html' === strtolower($ancestor->tagName) ? trim($ancestor->getAttribute('lang')) : '';
+            }
+        }
+
+        return '';
     }
 
     /** Whether every element in RichText content is an allowed inline tag. */
