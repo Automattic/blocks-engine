@@ -223,6 +223,16 @@ final class FormRuntimeRequirementAnalyzer
             return 'commerce_add_to_cart';
         }
         if ( $password ) return 'login';
+        // A form meeting the native search contract with an explicit submit is
+        // search whatever its method or self-posting action path: core/search
+        // replaces the source handler. A contribution submit is real donation
+        // evidence; amount choices already break the contract. A local result
+        // workflow stays a client-side tool.
+        $searchControls = SearchBlockConversionContext::searchControls($form);
+        if ( null !== $searchControls && $searchControls['submit'] instanceof DOMElement
+            && ! self::hasDonationSubmitSemantics($searchControls['submit']) && ! self::isClientSideTool($form) ) {
+            return 'search';
+        }
         // A contribution submit (donate / give / contribute) or donation action
         // path outranks the GET filter rule: amount and frequency choices are
         // what the visitor gives, not a catalog filter.

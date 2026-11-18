@@ -41,4 +41,13 @@ foreach ($result['assets'] as $asset) {
 }
 if (! $found) throw new RuntimeException('Missing projected image width bridge');
 if (! $figureWidthPreserved) throw new RuntimeException('The figure must retain the authored percentage width');
+// A resting class percentage already sizes the figure the class moved to.
+// The leaf must fill it, not restate the percentage as a native width.
+$resting = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array('index.html' => '<style>.stack{position:relative;width:400px}.over{position:absolute;width:78%}</style><div class="stack"><img class="over" src="b.png" width="700" height="797" alt="B"></div>'),
+))->toArray()['serialized_blocks'];
+if (! preg_match('/<figure class="wp-block-image[^"]*\bover\b/', $resting) || preg_match('/"width":"78%"|width:\s*78%/', $resting)) {
+    throw new RuntimeException('A figure-owned percentage width must apply once: ' . $resting);
+}
 echo "Percentage image width bridge passed\n";

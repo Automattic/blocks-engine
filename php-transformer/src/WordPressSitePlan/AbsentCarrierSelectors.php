@@ -60,28 +60,38 @@ final class AbsentCarrierSelectors
         if (array() === $absent) return $assets;
         $pattern = '/(?<!\\\\)\.(?:' . implode('|', $absent) . ')(?![\w\\\\-])/';
         foreach ($assets as &$asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference']) || 1 !== preg_match($pattern, $asset['content'])) continue;
-            $content = (new CssStylesheetTransformer())->transformStyleRules(
-                $asset['content'],
-                static function (string $prelude, string $body) use ($pattern): string {
-                    if (1 !== preg_match($pattern, $prelude)) return $prelude . '{' . $body . '}';
-                    $arms = CssStylesheetTransformer::splitSelectorList($prelude);
-                    if (null === $arms) return $prelude . '{' . $body . '}';
-                    $kept = array();
-                    foreach ($arms as $arm) {
-                        $live = self::live(trim($arm), $pattern);
-                        if (null !== $live) $kept[] = $live;
-                    }
-                    if (array() === $kept) return '';
-                    $selector = implode(',', $kept);
-                    return ($selector === implode(',', array_map('trim', $arms)) ? $prelude : $selector) . '{' . $body . '}';
-                }
-            );
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
+            $content = self::withoutArmsRequiring($asset['content'], $pattern);
             if ($content === $asset['content']) continue;
             $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
         }
         unset($asset);
         return $assets;
+    }
+
+    /**
+     * The stylesheet without selector arms that require a class `$pattern`
+     * matches (see {@see live()}); a rule left with no arm is dropped.
+     */
+    public static function withoutArmsRequiring(string $css, string $pattern): string
+    {
+        if (1 !== preg_match($pattern, $css)) return $css;
+        return (new CssStylesheetTransformer())->transformStyleRules(
+            $css,
+            static function (string $prelude, string $body) use ($pattern): string {
+                if (1 !== preg_match($pattern, $prelude)) return $prelude . '{' . $body . '}';
+                $arms = CssStylesheetTransformer::splitSelectorList($prelude);
+                if (null === $arms) return $prelude . '{' . $body . '}';
+                $kept = array();
+                foreach ($arms as $arm) {
+                    $live = self::live(trim($arm), $pattern);
+                    if (null !== $live) $kept[] = $live;
+                }
+                if (array() === $kept) return '';
+                $selector = implode(',', $kept);
+                return ($selector === implode(',', array_map('trim', $arms)) ? $prelude : $selector) . '{' . $body . '}';
+            }
+        );
     }
 
     /**
