@@ -108,11 +108,13 @@ final class NavigationStyleProjector
         // the RichText root, and a boxless element cannot take focus: putting
         // the caret in it to replace its text (a `<time>` date line) left focus
         // outside, and the typed text never reached the block (issue #5797).
-        // Give the carrier an inline box only while it is being edited: at
-        // rest the canvas keeps the front end's boxless layout, and the front
-        // end never matches this editor-only rule.
+        // Give every editable carrier an inline box before focus is attempted.
+        // Waiting for :focus or .is-selected is circular for direct RichText
+        // editing: display:contents cannot receive the initial focus, so input
+        // can change the DOM without reaching the editor's saved block state.
+        // The front end never matches this editor-only rule.
         if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
-            $rules[] = ':root .editor-styles-wrapper p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '[contenteditable="true"]:is(.is-selected,:focus){display:inline}';
+            $rules[] = ':root .editor-styles-wrapper p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '[contenteditable="true"]{display:inline}';
         }
         foreach ( self::focusedEmptyRichTextRepairRules($projectedAuthorCss) as $repairRule ) {
             $rules[] = $repairRule;

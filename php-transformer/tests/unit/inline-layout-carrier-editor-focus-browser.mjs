@@ -28,15 +28,21 @@ try {
     await page.setContent(`<style>${frontEndCss}</style>${result.serialized_blocks}`);
     assert.equal(await display(), 'contents', 'the front-end carrier keeps the source layout');
 
-    // Editor: mirror core's RichText, which makes the paragraph contenteditable
-    // and marks it `is-selected` once the caret is placed in it.
+    // Editor: mirror core's RichText before selection, with the paragraph
+    // itself as the contenteditable root.
     await page.setContent(`<style>${editorCss}</style><div class="editor-styles-wrapper">${result.serialized_blocks}</div>`);
     await carrier.evaluate(node => node.setAttribute('contenteditable', 'true'));
-    assert.equal(await display(), 'contents', 'an unselected carrier keeps the front-end layout in the canvas');
-    await carrier.evaluate(node => node.classList.add('is-selected'));
-    await carrier.evaluate(node => node.focus());
-    assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'P', 'the selected carrier takes focus');
+    assert.equal(await display(), 'inline', 'an unselected editable carrier has a focusable box');
+    // Direct replacement must work without first manufacturing Gutenberg's
+    // selection class: the initial focus is what delivers input to RichText.
+    await carrier.evaluate(node => {
+        node.addEventListener('input', () => {
+            if (node.ownerDocument.activeElement === node) node.dataset.savedContent = node.textContent;
+        });
+    });
     await carrier.fill('Import loop edit');
+    assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'P', 'direct replacement focuses the unselected carrier');
+    assert.equal(await carrier.getAttribute('data-saved-content'), 'Import loop edit', 'focused input reaches the editor state listener');
     assert.equal(await carrier.textContent(), 'Import loop edit', 'typed text lands in the carrier');
     console.log('inline layout carrier editor focus browser passed');
 } finally {
