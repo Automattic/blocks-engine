@@ -66,8 +66,15 @@ final class AuthoredCarouselBlockGenerator
      * around the carousel, and nothing under them could be selected. Each
      * slide keeps the captured stage height and contains its own positioned
      * content.
+     *
+     * The editor host is wrapped in a scope that carries the root's source
+     * presentation classes, so source descendant selectors (a slideshow's
+     * caption colour under its gallery class) style the slides as the saved
+     * root does. The scope generates no box: those classes' root paint and
+     * geometry belong to the frontend root, not the editor list.
      */
-    private const SLIDESHOW_EDITOR_STYLE = '.blocks-engine-authored-carousel-editor--slideshow{position:relative;isolation:isolate}'
+    private const SLIDESHOW_EDITOR_STYLE = '.blocks-engine-authored-carousel-editor__source-scope{display:contents!important}'
+        . '.blocks-engine-authored-carousel-editor--slideshow{position:relative;isolation:isolate}'
         . '.blocks-engine-authored-carousel-editor--slideshow>.block-editor-inner-blocks>.block-editor-block-list__layout>.wp-block{position:relative!important;inset:auto!important;z-index:auto!important;transform:none!important;opacity:1!important;visibility:visible!important;height:var(--blocks-engine-carousel-height,auto)!important;overflow:hidden;contain:paint}';
     private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right', 'position');
     private const SLIDE_INDEX_ATTRIBUTES = array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item');
@@ -212,6 +219,13 @@ final class AuthoredCarouselBlockGenerator
         Object.keys( attributes.sourceRootGeometry || {} ).forEach( function( name ) { var value = attributes.sourceRootGeometry[ name ]; if ( -1 === rootGeometryProperties.indexOf( name ) || 'string' !== typeof value || ! geometryValuePattern.test( value.trim() ) ) return; var key = name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); props.style[ key ] = value.trim(); } );
         return props;
     }
+    // The saved root carries the source presentation classes; the editor
+    // host must sit under them too or source descendant rules miss its slides.
+    function editorSourceScope( attributes, child ) {
+        var classes = 'string' === typeof attributes.sourcePresentationClasses ? attributes.sourcePresentationClasses.trim() : '';
+        if ( ! classes ) return child;
+        return createElement( 'div', { className: 'blocks-engine-authored-carousel-editor__source-scope ' + classes, style: { display: 'contents' } }, child );
+    }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
         supports: { html: false, customClassName: false },
@@ -267,7 +281,7 @@ final class AuthoredCarouselBlockGenerator
                         )
                         : null
                 ),
-                createElement( 'div', { className: 'blocks-engine-authored-carousel-editor' + ( 'slideshow' === props.attributes.presentation ? ' blocks-engine-authored-carousel-editor--slideshow' : '' ), style: 'slideshow' === props.attributes.presentation && props.attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( props.attributes.viewportHeight ) + 'px' } : undefined }, createElement( 'strong', null, props.attributes.ariaLabel || 'Carousel' ), createElement( InnerBlocks, { allowedBlocks: [ 'core/image', 'core/group' ], renderAppender: InnerBlocks.ButtonBlockAppender } ) )
+                editorSourceScope( props.attributes, createElement( 'div', { className: 'blocks-engine-authored-carousel-editor' + ( 'slideshow' === props.attributes.presentation ? ' blocks-engine-authored-carousel-editor--slideshow' : '' ), style: 'slideshow' === props.attributes.presentation && props.attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( props.attributes.viewportHeight ) + 'px' } : undefined }, createElement( 'strong', null, props.attributes.ariaLabel || 'Carousel' ), createElement( InnerBlocks, { allowedBlocks: [ 'core/image', 'core/group' ], renderAppender: InnerBlocks.ButtonBlockAppender } ) ) )
             );
         },
         save: function( props ) {
@@ -420,7 +434,7 @@ const syncDots = ( root, context ) => {
         const active = index === context.index;
         const item = control.parentElement?.matches( '.blocks-engine-authored-carousel__dots > li' ) ? control.parentElement : control;
         item.hidden = index > maximumIndex( context );
-        ( item.dataset.carouselActiveClasses || '' ).split( /\s+/ ).filter( Boolean ).forEach( ( name ) => item.classList.toggle( name, active ) );
+        ( item === control ? [ item ] : [ item, control ] ).forEach( ( node ) => ( node.dataset.carouselActiveClasses || '' ).split( /\s+/ ).filter( Boolean ).forEach( ( name ) => node.classList.toggle( name, active ) ) );
         control.classList.toggle( 'blocks-engine-authored-carousel__dot--active', active );
         control.setAttribute( 'aria-current', active ? 'true' : 'false' );
     } );
@@ -1896,6 +1910,56 @@ JS;
         )));
     }
 
+    /**
+     * A rebuilt element's source classes plus the projection markers the
+     * engine allocated for its source path, the identity any other emitted
+     * source element carries, so scoped author rules projected onto those
+     * markers still bind.
+     *
+     * @return list<string>
+     */
+    private function sourceIdentityTokens(DOMElement $element, StyleResolver $styleResolver): array
+    {
+        return array_values(array_unique(array_merge(
+            $this->sourceClassTokens(SourceDom::attr($element, 'class'), $element, $styleResolver),
+            array_filter($styleResolver->richTextSourceMarkers($element), static fn (string $marker): bool => '' !== $marker)
+        )));
+    }
+
+    /**
+     * Identities for sibling pagination items rebuilt as carousel dots. Each
+     * keeps its source identity, but markers only a source-selected item owns
+     * (its selected-state projection) follow carousel selection instead: they
+     * are returned as toggled markers, and the source-selected item statically
+     * carries the identity of an unselected sibling.
+     *
+     * @param list<DOMElement> $elements
+     * @param list<bool> $sourceActive
+     * @return array{0: list<list<string>>, 1: list<string>}
+     */
+    private function paginationIdentities(array $elements, array $sourceActive, StyleResolver $styleResolver): array
+    {
+        $identities = array_map(fn (DOMElement $element): array => $this->sourceIdentityTokens($element, $styleResolver), $elements);
+        $inactive = array_keys(array_filter($sourceActive, static fn (bool $active): bool => !$active));
+        if (array() === $inactive || count($inactive) === count($elements)) {
+            return array($identities, array());
+        }
+        $shared = array_merge(...array_map(static fn (int $index): array => $identities[$index], $inactive));
+        $activeOnly = array();
+        foreach ($sourceActive as $index => $active) {
+            if ($active) {
+                $activeOnly = array_merge($activeOnly, array_diff($identities[$index], $shared));
+            }
+        }
+        $activeOnly = array_values(array_unique($activeOnly));
+        foreach ($sourceActive as $index => $active) {
+            if ($active) {
+                $identities[$index] = array_values(array_unique(array_merge(array_diff($identities[$index], $activeOnly), $identities[$inactive[0]])));
+            }
+        }
+        return array($identities, $activeOnly);
+    }
+
     private function safeInlineStyle(string $style): string
     {
         $safe = array();
@@ -2131,17 +2195,19 @@ JS;
             return '';
         }
         $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $markup = '<' . strtolower($list->tagName) . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceClassTokens(SourceDom::attr($list, 'class'), $list, $styleResolver))) . '" role="group" aria-label="Choose slide">';
-        foreach ($controls as $control) {
-            if ($control->parentNode !== $list) {
-                continue;
-            }
+        $markup = '<' . strtolower($list->tagName) . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceIdentityTokens($list, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        $controls = array_values(array_filter($controls, static fn (DOMElement $control): bool => $control->parentNode === $list));
+        $activeClasses = array_map(static fn (DOMElement $control): array => $styleResolver->paginationActiveClasses($control), $controls);
+        $sourceActive = array_map(static fn (DOMElement $control, array $classes): bool => array() !== array_intersect(SourceDom::tokens(SourceDom::attr($control, 'class')), $classes), $controls, $activeClasses);
+        [$itemIdentities, $itemActiveMarkers] = $this->paginationIdentities($controls, $sourceActive, $styleResolver);
+        $visuals = array_map(static fn (DOMElement $control): ?DOMElement => $control->firstElementChild, $controls);
+        [$visualIdentities, $visualActiveMarkers] = in_array(null, $visuals, true) ? array(array_fill(0, count($controls), array()), array()) : $this->paginationIdentities($visuals, $sourceActive, $styleResolver);
+        foreach ($controls as $position => $control) {
             $index = $this->slideIndex($control);
-            $visual = $control->firstElementChild;
-            $classes = $visual instanceof DOMElement ? $this->sourceClassTokens(SourceDom::attr($visual, 'class'), $visual, $styleResolver) : array();
-            $activeClasses = $styleResolver->paginationActiveClasses($control);
-            $itemClasses = array_diff($this->sourceClassTokens(SourceDom::attr($control, 'class'), $control, $styleResolver), $activeClasses);
-            $markup .= '<li data-carousel-active-classes="' . $escape(implode(' ', $activeClasses)) . '" class="' . $escape(implode(' ', $itemClasses)) . '"><button type="button" class="blocks-engine-authored-carousel__dot ' . $escape(implode(' ', $classes)) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></button></li>';
+            $itemClasses = array_diff($itemIdentities[$position], $activeClasses[$position]);
+            $markup .= '<li data-carousel-active-classes="' . $escape(implode(' ', array_unique(array_merge($activeClasses[$position], $itemActiveMarkers)))) . '" class="' . $escape(implode(' ', $itemClasses)) . '"><button type="button"'
+                . (array() === $visualActiveMarkers ? '' : ' data-carousel-active-classes="' . $escape(implode(' ', $visualActiveMarkers)) . '"')
+                . ' class="blocks-engine-authored-carousel__dot ' . $escape(implode(' ', $visualIdentities[$position])) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></button></li>';
         }
         return $markup . '</' . strtolower($list->tagName) . '>';
     }
@@ -2196,13 +2262,15 @@ JS;
         }
         $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $tag = in_array(strtolower($container->tagName), array('div', 'nav', 'span', 'p'), true) ? strtolower($container->tagName) : 'div';
-        $markup = '<' . $tag . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceClassTokens(SourceDom::attr($container, 'class'), $container, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        $markup = '<' . $tag . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceIdentityTokens($container, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        $activeClasses = array_map(static fn (DOMElement $bullet): array => $styleResolver->paginationActiveClasses($bullet), $bullets);
+        $sourceActive = array_map(static fn (DOMElement $bullet, array $classes): bool => array() !== array_intersect(SourceDom::tokens(SourceDom::attr($bullet, 'class')), $classes), $bullets, $activeClasses);
+        [$identities, $activeMarkers] = $this->paginationIdentities($bullets, $sourceActive, $styleResolver);
         foreach ($bullets as $index => $bullet) {
             $button = 'button' === strtolower($bullet->tagName);
-            $activeClasses = $styleResolver->paginationActiveClasses($bullet);
-            $classes = array_diff($this->sourceClassTokens(SourceDom::attr($bullet, 'class'), $bullet, $styleResolver), $activeClasses);
+            $classes = array_diff($identities[$index], $activeClasses[$index]);
             $markup .= ($button ? '<button type="button"' : '<span role="button" tabindex="0"')
-                . ' data-carousel-active-classes="' . $escape(implode(' ', $activeClasses)) . '" class="' . $escape(trim('blocks-engine-authored-carousel__dot ' . implode(' ', $classes))) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></' . ($button ? 'button' : 'span') . '>';
+                . ' data-carousel-active-classes="' . $escape(implode(' ', array_unique(array_merge($activeClasses[$index], $activeMarkers)))) . '" class="' . $escape(trim('blocks-engine-authored-carousel__dot ' . implode(' ', $classes))) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></' . ($button ? 'button' : 'span') . '>';
         }
         return $markup . '</' . $tag . '>';
     }
