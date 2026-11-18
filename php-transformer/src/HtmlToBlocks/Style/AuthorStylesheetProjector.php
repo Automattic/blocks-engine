@@ -2614,10 +2614,7 @@ final class AuthorStylesheetProjector
         }
 
         // A universal subject matches the image itself, exactly like `img`.
-        return in_array(strtolower((string) ($subject['type'] ?? '*')), array( 'img', 'svg', '*' ), true)
-            && array() === ($subject['classes'] ?? array())
-            && array() === ($subject['ids'] ?? array())
-            && array() === ($subject['attributes'] ?? array());
+        return CssSelectorCompoundInspector::isBareImageSubject($subject);
     }
 
     /** @param array<string, string> $declarations */

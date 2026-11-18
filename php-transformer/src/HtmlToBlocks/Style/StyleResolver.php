@@ -5872,6 +5872,7 @@ final class StyleResolver implements ElementPresentationResolver
                 'value' => $rule['value'],
                 'important' => CssValueInspector::isImportant($rule['value']),
                 'specificity' => $this->cascade->specificity($rule['selector']), 'order' => $rule['order'], 'inline' => false, 'layer' => $rule['layer'] ?? null, 'conditions' => $rule['conditions'],
+                'selector' => $rule['selector'],
             ));
         }
         foreach ($this->imageShapeDeclarationEntries(SourceDom::attr($element, 'style')) as $order => $entry) {
