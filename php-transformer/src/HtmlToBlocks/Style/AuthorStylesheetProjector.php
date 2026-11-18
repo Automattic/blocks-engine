@@ -1949,6 +1949,12 @@ final class AuthorStylesheetProjector
 
     private static function canMatchSyntheticImageFigure(string $selector): bool
     {
+        // A pseudo-element subject is generated content, never the wrapper
+        // element; a pseudo-class after it is invalid outside user-action
+        // states and would void the whole selector list in some engines.
+        if ( 1 === preg_match('/(?:::[\w-]+(?:\([^()]*\))?|:(?:before|after|first-line|first-letter))\s*$/i', $selector) ) {
+            return false;
+        }
         $compounds = CssSelectorMatcher::parse($selector)['compounds'] ?? array();
         $subject = end($compounds);
         if ( ! is_array($subject) ) {
