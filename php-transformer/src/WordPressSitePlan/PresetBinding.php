@@ -848,6 +848,15 @@ final class PresetBinding
             $literal = $style->color->{$key} ?? null;
             if ($buttonLook && null === $literal && $this->matchesButtonElement($property, (string) ($observed[$observedProperty] ?? ''))) continue;
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
+            $blockSlug = is_string($literal) ? $this->system->blockColorSlug($this->resolve($literal)) : null;
+            if (null !== $blockSlug) {
+                // A block-only token names this literal where it stands: the
+                // inline declaration keeps its cascade slot, so state, media
+                // and class rules resolve exactly as before.
+                if ($this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $blockSlug, $d->declarations, $property, $literal)) ++$d->bound;
+                else $this->refuse($reason ?? 'inconsistent_source');
+                continue;
+            }
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $added = array($flagClass, sprintf($presetClass, '%s'));
             $observation = $observed[$observedProperty] ?? null;
