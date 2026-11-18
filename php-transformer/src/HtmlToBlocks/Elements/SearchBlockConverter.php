@@ -35,46 +35,12 @@ final class SearchBlockConverter implements ElementConverter
     /** @return array<string, mixed>|null */
     public function searchBlockFromForm(DOMElement $form): ?array
     {
-        $method = strtolower(trim(SourceDom::attr($form, 'method')));
-        if ( '' !== $method && 'get' !== $method ) {
+        $searchControls = SearchBlockConversionContext::searchControls($form);
+        if ( null === $searchControls ) {
             return null;
         }
-
-        if ( 0 < $form->getElementsByTagName('script')->length || array() !== SourceDom::eventMetadata($form) ) {
-            return null;
-        }
-
-        $textInput = null;
-        $submitControl = null;
-        foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( array() !== SourceDom::eventMetadata($control) ) {
-                return null;
-            }
-
-            $tagName = strtolower($control->tagName);
-            $type = FormControlClassifier::controlType($control);
-            if ( 'input' === $tagName && in_array($type, array( 'text', 'search' ), true) ) {
-                if ( null !== $textInput ) {
-                    return null;
-                }
-                $textInput = $control;
-                continue;
-            }
-
-            if ( ( 'button' === $tagName || 'input' === $tagName ) && 'submit' === $type ) {
-                if ( null !== $submitControl ) {
-                    return null;
-                }
-                $submitControl = $control;
-                continue;
-            }
-
-            return null;
-        }
-
-        if ( ! $textInput instanceof DOMElement || ! $this->context->hasSearchFormSignal($form, $textInput) ) {
-            return null;
-        }
+        $textInput = $searchControls['input'];
+        $submitControl = $searchControls['submit'];
 
         // An empty sibling whose only paint is a background image is the
         // form's visible submit affordance; text-bearing or unpainted
@@ -455,7 +421,7 @@ final class SearchBlockConverter implements ElementConverter
         $forms = 'form' === strtolower($element->tagName)
             ? array( $element )
             : iterator_to_array($element->getElementsByTagName('form'));
-        return 1 === count($forms) && $forms[0] instanceof DOMElement && $this->isNativeSearchForm($forms[0]);
+        return 1 === count($forms) && $forms[0] instanceof DOMElement && null !== SearchBlockConversionContext::searchControls($forms[0]);
     }
 
     private function isSearchCloseControl(DOMElement $control): bool
@@ -469,47 +435,9 @@ final class SearchBlockConverter implements ElementConverter
         return str_contains($haystack, 'search') && str_contains($haystack, 'close');
     }
 
-    private function isNativeSearchForm(DOMElement $form): bool
-    {
-        $method = strtolower(trim(SourceDom::attr($form, 'method')));
-        if ( '' !== $method && 'get' !== $method ) {
-            return false;
-        }
-        if ( 0 < $form->getElementsByTagName('script')->length || array() !== SourceDom::eventMetadata($form) ) {
-            return false;
-        }
-
-        $textInput = null;
-        $submitControl = null;
-        foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( array() !== SourceDom::eventMetadata($control) ) {
-                return false;
-            }
-            $tagName = strtolower($control->tagName);
-            $type = FormControlClassifier::controlType($control);
-            if ( 'input' === $tagName && in_array($type, array( 'text', 'search' ), true) ) {
-                if ( null !== $textInput ) {
-                    return false;
-                }
-                $textInput = $control;
-                continue;
-            }
-            if ( ( 'button' === $tagName || 'input' === $tagName ) && 'submit' === $type ) {
-                if ( null !== $submitControl ) {
-                    return false;
-                }
-                $submitControl = $control;
-                continue;
-            }
-            return false;
-        }
-
-        return $textInput instanceof DOMElement && $this->context->hasSearchFormSignal($form, $textInput);
-    }
-
     private function isIconOnlySearchControl(DOMElement $control): bool
     {
-        if ( ! $this->context->hasSearchIconSignal($control) ) {
+        if ( ! SearchBlockConversionContext::hasSearchIconSignal($control) ) {
             return false;
         }
 

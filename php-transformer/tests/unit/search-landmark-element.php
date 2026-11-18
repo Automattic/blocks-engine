@@ -137,6 +137,22 @@ $toggle = $transform('<main><h1>Catalog</h1><search class="toolbar"><button type
 $assert(array() === $unsupported($toggle), 'a <search> wrapping a button records no unsupported element; got: ' . json_encode(array_column($unsupported($toggle), 'tag')));
 $assert(1 === count($blocksNamed($toggle, 'core/button')), 'the button inside <search> is preserved as a native core/button');
 $assert(1 === count($searchGroups($toggle)), 'the classed <search> wrapper is kept as a search landmark group');
+// A self-posting search form lowers to core/search whatever its method or
+// action: core/search replaces the source handler and its hidden tokens.
+$postSearchHtml = (string) file_get_contents(dirname(__DIR__) . '/fixtures/post-search-form.html');
+foreach ( array( '/giving', '/' ) as $action ) {
+    $postSearch = $transform(str_replace('action="/giving"', 'action="' . $action . '"', $postSearchHtml));
+    $postSearchBlocks = $blocksNamed($postSearch, 'core/search');
+    $assert(1 === count($postSearchBlocks), "POST search form at {$action} becomes core/search");
+    $assert('Search' === ($postSearchBlocks[0]['attrs']['buttonText'] ?? ''), "POST search form at {$action} keeps its submit caption");
+    $assert(array() === $blocksNamed($postSearch, 'jetpack/contact-form') && array() === $blocksNamed($postSearch, 'core/html'), "POST search form at {$action} is neither a contact form nor raw HTML");
+}
+$postContact = $transform('<form action="/" method="post"><input type="text" name="name"><input type="email" name="email"><textarea name="message"></textarea><button type="submit">Send</button></form>');
+$assert(array() === $blocksNamed($postContact, 'core/search'), 'a POST contact form does not become core/search');
+$postDonation = $transform('<form action="/giving" method="post"><label><input type="radio" name="amount" value="25"> $25</label><label><input type="radio" name="amount" value="50"> $50</label><button type="submit">Donate</button></form>');
+$assert(array() === $blocksNamed($postDonation, 'core/search'), 'a POST donation form does not become core/search');
+$postWithoutSubmit = $transform('<form action="/" method="post" id="search-block-form"><input type="text" name="search_block_form"></form>');
+$assert(array() === $blocksNamed($postWithoutSubmit, 'core/search'), 'a POST search form without a submit keeps the source handler');
 
 // Arbitrary flow content inside <search> survives as native blocks.
 $flow = $transform('<main><search><h2>Search the archive</h2><p>Type a keyword.</p></search></main>');
@@ -145,7 +161,7 @@ $assert(array() === $unsupported($flow), 'a <search> wrapping flow content recor
 $assert(str_contains($flowText, 'Search the archive') && str_contains($flowText, 'Type a keyword.'), 'the flow content inside <search> survives; got: ' . $flowText);
 $assert(1 === count($searchGroups($flow)), 'a multi-child <search> is kept as a search landmark group');
 
-foreach ( array( 'form' => $form, 'toggle' => $toggle, 'flow' => $flow ) as $label => $result ) {
+foreach ( array( 'form' => $form, 'toggle' => $toggle, 'flow' => $flow, 'post search' => $postSearch ) as $label => $result ) {
     $validity = ( new BlockValidityValidator() )->validateBlocks($result['blocks'] ?? array());
     $assert('pass' === ($validity['status'] ?? ''), "the {$label} case produces Gutenberg-valid blocks");
 }
