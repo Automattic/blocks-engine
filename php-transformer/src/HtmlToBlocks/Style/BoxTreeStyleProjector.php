@@ -90,6 +90,7 @@ final class BoxTreeStyleProjector
         foreach ($bands as $maxWidth => $declared) {
             $css .= '@media (max-width:' . $maxWidth . 'px){' . $this->rule(self::SELECTOR, $declared) . '}';
         }
+        if ('core/button' === $blockName) $css .= $this->buttonLinkFormattingRules($keys, $declarations, $status, $observations, $viewports);
         if ('' === $css) return $attrs;
         // One carrier per distinct declaration set, not per source node.
         $class = $state->allocateCarrier('box-tree:' . $css);
@@ -118,6 +119,51 @@ final class BoxTreeStyleProjector
         }
         return $delta;
     }
+
+    /**
+     * core/button saves the source control as a `.wp-block-button` wrapper
+     * around the `.wp-block-button__link` that holds the label, so the
+     * carrier lands one box outside the element whose children the source
+     * laid out. A source flex or grid control blockifies its children (a logo
+     * mark beside a wordmark is two boxes, not one run of inline text); left
+     * as core's inline-block, the link would flow them as one line of text.
+     * The link restates the observed formatting context for its children.
+     * Only a control that is a flex or grid container at every viewport it
+     * renders at qualifies: core's link display is the fallback otherwise.
+     *
+     * @param list<string> $keys Viewport keys, widest first.
+     * @param array<string, array<string, string>> $declarations Kept declarations by viewport.
+     * @param array<string, array<string, string>> $status Pruner status by viewport.
+     */
+    private function buttonLinkFormattingRules(array $keys, array $declarations, array $status, array $observations, array $viewports): string
+    {
+        $rendered = array_values(array_filter($keys, static fn(string $key): bool => 'none' !== ($observations[$key]['used_styles']['display'] ?? null)));
+        if (array() === $rendered) return '';
+        $link = array();
+        foreach ($rendered as $key) {
+            if (!in_array($declarations[$key]['display'] ?? null, self::FORMATTING_CONTAINER_DISPLAYS, true)) return '';
+            $link[$key] = array_intersect_key($declarations[$key], array_flip(self::FORMATTING_CONTAINER_PROPERTIES));
+        }
+        $selector = self::SELECTOR . '>.wp-block-button__link';
+        $effective = $link[$rendered[0]];
+        $css = $this->rule($selector, $effective);
+        foreach (array_slice($rendered, 1) as $key) {
+            $observed = array_intersect_key($observations[$key]['used_styles'], array_flip(self::FORMATTING_CONTAINER_PROPERTIES));
+            $delta = $this->delta($effective, $link[$key], $status[$key], $observed);
+            $effective = array_replace($effective, $delta);
+            if (array() === $delta) continue;
+            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule($selector, $delta) . '}';
+        }
+        return $css;
+    }
+
+    private const FORMATTING_CONTAINER_DISPLAYS = array('flex', 'inline-flex', 'grid', 'inline-grid');
+
+    /** Longhands that shape how a flex or grid container lays out its children. */
+    private const FORMATTING_CONTAINER_PROPERTIES = array(
+        'display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-content', 'justify-items', 'row-gap', 'column-gap',
+        'grid-template-columns', 'grid-template-rows', 'grid-auto-columns', 'grid-auto-rows', 'grid-auto-flow',
+    );
 
     private static function width(float $width): string
     {
