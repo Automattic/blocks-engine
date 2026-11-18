@@ -15,7 +15,7 @@ use DOMElement;
  * the nearest frozen capture.
  *
  * - A resting cascade winner that is a fluid expression (viewport units,
- *   `%`, `em`, CSS math, `var()`), reached directly or through the `font`,
+ *   `%`, `em`, CSS math, `var()`) or a pixel length, reached directly or through the `font`,
  *   `margin` or `padding` shorthand, is lifted when it evaluates to the
  *   observed used value (±0.5px) at every capture. Every `var()` is expanded
  *   at the element's scope and width, so the carrier references no custom
@@ -77,7 +77,8 @@ use DOMElement;
  * margin the author declared at every capture is restated as `auto`.
  *
  * Where the author's cascade switches between captures (a width query that
- * redefines a scaling token), the lift is a set of bands keyed by the
+ * redefines a scaling token, or sets another pixel length such as an image
+ * height under a breakpoint), the lift is a set of bands keyed by the
  * author's own breakpoint, not the capture width. Each band must contain a
  * capture that proves its value; otherwise the property keeps its pixels. A
  * flexible grid track list is exempt: it is exact by construction in every

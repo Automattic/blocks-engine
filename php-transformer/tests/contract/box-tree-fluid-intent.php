@@ -120,6 +120,16 @@ $cases = array(
     'an undefined custom property stays in pixels' => array(
         'h1{font-size:calc(var(--missing) * 2)}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:75px', 'font-size:20.9px'), array('var(--missing)'),
     ),
+    // #6580: a pixel length the author switches at its own breakpoint is
+    // banded there, so widths between the captures follow the author.
+    'a pixel length switched at an author breakpoint is banded there' => array(
+        'h1{margin-top:40px}@media (max-width:900px){h1{margin-top:20px}}', array('n6.margin-top' => array('40px', '20px')),
+        array('margin-top:40px', '@media (max-width:900px){.be-inline-geometry-', 'margin-top:20px'), array('@media (max-width:402px)'),
+    ),
+    'a pixel length no capture reproduces stays in capture bands' => array(
+        'h1{margin-top:40px}', array('n6.margin-top' => array('40px', '20px')),
+        array('margin-top:40px', '@media (max-width:402px)', 'margin-top:20px'), array('@media (max-width:900px)'),
+    ),
     'a later pixel winner stays in pixels' => array(
         'h1{font-size:5.2vw}h1{font-size:30px}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:75px'), array('5.2vw'),
     ),
