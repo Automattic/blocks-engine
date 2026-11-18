@@ -24,10 +24,24 @@ final class BoxTreeStyleProjector
      *        first, each [max-width (null for the base rule), value] ({@see BoxTreeFluidIntent::lift()}).
      * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid The same, for the
      *        `before` and `after` pseudo-elements, by name ({@see BoxTreeFluidIntent::liftPseudo()}).
+     * @param string $sourceTag The observed source element's tag name.
+     * @param array{observations?: array<string, array<string, mixed>>, parents?: array<string, array<string, mixed>>, fluid?: array<string, list<array{0: float|null, 1: string}>>} $image
+     *        The painting `<img>` inside an authored core/image `<figure>`: its observations, its parent's, and its lifted author values.
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array()): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array()): array
     {
-        if (array() === $observations) return $attrs;
+        if ('core/image' === $blockName && 'img' === strtolower($sourceTag)) {
+            return array() === $observations ? $attrs : $this->projectImage($attrs, $observations, $viewports, $state, $parents, $fluid, true);
+        }
+        if (array() !== $observations) $attrs = $this->projectBox($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid);
+        $imageObservations = $image['observations'] ?? array();
+        if ('core/image' !== $blockName || array() === $imageObservations) return $attrs;
+        return $this->projectImage($attrs, $imageObservations, $viewports, $state, $image['parents'] ?? array(), $image['fluid'] ?? array(), false);
+    }
+
+    /** One carrier for the block's own box, from its source element's observations. */
+    private function projectBox(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $blockName, array $fluid, array $pseudoFluid = array()): array
+    {
         $keys = array_keys($observations);
         usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
         $status = array();
@@ -80,6 +94,61 @@ final class BoxTreeStyleProjector
         static $runtime = null;
         return $runtime ??= new Runtime();
     }
+
+    /**
+     * Every declaration observed on the source `<img>`, banded per capture as
+     * for any carrier, styles the `<img>` core/image paints, never its
+     * `<figure>`: a carrier on the figure would leave the painting image to
+     * its intrinsic size and core's `height:auto;max-width:100%`. When the
+     * source had no figure, core/image's synthetic one generates no box
+     * (`display:contents`), so the source box structure is reproduced. An
+     * authored figure keeps its own carrier (margins, position, size) from
+     * its own observations. Native image dimensions serialize inline on the
+     * `<img>` and would beat each capture's band, so the carrier replaces them.
+     *
+     * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
+     * @param bool $synthetic Whether the figure is core/image's own rather than the source's.
+     */
+    private function projectImage(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, array $fluid, bool $synthetic): array
+    {
+        $keys = array_keys($observations);
+        usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
+        $status = array();
+        $declarations = array();
+        foreach ($keys as $key) {
+            $parent = $parents[$key]['used_styles'] ?? null;
+            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, 'core/image', 'img');
+            $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
+        }
+        $bands = $this->liftFluid($declarations, $keys, $fluid);
+        if ($synthetic) {
+            // The figure's style attributes are the image's: never resurrect an observed one.
+            $mapper = new StyleAttributeMapper();
+            $existing = SourceDeclarations::parse($mapper->serialize(is_array($attrs['style'] ?? null) ? $attrs['style'] : array())['style']);
+            $mapped = $mapper->map(array_diff_key($existing, $observations[$keys[0]]['used_styles']));
+            $attrs['style'] = $mapped['style'];
+            $attrs = array_replace($attrs, $mapped['attrs']);
+        }
+        foreach (self::IMAGE_DIMENSION_ATTRIBUTES as $attribute => $property) {
+            if (isset($observations[$keys[0]]['used_styles'][$property])) unset($attrs[$attribute]);
+        }
+        // `is-resized` marks native dimensions the carrier now owns.
+        if (!isset($attrs['width']) && !isset($attrs['height'])) {
+            $attrs['className'] = implode(' ', array_filter(preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), static fn(string $class): bool => '' !== $class && 'is-resized' !== $class));
+            if ('' === $attrs['className']) unset($attrs['className']);
+        }
+        $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, false, $parents, false, array(), self::IMAGE_SELECTOR);
+        $class = $this->carrier(($synthetic ? $this->rule(self::SELECTOR, array('display' => 'contents')) : '') . $css, $state);
+        if ('' === $class) return $attrs;
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
+        return $attrs;
+    }
+
+    /** The painting image inside a core/image figure, linked or not. */
+    private const IMAGE_SELECTOR = self::SELECTOR . ' img';
+
+    /** core/image attributes serialized inline on its `<img>` => the observed property each sets. */
+    private const IMAGE_DIMENSION_ATTRIBUTES = array('width' => 'width', 'height' => 'height', 'aspectRatio' => 'aspect-ratio', 'scale' => 'object-fit');
 
     /**
      * Restyle an inline element inside RichText, which has no block
@@ -188,15 +257,15 @@ final class BoxTreeStyleProjector
      * @param array<string, array<string, mixed>> $parents The block parent's observations, by viewport key.
      * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid Lifted pseudo-element values, by name.
      */
-    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), bool $syntheticAnchor = false, array $pseudoFluid = array()): string
+    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), bool $syntheticAnchor = false, array $pseudoFluid = array(), string $selector = self::SELECTOR): string
     {
         $baseKey = $keys[0];
-        $rule = function (array $declared) use ($syntheticAnchor): string {
-            $css = $this->rule(self::SELECTOR, $declared);
+        $rule = function (array $declared) use ($syntheticAnchor, $selector): string {
+            $css = $this->rule($selector, $declared);
             if ($syntheticAnchor && isset($declared['display'])) {
                 // A real carrier box owns the margin. Only a transparent
                 // carrier passes it to the link, including at breakpoints.
-                $css .= self::SELECTOR . '>a{margin:' . ('contents' === $declared['display'] ? 'inherit' : '0') . '}';
+                $css .= $selector . '>a{margin:' . ('contents' === $declared['display'] ? 'inherit' : '0') . '}';
             }
             return $css;
         };

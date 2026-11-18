@@ -59,6 +59,10 @@ $evaluator = array(
     array('calc(10px * 2px)', 1440, null, null, null),
     array('calc(10px + 2)', 1440, null, null, null),
     array('auto', 1440, null, null, null),
+    array('100svh', 1440, null, null, 900.0),
+    array('min(880px, 100dvh)', 1440, null, null, 880.0),
+    array('50lvw', 1440, null, null, 720.0),
+    array('10vb', 1440, null, null, 90.0),
 );
 foreach ($evaluator as [$value, $width, $percent, $em, $expected]) {
     $actual = CssFluidLength::evaluate($value, (float) $width, 900.0, $percent, $em);
@@ -122,13 +126,34 @@ $cases = array(
         array('@media (max-width:1023px){.be-inline-geometry-', '@media (max-width:800px){.be-inline-geometry-', 'margin-top:calc(0.1 * min(100vw, 700px))'),
         array('font-size:270px', 'margin-top:144px'),
     ),
-    'a band between captures that no capture proves stays in pixels' => array(
+    'an author band between captures is retained without an intermediate capture' => array(
         ':root{--max:9999px}@media (max-width:1023px){:root{--max:9000px}}@media (max-width:700px){:root{--max:700px}}h1{font-size:calc(0.1875 * min(100vw, var(--max)))}',
         array('n6.font-size' => array('270px', '75.375px')),
-        array('font-size:270px', 'font-size:75.375px'), array('min(100vw'),
+        array('font-size:calc(0.1875 * min(100vw, 9999px))', '@media (max-width:1023px)', 'font-size:calc(0.1875 * min(100vw, 9000px))', '@media (max-width:700px)', 'font-size:calc(0.1875 * min(100vw, 700px))'), array('font-size:270px', 'font-size:75.375px'),
     ),
     'an undefined custom property stays in pixels' => array(
         'h1{font-size:calc(var(--missing) * 2)}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:75px', 'font-size:20.9px'), array('var(--missing)'),
+    ),
+    // #6580: a pixel length the author switches at its own breakpoint is
+    // banded there, so widths between the captures follow the author.
+    'a pixel length switched at an author breakpoint is banded there' => array(
+        'h1{margin-top:40px}@media (max-width:900px){h1{margin-top:20px}}', array('n6.margin-top' => array('40px', '20px')),
+        array('margin-top:40px', '@media (max-width:900px){.be-inline-geometry-', 'margin-top:20px'), array('@media (max-width:402px)'),
+    ),
+    'a pixel length no capture reproduces stays in capture bands' => array(
+        'h1{margin-top:40px}', array('n6.margin-top' => array('40px', '20px')),
+        array('margin-top:40px', '@media (max-width:402px)', 'margin-top:20px'), array('@media (max-width:900px)'),
+    ),
+    // #6580: a viewport-height expression is proven with each capture's own
+    // viewport height (900 and 844), clamped by the observed min-height.
+    'a small-viewport height expression is lifted verbatim' => array(
+        'h1{height:min(880px,100svh)}', array('n6.height' => array('880px', '844px')),
+        array('height:min(880px,100svh)'), array('height:844px', 'height:880px'),
+    ),
+    'a height expression clamped by its min-height is lifted verbatim' => array(
+        'h1{height:min(880px,100svh);min-height:850px}@media (max-width:600px){h1{min-height:860px}}',
+        array('n6.height' => array('880px', '860px'), 'n6.min-height' => array('850px', '860px')),
+        array(';height:min(880px,100svh)', 'min-height:850px', '@media (max-width:600px){.be-inline-geometry-', 'min-height:860px'), array(';height:860px', ';height:880px'),
     ),
     'a later pixel winner stays in pixels' => array(
         'h1{font-size:5.2vw}h1{font-size:30px}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:75px'), array('5.2vw'),
@@ -185,9 +210,9 @@ $cases = array(
     'a declared width keeps its pixels' => array(
         'h1{width:300px}', array('n6.width' => array('300px', '300px')), array('h1 ;width:300px'), array('h1 ;width:auto'),
     ),
-    'a width a query sets between captures keeps its pixels' => array(
+    'an intrinsic width switched to pixels lifts under the author query' => array(
         'h1{width:auto}@media (max-width:500px){h1{width:300px}}', array('n6.width' => array('1440px', '300px')),
-        array('width:1440px', 'width:300px'), array('h1 ;width:auto'),
+        array('h1 ;width:auto', '@media (max-width:500px)', 'width:300px'), array('width:1440px'),
     ),
     // sdnunca header menu: the author switches the width's kind at a query.
     'a % width an author query switches to max-content lifts per author band' => array(
@@ -195,10 +220,10 @@ $cases = array(
         array('n5.width' => array('1000px', '402px'), 'n6.width' => array('855.7px', '30.92px')),
         array('h1 ;width:85.57%', '@media (max-width:1023px){', 'width:max-content'), array('width:855.7px', 'width:30.92px'),
     ),
-    'a band neither lifter proves keeps its pixels' => array(
+    'a percentage switched to a pixel value lifts under the author query' => array(
         'h1{width:85.57%}@media (max-width:1023px){h1{width:30.92px}}',
         array('n5.width' => array('1000px', '402px'), 'n6.width' => array('855.7px', '30.92px')),
-        array('width:855.7px', 'width:30.92px'), array('width:85.57%', 'width:max-content'),
+        array('h1 ;width:85.57%', '@media (max-width:1023px)', 'width:30.92px'), array('width:855.7px', 'width:max-content'),
     ),
     // sdnunca capture: the DLA identity-subset sheet hides desktop-only images
     // below 1024px; the copy must hide them there, not only at the 402px capture.
