@@ -7,9 +7,48 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 final class LayoutGeometryProof
 {
     public const SCHEMA = 'blocks-engine/layout-geometry-proof/v1';
+    /** Root path of the proof when a capture ships it as a declared report. */
+    public const REPORT_PATH = 'layout-geometry-proof.json';
     private const MAX_NODES = 256;
     private const MAX_VIEWPORTS = 8;
     private const MAX_DECLARATIONS = 32;
+
+    /**
+     * The proof a capture declared as its `layout-geometry-proof.json` report,
+     * scoped to the HTML sources this artifact carries. The report covers the
+     * whole capture while a staged partition carries only some routes: a node
+     * for a route outside the artifact is absent, not stale, so it and the
+     * reductions naming it leave the scope. A node for a carried route still
+     * has to match that route's hash, so stale evidence still rejects it all.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @return array<string,mixed>|null
+     */
+    public static function declaredReport(array $files): ?array
+    {
+        $paths = array();
+        $report = null;
+        foreach ($files as $file) {
+            if ('html' === ($file['kind'] ?? null)) $paths[(string) ($file['path'] ?? '')] = true;
+            if (ArtifactNormalizer::CAPTURE_REPORT_ROLE === ($file['role'] ?? null) && self::REPORT_PATH === ($file['path'] ?? null)) $report = $file['content'] ?? null;
+        }
+        if (!is_string($report)) return null;
+        $proof = json_decode($report, true, 64);
+        if (!is_array($proof) || !is_array($proof['nodes'] ?? null) || !is_array($proof['reductions'] ?? null)) return is_array($proof) ? $proof : null;
+        $outside = array();
+        $nodes = array();
+        foreach ($proof['nodes'] as $node) {
+            if (is_array($node) && is_string($node['id'] ?? null) && is_string($node['source_path'] ?? null) && !isset($paths[$node['source_path']])) {
+                $outside[$node['id']] = true;
+                continue;
+            }
+            $nodes[] = $node;
+        }
+        $reductions = array_values(array_filter($proof['reductions'], static fn(mixed $reduction): bool => !is_array($reduction)
+            || !(isset($outside[(string) ($reduction['wrapper'] ?? '')]) || isset($outside[(string) ($reduction['target'] ?? '')]))));
+        if (array() === $reductions) return null;
+        return array('nodes' => $nodes, 'reductions' => $reductions) + $proof;
+    }
 
     /** @param array<string,mixed>|null $proof @param array<int,array<string,mixed>> $files @return array{proof:array<string,mixed>,diagnostics:array<int,array<string,mixed>>} */
     public static function normalize(?array $proof, array $files): array

@@ -346,7 +346,8 @@ final class ArtifactNormalizer
         }
 
         $runtimeDeclarations = RuntimeDeclarations::bindAssetPublications($runtimeDeclarations, $files);
-        $layoutGeometryProof = LayoutGeometryProof::normalize(is_array($artifact['layout_geometry_proof'] ?? null) ? $artifact['layout_geometry_proof'] : null, $files);
+        // An explicit proof wins; otherwise the capture's declared proof report is the same evidence.
+        $layoutGeometryProof = LayoutGeometryProof::normalize(is_array($artifact['layout_geometry_proof'] ?? null) ? $artifact['layout_geometry_proof'] : LayoutGeometryProof::declaredReport($files), $files);
         $diagnostics = array_merge($diagnostics, $layoutGeometryProof['diagnostics']);
         foreach ($files as &$file) {
             if ('html' === $file['kind']) $file['layout_geometry_proof'] = $layoutGeometryProof['proof'];
