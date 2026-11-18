@@ -22,8 +22,10 @@ final class BoxTreeStyleProjector
      * @param string $blockName The block carrying the rule, whose WordPress base styles a pruned declaration falls back to.
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid Lifted author values: property => bands, widest
      *        first, each [max-width (null for the base rule), value] ({@see BoxTreeFluidIntent::lift()}).
+     * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid The same, for the
+     *        `before` and `after` pseudo-elements, by name ({@see BoxTreeFluidIntent::liftPseudo()}).
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array()): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array()): array
     {
         if (array() === $observations) return $attrs;
         $keys = array_keys($observations);
@@ -66,7 +68,7 @@ final class BoxTreeStyleProjector
         $consumed = SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
-        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs));
+        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs), $pseudoFluid);
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
@@ -184,8 +186,9 @@ final class BoxTreeStyleProjector
      * The base rule, then each narrower capture's delta, then the lifted bands.
      *
      * @param array<string, array<string, mixed>> $parents The block parent's observations, by viewport key.
+     * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid Lifted pseudo-element values, by name.
      */
-    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), bool $syntheticAnchor = false): string
+    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), bool $syntheticAnchor = false, array $pseudoFluid = array()): string
     {
         $baseKey = $keys[0];
         $rule = function (array $declared) use ($syntheticAnchor): string {
@@ -200,7 +203,9 @@ final class BoxTreeStyleProjector
         $css = $rule($base);
         $effective = $declarations[$baseKey];
         $pseudoEffective = array();
-        if ($pseudos) $css .= $this->pseudoRules($observations[$baseKey], $pseudoEffective);
+        $pseudoBands = array();
+        $pseudoLifted = $pseudos ? $this->liftPseudoFluid($observations, $keys, $pseudoFluid, $pseudoBands) : array();
+        if ($pseudos) $css .= $this->pseudoRules($observations[$baseKey], $pseudoEffective, $pseudoLifted);
         foreach (array_slice($keys, 1) as $index => $key) {
             $delta = $this->delta($effective, $declarations[$key], $status[$key], $observations[$key]['used_styles']);
             // A box hidden across this rule's whole range renders none of the
@@ -213,16 +218,55 @@ final class BoxTreeStyleProjector
                 $delta = array_intersect_key($delta, array('display' => true));
             }
             $effective = array_replace($effective, $delta);
-            $pseudo = $pseudos ? $this->pseudoRules($observations[$key], $pseudoEffective) : '';
+            $pseudo = $pseudos ? $this->pseudoRules($observations[$key], $pseudoEffective, $pseudoLifted) : '';
             if (array() === $delta && '' === $pseudo) continue;
             $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $rule($delta) . $pseudo . '}';
         }
         // Numeric keys become ints: compare them as widths, narrowest last.
-        uksort($bands, static fn(int|string $a, int|string $b): int => (float) $b <=> (float) $a);
-        foreach ($bands as $maxWidth => $declared) {
-            $css .= '@media (max-width:' . $maxWidth . 'px){' . $rule($declared) . '}';
+        $widths = array_keys($bands + $pseudoBands);
+        usort($widths, static fn(int|string $a, int|string $b): int => (float) $b <=> (float) $a);
+        foreach ($widths as $maxWidth) {
+            $rules = isset($bands[$maxWidth]) ? $rule($bands[$maxWidth]) : '';
+            foreach ($pseudoBands[$maxWidth] ?? array() as $name => $declared) $rules .= $this->rule(self::SELECTOR . '::' . $name, $declared);
+            if ('' !== $rules) $css .= '@media (max-width:' . $maxWidth . 'px){' . $rules . '}';
         }
         return $css;
+    }
+
+    /**
+     * Pseudo-element author intent ({@see BoxTreeFluidIntent::liftPseudo()})
+     * lifts like the host's ({@see self::liftFluid()}): only a property the
+     * pseudo renders and keeps at every capture, so no pruned value is
+     * resurrected; anything else keeps its captured pixels.
+     *
+     * @param list<string> $keys Viewport keys, widest first.
+     * @param array<int|string, array<string, array<string, string>>> $bands Band declarations by max-width, then pseudo name; filled in.
+     * @return array<string, array<string, string>> Lifted base value by pseudo name, then property.
+     */
+    private function liftPseudoFluid(array $observations, array $keys, array $pseudoFluid, array &$bands): array
+    {
+        $lifted = array();
+        foreach (array('before', 'after') as $name) {
+            $fluid = $pseudoFluid[$name] ?? array();
+            if (array() === $fluid) continue;
+            $kept = array();
+            foreach ($keys as $key) {
+                $pseudo = $observations[$key]['pseudo'][$name] ?? null;
+                if (!is_array($pseudo['used_styles'] ?? null)) continue 2;
+                $kept[$key] = $this->kept($pseudo['used_styles'], $this->pruner->classify($pseudo['used_styles'], $observations[$key]['used_styles']));
+            }
+            foreach ($fluid as $property => $propertyBands) {
+                if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
+                foreach ($keys as $key) {
+                    if (!isset($kept[$key][$property])) continue 2;
+                }
+                $lifted[$name][$property] = $propertyBands[0][1];
+                foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
+                    $bands[self::width((float) $maxWidth)][$name][$property] = $value;
+                }
+            }
+        }
+        return $lifted;
     }
 
     /**
@@ -322,8 +366,11 @@ final class BoxTreeStyleProjector
         return array_filter($styles, static fn(string $property): bool => BoxTreeDeclarationPruner::KEPT === ($status[$property] ?? null), ARRAY_FILTER_USE_KEY);
     }
 
-    /** @param array<string, array<string, string>> $effective Pseudo declarations already active, by pseudo name. */
-    private function pseudoRules(array $observation, array &$effective): string
+    /**
+     * @param array<string, array<string, string>> $effective Pseudo declarations already active, by pseudo name.
+     * @param array<string, array<string, string>> $lifted Lifted base values by pseudo name ({@see self::liftPseudoFluid()}).
+     */
+    private function pseudoRules(array $observation, array &$effective, array $lifted = array()): string
     {
         $css = '';
         foreach (array('before', 'after') as $name) {
@@ -331,7 +378,10 @@ final class BoxTreeStyleProjector
             if (null !== $pseudo) {
                 // Pseudos inherit from their originating element, not its parent.
                 $pseudoStatus = $this->pruner->classify($pseudo['used_styles'], $observation['used_styles']);
-                $declarations = array_merge($this->kept($pseudo['used_styles'], $pseudoStatus), array('content' => $pseudo['content']));
+                $kept = $this->kept($pseudo['used_styles'], $pseudoStatus);
+                // Lifted author intent replaces the frozen pixels in every capture.
+                $kept = array_replace($kept, array_intersect_key($lifted[$name] ?? array(), $kept));
+                $declarations = array_merge($kept, array('content' => $pseudo['content']));
                 $delta = isset($effective[$name]) ? $this->delta($effective[$name], $declarations, $pseudoStatus, $pseudo['used_styles']) : $declarations;
                 $effective[$name] = array_replace($effective[$name] ?? array(), $delta);
                 $css .= $this->rule(self::SELECTOR . '::' . $name, $delta);

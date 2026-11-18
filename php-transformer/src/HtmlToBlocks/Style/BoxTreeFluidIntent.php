@@ -88,6 +88,11 @@ use DOMElement;
  * A `%` width or height is proven against the used value its observed
  * `min-*` and `max-*` pixels clamp it to, so a `width:100%` container capped
  * by its `max-width` at the widest capture still follows its container.
+ *
+ * A `::before`/`::after` box lifts under the same contract
+ * ({@see self::liftPseudo()}): its own author winners, its host as its
+ * parent, and `%` against the host's content box (the pseudo's containing
+ * block when it is in flow).
  */
 final class BoxTreeFluidIntent
 {
@@ -167,6 +172,8 @@ final class BoxTreeFluidIntent
     private const INHERITING_BLOCKS = array('core/heading');
 
     private DOMElement $element;
+    /** The pseudo-element being lifted (`before`, `after`), or '' for the element itself. */
+    private string $pseudo = '';
     private StyleResolver $resolver;
     /** @var list<string> */
     private array $requested = array();
@@ -191,6 +198,40 @@ final class BoxTreeFluidIntent
      *         [max-width or null for the base rule, value].
      */
     public function lift(DOMElement $element, StyleResolver $resolver, array $observations, array $viewports, array $parents, string $blockName = '', ?\Closure $evidence = null): array
+    {
+        $this->pseudo = '';
+        return $this->liftSubject($element, $resolver, $observations, $viewports, $parents, $blockName, $evidence);
+    }
+
+    /**
+     * Lift an element's `::before` or `::after` box: its own author winners
+     * (rules whose subject is that pseudo-element), with the element as its
+     * parent, so a `%` resolves against the element's content box and an
+     * intrinsic keyword is restated as for the element itself. Nothing is
+     * lifted unless the pseudo renders at every capture.
+     *
+     * @param array<string, array<string, mixed>> $observations Captured observations of the host element, by viewport key.
+     * @param string $pseudo `before` or `after`.
+     * @return array<string, list<array{0: float|null, 1: string}>> {@see self::lift()}
+     */
+    public function liftPseudo(DOMElement $element, StyleResolver $resolver, array $observations, array $viewports, string $pseudo, ?\Closure $evidence = null): array
+    {
+        $pseudoObservations = array();
+        foreach ($observations as $key => $observation) {
+            $styles = $observation['pseudo'][$pseudo]['used_styles'] ?? null;
+            if (!is_array($styles) || !is_array($observation['used_styles'] ?? null)) return array();
+            $pseudoObservations[$key] = array('used_styles' => $styles);
+        }
+        $this->pseudo = $pseudo;
+        try {
+            return $this->liftSubject($element, $resolver, $pseudoObservations, $viewports, $observations, '', $evidence ?? static fn(DOMElement $node): array => $node === $element ? $observations : array());
+        } finally {
+            $this->pseudo = '';
+        }
+    }
+
+    /** @see self::lift() */
+    private function liftSubject(DOMElement $element, StyleResolver $resolver, array $observations, array $viewports, array $parents, string $blockName, ?\Closure $evidence): array
     {
         if (array() === $observations) return array();
         $widths = array();
@@ -228,7 +269,7 @@ final class BoxTreeFluidIntent
                 ?? $this->liftedIntrinsic($property, $widths, $samples)
                 ?? $this->liftedAutoMargin($property, $widths, $samples)
                 ?? $this->liftedMixed($property, $widths, $samples, $observations, $viewports, $parents)
-                ?? ($inheriting ? $this->liftedInheritance($property, $widths, $samples, $observations, $parents) : null);
+                ?? $this->liftedInheritance($property, $widths, $samples, $observations, $parents, $inheriting);
             if (null !== $bands) $lifted[$property] = $bands;
         }
         return $lifted;
@@ -404,7 +445,9 @@ final class BoxTreeFluidIntent
         if ($offset) return 'auto' === $value ? $value : null;
         if (null !== $declared && in_array($property, self::PERCENT_HEIGHTS, true) && self::percentHeight($declared)) return $declared;
         if (!in_array($value, self::INTRINSIC_KEYWORDS, true)) return null;
-        // A replaced or attribute-sized element's intrinsic size is not the author's to restate.
+        // A replaced or attribute-sized element's intrinsic size is not the
+        // author's to restate; a pseudo-element is neither.
+        if ('' !== $this->pseudo) return $value;
         if (in_array(strtolower($this->element->tagName), self::REPLACED, true)) return null;
         if (in_array($property, array('width', 'height'), true) && $this->element->hasAttribute($property)) return null;
         return $value;
@@ -486,13 +529,13 @@ final class BoxTreeFluidIntent
      * @param array<string, float> $samples
      * @return list<array{0: float|null, 1: string}>|null
      */
-    private function liftedInheritance(string $property, array $widths, array $samples, array $observations, array $parents): ?array
+    private function liftedInheritance(string $property, array $widths, array $samples, array $observations, array $parents, bool $allowAbsent): ?array
     {
         if (!in_array($property, BoxTree::INHERITED_PROPERTIES, true) || count($widths) < 2) return null;
         $values = array();
         foreach ($widths + $samples as $key => $width) {
             $declared = $this->declared($property, $width);
-            if (null !== $declared && 'inherit' !== strtolower($declared)) return null;
+            if (null === $declared ? !$allowAbsent : 'inherit' !== strtolower($declared)) return null;
             if (!isset($observations[$key])) continue;
             $own = $observations[$key]['used_styles'][$property] ?? null;
             $parent = $parents[$key]['used_styles'][$property] ?? null;
@@ -552,7 +595,7 @@ final class BoxTreeFluidIntent
      */
     private function declared(string $property, float $width): ?string
     {
-        $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width);
+        $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width, pseudoElement: $this->pseudo);
         $order = array_flip(array_keys($winners));
         $shorthand = self::SHORTHANDS[$property] ?? null;
         $fromShorthand = null !== $shorthand && isset($order[$shorthand]) && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
@@ -560,6 +603,12 @@ final class BoxTreeFluidIntent
         if (!isset($winners[$name])) return null;
         $value = trim(CssValueInspector::withoutImportant((string) $winners[$name]));
         if ('' === $value) return null;
+        if ('' !== $this->pseudo && $this->pseudoDefinesReferenced($value, $width)) return '';
+        if ($this->resolver->customProperties->isProvenInvalid($value, $this->element)) {
+            // Invalid at computed-value time means unset for the whole
+            // declaration, including every longhand of a shorthand.
+            return in_array($property, BoxTree::INHERITED_PROPERTIES, true) ? 'inherit' : 'unset';
+        }
         $value = $this->withRemInPixels(trim($this->resolver->customProperties->resolveAtViewport($value, $this->element, $width)), $width);
         if ('' === $value || !$fromShorthand) return $value;
         if ('font' === $shorthand) {
@@ -570,6 +619,18 @@ final class BoxTreeFluidIntent
         if ('gap' === $shorthand) return CssValueInspector::expandBoxShorthand($value)['row-gap' === $property ? 0 : 1];
         $side = self::SIDES['inset' === $shorthand ? $property : substr($property, (int) strrpos($property, '-') + 1)] ?? null;
         return null === $side ? '' : CssValueInspector::expandBoxShorthand($value)[$side];
+    }
+
+    /**
+     * Whether the pseudo-element itself defines a custom property the value
+     * references. The resolver expands `var()` from the host outward, which
+     * would miss that definition, so the value is left unresolved instead.
+     */
+    private function pseudoDefinesReferenced(string $value, float $width): bool
+    {
+        if (!preg_match_all('/var\(\s*(--[\w-]+)/', $value, $names)) return false;
+        $names = array_values(array_unique($names[1]));
+        return array() !== $this->resolver->authorViewport->atViewport($this->element, $names, $width, pseudoElement: $this->pseudo);
     }
 
     /**
@@ -659,7 +720,8 @@ final class BoxTreeFluidIntent
             return isset($viewport['width'], $viewport['height']) ? array((float) $viewport['width'], (float) $viewport['height']) : null;
         }
         $absolute = 'absolute' === $position;
-        for ($node = $this->element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+        // A pseudo-element's box is a child of its host's.
+        for ($node = '' === $this->pseudo ? $this->element->parentNode : $this->element; $node instanceof DOMElement; $node = $node->parentNode) {
             $styles = ($this->evidence)($node)[$key]['used_styles'] ?? null;
             if (!is_array($styles)) {
                 // The document root boxes are rarely captured; an absolute
