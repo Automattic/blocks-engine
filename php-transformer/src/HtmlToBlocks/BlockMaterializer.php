@@ -50,7 +50,7 @@ final class BlockMaterializer
             // targeting. The render filter restores them on native block roots.
             foreach (array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::DEVICE_CLASS, CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::RESPONSIVE_FRAGMENT) as $evidenceAttribute) {
                 if ($sourceFacts->sourceElement->hasAttribute($evidenceAttribute)
-                    && !(CaptureEvidence::VIEWPORT_ENTRANCE === $evidenceAttribute && 'core/buttons' === $name && 'a' === strtolower($sourceFacts->sourceElement->tagName))) {
+                    && !(CaptureEvidence::VIEWPORT_ENTRANCE === $evidenceAttribute && 'core/buttons' === $name && in_array(strtolower($sourceFacts->sourceElement->tagName), array('a', 'button'), true))) {
                     $runtimeAttributes[$evidenceAttribute] = $sourceFacts->sourceElement->getAttribute($evidenceAttribute);
                 }
             }

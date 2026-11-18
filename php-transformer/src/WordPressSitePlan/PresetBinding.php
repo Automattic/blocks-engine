@@ -208,6 +208,8 @@ final class PresetBinding
     private int $bound = 0;
     /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
     private array $fontDefaults = array();
+    /** Preset slugs of the projected font defaults, keyed like $fontDefaults. @var array<string,string> */
+    private array $fontDefaultSlugs = array();
 
     /** @var array<string,string> Concrete body colours owned by the emitted theme. */
     private array $bodyColorDefaults = array();
@@ -284,7 +286,7 @@ final class PresetBinding
     public function useThemeDefaults(array $theme): void
     {
         $this->themeDefaultsReady = true;
-        $this->fontDefaults = array();
+        $this->fontDefaults = $this->fontDefaultSlugs = array();
         $families = array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
         $styles = $theme['styles'] ?? array();
         $this->bodyColorDefaults = array();
@@ -302,6 +304,7 @@ final class PresetBinding
             // own a concrete font: scoped author declarations must survive.
             if (!is_string($value) || in_array(strtolower(trim($value)), array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) continue;
             $this->fontDefaults[$tag] = $families[str_replace('var:preset|font-family|', '', $value)] ?? $value;
+            if (1 === preg_match('/^var:preset\|font-family\|([A-Za-z0-9_-]+)$/', $value, $slug)) $this->fontDefaultSlugs[$tag] = $slug[1];
         }
     }
 
@@ -845,6 +848,18 @@ final class PresetBinding
             $literal = $style->color->{$key} ?? null;
             if ($buttonLook && null === $literal && $this->matchesButtonElement($property, (string) ($observed[$observedProperty] ?? ''))) continue;
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
+            $blockSlug = is_string($literal) ? $this->system->blockColorSlug($this->resolve($literal)) : null;
+            if (null !== $blockSlug) {
+                // A block-only token names this literal where it stands: the
+                // inline declaration keeps its cascade slot, so state, media
+                // and class rules resolve exactly as before. A literal an
+                // author class on this block declares is that class's value,
+                // not block-only evidence, and stays as authored.
+                if ($this->classDeclaresColor($property, $tokens)) continue;
+                if ($this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $blockSlug, $d->declarations, $property, $literal)) ++$d->bound;
+                else $this->refuse($reason ?? 'inconsistent_source');
+                continue;
+            }
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $added = array($flagClass, sprintf($presetClass, '%s'));
             $observation = $observed[$observedProperty] ?? null;
@@ -1151,7 +1166,7 @@ final class PresetBinding
             $value = self::declared(self::declarations($body), 'font-family');
             if (str_contains($body, '{')) return $prelude;
             if (null === $value && (array() === $this->bodyColorDefaults || !preg_match('/(?:^|,)\s*(?:body|(?::root\s+)?body\.editor-styles-wrapper)\s*(?:,|$)/', $prelude))) return $prelude;
-            $value = null === $value ? '' : $this->resolve($value);
+            $rawValue = $value ?? '';
             $rules = array();
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                 $selector = trim($selector);
@@ -1175,10 +1190,15 @@ final class PresetBinding
                 }
                 if (isset($this->fontDefaults[$tag])) {
                     $kept = self::declarationText(array_values(array_filter(self::declarations($kept), static fn(array $pair): bool => 'font-family' !== $pair[0])));
+                } elseif (1 === preg_match('/^h[1-6]$/i', $subjectTag = self::subjectCompound($selector)) && $this->rendersDefaultFont(strtolower($subjectTag), $rawValue) && !$this->hasCompetingFont(strtolower($subjectTag))) {
+                    // A descendant heading rule (`.hero h1`) restating the
+                    // heading element font yields it to Global Styles, as
+                    // the plain `h1` rule does above.
+                    $kept = self::declarationText(array_values(array_filter(self::declarations($kept), static fn(array $pair): bool => 'font-family' !== $pair[0])));
                 } elseif (preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?::not\(:where\(\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . ')(?:\s*,\s*\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . '))*\)\))?$/', trim($selector))) {
                     $excluded = array();
                     foreach ($this->fontDefaults as $target => $font) {
-                        if ('body' !== $target && $this->sameFont($value, $font) && !$this->hasCompetingFont($target, $value)) $excluded[] = $target;
+                        if ('body' !== $target && $this->rendersDefaultFont($target, $rawValue) && !$this->hasCompetingFont($target)) $excluded[] = $target;
                     }
                     if (array() !== $excluded) {
                         $other = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
@@ -1262,6 +1282,14 @@ final class PresetBinding
     }
 
     /** Compare complete stacks, not just the primary family. */
+    private function presetHoldsFamily(string $slug, string $family): bool
+    {
+        foreach ($this->system->fontFamilies as $preset) {
+            if ($preset['slug'] === $slug) return $this->sameFont($family, $preset['fontFamily']);
+        }
+        return false;
+    }
+
     private function sameFont(string $a, string $b): bool
     {
         return '' !== DesignSystem::familyKey($a) && DesignSystem::familyKey($a) === DesignSystem::familyKey($b)
@@ -1271,18 +1299,63 @@ final class PresetBinding
     /**
      * Dropping an explicit class font is safe only when no different author
      * font can replace it. Class overlap is not known here, so ambiguous,
-     * conditional and shorthand rules conservatively retain the class rule.
+     * conditional and shorthand rules conservatively retain the class rule,
+     * unless class-list rendering evidence shows the other font always won.
      */
-    private function hasCompetingFont(string $tag, string $value): bool
+    private function hasCompetingFont(string $tag): bool
     {
         foreach ($this->fontRules as $rule) {
             $subject = self::subjectCompound($rule['selector']);
             if (preg_match(self::TYPE_SELECTOR, $subject, $match) && strtolower($match[1]) !== $tag) continue;
-            if (null === self::subjectTokens($rule['selector'])) continue;
-            if (null !== $rule['value'] && $this->sameFont($value, $this->resolve($rule['value']))) continue;
+            $tokens = self::subjectTokens($rule['selector']);
+            if (null === $tokens) continue;
+            // Another block's class (`wp-block-navigation-link`,
+            // `wp-block-navigation__responsive-container-open`) never selects
+            // a core/heading, whose only block class is `wp-block-heading`.
+            if (array() !== preg_grep('/^class:wp-block-(?!heading$)[a-z0-9_-]+$/', $tokens['tokens'])) continue;
+            if (null !== $rule['value'] && $this->rendersDefaultFont($tag, $rule['value'])) continue;
+            if (null !== $rule['value'] && $this->classRendersOwnFont($rule['selector'], $rule['value'])) continue;
             return true;
         }
         return false;
+    }
+
+    /**
+     * Whether a declared `font-family` renders the font Global Styles gives
+     * `$tag`: the same stack once custom properties resolve, or that
+     * element's own preset variable when the source never defines it (in
+     * WordPress the preset alone defines it).
+     */
+    private function rendersDefaultFont(string $tag, string $value): bool
+    {
+        $default = $this->fontDefaults[$tag] ?? null;
+        if (null === $default || '' === trim($value)) return false;
+        if ($this->sameFont($this->resolve($value), $default)) return true;
+        $slug = $this->fontDefaultSlugs[$tag] ?? null;
+        return null !== $slug && 1 === preg_match('/^var\(\s*(--wp--preset--font-family--' . preg_quote($slug, '/') . ')\s*(?:,[^;{}!]*)?\)$/', trim($value), $match)
+            && !array_key_exists($match[1], $this->variables);
+    }
+
+    /**
+     * A class-only rule with another font never displaced by the dropped
+     * declaration: every observed element carrying its classes, on every
+     * document, rendered that rule's own font. Where both rules met, this one
+     * already won, so yielding the other changes nothing.
+     */
+    private function classRendersOwnFont(string $selector, string $value): bool
+    {
+        $selector = preg_replace('/' . preg_quote(':not(:where(.blocks-engine-role-control))', '/') . '$/', '', trim($selector)) ?? $selector;
+        if (!preg_match('/^(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)+$/', $selector)) return false;
+        $classes = explode('.', substr($selector, 1));
+        $font = $this->resolve($value);
+        $matched = false;
+        foreach ($this->classStyles as $key => $properties) {
+            if (array() !== array_diff($classes, explode(' ', $key))) continue;
+            $observed = $properties['font-family'] ?? '';
+            if (str_starts_with($observed, '!') || !$this->sameFont($observed, $font)) return false;
+            $matched = true;
+        }
+        return $matched;
     }
 
     private function inheritsFont(string $html, string $value): bool
@@ -1417,8 +1490,10 @@ final class PresetBinding
             foreach ($this->system->fontFamilies as $preset) {
                 if (null !== $slug && $preset['slug'] === $slug && $this->sameFont($family, $preset['fontFamily'])) {
                     ++$this->bound;
+                    // The stack is the preset's own value, which theme.json
+                    // always defines: a fallback would restate it.
                     return self::sourcePresets($parts[0]) . ':' . self::sourcePresets(substr($value, 0, $familyOffset))
-                        . 'var(--wp--preset--font-family--' . $slug . (0 === $familyOffset ? ',' . self::sourcePresets($family) : '') . ')' . $important;
+                        . 'var(--wp--preset--font-family--' . $slug . ')' . $important;
                 }
             }
         }
@@ -1459,7 +1534,11 @@ final class PresetBinding
         // font size, not the document's root, so such a preset would rescale it.
         if ($rootSelector && 'font-size' === $kind && self::rootRelativePreset($this->system->fontSizes, $slug)) return $declaration;
         ++$this->bound;
-        return self::sourcePresets($parts[0]) . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . ',' . self::sourcePresets($value) . ')' . $important;
+        // A font stack the preset already holds needs no fallback: theme.json
+        // defines every font-family preset, so the restated stack is dead
+        // weight repeated on every rule. A different stack stays the fallback.
+        $fallback = 'font-family' === $kind && $this->presetHoldsFamily($slug, $value) ? '' : ',' . self::sourcePresets($value);
+        return self::sourcePresets($parts[0]) . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . $fallback . ')' . $important;
     }
 
     /**
@@ -1828,6 +1907,23 @@ final class PresetBinding
      *
      * @param array<string,true> $tokens
      */
+    /**
+     * Whether an unconditional single-class rule for one of this block's
+     * author classes declares the colour property.
+     *
+     * @param array<string,true> $tokens
+     */
+    private function classDeclaresColor(string $property, array $tokens): bool
+    {
+        foreach ($this->classColors as $class => $properties) {
+            if (!isset($tokens['class:' . $class]) && !isset($tokens['class:' . EngineMarker::subjectClassClass($class)])) continue;
+            foreach ('background-color' === $property ? array('background-color', 'background') : array($property) as $candidate) {
+                if (array() !== ($properties[$candidate] ?? array())) return true;
+            }
+        }
+        return false;
+    }
+
     private function rendersThroughClass(string $name, string $property, string $literal, array $tokens): bool
     {
         if ('button' !== $name) return false;

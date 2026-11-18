@@ -4,10 +4,19 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMElement;
 
-/** Report-only ADR 0005 classification. Never authorizes a conversion rewrite. */
+/**
+ * ADR 0005 box classification. A `neutral` disposition is the sole authority
+ * for collapsing a source box during conversion; every other disposition keeps
+ * the box. The projection estimates the resulting block tree for reporting.
+ */
 final class BoxTreeClassifier
 {
     public static function report(string $html, array $tree): array
@@ -21,7 +30,7 @@ final class BoxTreeClassifier
             $elements[$id] = $element;
             $parent = $element->parentNode;
             while ($parent instanceof DOMElement && !$parent->hasAttribute(BoxTree::NODE_ATTRIBUTE)) $parent = $parent->parentNode;
-            $parents[$id] = $parent instanceof DOMElement ? $parent->getAttribute(BoxTree::NODE_ATTRIBUTE) : null;
+            $parents[$id] = $parent instanceof DOMElement ? $parent->getAttribute(BoxTree::NODE_ATTRIBUTE) : '';
         }
         $references = array();
         foreach ($dom->getElementsByTagName('*') as $element) {
@@ -46,11 +55,17 @@ final class BoxTreeClassifier
                 $fixed[$id] = $establishes ? $id : $f;
             }
         }
+        $stateCompounds = null;
         $nodes = array();
         $counts = array('load-bearing' => 0, 'neutral' => 0);
         foreach ($elements as $id => $element) {
             $node = $tree['nodes'][$id];
-            $criterion = self::criterion($element, $node, $tree, isset($containing[$id]), isset($references[$element->getAttribute('id')]));
+            $stateTargeted = false;
+            if (self::isAutonomousCustomElement($element)) {
+                $stateCompounds ??= self::stateCompounds($dom);
+                $stateTargeted = self::targetedByState($element, $stateCompounds);
+            }
+            $criterion = self::criterion($element, $node, $tree, isset($containing[$id]), isset($references[$element->getAttribute('id')]), $stateTargeted);
             $disposition = 'equal-child-geometry' === $criterion ? 'neutral' : 'load-bearing';
             $nodes[$id] = array('disposition' => $disposition, 'criterion' => $criterion);
             ++$counts[$disposition];
@@ -78,7 +93,7 @@ final class BoxTreeClassifier
         ) : null);
     }
 
-    private static function criterion(DOMElement $element, array $node, array $tree, bool $containing, bool $referenced): string
+    private static function criterion(DOMElement $element, array $node, array $tree, bool $containing, bool $referenced, bool $stateTargeted = false): string
     {
         foreach ($node['viewports'] as $observation) {
             $s = $observation['used_styles'];
@@ -89,11 +104,14 @@ final class BoxTreeClassifier
             if (count($node['children']) > 1 && in_array($observation['used_styles']['display'], array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) return 'multi-child-layout';
         }
         if ($containing) return 'containing-block';
-        if (!in_array(strtolower($element->tagName), array('div', 'span'), true) || $referenced || $element->hasAttribute('role') || $element->hasAttribute('name')) return 'semantics/id/anchor';
+        // Autonomous custom elements have no implicit role: they are generic
+        // containers like div/span and fall through to the remaining criteria.
+        if ((!in_array(strtolower($element->tagName), array('div', 'span'), true) && !self::isAutonomousCustomElement($element)) || $referenced || $element->hasAttribute('role') || $element->hasAttribute('name')) return 'semantics/id/anchor';
         foreach ($element->attributes as $attribute) {
             if (str_starts_with($attribute->name, 'on') || str_starts_with($attribute->name, 'aria-') || in_array($attribute->name, array('tabindex', 'contenteditable', 'draggable', 'hidden', 'inert'), true)) return 'interaction/state';
         }
-        if (!empty($node['interaction_states'])) return 'interaction/state';
+        if (!empty($node['interaction_states']) || $stateTargeted) return 'interaction/state';
+        if (self::carriesCaptureMarker($element)) return 'capture-marker';
         foreach ($node['viewports'] as $observation) {
             $s = $observation['used_styles'];
             if (isset($s['animation-name']) && 'none' !== $s['animation-name']) return 'motion';
@@ -104,6 +122,8 @@ final class BoxTreeClassifier
             if ($child instanceof DOMElement && !isset($tree['nodes'][$child->getAttribute(BoxTree::NODE_ATTRIBUTE)])) return 'unobserved-child';
         }
         if (1 !== count($node['children'])) return 'own-sizing';
+        $placement = self::placement($node, $tree['nodes'][$node['children'][0]] ?? array());
+        if (null !== $placement) return $placement;
         foreach ($element->childNodes as $child) {
             if ($child instanceof \DOMText && '' !== trim($child->textContent)) return 'own-sizing';
         }
@@ -115,6 +135,115 @@ final class BoxTreeClassifier
         }
         return 'equal-child-geometry';
     }
+
+    /**
+     * A box that hides its subtree or places it within its own parent's layout
+     * renders something of its own: without it, the child would take the
+     * parent's layout with its own placement values. Equal geometry at the
+     * captured viewports does not prove that placement is redundant.
+     */
+    private static function placement(array $node, array $child): ?string
+    {
+        foreach ($node['viewports'] as $viewport => $observation) {
+            $s = $observation['used_styles'];
+            if ('none' === $s['display']) return 'hidden';
+            $c = $child['viewports'][$viewport]['used_styles'] ?? array();
+            // An inline-level child sits on this box's line box; its parent's
+            // layout would blockify or re-flow it.
+            if (str_starts_with($c['display'] ?? '', 'inline')) return 'line-box';
+            foreach (self::PLACEMENT as $property) {
+                if (($s[$property] ?? null) !== ($c[$property] ?? null)) return 'own-placement';
+            }
+            if ('static' !== $s['position']) {
+                foreach (array('top', 'right', 'bottom', 'left') as $offset) {
+                    if (!in_array($s[$offset] ?? 'auto', array('auto', '0px'), true)) return 'own-placement';
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Names the HTML spec reserves despite the hyphen; they are not autonomous custom elements. */
+    private const RESERVED_HYPHENATED_NAMES = array(
+        'annotation-xml', 'color-profile', 'font-face', 'font-face-src', 'font-face-uri', 'font-face-format', 'font-face-name', 'missing-glyph',
+    );
+
+    /** Non-resting states: interaction pseudo-classes and runtime state attributes the capture replays. */
+    private const STATE_PSEUDO_CLASS = '/(?<!:):(?:hover|focus-visible|focus-within|focus|active|checked|target)(?![\w(-])/i';
+    private const STATE_ATTRIBUTE = '/\[\s*data-interact-/i';
+
+    private static function isAutonomousCustomElement(DOMElement $element): bool
+    {
+        $tag = strtolower($element->tagName);
+        return 1 === preg_match('/^[a-z][a-z0-9._]*-[a-z0-9._-]*$/', $tag) && !in_array($tag, self::RESERVED_HYPHENATED_NAMES, true);
+    }
+
+    /**
+     * Compounds of document style rules that apply only in a non-resting state,
+     * with state pseudo-classes removed so the resting capture can be matched.
+     * A box matched by any compound of such a rule (subject or ancestor) is the
+     * rule's handle; collapsing it would orphan the state styling.
+     *
+     * @return list<string>
+     */
+    private static function stateCompounds(\DOMDocument $dom): array
+    {
+        $compounds = array();
+        foreach ($dom->getElementsByTagName('style') as $style) {
+            $css = CssSyntaxScanner::withoutComments((string) $style->textContent);
+            if (!preg_match_all('/([^{};]+)\{/', $css, $matches)) continue;
+            foreach ($matches[1] as $prelude) {
+                $prelude = trim($prelude);
+                if ('' === $prelude || str_starts_with($prelude, '@')) continue;
+                foreach (CssValueSplitter::splitTopLevel($prelude, array(',')) as $selector) {
+                    if (!preg_match(self::STATE_PSEUDO_CLASS, $selector) && !preg_match(self::STATE_ATTRIBUTE, $selector)) continue;
+                    $tokens = CssSelectorTokenizer::tokenize($selector);
+                    foreach ($tokens['supported'] ? $tokens['compounds'] : array($selector) as $compound) {
+                        $compound = trim((string) preg_replace(self::STATE_PSEUDO_CLASS, '', $compound));
+                        $compounds['' === $compound ? '*' : $compound] = true;
+                    }
+                }
+            }
+        }
+        return array_keys($compounds);
+    }
+
+    /** @param list<string> $compounds */
+    private static function targetedByState(DOMElement $element, array $compounds): bool
+    {
+        foreach ($compounds as $compound) {
+            if ('*' === $compound) continue;
+            $match = CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($compound));
+            if ($match['matches']) return true;
+            if ($match['supported']) continue;
+            // An unparseable compound cannot prove the box is untargeted when it
+            // names this element's tag or one of its attributes.
+            if (preg_match('/(?:^|[^\w-])' . preg_quote(strtolower($element->tagName), '/') . '(?![\w-])/i', $compound)) return true;
+            foreach ($element->attributes as $attribute) {
+                if (preg_match('/\[\s*' . preg_quote($attribute->name, '/') . '(?![\w-])/i', $compound)) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Capture markers gate device visibility or interaction; the box carrying one is the engine's handle. */
+    private static function carriesCaptureMarker(DOMElement $element): bool
+    {
+        foreach ($element->attributes as $attribute) {
+            if (str_starts_with($attribute->name, CaptureEvidence::ATTRIBUTE_PREFIX)) return true;
+        }
+        foreach (preg_split('/\s+/', $element->getAttribute('class'), -1, PREG_SPLIT_NO_EMPTY) as $class) {
+            if (str_starts_with($class, CaptureEvidence::ATTRIBUTE_PREFIX)) return true;
+        }
+        return false;
+    }
+
+    /** Properties that place a box within its parent's flow, flex, or grid layout. */
+    private const PLACEMENT = array(
+        'order', 'align-self', 'justify-self', 'flex-grow', 'flex-shrink', 'flex-basis',
+        'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
+        'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'float', 'clear',
+    );
 
     /** Geometry is checked independently on each clipped axis at every captured viewport. */
     private static function clips(array $node, array $tree): bool

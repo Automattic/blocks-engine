@@ -98,6 +98,9 @@ final class NavigationStyleProjector
             $rules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
                 . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){display:block!important;visibility:visible!important}';
         }
+        foreach ( self::focusedEmptyRichTextRepairRules($projectedAuthorCss) as $repairRule ) {
+            $rules[] = $repairRule;
+        }
         $anchorProjectionCss = $this->editorAnchorProjectionCss($projectedAuthorCss);
         if ( '' !== $anchorProjectionCss ) {
             $rules[] = $anchorProjectionCss;
@@ -196,6 +199,70 @@ final class NavigationStyleProjector
         }
 
         $this->context->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
+    }
+
+    /**
+     * Saved markup is never contenteditable, but a RichText is, and while an
+     * author replaces its text its DOM is briefly `:empty` (then
+     * `data-empty`). An authored `p:empty{display:none}` then hides the
+     * element being edited: typed text never lands, and its block toolbar
+     * anchors to a zero box over the canvas, covering the blocks beneath it
+     * (issue #5920). Keep the focused editable subject of such a rule shown.
+     * This is editor-only: the front end and saved-empty paragraphs keep the
+     * authored rule exactly as written.
+     *
+     * @return list<string>
+     */
+    private static function focusedEmptyRichTextRepairRules(string $projectedAuthorCss): array
+    {
+        if ( ! str_contains($projectedAuthorCss, ':empty') ) {
+            return array();
+        }
+        $rules = array();
+        ( new CssStylesheetTransformer() )->visitStyleRules(
+            $projectedAuthorCss,
+            static function (string $prelude, string $body, array $ancestors) use (&$rules): void {
+                if ( ! str_contains($prelude, ':empty') ) {
+                    return;
+                }
+                $display = strtolower(trim((string) (SourceDeclarations::parse($body)['display'] ?? '')));
+                if ( 'none' !== trim((string) preg_replace('/\s*!\s*important$/', '', $display)) ) {
+                    return;
+                }
+                $selectors = array();
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $selector = trim($selector);
+                    if ( str_contains($selector, '::') || str_contains($selector, '.editor-styles-wrapper') || 1 === preg_match('/:(?:before|after|first-line|first-letter)(?![\w-])/i', $selector) ) {
+                        continue;
+                    }
+                    $offset = null;
+                    if ( preg_match_all('/:empty(?![\w-])/', $selector, $matches, PREG_OFFSET_CAPTURE) ) {
+                        $offset = (int) end($matches[0])[1];
+                    }
+                    if ( null === $offset ) {
+                        continue;
+                    }
+                    // The empty compound must be the rule's subject, outside any
+                    // functional pseudo-class (`:not(:empty)`, `:has(:empty)`).
+                    $before = substr($selector, 0, $offset);
+                    $after = (string) preg_replace('/\([^()]*\)/', '', (string) preg_replace('/\([^()]*\)/', '', substr($selector, $offset + 6)));
+                    if ( substr_count($before, '(') !== substr_count($before, ')') || 1 === preg_match('/[\s>+~]/', $after) ) {
+                        continue;
+                    }
+                    $selectors[] = $before . ':focus:is(:empty,[data-empty="true"])[contenteditable="true"]' . substr($selector, $offset + 6);
+                }
+                if ( array() === $selectors ) {
+                    return;
+                }
+                $rule = ':root .editor-styles-wrapper :is(' . implode(',', $selectors) . '){display:revert!important}';
+                foreach ( array_reverse($ancestors) as $ancestor ) {
+                    $rule = $ancestor . '{' . $rule . '}';
+                }
+                $rules[$rule] = $rule;
+            }
+        );
+
+        return array_values($rules);
     }
 
     private function editorAnchorProjectionCss(string $projectedAuthorCss = ''): string

@@ -79,6 +79,22 @@ $cases = array(
     'clamp() lifts' => array(
         'h1{font-size:clamp(10px,5.2vw,100px)}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:clamp(10px,5.2vw,100px)'), array('font-size:75px'),
     ),
+    // imb-culinary-craft hero: a rem-bounded clamp() with a unitless line
+    // height; the 768px width between captures must follow the author.
+    'rem bounds lift in root pixels with a unitless line height' => array(
+        'h1{font-size:clamp(2.5rem,5vw,4.5rem);line-height:1.05}', array('n6.font-size' => array('72px', '40px'), 'n6.line-height' => array('75.6px', '42px')),
+        array('font-size:clamp(40px,5vw,72px)', 'line-height:1.05'), array('font-size:72px', 'font-size:40px', 'line-height:75.6px', 'rem'),
+    ),
+    'rem resolves against the author root font size' => array(
+        'html{font-size:62.5%}h1{font-size:clamp(4rem,5vw,7.2rem)}', array('n6.font-size' => array('72px', '40px')),
+        array('font-size:clamp(40px,5vw,72px)'), array('font-size:72px'),
+    ),
+    'a rem clamp not reproducing a capture stays in pixels' => array(
+        'h1{font-size:clamp(2.5rem,5vw,4.5rem)}', array('n6.font-size' => array('72px', '30px')), array('font-size:72px', 'font-size:30px'), array('clamp('),
+    ),
+    'an invariant unitless line height stays in pixels' => array(
+        'h1{font-size:5.2vw;line-height:1.5}', array('n6.font-size' => array('20px', '20px'), 'n6.line-height' => array('30px', '30px')), array('30px'), array('line-height:1.5'),
+    ),
     'custom-property math lifts with every var() expanded' => array(
         ':root{--scale:100vw;--scrollbar:0px}h1{font-size:max(0.5px, 0.0410256 * (var(--scale) - var(--scrollbar)))}',
         array('n6.font-size' => array('59.077px', '16.492px')), array('font-size:max(0.5px, 0.0410256 * (100vw - 0px))'), array('var(--scale)', 'var(--scrollbar)'),
@@ -145,14 +161,161 @@ $cases = array(
         array('n5.font-size' => array('270px', '75.375px'), 'n6.font-size' => array('270px', '75.375px')),
         array('font-size:270px', 'font-size:75.375px'), array('font-size:inherit'),
     ),
+    // Slice 3b part 2: sizing the author left intrinsic stays intrinsic.
+    'an auto-width block keeps no captured width' => array(
+        'h1{width:auto}', array('n6.width' => array('1440px', '402px')), array('h1 ;width:auto'), array('width:1440px', 'width:402px'),
+    ),
+    'an absent width restates the initial keyword' => array(
+        'h1{color:red}', array('n6.width' => array('1440px', '402px'), 'n6.height' => array('80px', '120px')),
+        array('h1 ;width:auto', 'h1 ;height:auto'), array('width:1440px', 'width:402px', 'height:80px', 'height:120px'),
+    ),
+    'an intrinsic sizing keyword lifts as written' => array(
+        'h1{width:fit-content;max-width:none}', array('n6.width' => array('300px', '200px')), array('width:fit-content'), array('width:300px', 'width:200px'),
+    ),
+    'a declared width keeps its pixels' => array(
+        'h1{width:300px}', array('n6.width' => array('300px', '300px')), array('h1 ;width:300px'), array('h1 ;width:auto'),
+    ),
+    'a width a query sets between captures keeps its pixels' => array(
+        'h1{width:auto}@media (max-width:500px){h1{width:300px}}', array('n6.width' => array('1440px', '300px')),
+        array('width:1440px', 'width:300px'), array('h1 ;width:auto'),
+    ),
+    'a logical size alias keeps its pixels' => array(
+        'h1{inline-size:300px}', array('n6.width' => array('300px', '300px')), array('h1 ;width:300px'), array('h1 ;width:auto'),
+    ),
+    'a flex shorthand basis keeps its pixels' => array(
+        'main{display:flex}h1{flex:0 0 300px}',
+        array('n5.display' => array('flex', 'flex'), 'n6.flex-basis' => array('300px', '300px')), array('h1 ;flex-basis:300px'), array('h1 ;flex-basis:auto'),
+    ),
+    'a track list sized by fr and auto lifts as written' => array(
+        'main{display:grid;grid-template-columns:minmax(0px,1fr);grid-template-rows:auto auto}',
+        array('n5.display' => array('grid', 'grid'), 'n5.grid-template-columns' => array('1440px', '402px'), 'n5.grid-template-rows' => array('40px 20px', '60px 30px')),
+        array('grid-template-columns:minmax(0px,1fr)', 'grid-template-rows:auto auto'), array('grid-template-columns:1440px', 'grid-template-columns:402px', 'grid-template-rows:40px'),
+    ),
+    'a percentage track list lifts as written' => array(
+        'main{display:grid;grid-template-columns:50% 50%}',
+        array('n5.display' => array('grid', 'grid'), 'n5.grid-template-columns' => array('720px 720px', '201px 201px')),
+        array('grid-template-columns:50% 50%'), array('grid-template-columns:720px 720px', 'grid-template-columns:201px 201px'),
+    ),
+    'a fixed-length track list keeps its pixels' => array(
+        'main{display:grid;grid-template-columns:100px 200px}',
+        array('n5.display' => array('grid', 'grid'), 'n5.grid-template-columns' => array('100px 200px', '100px 200px')),
+        array('grid-template-columns:100px 200px'), array('grid-template-columns:none'),
+    ),
+    'a minmax track list behind var() lifts with every var() expanded' => array(
+        ':root{--scale:100vw;--scrollbar:0px}main{display:grid;grid-template-rows:minmax(max(0.5px, 0.29 * (var(--scale) - var(--scrollbar))), auto) minmax(0px, auto)}',
+        array('n5.display' => array('grid', 'grid'), 'n5.grid-template-rows' => array('418.047px 285.469px', '300px 200px')),
+        array('grid-template-rows:minmax(max(0.5px, 0.29 * (100vw - 0px)), auto) minmax(0px, auto)'),
+        array('grid-template-rows:418.047px', 'grid-template-rows:300px', 'var(--scale)'),
+    ),
+    'an absent grid-auto-rows restates the initial keyword' => array(
+        'main{display:grid}',
+        array('n5.display' => array('grid', 'grid'), 'n5.grid-auto-rows' => array('40px', '60px')),
+        array('grid-auto-rows:auto'), array('grid-auto-rows:40px', 'grid-auto-rows:60px'),
+    ),
+    'an in-flow % height lifts as written' => array(
+        'h1{height:100%}', array('n6.height' => array('703.516px', '615.875px')),
+        array('h1 ;height:100%'), array('height:703.516px', 'height:615.875px'),
+    ),
+    'a declared pixel height keeps its pixels' => array(
+        'h1{height:120px}', array('n6.height' => array('120px', '120px')), array('h1 ;height:120px'), array('h1 ;height:auto'),
+    ),
+    // Percentages resolve against the CSS containing block.
+    // n8 is a display:contents wrapper between <main> and the <h1>.
+    'a % width under a display:contents parent lifts against the grandparent' => array(
+        'h1{width:50%}',
+        array('n8.display' => array('contents', 'contents'), 'n8.width' => array('auto', 'auto'), 'n5.width' => array('200px', '100px'), 'n6.width' => array('100px', '50px')),
+        array('width:50%'), array('width:100px', 'width:50px'), true,
+    ),
+    'a % width under a display:contents parent not matching the grandparent keeps pixels' => array(
+        'h1{width:50%}',
+        array('n8.display' => array('contents', 'contents'), 'n5.width' => array('300px', '100px'), 'n6.width' => array('100px', '50px')),
+        array('width:100px', 'width:50px'), array('width:50%'), true,
+    ),
+    'a % width against a border-box parent uses its content box' => array(
+        'h1{width:50%}',
+        array('n5.box-sizing' => array('border-box', 'border-box'), 'n5.width' => array('220px', '120px'), 'n5.padding-left' => array('10px', '10px'),
+            'n5.padding-right' => array('10px', '10px'), 'n5.padding-top' => array('0px', '0px'), 'n5.padding-bottom' => array('0px', '0px'),
+            'n6.width' => array('100px', '50px')),
+        array('width:50%'), array('width:100px', 'width:50px'),
+    ),
+    'a left:50% absolute box lifts against the positioned ancestor padding box' => array(
+        'main{position:relative}h1{position:absolute;left:50%;top:50%}',
+        array('n5.position' => array('relative', 'relative'), 'n5.width' => array('200px', '100px'), 'n5.height' => array('50px', '30px'),
+            'n5.padding-left' => array('10px', '10px'), 'n5.padding-right' => array('10px', '10px'), 'n5.padding-top' => array('0px', '0px'), 'n5.padding-bottom' => array('0px', '0px'),
+            'n6.position' => array('absolute', 'absolute'), 'n6.left' => array('110px', '60px'), 'n6.top' => array('25px', '15px'),
+            'n6.right' => array('110px', '60px'), 'n6.bottom' => array('25px', '15px')),
+        // The four offsets fold into one inset shorthand, in top/right/bottom/left order.
+        array('h1 inset:50% auto auto 50%'), array('h1 110px', 'h1 60px', 'h1 25px', 'h1 15px'),
+    ),
+    'a calc(% - px) offset lifts through the inset shorthand' => array(
+        'main{position:relative}h1{position:absolute;inset:0 auto auto calc(50% - 24px)}',
+        array('n5.position' => array('relative', 'relative'), 'n5.width' => array('200px', '100px'), 'n5.height' => array('50px', '30px'),
+            'n5.padding-left' => array('0px', '0px'), 'n5.padding-right' => array('0px', '0px'), 'n5.padding-top' => array('0px', '0px'), 'n5.padding-bottom' => array('0px', '0px'),
+            'n6.position' => array('absolute', 'absolute'), 'n6.left' => array('76px', '26px')),
+        array('left:calc(50% - 24px)'), array('left:76px', 'left:26px'),
+    ),
+    'an absolute offset not matching the containing block keeps pixels' => array(
+        'main{position:relative}h1{position:absolute;left:50%}',
+        array('n5.position' => array('relative', 'relative'), 'n5.width' => array('200px', '100px'), 'n5.height' => array('50px', '30px'),
+            'n5.padding-left' => array('10px', '10px'), 'n5.padding-right' => array('10px', '10px'), 'n5.padding-top' => array('0px', '0px'), 'n5.padding-bottom' => array('0px', '0px'),
+            'n6.position' => array('absolute', 'absolute'), 'n6.left' => array('100px', '50px')),
+        array('left:100px', 'left:50px'), array('left:50%'),
+    ),
+    'an absolute box with no positioned ancestor lifts against the viewport' => array(
+        'h1{position:absolute;left:50%}',
+        array('n6.position' => array('absolute', 'absolute'), 'n6.left' => array('720px', '201px')),
+        array('left:50%'), array('left:720px', 'left:201px'),
+    ),
+    // Box-model percentages resolve against the containing block width, in their author @media context.
+    'a % margin an author query switches lifts in its author band' => array(
+        'h1{margin-left:38.188%}@media screen and (max-width:1023px){h1{margin-left:6.1538%}}',
+        array('n5.width' => array('1440px', '402px'), 'n6.margin-left' => array('549.907px', '24.738px')),
+        array('h1 ;margin-left:38.188%', '@media (max-width:1023px){', 'margin-left:6.1538%'), array('margin-left:549.907px', 'margin-left:24.738px'),
+    ),
+    'a vertical % padding resolves against the containing block width' => array(
+        'h1{padding-top:5%}', array('n5.width' => array('200px', '100px'), 'n6.padding-top' => array('10px', '5px')),
+        array('padding-top:5%'), array('padding-top:10px', 'padding-top:5px'),
+    ),
+    'a % margin not matching the containing block keeps pixels' => array(
+        'h1{margin-left:10%}', array('n5.width' => array('200px', '100px'), 'n6.margin-left' => array('30px', '10px')),
+        array('margin-left:30px', 'margin-left:10px'), array('margin-left:10%'),
+    ),
+    'an auto margin restates auto' => array(
+        'h1{margin:0 auto}', array('n6.margin-left' => array('570px', '51px'), 'n6.margin-right' => array('570px', '51px')),
+        array('h1 ;margin-left:auto', 'h1 ;margin-right:auto'), array('margin-left:570px', 'margin-left:51px'),
+    ),
+    'an absent margin keeps its pixels' => array(
+        'h1{color:red}', array('n6.margin-left' => array('20px', '10px')), array('margin-left:20px', 'margin-left:10px'), array('margin-left:auto'),
+    ),
+    'a % column gap through the gap shorthand lifts against the own content box' => array(
+        'main{display:flex;gap:0 10%}',
+        array('n5.display' => array('flex', 'flex'), 'n5.width' => array('1000px', '400px'), 'n5.column-gap' => array('100px', '40px')),
+        array('gap:none 10%'), array('column-gap:100px', 'column-gap:40px', 'gap:none 100px', 'gap:none 40px'),
+    ),
 );
-foreach ($cases as $name => [$author, $observed, $present, $absent]) {
-    $output = fluid_carrier_output($html, $tree, $author, $observed);
+/** The heading's carrier rules: needles prefixed `h1 ` are matched there only. */
+function fluid_heading_carrier(string $output): string
+{
+    if (!preg_match('/<h1 class="[^"]*\b(be-inline-geometry-[0-9a-f]+)/', $output, $match)) return '';
+    return implode("\n", array_filter(explode("\n", $output), static fn(string $line): bool => str_contains($line, '.' . $match[1] . '.')));
+}
+$wrappedHtml = str_replace(array('<h1 ', '</h1>'), array('<div data-blocks-engine-node-id="n8"><h1 ', '</h1></div>'), $html);
+$wrappedTree = $tree;
+$wrappedTree['nodes']['n8'] = $tree['nodes']['n6'];
+$wrappedTree['nodes']['n8']['children'] = array('n6');
+$wrappedTree['nodes']['n5']['children'] = array('n8', 'n7');
+foreach ($cases as $name => $case) {
+    [$author, $observed, $present, $absent] = $case;
+    $wrapped = $case[4] ?? false;
+    $output = fluid_carrier_output($wrapped ? $wrappedHtml : $html, $wrapped ? $wrappedTree : $tree, $author, $observed);
+    $heading = fluid_heading_carrier($output);
     foreach ($present as $needle) {
-        if (!str_contains($output, $needle)) throw new RuntimeException($name . ': missing ' . $needle . "\n" . $output);
+        $haystack = str_starts_with($needle, 'h1 ') ? $heading : $output;
+        if (!str_contains($haystack, preg_replace('/^h1 /', '', $needle))) throw new RuntimeException($name . ': missing ' . $needle . "\n" . $output);
     }
     foreach ($absent as $needle) {
-        if (str_contains($output, $needle)) throw new RuntimeException($name . ': unexpected ' . $needle . "\n" . $output);
+        $haystack = str_starts_with($needle, 'h1 ') ? $heading : $output;
+        if (str_contains($haystack, preg_replace('/^h1 /', '', $needle))) throw new RuntimeException($name . ': unexpected ' . $needle . "\n" . $output);
     }
     echo 'PASS: ' . $name . "\n";
 }

@@ -35,21 +35,7 @@ final class BoxTreeStyleProjector
             $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
-        // Author intent proven at every capture (BoxTreeFluidIntent) replaces
-        // the frozen pixels in every capture, so it needs no capture delta;
-        // where the author switches it, its bands follow the author's own
-        // breakpoints. Do not resurrect properties pruned at any viewport.
-        $bands = array();
-        foreach ($fluid as $property => $propertyBands) {
-            if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
-            foreach ($keys as $key) {
-                if (!isset($declarations[$key][$property])) continue 2;
-            }
-            foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
-            foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
-                $bands[self::width((float) $maxWidth)][$property] = $value;
-            }
-        }
+        $bands = $this->liftFluid($declarations, $keys, $fluid);
         $baseKey = $keys[0];
         $base = $declarations[$baseKey];
         $mapper = new StyleAttributeMapper();
@@ -74,14 +60,89 @@ final class BoxTreeStyleProjector
         $consumed = SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
-        $css = $this->rule(self::SELECTOR, array_diff_key($base, $consumed));
-        $effective = $base;
+        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true);
+        $class = $this->carrier($css, $state);
+        if ('' === $class) return $attrs;
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
+        return $attrs;
+    }
+
+    /**
+     * Restyle an inline element inside RichText, which has no block
+     * attributes: its observed typography that differs from its source
+     * parent's goes entirely to a carrier class. A value equal to the
+     * parent's is left to inheritance, so a lifted fluid block value keeps
+     * reaching it between captures.
+     *
+     * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
+     * @return string The carrier class, or '' when the inline inherits everything observed.
+     */
+    public function inlineCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, array $fluid = array()): string
+    {
+        $properties = array_flip(self::INLINE_TYPOGRAPHY);
+        $typography = array();
+        foreach ($observations as $key => $observation) {
+            if (!isset($viewports[$key]['width']) || !is_array($observation['used_styles'] ?? null)) continue;
+            $typography[$key] = array('used_styles' => array_intersect_key($observation['used_styles'], $properties));
+        }
+        if (array() === $typography) return '';
+        $keys = array_keys($typography);
+        usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
+        $status = array();
+        $declarations = array();
+        foreach ($keys as $key) {
+            $parent = $parents[$key]['used_styles'] ?? null;
+            $status[$key] = $this->pruner->classify($typography[$key]['used_styles'], is_array($parent) ? $parent : null);
+            $declarations[$key] = $this->kept($typography[$key]['used_styles'], $status[$key]);
+        }
+        $bands = $this->liftFluid($declarations, $keys, array_intersect_key($fluid, $properties));
+        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $typography, $viewports, $bands, false), $state);
+    }
+
+    /**
+     * Inherited typography an inline can set apart from its block. Color
+     * stays with the link and state styles that already own it.
+     */
+    private const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
+
+    /**
+     * Author intent proven at every capture (BoxTreeFluidIntent) replaces
+     * the frozen pixels in every capture, so it needs no capture delta;
+     * where the author switches it, its bands follow the author's own
+     * breakpoints. Do not resurrect properties pruned at any viewport.
+     *
+     * @param array<string, array<string, string>> $declarations Kept declarations by viewport key, updated in place.
+     * @param list<string> $keys Viewport keys, widest first.
+     * @return array<string, array<string, string>> Band declarations by max-width.
+     */
+    private function liftFluid(array &$declarations, array $keys, array $fluid): array
+    {
+        $bands = array();
+        foreach ($fluid as $property => $propertyBands) {
+            if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
+            foreach ($keys as $key) {
+                if (!isset($declarations[$key][$property])) continue 2;
+            }
+            foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
+            foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
+                $bands[self::width((float) $maxWidth)][$property] = $value;
+            }
+        }
+        return $bands;
+    }
+
+    /** The base rule, then each narrower capture's delta, then the lifted bands. */
+    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos): string
+    {
+        $baseKey = $keys[0];
+        $css = $this->rule(self::SELECTOR, $base);
+        $effective = $declarations[$baseKey];
         $pseudoEffective = array();
-        $css .= $this->pseudoRules($observations[$baseKey], $pseudoEffective);
+        if ($pseudos) $css .= $this->pseudoRules($observations[$baseKey], $pseudoEffective);
         foreach (array_slice($keys, 1) as $key) {
             $delta = $this->delta($effective, $declarations[$key], $status[$key], $observations[$key]['used_styles']);
             $effective = array_replace($effective, $delta);
-            $pseudo = $this->pseudoRules($observations[$key], $pseudoEffective);
+            $pseudo = $pseudos ? $this->pseudoRules($observations[$key], $pseudoEffective) : '';
             if (array() === $delta && '' === $pseudo) continue;
             $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule(self::SELECTOR, $delta) . $pseudo . '}';
         }
@@ -90,13 +151,17 @@ final class BoxTreeStyleProjector
         foreach ($bands as $maxWidth => $declared) {
             $css .= '@media (max-width:' . $maxWidth . 'px){' . $this->rule(self::SELECTOR, $declared) . '}';
         }
-        if ('' === $css) return $attrs;
-        // One carrier per distinct declaration set, not per source node.
+        return $css;
+    }
+
+    /** Register one carrier per distinct declaration set, not per source node. */
+    private function carrier(string $css, LayoutGeometryState $state): string
+    {
+        if ('' === $css) return '';
         $class = $state->allocateCarrier('box-tree:' . $css);
         // Outrank core block/layout selectors without defeating editor inline styles.
         $state->registerRule($class, str_replace(self::SELECTOR, '.' . $class . '.' . $class, $css));
-        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
-        return $attrs;
+        return $class;
     }
 
     /**
@@ -169,7 +234,7 @@ final class BoxTreeStyleProjector
     private function rule(string $selector, array $styles): string
     {
         $declarations = array();
-        foreach (self::withUniformBorder($styles) as $name => $value) {
+        foreach (self::withSideShorthands(self::withUniformBorder($styles)) as $name => $value) {
             // Evidence is external input, not trusted stylesheet syntax.
             if (preg_match('/[{};<>]/', $value) || str_contains($value, '/*')) continue;
             $declarations[] = $name . ':' . $value;
@@ -213,6 +278,93 @@ final class BoxTreeStyleProjector
             }
         }
         return $folded;
+    }
+
+    /**
+     * Longhand families evidence records per side or axis, and the shorthand
+     * that sets exactly that family: shorthand => [longhands in shorthand
+     * order, value form, pattern of properties whose order relative to the
+     * family matters].
+     */
+    private const SIDE_SHORTHANDS = array(
+        'margin' => array(array('margin-top', 'margin-right', 'margin-bottom', 'margin-left'), 'box', '/^margin/'),
+        'padding' => array(array('padding-top', 'padding-right', 'padding-bottom', 'padding-left'), 'box', '/^padding/'),
+        'inset' => array(array('top', 'right', 'bottom', 'left'), 'box', '/^(?:inset|top|right|bottom|left)(?:-|$)/'),
+        'gap' => array(array('row-gap', 'column-gap'), 'pair', '/^(?:grid-)?(?:row-|column-)?gap$/'),
+        'overflow' => array(array('overflow-x', 'overflow-y'), 'pair', '/^overflow(?:-|$)/'),
+        'place-self' => array(array('align-self', 'justify-self'), 'pair', '/^(?:place|align|justify)-self$/'),
+        'grid-row' => array(array('grid-row-start', 'grid-row-end'), 'slash', '/^grid(?:-row|-area)?(?:-start|-end)?$/'),
+        'grid-column' => array(array('grid-column-start', 'grid-column-end'), 'slash', '/^grid(?:-column|-area)?(?:-start|-end)?$/'),
+    );
+
+    /**
+     * Evidence records every side and axis as its own longhand, so a carrier
+     * restates `margin-top`, `margin-right`, ... where one shorthand sets the
+     * same longhands. A family present in full folds into its shorthand at
+     * the first longhand's place; the declarations it sets are exactly the
+     * folded ones, so the cascade is unchanged. A family stays as longhands
+     * when it is partial, when the shorthand is already declared, when a
+     * property it overlaps sits between its longhands (its relative order
+     * would change), or when a value could not be a shorthand component: a
+     * CSS-wide keyword, a substitution that may expand to several tokens, a
+     * multi-token value, or an `!important`.
+     *
+     * @param array<string, string> $styles
+     * @return array<string, string>
+     */
+    private static function withSideShorthands(array $styles): array
+    {
+        foreach (self::SIDE_SHORTHANDS as $shorthand => [$longhands, $form, $overlap]) {
+            if (isset($styles[$shorthand])) continue;
+            $values = array();
+            foreach ($longhands as $longhand) {
+                $value = $styles[$longhand] ?? null;
+                if (null === $value || !self::isShorthandComponent($value, 'slash' !== $form)) continue 2;
+                $values[] = trim($value);
+            }
+            $names = array_keys($styles);
+            $positions = array_map(static fn(string $longhand): int => (int) array_search($longhand, $names, true), $longhands);
+            $first = min($positions);
+            foreach (array_slice($names, $first, max($positions) - $first + 1) as $name) {
+                if (!in_array($name, $longhands, true) && 1 === preg_match($overlap, $name)) continue 2;
+            }
+            $folded = array();
+            foreach ($styles as $name => $declared) {
+                if ($names[$first] === $name) $folded[$shorthand] = self::shorthandValue($values, $form);
+                elseif (!in_array($name, $longhands, true)) $folded[$name] = $declared;
+            }
+            $styles = $folded;
+        }
+        return $styles;
+    }
+
+    /** Whether a longhand value can stand as one component of its shorthand. */
+    private static function isShorthandComponent(string $value, bool $singleToken): bool
+    {
+        $value = trim($value);
+        if ('' === $value || str_contains($value, '!') || str_contains($value, '/')) return false;
+        if (in_array(strtolower($value), array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) return false;
+        if (1 === preg_match('/\b(?:var|env|attr)\(/i', $value)) return false;
+        // Outside parentheses a component is one token (a grid line like
+        // `span 2` is the exception the slash form keeps apart).
+        $depth = 0;
+        foreach (str_split($value) as $char) {
+            if ('(' === $char) ++$depth;
+            elseif (')' === $char) --$depth;
+            elseif (0 === $depth && ctype_space($char) && $singleToken) return false;
+        }
+        return 0 === $depth;
+    }
+
+    /** @param list<string> $values Longhand values in shorthand order. */
+    private static function shorthandValue(array $values, string $form): string
+    {
+        if ('slash' === $form) return $values[0] . ' / ' . $values[1];
+        if ('pair' === $form) return $values[0] === $values[1] ? $values[0] : $values[0] . ' ' . $values[1];
+        [$top, $right, $bottom, $left] = $values;
+        if ($right !== $left) return implode(' ', $values);
+        if ($top !== $bottom) return $top . ' ' . $right . ' ' . $bottom;
+        return $top === $right ? $top : $top . ' ' . $right;
     }
 
     /** @return array{0:string,1:string,2:string}|null Width, style and color of a side border value. */
