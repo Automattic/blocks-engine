@@ -79,7 +79,7 @@ final class EngineSupportCss
             // including when core/image inserts an anchor around the image.
             $parts[] = ':where(figure.blocks-engine-image > img,figure.blocks-engine-image > a > img){max-width:100%}';
         }
-        if ( str_contains($serializedBlocks, 'be-stacking-order-') && str_contains($serializedBlocks, 'wp-block-image') ) {
+        if (str_contains($serializedBlocks, 'be-stacking-order-') && str_contains($serializedBlocks, 'wp-block-image')) {
             // Captured stacked slides retain their paint order on the front end.
             // In the editor every slide is editable: absolute siblings must not
             // cover one another, and a caption overlay must not take the image's
