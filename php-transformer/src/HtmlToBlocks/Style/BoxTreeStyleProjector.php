@@ -41,11 +41,17 @@ final class BoxTreeStyleProjector
         // container, so widths between captures follow it instead of the
         // nearest frozen capture. Such properties stay on the carrier: an
         // inline block attribute would outrank every narrower capture's rule.
+        // A value observed identically at every capture cannot leak a wrong
+        // size between them, so it keeps its frozen value: restating it would
+        // restyle boxes the container never resized. The pixel max-width that
+        // bounds auto side margins is the exception: it must sit on the
+        // carrier beside them, or the centred box loses its bound.
         $carrierOnly = array();
         foreach ($flow as $key => $values) {
             if (!isset($declarations[$key])) continue;
             foreach ($values as $property => $value) {
                 if (!isset($declarations[$key][$property])) continue;
+                if ('max-width' !== $property && self::observedInvariant($observations, $keys, $property)) continue;
                 $declarations[$key][$property] = $value;
                 $carrierOnly[$property] = true;
             }
@@ -113,6 +119,17 @@ final class BoxTreeStyleProjector
         $state->registerRule($class, str_replace(self::SELECTOR, '.' . $class . '.' . $class, $css));
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
+    }
+
+    /** Whether two or more captures all observed the same value for the property. */
+    private static function observedInvariant(array $observations, array $keys, string $property): bool
+    {
+        if (count($keys) < 2) return false;
+        $first = $observations[$keys[0]]['used_styles'][$property] ?? null;
+        foreach ($keys as $key) {
+            if (($observations[$key]['used_styles'][$property] ?? null) !== $first) return false;
+        }
+        return true;
     }
 
     /**

@@ -67,4 +67,16 @@ $observed['n7']['desktop'] = $item(740, 300);
 $css = flow_sizing_css($html, $tree, $observed);
 flow_sizing_assert((bool) preg_match('/(?<![\w-])width:300px/', $css), 'A width the container did not decide keeps its pixels', $css);
 
+// Only what varies between captures can leak a wrong size between them. A
+// fixed-width <main> whose <h1> fills it at the same 600px at every capture
+// was never resized by its container: its width stays frozen, untouched.
+$fixed = array_replace($block, array('width' => '600px'));
+$fixedObserved = array(
+    'n4' => $observed['n4'],
+    'n5' => array('desktop' => array(array('x' => 0, 'width' => 600), $fixed), 'mobile' => array(array('x' => 0, 'width' => 600), $fixed)),
+    'n6' => array('desktop' => array(array('x' => 0, 'width' => 600), $fixed + array('color' => 'rgb(1, 2, 3)')), 'mobile' => array(array('x' => 0, 'width' => 600), $fixed + array('color' => 'rgb(1, 2, 3)'))),
+);
+$css = flow_sizing_css($html, $tree, $fixedObserved);
+flow_sizing_assert(!str_contains($css, 'width:auto') && (bool) preg_match('/(?<![\w-])width:600px/', $css), 'A fill observed identically at every capture keeps its frozen width', $css);
+
 echo "Box-tree flow sizing contract passed\n";
