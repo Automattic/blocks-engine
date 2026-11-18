@@ -32,7 +32,15 @@ $compile = static function (string $content): array {
     $tree = array('schema' => BoxTree::SCHEMA, 'viewports' => array('desktop' => array('width' => 1440, 'height' => 900)), 'nodes' => $nodes, 'source_path' => 'index.html', 'source_hash' => hash('sha256', $html));
     return (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html, 'box-tree/index.json' => json_encode($tree))))->toArray();
 };
-foreach (array('<span class="mark">IMB</span><span class="label">Catering</span>' => true, 'Book Now' => false, '<span class="label">Book Now</span>' => false) as $content => $needsContext) {
+foreach (array(
+    '<span class="mark">IMB</span><span class="label">Catering</span>' => true,
+    'Book Now' => false,
+    '<span class="label">Book Now</span>' => false,
+    // Decorative children do not create a second text item, and nested
+    // phrasing inside one label does not make separate flex items.
+    '<span class="icon" aria-hidden="true"></span><span class="label">Book Now</span>' => false,
+    '<span class="label"><strong>Book</strong> <em>Now</em></span>' => false,
+) as $content => $needsContext) {
     $result = $compile($content);
     if (!str_contains($result['serialized_blocks'], 'wp-block-button__link')) throw new RuntimeException('Expected native button for ' . $content);
     if (array_filter($result['diagnostics'], static fn(array $row): bool => str_starts_with($row['code'], 'box_tree_'))) throw new RuntimeException(json_encode($result['diagnostics']));
