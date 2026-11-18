@@ -79,22 +79,6 @@ $cases = array(
     'clamp() lifts' => array(
         'h1{font-size:clamp(10px,5.2vw,100px)}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:clamp(10px,5.2vw,100px)'), array('font-size:75px'),
     ),
-    // imb-culinary-craft hero: a rem-bounded clamp() with a unitless line
-    // height; the 768px width between captures must follow the author.
-    'rem bounds lift in root pixels with a unitless line height' => array(
-        'h1{font-size:clamp(2.5rem,5vw,4.5rem);line-height:1.05}', array('n6.font-size' => array('72px', '40px'), 'n6.line-height' => array('75.6px', '42px')),
-        array('font-size:clamp(40px,5vw,72px)', 'line-height:1.05'), array('font-size:72px', 'font-size:40px', 'line-height:75.6px', 'rem'),
-    ),
-    'rem resolves against the author root font size' => array(
-        'html{font-size:62.5%}h1{font-size:clamp(4rem,5vw,7.2rem)}', array('n6.font-size' => array('72px', '40px')),
-        array('font-size:clamp(40px,5vw,72px)'), array('font-size:72px'),
-    ),
-    'a rem clamp not reproducing a capture stays in pixels' => array(
-        'h1{font-size:clamp(2.5rem,5vw,4.5rem)}', array('n6.font-size' => array('72px', '30px')), array('font-size:72px', 'font-size:30px'), array('clamp('),
-    ),
-    'an invariant unitless line height stays in pixels' => array(
-        'h1{font-size:5.2vw;line-height:1.5}', array('n6.font-size' => array('20px', '20px'), 'n6.line-height' => array('30px', '30px')), array('30px'), array('line-height:1.5'),
-    ),
     'custom-property math lifts with every var() expanded' => array(
         ':root{--scale:100vw;--scrollbar:0px}h1{font-size:max(0.5px, 0.0410256 * (var(--scale) - var(--scrollbar)))}',
         array('n6.font-size' => array('59.077px', '16.492px')), array('font-size:max(0.5px, 0.0410256 * (100vw - 0px))'), array('var(--scale)', 'var(--scrollbar)'),

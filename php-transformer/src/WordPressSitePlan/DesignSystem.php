@@ -119,6 +119,10 @@ final class DesignSystem
      * ranking (see the class comment). It never decides what binds.
      */
     public const COLOR_CONSOLIDATION_DISTANCE = 5.0;
+
+    /** Bound on memoized colorSlug() answers per instance. */
+    private const COLOR_SLUG_MEMO_LIMIT = 8192;
+
     /** Weight of one heading by level, before its size: a page title above section and entry titles. */
     public const HEADING_LEVEL_FACTOR = array(1 => 3, 2 => 2);
     /** Share of heading text a family other than the body's needs to be `heading`. */
@@ -163,6 +167,34 @@ final class DesignSystem
         public readonly array $literalColors = array(),
         public readonly array $buttonVariation = array(),
     ) {
+    }
+
+    /**
+     * Palette lookups built once per instance: the first token per painted
+     * hex, the first index per slug, and memoized colorSlug() answers. Every
+     * binding asks colorSlug() for each painted value, so a scan of the whole
+     * palette per question grows with palette size × values (both grow with
+     * the site); the index answers each in constant time with the same
+     * first-match result.
+     *
+     * @var array{hex:array<string,string>,slug:array<string,int>}|null
+     */
+    private ?array $colorIndex = null;
+
+    /** @var array<string,?string> */
+    private array $colorSlugs = array();
+
+    /** @return array{hex:array<string,string>,slug:array<string,int>} */
+    private function colorIndex(): array
+    {
+        if (null !== $this->colorIndex) return $this->colorIndex;
+        $hex = $slug = array();
+        foreach ($this->colors as $index => $color) {
+            $value = CssColor::hex($color['color']);
+            if (null !== $value && !isset($hex[$value])) $hex[$value] = $color['slug'];
+            if (!isset($slug[$color['slug']])) $slug[$color['slug']] = $index;
+        }
+        return $this->colorIndex = array('hex' => $hex, 'slug' => $slug);
     }
 
     /**
@@ -330,12 +362,9 @@ final class DesignSystem
     public function stylesheetColorSlug(string $value): ?string
     {
         $slug = $this->colorSlug($value);
-        foreach ($this->colors as $index => $color) {
-            if ($color['slug'] === $slug) {
-                return $index < self::PRIMARY_COLORS || 0 === $color['weight'] ? $slug : null;
-            }
-        }
-        return null;
+        $index = null === $slug ? null : ($this->colorIndex()['slug'][$slug] ?? null);
+        if (null === $index) return null;
+        return $index < self::PRIMARY_COLORS || 0 === $this->colors[$index]['weight'] ? $slug : null;
     }
 
     /**
@@ -348,22 +377,25 @@ final class DesignSystem
      */
     public function colorSlug(string $value): ?string
     {
+        if (array_key_exists($value, $this->colorSlugs)) return $this->colorSlugs[$value];
+        if (count($this->colorSlugs) >= self::COLOR_SLUG_MEMO_LIMIT) $this->colorSlugs = array();
+        return $this->colorSlugs[$value] = $this->resolveColorSlug($value);
+    }
+
+    private function resolveColorSlug(string $value): ?string
+    {
+        $index = $this->colorIndex();
         if (!CssColor::opaque($value)) {
             $tint = $this->translucentColor($value);
             if (null === $tint) {
                 $hex = CssColor::hex($value);
-                foreach ($this->colors as $color) {
-                    if (null !== $hex && $hex === CssColor::hex($color['color'])) return $color['slug'];
-                }
-                return null;
+                return null === $hex ? null : ($index['hex'][$hex] ?? null);
             }
             $slug = $tint['slug'] . '-alpha-' . $tint['percent'];
-            return in_array($slug, array_column($this->colors, 'slug'), true) ? $slug : null;
+            return isset($index['slug'][$slug]) ? $slug : null;
         }
         $hex = CssColor::hex($value);
-        if (null === $hex) return null;
-        foreach ($this->colors as $color) if ($hex === CssColor::hex($color['color'])) return $color['slug'];
-        return null;
+        return null === $hex ? null : ($index['hex'][$hex] ?? null);
     }
 
     /**
@@ -396,39 +428,48 @@ final class DesignSystem
      * fields are checked independently, including shape and spacing; matching
      * inherited typography and core's outline fill also establish ownership.
      *
+     * A button a provider materializes outside the markup (a form's submit
+     * rendered as `core/button`) is reached by the element the same way; it
+     * owns only the fields its stated presentation carries.
+     *
      * @param list<string> $markups Every page's block markup.
+     * @param list<array<string,mixed>> $providerButtons Block attributes of each button a provider materializes outside the markup.
      */
-    public function withButtonElementsOwnedBy(array $markups): self
+    public function withButtonElementsOwnedBy(array $markups, array $providerButtons = array()): self
     {
         if (!isset($this->elements['button'])) return $this;
         $dominant = isset($this->elements['button']['padding']) || isset($this->elements['button']['radius']);
         $owned = array('color' => true, 'background' => true, 'font_family' => true, 'font_size' => true, 'font_weight' => true);
+        $buttons = array();
         foreach ($markups as $markup) {
             if (!preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $matches)) continue;
             foreach ($matches[1] as $json) {
                 $attributes = '' === $json ? array() : json_decode($json, true);
-                if (!is_array($attributes)) $attributes = array();
-                $style = ArrayField::array($attributes, 'style');
-                $carried = array(
-                    'color' => isset($attributes['textColor']) || isset($style['color']['text']),
-                    'background' => isset($attributes['backgroundColor']) || isset($attributes['gradient']) || isset($style['color']['background']) || isset($style['color']['gradient']),
-                    'font_family' => isset($attributes['fontFamily']) || isset($style['typography']['fontFamily']),
-                    'font_size' => isset($attributes['fontSize']) || isset($style['typography']['fontSize']),
-                    'font_weight' => isset($style['typography']['fontWeight']),
-                );
-                if ($dominant) {
-                    // Missing ownership vetoes only this field, not the rest of
-                    // the dominant look. Matching inherited defaults are safe.
-                    $carried['font_family'] = $carried['font_family'] || self::familyKey((string) ($this->root['font_family'] ?? '')) === self::familyKey($this->elements['button']['font_family'] ?? '');
-                    $carried['font_weight'] = $carried['font_weight'] || '400' === ($this->elements['button']['font_weight'] ?? null);
-                    $carried['background'] = $carried['background'] || str_contains((string) ($attributes['className'] ?? ''), 'is-style-outline');
-                    $carried['radius'] = isset($style['border']['radius']);
-                    $carried['padding'] = isset($style['spacing']['padding']);
-                    $carried['text_transform'] = isset($style['typography']['textTransform']);
-                    $carried['letter_spacing'] = isset($style['typography']['letterSpacing']);
-                }
-                foreach ($carried as $field => $present) if (!$present) $owned[$field] = false;
+                $buttons[] = is_array($attributes) ? $attributes : array();
             }
+        }
+        foreach ($providerButtons as $attributes) $buttons[] = is_array($attributes) ? $attributes : array();
+        foreach ($buttons as $attributes) {
+            $style = ArrayField::array($attributes, 'style');
+            $carried = array(
+                'color' => isset($attributes['textColor']) || isset($style['color']['text']),
+                'background' => isset($attributes['backgroundColor']) || isset($attributes['gradient']) || isset($style['color']['background']) || isset($style['color']['gradient']),
+                'font_family' => isset($attributes['fontFamily']) || isset($style['typography']['fontFamily']),
+                'font_size' => isset($attributes['fontSize']) || isset($style['typography']['fontSize']),
+                'font_weight' => isset($style['typography']['fontWeight']),
+            );
+            if ($dominant) {
+                // Missing ownership vetoes only this field, not the rest of
+                // the dominant look. Matching inherited defaults are safe.
+                $carried['font_family'] = $carried['font_family'] || self::familyKey((string) ($this->root['font_family'] ?? '')) === self::familyKey($this->elements['button']['font_family'] ?? '');
+                $carried['font_weight'] = $carried['font_weight'] || '400' === ($this->elements['button']['font_weight'] ?? null);
+                $carried['background'] = $carried['background'] || str_contains((string) ($attributes['className'] ?? ''), 'is-style-outline');
+                $carried['radius'] = isset($style['border']['radius']);
+                $carried['padding'] = isset($style['spacing']['padding']);
+                $carried['text_transform'] = isset($style['typography']['textTransform']);
+                $carried['letter_spacing'] = isset($style['typography']['letterSpacing']);
+            }
+            foreach ($carried as $field => $present) if (!$present) $owned[$field] = false;
         }
         $button = $this->elements['button'];
         foreach ($owned as $field => $isOwned) if (!$isOwned) unset($button[$field]);
@@ -557,8 +598,8 @@ final class DesignSystem
     /** A palette colour's value by slug, or null. */
     public function color(string $slug): ?string
     {
-        foreach ($this->colors as $color) if ($slug === $color['slug']) return $color['color'];
-        return null;
+        $index = $this->colorIndex()['slug'][$slug] ?? null;
+        return null === $index ? null : $this->colors[$index]['color'];
     }
 
     /** Slug of the font size that renders an absolute length exactly, or null. */
@@ -896,17 +937,32 @@ final class DesignSystem
     {
         $colors = array_keys($weights);
         usort($colors, static fn(string $a, string $b): int => ($weights[$b] <=> $weights[$a]) ?: strcmp($a, $b));
-        $clusters = array();
+        // Each colour joins the first cluster (in creation order) whose lead
+        // is within COLOR_TOLERANCE. Leads are bucketed on a Lab grid of that
+        // cell size, so only the neighbouring cells can hold one: the first
+        // match is the lowest matching index among them, not a scan of every
+        // cluster.
+        $clusters = $labs = array();
+        $grid = new ColorGrid(self::COLOR_TOLERANCE);
         foreach ($colors as $color) {
-            foreach ($clusters as &$cluster) {
-                if ((CssColor::distance($color, $cluster['color']) ?? INF) <= self::COLOR_TOLERANCE) {
-                    $cluster['weight'] += $weights[$color];
-                    $cluster['members'][] = $color;
-                    continue 2;
+            $lab = CssColor::lab($color);
+            $first = null;
+            if (null !== $lab) {
+                foreach ($grid->near($lab) as $index) {
+                    if ((null === $first || $index < $first) && CssColor::labDistance($lab, $labs[$index]) <= self::COLOR_TOLERANCE) $first = $index;
                 }
             }
-            unset($cluster);
+            if (null !== $first) {
+                $clusters[$first]['weight'] += $weights[$color];
+                $clusters[$first]['members'][] = $color;
+                continue;
+            }
+            $index = count($clusters);
             $clusters[] = array('color' => $color, 'weight' => $weights[$color], 'members' => array($color));
+            if (null !== $lab) {
+                $labs[$index] = $lab;
+                $grid->add($index, $lab);
+            }
         }
         return $clusters;
     }
@@ -926,20 +982,33 @@ final class DesignSystem
      */
     public static function consolidateColors(array $clusters): array
     {
-        $kept = array();
+        // Kept colours never change, so they are bucketed on a Lab grid of
+        // COLOR_CONSOLIDATION_DISTANCE cells: only neighbouring cells can hold
+        // a candidate. Candidates are visited in kept order, so ties still
+        // go to the earliest kept cluster.
+        $kept = $labs = array();
+        $grid = new ColorGrid(self::COLOR_CONSOLIDATION_DISTANCE);
         foreach ($clusters as $cluster) {
             $nearest = null;
             $nearestDistance = INF;
-            foreach ($kept as $index => $candidate) {
-                if ($candidate['weight'] < $cluster['weight']) continue;
-                $distance = CssColor::distance($cluster['color'], $candidate['color']) ?? INF;
+            $lab = CssColor::lab($cluster['color']);
+            $candidates = null === $lab ? array() : $grid->near($lab);
+            sort($candidates);
+            foreach ($candidates as $index) {
+                if ($kept[$index]['weight'] < $cluster['weight']) continue;
+                $distance = CssColor::labDistance($lab, $labs[$index]);
                 if ($distance <= self::COLOR_CONSOLIDATION_DISTANCE && $distance < $nearestDistance) {
                     $nearest = $index;
                     $nearestDistance = $distance;
                 }
             }
             if (null === $nearest) {
+                $index = count($kept);
                 $kept[] = $cluster;
+                if (null !== $lab) {
+                    $labs[$index] = $lab;
+                    $grid->add($index, $lab);
+                }
                 continue;
             }
             $kept[$nearest]['weight'] += $cluster['weight'];

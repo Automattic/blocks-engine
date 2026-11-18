@@ -114,7 +114,7 @@ final class SitePlanRun
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
         $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
-        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups)->withBlockTypography($markups);
+        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups, self::providerSubmitButtons($runtimeDeclarations))->withBlockTypography($markups);
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
@@ -487,6 +487,29 @@ final class SitePlanRun
         }
         return array('pages' => $pages, 'assets' => $assets, 'taxonomy' => $taxonomyProjection, 'archive_sources' => $archiveSources);
     }
+    /**
+     * The `core/button` a form provider renders for each declared submit,
+     * which no page markup contains. Its stated presentation is the only
+     * style it carries; the theme button element reaches everything else.
+     *
+     * @param array<int,mixed> $runtimeDeclarations
+     * @return list<array<string,mixed>> Block attributes, one per submit.
+     */
+    private static function providerSubmitButtons(array $runtimeDeclarations): array
+    {
+        $buttons = array();
+        foreach ($runtimeDeclarations as $declaration) {
+            if (!is_array($declaration) || 'entity_collection' !== ($declaration['kind'] ?? null) || 'forms' !== ($declaration['type'] ?? null)) continue;
+            foreach (ArrayField::array(ArrayField::array($declaration, 'payload'), 'entities') as $form) {
+                foreach (is_array($form) ? ArrayField::array($form, 'controls') : array() as $control) {
+                    if (!is_array($control) || 'submit' !== ($control['type'] ?? null)) continue;
+                    $buttons[] = array('style' => ArrayField::array(ArrayField::array($control, 'presentation'), 'style'));
+                }
+            }
+        }
+        return $buttons;
+    }
+
     /**
      * Stylesheets take their final form: variant-scoped id selectors, no
      * rules for navigation instances the emitted markup never renders, preset

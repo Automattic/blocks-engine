@@ -1231,7 +1231,9 @@ final class SourceElementClassifier
             return null;
         }
 
-        if ( $this->hasCarouselIdentity($element) || $this->isCarouselList($element) ) {
+        if ( ( $this->hasCarouselIdentity($element) || $this->isCarouselList($element) )
+            && ! $this->isSlideshowLayoutContainer($element)
+        ) {
             return $element;
         }
 
@@ -1247,6 +1249,44 @@ final class SourceElementClassifier
         }
 
         return $this->slideshowCollectionRoot($contentChildren[0]);
+    }
+
+    /**
+     * A carousel-named element whose images all sit in one child while a
+     * sibling child carries authored content (a heading, text or a form) is a
+     * layout container around a slideshow, not the slideshow itself. Taking
+     * it as the collection root would drop that sibling content.
+     */
+    private function isSlideshowLayoutContainer(DOMElement $element): bool
+    {
+        if ( $element->hasAttribute('data-blocks-engine-slideshow') ) {
+            return false;
+        }
+        $mediaChildren = 0;
+        $contentChild = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || $this->isInertSlideshowHostChild($child) ) {
+                continue;
+            }
+            if ( 0 < $child->getElementsByTagName('img')->length ) {
+                ++$mediaChildren;
+                continue;
+            }
+            $contentChild = $contentChild || $this->hasAuthoredLayoutContent($child);
+        }
+
+        return 1 === $mediaChildren && $contentChild;
+    }
+
+    private function hasAuthoredLayoutContent(DOMElement $element): bool
+    {
+        foreach ( array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'form', 'input', 'select', 'textarea' ) as $tag ) {
+            if ( strtolower($element->tagName) === $tag || 0 < $element->getElementsByTagName($tag)->length ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

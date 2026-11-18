@@ -20,13 +20,6 @@ use DOMElement;
  *   observed used value (±0.5px) at every capture. Every `var()` is expanded
  *   at the element's scope and width, so the carrier references no custom
  *   property.
- * - `rem` lengths in a lifted expression are restated in pixels against
- *   the root font size the author's cascade gives the document at that
- *   width (the user-agent 16px when undeclared), so the carrier does not
- *   depend on the destination's root font size.
- * - A unitless `line-height` scales with the element's font size: it is
- *   lifted when the observed line height differs between captures and
- *   equals that factor times the observed font size at every capture.
  * - On a heading, an inherited property with no author winner whose observed
  *   value equals the parent's at every capture, and varies between captures,
  *   is lifted as `inherit`. That overrides the heading's user-agent default
@@ -62,8 +55,6 @@ final class BoxTreeFluidIntent
     private array $requested = array();
     /** @var array<string, array<string, string>> Cascade winners by width. */
     private array $winners = array();
-    /** @var array<string, float|null> Root font size by width. */
-    private array $rootFontSizes = array();
 
     /**
      * @param array<string, array<string, mixed>> $observations Captured observations of the element, by viewport key.
@@ -85,7 +76,6 @@ final class BoxTreeFluidIntent
         $this->element = $element;
         $this->resolver = $resolver;
         $this->winners = array();
-        $this->rootFontSizes = array();
         $properties = array_keys(reset($observations)['used_styles'] ?? array());
         $this->requested = array_values(array_unique(array_merge($properties, array_values(array_intersect_key(self::SHORTHANDS, array_flip($properties))))));
         // The widths where the author's cascade can change between captures.
@@ -116,26 +106,18 @@ final class BoxTreeFluidIntent
     private function liftedExpression(string $property, array $widths, array $samples, array $observations, array $viewports, array $parents): ?array
     {
         $proven = array();
-        $observed = array();
         foreach ($widths as $key => $width) {
             $value = $this->declared($property, $width);
             if (null === $value || '' === $value) return null;
-            $factor = 'line-height' === $property && preg_match('/^\d*\.?\d+$/', $value);
-            if (!$factor && !preg_match('/%|\d(?:vw|vh|vmin|vmax|em)\b|\b(?:calc|clamp|min|max)\(/i', $value)) return null;
+            if (!preg_match('/%|\d(?:vw|vh|vmin|vmax|em)\b|\b(?:calc|clamp|min|max)\(/i', $value)) return null;
             $styles = $observations[$key]['used_styles'] ?? array();
             $parent = $parents[$key]['used_styles'] ?? array();
             [$percent, $em] = $this->bases($property, $styles, $parent);
             $actual = self::pixels((string) ($styles[$property] ?? ''));
-            $predicted = $factor
-                ? (null === $em ? null : (float) $value * $em)
-                : CssFluidLength::evaluate($value, $width, (float) ($viewports[$key]['height'] ?? 0), $percent, $em);
+            $predicted = CssFluidLength::evaluate($value, $width, (float) ($viewports[$key]['height'] ?? 0), $percent, $em);
             if (null === $actual || null === $predicted || abs($actual - $predicted) > self::TOLERANCE) return null;
             $proven[$key] = $value;
-            $observed[(string) ($styles[$property] ?? '')] = true;
         }
-        // A unitless line height already equals its pixels at every capture
-        // when they agree: only a varying one carries intent pixels lose.
-        if ('line-height' === $property && count($observed) < 2 && preg_match('/^\d*\.?\d+$/', (string) reset($proven))) return null;
         return $this->bands($property, $widths, $samples, $proven);
     }
 
@@ -209,52 +191,13 @@ final class BoxTreeFluidIntent
         if (!isset($winners[$name])) return null;
         $value = trim(CssValueInspector::withoutImportant((string) $winners[$name]));
         if ('' === $value) return null;
-        $value = $this->withRemInPixels(trim($this->resolver->customProperties->resolveAtViewport($value, $this->element, $width)), $width);
+        $value = trim($this->resolver->customProperties->resolveAtViewport($value, $this->element, $width));
         if ('' === $value || !$fromShorthand) return $value;
         if ('font' === $shorthand) {
             return trim(CssValueInspector::withoutImportant(CssFontShorthand::expand($value, true)[$property] ?? ''));
         }
         $side = self::SIDES[substr($property, strrpos($property, '-') + 1)] ?? null;
         return null === $side ? '' : CssValueInspector::expandBoxShorthand($value)[$side];
-    }
-
-    /**
-     * Restate `rem` lengths in pixels against the document's root font size
-     * at this width. Left unchanged when that size cannot be resolved, so the
-     * evaluator rejects the value and the property keeps its pixels.
-     */
-    private function withRemInPixels(string $value, float $width): string
-    {
-        if (!preg_match('/\drem\b/i', $value)) return $value;
-        $root = $this->rootFontSize($width);
-        if (null === $root) return $value;
-        return preg_replace_callback(
-            '/(?<![\w.-])(\d*\.?\d+)rem\b/i',
-            static fn(array $m): string => rtrim(rtrim(number_format((float) $m[1] * $root, 4, '.', ''), '0'), '.') . 'px',
-            $value
-        ) ?? $value;
-    }
-
-    /** The root element's font size the author's cascade gives at this width, in pixels. */
-    private function rootFontSize(float $width): ?float
-    {
-        $key = (string) $width;
-        if (array_key_exists($key, $this->rootFontSizes)) return $this->rootFontSizes[$key];
-        $root = $this->element->ownerDocument?->documentElement;
-        $declared = '';
-        if ($root instanceof DOMElement) {
-            $winners = $this->resolver->authorViewport->atViewport($root, array('font-size', 'font'), $width);
-            $order = array_flip(array_keys($winners));
-            $name = isset($order['font']) && (!isset($order['font-size']) || $order['font'] > $order['font-size']) ? 'font' : 'font-size';
-            $declared = trim(CssValueInspector::withoutImportant((string) ($winners[$name] ?? '')));
-            if ('' !== $declared) $declared = trim($this->resolver->customProperties->resolveAtViewport($declared, $root, $width));
-            if ('font' === $name && '' !== $declared) $declared = trim(CssValueInspector::withoutImportant(CssFontShorthand::expand($declared, true)['font-size'] ?? ''));
-        }
-        // Relative to the user-agent medium size; `rem` on the root is too.
-        $size = '' === $declared || 'medium' === strtolower($declared)
-            ? 16.0
-            : CssFluidLength::evaluate(preg_replace('/(\d)rem\b/i', '$1em', $declared) ?? $declared, $width, 0.0, 16.0, 16.0);
-        return $this->rootFontSizes[$key] = null !== $size && $size > 0 ? $size : null;
     }
 
     /**
