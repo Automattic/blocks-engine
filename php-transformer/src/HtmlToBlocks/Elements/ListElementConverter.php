@@ -30,11 +30,11 @@ final class ListElementConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
 
-        // core/list-item only accepts core/list children. A nested source list
-        // must stay a List even when its members would otherwise select a
-        // pattern or the structural Group fallback.
+        // core/list-item only accepts core/list children. A malformed list
+        // nested in an item (members other than <li>) must stay a List rather
+        // than select a pattern or the structural Group fallback.
         $parent = $element->parentNode;
-        $nestedInItem = $parent instanceof DOMElement && 'li' === strtolower($parent->tagName);
+        $nestedInItem = $parent instanceof DOMElement && 'li' === strtolower($parent->tagName) && $this->hasNonItemMember($element);
 
         $navigation = $nestedInItem ? null : $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class ));
         if ( null !== $navigation ) {
@@ -67,5 +67,16 @@ final class ListElementConverter implements ElementConverter
             $items,
             $element
         ));
+    }
+
+    private function hasNonItemMember(DOMElement $list): bool
+    {
+        foreach ( $list->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array( 'li', 'script', 'style', 'template' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
