@@ -282,10 +282,27 @@ PHP;
     /** @param array<int,array<string,mixed>> $assets */
     public static function functionsPhp(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array()): string
     {
-        $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY);
+        return self::bootstrap($assets, $scripts, $parts, $tokens, $templates, $pages, $menus, $runtimeEmoji, $rootDocuments)['source'];
+    }
+
+    /**
+     * The bootstrap source and the units it emits. Each unit is one top-level
+     * hook registration, labelled with the plan feature it serves; a feature
+     * contributes units only when the plan contains something it acts on.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return array{source:string,units:list<array{hook:string,feature:string}>}
+     */
+    public static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array(), array $menus = array(), bool $runtimeEmoji = false, array $rootDocuments = array()): array
+    {
+        $units = array();
+        $served = 0;
+        $lines = array(self::SOURCE_TEXT_TYPOGRAPHY);
         $documents = array_merge($templates, $parts, $pages);
         $documentsWithMenus = array_merge($documents, $menus);
+        self::serve($lines, $served, $units, 'source_text');
         if (!$runtimeEmoji) $lines[] = self::SOURCE_NATIVE_EMOJI;
+        self::serve($lines, $served, $units, 'native_emoji');
         // Core only retains theme.json variations registered for the block.
         $lines[] = <<<'PHP'
 add_action( 'init', static function (): void {
@@ -295,31 +312,42 @@ add_action( 'init', static function (): void {
     }
 } );
 PHP;
+        self::serve($lines, $served, $units, 'button_variations');
         $rootContext = DocumentRootContext::bootstrap(array_merge($pages, $rootDocuments));
         if ('' !== $rootContext) $lines[] = $rootContext;
+        self::serve($lines, $served, $units, 'document_attributes');
         $fields = ListingFieldProjection::bootstrap($pages);
         if ('' !== $fields) $lines[] = $fields;
+        self::serve($lines, $served, $units, 'listing_fields');
         if (self::markupContains($documents, 'blocksEngineSocialAnchor')) $lines[] = SocialLinkSourceAttribution::bootstrap();
+        self::serve($lines, $served, $units, 'social_link_attribution');
         if (self::markupContains($documents, 'blocksEngineLinkClass')) {
             $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { \$classes = \$block['attrs']['metadata']['blocksEngineLinkClass'] ?? ''; if ( ! is_string( \$classes ) || '' === \$classes ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) foreach ( preg_split( '/\\s+/', \$classes ) ?: array() as \$class ) \$tag->add_class( \$class ); return \$tag->get_updated_html(); }, 10, 2 );";
         }
+        self::serve($lines, $served, $units, 'post_title_link_class');
         if (self::markupContains($documents, 'blocksEngineIcon')) {
             $lines[] = self::ACCORDION_ICON_RENDERER;
         }
+        self::serve($lines, $served, $units, 'accordion_icons');
         if (self::markupContains($documents, 'blocksEngineInlineSvg')) {
             $lines[] = InlineSvgImageRuntime::source();
         }
+        self::serve($lines, $served, $units, 'inline_svg_images');
         if (self::markupContains($documents, 'blocksEngineImageSelection')) {
             $lines[] = self::IMAGE_SELECTION_RENDERER;
         }
+        self::serve($lines, $served, $units, 'image_selection');
         $iframeEmbeds = IframeEmbedRuntime::source($documents);
         if ('' !== $iframeEmbeds) $lines[] = $iframeEmbeds;
+        self::serve($lines, $served, $units, 'iframe_embeds');
         if (self::markupContains($documents, 'blocks-engine-image')) {
             $lines[] = self::SINGLE_SOURCE_IMAGE_RUNTIME;
         }
+        self::serve($lines, $served, $units, 'single_source_images');
         if (array_filter($pages, static fn(array $page): bool => str_contains($page['canonical_block_markup'], 'blocks-engine-listing-overlay'))) {
             $lines[] = "add_filter( 'render_block_core/read-more', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-listing-overlay', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) { \$tag->set_attribute( 'aria-hidden', 'true' ); \$tag->set_attribute( 'tabindex', '-1' ); } return \$tag->get_updated_html(); }, 10, 2 );";
         }
+        self::serve($lines, $served, $units, 'listing_overlay');
         $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void {";
         $lines[] = '    $blocks_engine_page_id = ' . self::DOCUMENT_ID_EXPRESSION . ';';
         $lines[] = "    \$blocks_engine_page_identity = \$blocks_engine_page_id ? get_post_meta( \$blocks_engine_page_id, '_blocks_engine_reconciliation_identity', true ) : '';";
@@ -385,6 +413,7 @@ PHP;
             $attributes[$handle] = array_filter(array('type' => $script['type'], 'nomodule' => $script['nomodule'], 'integrity' => $script['integrity'], 'crossorigin' => $script['crossorigin'], 'referrerpolicy' => $script['referrerpolicy'], 'fetchpriority' => $script['fetchpriority'], 'async' => $script['async'] && $script['module'], 'defer' => $script['defer'] && ($script['async'] || $script['module'])), static fn(mixed $value): bool => false !== $value && null !== $value);
         }
         $lines[] = "}, 1 );";
+        self::serve($lines, $served, $units, 'stylesheets');
         $stylesheetAttributes = array_filter($stylesheetAttributes, static fn(array $state): bool => array('rel' => 'stylesheet') !== $state);
         if (array() !== $stylesheetAttributes) {
             $bodies = array_values(array_unique($stylesheetAttributes, SORT_REGULAR));
@@ -404,6 +433,7 @@ PHP;
         // and only this resolver turns those tokens into theme URLs on render.
         // Map only the tokens those documents reference: every entry ships in
         // functions.php and keeps its theme file reachable.
+        self::serve($lines, $served, $units, 'stylesheet_attributes');
         $referenced = array();
         foreach ($documents as $document) if (preg_match_all('/' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '([^}]+)\}\}/', (string) ($document['canonical_block_markup'] ?? ''), $matches)) $referenced += array_fill_keys($matches[1], true);
         $templateAssetTokens = array();
@@ -423,8 +453,11 @@ PHP;
             $lines[] = '};';
             $lines[] = "add_filter( 'get_block_file_template', static function ( \$template, string \$id, string \$type ) use ( \$blocks_engine_resolve_template_assets ) { if ( \$template instanceof WP_Block_Template && \$template->has_theme_file && get_stylesheet() === \$template->theme ) \$template->content = \$blocks_engine_resolve_template_assets( \$template->content ); return \$template; }, 10, 3 );";
             $lines[] = "add_filter( 'get_block_templates', static function ( array \$templates ) use ( \$blocks_engine_resolve_template_assets ): array { foreach ( \$templates as \$template ) if ( \$template instanceof WP_Block_Template && 'theme' === \$template->source && get_stylesheet() === \$template->theme ) \$template->content = \$blocks_engine_resolve_template_assets( \$template->content ); return \$templates; }, 10, 1 );";
-            $lines[] = "add_filter( 'render_block_core/template-part', static function ( string \$content ) use ( \$blocks_engine_resolve_template_assets ): string { return \$blocks_engine_resolve_template_assets( \$content ); }, 10, 1 );";
+            // Rendered template parts resolve their own tokens, so the part
+            // renderer is filtered only when a part references one.
+            if (array_filter($parts, static fn(array $part): bool => str_contains((string) ($part['canonical_block_markup'] ?? ''), WordPressSitePlan::TOKEN_PREFIX))) $lines[] = "add_filter( 'render_block_core/template-part', static function ( string \$content ) use ( \$blocks_engine_resolve_template_assets ): string { return \$blocks_engine_resolve_template_assets( \$content ); }, 10, 1 );";
         }
+        self::serve($lines, $served, $units, 'template_assets');
         $editorStyles = array();
         $partSlugsBySource = array();
         foreach ($parts as $part) {
@@ -504,12 +537,14 @@ PHP;
         // no layout box on the frontend; the editor retains its selection box.
         // Synthetic landmarks likewise must not replace source flex/grid items.
         // Authored landmark boxes remain intact.
+        self::serve($lines, $served, $units, 'editor_stylesheets');
         if (array() !== $parts) {
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-shell-transport', false, array(), null ); wp_enqueue_style( 'blocks-engine-shell-transport' ); wp_add_inline_style( 'blocks-engine-shell-transport', " . var_export(self::FRONTEND_SHELL_TRANSPORT_CSS, true) . " ); } );";
         }
         // A page's layout frame sits in its template around post-content. Core's
         // post-content element would be an extra box in that layout, so the
         // marked block renders only its content.
+        self::serve($lines, $served, $units, 'template_parts');
         foreach ($templates as $template) {
             if (!str_contains((string) ($template['canonical_block_markup'] ?? ''), WordPressSitePlan::FRAME_CONTENT_CLASS)) continue;
             $lines[] = "add_filter( 'render_block_core/post-content', static function ( string \$content, array \$block ): string {";
@@ -518,9 +553,11 @@ PHP;
             $lines[] = "}, 10, 2 );";
             break;
         }
+        self::serve($lines, $served, $units, 'template_frame');
         if (self::markupContains($documentsWithMenus, 'data-blocks-engine-route-state')) {
             $lines[] = NavigationAnchorRuntime::retainedLabelSource();
         }
+        self::serve($lines, $served, $units, 'navigation_route_state');
         if (self::markupContains($documents, 'blocksEngineWordmark')) {
             // Resolve before Core renders site-title, retaining one editable part
             // and Core's live site name/home URL rather than rewriting saved HTML.
@@ -529,13 +566,16 @@ PHP;
             $lines[] = "    return \$block;";
             $lines[] = "}, 10, 1 );";
         }
+        self::serve($lines, $served, $units, 'wordmark');
         if (self::markupContains($documents, 'blocksEngineNavigationContainer')) {
             $lines[] = NavigationContainerRuntime::source();
         }
-        $hasNavigationLink = false;
+        self::serve($lines, $served, $units, 'navigation_container');
+        $navigationBlocks = array();
         if (self::markupContains($documents, 'blocksEngineNavigationOpener')) {
             $lines[] = NavigationOpenerRuntime::source();
         }
+        self::serve($lines, $served, $units, 'navigation_opener');
         foreach ($documentsWithMenus as $document) {
             $markup = (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? '');
             // Require the navigation container alongside a link, not merely the
@@ -543,10 +583,12 @@ PHP;
             // actually renders a native navigation item: bare block-name
             // substrings can appear in unrelated JSON/attribute contexts that never
             // reach the core navigation renderers. Entity inner markup is
-            // the link list for a referencing navigation block.
-            if ((str_contains($markup, 'wp:navigation-link') || str_contains($markup, 'wp:navigation-submenu')) && (str_contains($markup, 'wp:navigation ') || isset($document['token']))) { $hasNavigationLink = true; break; }
+            // the link list for a referencing navigation block. Each item
+            // renderer is filtered only when its own item block is present.
+            if (!str_contains($markup, 'wp:navigation ') && !isset($document['token'])) continue;
+            foreach (array('navigation-link', 'navigation-submenu') as $navigationBlock) if (str_contains($markup, 'wp:' . $navigationBlock)) $navigationBlocks[$navigationBlock] = true;
         }
-        if ($hasNavigationLink) {
+        if (array() !== $navigationBlocks) {
             // Core's navigation-link and navigation-submenu renderers only add
             // aria-current="page" when their own
             // id/kind match the queried object, which never happens for the "custom"
@@ -564,7 +606,7 @@ PHP;
             // name (a URL-less dropdown parent), the item records those source
             // documents and that evidence decides; URL matching is the fallback.
             $currentSourceRoutes = self::navigationCurrentSourceRoutes($documentsWithMenus, $pages);
-            foreach (array('navigation-link', 'navigation-submenu') as $navigationBlock) {
+            foreach (array_keys(array_intersect_key(array('navigation-link' => true, 'navigation-submenu' => true), $navigationBlocks)) as $navigationBlock) {
             $lines[] = "add_filter( 'render_block_core/{$navigationBlock}', static function ( string \$content, array \$block ): string {";
             $lines[] = "    if ( ! preg_match( '/<(a|button)\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^>]*>/', \$content, \$anchor ) || str_contains( \$anchor[0], 'aria-current' ) ) return \$content;";
             $lines[] = "    \$current = str_contains( (string) ( \$block['attrs']['className'] ?? '' ), 'blocks-engine-current-navigation-item' );";
@@ -593,6 +635,7 @@ PHP;
             }
             $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
+            self::serve($lines, $served, $units, 'navigation-link' === $navigationBlock ? 'navigation_links' : 'navigation_submenus');
             }
             // Resolve ancestry only after every item has had its exact/source
             // evidence pass. At the container boundary we can choose one longest
@@ -617,6 +660,7 @@ PHP;
             $lines[] = '    $item = preg_replace_callback( \'/^<li\\b[^>]*>/\', static function ( array $match ): string { return str_contains( $match[0], \'class="\' ) ? preg_replace( \'/class="/\', \'class="current-menu-ancestor \', $match[0], 1 ) : substr( $match[0], 0, -1 ) . \' class="current-menu-ancestor">\'; }, $item, 1 );';
             $lines[] = '    return substr_replace( $content, $item, $best[1], strlen( $best[0] ) );';
             $lines[] = "}, 10, 1 );";
+            self::serve($lines, $served, $units, 'navigation_ancestors');
         }
         if (self::markupContains($documents, CaptureEvidence::VIEWPORT_ENTRANCE)) {
             // Device-scoped entrances resolve through the site's live core
@@ -624,29 +668,36 @@ PHP;
             $entranceScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ViewportEntranceRuntime::script('__BLOCKS_ENGINE_VIEWPORT_QUERIES__');
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { \$queries = array(); if ( method_exists( 'WP_Theme_JSON', 'get_viewport_media_queries' ) ) { foreach ( WP_Theme_JSON::get_viewport_media_queries( wp_get_global_settings( array( 'viewport' ) ), array( 'include_desktop' => true ) ) as \$state => \$query ) { \$queries[ ltrim( \$state, '@' ) ] = preg_replace( '/^@media\\s+/', '', \$query ); } } wp_register_script( 'blocks-engine-viewport-entrances', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-viewport-entrances' ); wp_add_inline_script( 'blocks-engine-viewport-entrances', str_replace( '__BLOCKS_ENGINE_VIEWPORT_QUERIES__', (string) wp_json_encode( (object) \$queries ), " . var_export($entranceScript, true) . " ) ); } );";
         }
+        self::serve($lines, $served, $units, 'viewport_entrances');
         if (self::markupContains($documents, 'blocksEngineScrollState')) {
             $lines[] = ScrollStateRuntime::bootstrap();
         }
+        self::serve($lines, $served, $units, 'scroll_state');
         if (self::markupContains($documents, 'blocksEngineChoiceGroup')) {
             $lines[] = CapturedChoiceGroupRuntime::bootstrap();
         }
+        self::serve($lines, $served, $units, 'choice_groups');
         if (self::markupContains($documents, 'blocksEngineDialog')) {
             $lines[] = CapturedDialogRuntime::bootstrap();
         }
+        self::serve($lines, $served, $units, 'dialogs');
         if (self::markupContains($documents, CaptureEvidence::RESPONSIVE_FRAGMENT)) {
             $fragmentScript = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveFragmentRuntime::script();
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-responsive-fragments', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-responsive-fragments' ); wp_add_inline_script( 'blocks-engine-responsive-fragments', " . var_export($fragmentScript, true) . " ); } );";
         }
+        self::serve($lines, $served, $units, 'responsive_fragments');
         if (self::markupContains($documents, 'blocks-engine-navigation-header-offset')) {
             $headerOffsetScript = NavigationHeaderOffsetRuntime::script();
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-navigation-header-offset', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-navigation-header-offset' ); wp_add_inline_script( 'blocks-engine-navigation-header-offset', " . var_export($headerOffsetScript, true) . " ); } );";
         }
+        self::serve($lines, $served, $units, 'navigation_header_offset');
         if (self::markupContains($documentsWithMenus, 'blocksEngineSelect')) {
             $lines[] = NativeSelectRuntime::source();
             $selectStateScript = \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredControlStateScript::viewScript();
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-select-state', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-select-state' ); wp_add_inline_script( 'blocks-engine-select-state', " . var_export($selectStateScript, true) . " ); } );";
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-select-wrapper', false ); wp_enqueue_style( 'blocks-engine-select-wrapper' ); wp_add_inline_style( 'blocks-engine-select-wrapper', '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}' ); } );";
         }
+        self::serve($lines, $served, $units, 'native_select');
         if (self::markupContains($documentsWithMenus, 'blocksEngineTextarea')) {
             $lines[] = NativeTextareaRuntime::source();
             if (!self::markupContains($documentsWithMenus, 'blocksEngineSelect')) {
@@ -654,23 +705,29 @@ PHP;
                 $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_script( 'blocks-engine-select-state', false, array(), null, true ); wp_enqueue_script( 'blocks-engine-select-state' ); wp_add_inline_script( 'blocks-engine-select-state', " . var_export($textareaStateScript, true) . " ); } );";
             }
         }
+        self::serve($lines, $served, $units, 'native_textarea');
         if (self::markupContains($documentsWithMenus, 'blocksEngineInput')) {
             $lines[] = NativeInputRuntime::source();
         }
+        self::serve($lines, $served, $units, 'native_input');
         $breadcrumbLabels = BreadcrumbLabelRuntime::labels($documents, $pages);
         $breadcrumbPostTrails = BreadcrumbLabelRuntime::postTrails($pages);
         if (array() !== $breadcrumbLabels || array() !== $breadcrumbPostTrails) $lines[] = BreadcrumbLabelRuntime::source($breadcrumbLabels, $breadcrumbPostTrails);
+        self::serve($lines, $served, $units, 'breadcrumb_labels');
         if (self::markupContains($documentsWithMenus, 'blocksEngineRuntimeAttributes') || self::markupContains($documentsWithMenus, 'blocksEngineControlBox')) {
             $lines[] = RuntimeAttributesRuntime::source();
         }
+        self::serve($lines, $served, $units, 'runtime_attributes');
         foreach (EditorRestingStateRuntime::MARKERS as $marker) {
             if (!self::markupContains($documentsWithMenus, $marker)) continue;
             $lines[] = EditorRestingStateRuntime::source();
             break;
         }
+        self::serve($lines, $served, $units, 'editor_resting_state');
         if (self::markupContains($documents, NavigationEntityProjection::ITEMS_KEY)) {
             $lines[] = NavigationReferenceItemsRuntime::source();
         }
+        self::serve($lines, $served, $units, 'navigation_reference_items');
         if (self::markupContains($documentsWithMenus, 'blocksEngineNavigationAnchor')) {
             $lines[] = NavigationAnchorRuntime::source();
         }
@@ -678,6 +735,7 @@ PHP;
         // preserve white-space (Wix rich text uses break-spaces), so that padding
         // renders as blank lines once a page is saved. Drop serializer newline runs
         // at block edges and between inner blocks; text inside blocks is untouched.
+        self::serve($lines, $served, $units, 'navigation_anchor');
         $lines[] = "add_filter( 'render_block_data', static function ( array \$block ): array {";
         $lines[] = "    \$content = \$block['innerContent'] ?? null; if ( ! is_array( \$content ) ) return \$block;";
         $lines[] = "    if ( null === ( \$block['blockName'] ?? null ) ) { if ( '' === trim( (string) ( \$block['innerHTML'] ?? '' ) ) ) { \$block['innerHTML'] = ''; \$block['innerContent'] = array(); } return \$block; }";
@@ -690,6 +748,7 @@ PHP;
         $lines[] = "    }";
         $lines[] = "    \$block['innerContent'] = \$content; return \$block;";
         $lines[] = "}, 10, 1 );";
+        self::serve($lines, $served, $units, 'block_whitespace');
         $hasListingQuery = self::markupContains(array_merge($pages, $templates, $parts), WordPressSitePlan::LISTING_QUERY_CLASS);
         $editorCss = self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS . self::EDITOR_TRANSITION_CSS;
         if (array() !== $parts) $editorCss .= self::EDITOR_SHELL_TRANSPORT_INTERACTION_CSS;
@@ -701,7 +760,9 @@ PHP;
             $editorCss .= self::LISTING_QUERY_CSS . self::EDITOR_LISTING_QUERY_CSS;
             $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { wp_register_style( 'blocks-engine-listing-query', false, array(), null ); wp_enqueue_style( 'blocks-engine-listing-query' ); wp_add_inline_style( 'blocks-engine-listing-query', " . var_export(self::LISTING_QUERY_CSS, true) . " ); } );";
         }
+        self::serve($lines, $served, $units, 'listing_query');
         $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export($editorCss, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
+        self::serve($lines, $served, $units, 'editor_interaction');
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
             foreach ($script['scopes'] as $scope) {
@@ -709,6 +770,7 @@ PHP;
                 $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { if ( {$condition} ) wp_enqueue_script( " . var_export($handle, true) . " ); }, " . (10 + $scope['order']) . " );";
             }
         }
+        self::serve($lines, $served, $units, 'scripts');
         if (array() !== $attributes) {
             $lines[] = "add_filter( 'script_loader_tag', static function ( string \$tag, string \$handle ): string {";
             $lines[] = '    $attributes = ' . var_export($attributes, true) . ';';
@@ -717,7 +779,30 @@ PHP;
             $lines[] = "    return preg_replace( '/<script\\b/', '<script' . \$rendered, \$tag, 1 ) ?? \$tag;";
             $lines[] = "}, 10, 2 );";
         }
-        return implode("\n", $lines) . "\n";
+        self::serve($lines, $served, $units, 'script_attributes');
+        return array(
+            'source' => "<?php\n" . implode('', array_column($units, 'source')),
+            'units' => array_merge(array(), ...array_column($units, 'report')),
+        );
+    }
+
+    /**
+     * Collect one emitted feature unit, including its source and hook report.
+     * Rendering and reporting both consume this list, not a second bootstrap.
+     * Empty features contribute neither source nor report entries.
+     *
+     * @param list<string> $lines
+     * @param list<array{source:string,report:list<array{hook:string,feature:string}>}> $units
+     */
+    private static function serve(array $lines, int &$served, array &$units, string $feature): void
+    {
+        $source = implode("\n", array_slice($lines, $served));
+        $served = count($lines);
+        if ('' === $source) return;
+        preg_match_all("/^(?:add_filter|add_action|remove_action|remove_filter)\\( '([^']+)'/m", $source, $hooks);
+        $report = array();
+        foreach ($hooks[1] as $hook) $report[] = array('hook' => $hook, 'feature' => $feature);
+        $units[] = array('source' => $source . "\n", 'report' => $report);
     }
 
     /** @param list<array<string,mixed>> $documents */
@@ -745,6 +830,33 @@ PHP;
         $device = PageStylesheets::deviceAttributes($enqueue);
         if (!isset($device[CaptureEvidence::DEVICE_STYLE], $device[CaptureEvidence::SOURCE_MEDIA]) || !in_array('desktop', preg_split('/\s+/', trim((string) $device[CaptureEvidence::DEVICE_STYLE])) ?: array(), true)) return (string) $enqueue['media'];
         return (string) $device[CaptureEvidence::SOURCE_MEDIA];
+    }
+
+    /**
+     * What the front-end bootstrap delivers, without the bytes: the documents
+     * its route table selects (a routed document loads only its own
+     * occurrences, any other falls back to the global resources) and each
+     * enqueue in order. Two asset sets with equal delivery render alike.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $rootDocuments
+     * @return array{routes:list<string>,enqueues:list<array{target_path:string,handle:string,route:?string,condition:string,media:string,fallback:bool}>}
+     */
+    public static function stylesheetDelivery(array $assets, array $pages, array $rootDocuments = array()): array
+    {
+        $routes = array();
+        foreach (array_merge($pages, $rootDocuments) as $page) if (!empty($page['document_metadata']['engine_owned_styles'])) $routes[(string) $page['source_path']] = true;
+        $importLoaded = self::importLoadedStylesheets($assets);
+        $enqueues = array();
+        foreach (self::stylesheetEnqueues($assets, $pages, $rootDocuments) as $enqueue) {
+            if ('editor' === ($enqueue['asset']['stylesheet_target'] ?? 'both') || isset($importLoaded[$enqueue['asset']['target_path']])) continue;
+            if (isset($enqueue['route'])) $routes[(string) $enqueue['route']] = true;
+            $enqueues[] = array('target_path' => (string) $enqueue['asset']['target_path'], 'handle' => (string) $enqueue['handle'], 'route' => isset($enqueue['route']) ? (string) $enqueue['route'] : null, 'condition' => (string) $enqueue['condition'], 'media' => (string) $enqueue['media'], 'fallback' => !empty($enqueue['fallback']));
+        }
+        $routes = array_keys($routes);
+        sort($routes, SORT_STRING);
+        return array('routes' => $routes, 'enqueues' => $enqueues);
     }
 
     /**

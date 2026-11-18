@@ -108,13 +108,18 @@ final class NavigationStyleProjector
         // the RichText root, and a boxless element cannot take focus: putting
         // the caret in it to replace its text (a `<time>` date line) left focus
         // outside, and the typed text never reached the block (issue #5797).
-        // Give every editable carrier an inline box before focus is attempted.
-        // Waiting for :focus or .is-selected is circular for direct RichText
-        // editing: display:contents cannot receive the initial focus, so input
-        // can change the DOM without reaching the editor's saved block state.
-        // The front end never matches this editor-only rule.
+        // Give every editable carrier a block container box before focus is
+        // attempted. Waiting for :focus or .is-selected is circular for direct
+        // RichText editing: display:contents cannot receive the initial focus.
+        // The box must be a block container, not inline: author CSS often
+        // makes the carried element itself block-level (a `.post-date`
+        // `display:block`), and a block inside an inline editing host loses
+        // the typed text when its selected content is replaced. The carrier
+        // only ever sits beside blocks, where its inline content already forms
+        // an anonymous block, so a block box lays out the same. The front end
+        // never matches this editor-only rule.
         if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
-            $rules[] = ':root .editor-styles-wrapper p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '[contenteditable="true"]{display:inline}';
+            $rules[] = ':root .editor-styles-wrapper p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '[contenteditable="true"]{display:block}';
         }
         foreach ( self::focusedEmptyRichTextRepairRules($projectedAuthorCss) as $repairRule ) {
             $rules[] = $repairRule;
