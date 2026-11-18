@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextLanguageDirection;
 use DOMElement;
 
 /** Projects source identities and structural carriers onto canonical block attributes. */
@@ -163,6 +164,11 @@ final class SourceBlockAttributeProjector
         $attrs = $this->withGroupSourceSemantics($name, $attrs, $sourceElement);
         $attrs = $this->withSocialAnchorIdentity($name, $attrs, $sourceElement, $sourceTagName, $context);
         $attrs = $this->withGlobalZeroBoxes($name, $attrs, $sourceElement, $context);
+        // An inline source element's own lang/dir already rides in the
+        // RichText it is part of; only the text element's own box adds it.
+        if ( ! $facts->isInlineSourceElement ) {
+            $attrs = RichTextLanguageDirection::apply($name, $attrs, $sourceElement);
+        }
         return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
     }
 
