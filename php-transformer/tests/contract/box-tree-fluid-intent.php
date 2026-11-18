@@ -49,6 +49,10 @@ $evaluator = array(
     array('calc(10px * 2px)', 1440, null, null, null),
     array('calc(10px + 2)', 1440, null, null, null),
     array('auto', 1440, null, null, null),
+    array('100svh', 1440, null, null, 900.0),
+    array('min(880px, 100dvh)', 1440, null, null, 880.0),
+    array('50lvw', 1440, null, null, 720.0),
+    array('10vb', 1440, null, null, 90.0),
 );
 foreach ($evaluator as [$value, $width, $percent, $em, $expected]) {
     $actual = CssFluidLength::evaluate($value, (float) $width, 900.0, $percent, $em);
@@ -129,6 +133,17 @@ $cases = array(
     'a pixel length no capture reproduces stays in capture bands' => array(
         'h1{margin-top:40px}', array('n6.margin-top' => array('40px', '20px')),
         array('margin-top:40px', '@media (max-width:402px)', 'margin-top:20px'), array('@media (max-width:900px)'),
+    ),
+    // #6580: a viewport-height expression is proven with each capture's own
+    // viewport height (900 and 844), clamped by the observed min-height.
+    'a small-viewport height expression is lifted verbatim' => array(
+        'h1{height:min(880px,100svh)}', array('n6.height' => array('880px', '844px')),
+        array('height:min(880px,100svh)'), array('height:844px', 'height:880px'),
+    ),
+    'a height expression clamped by its min-height is lifted verbatim' => array(
+        'h1{height:min(880px,100svh);min-height:850px}@media (max-width:600px){h1{min-height:860px}}',
+        array('n6.height' => array('880px', '860px'), 'n6.min-height' => array('850px', '860px')),
+        array(';height:min(880px,100svh)', 'min-height:850px', '@media (max-width:600px){.be-inline-geometry-', 'min-height:860px'), array(';height:860px', ';height:880px'),
     ),
     'a later pixel winner stays in pixels' => array(
         'h1{font-size:5.2vw}h1{font-size:30px}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:75px'), array('5.2vw'),
