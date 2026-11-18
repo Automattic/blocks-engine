@@ -6,7 +6,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\Css;
 /**
  * Conservative, dimension-checked evaluator for captured fluid lengths.
  *
- * Evaluates px, viewport units, `%` and `em` (when their bases are known)
+ * Evaluates px, viewport units (including the small, large and dynamic
+ * `sv*`/`lv*`/`dv*` forms), `%` and `em` (when their bases are known)
  * combined with `calc()`, `min()`, `max()` and `clamp()` at one viewport.
  * Anything else (container units, `rem`, keywords, unresolved `var()`)
  * returns null, so the caller keeps observed pixels.
@@ -22,7 +23,7 @@ final class CssFluidLength
         $offset = 0;
         $tokens = array();
         while ($offset < strlen($value)) {
-            if (!preg_match('/\G\s*(?:(\d*\.?\d+)(px|vw|vh|vmin|vmax|em|%)?|([a-z]+)|([()+*,\/\-]))/Ai', $value, $m, 0, $offset)) {
+            if (!preg_match('/\G\s*(?:(\d*\.?\d+)(px|[sld]?v(?:w|h|i|b|min|max)|em|%)?|([a-z]+)|([()+*,\/\-]))/Ai', $value, $m, 0, $offset)) {
                 if ('' === trim(substr($value, $offset))) break;
                 return null;
             }
@@ -35,8 +36,11 @@ final class CssFluidLength
             $t = $tokens[$index++] ?? null;
             if (null === $t) return null;
             if ('' !== $t[0]) {
-                $factor = match (strtolower($t[1])) {
-                    '' , 'px' => 1.0, 'vw' => $width / 100, 'vh' => $height / 100,
+                // Small, large and dynamic viewport units all resolve against
+                // the one viewport a capture was taken in; `vi`/`vb` follow a
+                // horizontal writing mode.
+                $factor = match (preg_replace('/^[sld](?=v)/', '', strtolower($t[1]))) {
+                    '' , 'px' => 1.0, 'vw', 'vi' => $width / 100, 'vh', 'vb' => $height / 100,
                     'vmin' => min($width, $height) / 100, 'vmax' => max($width, $height) / 100,
                     '%' => null === $percent ? null : $percent / 100,
                     'em' => $em, default => null,

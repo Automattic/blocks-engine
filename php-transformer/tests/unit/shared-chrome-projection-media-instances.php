@@ -18,13 +18,15 @@ $build = static function (bool $mobile): array {
     $document = static fn(string $title): string => '<!doctype html><html><head>' . $links . '</head><body>'
         . '<header class="site-header"><nav class="pill" aria-label="Site"><a href="/">Home</a><a href="/about/">About</a><a href="/#contact">Contact</a></nav></header>'
         . '<main><h1>' . $title . '</h1><section id="contact"><p>' . $title . ' content</p></section></main></body></html>';
+    // Each sheet keeps a page rule, so its instances stay as ordering
+    // evidence; a sheet whose rules all move to shared chrome is not written.
     return (new ArtifactCompiler())->compile(array(
         'entrypoint' => 'index.html',
         'files' => array(
             'index.html' => $document('Home'),
             'about/index.html' => $document('About'),
-            'assets/css/nav.css' => array('path' => 'assets/css/nav.css', 'kind' => 'css', 'content' => '.pill{display:flex;gap:24px;background:#ffdac4;border-radius:20px;padding:8px 24px;width:max-content} .pill a{color:#222;text-decoration:none}'),
-            'assets/css/links.css' => array('path' => 'assets/css/links.css', 'kind' => 'css', 'content' => '.pill a:hover{color:#900}'),
+            'assets/css/nav.css' => array('path' => 'assets/css/nav.css', 'kind' => 'css', 'content' => '.pill{display:flex;gap:24px;background:#ffdac4;border-radius:20px;padding:8px 24px;width:max-content} .pill a{color:#222;text-decoration:none} main h1{margin-top:0}'),
+            'assets/css/links.css' => array('path' => 'assets/css/links.css', 'kind' => 'css', 'content' => '.pill a:hover{color:#900} main p{margin-top:0}'),
         ),
     ))->toWordPressSitePlanView()['wordpress_site_plan'];
 };

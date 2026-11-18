@@ -234,6 +234,20 @@ final class BoxTreeClassifier
 
     private const FLEX_OR_GRID = array('flex', 'inline-flex', 'grid', 'inline-grid');
 
+    /** Inherited properties a box can own for its subtree; removing the box re-bases them on its parent. */
+    private const INHERITED = array(
+        'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant', 'font-stretch', 'line-height',
+        'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent', 'text-shadow', 'white-space',
+        'word-break', 'overflow-wrap', 'hyphens', 'direction', 'list-style-type', 'list-style-position', 'visibility', 'cursor',
+    );
+
+    /**
+     * Inherited properties whose child value can be relative to the box's
+     * (an `em`/`%` font size, a unitless or `em` line height, a `%` indent):
+     * a child that does not repeat the box's value may still be derived from it.
+     */
+    private const INHERITANCE_BASIS = array('font-size', 'line-height', 'text-indent');
+
     /**
      * ADR 0005 slice 5: a single-child box that is load-bearing only through
      * its own declarations hands them to its child, proved by geometry at
@@ -278,6 +292,8 @@ final class BoxTreeClassifier
         $constrained = false;
         $paints = false;
         $relative = false;
+        // Inherited property => [the box owns a value its parent lacks, the child repeats the box's value at every viewport].
+        $inherited = array();
         foreach ($node['viewports'] as $viewport => $observation) {
             $b = $observation['used_styles'];
             $c = $child['viewports'][$viewport]['used_styles'] ?? null;
@@ -351,6 +367,37 @@ final class BoxTreeClassifier
                 if (!in_array($b['border-radius'], array('0px', 'none'), true) && (in_array($c['overflow-x'], array('hidden', 'clip', 'auto', 'scroll'), true) || in_array($c['overflow-y'], array('hidden', 'clip', 'auto', 'scroll'), true))) return null;
                 $paints = true;
             }
+            foreach (self::INHERITED as $property) {
+                if (!isset($b[$property])) continue;
+                $state = $inherited[$property] ?? array(false, true);
+                $inherited[$property] = array(
+                    $state[0] || $b[$property] !== ($p[$property] ?? null),
+                    $state[1] && $b[$property] === ($c[$property] ?? null),
+                );
+            }
+        }
+        // A box that owns an inherited value (the wrapper of a rich-text run
+        // owning its font size) folds only when that value moves with it.
+        $inheritedMoves = array();
+        foreach ($inherited as $property => [$owned, $repeated]) {
+            if (!$owned) continue;
+            if ($repeated) {
+                // The child inherits it: restate it on the child, with the box's author bands.
+                $inheritedMoves[$property] = $property;
+                continue;
+            }
+            // The child's own value may be derived from the box's (an `em`
+            // font size): without the box it would re-base on the new parent.
+            if (in_array($property, self::INHERITANCE_BASIS, true)) return null;
+            // Elsewhere a child value that differs at a viewport is its own
+            // there; inheriting the box's at some viewports and not others
+            // cannot be restated as one move.
+            foreach ($node['viewports'] as $viewport => $observation) {
+                $b = $observation['used_styles'];
+                $c = $child['viewports'][$viewport]['used_styles'];
+                $p = $parent['viewports'][$viewport]['used_styles'];
+                if ($b[$property] !== ($p[$property] ?? null) && $b[$property] === ($c[$property] ?? null)) return null;
+            }
         }
         // Positioned descendants resolve against the padding box: it must not change.
         if (($containing || $relative) && !$equalBox) return null;
@@ -375,6 +422,7 @@ final class BoxTreeClassifier
         }
         if (array_intersect_key($moves, self::PLACEMENT_INITIAL) || in_array('margin', $source, true)) $rules[] = 'own-placement';
         if (array() === $rules) return null;
+        $moves += $inheritedMoves;
         return array('rules' => $rules, 'moves' => $moves, 'equal_box' => $equalBox);
     }
 
