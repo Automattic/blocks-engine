@@ -21,6 +21,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ResponsivePropertyFamily;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
@@ -34,9 +35,7 @@ final class AuthoredCarouselBlockGenerator
     /** @var SplObjectStorage<DOMElement, array<string, mixed>> Compilation-local predicates; retained wrappers keep native identity stable. */
     private SplObjectStorage $recognitions;
 
-    public const LOCAL_NAME = 'authored-carousel';
-    /** Gallery metadata key holding the published carousel shell (`opening`, `closing`). */
-    public const GALLERY_SHELL_METADATA = 'blocksEngineCarousel';
+    public const LOCAL_NAME = AuthoredCarouselGalleryContract::LOCAL_NAME;
     /**
      * Below a recorded breakpoint the rail is hidden and the stage spans the
      * carousel. The root attribute scopes each rule to opted-in instances.
@@ -1687,14 +1686,15 @@ JS;
     private function carouselBlock(GeneratedBlockRegistry $registry, array $attributes, array $slides): array
     {
         $shell = $this->shell($attributes);
-        // A carousel of images is a core Gallery an editor changes with core
-        // tools. The source's navigable stage is published around the
-        // gallery's images by the theme runtime from the shell recorded here.
-        if ( 'src-swap' !== ($attributes['presentation'] ?? 'track') && array() !== $slides
+        // A site import publishes a carousel of images as a core Gallery an
+        // editor changes with core tools; the theme runtime renders the
+        // source's navigable stage, recorded here, around the gallery's images.
+        if (true === $this->session?->publishesImageCarouselsAsGalleries()
+            && 'src-swap' !== ($attributes['presentation'] ?? 'track') && array() !== $slides
             && array() === array_filter($slides, static fn (array $slide): bool => 'core/image' !== ($slide['blockName'] ?? null))
         ) {
             $createBlock = $this->createBlock ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
-            return $createBlock->createBlock('core/gallery', array('metadata' => array(self::GALLERY_SHELL_METADATA => $shell)), $slides);
+            return $createBlock->createBlock('core/gallery', array('metadata' => array(AuthoredCarouselGalleryContract::METADATA_KEY => $shell + array('attributes' => $attributes))), $slides);
         }
         return array(
             'blockName' => $registry->blockName(self::LOCAL_NAME),

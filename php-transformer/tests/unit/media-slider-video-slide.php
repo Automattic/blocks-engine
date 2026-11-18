@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) {
@@ -14,7 +15,11 @@ $assert = static function (bool $condition, string $message): void {
 $collect = static function (array $blocks, string $name) use (&$collect): array {
     $found = array();
     foreach ($blocks as $block) {
-        if ($name === ($block['blockName'] ?? null)) $found[] = $block;
+        // A site import publishes an image-only carousel as a core Gallery
+        // carrying the carousel stage; either form is the authored carousel.
+        $isCarousel = 'custom/authored-carousel' === $name && 'core/gallery' === ($block['blockName'] ?? null)
+            && isset($block['attrs']['metadata'][AuthoredCarouselGalleryContract::METADATA_KEY]);
+        if ($name === ($block['blockName'] ?? null) || $isCarousel) $found[] = $block;
         $found = array_merge($found, $collect($block['innerBlocks'] ?? array(), $name));
     }
     return $found;
@@ -46,6 +51,7 @@ $assert(array() === $collect($result['blocks'], 'core/html'), 'converted media n
 $control = $compile($images);
 $controls = $collect($control['blocks'], 'custom/authored-carousel');
 $assert(1 === count($controls) && 2 === count($controls[0]['innerBlocks']), 'image-only control remains a two-slide carousel');
+$assert('core/gallery' === $controls[0]['blockName'], 'the image-only control is published as an editable core gallery');
 $assert($controls[0]['innerBlocks'] === array_slice($carousel['innerBlocks'], 0, 2), 'image slides convert exactly as in the image-only control');
 $sourceOnly = $compile($images . str_replace(' src="/v.mp4"><source', '><source', $video));
 $assert(1 === count($collect($sourceOnly['blocks'], 'core/video')) && 1 === count($collect($sourceOnly['blocks'], 'custom/authored-carousel')), 'a native source child also supplies the video');

@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CapturedDialogProjector;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 $cycle = static fn(array $keys, int $initial): array => array('coverage' => 'complete', 'restoration' => 'verified', 'initial' => $initial, 'frames' => array_map(static fn(string $key): array => array('key' => $key, 'fullImage' => $key), $keys));
 $inline = $cycle(array('/full/a.png', '/full/b.png', '/full/c.png'), 1);
@@ -26,7 +27,10 @@ $markup = $result['source_reports']['wordpress_site_plan']['pages'][0]['canonica
 $runtime = new Runtime();
 $visit = static function(array $blocks) use (&$visit): array { $all = array(); foreach ($blocks as $block) { $all[] = $block; $all = array_merge($all, $visit($block['innerBlocks'] ?? array())); } return $all; };
 $tree = $visit($runtime->parseBlocks($markup));
-$carousels = array_values(array_filter($tree, static fn(array $block): bool => str_ends_with($block['blockName'] ?? '', '/authored-carousel')));
+// A site import publishes an image carousel as a core Gallery recording the
+// carousel stage and attributes.
+$asCarousels = static fn(array $tree): array => array_values(array_map(static fn(array $block): array => array('attrs' => AuthoredCarouselGalleryContract::carouselAttributes($block)) + $block, array_filter($tree, static fn(array $block): bool => null !== AuthoredCarouselGalleryContract::carouselAttributes($block))));
+$carousels = $asCarousels($tree);
 $isDialog = static fn(array $block): bool => 'core/group' === ($block['blockName'] ?? '') && isset($block['attrs']['metadata']['blocksEngineDialog']);
 $dialogs = array_values(array_filter($tree, $isDialog));
 $assert = static function(bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
@@ -54,9 +58,9 @@ $wrappedFiles['website/index.html'] = $wrappedHtml;
 $wrapped = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $wrappedFiles))->toArray();
 $wrappedMarkup = $wrapped['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? '';
 $wrappedTree = $visit($runtime->parseBlocks($wrappedMarkup));
-$assert(2 === count(array_filter($wrappedTree, static fn(array $block): bool => str_ends_with($block['blockName'] ?? '', '/authored-carousel'))), 'A thin host and inactive-frame styles cannot flatten a proved directional owner');
-$assert(!str_contains($wrappedMarkup, '<!-- wp:gallery '), 'Captured directional behavior remains native navigation rather than a static image collection');
-$wrappedCarousels = array_values(array_filter($wrappedTree, static fn(array $block): bool => str_ends_with($block['blockName'] ?? '', '/authored-carousel')));
+$wrappedCarousels = $asCarousels($wrappedTree);
+$assert(2 === count($wrappedCarousels), 'A thin host and inactive-frame styles cannot flatten a proved directional owner');
+$assert(array() === array_filter($wrappedTree, static fn(array $block): bool => 'core/gallery' === ($block['blockName'] ?? '') && null === AuthoredCarouselGalleryContract::carouselAttributes($block)), 'Captured directional behavior remains native navigation rather than a static image collection');
 $assert('auto!important' === ($wrappedCarousels[0]['attrs']['sourceRootGeometry']['margin-left'] ?? null), 'Captured gallery retains the canonical source margin-priority contract');
 // Dialog and gallery budgets are independent, including at the producer's
 // combined trigger-dialog and initially-open-dialog boundary.

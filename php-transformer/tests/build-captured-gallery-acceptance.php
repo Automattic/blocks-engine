@@ -2,7 +2,9 @@
 $root = defined('WP_PLUGIN_DIR') ? WP_PLUGIN_DIR . '/blocks-engine-php-transformer' : dirname(__DIR__);
 require $root . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\CarouselGalleryRuntime;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 $capture = defined('WP_PLUGIN_DIR') ? $root . '/' . ($args[0] ?? 'tests/fixtures/captured-gallery') : ($argv[1] ?? $root . '/tests/fixtures/captured-gallery');
 $files = array();
@@ -19,7 +21,9 @@ $definitions = $result['source_reports']['companion_plugin_payload']['blocks'] ?
 $blocks = (new Runtime())->parseBlocks($content);
 $flatten = static function (array $blocks) use (&$flatten): array { $all = array(); foreach ($blocks as $block) { $all[] = $block; $all = array_merge($all, $flatten($block['innerBlocks'] ?? array())); } return $all; };
 $tree = $flatten($blocks);
-$carousels = array_values(array_filter($tree, static fn(array $block): bool => str_ends_with($block['blockName'] ?? '', '/authored-carousel')));
+// A site import publishes an image carousel as a core Gallery recording the
+// carousel stage; the theme runtime renders that stage.
+$carousels = array_values(array_map(static fn(array $block): array => array('attrs' => AuthoredCarouselGalleryContract::carouselAttributes($block)) + $block, array_filter($tree, static fn(array $block): bool => null !== AuthoredCarouselGalleryContract::carouselAttributes($block))));
 $dialogs = array_values(array_filter($tree, static fn(array $block): bool => str_ends_with($block['blockName'] ?? '', '/captured-dialog')));
 $output = array('status' => $result['status'], 'carousels' => array_column($carousels, 'attrs'), 'dialogs' => array_column($dialogs, 'attrs'), 'native_images' => count(array_filter($tree, static fn(array $block): bool => 'core/image' === ($block['blockName'] ?? ''))), 'diagnostics' => $result['diagnostics'] ?? array(), 'source_reports' => array_diff_key($result['source_reports'], array_flip(array('wordpress_site_plan', 'companion_plugin_payload'))), 'content' => $content);
 if (!defined('WP_PLUGIN_DIR')) { echo json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR); return; }
@@ -46,7 +50,7 @@ foreach ($resolved['writes'] as $write) {
     if (str_ends_with($file, '.css')) $css .= $data . "\n";
 }
 file_put_contents($plugin . '/source.css', $css);
-file_put_contents($plugin . '/captured-gallery-acceptance.php', '<?php /* Plugin Name: Captured Gallery Acceptance */ add_action("init", static function () { foreach (glob(__DIR__ . "/block-*/block.json") as $file) register_block_type(dirname($file)); }); add_action("enqueue_block_assets", static function () { wp_enqueue_style("captured-gallery-source", plugins_url("source.css", __FILE__)); });');
+file_put_contents($plugin . '/captured-gallery-acceptance.php', '<?php /* Plugin Name: Captured Gallery Acceptance */ add_action("init", static function () { foreach (glob(__DIR__ . "/block-*/block.json") as $file) register_block_type(dirname($file)); }); add_action("enqueue_block_assets", static function () { wp_enqueue_style("captured-gallery-source", plugins_url("source.css", __FILE__)); });' . "\n" . CarouselGalleryRuntime::bootstrap());
 require_once ABSPATH . 'wp-admin/includes/plugin.php';
 $activated = activate_plugin('captured-gallery-acceptance/captured-gallery-acceptance.php');
 if (is_wp_error($activated)) throw new RuntimeException($activated->get_error_message());

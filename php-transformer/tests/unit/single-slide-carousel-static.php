@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract;
 
 $failures = array();
 $assert = static function (bool $condition, string $message) use (&$failures): void {
@@ -19,7 +20,10 @@ $other = '<div class="slideshow carousel"><div class="track-slider"><div class="
 $carousels = static function (array $blocks) use (&$carousels): array {
     $found = array();
     foreach ($blocks as $block) {
-        if (str_ends_with($block['blockName'] ?? '', '/authored-carousel')) $found[] = $block;
+        // A site import publishes an image-only carousel as a core Gallery
+        // carrying the carousel stage.
+        if (str_ends_with($block['blockName'] ?? '', '/authored-carousel')
+            || ('core/gallery' === ($block['blockName'] ?? null) && isset($block['attrs']['metadata'][AuthoredCarouselGalleryContract::METADATA_KEY]))) $found[] = $block;
         $found = array_merge($found, $carousels($block['innerBlocks'] ?? array()));
     }
     return $found;

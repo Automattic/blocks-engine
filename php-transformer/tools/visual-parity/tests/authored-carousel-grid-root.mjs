@@ -40,7 +40,8 @@ const compile = (source) => JSON.parse(execFileSync('php', ['-r', `
   $markup = (string) ($plan['pages'][0]['canonical_block_markup'] ?? '');
   $definition = (new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\Generators\\AuthoredCarouselBlockGenerator())->definition('custom');
   $styles = implode("\\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $plan['assets'] ?? array()));
-  echo json_encode(array('markup' => $markup, 'style' => (string) ($definition['assets']['style.css'] ?? '') . "\\n" . $styles));
+  // WordPress renders an image carousel's gallery through its recorded stage.
+  echo json_encode(array('blocks' => $markup, 'markup' => Automattic\\BlocksEngine\\PhpTransformer\\WordPress\\AuthoredCarouselGalleryContract::renderMarkup($markup), 'style' => (string) ($definition['assets']['style.css'] ?? '') . "\\n" . $styles));
 `, transformerRoot, Buffer.from(source).toString('base64')], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
 
 const browser = await chromium.launch({ headless: true });
@@ -50,13 +51,13 @@ try {
     assert.ok(name === 'base' || source !== fixture, `${name} variant changes the fixture`);
     const output = compile(source);
     assert.match(output.markup, /blocks-engine-authored-carousel--slideshow/);
-    assert.ok(!output.markup.includes('"transform"') && !output.markup.includes('control-transform'), `${name} stores no raw transform: ${output.markup.slice(0, 200)}`);
+    assert.ok(!output.blocks.includes('"transform"') && !output.blocks.includes('control-transform'), `${name} stores no raw transform: ${output.blocks.slice(0, 200)}`);
     if (name === 'base' || name.includes('important mirror') || name === 'layered mirror') {
-      assert.match(output.markup, /"nextControlOrientation":\{"flipHorizontal":true,"flipVertical":false,"rotation":0\}/);
+      assert.match(output.blocks, /"nextControlOrientation":\{"flipHorizontal":true,"flipVertical":false,"rotation":0\}/);
       assert.match(output.markup, /blocks-engine-authored-carousel__next[^"]*is-flip-horizontal/);
     }
     if (name === 'flip then rotation') {
-      assert.match(output.markup, /"nextControlOrientation":\{"flipHorizontal":true,"flipVertical":false,"rotation":330\}/);
+      assert.match(output.blocks, /"nextControlOrientation":\{"flipHorizontal":true,"flipVertical":false,"rotation":330\}/);
     }
     if (name === 'scaled arrow' || name === 'responsive mirror' || name === 'individual rotation') {
       assert.doesNotMatch(output.markup, /__control--oriented/);

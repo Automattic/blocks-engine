@@ -14,7 +14,7 @@ $result = (new Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\Artif
 ))->toArray();
 $plan = $result['source_reports']['wordpress_site_plan'];
 $definition = (new Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\Generators\\AuthoredCarouselBlockGenerator())->definition('custom');
-echo json_encode(array('source' => '<style>' . $source['css'] . '</style>' . $source['html'], 'markup' => $plan['pages'][0]['canonical_block_markup'], 'css' => $definition['assets']['style.css'] . implode("\\n", array_column($plan['assets'], 'content'))));
+echo json_encode(array('source' => '<style>' . $source['css'] . '</style>' . $source['html'], 'markup' => Automattic\\BlocksEngine\\PhpTransformer\\WordPress\\AuthoredCarouselGalleryContract::renderMarkup($plan['pages'][0]['canonical_block_markup']), 'css' => $definition['assets']['style.css'] . implode("\\n", array_column($plan['assets'], 'content'))));
 `, root], { encoding: 'utf8' }));
 const browser = await chromium.launch({ headless: true });
 try {

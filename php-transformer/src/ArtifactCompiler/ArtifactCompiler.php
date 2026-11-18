@@ -1404,6 +1404,8 @@ final class ArtifactCompiler
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'native_document_context'   => true,
+            // The site plan's theme runtime renders a gallery's carousel stage.
+            \Automattic\BlocksEngine\PhpTransformer\WordPress\AuthoredCarouselGalleryContract::TRANSFORM_OPTION => true,
             'site_selector_pruner'      => preg_match('/<html\b/i', $html) ? $this->siteSelectorPruner($files) : null,
             'source_has_purchase_affordance' => $this->sourceHasPurchaseAffordance($files),
             'declarative_state_html'    => $html,
