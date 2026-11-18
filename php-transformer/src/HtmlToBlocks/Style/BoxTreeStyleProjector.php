@@ -80,7 +80,7 @@ final class BoxTreeStyleProjector
         $consumed = SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
-        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents);
+        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs));
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
@@ -135,7 +135,7 @@ final class BoxTreeStyleProjector
             $attrs['className'] = implode(' ', array_filter(preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), static fn(string $class): bool => '' !== $class && 'is-resized' !== $class));
             if ('' === $attrs['className']) unset($attrs['className']);
         }
-        $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, false, $parents, self::IMAGE_SELECTOR);
+        $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, false, $parents, false, self::IMAGE_SELECTOR);
         $class = $this->carrier(($synthetic ? $this->rule(self::SELECTOR, array('display' => 'contents')) : '') . $css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
@@ -249,11 +249,24 @@ final class BoxTreeStyleProjector
         return $bands;
     }
 
-    /** The base rule, then each narrower capture's delta, then the lifted bands. */
-    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), string $selector = self::SELECTOR): string
+    /**
+     * The base rule, then each narrower capture's delta, then the lifted bands.
+     *
+     * @param array<string, array<string, mixed>> $parents The block parent's observations, by viewport key.
+     */
+    private function carrierCss(array $base, array $keys, array $declarations, array $status, array $observations, array $viewports, array $bands, bool $pseudos, array $parents = array(), bool $syntheticAnchor = false, string $selector = self::SELECTOR): string
     {
         $baseKey = $keys[0];
-        $css = $this->rule($selector, $base);
+        $rule = function (array $declared) use ($syntheticAnchor, $selector): string {
+            $css = $this->rule($selector, $declared);
+            if ($syntheticAnchor && isset($declared['display'])) {
+                // A real carrier box owns the margin. Only a transparent
+                // carrier passes it to the link, including at breakpoints.
+                $css .= $selector . '>a{margin:' . ('contents' === $declared['display'] ? 'inherit' : '0') . '}';
+            }
+            return $css;
+        };
+        $css = $rule($base);
         $effective = $declarations[$baseKey];
         $pseudoEffective = array();
         if ($pseudos) $css .= $this->pseudoRules($observations[$baseKey], $pseudoEffective);
@@ -271,12 +284,12 @@ final class BoxTreeStyleProjector
             $effective = array_replace($effective, $delta);
             $pseudo = $pseudos ? $this->pseudoRules($observations[$key], $pseudoEffective) : '';
             if (array() === $delta && '' === $pseudo) continue;
-            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $this->rule($selector, $delta) . $pseudo . '}';
+            $css .= '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $rule($delta) . $pseudo . '}';
         }
         // Numeric keys become ints: compare them as widths, narrowest last.
         uksort($bands, static fn(int|string $a, int|string $b): int => (float) $b <=> (float) $a);
         foreach ($bands as $maxWidth => $declared) {
-            $css .= '@media (max-width:' . $maxWidth . 'px){' . $this->rule($selector, $declared) . '}';
+            $css .= '@media (max-width:' . $maxWidth . 'px){' . $rule($declared) . '}';
         }
         return $css;
     }
@@ -341,6 +354,15 @@ final class BoxTreeStyleProjector
             elseif (BoxTreeDeclarationPruner::INITIAL === $reason && $effective[$property] !== $observed[$property]) $delta[$property] = $observed[$property];
         }
         return $delta;
+    }
+
+    /** Synthetic paragraphs use the transparent-link margin fallback in EngineSupportCss. */
+    private static function syntheticAnchorCarrier(string $blockName, array $attrs): bool
+    {
+        $classes = preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array();
+        if ('core/paragraph' !== $blockName || !in_array(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, $classes, true)
+            || in_array(SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS, $classes, true)) return false;
+        return true;
     }
 
     private static function width(float $width): string
