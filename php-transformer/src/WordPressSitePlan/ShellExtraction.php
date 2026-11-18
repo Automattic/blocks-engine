@@ -1024,20 +1024,39 @@ final class ShellExtraction
     }
 
     /**
-     * A header nested in a document-level block that follows a document-level
-     * navigation block belongs to a view (an SPA page, a panel), not to the
-     * site chrome: the document's leading navigation already is that chrome.
-     * Capture-document scopes are detection roots, not preceding chrome.
+     * A header nested in a body-level view that comes after a body-level
+     * <nav> sibling belongs to that view (an SPA page, a panel), not to the
+     * site chrome: the leading <nav> already is the masthead. Only a sibling
+     * whose own element is the nav landmark counts, so capture-variant
+     * documents and site wrappers never qualify as that earlier chrome, and a
+     * header that opens its own wrapper ahead of a main landmark never matches.
      */
     private static function followsDocumentNavigation(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $row): bool
     {
         if (!empty($row['document_level'])) return false;
+        $navBefore = false;
         foreach ($index->topLevel() as $range) {
-            if ($range['offset'] + $range['length'] > $row['offset']) return false;
-            $block = substr($index->markup, $range['offset'], $range['length']);
-            if (!str_contains($block, CaptureEvidence::DOCUMENT_SCOPE) && self::containsNavigation($block)) return true;
+            if ($range['offset'] + $range['length'] <= $row['offset']) {
+                $navBefore = $navBefore || self::isNavLandmarkBlock(substr($index->markup, $range['offset'], $range['length']));
+                continue;
+            }
+            if ($range['offset'] > $row['offset']) return false;
+            if (!$navBefore) return false;
+            // The view wrapping the header: a header followed by a main
+            // landmark in that wrapper is the wrapper's own masthead.
+            $after = substr($index->markup, $row['offset'] + $row['length'], $range['offset'] + $range['length'] - $row['offset'] - $row['length']);
+            return 1 !== preg_match('/<!--\s*wp:[a-z\/-]+\s+\{[^}]*"tagName":"main"/', $after) && !str_contains($after, '<main');
         }
         return false;
+    }
+
+    /** A body-level block whose own element is the navigation landmark. */
+    private static function isNavLandmarkBlock(string $block): bool
+    {
+        if (1 === preg_match('/^<!--\s*wp:navigation(?:\s|\{|\/)/', ltrim($block))) return true;
+        if (1 !== preg_match('/^<!--\s*wp:[a-z\/-]+\s+(\{.*?\})\s*\/?-->/s', ltrim($block), $match)) return false;
+        $attrs = json_decode($match[1], true);
+        return is_array($attrs) && 'nav' === ShellLandmarkPolicy::landmarkKind((string) ($attrs['tagName'] ?? ''), (string) ($attrs['role'] ?? ''));
     }
 
     private static function isHeadingBlock(string $markup): bool

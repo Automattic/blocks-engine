@@ -43,4 +43,16 @@ $assert(!str_contains($page, 'wp:template-part'), 'page content must not carry a
 $assert(!str_contains($page, 'wp:navigation') && !str_contains($page, 'Sign up for news'), 'site chrome must leave page content');
 $assert(str_contains($page, 'Member header') && str_contains($page, 'Account copy') && str_contains($page, 'Home view'), 'page views, including the view header, must remain page content');
 
+// A header that opens its own body-level wrapper ahead of main is the site
+// header even when a body-level <nav> precedes that wrapper.
+$wrapped = '<!doctype html><html><body>'
+    . '<nav><ul><li><a href="/a">A</a></li><li><a href="/b">B</a></li></ul></nav>'
+    . '<div class="site-wrap"><header class="site-header"><p><a href="/">Shore Lane</a></p></header><main><h1>Home</h1><p>Copy</p></main></div>'
+    . '<footer><p>Foot copy</p><a href="/p">Privacy</a></footer></body></html>';
+$wrappedPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $wrapped)))->toArray()['source_reports']['wordpress_site_plan'];
+$wrappedHeader = '';
+foreach ($wrappedPlan['template_parts'] as $part) if ('header' === $part['area']) $wrappedHeader = $part['canonical_block_markup'];
+$assert(str_contains($wrappedHeader, 'site-header'), 'a header that opens its own wrapper ahead of main must stay the site header part');
+$assert(!str_contains($wrappedPlan['pages'][0]['canonical_block_markup'], 'site-header'), 'the wrapped site header must leave page content');
+
 fwrite(STDOUT, "Shell hidden view header tests passed\n");

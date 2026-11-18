@@ -32,11 +32,14 @@ that parent. Authored landmarks keep their boxes and styling; the editor keeps
 the synthetic Group's selection box. This avoids copying only selected sizing
 properties and preserves landmark markup without adding layout geometry.
 
-A `<header>` nested in a document-level block that follows a document-level
-navigation block (an SPA page view, a panel) is view content, not the site
-header candidate. The leading navigation cluster, including a text-only
-announcement bar directly above it at document level, becomes the header
-part instead (`tests/unit/shell-hidden-view-header.php`, #6549).
+A `<header>` nested in a body-level view that comes after a body-level `<nav>`
+sibling (an SPA page view, a panel) is view content, not the site header
+candidate. Only a sibling whose own element is the nav landmark counts, so
+capture-variant documents and site wrappers never qualify, and a header that
+opens its own wrapper ahead of `main` stays the site header. The leading
+navigation cluster, including a text-only announcement bar directly above it at
+document level, becomes the header part instead
+(`tests/unit/shell-hidden-view-header.php`, #6549).
 
 The seven-route public compiler regression covers identical chrome beneath an
 app root, shared stylesheet scope, lifecycle templates, route-template collapse,
