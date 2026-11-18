@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -300,7 +302,7 @@ final class TableClassificationPolicy
 
     private function isHiddenRow(DOMElement $row): bool
     {
-        return 1 === preg_match('/(?:^|;)\s*display\s*:\s*none\b/i', $row->getAttribute('style'));
+        return 'none' === CssValueInspector::declared(SourceDeclarations::inline($row), 'display');
     }
 
     /**
@@ -325,8 +327,7 @@ final class TableClassificationPolicy
         }
 
         foreach ( $cells as $cell ) {
-            $style = strtolower($cell->getAttribute('style'));
-            if ( 1 !== preg_match('/(?:^|;)\s*width\s*:\s*\d+(?:\.\d+)?%/i', $style) ) {
+            if ( 1 !== preg_match('/^\d+(?:\.\d+)?%$/D', CssValueInspector::declared(SourceDeclarations::inline($cell), 'width')) ) {
                 return false;
             }
         }

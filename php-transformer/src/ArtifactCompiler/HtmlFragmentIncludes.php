@@ -179,6 +179,9 @@ final class HtmlFragmentIncludes
                         if (!isset($file['metadata']['compilation'])) $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $path);
                         $file['metadata']['compilation']['resolved_html_includes'] = true;
                         $file['metadata']['compilation']['html_include_sources'] = $document['sources'];
+                        // Box-tree freshness binds raw page/part bytes, while topology uses expanded HTML.
+                        $file['metadata']['compilation']['box_tree_source_hash'] = hash('sha256', $contents[$path]);
+                        $file['metadata']['compilation']['box_tree_include_hashes'] = array_map(static fn(string $content): string => hash('sha256', $content), array_intersect_key($contents, $document['sources']));
                         unset($file['content_base64'], $file['payload_reference']);
                     } catch (InvalidArgumentException $error) {
                         $code = self::degradedCode($error);
@@ -215,5 +218,18 @@ final class HtmlFragmentIncludes
             // at this call boundary, rather than a later automatic GC pass.
             $resolve = null;
         }
+    }
+
+    /**
+     * Whether a file is a template part: an HTML file declared with that role
+     * or stored under a `parts/` or `template-parts/` directory.
+     *
+     * @param array<string, mixed> $file
+     */
+    public static function isTemplatePartFile(array $file): bool
+    {
+        $path = (string) ($file['path'] ?? '');
+        $role = (string) ($file['role'] ?? '');
+        return 'html' === ($file['kind'] ?? '') && ('template-part' === $role || preg_match('#(^|/)(parts|template-parts)/[^/]+\.html?$#i', $path));
     }
 }

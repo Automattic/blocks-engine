@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -149,8 +150,9 @@ final class FormControlMetadataBuilder
                 $output['id'] = $status->getAttribute('id');
             }
             foreach ( array('top', 'bottom') as $side ) {
-                if ( preg_match('/(?:^|;)\s*margin-' . $side . '\s*:\s*(-?[0-9]+(?:\.[0-9]+)?(?:px|em|rem|vh|vw|%)|0)\s*(?:;|$)/i', $status->getAttribute('style'), $match) ) {
-                    $output['margin_' . $side] = $match[1];
+                $margin = SourceDeclarations::inline($status)['margin-' . $side] ?? '';
+                if ( preg_match('/^(?:-?[0-9]+(?:\.[0-9]+)?(?:px|em|rem|vh|vw|%)|0)$/Di', $margin) ) {
+                    $output['margin_' . $side] = $margin;
                 }
             }
             $metadata['trailing_status'] = $output;
@@ -1004,7 +1006,19 @@ final class FormControlMetadataBuilder
                     continue;
                 }
             }
-            if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden')) ) {
+            // Provider help is rendered independently of the source CSS box.
+            // Preserve resolved hidden state as well as inherited aria-hidden.
+            $hidden = ($this->styleResolver?->isVisuallyHiddenAtRest($node) ?? false)
+                || null !== $this->hiddenState($node, $wrapper);
+            for ( $ancestor = $node; $ancestor instanceof DOMElement && ! $ancestor->isSameNode($wrapper); $ancestor = $ancestor->parentNode ) {
+                if ( $ancestor->hasAttribute('hidden')
+                    || 'true' === strtolower(SourceDom::attr($ancestor, 'aria-hidden'))
+                    || ($this->presentation?->isDisplayNoneAtEveryViewport($ancestor) ?? false) ) {
+                    $hidden = true;
+                    break;
+                }
+            }
+            if ( $hidden ) {
                 continue;
             }
             $alreadyCounted = false;
@@ -1308,7 +1322,7 @@ final class FormControlMetadataBuilder
             if ( $node->hasAttribute('hidden') ) {
                 return '';
             }
-            $declarations = $this->styleResolver?->collapsedViewportAuthorDeclarations($node, array( 'display', 'visibility' )) ?? array();
+            $declarations = $this->styleResolver?->authorViewport->collapsed($node, array( 'display', 'visibility' )) ?? array();
             $display = strtolower(trim(CssValueInspector::withoutImportant($declarations['display'] ?? '')));
             $visibility = strtolower(trim(CssValueInspector::withoutImportant($declarations['visibility'] ?? '')));
             if ( 'none' === $display || 'hidden' === $visibility ) {

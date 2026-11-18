@@ -19,6 +19,14 @@ use InvalidArgumentException;
 final class StylesheetScopes
 {
     /**
+     * The largest document-owned support sheet a fold may deliver to routes
+     * outside its owners. Folding exists to avoid many tiny files; a larger
+     * sheet folded into a site-wide resource ships its owners' rules to every
+     * other route.
+     */
+    public const FOLD_MEMBER_MAX_BYTES = 2048;
+
+    /**
      * A page-scoped stylesheet compiled from a captured surface is shared:
      * the surface renders on more than one route.
      *
@@ -168,7 +176,8 @@ final class StylesheetScopes
      * into a single resource, in their existing rule order. A rule reaches
      * routes outside its owners only where it provably matches nothing in
      * their documents; otherwise a zero-weight route gate keeps it on its
-     * owners. Rules that can be neither proven nor gated keep their sheet.
+     * owners. Rules that can be neither proven nor gated keep their sheet, as
+     * does a document-owned sheet larger than FOLD_MEMBER_MAX_BYTES.
      *
      * Each document is proven with every template part's markup, since any
      * of them may render on it.
@@ -182,8 +191,8 @@ final class StylesheetScopes
     {
         $routeClasses = array();
         foreach ($canonicalSources as $source) {
-            $class = (string) ($documentsBySource[$source]['document_metadata']['root_attributes']['class'] ?? '');
-            if (preg_match('/(?:^|\s)(be-r-[0-9a-f]+)(?:\s|$)/', $class, $match)) $routeClasses[$source] = $match[1];
+            $class = DocumentRootContext::stampedRouteClass($documentsBySource[$source] ?? array());
+            if (null !== $class) $routeClasses[$source] = $class;
         }
         $index = null;
         $transformer = new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer();
@@ -192,6 +201,10 @@ final class StylesheetScopes
         $foldable = static function (array $asset) use (&$index, $documentsBySource, $canonicalSources, $routeClasses, $transformer, $sharedMarkup): ?string {
             $owners = array_column($asset['scopes'], 'source_path');
             if (in_array('global', array_column($asset['scopes'], 'kind'), true)) return (string) $asset['content'];
+            // Folding trades a request on the owners for bytes on every other
+            // route. Past a small sheet that trade is a loss: the rules stay
+            // on their owners' own sheet.
+            if (strlen((string) $asset['content']) > self::FOLD_MEMBER_MAX_BYTES) return null;
             $outside = array_fill_keys(array_diff($canonicalSources, $owners), true);
             $gate = array();
             foreach ($owners as $owner) {
@@ -247,7 +260,22 @@ final class StylesheetScopes
             $scopes = array();
             foreach ($run as $member) foreach ($member['asset']['scopes'] as $scope) $scopes['global' === $scope['kind'] ? '' : $scope['source_path']] = $scope;
             $sources = array_diff(array_keys($scopes), array(''));
-            $asset = CompiledAssets::withRewrittenTextContent($asset, implode("\n", array_column($run, 'content')));
+            // Members allocated under one layer order each restate it; the
+            // fold states each leading order once, ahead of its first use.
+            $stated = array();
+            $contents = array_map(static function (array $member) use (&$stated): string {
+                return (string) preg_replace_callback('/^(?:\s*@layer\s+[\w-]+(?:\s*,\s*[\w-]+)*\s*;)+/', static function (array $match) use (&$stated): string {
+                    preg_match_all('/@layer\s+[\w-]+(?:\s*,\s*[\w-]+)*\s*;/', $match[0], $orders);
+                    $kept = '';
+                    foreach ($orders[0] as $order) if (!isset($stated[$order])) { $stated[$order] = true; $kept .= $order; }
+                    return $kept;
+                }, $member['content']);
+            }, $run);
+            // Folding adds formatting between contributions, not CSS tokens.
+            // Compact at this final boundary, before deriving the resource's
+            // identity, without changing selectors, values or cascade order.
+            $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner::withoutRedundantWhitespace(implode("\n", $contents));
+            $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
             $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', serialize(array_keys($scopes)) . $asset['content']), 0, 16) . '.css';
             $asset['source_path'] = $path;
             $asset['target_path'] = 'assets/' . $path;
@@ -293,35 +321,48 @@ final class StylesheetScopes
             if (false !== stripos($withoutDataUrls, 'url(')) continue;
             $tree = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($content);
             if (!$tree->wellFormed) continue;
-            $parts = array();
+            $parts = $layerOrder = array();
             foreach ($tree->rules() as $rule) {
                 $text = trim(substr($content, $rule['start'], $rule['end'] - $rule['start'] + 1));
-                if (';' === $content[$rule['boundary']]) { $parts = array(); break; }
+                if (';' === $content[$rule['boundary']]) {
+                    // A leading layer-order statement heads the sheet: it
+                    // travels with every rule allocated from it, and sheets
+                    // only share rules under the same order.
+                    if (array() === $parts && 1 === preg_match('/^@layer\s+[\w-]+(?:\s*,\s*[\w-]+)*\s*;$/', $text)) { $layerOrder[] = $text; continue; }
+                    $parts = array();
+                    break;
+                }
                 $parts[] = $text;
             }
             if (array() === $parts) continue;
             $eligible[$index] = true;
-            $delivery = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? ''));
+            $delivery = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? '', $layerOrder));
             foreach ($parts as $text) {
                 $key = $delivery . "\0" . $text;
-                if (!isset($rules[$key])) $rules[$key] = array('text' => $text, 'asset' => $asset, 'index' => $index, 'scopes' => array());
+                if (!isset($rules[$key])) $rules[$key] = array('text' => $text, 'asset' => $asset, 'index' => $index, 'scopes' => array(), 'layer_order' => $layerOrder);
                 foreach ($asset['scopes'] as $scope) $rules[$key]['scopes'][$scope['source_path']] = $scope;
             }
         }
         $groups = array();
+        $lastKey = null;
         foreach ($rules as $rule) {
             ksort($rule['scopes']);
             $asset = $rule['asset'];
-            $key = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? '', $rule['scopes']));
-            if (!isset($groups[$key])) $groups[$key] = array('asset' => $asset, 'index' => $rule['index'], 'scopes' => array_values($rule['scopes']), 'rules' => array());
-            $groups[$key]['rules'][] = $rule['text'];
+            $key = serialize(array($asset['stylesheet_placement'] ?? '', $asset['stylesheet_target'] ?? 'both', $asset['media'] ?? '', $rule['layer_order'], $rule['scopes']));
+            // Only consecutive rules may share a sheet, preserving their
+            // relative order for every consumer even after adjacent sheets fold.
+            if ($key !== $lastKey) {
+                $groups[] = array('key' => $key, 'asset' => $asset, 'index' => $rule['index'], 'scopes' => array_values($rule['scopes']), 'rules' => $rule['layer_order']);
+                $lastKey = $key;
+            }
+            $groups[array_key_last($groups)]['rules'][] = $rule['text'];
         }
         // Each allocated sheet takes the slot of the first sheet it draws
         // rules from, so the inventory keeps its cascade order.
         $allocated = array();
-        foreach ($groups as $key => $group) {
+        foreach ($groups as $group) {
             $asset = CompiledAssets::withRewrittenTextContent($group['asset'], implode("\n", $group['rules']));
-            $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', $key . $asset['content']), 0, 16) . '.css';
+            $path = 'assets/css/engine-support-' . ($asset['stylesheet_placement'] ?? 'after-author') . '-' . substr(hash('sha256', $group['key'] . $asset['content']), 0, 16) . '.css';
             $asset['source_path'] = $path;
             $asset['target_path'] = 'assets/' . $path;
             $asset['token'] = 'asset-' . substr(hash('sha256', $asset['target_path']), 0, 16);

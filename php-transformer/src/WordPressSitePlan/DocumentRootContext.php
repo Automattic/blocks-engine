@@ -39,6 +39,20 @@ final class DocumentRootContext
     }
 
     /**
+     * The route class stamped on a compiled document's root, or null when it
+     * has none. The compiler allocates route classes once for the whole site
+     * and stamps them here, so site-plan stages read them back rather than
+     * re-allocating.
+     *
+     * @param array<string,mixed> $document
+     */
+    public static function stampedRouteClass(array $document): ?string
+    {
+        $class = (string) ($document['document_metadata']['root_attributes']['class'] ?? '');
+        return preg_match('/(?:^|\s)(be-r-[0-9a-f]+)(?:\s|$)/', $class, $match) ? $match[1] : null;
+    }
+
+    /**
      * Allocate deterministic classes for the whole site, extending only colliding
      * hashes. Sorting makes the result independent of route discovery order.
      *

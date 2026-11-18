@@ -42,10 +42,10 @@ try {
 				};
 			});
 			const [sourceProbe, candidateProbe] = await Promise.all([probe(source), probe(candidate)]);
-			const [sourceScreenshot, candidateScreenshot] = await Promise.all([
-				source.screenshot({ fullPage: true }),
-				candidate.screenshot({ fullPage: true }),
-			]);
+			// Capture one page at a time: concurrent full-page captures share the
+			// browser compositor and can fail with Page.captureScreenshot in CI.
+			const sourceScreenshot = await source.screenshot({ fullPage: true });
+			const candidateScreenshot = await candidate.screenshot({ fullPage: true });
 			assert.equal(sourceProbe.readyState, 'complete');
 			assert.equal(candidateProbe.readyState, 'complete');
 			assert.equal(sourceProbe.fontStatus, 'loaded');

@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
@@ -60,6 +61,7 @@ final class AuthorSelectorSemanticPreparer
             array_column($session->runtimeBehaviorState()->runtimeProjectionScriptAssets(), 'content'),
             'is_string'
         ));
+        $authorStyles->siteSelectorPruner = ($options['site_selector_pruner'] ?? null) instanceof \Automattic\BlocksEngine\PhpTransformer\Css\UnreachableSelectorPruner ? $options['site_selector_pruner'] : null;
         $session->installAuthorStyleAnalysis($authorStyles);
         $sourceStyles = $session->sourceStyleResolutionState();
         $projections = $session->authorSelectorProjectionState();
@@ -204,10 +206,13 @@ final class AuthorSelectorSemanticPreparer
                 $inlineTag = strtolower($element->tagName);
                 $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
                 $directAuthorLayoutItem = $directChildSelector && $this->context->authorLayoutOwnership->isDirectChildOfAuthorOwnedLayout($element);
-                // `span` and `font` are replaced by a `<mark>` RichText carrier,
-                // so an author rule naming them needs a marker hook to keep
-                // matching after conversion.
-                if ( ! $this->sourceElementClassifier->isInlineContentElement($inlineTag) || (! in_array($inlineTag, array( 'span', 'font' ), true) && ! $directAuthorLayoutItem) ) {
+                // Format tags lose their class hooks in RichText too. Contextual
+                // selectors need the same source-addressed projection as spans.
+                $compounds = $parsed['compounds'] ?? array();
+                $contextualFormat = count($compounds) > 1
+                    && array() !== array_intersect(SourceDom::tokens(SourceDom::attr($element, 'class')), $compounds[array_key_last($compounds)]['classes'] ?? array())
+                    && in_array($inlineTag, array( 'strong', 'b', 'em', 'i', 'mark', 'small', 'sub', 'sup' ), true);
+                if ( ! $this->sourceElementClassifier->isInlineContentElement($inlineTag) || (! in_array($inlineTag, array( 'span', 'font' ), true) && ! $contextualFormat && ! $directAuthorLayoutItem) ) {
                     continue;
                 }
                 if ( '' === $path ) {
@@ -353,7 +358,7 @@ final class AuthorSelectorSemanticPreparer
                     'margin', 'padding', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'grid', 'grid-area',
                 )));
                 if ( null === $pseudoHost && ! $hasBoxGeometry
-                    && ! $this->selectorRuleDeclaresBoxGeometry($authorSelector['selector'], $authorStyles)
+                    && ! $this->selectorRuleNeedsSubjectMarker($authorSelector['selector'], $authorStyles)
                     && 'img' !== strtolower($element->tagName)
                 ) {
                     continue;
@@ -367,7 +372,12 @@ final class AuthorSelectorSemanticPreparer
         }
     }
 
-    private function selectorRuleDeclaresBoxGeometry(string $selector, AuthorStyleAnalysis $authorStyles): bool
+    /**
+     * Box geometry and custom properties must keep matching their subject:
+     * geometry is not flattened onto the block, and a custom property feeds
+     * descendants that read it through var().
+     */
+    private function selectorRuleNeedsSubjectMarker(string $selector, AuthorStyleAnalysis $authorStyles): bool
     {
         $geometry = array_fill_keys(array(
             'display', 'position', 'inset', 'top', 'right', 'bottom', 'left',
@@ -379,8 +389,14 @@ final class AuthorSelectorSemanticPreparer
                 if ($selector !== ($candidate['selector'] ?? null)) {
                     continue;
                 }
-                if (array_intersect_key($rule['declarations'] ?? array(), $geometry) !== array()) {
+                $declarations = $rule['declarations'] ?? array();
+                if (array_intersect_key($declarations, $geometry) !== array()) {
                     return true;
+                }
+                foreach (array_keys($declarations) as $property) {
+                    if (str_starts_with((string) $property, '--')) {
+                        return true;
+                    }
                 }
             }
         }
@@ -528,11 +544,12 @@ final class AuthorSelectorSemanticPreparer
             return;
         }
         $projections->installAttributeStateProjectionConditions($selector, array());
-        $rightmostStart = self::rightmostCompoundStart($selector);
-        if ( null === $rightmostStart || 1 === preg_match(self::PSEUDO_ELEMENT, $selector) ) {
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        if ( ! $tokens['supported'] || 1 === preg_match(self::PSEUDO_ELEMENT, $selector) ) {
             return;
         }
-        $ancestry = substr($selector, 0, $rightmostStart);
+        $compoundSpans = $tokens['compound_spans'];
+        $rightmostStart = $compoundSpans[ count($compoundSpans) - 1 ]['start'];
         if ( ! preg_match_all(self::ATTRIBUTE_CONDITION, $selector, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
             return;
         }
@@ -569,9 +586,7 @@ final class AuthorSelectorSemanticPreparer
             if ( ! $parsedCondition['supported'] ) {
                 return;
             }
-            $compoundSource = $isSubjectCondition ? substr($selector, $rightmostStart) : $ancestry;
-            $compoundOffset = $match[0][1] - ($isSubjectCondition ? $rightmostStart : 0);
-            $compound = self::staticSelector(self::enclosingCompound($compoundSource, $compoundOffset));
+            $compound = self::staticSelector(self::enclosingCompound($selector, $compoundSpans, $match[0][1]));
             $parsedCompound = CssSelectorMatcher::parse($compound);
             if ( ! $parsedCompound['supported'] ) {
                 return;
@@ -681,24 +696,19 @@ final class AuthorSelectorSemanticPreparer
         return trim((string) preg_replace(self::DYNAMIC_PSEUDO, '', $selector));
     }
 
-    /** The top-level compound of `$ancestry` containing byte `$offset`. */
-    private static function enclosingCompound(string $ancestry, int $offset): string
+    /**
+     * The top-level compound of `$selector` containing byte `$offset`.
+     *
+     * @param list<array{start: int, end: int}> $compoundSpans
+     */
+    private static function enclosingCompound(string $selector, array $compoundSpans, int $offset): string
     {
-        $start = self::rightmostCompoundStart(substr($ancestry, 0, $offset)) ?? 0;
-        $end = $offset;
-        $depth = 0;
-        $length = strlen($ancestry);
-        for ( ; $end < $length; ++$end ) {
-            $char = $ancestry[ $end ];
-            if ( '(' === $char || '[' === $char ) {
-                ++$depth;
-            } elseif ( ')' === $char || ']' === $char ) {
-                --$depth;
-            } elseif ( 0 === $depth && ( ctype_space($char) || '>' === $char || '+' === $char || '~' === $char ) ) {
-                break;
+        foreach ( $compoundSpans as $span ) {
+            if ( $span['start'] <= $offset && $offset < $span['end'] ) {
+                return substr($selector, $span['start'], $span['end'] - $span['start']);
             }
         }
-        return substr($ancestry, $start, $end - $start);
+        return '';
     }
 
     /**
@@ -748,43 +758,6 @@ final class AuthorSelectorSemanticPreparer
     }
 
     private const EXECUTABLE_SCRIPT_TYPES = array( 'module', 'text/javascript', 'application/javascript', 'application/x-javascript', 'text/ecmascript', 'application/ecmascript', 'text/jscript', 'text/livescript' );
-
-    /** Byte offset where the rightmost compound starts, or null when the selector cannot be split safely. */
-    private static function rightmostCompoundStart(string $selector): ?int
-    {
-        $start = 0;
-        $depth = 0;
-        $quote = '';
-        $length = strlen($selector);
-        for ( $offset = 0; $offset < $length; ++$offset ) {
-            $char = $selector[ $offset ];
-            if ( '' !== $quote ) {
-                if ( '\\' === $char ) {
-                    ++$offset;
-                } elseif ( $quote === $char ) {
-                    $quote = '';
-                }
-                continue;
-            }
-            if ( '"' === $char || "'" === $char ) {
-                $quote = $char;
-            } elseif ( '\\' === $char ) {
-                ++$offset;
-            } elseif ( '(' === $char || '[' === $char ) {
-                ++$depth;
-            } elseif ( ')' === $char || ']' === $char ) {
-                if ( 0 === $depth ) {
-                    return null;
-                }
-                --$depth;
-            } elseif ( 0 === $depth && ( ctype_space($char) || '>' === $char || '+' === $char || '~' === $char ) ) {
-                $start = $offset + 1;
-            } elseif ( 0 === $depth && ',' === $char ) {
-                return null;
-            }
-        }
-        return 0 === $depth && '' === $quote ? $start : null;
-    }
 
     /** @param array<string, mixed> $options */
     private function discoverRuntimeAttributeSelectorPaths(

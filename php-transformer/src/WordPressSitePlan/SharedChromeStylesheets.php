@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -32,7 +33,9 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
  */
 final class SharedChromeStylesheets
 {
-    private const GENERATED_CLASS_PATTERN = '/blocks-engine-[a-z-]+-[0-9a-f]{12}-\d+/';
+    // Subject-class projections share the zero-weight marker carrier's cascade.
+    // Lift both together so the later-enqueued chrome sheet preserves source order.
+    private const GENERATED_CLASS_PATTERN = '/blocks-engine-(?:[a-z-]+-[0-9a-f]{12}-\d+|subject-class-[0-9a-f]{12})(?![\w-])/';
 
     private const BOX_PROPERTIES = '/(?:^|[;{\s])(?:(?:max-)?width|z-index|overflow(?:-[xy])?|inset|top|right|bottom|left)\s*:/i';
 
@@ -141,23 +144,16 @@ final class SharedChromeStylesheets
         // Reuse the ancestor-run rewrite for declarations on the ancestor
         // itself. The synthetic leaf is removed below; only its wrapper inherits.
         if ($inheritedSubject) $selector .= ' .blocks-engine-inherited-context';
+        // Compounds interleaved with their explicit combinators; descendant
+        // whitespace is implied by the join below.
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        if (!$tokens['supported']) return $inheritedSubject ? '' : $selector;
         $compounds = array();
-        $current = '';
-        $depth = 0;
-        $length = strlen($selector);
-        for ($i = 0; $i < $length; ++$i) {
-            $char = $selector[$i];
-            if ('(' === $char || '[' === $char) ++$depth;
-            elseif (')' === $char || ']' === $char) --$depth;
-            if (0 === $depth && (ctype_space($char) || '>' === $char || '+' === $char || '~' === $char)) {
-                if ('' !== $current) $compounds[] = $current;
-                if (!ctype_space($char)) $compounds[] = $char;
-                $current = '';
-                continue;
-            }
-            $current .= $char;
+        foreach ($tokens['compounds'] as $index => $compound) {
+            $compounds[] = $compound;
+            $combinator = $tokens['combinators'][$index] ?? ' ';
+            if (' ' !== $combinator) $compounds[] = $combinator;
         }
-        if ('' !== $current) $compounds[] = $current;
         // A capture scopes a responsive variant's rules by that variant's root
         // (`:where(.data-blocks-engine-capture-mobile-document) #page-root #footer`). The
         // variant root is not an ancestor the chrome was hoisted out of: the
@@ -667,7 +663,8 @@ final class SharedChromeStylesheets
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             (new CssStylesheetTransformer())->visitStyleRules($asset['content'], static function (string $selector, string $body, array $context) use ($elements, $layoutRules, &$result): void {
-                if (!preg_match('/(?:^|;)\s*min-height\s*:\s*([^;]*(?:vh|svh|dvh|lvh))\s*(?:;|$)/i', $body, $minimum)) return;
+                $minimum = CssRuleAnalyzer::declarations($body, array('min-height'))[0]['value'] ?? null;
+                if (!is_string($minimum) || 1 !== preg_match('/vh$/Di', $minimum)) return;
                 $rules = array();
                 foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array($selector) as $candidate) {
                     $parsed = CssSelectorMatcher::parse(trim($candidate));
@@ -696,7 +693,7 @@ final class SharedChromeStylesheets
                         if ('flex' !== ($layout['display']['value'] ?? null) || 'column' !== ($layout['flex-direction']['value'] ?? null)) continue;
                         $root = '.wp-site-blocks:has(>.wp-block-post-content ' . $hook . ')';
                         $post = $root . '>.wp-block-post-content';
-                        $rules[$hook] = $root . '{min-height:' . trim($minimum[1]) . ';display:flex;flex-direction:column}'
+                        $rules[$hook] = $root . '{min-height:' . $minimum . ';display:flex;flex-direction:column}'
                             . $post . ',' . $post . ' ' . $hook . '{min-height:0}'
                             . ':where(' . $post . ',' . $post . ' ' . $hook . ',' . $post . ' :has(' . $hook . ')){flex:1;display:flex;flex-direction:column}';
                     }
@@ -857,16 +854,7 @@ final class SharedChromeStylesheets
      */
     private static function subjectNamesAny(string $selector, array $hooks): bool
     {
-        $depth = 0;
-        $start = 0;
-        $length = strlen($selector);
-        for ($i = 0; $i < $length; ++$i) {
-            $char = $selector[$i];
-            if ('(' === $char || '[' === $char) ++$depth;
-            elseif (')' === $char || ']' === $char) --$depth;
-            elseif (0 === $depth && (ctype_space($char) || '>' === $char || '+' === $char || '~' === $char)) $start = $i + 1;
-        }
-        $subject = substr($selector, $start);
+        $subject = CssSelectorTokenizer::tokenize($selector)['rightmost_compound'];
         foreach ($hooks as $hook) if (1 === preg_match('/[#.]' . preg_quote($hook, '/') . '(?![\w-])/', $subject)) return true;
         return false;
     }
@@ -1033,14 +1021,174 @@ final class SharedChromeStylesheets
      */
     public static function project(array $assets, array $parts, array $pages = array(), ?AssetReferenceCanonicalizer $references = null, array &$collisions = array(), ?array $liveElementMarkers = null): array
     {
+        $routeClasses = array();
+        foreach ($pages as $page) {
+            $class = DocumentRootContext::stampedRouteClass($page);
+            if (null !== $class) $routeClasses[(string) $page['source_path']] = $class;
+        }
+        [
+            'classes' => $classes,
+            'control_routes' => $controlRoutes,
+            'authored' => $authored,
+            'context' => $context,
+            'detached_roots' => $detachedRoots,
+            'inherited_contexts' => $inheritedContexts,
+            'chrome_elements' => $chromeElements,
+            'hook_routes' => $hookRoutes,
+            'detached_hooks' => $detachedHooks,
+            'has_shared_navigation' => $hasSharedNavigation,
+        ] = self::chromeEvidence($parts, $routeClasses);
+        // A template frame still surrounds route content. Its hooks are not
+        // detached chrome: keep their rules in the authored route cascade,
+        // just as before shell extraction moved the frame out of the page.
+        $routeHooks = self::routeKeptHooks($assets, $pages, $authored, $hookRoutes, $chromeElements);
+        foreach ($parts as $part) {
+            if ('page-frame' !== ($part['slug'] ?? null)) continue;
+            $markup = (string) ($part['canonical_block_markup'] ?? '');
+            $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+            $slot = null;
+            foreach ($index->tokens() as $token) {
+                if (!$token['closing'] && 'post-content' === $token['name']) {
+                    $slot = array('offset' => $token['offset'], 'length' => strlen($token['token']));
+                    break;
+                }
+            }
+            // Only the slot's ancestors still wrap route content. Siblings
+            // (buttons, dialogs, and other frame chrome) need shared rules so
+            // they also work with the generic template on newly added pages.
+            $ancestors = array();
+            if (null !== $slot) {
+                while (null !== ($slot = $index->parent($slot))) $ancestors[] = $slot;
+            } else {
+                $ancestors = $index->topLevel();
+            }
+            foreach ($ancestors as $range) {
+                $children = $index->children($range);
+                $length = array() !== $children ? $children[0]['offset'] - $range['offset'] : $range['length'];
+                foreach (self::authoredChromeElementHooks(substr($markup, $range['offset'], $length)) as $element) {
+                    foreach ($routeHooks as $kind => $names) $routeHooks[$kind] += $element[$kind];
+                }
+            }
+        }
+        $classes = array_diff_key($classes, $routeHooks['marker']);
+        unset($routeHooks['marker']);
+        foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
+        // A route-kept hook that a detached part also carries still styles that
+        // part wherever a rule reaches it through the ancestors it was hoisted
+        // out of (`#container .footer`): those ancestors are not around the
+        // template part, so such a rule never matches it from the route. The
+        // rule stays on the route for content still carrying the hook inline,
+        // and a re-anchored copy follows the part into shared chrome.
+        $detachedRouteHooks = array(
+            'class' => array_intersect_key($detachedHooks['class'], $routeHooks['class']),
+            'id' => array_intersect_key($detachedHooks['id'], $routeHooks['id']),
+        );
+        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id'] && array() === $detachedRouteHooks['class'] && array() === $detachedRouteHooks['id']) return $assets;
+        $classMatcher = self::generatedClassMatcher($classes);
+        // Current state is assigned by core on the served route, not saved in
+        // the shared part. Projected selectors using only native navigation
+        // hooks therefore have no authored/generated class to claim them.
+        // Lift them with the menu rather than the capture's matching leaf.
+        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher)
+            || self::selectorTargetsAuthoredChrome($selector, $authored, $context)
+            || ($hasSharedNavigation && self::selectorTargetsRuntimeNavigationState($selector));
+        $reachesDetachedPart = static fn (string $selector): bool => self::selectorTargetsAuthoredChrome($selector, $detachedRouteHooks, $context)
+            && self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots)) !== trim($selector);
+        $liftsToChrome = static fn (string $selector): bool => $targetsChrome($selector) || $reachesDetachedPart($selector);
+        $reanchor = static function (string $selector) use ($context, $detachedRoots, $controlRoutes): string {
+            $routes = array();
+            foreach ($controlRoutes as $control => $classes) {
+                if (str_contains($selector, '.' . $control . ')')) $routes += $classes;
+            }
+            if ($routes) {
+                // Rewrite only compiler-owned route gates. Authored root state
+                // and all specificity shims remain exactly as projected.
+                $scope = ':where(:root:is(.' . implode(',.', array_keys($routes)) . '))';
+                $selector = preg_replace('/:where\(:root(?::(?:is|not)\((?:\.be-r-[a-f0-9]+,?)+\)|\.be-r(?::not\((?:\.be-r-[a-f0-9]+,?)+\))?)\)/', $scope, $selector) ?? $selector;
+                $root = substr($scope, strlen(':where('), -1);
+                $selector = preg_replace('/:where\((:root(?:\.be-rs-[a-f0-9]+|:not\(\.be-rs-[a-f0-9]+\))),\1 \*\)/', ':where(' . $root . ',' . $root . ' *)', $selector) ?? $selector;
+            }
+            return self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
+        };
+
+        // Lift chrome once per occurrence media contract, while retaining one
+        // authored payload resource. Route instances still own their conditions.
+        $chromeAssets = self::perMediaChromeAssets($assets);
+        $projected = array();
+        $emittedShared = array();
+        $emittedSources = array();
+        // A per-media copy exists only to lift chrome under its condition; the
+        // authored payload it came from is still one asset with one target.
+        $keptInline = array();
+        $keep = static function (array $asset) use (&$projected, &$keptInline): void {
+            if (isset($asset['_inline_media_projection'])) {
+                if (isset($keptInline[$asset['source_path']])) return;
+                $keptInline[$asset['source_path']] = true;
+                $media = $asset['_inline_media_projection'];
+                unset($asset['_inline_media_projection'], $asset['media']);
+                if (array() !== $media) $asset['media'] = $media[0];
+            }
+            $projected[] = $asset;
+        };
+        foreach ($chromeAssets as $asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content']) || !StylesheetActivation::active($asset)) {
+                $keep($asset);
+                continue;
+            }
+            $shared = self::sharedChromeRules($asset['content'], $liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher);
+            if (null === $shared) {
+                $keep($asset);
+                continue;
+            }
+            $route = self::withoutSharedKeyframes(self::routeRules($asset['content'], $targetsChrome, $classMatcher), $shared);
+            $contract = self::sharedChromeContract($asset);
+            $sharedAsset = self::sharedChromeAsset($asset, $shared, $contract, $routeClasses);
+            $shared = (string) $sharedAsset['content'];
+            $asset = CompiledAssets::withRewrittenTextContent($asset, $route);
+            $keep($asset);
+            unset($sharedAsset['_inline_media_projection']);
+            // Media/target contracts and relative URL resolution must agree:
+            // otherwise the slices cannot share a resource or reference origin.
+            // Consolidate compatible chrome slices at the planning boundary,
+            // before tokens and enqueue instances are consumed. Keep their
+            // existing cascade order; only earlier identical rules are redundant.
+            if (self::consolidatedIntoEmitted($projected, $emittedShared, $asset, $shared, $contract, (string) $sharedAsset['reference_origin'], $references)) continue;
+            // Per-media copies of one inline stylesheet lift under different
+            // contracts, so they stay separate assets and need separate sources.
+            // Number repeats like target collisions; keep the .shared-chrome end.
+            $sharedSource = (string) $sharedAsset['source_path'];
+            $emittedSources[$sharedSource] = ($emittedSources[$sharedSource] ?? 0) + 1;
+            if (1 < $emittedSources[$sharedSource]) {
+                $sharedAsset['source_path'] = substr($sharedSource, 0, -strlen('.shared-chrome')) . '-' . $emittedSources[$sharedSource] . '.shared-chrome';
+                $sharedAsset['reconciliation_identity'] = WordPressSitePlan::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
+            }
+            $sharedKey = strtolower((string) $sharedAsset['path']);
+            if (isset($emittedShared[$sharedKey])) {
+                $collidingTarget = (string) $sharedAsset['target_path'];
+                $sharedAsset['path'] = $sharedAsset['target_path'] = substr($collidingTarget, 0, -strlen('.css')) . '-' . (count($emittedShared[$sharedKey]) + 1) . '.css';
+                $sharedAsset['token'] = 'asset-' . substr(hash('sha256', $sharedAsset['target_path']), 0, 16);
+                $sharedAsset['reconciliation_identity'] = WordPressSitePlan::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
+                $collisions[] = array('source_path' => (string) $sharedAsset['source_path'], 'colliding_source_path' => (string) $projected[$emittedShared[$sharedKey][0]['index']]['source_path'], 'target_path' => $collidingTarget, 'resolved_target_path' => (string) $sharedAsset['target_path']);
+            }
+            $emittedShared[$sharedKey][] = array('origin' => (string) $sharedAsset['reference_origin'], 'contract' => $contract, 'index' => count($projected));
+            $projected[] = $sharedAsset;
+        }
+        return $projected;
+    }
+
+    /**
+     * What the shared parts carry: generated and authored hooks, the routes
+     * each hook and control renders on, detached roots and the ancestor
+     * context they were hoisted out of.
+     *
+     * @param array<int,array<string,mixed>> $parts
+     * @param array<string,string> $routeClasses Stamped route class by page source path.
+     * @return array<string,mixed>
+     */
+    private static function chromeEvidence(array $parts, array $routeClasses): array
+    {
         $classes = array();
         $controlRoutes = array();
-        $routeIdentities = array();
-        foreach ($pages as $page) {
-            $source = (string) $page['source_path'];
-            $routeIdentities[$source] = WordPressSitePlan::identity('page', $source, $source);
-        }
-        $routeClasses = DocumentRootContext::routeClasses(array_values($routeIdentities));
         $authored = array('class' => array(), 'id' => array());
         $context = array('class' => array(), 'id' => array());
         $detachedRoots = array();
@@ -1061,7 +1209,7 @@ final class SharedChromeStylesheets
             preg_match_all('/\bblocks-engine-control-[a-f0-9]{12}-[0-9]+\b/', $markup, $controls);
             foreach ($controls[0] as $control) {
                 foreach ($sources as $source) {
-                    if (isset($routeIdentities[$source])) $controlRoutes[$control][$routeClasses[$routeIdentities[$source]]] = true;
+                    if (isset($routeClasses[$source])) $controlRoutes[$control][$routeClasses[$source]] = true;
                 }
             }
             $hasSharedNavigation = $hasSharedNavigation || 1 === preg_match('/<!--\s*wp:navigation(?:\s|\/|-->)/', $markup);
@@ -1106,6 +1254,34 @@ final class SharedChromeStylesheets
                 }
             }
         }
+        return array(
+            'classes' => $classes,
+            'control_routes' => $controlRoutes,
+            'authored' => $authored,
+            'context' => $context,
+            'detached_roots' => $detachedRoots,
+            'inherited_contexts' => $inheritedContexts,
+            'chrome_elements' => $chromeElements,
+            'hook_routes' => $hookRoutes,
+            'detached_hooks' => $detachedHooks,
+            'has_shared_navigation' => $hasSharedNavigation,
+        );
+    }
+
+    /**
+     * Hooks whose rules stay on the route: hooks route content also uses,
+     * hooks whose rules vary by route, hooks no lifted selector can name, and
+     * every hook of a chrome element that carries one of those.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $pages
+     * @param array{class:array<string,true>,id:array<string,true>} $authored
+     * @param array{class:array<string,array<string,true>>,id:array<string,array<string,true>>} $hookRoutes
+     * @param list<array{class:array<string,true>,id:array<string,true>,marker:array<string,true>}> $chromeElements
+     * @return array{class:array<string,true>,id:array<string,true>,marker:array<string,true>}
+     */
+    private static function routeKeptHooks(array $assets, array $pages, array $authored, array $hookRoutes, array $chromeElements): array
+    {
         // Hooks that route content also uses belong to that content too; rules
         // for them stay with the route instead of becoming global chrome rules.
         // So are generated markers route content carries, such as an author
@@ -1143,49 +1319,18 @@ final class SharedChromeStylesheets
                 }
             }
         } while ($grown);
-        $classes = array_diff_key($classes, $routeHooks['marker']);
-        unset($routeHooks['marker']);
-        foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
-        // A route-kept hook that a detached part also carries still styles that
-        // part wherever a rule reaches it through the ancestors it was hoisted
-        // out of (`#container .footer`): those ancestors are not around the
-        // template part, so such a rule never matches it from the route. The
-        // rule stays on the route for content still carrying the hook inline,
-        // and a re-anchored copy follows the part into shared chrome.
-        $detachedRouteHooks = array(
-            'class' => array_intersect_key($detachedHooks['class'], $routeHooks['class']),
-            'id' => array_intersect_key($detachedHooks['id'], $routeHooks['id']),
-        );
-        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id'] && array() === $detachedRouteHooks['class'] && array() === $detachedRouteHooks['id']) return $assets;
-        $classMatcher = self::generatedClassMatcher($classes);
-        // Current state is assigned by core on the served route, not saved in
-        // the shared part. Projected selectors using only native navigation
-        // hooks therefore have no authored/generated class to claim them.
-        // Lift them with the menu rather than the capture's matching leaf.
-        $targetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher)
-            || self::selectorTargetsAuthoredChrome($selector, $authored, $context)
-            || ($hasSharedNavigation && self::selectorTargetsRuntimeNavigationState($selector));
-        $reachesDetachedPart = static fn (string $selector): bool => self::selectorTargetsAuthoredChrome($selector, $detachedRouteHooks, $context)
-            && self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots)) !== trim($selector);
-        $liftsToChrome = static fn (string $selector): bool => $targetsChrome($selector) || $reachesDetachedPart($selector);
-        $reanchor = static function (string $selector) use ($context, $detachedRoots, $controlRoutes): string {
-            $routes = array();
-            foreach ($controlRoutes as $control => $classes) {
-                if (str_contains($selector, '.' . $control . ')')) $routes += $classes;
-            }
-            if ($routes) {
-                // Rewrite only compiler-owned route gates. Authored root state
-                // and all specificity shims remain exactly as projected.
-                $scope = ':where(:root:is(.' . implode(',.', array_keys($routes)) . '))';
-                $selector = preg_replace('/:where\(:root(?::(?:is|not)\((?:\.be-r-[a-f0-9]+,?)+\)|\.be-r(?::not\((?:\.be-r-[a-f0-9]+,?)+\))?)\)/', $scope, $selector) ?? $selector;
-                $root = substr($scope, strlen(':where('), -1);
-                $selector = preg_replace('/:where\((:root(?:\.be-rs-[a-f0-9]+|:not\(\.be-rs-[a-f0-9]+\))),\1 \*\)/', ':where(' . $root . ',' . $root . ' *)', $selector) ?? $selector;
-            }
-            return self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots));
-        };
+        return $routeHooks;
+    }
 
-        // Lift chrome once per occurrence media contract, while retaining one
-        // authored payload resource. Route instances still own their conditions.
+    /**
+     * One copy of each stylesheet per occurrence media condition, so chrome
+     * lifts under each condition its occurrences apply.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return list<array<string,mixed>>
+     */
+    private static function perMediaChromeAssets(array $assets): array
+    {
         $chromeAssets = array();
         foreach ($assets as $asset) {
             $media = array();
@@ -1202,165 +1347,187 @@ final class SharedChromeStylesheets
                 $chromeAssets[] = $asset;
             }
         }
-        $projected = array();
-        $emittedShared = array();
-        $emittedSources = array();
-        // A per-media copy exists only to lift chrome under its condition; the
-        // authored payload it came from is still one asset with one target.
-        $keptInline = array();
-        $keep = static function (array $asset) use (&$projected, &$keptInline): void {
-            if (isset($asset['_inline_media_projection'])) {
-                if (isset($keptInline[$asset['source_path']])) return;
-                $keptInline[$asset['source_path']] = true;
-                $media = $asset['_inline_media_projection'];
-                unset($asset['_inline_media_projection'], $asset['media']);
-                if (array() !== $media) $asset['media'] = $media[0];
-            }
-            $projected[] = $asset;
-        };
-        foreach ($chromeAssets as $asset) {
-            if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || '' === trim($asset['content']) || !StylesheetActivation::active($asset)) {
-                $keep($asset);
-                continue;
-            }
-            $matched = false;
-            $unparseable = false;
-            $shared = (new CssStylesheetTransformer())->transformStyleRules(
-                $asset['content'],
-                static function (string $prelude, string $body) use ($liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher, &$matched, &$unparseable): string {
-                    $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-                    if (null === $selectors) {
-                        $unparseable = true;
-                        return '';
+        return $chromeAssets;
+    }
+
+    /**
+     * The rules a stylesheet lifts into shared chrome: selectors reaching the
+     * parts, re-anchored, plus inherited declarations copied onto detached
+     * roots. Null when nothing lifts or the stylesheet cannot be split.
+     *
+     * @param callable(string):bool $liftsToChrome
+     * @param callable(string):string $reanchor
+     * @param list<array{0:array<string,mixed>,1:list<string>}> $inheritedContexts
+     * @param array<string,mixed> $classMatcher
+     */
+    private static function sharedChromeRules(string $css, callable $liftsToChrome, callable $reanchor, array $inheritedContexts, ?array $liveElementMarkers, array $classMatcher): ?string
+    {
+        $matched = false;
+        $unparseable = false;
+        $shared = (new CssStylesheetTransformer())->transformStyleRules(
+            $css,
+            static function (string $prelude, string $body) use ($liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher, &$matched, &$unparseable): string {
+                $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+                if (null === $selectors) {
+                    $unparseable = true;
+                    return '';
+                }
+                $inherited = '';
+                $declarations = \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($body, array(
+                    '--*', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'font-stretch',
+                    'font-feature-settings', 'font-variation-settings', 'font-kerning', 'direction', 'hyphens', 'letter-spacing',
+                    'line-height', 'tab-size', 'text-align', 'text-indent', 'text-shadow', 'text-transform',
+                    'visibility', 'white-space', 'word-spacing', 'writing-mode',
+                ));
+                if (array() !== $declarations) {
+                    $subjects = array();
+                    foreach ($inheritedContexts as [$ancestorHooks, $roots]) foreach ($selectors as $selector) {
+                        $subject = self::reanchoredDetachedContextSelector(trim($selector), $ancestorHooks, $roots, true);
+                        if ('' !== $subject) $subjects[$subject] = true;
                     }
-                    $inherited = '';
-                    $declarations = \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($body, array(
-                        '--*', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'font-stretch',
-                        'font-feature-settings', 'font-variation-settings', 'font-kerning', 'direction', 'hyphens', 'letter-spacing',
-                        'line-height', 'tab-size', 'text-align', 'text-indent', 'text-shadow', 'text-transform',
-                        'visibility', 'white-space', 'word-spacing', 'writing-mode',
-                    ));
-                    if (array() !== $declarations) {
-                        $subjects = array();
-                        foreach ($inheritedContexts as [$ancestorHooks, $roots]) foreach ($selectors as $selector) {
-                            $subject = self::reanchoredDetachedContextSelector(trim($selector), $ancestorHooks, $roots, true);
-                            if ('' !== $subject) $subjects[$subject] = true;
-                        }
-                        if (array() !== $subjects) {
-                            $inherited = implode(',', array_keys($subjects)) . '{' . implode(';', array_map(static fn(array $declaration): string => $declaration['name'] . ':' . $declaration['value'], $declarations)) . '}';
-                            $matched = true;
-                        }
+                    if (array() !== $subjects) {
+                        $inherited = implode(',', array_keys($subjects)) . '{' . implode(';', array_map(static fn(array $declaration): string => $declaration['name'] . ':' . $declaration['value'], $declarations)) . '}';
+                        $matched = true;
                     }
-                    $kept = array_values(array_filter($selectors, $liftsToChrome));
+                }
+                $kept = array_values(array_filter($selectors, $liftsToChrome));
+                if (array() === $kept) return $inherited;
+                // A grouped selector lifts only the alternatives the parts carry.
+                $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::generatedAlternatives($selector, $classMatcher, true), $kept), 'is_string'));
+                if (array() === $kept) return $inherited;
+                if (null !== $liveElementMarkers) {
+                    $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => DeadElementMarkers::withoutDead($selector, $liveElementMarkers), $kept), 'is_string'));
+                    // Every selector named only replaced elements: the rule matches nothing.
                     if (array() === $kept) return $inherited;
-                    // A grouped selector lifts only the alternatives the parts carry.
-                    $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::generatedAlternatives($selector, $classMatcher, true), $kept), 'is_string'));
-                    if (array() === $kept) return $inherited;
-                    if (null !== $liveElementMarkers) {
-                        $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => DeadElementMarkers::withoutDead($selector, $liveElementMarkers), $kept), 'is_string'));
-                        // Every selector named only replaced elements: the rule matches nothing.
-                        if (array() === $kept) return $inherited;
-                    }
-                    $matched = true;
-                    return $inherited . implode(',', array_map($reanchor, $kept)) . '{' . $body . '}';
                 }
-            );
-            if (!$matched || $unparseable) {
-                $keep($asset);
-                continue;
+                $matched = true;
+                return $inherited . implode(',', array_map($reanchor, $kept)) . '{' . $body . '}';
             }
-            $route = (new CssStylesheetTransformer())->transformStyleRules(
-                $asset['content'],
-                static function (string $prelude, string $body) use ($targetsChrome, $classMatcher): string {
-                    $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-                    if (null === $selectors) return $prelude . '{' . $body . '}';
-                    // Alternatives naming only route content stay in source order on the route.
-                    $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => ! $targetsChrome($selector) ? $selector : self::generatedAlternatives($selector, $classMatcher, false), $selectors), 'is_string'));
-                    return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
-                }
-            );
-            $contract = self::sharedChromeContract($asset);
-            $sharedAsset = $asset;
-            // Address the target by what is enqueued, not only the text: the same
-            // rules under another media condition, target or capture device are another asset.
-            $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';
-            $sharedAsset['target_path'] = $sharedAsset['path'];
-            $sharedAsset['source_path'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '') . '.shared-chrome';
-            // Relative url() references still resolve against the stylesheet the
-            // rules were projected from, not the synthetic shared-chrome identity.
-            $sharedAsset['reference_origin'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '');
-            // Static capture-device projections freeze source ancestry, unlike
-            // live navigation state that WordPress supplies on every route.
-            // Lifting those page-owned editor rules must not widen their scope.
-            $scopeClasses = array();
-            $global = false;
-            foreach ($asset['scopes'] ?? array() as $scope) {
-                if ('global' === ($scope['kind'] ?? null)) $global = true;
-                $source = $scope['source_path'] ?? '';
-                if (isset($routeIdentities[$source])) $scopeClasses[$routeClasses[$routeIdentities[$source]]] = true;
-            }
-            if ('editor-static-state' === ($asset['source'] ?? null) && !$global && $scopeClasses) {
-                $gate = ':where(:root:is(.' . implode(',.', array_keys($scopeClasses)) . '))';
-                $shared = (new CssStylesheetTransformer())->transformStyleRules($shared, static function (string $prelude, string $body) use ($gate): string {
-                    $arms = CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude);
-                    return implode(',', array_map(static fn(string $arm): string => preg_match('/\\[\\s*(?:' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . '|' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . ')\\b/i', $arm) ? $gate . ' ' . $arm : $arm, $arms)) . '{' . $body . '}';
-                });
-                $sharedAsset['path'] = $sharedAsset['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';
-            }
-            $sharedAsset = CompiledAssets::withRewrittenTextContent($sharedAsset, $shared);
-            $sharedAsset['scopes'] = array(array('kind' => 'global'));
-            $sharedAsset['token'] = 'asset-' . substr(hash('sha256', $sharedAsset['target_path']), 0, 16);
-            $sharedAsset['reconciliation_identity'] = WordPressSitePlan::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
-            // Global chrome is not an occurrence of the stylesheet it was lifted
-            // from; PageStylesheets::place() gives it a slot on every
-            // route, next to whichever contributing stylesheet that route applies.
-            unset($sharedAsset['inline_references'], $sharedAsset['stylesheet_instances'], $sharedAsset['stylesheet_parent'], $sharedAsset['stylesheet_inline_order']);
-            $sharedAsset['_stylesheet_projection_origins'] = array(self::stylesheetProjectionOrigin($asset));
-            $asset = CompiledAssets::withRewrittenTextContent($asset, $route);
-            $keep($asset);
-            unset($sharedAsset['_inline_media_projection']);
-            // Media/target contracts and relative URL resolution must agree:
-            // otherwise the slices cannot share a resource or reference origin.
-            // Consolidate compatible chrome slices at the planning boundary,
-            // before tokens and enqueue instances are consumed. Keep their
-            // existing cascade order; only earlier identical rules are redundant.
-            foreach ($emittedShared as $emissions) {
-                foreach ($emissions as $emitted) {
-                    $index = $emitted['index'];
-                    $existing = $projected[$index];
-                    if ($emitted['contract'] !== $contract
-                        || !self::sharedChromeOriginsAgree($shared, $emitted['origin'], (string) $sharedAsset['reference_origin'], $references)) continue;
-                    $combined = (new CssStylesheetTransformer())->concatenateWithoutRedundantRules(array($existing['content'], $shared));
-                    $existing = CompiledAssets::withRewrittenTextContent($existing, $combined);
-                    $existing['path'] = $existing['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $combined), 0, 16) . '.css';
-                    $existing['token'] = 'asset-' . substr(hash('sha256', $existing['target_path']), 0, 16);
-                    $existing['reconciliation_identity'] = WordPressSitePlan::identity('asset', $existing['source_path'], $existing['target_path']);
-                    $existing['_stylesheet_projection_origins'][] = self::stylesheetProjectionOrigin($asset);
-                    $projected[$index] = $existing;
-                    continue 3;
-                }
-            }
-            // Per-media copies of one inline stylesheet lift under different
-            // contracts, so they stay separate assets and need separate sources.
-            // Number repeats like target collisions; keep the .shared-chrome end.
-            $sharedSource = (string) $sharedAsset['source_path'];
-            $emittedSources[$sharedSource] = ($emittedSources[$sharedSource] ?? 0) + 1;
-            if (1 < $emittedSources[$sharedSource]) {
-                $sharedAsset['source_path'] = substr($sharedSource, 0, -strlen('.shared-chrome')) . '-' . $emittedSources[$sharedSource] . '.shared-chrome';
-                $sharedAsset['reconciliation_identity'] = WordPressSitePlan::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
-            }
-            $sharedKey = strtolower((string) $sharedAsset['path']);
-            if (isset($emittedShared[$sharedKey])) {
-                $collidingTarget = (string) $sharedAsset['target_path'];
-                $sharedAsset['path'] = $sharedAsset['target_path'] = substr($collidingTarget, 0, -strlen('.css')) . '-' . (count($emittedShared[$sharedKey]) + 1) . '.css';
-                $sharedAsset['token'] = 'asset-' . substr(hash('sha256', $sharedAsset['target_path']), 0, 16);
-                $sharedAsset['reconciliation_identity'] = WordPressSitePlan::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
-                $collisions[] = array('source_path' => (string) $sharedAsset['source_path'], 'colliding_source_path' => (string) $projected[$emittedShared[$sharedKey][0]['index']]['source_path'], 'target_path' => $collidingTarget, 'resolved_target_path' => (string) $sharedAsset['target_path']);
-            }
-            $emittedShared[$sharedKey][] = array('origin' => (string) $sharedAsset['reference_origin'], 'contract' => $contract, 'index' => count($projected));
-            $projected[] = $sharedAsset;
+        );
+        return $matched && !$unparseable ? $shared : null;
+    }
+
+    /**
+     * The stylesheet without the alternatives lifted into shared chrome.
+     *
+     * @param callable(string):bool $targetsChrome
+     * @param array<string,mixed> $classMatcher
+     */
+    private static function withoutSharedKeyframes(string $route, string $shared): string
+    {
+        // Definition rules survive style-rule projection. The global slice
+        // already carries these exact keyframes, so do not enqueue them twice.
+        $definitions = array();
+        // Only top-level definitions are interchangeable across the slices;
+        // conditionally scoped definitions retain their original contracts.
+        $tree = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($shared);
+        if (!$tree->wellFormed) return $route;
+        foreach ($tree->rules() as $rule) {
+            $text = trim(substr($shared, $rule['start'], $rule['end'] - $rule['start'] + 1));
+            if (preg_match('/^@(?:-[a-z]+-)?keyframes\s/i', $text)) $definitions[$text] = true;
         }
-        return $projected;
+        $tree = new \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree($route);
+        if (!$tree->wellFormed) return $route;
+        $removals = array();
+        foreach ($tree->rules() as $rule) {
+            $text = trim(substr($route, $rule['start'], $rule['end'] - $rule['start'] + 1));
+            if (isset($definitions[$text])) $removals[] = $rule;
+        }
+        foreach (array_reverse($removals) as $rule) $route = substr_replace($route, '', $rule['start'], $rule['end'] - $rule['start'] + 1);
+        return $route;
+    }
+
+    private static function routeRules(string $css, callable $targetsChrome, array $classMatcher): string
+    {
+        return (new CssStylesheetTransformer())->transformStyleRules(
+            $css,
+            static function (string $prelude, string $body) use ($targetsChrome, $classMatcher): string {
+                $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+                if (null === $selectors) return $prelude . '{' . $body . '}';
+                // Alternatives naming only route content stay in source order on the route.
+                $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => ! $targetsChrome($selector) ? $selector : self::generatedAlternatives($selector, $classMatcher, false), $selectors), 'is_string'));
+                return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
+            }
+        );
+    }
+
+    /**
+     * The global shared-chrome asset holding $shared, addressed by its enqueue
+     * contract and content. Editor static-state rules stay gated to the routes
+     * their capture covered.
+     *
+     * @param array<string,mixed> $asset
+     * @param array<string,string> $routeClasses Stamped route class by page source path.
+     * @return array<string,mixed>
+     */
+    private static function sharedChromeAsset(array $asset, string $shared, string $contract, array $routeClasses): array
+    {
+        $sharedAsset = $asset;
+        // Address the target by what is enqueued, not only the text: the same
+        // rules under another media condition, target or capture device are another asset.
+        $sharedAsset['path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';
+        $sharedAsset['target_path'] = $sharedAsset['path'];
+        $sharedAsset['source_path'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '') . '.shared-chrome';
+        // Relative url() references still resolve against the stylesheet the
+        // rules were projected from, not the synthetic shared-chrome identity.
+        $sharedAsset['reference_origin'] = (string) ($asset['source_path'] ?? $asset['path'] ?? '');
+        // Static capture-device projections freeze source ancestry, unlike
+        // live navigation state that WordPress supplies on every route.
+        // Lifting those page-owned editor rules must not widen their scope.
+        $scopeClasses = array();
+        $global = false;
+        foreach ($asset['scopes'] ?? array() as $scope) {
+            if ('global' === ($scope['kind'] ?? null)) $global = true;
+            $source = $scope['source_path'] ?? '';
+            if (isset($routeClasses[$source])) $scopeClasses[$routeClasses[$source]] = true;
+        }
+        if ('editor-static-state' === ($asset['source'] ?? null) && !$global && $scopeClasses) {
+            $gate = ':where(:root:is(.' . implode(',.', array_keys($scopeClasses)) . '))';
+            $shared = (new CssStylesheetTransformer())->transformStyleRules($shared, static function (string $prelude, string $body) use ($gate): string {
+                $arms = CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude);
+                return implode(',', array_map(static fn(string $arm): string => preg_match('/\\[\\s*(?:' . preg_quote(EngineMarker::DEVICE_SCOPE_ATTRIBUTE, '/') . '|' . preg_quote(CaptureEvidence::DEVICE_DOCUMENT, '/') . ')\\b/i', $arm) ? $gate . ' ' . $arm : $arm, $arms)) . '{' . $body . '}';
+            });
+            $sharedAsset['path'] = $sharedAsset['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $shared), 0, 16) . '.css';
+        }
+        $sharedAsset = CompiledAssets::withRewrittenTextContent($sharedAsset, $shared);
+        $sharedAsset['scopes'] = array(array('kind' => 'global'));
+        $sharedAsset['token'] = 'asset-' . substr(hash('sha256', $sharedAsset['target_path']), 0, 16);
+        $sharedAsset['reconciliation_identity'] = WordPressSitePlan::identity('asset', $sharedAsset['source_path'], $sharedAsset['target_path']);
+        // Global chrome is not an occurrence of the stylesheet it was lifted
+        // from; PageStylesheets::place() gives it a slot on every
+        // route, next to whichever contributing stylesheet that route applies.
+        unset($sharedAsset['inline_references'], $sharedAsset['stylesheet_instances'], $sharedAsset['stylesheet_parent'], $sharedAsset['stylesheet_inline_order']);
+        $sharedAsset['_stylesheet_projection_origins'] = array(self::stylesheetProjectionOrigin($asset));
+        return $sharedAsset;
+    }
+
+    /**
+     * Folds $shared into an already emitted shared-chrome asset with the same
+     * contract and reference origin, keeping cascade order.
+     *
+     * @param array<int,array<string,mixed>> $projected
+     * @param array<string,list<array{origin:string,contract:string,index:int}>> $emittedShared
+     * @param array<string,mixed> $asset
+     */
+    private static function consolidatedIntoEmitted(array &$projected, array $emittedShared, array $asset, string $shared, string $contract, string $referenceOrigin, ?AssetReferenceCanonicalizer $references): bool
+    {
+        foreach ($emittedShared as $emissions) {
+            foreach ($emissions as $emitted) {
+                $index = $emitted['index'];
+                $existing = $projected[$index];
+                if ($emitted['contract'] !== $contract
+                    || !self::sharedChromeOriginsAgree($shared, $emitted['origin'], $referenceOrigin, $references)) continue;
+                $combined = (new CssStylesheetTransformer())->concatenateWithoutRedundantRules(array($existing['content'], $shared));
+                $existing = CompiledAssets::withRewrittenTextContent($existing, $combined);
+                $existing['path'] = $existing['target_path'] = 'assets/css/shared-chrome-' . substr(hash('sha256', $contract . "\0" . $combined), 0, 16) . '.css';
+                $existing['token'] = 'asset-' . substr(hash('sha256', $existing['target_path']), 0, 16);
+                $existing['reconciliation_identity'] = WordPressSitePlan::identity('asset', $existing['source_path'], $existing['target_path']);
+                $existing['_stylesheet_projection_origins'][] = self::stylesheetProjectionOrigin($asset);
+                $projected[$index] = $existing;
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

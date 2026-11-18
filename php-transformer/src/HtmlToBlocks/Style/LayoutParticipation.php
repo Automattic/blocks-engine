@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
-use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -64,7 +64,7 @@ final class LayoutParticipation
             $displays = '' === $base ? array() : array( $base );
             foreach ( array_merge($displays, array_values($styleResolver->conditionalDisplayRules($parent))) as $display ) {
                 $parentDisplays[] = CssValueInspector::comparable(
-                    $styleResolver->resolveCssVariablesInValue($display, $parent)
+                    $styleResolver->customProperties->resolve($display, $parent)
                 );
             }
         }
@@ -230,11 +230,12 @@ final class LayoutParticipation
      * alignment), rather than resolving core's percentage against the row.
      * `:where()` cannot outrank those selectors; these
      * declarations are therefore important. Author `!important` sizes that
-     * arrive later still win.
+     * arrive later still win. The width and height resets live in
+     * EngineSupportCss axis rules, which spare author-sized buttons.
      */
     public static function transferredItemDeclarations(): string
     {
-        return 'display:inline!important;width:fit-content!important;height:auto!important;word-break:normal!important';
+        return 'display:inline!important;word-break:normal!important';
     }
 
     /**
@@ -247,7 +248,7 @@ final class LayoutParticipation
      */
     public static function transferredFlexContainerDeclarations(): string
     {
-        return 'display:flex!important;align-items:inherit;justify-content:inherit;flex-direction:inherit;flex-wrap:inherit;gap:inherit;column-gap:inherit;row-gap:inherit;height:auto!important;width:fit-content!important;word-break:normal!important';
+        return 'display:flex!important;align-items:inherit;justify-content:inherit;flex-direction:inherit;flex-wrap:inherit;gap:inherit;column-gap:inherit;row-gap:inherit;word-break:normal!important';
     }
 
     /**
@@ -306,20 +307,13 @@ final class LayoutParticipation
      */
     public static function widthPreset(string $resolvedStyle): ?int
     {
-        if ( preg_match('/(?:^|;)\s*width\s*:\s*(25|50|75|100)%\s*(?:;|$)/i', $resolvedStyle, $matches) === 1 ) {
+        if ( preg_match('/^(25|50|75|100)%$/D', SourceDeclarations::parse($resolvedStyle)['width'] ?? '', $matches) === 1 ) {
             return (int) $matches[1];
         }
 
         $width = '';
-        foreach ( CssValueSplitter::splitTopLevel($resolvedStyle, array( ';' )) as $declaration ) {
-            if ( ! str_contains($declaration, ':') ) {
-                continue;
-            }
-            [ $name, $value ] = array_map('trim', explode(':', $declaration, 2));
-            if ( '' === $name || '' === $value ) {
-                continue;
-            }
-            if ( 'width' === strtolower($name) ) {
+        foreach ( CssRuleAnalyzer::declarationList($resolvedStyle) as [ 'name' => $name, 'value' => $value ] ) {
+            if ( 'width' === $name && '' !== $value ) {
                 $width = preg_replace('/\s+/', ' ', $value) ?? $value;
             }
         }
@@ -334,29 +328,29 @@ final class LayoutParticipation
      */
     private static function cannotShareLine(DOMElement $element, StyleResolver $styleResolver): bool
     {
-        $declarations = $styleResolver->referenceViewportAuthorDeclarations($element, array( 'float', 'position' ));
+        $declarations = $styleResolver->authorViewport->reference($element, array( 'float', 'position' ));
         $float = CssValueInspector::declared($declarations, 'float');
         $position = CssValueInspector::declared($declarations, 'position');
-        $width = CssValueInspector::comparable((string) ($styleResolver->cssDeclarations($styleResolver->controlSurfaceResolvedStyle($element))['width'] ?? ''));
+        $width = CssValueInspector::comparable((string) (SourceDeclarations::parse($styleResolver->controlSurfaceResolvedStyle($element))['width'] ?? ''));
 
         return ( '' !== $float && 'none' !== $float ) || in_array($position, array( 'absolute', 'fixed' ), true) || 100 === self::widthPreset('width:' . $width);
     }
 
     private static function resolvedDisplay(DOMElement $element, StyleResolver $styleResolver): string
     {
-        $declarations = $styleResolver->cssDeclarations($styleResolver->controlSurfaceResolvedStyle($element));
+        $declarations = SourceDeclarations::parse($styleResolver->controlSurfaceResolvedStyle($element));
         // A declared `var(--d)` (Wix states container display this way) classifies
         // only after expansion against the element's cascaded custom properties;
         // the raw reference matches neither flex nor grid.
         $display = CssValueInspector::comparable(
-            $styleResolver->resolveCssVariablesInValue((string) ($declarations['display'] ?? ''), $element)
+            $styleResolver->customProperties->resolve((string) ($declarations['display'] ?? ''), $element)
         );
         if ( '' !== $display ) {
             return $display;
         }
 
         return CssValueInspector::comparable(
-            $styleResolver->resolveCssVariablesInValue(
+            $styleResolver->customProperties->resolve(
                 (string) ($styleResolver->structuralPresentationDeclarations($element)['display'] ?? ''),
                 $element
             )

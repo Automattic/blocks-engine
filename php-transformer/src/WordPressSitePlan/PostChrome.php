@@ -22,14 +22,28 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifes
  */
 final class PostChrome
 {
+    /** URL attributes in HTML; serialized block JSON additionally uses "url". */
+    private const URL_ATTRIBUTES = 'src|href|srcset|poster|action|formaction|cite|data|xlink:href';
     /**
      * Related-section card projections by shared heading, for the post group
      * being factored. A projection reads every post in the group, so it is
      * built once per group rather than once per post.
      *
-     * @var array<string,array{template:string,fields:array<string,array<string,mixed>>}|null>
+     * @var array<string,array{template:string,fields:array<string,array<string,mixed>>,featured_images:array<string,array<string,mixed>>}|null>
      */
     private array $relatedSectionProjections = array();
+
+    /** @var list<array<string,mixed>> Original site posts, across layout groups. */
+    private array $allPosts = array();
+
+    /** @var array<string,array<string,mixed>> Fields committed by successful projections. */
+    private array $projectedFields = array();
+
+    /** @var array<string,array<string,mixed>> Related-card images from successfully factored groups. */
+    private array $projectedFeaturedImages = array();
+
+    /** @var array<string,array<string,mixed>> Findings from the latest document pass only. */
+    private array $orderRetained = array();
 
     /**
      * @param \Closure(string):string $chromeIdentity The site plan's shared chrome identity of a block.
@@ -210,7 +224,15 @@ final class PostChrome
      */
     public function extractArticleChrome(array $pages, array $parts, array $runtimeDeclarations = array(), array $runtimeEntityRecords = array(), ?array $templates = null): array
     {
-        if (null === $templates) return $this->factorArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
+        $this->allPosts = array_values(array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null) && empty($page['synthetic'])));
+        $this->projectedFields = array();
+        $this->projectedFeaturedImages = array();
+        $this->orderRetained = array();
+        if (null === $templates) {
+            $result = $this->factorArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
+            foreach ($this->orderRetained as $finding) ($this->recordFinding)($finding);
+            return $result;
+        }
         $bySlug = array_column($templates, null, 'slug');
         $bound = array();
         foreach ($pages as $index => $page) {
@@ -220,12 +242,14 @@ final class PostChrome
             $bound[$slug][$index] = $page;
         }
         foreach ($bound as $slug => $posts) {
-            // Factoring needs two posts with one layout; a template bound to a
-            // single post has nothing to factor and keeps its complete article.
+            // Peers establish article boundaries even when optional chrome
+            // later divides this template's posts into singleton layouts.
             if (count($posts) < 2) continue;
             $shared = $this->sharedIdentities($posts);
             $this->relatedSectionProjections = array();
             $groups = array();
+            $finalFindings = $this->orderRetained;
+            $hasUntitled = array() !== array_filter($posts, fn(array $post): bool => $this->hasDeclaredEmptyTitle($post));
             foreach ($posts as $index => $post) {
                 $transformed = $this->transformDocument($post['canonical_block_markup'], $post, $post['route']['path'] ?? '', $shared, null, $posts);
                 // Editor labels describe the source article, not its layout.
@@ -243,11 +267,37 @@ final class PostChrome
                     unset($attrs['url']);
                     return '<!-- wp:social-link ' . BlockAttributes::encode($attrs) . ' /-->';
                 }, $identityMarkup) ?? $identityMarkup;
+                // URL values are per-post data, not layout. Normalize both
+                // rendered attributes and their serialized block counterparts;
+                // keep element names, classes and tree shape significant.
+                $identityMarkup = preg_replace('/(\s(?:' . self::URL_ATTRIBUTES . ')\s*=\s*)(?:"[^"]*"|\'[^\']*\'|[^\s>]+)/i', '$1""', $identityMarkup) ?? $identityMarkup;
+                $identityMarkup = preg_replace('/("(?:url|' . self::URL_ATTRIBUTES . ')"\s*:\s*)"(?:\\\\.|[^"\\\\])*"/i', '$1""', $identityMarkup) ?? $identityMarkup;
+                // An absent title on an explicitly untitled post is not a
+                // different layout. The titled peer supplies the title slot.
+                if ($hasUntitled) $identityMarkup = preg_replace('/<!-- wp:post-title(?:\s+\{.*?\})?\s*\/-->/', '', $identityMarkup) ?? $identityMarkup;
                 $identity = ChromeIdentity::markup($identityMarkup);
                 $groups[$identity][$index] = $post;
             }
+            // Grouping is speculative; only the final factoring pass owns findings.
+            $this->orderRetained = $finalFindings;
             foreach ($groups as $identity => $group) {
-                $factored = $this->factorArticleChrome($group, $parts, $runtimeDeclarations, $runtimeEntityRecords);
+                // Peer evidence is only valid for a missing whole section, not
+                // for a replacement menu, widget or header. A singleton keeps
+                // its own template, but one layout must equal the other with
+                // complete blocks removed and every remaining byte unchanged.
+                // Either layout may be richer: a singleton can supply the
+                // optional-section evidence for the smaller peer group.
+                if (1 === count($group)) {
+                    $matches = false;
+                    foreach ($groups as $peerIdentity => $peerGroup) {
+                        if ($peerIdentity !== $identity && (self::identityWithoutSections($identity, $peerIdentity) || self::identityWithoutSections($peerIdentity, $identity))) {
+                            $matches = true;
+                            break;
+                        }
+                    }
+                    if (!$matches) continue;
+                }
+                $factored = $this->factorArticleChrome($group, $parts, $runtimeDeclarations, $runtimeEntityRecords, $posts);
                 if (null === $factored['single']) continue;
                 // A partial group cannot change the template used by the other
                 // layouts (or by posts whose complete article must be retained).
@@ -275,10 +325,58 @@ final class PostChrome
                 unset($part);
             }
         }
+        foreach ($pages as $index => $page) {
+            $source = $page['source_path'] ?? '';
+            if (!isset($page['metadata']['featured_image']) && isset($this->projectedFeaturedImages[$source])) $pages[$index]['metadata']['featured_image'] = $this->projectedFeaturedImages[$source];
+            if (isset($this->projectedFields[$source])) $pages[$index]['metadata']['post_meta'] = ($page['metadata']['post_meta'] ?? array()) + $this->projectedFields[$source];
+        }
+        foreach ($this->orderRetained as $finding) ($this->recordFinding)($finding);
         return array('pages' => $pages, 'parts' => $parts, 'templates' => array_values($bySlug));
     }
 
-    private function factorArticleChrome(array $pages, array $parts, array $runtimeDeclarations, array $runtimeEntityRecords): array
+    /** Whether removing whole blocks from a layout yields this post's identity. */
+    private static function identityWithoutSections(string $post, string $layout): bool
+    {
+        if ($post === $layout) return true;
+        $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($post);
+        $layoutIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($layout);
+        // Compare the literal frame around children as well as their ordered
+        // identities. Descending permits an absent section inside a wrapper,
+        // but never permits different text or attributes in a retained block.
+        $matches = static function (array $postChildren, array $layoutChildren, string $postFrame, string $layoutFrame) use ($postIndex, $layoutIndex): bool {
+            foreach (array_reverse($postChildren) as $child) $postFrame = substr_replace($postFrame, '', $child['offset'], $child['length']);
+            foreach (array_reverse($layoutChildren) as $child) $layoutFrame = substr_replace($layoutFrame, '', $child['offset'], $child['length']);
+            if (trim($postFrame) !== trim($layoutFrame)) return false;
+            $cursor = 0;
+            foreach ($postChildren as $child) {
+                $slice = substr($postIndex->markup, $child['offset'], $child['length']);
+                $found = false;
+                while (isset($layoutChildren[$cursor])) {
+                    $candidate = $layoutChildren[$cursor++];
+                    if (self::identityWithoutSections($slice, substr($layoutIndex->markup, $candidate['offset'], $candidate['length']))) {
+                        $found = true;
+                        break;
+                    }
+                }
+                if (!$found) return false;
+            }
+            return true;
+        };
+        $postRoots = $postIndex->topLevel();
+        $layoutRoots = $layoutIndex->topLevel();
+        // Unwrap one root to compare its children without recursing on itself.
+        if (1 === count($postRoots) && 1 === count($layoutRoots) && 0 === $postRoots[0]['offset'] && strlen($post) === $postRoots[0]['length'] && 0 === $layoutRoots[0]['offset'] && strlen($layout) === $layoutRoots[0]['length']) {
+            return $matches($postIndex->children($postRoots[0]), $layoutIndex->children($layoutRoots[0]), $post, $layout);
+        }
+        return $matches($postRoots, $layoutRoots, $post, $layout);
+    }
+
+    private function hasDeclaredEmptyTitle(array $post): bool
+    {
+        return '' === ($post['metadata']['declared_content']['title'] ?? null);
+    }
+
+    private function factorArticleChrome(array $pages, array $parts, array $runtimeDeclarations, array $runtimeEntityRecords, array $peers = array()): array
     {
         $posts = array();
         $indexes = array();
@@ -289,7 +387,7 @@ final class PostChrome
             $posts[] = $page;
             $indexes[] = $index;
         }
-        if (count($posts) < 2) {
+        if (count($posts) < 2 && count($peers) < 2) {
             return array('pages' => $pages, 'single' => null);
         }
         // Inline shell
@@ -304,7 +402,11 @@ final class PostChrome
                 }
             }
         }
-        $shared = $this->sharedIdentities($posts);
+        // A singleton layout may still have a proven article boundary among
+        // its peers. Keep its own template rather than copying optional chrome
+        // that cannot render empty for this post.
+        $evidence = count($posts) < 2 ? $peers : $posts;
+        $shared = $this->sharedIdentities($evidence);
         $this->relatedSectionProjections = array();
         // Only promote a common lead-image slot when every post owns one
         // ahead of its body, and the asset actually varies between posts.
@@ -312,26 +414,31 @@ final class PostChrome
         $leadImages = array();
         foreach ($posts as $postIndex => $post) {
             $route = (string) ($post['route']['path'] ?? '');
-            $documents[$postIndex] = $this->transformDocument($post['canonical_block_markup'], $post, $route, $shared, null, $posts);
+            $documents[$postIndex] = $this->transformDocument($post['canonical_block_markup'], $post, $route, $shared, null, $evidence);
             $retained = $documents[$postIndex]['retained'];
             if (count($retained) < 2) continue;
             $lead = $retained[0];
             $image = PostBlocks::leadImage(substr($post['canonical_block_markup'], $lead['offset'], $lead['length']));
             if (null !== $image) $leadImages[$postIndex] = $image;
         }
+        // Prefer the depth-bounded encoding regardless of source post order.
+        // Equivalent native wrapper chains compare equal, but must not replace
+        // a folded template required by a deeper member's content.
+        uasort($documents, static fn(array $a, array $b): int => preg_match_all('~<!-- wp:[a-z0-9-]+/layout-shell ~', $b['template']) <=> preg_match_all('~<!-- wp:[a-z0-9-]+/layout-shell ~', $a['template']));
         $promoteLead = count($leadImages) === count($posts) && count(array_unique(array_column($leadImages, 'asset_token'))) > 1;
         $single = null;
+        $singleHasTitle = false;
         $singleMenus = array();
         $bodies = array();
         $postMeta = array();
         $featuredImages = array();
-        foreach ($posts as $postIndex => $post) {
+        foreach ($documents as $postIndex => $transformed) {
+            $post = $posts[$postIndex];
             $route = is_string($post['route']['path'] ?? null) ? $post['route']['path'] : '';
-            $transformed = $documents[$postIndex];
             if ($promoteLead) {
                 $transformed = $this->transformDocument($post['canonical_block_markup'], $post, $route, $shared, $transformed['retained'][0]['offset'], $posts);
             }
-            if (!$transformed['title'] || (!$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || 1 !== substr_count($transformed['template'], '<!-- wp:post-content')) {
+            if ((!$transformed['title'] && !$this->hasDeclaredEmptyTitle($post)) || (!$transformed['date'] && !$transformed['shared']) || '' === trim($transformed['body']) || 1 !== substr_count($transformed['template'], '<!-- wp:post-content')) {
                 return array('pages' => $pages, 'single' => null);
             }
             // A runtime entity binding anchors one exact block of the document
@@ -342,7 +449,8 @@ final class PostChrome
             if ($this->factoringStrandsBindings($post, $transformed['retained'], $runtimeDeclarations, $runtimeEntityRecords)) {
                 return array('pages' => $pages, 'single' => null);
             }
-            if (null === $single) {
+            if (null === $single || (!$singleHasTitle && $transformed['title'])) {
+                $singleHasTitle = $transformed['title'];
                 $single = preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match) use ($posts): string {
                     $attrs = json_decode($match[2], true);
                     if (!is_array($attrs)) return $match[0];
@@ -362,6 +470,12 @@ final class PostChrome
             $bodies[$indexes[$postIndex]] = $transformed['body'];
             if (null !== ($transformed['featured'] ?? null)) $featuredImages[$indexes[$postIndex]] = $transformed['featured'];
             foreach ($transformed['fields'] ?? array() as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
+        }
+        // Commit fields only once the whole group can be factored. Related
+        // cards can own fields on posts outside this layout group.
+        foreach ($postMeta as $source => $values) $this->projectedFields[$source] = ($this->projectedFields[$source] ?? array()) + $values;
+        foreach ($this->relatedSectionProjections as $projection) {
+            foreach ($projection['featured_images'] ?? array() as $source => $image) $this->projectedFeaturedImages[$source] = $image;
         }
         foreach ($bodies as $index => $body) {
             $pages[$index]['canonical_block_markup'] = $body;
@@ -432,8 +546,8 @@ final class PostChrome
     private function sharedIdentities(array $posts): array
     {
         // Identity normalization rewrites attributes and block comments, never
-        // rendered text. A range whose text is not common to every post cannot
-        // be shared chrome, so only ranges with common text are normalized:
+        // rendered text. A range whose text or URL values differ cannot be
+        // shared chrome, so only ranges with common content are normalized:
         // that skips every container holding a post's own article.
         $indexes = array();
         $texts = null;
@@ -446,10 +560,12 @@ final class PostChrome
             $texts = null === $texts ? $postTexts : array_intersect_key($texts, $postTexts);
         }
         $shared = null;
+        $headings = array();
         foreach ($posts as $key => $post) {
             $identities = array();
             foreach ($indexes[$key]->ranges() as $range) {
                 $slice = substr($post['canonical_block_markup'], $range['offset'], $range['length']);
+                if ('heading' === PostBlocks::sourceBlockName($slice) && !$this->headingMatchesPostTitle($slice, $post)) $headings[($this->chromeIdentity)($slice)][$key] = true;
                 if (!isset($texts[self::chromeTextKey($slice)])) continue;
                 $identity = ($this->chromeIdentity)($slice);
                 if ('' !== $identity) {
@@ -458,14 +574,25 @@ final class PostChrome
             }
             $shared = null === $shared ? $identities : array_intersect_key($shared, $identities);
         }
+        // Optional sections can be absent on some posts; a repeated heading
+        // still establishes their shared section identity.
+        foreach ($headings as $identity => $owners) if (count($owners) >= 2) $shared[$identity] = true;
         return $shared ?? array();
     }
 
-    /** Rendered text of block markup, whitespace-insensitive, hashed. */
+    /** URL-bearing subtrees are per-post unless their full identity is shared. */
+    private function hasVaryingUrlAttributes(string $markup, array $shared): bool
+    {
+        return !isset($shared[($this->chromeIdentity)($markup)])
+            && 1 === preg_match('/(?:\\s(?:' . self::URL_ATTRIBUTES . ')\\s*=|"(?:url|' . self::URL_ATTRIBUTES . ')"\\s*:)/i', $markup);
+    }
+
+    /** Rendered text and URL attributes, which must agree before chrome normalization. */
     private static function chromeTextKey(string $markup): string
     {
         $text = strip_tags(preg_replace('/<!--.*?-->/s', '', $markup) ?? $markup);
-        return hash('xxh128', trim(preg_replace('/\s+/u', ' ', html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $text));
+        preg_match_all('/\\s(?:' . self::URL_ATTRIBUTES . ')\\s*=\\s*(?:"[^"]*"|\'[^\']*\'|[^\\s>]+)|"(?:url|' . self::URL_ATTRIBUTES . ')"\\s*:\\s*"(?:\\\\.|[^"\\\\])*"/i', $markup, $urls);
+        return hash('xxh128', trim(preg_replace('/\s+/u', ' ', html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $text) . json_encode($urls[0]));
     }
 
     /**
@@ -478,15 +605,20 @@ final class PostChrome
     private function bodySelection(\Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex $index, array $post, string $route, array $shared, array $posts, ?int $featuredOffset = null): array
     {
         $fallback = array('range' => null, 'slots' => array(), 'fields' => array(), 'featured' => null);
-        $titleEnd = null;
+        $titleEnd = $this->hasDeclaredEmptyTitle($post) ? 0 : null;
         $varying = array();
         foreach ($index->ranges() as $range) {
             if (array() !== $index->children($range)) continue;
             $slice = substr($index->markup, $range['offset'], $range['length']);
             $kind = $this->classifyBlock($slice, $post, $route, $index);
-            if ('title' === $kind) $titleEnd = $range['offset'] + $range['length'];
+            // Without a title, the publication date still anchors the article
+            // start. Otherwise enclosing chrome can win by counting related
+            // cards as body variation before their section is projected.
+            // Listing self-links can also classify as titles; only the first
+            // matching heading anchors a titled post's body.
+            if ((null === $titleEnd && $this->headingMatchesPostTitle($slice, $post)) || (0 === $titleEnd && 'date' === $kind && $this->hasDeclaredEmptyTitle($post))) $titleEnd = $range['offset'] + $range['length'];
             if ($range['offset'] === $featuredOffset) continue;
-            if (isset($shared[($this->chromeIdentity)($slice)]) || in_array($kind, array('title', 'date', 'comments', 'chrome', 'share', 'skip'), true)) continue;
+            if (isset($shared[($this->chromeIdentity)($slice)]) || (!$this->hasVaryingUrlAttributes($slice, $shared) && in_array($kind, array('title', 'date', 'comments', 'chrome', 'share', 'skip'), true))) continue;
             $varying[] = $range;
         }
         if (null === $titleEnd) return $fallback;
@@ -497,7 +629,10 @@ final class PostChrome
             $count = 0;
             foreach ($varying as $leaf) {
                 if ($leaf['offset'] < $candidate['offset'] || $leaf['offset'] + $leaf['length'] > $candidate['offset'] + $candidate['length']) continue;
-                if ('' !== ListingExcerptProjection::text(substr($index->markup, $leaf['offset'], $leaf['length']))) ++$count;
+                $slice = substr($index->markup, $leaf['offset'], $leaf['length']);
+                // Unlinked media is article content; linked thumbnails belong
+                // to cards/navigation and must not inflate the body count.
+                if ('' !== ListingExcerptProjection::text($slice) || (in_array(PostBlocks::sourceBlockName($slice), array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true) && !preg_match('/<a\b[^>]*\bhref\s*=|"href"\s*:/i', $slice))) ++$count;
             }
             if ($count < 2 || $count < $bestCount) continue;
             if ($count > $bestCount || null === $best || $candidate['length'] < $best['length']) {
@@ -506,6 +641,24 @@ final class PostChrome
             }
         }
         if (null === $best) return $fallback;
+        // Ties select the smallest wrapper. Keep authored empty siblings and
+        // their enclosing body anchor with the body, not in shared chrome.
+        while (true) {
+            $parent = null;
+            foreach ($index->ranges() as $candidate) {
+                if ($candidate['offset'] < $titleEnd || $candidate['offset'] > $best['offset'] || $candidate['offset'] + $candidate['length'] < $best['offset'] + $best['length'] || $candidate['length'] <= $best['length']) continue;
+                if (null === $parent || $candidate['length'] < $parent['length']) $parent = $candidate;
+            }
+            if (null === $parent) break;
+            foreach ($index->ranges() as $sibling) {
+                if ($sibling['offset'] < $parent['offset'] || $sibling['offset'] + $sibling['length'] > $parent['offset'] + $parent['length']) continue;
+                // Inspect only blocks outside the chosen body, not ancestors.
+                if ($sibling['offset'] < $best['offset'] + $best['length'] && $sibling['offset'] + $sibling['length'] > $best['offset']) continue;
+                $slice = substr($index->markup, $sibling['offset'], $sibling['length']);
+                if ('' !== ListingExcerptProjection::text($slice) || in_array(PostBlocks::sourceBlockName($slice), array('image', 'gallery', 'video', 'audio', 'embed', 'media-text', 'cover'), true) || preg_match('/<(?:img|video|iframe|picture|audio|svg|object|embed)\b/i', $slice)) break 2;
+            }
+            $best = $parent;
+        }
         $slots = array();
         $fields = array();
         $featured = null;
@@ -517,7 +670,31 @@ final class PostChrome
             if (count($children) < 2) return null;
             $heading = substr($sectionIndex->markup, $children[0]['offset'], $children[0]['length']);
             if ('heading' !== PostBlocks::sourceBlockName($heading) || !isset($shared[($this->chromeIdentity)($heading)])) return null;
-            return array('heading' => ($this->chromeIdentity)($heading), 'items' => array_slice($children, 1));
+            $items = array_slice($children, 1);
+            $following = $items;
+            // Follow wrapper chains, allowing textless carousel controls beside
+            // the card list. Controls stay outside the replaced item range.
+            // Stop at the list so a single li remains an item, not its contents.
+            while (array() !== $following) {
+                if (1 !== count($following)) {
+                    $content = array_values(array_filter($following, static fn(array $child): bool => '' !== ListingExcerptProjection::text(substr($sectionIndex->markup, $child['offset'], $child['length']))));
+                    if (1 !== count($content)) {
+                        // Some native containers expose their cards directly,
+                        // with the list wrapper carried in their saved HTML.
+                        if (isset($slice) && 1 === preg_match('~^<!-- wp:[a-z0-9-]+/authored-carousel ~', ltrim($slice))) $items = $following;
+                        break;
+                    }
+                    $following = $content;
+                }
+                $slice = substr($sectionIndex->markup, $following[0]['offset'], $following[0]['length']);
+                $nested = $sectionIndex->children($following[0]);
+                if ('list' === PostBlocks::sourceBlockName($slice) || in_array(PostBlocks::sourceAttributes($slice)['tagName'] ?? null, array('ul', 'ol'), true) || array() !== array_filter(PostBlocks::sourceAttributes($slice)['wrappers'] ?? array(), static fn(array $wrapper): bool => in_array($wrapper['tagName'] ?? null, array('ul', 'ol'), true))) {
+                    if (array() !== $nested) $items = $nested;
+                    break;
+                }
+                $following = $nested;
+            }
+            return array('heading' => ($this->chromeIdentity)($heading), 'items' => $items);
         };
         $sections = array();
         foreach ($index->ranges() as $owner) {
@@ -535,7 +712,36 @@ final class PostChrome
             $start = $items[0]['offset'];
             $end = $items[count($items) - 1]['offset'] + $items[count($items) - 1]['length'];
             $slots[$section['owner']['offset']] = substr($index->markup, $section['owner']['offset'], $start - $section['owner']['offset']) . PostBlocks::query(count($items), $projection['template']) . substr($index->markup, $end, $section['owner']['offset'] + $section['owner']['length'] - $end);
+            $this->listings->registerQueryContainer($slots[$section['owner']['offset']]);
             foreach ($projection['fields'] as $source => $values) $fields[$source] = ($fields[$source] ?? array()) + $values;
+        }
+        // A textless counterpart of a proven related section is its empty
+        // loading state, not a second article body. Use the same query slot.
+        foreach ($posts as $peer) {
+            $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
+            foreach ($peerIndex->ranges() as $owner) {
+                $section = $sectionItems($peerIndex, $owner, $shared);
+                if (null === $section) continue;
+                if (!array_key_exists($section['heading'], $this->relatedSectionProjections)) $this->relatedSectionProjections[$section['heading']] = $this->relatedSectionProjection($section['heading'], $sectionItems, $posts, $shared);
+                $projection = $this->relatedSectionProjections[$section['heading']];
+                if (null === $projection) continue;
+                $slice = substr($peerIndex->markup, $owner['offset'], $owner['length']);
+                $class = PostBlocks::sourceAttributes($slice)['className'] ?? '';
+                $class = preg_replace('/\s*be-inline-geometry-[\w-]+/', '', $class);
+                if ('' === $class) continue;
+                foreach ($index->ranges() as $candidate) {
+                    if ($candidate['offset'] < $best['offset'] + $best['length'] || isset($slots[$candidate['offset']])) continue;
+                    $empty = substr($index->markup, $candidate['offset'], $candidate['length']);
+                    $emptyClass = preg_replace('/\s*be-inline-geometry-[\w-]+/', '', PostBlocks::sourceAttributes($empty)['className'] ?? '');
+                    if ($class !== $emptyClass || '' !== ListingExcerptProjection::text($empty)) continue;
+                    $items = $section['items'];
+                    $start = $items[0]['offset'] - $owner['offset'];
+                    $last = $items[array_key_last($items)];
+                    $end = $last['offset'] + $last['length'] - $owner['offset'];
+                    $slots[$candidate['offset']] = substr($slice, 0, $start) . PostBlocks::query(count($items), $projection['template']) . substr($slice, $end);
+                    $this->listings->registerQueryContainer($slots[$candidate['offset']]);
+                }
+            }
         }
         foreach ($varying as $leaf) {
             if ($leaf['offset'] >= $best['offset'] && $leaf['offset'] < $best['offset'] + $best['length']) continue;
@@ -565,7 +771,7 @@ final class PostChrome
                 $slots[$leaf['offset']] = PostBlocks::featuredImage($slice);
                 continue;
             }
-            ($this->recordFinding)(array('code' => 'wordpress_site_plan_post_chrome_order_retained', 'source_path' => $post['source_path'], 'message' => 'Outside body variation has no native slot; retained original post-content placement to avoid dropping content.'));
+            $this->orderRetained[$post['source_path']] = array('code' => 'wordpress_site_plan_post_chrome_order_retained', 'source_path' => $post['source_path'], 'message' => 'Outside body variation has no native slot; retained original post-content placement to avoid dropping content.');
             return $fallback;
         }
         return array('range' => $best, 'slots' => $slots, 'fields' => $fields, 'featured' => $featured);
@@ -578,22 +784,31 @@ final class PostChrome
      *
      * @param array<int,array<string,mixed>> $posts
      * @param array<string,true> $shared
-     * @return array{template:string,fields:array<string,array<string,mixed>>}|null
+     * @return array{template:string,fields:array<string,array<string,mixed>>,featured_images:array<string,array<string,mixed>>}|null
      */
     private function relatedSectionProjection(string $heading, callable $sectionItems, array $posts, array $shared): ?array
     {
         $cardMarkup = '';
+        $seen = array();
         foreach ($posts as $peer) {
             $peerIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($peer['canonical_block_markup']);
             foreach ($peerIndex->ranges() as $owner) {
                 $peerSection = $sectionItems($peerIndex, $owner, $shared);
                 if (null === $peerSection || $heading !== $peerSection['heading']) continue;
-                foreach ($peerSection['items'] as $child) $cardMarkup .= substr($peerIndex->markup, $child['offset'], $child['length']);
+                foreach ($peerSection['items'] as $child) {
+                    $slice = substr($peerIndex->markup, $child['offset'], $child['length']);
+                    // Runtime slider classes and geometry vary by position;
+                    // repeated linked routes are still the same card evidence.
+                    $key = $this->listings->cardRouteIdentity($slice);
+                    if (isset($seen[$key])) continue;
+                    $seen[$key] = true;
+                    $cardMarkup .= $slice;
+                }
                 break;
             }
         }
         $cardIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($cardMarkup);
-        $cards = $this->listings->cardRanges($cardIndex, $posts, 1);
+        $cards = $this->listings->cardRanges($cardIndex, $this->allPosts, 1);
         if (null === $cards) return null;
         // Never replace a whole section if some authored child has no card
         // projection. Let the normal fallback retain its source order.
@@ -611,13 +826,23 @@ final class PostChrome
                 if ($range['offset'] < $card['offset'] || $range['offset'] + $range['length'] > $card['offset'] + $card['length']) continue;
                 $slice = substr($cardMarkup, $range['offset'], $range['length']);
                 if ('paragraph' !== PostBlocks::sourceBlockName($slice)) continue;
+                if ('title' === $this->listings->classifyCardBlock($slice, $card['post'], $card['route'], $cardIndex)) continue;
                 $key = 'blocks_engine_post_field_' . substr(hash('sha256', $heading . ':' . $ordinal++), 0, 12);
                 $cardFields[$card['post']['source_path']][$key] = ListingFieldProjection::content(array($slice));
                 $bound[$range['offset']] = ListingFieldProjection::paragraph($slice, PostBlocks::sourceAttributes($slice), $key, '');
             }
         }
         $template = $this->listings->cardTemplate($cardIndex, $cards, $cardFields, $bound);
-        return null === $template ? null : array('template' => $template, 'fields' => $cardFields);
+        if (null === $template) return null;
+        $featuredImages = array();
+        if (str_contains($template, '<!-- wp:post-featured-image')) {
+            foreach ($cards as $card) {
+                $markup = substr($cardMarkup, $card['offset'], $card['length']);
+                $image = $this->listings->cardFeaturedImage($markup, $card['post'], $card['route']);
+                if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
+            }
+        }
+        return array('template' => $template, 'fields' => $cardFields, 'featured_images' => $featuredImages);
     }
 
     /**
@@ -627,6 +852,7 @@ final class PostChrome
      */
     private function transformDocument(string $markup, array $post, string $route, array $shared, ?int $featuredOffset = null, array $posts = array()): array
     {
+        unset($this->orderRetained[$post['source_path']]);
         $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
         $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex((string) ($post['canonical_block_markup'] ?? ''));
         $top = $index->topLevel();
@@ -640,7 +866,9 @@ final class PostChrome
         foreach ($index->ranges() as $candidate) {
             $slice = substr($markup, $candidate['offset'], $candidate['length']);
             $attrs = PostBlocks::sourceAttributes($slice);
-            if ('main' !== ($attrs['tagName'] ?? null) || array() === $index->children($candidate)) continue;
+            // An explicitly untitled post cannot prove that this landmark
+            // excludes article metadata and surrounding layout by title absence.
+            if ($this->hasDeclaredEmptyTitle($post) || 'main' !== ($attrs['tagName'] ?? null) || array() === $index->children($candidate)) continue;
             $hasTitle = false;
             foreach ($index->ranges() as $descendant) {
                 if ($descendant['offset'] < $candidate['offset'] || $descendant['offset'] + $descendant['length'] > $candidate['offset'] + $candidate['length']) continue;
@@ -722,7 +950,8 @@ final class PostChrome
         $attrs = PostBlocks::sourceAttributes($slice);
         $className = (string) ($attrs['className'] ?? '');
         $anchor = (string) ($attrs['anchor'] ?? '');
-        if (preg_match('/\b(?:social|share-button|twitter-share)\b/', $className) || preg_match('/\bcomments?\b/i', $className) || preg_match('/comment/i', $anchor)) {
+        $varyingUrls = $this->hasVaryingUrlAttributes($slice, $shared);
+        if (!$varyingUrls && (preg_match('/\b(?:social|share-button|twitter-share)\b/', $className) || preg_match('/\bcomments?\b/i', $className) || preg_match('/comment/i', $anchor))) {
             return $empty;
         }
         $identity = ($this->chromeIdentity)($slice);
@@ -753,7 +982,7 @@ final class PostChrome
             if ('date' === $kind) {
                 return array('template' => PostBlocks::date($slice), 'body' => '', 'title' => false, 'date' => true, 'shared' => false, 'content' => false, 'retained' => array());
             }
-            if ('comments' === $kind || 'chrome' === $kind || 'share' === $kind || 'skip' === $kind) {
+            if (!$varyingUrls && ('comments' === $kind || 'chrome' === $kind || 'share' === $kind || 'skip' === $kind)) {
                 return $empty;
             }
             if (null !== $contentRange) return $empty;

@@ -25,8 +25,8 @@ final class NavigationOpenerPresentation
         }
         // A hamburger drawn as a character — U+2630 (☰), or its U+2261 (≡)
         // stand-in, optionally with a variation selector — is an icon-only
-        // opener, not a text label: Core keeps its own icon instead of
-        // rendering a "Menu" word the source never showed.
+        // opener, not a text label. Its content travels through the source
+        // presentation path rather than becoming Core's "Menu" word.
         $glyphs = preg_replace('/[\s\x{FE0E}\x{FE0F}]/u', '', $control->textContent ?? '');
         if ('' === $glyphs) return false;
         return !preg_match('/^[\x{2630}\x{2261}]+$/u', $glyphs);
@@ -41,17 +41,30 @@ final class NavigationOpenerPresentation
                 if ('' !== trim($child->textContent ?? '')) return null;
                 continue;
             }
-            $display = $this->styles->collapsedViewportAuthorDeclarations($child, array('display'));
+            $display = $this->styles->authorViewport->collapsed($child, array('display'));
             if ('none' === CssValueInspector::withoutImportant($display['display'] ?? '')) continue;
-            if ('svg' !== strtolower($child->tagName) || null !== $icon) return null;
-            $icon = $child;
+            $tag = strtolower($child->tagName);
+            $candidate = 'svg' === $tag ? $child : (in_array($tag, array('div', 'span', 'i'), true) ? $this->icon($child) : null);
+            if (null === $candidate || null !== $icon) return null;
+            $icon = $candidate;
         }
         return $icon;
     }
 
-    /** @return array{artwork:string,button:array<string,array<string,string>>,icon:array<string,array<string,string>>}|null */
+    /** @return array{artwork:string,text?:string,button:array<string,array<string,string>>,icon:array<string,array<string,string>>}|null */
     public function source(DOMElement $control): ?array
     {
+        // Intrinsic text metrics are proven only for a bare glyph with an
+        // authored font size and explicitly removed border. Boxed togglers
+        // retain the existing header-box path and its sizing floor.
+        $text = trim($control->textContent ?? '');
+        $glyphStyle = $this->styles->authorViewport->collapsed($control, array('border', 'font-size'));
+        if (0 === $control->childElementCount && preg_match('/^[\x{2630}\x{2261}][\x{FE0E}\x{FE0F}]?$/u', $text)
+            && in_array(CssValueInspector::withoutImportant($glyphStyle['border'] ?? ''), array('0', '0px', 'none'), true)
+            && '' !== CssValueInspector::withoutImportant($glyphStyle['font-size'] ?? '')) {
+            $button = $this->styles->authoredControlPresentation($control, array('box-sizing', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-width', 'border-style', 'border-color', 'border-radius', 'background', 'background-color', 'color', 'font', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'transform', 'transform-origin', 'translate', 'rotate', 'scale'));
+            return array('artwork' => '', 'text' => $text, 'button' => $button, 'icon' => array());
+        }
         // One visible passive SVG is a proven visual control. Accessible
         // titles and a hidden alternate state icon do not make it mixed
         // content; visible labels or document-dependent artwork still do.
@@ -69,10 +82,24 @@ final class NavigationOpenerPresentation
         $paint = array('fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin');
         $icon = $this->styles->authoredControlPresentation($svg, array_merge($box, $paint));
         $icon[''] ??= array();
+        // A wrapped SVG's intrinsic attributes need not describe its painted
+        // box: its wrapper can size it through inherited tokens or percentages.
+        if (!$svg->parentNode->isSameNode($control)) {
+            for ($wrapper = $svg->parentNode; $wrapper instanceof DOMElement && !$wrapper->isSameNode($control); $wrapper = $wrapper->parentNode) {
+                $dimensions = $this->styles->authoredControlPresentation($wrapper, array('width', 'height'));
+                foreach ($dimensions as $condition => $values) {
+                    foreach ($values as $property => $value) {
+                        $value = $this->styles->customProperties->resolveAtViewport($value, $wrapper, StyleResolver::MOBILE_REFERENCE_WIDTH);
+                        $button[$condition][$property] ??= $value;
+                        $icon[$condition][$property] = '100%';
+                    }
+                }
+            }
+        }
         // An unsized SVG in a definite-width control fills the control's
         // content box and takes its height from the viewBox ratio.
         $declared = fn (string $property): bool => isset($icon[''][$property]) || '' !== trim($svg->getAttribute($property))
-            || isset($this->styles->collapsedViewportAuthorDeclarations($svg, array($property))[$property]);
+            || isset($this->styles->authorViewport->collapsed($svg, array($property))[$property]);
         $definiteControl = array_filter($button, static fn (array $values): bool => (bool) preg_match('/^\d+(?:\.\d+)?(?:px|em|rem)$/D', CssValueInspector::withoutImportant($values['width'] ?? '')));
         if (!$declared('width') && !$declared('height') && '' !== trim($svg->getAttribute('viewBox') ?: $svg->getAttribute('viewbox')) && array() !== $definiteControl) {
             $icon['']['width'] = '100%';
@@ -80,7 +107,7 @@ final class NavigationOpenerPresentation
         }
         foreach (array('width', 'height') as $property) {
             if (!isset($icon[''][$property])) {
-                $collapsed = $this->styles->collapsedViewportAuthorDeclarations($svg, array($property));
+                $collapsed = $this->styles->authorViewport->collapsed($svg, array($property));
                 $value = CssValueInspector::withoutImportant(trim($collapsed[$property] ?? $svg->getAttribute($property)));
                 if (is_numeric($value)) $value .= 'px';
                 if (!preg_match('/^\d+(?:\.\d+)?(?:px|em|rem)$/D', $value)) return null;
@@ -106,12 +133,12 @@ final class NavigationOpenerPresentation
         foreach ($control->getElementsByTagName('*') as $node) {
             $hidden = false;
             for ($ancestor = $node; $ancestor instanceof DOMElement && !$ancestor->isSameNode($control); $ancestor = $ancestor->parentNode) {
-                $rest = $this->styles->collapsedViewportAuthorDeclarations($ancestor, array('display', 'visibility'));
+                $rest = $this->styles->authorViewport->collapsed($ancestor, array('display', 'visibility'));
                 $hidden = $hidden || $ancestor->hasAttribute('hidden') || 'none' === CssValueInspector::withoutImportant($rest['display'] ?? '') || 'hidden' === CssValueInspector::withoutImportant($rest['visibility'] ?? '');
             }
             if ($hidden) continue;
-            $values = $this->styles->collapsedViewportDeclarations($node, array('display', 'width', 'height', 'background-color', 'transform', 'top', 'bottom'));
-            $values = array_replace($values, $this->styles->collapsedViewportAuthorDeclarations($node, array('transform', 'display', 'background', 'background-color')));
+            $values = $this->styles->cascade->collapsedViewportDeclarations($node, array('display', 'width', 'height', 'background-color', 'transform', 'top', 'bottom'));
+            $values = array_replace($values, $this->styles->authorViewport->collapsed($node, array('transform', 'display', 'background', 'background-color')));
             if ('none' === CssValueInspector::withoutImportant($values['display'] ?? '')) continue;
             if ($node->childElementCount > 0) {
                 if (preg_match('/^([\d.]+)px$/', $values['width'] ?? '', $w) && preg_match('/^([\d.]+)px$/', $values['height'] ?? '', $h)) {
@@ -121,7 +148,7 @@ final class NavigationOpenerPresentation
                 continue;
             }
             if ('' !== trim($node->textContent ?? '')) continue;
-            $color = $this->styles->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant($values['background-color'] ?? $values['background'] ?? ''), $node, StyleResolver::MOBILE_REFERENCE_WIDTH);
+            $color = $this->styles->customProperties->resolveAtViewport(CssValueInspector::withoutImportant($values['background-color'] ?? $values['background'] ?? ''), $node, StyleResolver::MOBILE_REFERENCE_WIDTH);
             if (null === CssColor::parse($color) || CssValueInspector::isTransparentColor($color)) continue;
             if (preg_match('/scale\(\s*0\s*\)/i', $values['transform'] ?? '')) continue;
             $width = '100%' === ($values['width'] ?? '') ? $boxWidth : (float) ($values['width'] ?? 0);
@@ -149,8 +176,8 @@ final class NavigationOpenerPresentation
                 // The opener only paints in the collapsed state, so an
                 // unconditional value takes its tokens at that viewport.
                 $value = '' === $condition
-                    ? $this->styles->resolveCssVariablesAtViewport(CssValueInspector::withoutImportant($value), $source, StyleResolver::MOBILE_REFERENCE_WIDTH)
-                    : $this->styles->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $source);
+                    ? $this->styles->customProperties->resolveAtViewport(CssValueInspector::withoutImportant($value), $source, StyleResolver::MOBILE_REFERENCE_WIDTH)
+                    : $this->styles->customProperties->resolve(CssValueInspector::withoutImportant($value), $source);
                 if ('' === $value || preg_match('/[{}<>;]|var\(|url\(/i', $value)) continue;
                 $safeValues = $this->styles->safeVisualDeclarations(array($property => $value));
                 // Resting classification deliberately omits transforms and

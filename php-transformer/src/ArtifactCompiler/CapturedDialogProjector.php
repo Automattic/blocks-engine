@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
@@ -10,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialo
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
+use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
@@ -30,6 +33,8 @@ final class CapturedDialogProjector
 
     /** @var list<DOMElement> Panels proven by the existing complete gallery contract. */
     private array $nativeGalleryPanels = array();
+    /** @var array<string, true> Chrome triggers whose evidence some route could not verify. */
+    private array $unverifiedChromeTriggers = array();
 
     /**
      * @param array<int, array<string, mixed>> $files
@@ -47,6 +52,7 @@ final class CapturedDialogProjector
         $components = $this->projectComponentCarousels($files);
         $popovers = $this->adoptSourcePopovers($components['files']);
         $result = $this->projectCapturedStates($popovers['files']);
+        $this->dropOrphanDialogBindings($result['files']);
         $this->restoreNavigationPanels($result['files']);
         $this->restoreRemainingPanels($result['files']);
         $result['diagnostics'] = array_merge($result['diagnostics'], $components['diagnostics'] ?? array());
@@ -231,6 +237,7 @@ final class CapturedDialogProjector
         }
 
         $routes = CaptureReceiptRoutes::forFiles($files, $receipt);
+        $this->unverifiedChromeTriggers = $this->unverifiedChromeTriggers($files, $report['pages'], $routes);
 
         $projected = 0;
         $retired = array();
@@ -460,8 +467,7 @@ final class CapturedDialogProjector
             }
             $dialog = $state['dialog'];
             $dialogHtml = ArrayField::string($dialog, 'html');
-            $declaredBytes = is_int($dialog['htmlBytes'] ?? null) ? $dialog['htmlBytes'] : -1;
-            if ('' === $dialogHtml || ! empty($dialog['htmlTruncated']) || strlen($dialogHtml) > self::MAX_DIALOG_BYTES || $declaredBytes !== strlen($dialogHtml)) {
+            if (! $this->verifiedDialogEvidence($dialog)) {
                 $diagnostics[] = $this->diagnostic('captured_dialog_unsafe_or_truncated', 'warning', 'A captured dialog was ignored because its HTML is empty, truncated, or exceeds the byte limit.', array('source_path' => $sourcePath));
                 continue;
             }
@@ -480,6 +486,12 @@ final class CapturedDialogProjector
             }
             $triggers = array_values(array_filter($triggers, fn (DOMElement $trigger): bool => ! $this->isAdopted($adopted, $trigger)));
             if (array() === $triggers) {
+                continue;
+            }
+            // Shared chrome renders alike on every route. A chrome control
+            // whose evidence another route could not verify stays as the
+            // source wired it here too, as it does on that route.
+            if (array() === array_filter($triggers, fn (DOMElement $trigger): bool => ! isset($this->unverifiedChromeTriggers[$this->chromeTriggerIdentity($trigger) ?? '']))) {
                 continue;
             }
             // A navigation button with its dropdown panel of links stays in place:
@@ -1098,6 +1110,40 @@ final class CapturedDialogProjector
         unset($file);
     }
 
+    /** Unusable capture wiring must not turn an ordinary control into a runtime island. */
+    private function dropOrphanDialogBindings(array &$files): void
+    {
+        foreach ($files as &$file) {
+            $html = $file['content'] ?? null;
+            if (!is_string($html) || !preg_match('/\.html?$/i', (string) ($file['path'] ?? '')) || !str_contains($html, CaptureEvidence::DIALOG_TRIGGER)) continue;
+            $document = HtmlSerialization::parseDocument($html);
+            if ($this->hasUnrecognizedRuntime($document)) continue;
+            $known = false;
+            foreach ($document->getElementsByTagName('script') as $script) {
+                if ($script->hasAttribute(CaptureEvidence::DISCLOSURE_RUNTIME) && self::isRecognizedRuntimeScript($script, CaptureEvidence::DISCLOSURE_RUNTIME)) $known = true;
+            }
+            if (!$known) continue;
+            $xpath = new DOMXPath($document);
+            $changed = false;
+            foreach ($xpath->query('//*[@' . CaptureEvidence::DIALOG_TRIGGER . ']') ?: array() as $trigger) {
+                if (!$trigger instanceof DOMElement || SourceDom::isBoundCapturedDialogTrigger($trigger) || NavigationPattern::ownsCapturedSubmenuTrigger($trigger) || SourceDom::hasAncestorTag($trigger, array('nav'))) continue;
+                $key = trim($trigger->getAttribute(CaptureEvidence::DIALOG_TRIGGER));
+                $panels = $xpath->query('//*[@' . CaptureEvidence::DIALOG_PANEL . '=' . $this->xpathLiteral($key) . ']');
+                // In-place scoped wiring can still be owned by the retained
+                // runtime. Only discard missing or explicitly refused bindings.
+                if (!$trigger->hasAttribute(CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED) && $panels && 0 < $panels->length) continue;
+                if ('' !== $key && $key === trim($trigger->getAttribute('aria-controls'))) {
+                    $trigger->removeAttribute('aria-controls');
+                    $trigger->removeAttribute('aria-expanded');
+                }
+                foreach (array(CaptureEvidence::DIALOG_TRIGGER, CaptureEvidence::DIALOG_PANEL_STATE, CaptureEvidence::DIALOG_ANCESTOR_UNVERIFIED) as $attribute) $trigger->removeAttribute($attribute);
+                $changed = true;
+            }
+            if ($changed) $file = ArtifactNormalizer::withTextPayload($file, HtmlSerialization::documentHtml($document));
+        }
+        unset($file);
+    }
+
     /** Close only unowned capture dropdowns still carrying their opened envelope. */
     private function restoreRemainingPanels(array &$files): void
     {
@@ -1148,6 +1194,60 @@ final class CapturedDialogProjector
             if ($changed) $file = ArtifactNormalizer::withTextPayload($file, HtmlSerialization::documentHtml($document));
         }
         unset($file);
+    }
+
+    /** Evidence is complete when it is non-empty, bounded and exactly its declared size. */
+    private function verifiedDialogEvidence(array $dialog): bool
+    {
+        $dialogHtml = ArrayField::string($dialog, 'html');
+        $declaredBytes = is_int($dialog['htmlBytes'] ?? null) ? $dialog['htmlBytes'] : -1;
+        return '' !== $dialogHtml && empty($dialog['htmlTruncated']) && strlen($dialogHtml) <= self::MAX_DIALOG_BYTES && $declaredBytes === strlen($dialogHtml);
+    }
+
+    /**
+     * The chrome triggers (inside a header or footer landmark) of dialog
+     * states whose evidence was rejected on their route.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @param array<int, mixed> $pages
+     * @return array<string, true>
+     */
+    private function unverifiedChromeTriggers(array $files, array $pages, CaptureReceiptRoutes $routes): array
+    {
+        $unverified = array();
+        foreach ($pages as $page) {
+            if (! is_array($page) || ! is_string($page['sourceUrl'] ?? null) || ! is_array($page['components'] ?? null)) continue;
+            $states = array_values(array_filter(
+                $this->dialogStates(CapturedComponentStates::evidence($page['components'], array('dialog', 'listbox', 'menu', 'disclosure', 'carousel'))),
+                fn (array $state): bool => 'gallery' !== ($state['kind'] ?? '') && 'captured' === ($state['status'] ?? null) && is_array($state['trigger'] ?? null) && is_array($state['dialog'] ?? null) && ! $this->verifiedDialogEvidence($state['dialog'])
+            ));
+            if (array() === $states || count($states) > self::MAX_DIALOG_STATES_PER_PAGE) continue;
+            $index = $routes->pathIndex($routes->path($page['sourceUrl']));
+            if (null === $index || ! is_string($files[$index]['content'] ?? null)) continue;
+            $document = HtmlSerialization::parseDocument($files[$index]['content']);
+            foreach ($states as $state) {
+                $found = $this->findTriggers($document, $state['trigger']);
+                if ('ambiguous' === $found['status']) continue;
+                foreach ($found['elements'] as $trigger) {
+                    $identity = $this->chromeTriggerIdentity($trigger);
+                    if (null !== $identity) $unverified[$identity] = true;
+                }
+            }
+        }
+        return $unverified;
+    }
+
+    /** A trigger's route-independent identity, when it sits in header or footer chrome. */
+    private function chromeTriggerIdentity(DOMElement $trigger): ?string
+    {
+        for ($node = $trigger->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+            $area = ShellLandmarkPolicy::landmarkKind($node->tagName, trim($node->getAttribute('role')));
+            if ('main' === $area) return null;
+            if ('header' === $area || 'footer' === $area) {
+                return $area . "\n" . hash('sha256', SourceShells::identity((string) $trigger->ownerDocument?->saveHTML($trigger)));
+            }
+        }
+        return null;
     }
 
     private function isCapturedNavigationOverlayTrigger(DOMElement $trigger): bool
@@ -1652,7 +1752,7 @@ final class CapturedDialogProjector
             'has_close_control' => $hasCloseControl,
             'self_positioned' => $sourceRoot instanceof DOMElement && (
                 1 === preg_match('/(?:^|\s)(?:absolute|fixed|sticky)(?:\s|$)/', $sourceRoot->getAttribute('class'))
-                || 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed|sticky)/i', $sourceRoot->getAttribute('style'))
+                || in_array(CssValueInspector::declared(SourceDeclarations::inline($sourceRoot), 'position'), array( 'absolute', 'fixed', 'sticky' ), true)
             ),
         );
     }

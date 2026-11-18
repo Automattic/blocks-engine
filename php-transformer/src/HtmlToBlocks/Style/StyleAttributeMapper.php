@@ -141,9 +141,11 @@ final class StyleAttributeMapper
      * validate in the editor.
      *
      * @param array<string, mixed> $style
+     * @param bool $forSave Omit layout-owned declarations from saved markup.
+     *                     The default also serves generated stylesheet callers.
      * @return array{classes: string, style: string}
      */
-    public function serialize(array $style): array
+    public function serialize(array $style, bool $forSave = false): array
     {
         $classes      = array();
         $declarations = array();
@@ -217,8 +219,9 @@ final class StyleAttributeMapper
                 }
             }
         }
+        // blockGap is rendered by layout support as scoped CSS, never by save().
         $blockGap = trim((string) ($spacing['blockGap'] ?? ''));
-        if ( '' !== $blockGap ) {
+        if ( ! $forSave && '' !== $blockGap ) {
             $declarations[] = 'gap:' . $blockGap;
         }
 
@@ -452,6 +455,14 @@ final class StyleAttributeMapper
      */
     private function gradient(array $declarations, array &$consumed): string
     {
+        // Core saves a gradient as the `background` shorthand, which resets
+        // every other background longhand. A gradient the author sized,
+        // positioned or tiled (a 1px underline stripe) stays in author CSS.
+        foreach ( array( 'size', 'position', 'position-x', 'position-y', 'repeat', 'origin', 'clip', 'attachment' ) as $longhand ) {
+            if ( '' !== trim((string) ($declarations[ 'background-' . $longhand ] ?? '')) ) {
+                return '';
+            }
+        }
         foreach ( array( 'background', 'background-image' ) as $name ) {
             $value = trim((string) ($declarations[ $name ] ?? ''));
             if ( '' !== $value && preg_match('/\bgradient\s*\(/i', $value) && CssValueSplitter::hasBalancedParens($value) ) {

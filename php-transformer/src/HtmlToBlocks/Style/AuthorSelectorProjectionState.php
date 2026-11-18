@@ -223,7 +223,7 @@ final class AuthorSelectorProjectionState
         return $this->navigationListBoxSubjects[$path] ?? '';
     }
 
-    /** @var array<string, array{selector:string, pseudo_element:string, author_precedence:bool}> Native inner elements replacing source subjects. */
+    /** @var array<string, array{selector:string, pseudo_element:string, author_precedence:bool, universal_reached:bool}> Native inner elements replacing source subjects. */
     private array $innerSubjects = array();
 
     /**
@@ -231,13 +231,16 @@ final class AuthorSelectorProjectionState
      * its inner parts (optionally a pseudo-element of it). Author precedence
      * requests the shared native-subject baseline above Core defaults; every
      * source rule still carries its original specificity above that baseline.
+     * A part saved as a plain element under the source subject's ancestors is
+     * already reached by a rule whose subject is any element (`*`, `.x > *`);
+     * it is universally reached and needs no arm of its own for such rules.
      */
-    public function installInnerSubject(string $path, string $selector, string $pseudoElement = '', bool $authorPrecedence = false): void
+    public function installInnerSubject(string $path, string $selector, string $pseudoElement = '', bool $authorPrecedence = false, bool $universalReached = false): void
     {
-        $this->innerSubjects[$path] = array( 'selector' => $selector, 'pseudo_element' => $pseudoElement, 'author_precedence' => $authorPrecedence );
+        $this->innerSubjects[$path] = array( 'selector' => $selector, 'pseudo_element' => $pseudoElement, 'author_precedence' => $authorPrecedence, 'universal_reached' => $universalReached );
     }
 
-    /** @return array{selector:string, pseudo_element:string, author_precedence:bool}|null */
+    /** @return array{selector:string, pseudo_element:string, author_precedence:bool, universal_reached:bool}|null */
     public function innerSubject(string $path): ?array
     {
         return $this->innerSubjects[$path] ?? null;
@@ -818,6 +821,39 @@ final class AuthorSelectorProjectionState
     public function isInlineLayoutCarrierPath(string $path): bool
     {
         return isset($this->inlineLayoutCarrierPaths[$path]);
+    }
+
+    /** @var array<string, \DOMElement> */
+    private array $authoredControlCandidates = array();
+
+    public function recordAuthoredControlCandidate(\DOMElement $element): void
+    {
+        $this->authoredControlCandidates[$element->getNodePath() ?? ''] = $element;
+    }
+
+    /** @var array<string, true> */
+    private array $retainedAuthoredControls = array();
+
+    public function isRetainedAuthoredControl(string $path): bool
+    {
+        return isset($this->retainedAuthoredControls[$path]);
+    }
+
+    /** Reconcile speculative form representations against the emitted tree. */
+    public function reconcileRetainedControls(string $markup): void
+    {
+        if ('' === $markup) return;
+        foreach ($this->authoredControlCandidates as $path => $element) {
+            $marker = $this->controlMarkers[$path] ?? '';
+            if ('' !== $marker && str_contains($markup, $marker)) {
+                unset($this->retainedSourcePaths[$path]);
+                continue;
+            }
+            $this->retainedAuthoredControls[$path] = true;
+            foreach ($element->getElementsByTagName('*') as $descendant) {
+                $this->markRetainedSourcePath($descendant->getNodePath() ?? '');
+            }
+        }
     }
 
     public function markRetainedSourcePath(string $path): void

@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 
 /**
  * Linear, site-wide pass after chrome factoring and asset assembly.
@@ -101,7 +102,7 @@ final class NavigationInstanceDiagnostics
                 continue;
             }
             if ('[' === $char || '(' === $char) {
-                $end = self::groupEnd($selector, $i);
+                $end = CssSyntaxScanner::matchingClose($selector, $i);
                 if (null === $end) return false;
                 if ('(' === $char && preg_match('/:(is|where|has)$/i', $plain)) {
                     $alternatives = CssStylesheetTransformer::splitSelectorList(substr($selector, $i + 1, $end - $i - 1)) ?? array();
@@ -136,7 +137,7 @@ final class NavigationInstanceDiagnostics
         for ($i = 0; $i < $length; ++$i) {
             $char = $selector[$i];
             if ('"' === $char || "'" === $char || '[' === $char || '(' === $char) {
-                $end = '(' === $char || '[' === $char ? self::groupEnd($selector, $i) : null;
+                $end = '(' === $char || '[' === $char ? CssSyntaxScanner::matchingClose($selector, $i) : null;
                 if ('"' === $char || "'" === $char) {
                     for ($end = $i + 1; $end < $length && $selector[$end] !== $char; ++$end) if ('\\' === $selector[$end]) ++$end;
                 }
@@ -173,25 +174,5 @@ final class NavigationInstanceDiagnostics
     {
         $parsed = CssSelectorMatcher::parse(trim($selector));
         return ($parsed['supported'] ?? false) ? CssSelectorMatcher::specificity($parsed) : null;
-    }
-
-    /** Offset of the bracket closing the group opened at `$start`, skipping strings. */
-    private static function groupEnd(string $selector, int $start): ?int
-    {
-        $depth = 0;
-        $length = strlen($selector);
-        for ($i = $start; $i < $length; ++$i) {
-            $char = $selector[$i];
-            if ('"' === $char || "'" === $char) {
-                for (++$i; $i < $length && $selector[$i] !== $char; ++$i) if ('\\' === $selector[$i]) ++$i;
-                continue;
-            }
-            if ('(' === $char || '[' === $char) ++$depth;
-            if (')' === $char || ']' === $char) {
-                --$depth;
-                if (0 === $depth) return $i;
-            }
-        }
-        return null;
     }
 }

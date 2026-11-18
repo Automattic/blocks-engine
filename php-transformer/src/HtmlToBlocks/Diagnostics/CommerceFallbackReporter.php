@@ -3,11 +3,14 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
@@ -169,6 +172,16 @@ final class CommerceFallbackReporter
             }
             $listing = $this->listingControls($element, $products);
 
+            // A split product-detail layout (a cover beside one purchase panel)
+            // is not a collection: its media and panel are sibling tracks of
+            // one product, not independent cards. A provider repeats the card
+            // in place of the region's children, so claiming the layout would
+            // discard the cover and its track, and claiming the panel alone
+            // would nest the authored panel inside a second copy of itself.
+            if ( 1 === count($products) && array() === $listing && $this->isSplitDetailLayout($element) ) {
+                continue;
+            }
+
             // A card only reaches here via schema.org evidence, a cart control,
             // or the weaker image-corroborated catalog path (see
             // `CommerceStructureRecognizer::productCardData()`). A grid needs
@@ -267,6 +280,27 @@ final class CommerceFallbackReporter
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
         }
+    }
+
+    /**
+     * A two-track layout of one product card and its text-free media, such
+     * as a cover beside a purchase panel.
+     */
+    private function isSplitDetailLayout(DOMElement $element): bool
+    {
+        if ( 2 !== SourceDom::childElementCount($element) ) {
+            return false;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement
+                && null === $this->recognizer->productCardData($child)
+                && '' === SourceDom::renderedTextContent($child)
+                && ('img' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('img')->length)
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -906,6 +940,7 @@ final class CommerceFallbackReporter
      */
     public function appendCommerceControlsFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml = ''): void
     {
+        $this->appendPurchaseFormFallbacks($body, $fallbacks, $sourceHtml);
         $this->appendFormlessPurchaseFallbacks($body, $fallbacks, $sourceHtml);
         $emitted = 0;
         foreach ( $body->getElementsByTagName('*') as $element ) {
@@ -941,6 +976,41 @@ final class CommerceFallbackReporter
                 'control_count'     => count($controlGroups),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
+        }
+    }
+
+    /**
+     * Purchase forms need an anchor even when quantity/options live outside the
+     * form or runtime preservation bypasses the ordinary form finding.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function appendPurchaseFormFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml): void
+    {
+        if ( ! SchemaProductEvidence::hasSingleProduct($sourceHtml) ) return;
+        $reported = array();
+        foreach ( $fallbacks as $fallback ) {
+            if ( 'commerce_add_to_cart' === ($fallback['form_intent'] ?? '') && ! empty($fallback['binding']) ) {
+                $reported[$fallback['selector'] ?? ''] = true;
+            }
+        }
+        foreach ( $body->getElementsByTagName('form') as $form ) {
+            $selector = SourceDom::elementSelector($form);
+            if ( isset($reported[$selector]) || SourceDom::hasNonAuthoredAncestor($form)
+                || 'commerce_add_to_cart' !== FormRuntimeRequirementAnalyzer::formIntent($form) ) continue;
+            $fallbacks[] = FallbackDiagnostic::build(array(
+                'type' => 'html',
+                'reason' => 'commerce_controls_require_runtime',
+                'diagnostic_code' => 'html_commerce_controls_fallback',
+                'kind' => 'html_commerce_controls_fallback',
+                'message' => 'An add-to-cart form requires commerce runtime binding.',
+                'source_format' => 'html',
+                'tag' => 'form',
+                'selector' => $selector,
+                'form_intent' => 'commerce_add_to_cart',
+                'binding' => $this->blockBindings->binding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($form), $form),
+                'controls' => $this->metadataBuilder->controls($form),
+            ), $this->provenance->fallback());
         }
     }
 
@@ -1304,7 +1374,7 @@ final class CommerceFallbackReporter
                 return '';
             }
             $hidden = $hidden || $node->hasAttribute('hidden')
-                || 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i', SourceDom::attr($node, 'style'));
+                || CssValueInspector::hidesBox(SourceDeclarations::inline($node));
         }
 
         return $hidden ? 'site_chrome' : '';

@@ -112,7 +112,7 @@ final class CustomBlockGenerator implements ElementConverter
         var content = props.attributes.content || '';
         return createElement(
             element.Fragment, null,
-            createElement( 'div', Object.assign( {}, blockEditor.useBlockProps(), { dangerouslySetInnerHTML: { __html: content } } ) ),
+            rawHtmlRoot( content, blockEditor.useBlockProps() ),
             createElement( blockEditor.InspectorControls, null,
                 createElement( components.PanelBody, { title: 'HTML' },
                     createElement( components.TextareaControl, {
@@ -133,7 +133,7 @@ final class CustomBlockGenerator implements ElementConverter
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
-        return array( 'index.js' => str_replace('__BLOCK_NAME__', $blockName, $script) );
+        return array( 'index.js' => str_replace('__BLOCK_NAME__', $blockName, RawHtmlEditorRoot::script($script)) );
     }
 
     /**
@@ -199,6 +199,13 @@ JS;
         }
         if ( array() === $children ) {
             return null;
+        }
+
+        // A form owns its dispatch and provider binding. Do not flatten its
+        // children into the custom host's layout shell and bypass that owner.
+        if ( 1 === count($children) && 'form' === strtolower($children[0]->tagName) ) {
+            $form = $tree->element($children[0], $fallbacks, true);
+            return null !== $form ? $layoutShellBlockForElements(array($element), array($form), $element) : null;
         }
 
         $isList = 'list' === strtolower(SourceDom::attr($element, 'role'));

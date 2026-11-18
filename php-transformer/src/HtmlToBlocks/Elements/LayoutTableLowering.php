@@ -25,6 +25,9 @@ final class LayoutTableLowering
 {
     public const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
 
+    /** Class a lowered source table cell carries (`blocks-engine-layout-table-` . role). */
+    public const LAYOUT_TABLE_CELL_CLASS = 'blocks-engine-layout-table-cell';
+
     public function __construct(
         private readonly SourceBlockCreator $blocks,
         private readonly HtmlTransformerSession $session,

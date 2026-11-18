@@ -98,7 +98,7 @@ final class NavigationLabelNormalizer
         if ('span' !== strtolower($element->tagName)) return false;
         // Identity, language, accessibility and runtime attributes are boundaries,
         // not disposable styling. Projected presentation markers live in class.
-        foreach ($element->attributes as $attribute) {
+        foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($element) as $attribute) {
             if (!in_array($attribute->name, array('class', 'style'), true)) return false;
         }
         return true;

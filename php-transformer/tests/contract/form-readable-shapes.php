@@ -88,6 +88,7 @@ $paths = [];
 $pathWalk = static function (array $blocks, array $classes) use (&$pathWalk, &$paths): void {
     foreach ($blocks as $block) {
         $own = array_map(static fn (array $wrapper): string => $wrapper['attributes']['class'] ?? '', $block['attrs']['wrappers'] ?? []);
+        if ('core/group' === ($block['blockName'] ?? '')) $own = array_merge($own, preg_split('/\s+/', trim($block['attrs']['className'] ?? '')) ?: []);
         if (isset($block['form_control_index'])) $paths[$block['form_control_index']] = array_merge($classes, $own);
         $pathWalk($block['innerBlocks'] ?? [], array_merge($classes, $own));
     }
@@ -112,13 +113,15 @@ $frames = [];
 $frameWalk = static function (array $blocks, array $classes) use (&$frameWalk, &$frames): void {
     foreach ($blocks as $block) {
         $own = array_map(static fn (array $wrapper): string => $wrapper['attributes']['class'] ?? '', $block['attrs']['wrappers'] ?? []);
+        // A class-only field box frames the control as a native group.
+        if ('core/group' === ($block['blockName'] ?? '') && '' !== ($block['attrs']['className'] ?? '')) $own[] = $block['attrs']['className'];
         if (isset($block['form_control_index'])) $frames[$block['form_control_index']] = array_merge($classes, $own);
         $frameWalk($block['innerBlocks'] ?? [], array_merge($classes, $own));
     }
 };
 $frameWalk($form['readable_blocks'], []);
 foreach ([0, 1] as $index) {
-    $assert(['row', 'lab', 'wrap'] === ($frames[$index] ?? null), 'Control ' . $index . ' keeps its frames in source order: row > lab > wrap.');
+    $assert(['row', 'lab', 'wrap'] === array_values(array_intersect(preg_split('/\s+/', implode(' ', $frames[$index] ?? [])), ['row', 'lab', 'wrap'])),  'Control ' . $index . ' keeps its frames in source order: row > lab > wrap.');
 }
 // The caption level bounds the field box: the field shell holds one inner
 // block, the control's own wrapper shell, which alone holds the control.

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -195,7 +196,7 @@ final class ProjectedNavigationConverter implements ElementConverter
     {
         $background = '';
         for ( $node = $control->parentNode; $node instanceof DOMElement && '' === $background; $node = $node->parentNode ) {
-            $values = $this->styleResolver->collapsedViewportDeclarations($node, array('background', 'background-color'));
+            $values = $this->styleResolver->cascade->collapsedViewportDeclarations($node, array('background', 'background-color'));
             $background = $this->portableCollapsedPaint($node, $this->backgroundColorLayer($node, (string) ($values['background-color'] ?? $values['background'] ?? '')));
             // A translucent header relies on what is behind it; the overlay covers the page.
             $parsed = '' === $background ? null : CssColor::parse($background);
@@ -208,7 +209,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $anchor = $navigation->getElementsByTagName('a')->item(0);
         $color = $anchor instanceof DOMElement
-            ? $this->portableCollapsedPaint($anchor, (string) ($this->styleResolver->collapsedViewportDeclarations($anchor, array('color'))['color'] ?? ''))
+            ? $this->portableCollapsedPaint($anchor, (string) ($this->styleResolver->cascade->collapsedViewportDeclarations($anchor, array('color'))['color'] ?? ''))
             : '';
         $marker = 'blocks-engine-navigation-row-paint-' . substr(hash('sha256', $background . '|' . $color), 0, 12);
         $open = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker
@@ -238,8 +239,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $properties = array('color', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'text-transform', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left');
         $declarations = array('text-transform' => 'none!important');
-        foreach ( $this->styleResolver->collapsedViewportDeclarations($anchor, $properties) as $property => $value ) {
-            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $anchor);
+        foreach ( $this->styleResolver->cascade->collapsedViewportDeclarations($anchor, $properties) as $property => $value ) {
+            $value = $this->styleResolver->customProperties->resolve(CssValueInspector::withoutImportant($value), $anchor);
             if ( '' !== trim($value) && ! preg_match('/[{}<>;]|var\(|url\(/i', $value) ) {
                 $declarations[$property] = trim($value) . '!important';
             }
@@ -251,7 +252,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         $item = null;
         for ( $node = $anchor->parentNode; $node instanceof DOMElement && ! $node->isSameNode($panel->parentNode); $node = $node->parentNode ) {
             $item ??= 'li' === strtolower($node->tagName) ? $node : null;
-            $boxes = $this->styleResolver->collapsedViewportDeclarations($node, array('padding-left', 'margin-left'));
+            $boxes = $this->styleResolver->cascade->collapsedViewportDeclarations($node, array('padding-left', 'margin-left'));
             foreach ( $boxes as $value ) {
                 if ( 1 === preg_match('/^(-?\d*\.?\d+)px$/', CssValueInspector::withoutImportant(trim($value)), $match) ) {
                     $inset += (float) $match[1];
@@ -260,7 +261,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $rowGap = '';
         if ( $item instanceof DOMElement ) {
-            $boxes = $this->styleResolver->collapsedViewportDeclarations($item, array('margin-bottom', 'padding-bottom', 'padding-top', 'margin-top'));
+            $boxes = $this->styleResolver->cascade->collapsedViewportDeclarations($item, array('margin-bottom', 'padding-bottom', 'padding-top', 'margin-top'));
             $sum = 0.0;
             foreach ( $boxes as $value ) {
                 if ( 1 === preg_match('/^(\d*\.?\d+)px$/', CssValueInspector::withoutImportant(trim($value)), $match) ) {
@@ -343,11 +344,20 @@ final class ProjectedNavigationConverter implements ElementConverter
             'padding-bottom',
             'padding-left',
         );
+        // The replacement opener occupies the collapsed control's box, not
+        // its desktop box. Resolve mobile variables before testing whether the
+        // authored dimensions make a synthetic touch-target floor unnecessary.
+        $sourceDeclarations = array_replace($sourceDeclarations, $this->styleResolver->authorViewport->collapsed($toggle, $geometryProperties));
+        foreach ( $geometryProperties as $property ) {
+            if ( isset($sourceDeclarations[$property]) ) {
+                $sourceDeclarations[$property] = $this->styleResolver->customProperties->resolveAtViewport($sourceDeclarations[$property], $toggle, StyleResolver::MOBILE_REFERENCE_WIDTH);
+            }
+        }
         // Button presentation already owns its margins; a select only supplies geometry.
         if ( $isJumpMenu ) {
             $geometryProperties = array_merge($geometryProperties, array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left'));
             $sourceDeclarations = array_intersect_key(
-                array_replace($sourceDeclarations, $this->styleResolver->collapsedViewportAuthorDeclarations($toggle, $geometryProperties)),
+                array_replace($sourceDeclarations, $this->styleResolver->authorViewport->collapsed($toggle, $geometryProperties)),
                 array_flip($geometryProperties)
             );
         }
@@ -382,7 +392,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         $hasIntrinsicBox = ! $isJumpMenu && $this->nativeNavigationToggleHasIntrinsicBox($toggle);
         if ($hasIntrinsicBox && null === $source) {
             foreach ($toggle->getElementsByTagName('*') as $child) {
-                $box = $this->styleResolver->collapsedViewportDeclarations($child, array('width', 'height'));
+                $box = $this->nativeNavigationToggleChildBox($child);
                 if ($this->nativeNavigationToggleDimensionIsUsable($box['width'] ?? '') && $this->nativeNavigationToggleDimensionIsUsable($box['height'] ?? '')) {
                     if (!$hasUsableWidth) $declarations[] = 'width:' . $box['width'] . '!important';
                     if (!$hasUsableHeight) $declarations[] = 'height:' . $box['height'] . '!important';
@@ -458,8 +468,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         // this on Core's leaf opener would place it inside the nav instead.
         // Its collapsed margins also belong to that outer item box.
         $slotDeclarations = array();
-        foreach ( $this->styleResolver->collapsedViewportAuthorDeclarations($toggle, array('grid-area', 'grid-column', 'grid-row', 'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end', 'order', 'align-self', 'justify-self', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left')) as $property => $value ) {
-            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant(trim($value)), $toggle);
+        foreach ( $this->styleResolver->authorViewport->collapsed($toggle, array('grid-area', 'grid-column', 'grid-row', 'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end', 'order', 'align-self', 'justify-self', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left')) as $property => $value ) {
+            $value = $this->styleResolver->customProperties->resolve(CssValueInspector::withoutImportant(trim($value)), $toggle);
             if ( '' !== $value && ! preg_match('/[{}<>;]|var\(/i', $value) ) {
                 $slotDeclarations[] = $property . ':' . $value . '!important';
             }
@@ -519,10 +529,15 @@ final class ProjectedNavigationConverter implements ElementConverter
             // sizing remains on the child, with margin/transform on the leaf
             // button so Core's overlay does not gain a transformed ancestor.
             $extraRules .= $open . '{min-width:0!important;min-height:0!important;' . ('button' === strtolower($toggle->tagName) ? '' : 'padding:0!important;') . 'border:0!important;width:auto!important;height:auto!important}';
+            // A text glyph uses the source button's native font metrics, not
+            // Core's inherited navigation line-height (or its SVG dimensions).
+            if (isset($source['text']) && 'button' === strtolower($toggle->tagName)) {
+                $extraRules .= $open . '{font:revert!important;letter-spacing:normal!important}';
+            }
             $extraRules .= $presentation->css($open, $source['button'], $toggle);
             $extraRules .= $presentation->css($open . '>svg', $source['icon'], $presentation->icon($toggle) ?? $toggle);
         }
-        if (null !== $source && null === $presentation->icon($toggle) && $this->hasNavigationHeader($navigation)) {
+        if (null !== $source && !isset($source['text']) && null === $presentation->icon($toggle) && $this->hasNavigationHeader($navigation)) {
             $paint = $this->responsiveNavigationOverlayAttributes($navigation)['customOverlayBackgroundColor'] ?? '';
             if ('' !== $paint) {
                 $openPanel = $host . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
@@ -587,7 +602,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         $toggle = $this->navigationToggleSuppressor->navigationToggleControl($navigation);
         if (!$toggle instanceof DOMElement) return $attrs;
         $source = (new NavigationOpenerPresentation($this->styleResolver, $this->svgMarkup))->source($toggle);
-        if (null !== $source) $attrs['metadata'][NavigationOpenerPresentation::METADATA_KEY] = array('svg' => $source['artwork']);
+        if (null !== $source) $attrs['metadata'][NavigationOpenerPresentation::METADATA_KEY] = isset($source['text'])
+            ? array('text' => $source['text']) : array('svg' => $source['artwork']);
         // A text-only opener is Core's text opener ("Menu"/"Close"), not its icon.
         elseif (NavigationOpenerPresentation::isTextOnly($toggle)) $attrs['hasIcon'] = false;
         return $attrs;
@@ -604,7 +620,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         $attrs = array();
         $panels = $this->overlayPanelBoxes($navigation);
         foreach ( $panels as $panel ) {
-            $values = $this->styleResolver->collapsedViewportAuthorDeclarations($panel, array('background', 'background-color', 'color', 'text-align', 'align-items', 'flex-direction'));
+            $values = $this->styleResolver->authorViewport->collapsed($panel, array('background', 'background-color', 'color', 'text-align', 'align-items', 'flex-direction'), self::openStateClasses($panel));
             $background = '';
             foreach ( $values as $property => $value ) {
                 if ( in_array($property, array('background', 'background-color'), true) ) {
@@ -641,7 +657,7 @@ final class ProjectedNavigationConverter implements ElementConverter
     private function opaqueSurfaceBehind(DOMElement $navigation): string
     {
         for ( $node = $navigation->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $values = $this->styleResolver->collapsedViewportAuthorDeclarations($node, array('background', 'background-color'));
+            $values = $this->styleResolver->authorViewport->collapsed($node, array('background', 'background-color'));
             $paint = $this->portableCollapsedPaint($node, $this->backgroundColorLayer($node, (string) ($values['background-color'] ?? $values['background'] ?? '')));
             if ( '' !== $paint && CssColor::opaque($paint) ) return $paint;
         }
@@ -650,11 +666,29 @@ final class ProjectedNavigationConverter implements ElementConverter
     }
 
     /** Include only full-bleed, passive backdrop children of the controlled panel chain. */
+    /**
+     * The classes script adds to a panel when its menu opens, named by its
+     * WordPress Interactivity class directives (`data-wp-class--is-menu-open`).
+     * The overlay is the opened panel, so its paint is read in that state.
+     *
+     * @return list<string>
+     */
+    private static function openStateClasses(DOMElement $panel): array
+    {
+        $classes = array();
+        foreach ( $panel->attributes as $attribute ) {
+            if ( str_starts_with($attribute->name, 'data-wp-class--') && '' !== substr($attribute->name, 15) ) {
+                $classes[] = substr($attribute->name, 15);
+            }
+        }
+        return $classes;
+    }
+
     private function overlayPanelBoxes(DOMElement $navigation): array
     {
         $boxes = array_merge($this->navigationToggleSuppressor->controlledPanelBoxes($navigation), $this->collapsedPanelChain($navigation));
         for ($node = $navigation; $node instanceof DOMElement && !in_array(strtolower($node->tagName), array('header', 'body'), true); $node = $node->parentNode) {
-            $values = $this->styleResolver->collapsedViewportAuthorDeclarations($node, array('position', 'visibility', 'opacity'));
+            $values = $this->styleResolver->authorViewport->collapsed($node, array('position', 'visibility', 'opacity'));
             if (in_array($values['position'] ?? '', array('fixed', 'absolute'), true) && ('hidden' === ($values['visibility'] ?? '') || '0' === ($values['opacity'] ?? ''))) {
                 for ($inner = $navigation; $inner instanceof DOMElement; $inner = $inner->parentNode) {
                     array_unshift($boxes, $inner);
@@ -668,7 +702,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             $result[] = $box;
             foreach ($box->childNodes as $child) {
                 if (!$child instanceof DOMElement || $child->childElementCount > 0 || '' !== trim($child->textContent ?? '')) continue;
-                $values = $this->styleResolver->collapsedViewportDeclarations($child, array('position', 'inset', 'top', 'right', 'bottom', 'left'));
+                $values = $this->styleResolver->cascade->collapsedViewportDeclarations($child, array('position', 'inset', 'top', 'right', 'bottom', 'left'));
                 if ('absolute' !== ($values['position'] ?? '')) continue;
                 $full = in_array($values['inset'] ?? '', array('0', '0px'), true);
                 if (!$full) {
@@ -689,8 +723,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         $color = $attrs['customOverlayTextColor'] ?? '';
         $listPadding = array();
         $chain = $this->collapsedPanelChain($navigation);
-        foreach ($chain[0]->hasAttribute(CaptureEvidence::fluidIgnorePaddingAttribute()) ? array() : $this->styleResolver->collapsedViewportDeclarations($chain[0], array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left')) as $property => $value) {
-            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $chain[0]);
+        foreach ($chain[0]->hasAttribute(CaptureEvidence::fluidIgnorePaddingAttribute()) ? array() : $this->styleResolver->cascade->collapsedViewportDeclarations($chain[0], array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left')) as $property => $value) {
+            $value = $this->styleResolver->customProperties->resolve(CssValueInspector::withoutImportant($value), $chain[0]);
             if ('' !== trim($value) && !preg_match('/[{}<>;]|var\(|url\(/i', $value)) {
                 $listPadding[] = $property . ':' . $value . '!important';
             }
@@ -737,7 +771,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         if (!$header instanceof DOMElement) return '';
         foreach ($this->overlayPanelBoxes($navigation) as $box) {
             if (!$box->hasAttribute(CaptureEvidence::fluidIgnorePaddingAttribute())) continue;
-            $position = $this->styleResolver->collapsedViewportAuthorDeclarations($box, array('position'));
+            $position = $this->styleResolver->authorViewport->collapsed($box, array('position'));
             if ('fixed' !== ($position['position'] ?? '')) continue;
             $marker = 'blocks-engine-navigation-header-offset';
             $open = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker . ' .wp-block-navigation__responsive-container.is-menu-open:not(.disable-default-overlay)';
@@ -768,7 +802,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             // entire item chain, including childless top-level links.
             . $open . ' .wp-block-navigation-item,' . $open . ' .wp-block-navigation-item *{align-self:auto!important;align-items:inherit!important}';
         foreach ($this->overlayPanelBoxes($navigation) as $box) {
-            $values = $this->styleResolver->collapsedViewportAuthorDeclarations($box, array('flex-direction', 'justify-content'));
+            $values = $this->styleResolver->authorViewport->collapsed($box, array('flex-direction', 'justify-content'));
             if (str_starts_with($values['flex-direction'] ?? '', 'column') && 'center' === ($values['justify-content'] ?? '')) {
                 $rule .= $open . ' .wp-block-navigation__responsive-container-content{min-height:100dvh!important;justify-content:center!important;align-items:' . $align . '!important;padding-block:0!important}'
                     . $open . ' .wp-block-navigation__container{flex-direction:column!important;justify-content:center!important}';
@@ -795,7 +829,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         // into the burger slot. Its gutter and alignment belong to the overlay.
         $parent = $navigation->parentNode;
         if ( $parent instanceof DOMElement ) {
-            $values = $this->styleResolver->collapsedViewportDeclarations($parent, array('position', 'visibility', 'max-height'));
+            $values = $this->styleResolver->cascade->collapsedViewportDeclarations($parent, array('position', 'visibility', 'max-height'));
             if ( in_array(CssValueInspector::withoutImportant($values['position'] ?? ''), array('absolute', 'fixed'), true)
                 && ('hidden' === CssValueInspector::withoutImportant($values['visibility'] ?? '') || in_array(CssValueInspector::withoutImportant($values['max-height'] ?? ''), array('0', '0px'), true)) ) {
                 array_unshift($chain, $parent);
@@ -843,14 +877,14 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ( ! $glyph instanceof DOMElement ) {
             return '';
         }
-        $fill = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->collapsedViewportAuthorDeclarations($glyph, array( 'fill' ))['fill'] ?? '')));
-        $fill = '' === $fill ? '' : $this->styleResolver->resolveCssVariablesAtViewport($fill, $glyph, StyleResolver::MOBILE_REFERENCE_WIDTH);
+        $fill = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->authorViewport->collapsed($glyph, array( 'fill' ))['fill'] ?? '')));
+        $fill = '' === $fill ? '' : $this->styleResolver->customProperties->resolveAtViewport($fill, $glyph, StyleResolver::MOBILE_REFERENCE_WIDTH);
         if ( 'currentcolor' === strtolower($fill) ) {
             $fill = '';
             for ( $node = $glyph; $node instanceof DOMElement; $node = $node->parentNode ) {
-                $color = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->collapsedViewportAuthorDeclarations($node, array( 'color' ))['color'] ?? '')));
+                $color = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->authorViewport->collapsed($node, array( 'color' ))['color'] ?? '')));
                 if ( '' !== $color && ! in_array(strtolower($color), array( 'inherit', 'currentcolor' ), true) ) {
-                    $fill = $this->styleResolver->resolveCssVariablesAtViewport($color, $node, StyleResolver::MOBILE_REFERENCE_WIDTH);
+                    $fill = $this->styleResolver->customProperties->resolveAtViewport($color, $node, StyleResolver::MOBILE_REFERENCE_WIDTH);
                     break;
                 }
             }
@@ -866,7 +900,7 @@ final class ProjectedNavigationConverter implements ElementConverter
      */
     private function backgroundColorLayer(DOMElement $panel, string $value): string
     {
-        $resolved = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $panel);
+        $resolved = $this->styleResolver->customProperties->resolve(CssValueInspector::withoutImportant($value), $panel);
         // A gradient is the paint itself; Core's overlay background takes it whole.
         if ( preg_match('/^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i', trim($resolved)) ) {
             return $value;
@@ -882,7 +916,7 @@ final class ProjectedNavigationConverter implements ElementConverter
     /** A collapsed-state colour value that can be restated away from the source stylesheet, or ''. */
     private function portableCollapsedPaint(DOMElement $panel, string $value): string
     {
-        $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant($value), $panel);
+        $value = $this->styleResolver->customProperties->resolve(CssValueInspector::withoutImportant($value), $panel);
         if ( '' === $value
             || preg_match('/[{}<>;]|var\(|url\(/i', $value)
             || in_array(strtolower($value), array( 'none', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'currentcolor' ), true)
@@ -1027,8 +1061,8 @@ final class ProjectedNavigationConverter implements ElementConverter
     /** Whether the collapsed cascade hides the panel with `display:none` at the reference viewport. */
     private function hiddenAtCollapsedViewport(DOMElement $panel): bool
     {
-        $display = CssValueInspector::withoutImportant(trim((string) ( $this->styleResolver->collapsedViewportAuthorDeclarations($panel, array( 'display' ))['display'] ?? '' )));
-        $display = strtolower(trim($this->styleResolver->resolveCssVariablesAtViewport($display, $panel, StyleResolver::MOBILE_REFERENCE_WIDTH)));
+        $display = CssValueInspector::withoutImportant(trim((string) ( $this->styleResolver->authorViewport->collapsed($panel, array( 'display' ))['display'] ?? '' )));
+        $display = strtolower(trim($this->styleResolver->customProperties->resolveAtViewport($display, $panel, StyleResolver::MOBILE_REFERENCE_WIDTH)));
 
         return 'none' === $display;
     }
@@ -1087,7 +1121,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         $background = '';
         foreach (array($panel, $node) as $paintSource) {
             if (!$paintSource instanceof DOMElement) continue;
-            $paint = $this->styleResolver->collapsedViewportAuthorDeclarations($paintSource, array('background', 'background-color'));
+            $paint = $this->styleResolver->authorViewport->collapsed($paintSource, array('background', 'background-color'));
             $background = $this->portableCollapsedPaint($paintSource, $paint['background-color'] ?? $paint['background'] ?? '');
             if ('' !== $background) break;
         }
@@ -1099,7 +1133,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             foreach ($toggle->parentNode->childNodes as $sibling) {
                 if (!$sibling instanceof DOMElement || $sibling->isSameNode($toggle)
                     || 'label' !== strtolower($sibling->tagName) || $sibling->getAttribute('for') !== $toggle->getAttribute('for')) continue;
-                $paint = $this->styleResolver->collapsedViewportAuthorDeclarations($sibling, array('background', 'background-color'));
+                $paint = $this->styleResolver->authorViewport->collapsed($sibling, array('background', 'background-color'));
                 $value = $this->portableCollapsedPaint($sibling, $paint['background-color'] ?? $paint['background'] ?? '');
                 if ('' !== $value) $backdrop = $value;
             }
@@ -1392,8 +1426,8 @@ final class ProjectedNavigationConverter implements ElementConverter
     private function portableCollapsedPlacement(DOMElement $element, array $properties): array
     {
         $portable = array();
-        foreach ( $this->styleResolver->collapsedViewportAuthorDeclarations($element, $properties) as $property => $value ) {
-            $value = $this->styleResolver->resolveCssVariablesInValue(CssValueInspector::withoutImportant(trim($value)), $element);
+        foreach ( $this->styleResolver->authorViewport->collapsed($element, $properties) as $property => $value ) {
+            $value = $this->styleResolver->customProperties->resolve(CssValueInspector::withoutImportant(trim($value)), $element);
             if ( '' !== $value && ! preg_match('/[{}<>;]|var\(/i', $value) ) {
                 $portable[$property] = $value;
             }
@@ -1424,7 +1458,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             if ( in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
                 break;
             }
-            $declared = $this->styleResolver->collapsedViewportAuthorDeclarations($node, self::CONTAINING_BLOCK_PROPERTIES);
+            $declared = $this->styleResolver->authorViewport->collapsed($node, self::CONTAINING_BLOCK_PROPERTIES);
             foreach ( $declared as $property => $value ) {
                 if ( $this->establishesContainingBlock($property, strtolower(CssValueInspector::withoutImportant(trim($value)))) ) {
                     return $node;
@@ -1531,10 +1565,17 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ( ! $always ) {
             // The source menu's collapsed-panel rules land on this host, which
             // at these widths is the toggle-sized box around Core's open
-            // button. Its padding is already stripped above; its border would
-            // frame the button (or, once the button is placed out of flow,
-            // draw an empty bordered dot), and the source toggle had neither.
+            // button, not the hidden source panel. None of the panel's box
+            // paint belongs here: even a transparent opener otherwise shows
+            // the panel background behind it. The open overlay owns panel
+            // presentation; the leaf button owns the source control's paint.
+            // Reset the shorthand so background images/gradients cannot leak
+            // either. These repairs stay inside the source collapse range.
+            $host[] = 'background:transparent!important';
             $host[] = 'border:0!important';
+            $host[] = 'border-image:none!important';
+            $host[] = 'box-shadow:none!important';
+            $host[] = 'outline:0!important';
         }
 
         return $host;
@@ -1581,10 +1622,10 @@ final class ProjectedNavigationConverter implements ElementConverter
             }
             $parent = $anchor->parentNode instanceof DOMElement ? $anchor->parentNode : null;
             if ( $parent instanceof DOMElement ) {
-                $parentResolved = $this->styleResolver->resolveCssVariablesInValue(
+                $parentResolved = $this->styleResolver->customProperties->resolve(
                     $this->styleResolver->specificityResolvedPresentationStyle($parent)
                 );
-                $padding = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($parentResolved)['padding'] ?? '')));
+                $padding = CssValueInspector::withoutImportant(trim((string) (SourceDeclarations::parse($parentResolved)['padding'] ?? '')));
                 if ( $this->nativeNavigationTogglePaddingIsUsable($padding) ) {
                     $item['padding'] = $padding;
                 }
@@ -1621,18 +1662,18 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $bar = $this->absolutelyPinnedHeaderBar($toggle);
         $target = $bar instanceof DOMElement ? $bar : $toggle;
-        $resolved = $this->styleResolver->resolveCssVariablesInValue(
+        $resolved = $this->styleResolver->customProperties->resolve(
             $this->styleResolver->specificityResolvedPresentationStyle($target)
         );
-        $height = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($resolved)['height'] ?? '')));
+        $height = CssValueInspector::withoutImportant(trim((string) (SourceDeclarations::parse($resolved)['height'] ?? '')));
         if ( 1 === preg_match('/^\d+(?:\.\d+)?px$/', $height) ) {
             return $height;
         }
         if ( $bar instanceof DOMElement && $bar->parentNode instanceof DOMElement ) {
-            $parentResolved = $this->styleResolver->resolveCssVariablesInValue(
+            $parentResolved = $this->styleResolver->customProperties->resolve(
                 $this->styleResolver->specificityResolvedPresentationStyle($bar->parentNode)
             );
-            $parentHeight = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($parentResolved)['height'] ?? '')));
+            $parentHeight = CssValueInspector::withoutImportant(trim((string) (SourceDeclarations::parse($parentResolved)['height'] ?? '')));
             if ( 1 === preg_match('/^\d+(?:\.\d+)?px$/', $parentHeight) ) {
                 return $parentHeight;
             }
@@ -1678,7 +1719,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             $selector = (string) ($rule['selector'] ?? '');
             $matched = false;
             foreach ( $targets as $target ) {
-                if ( $this->styleResolver->matchesCssSelector($target, $selector) ) {
+                if ( $this->session->sourceStyleResolutionState()->matches($target, $selector) ) {
                     $matched = true;
                     break;
                 }
@@ -1734,11 +1775,12 @@ final class ProjectedNavigationConverter implements ElementConverter
     private function nativeNavigationToggleHasIntrinsicBox(DOMElement $toggle): bool
     {
         foreach ( $toggle->getElementsByTagName('*') as $child ) {
-            $declarations = $this->styleResolver->collapsedViewportDeclarations($child, array('width', 'height'));
+            $declarations = $this->nativeNavigationToggleChildBox($child);
             $fontSize = null;
             $lengths = array();
             foreach ( array( 'width', 'height' ) as $property ) {
                 $value = CssValueInspector::withoutImportant(trim((string) ($declarations[$property] ?? '')));
+                $value = $this->styleResolver->customProperties->resolveAtViewport($value, $child, StyleResolver::MOBILE_REFERENCE_WIDTH);
                 if ( 1 === preg_match('/^(\d+(?:\.\d+)?|\.\d+)(em|rem)$/i', $value, $matches) ) {
                     $fontSize ??= $this->nativeNavigationToggleFontSize($child);
                     $value = rtrim(rtrim(sprintf('%.3F', (float) $matches[1] * ( 'rem' === strtolower($matches[2]) ? 16.0 : $fontSize )), '0'), '.') . 'px';
@@ -1778,8 +1820,24 @@ final class ProjectedNavigationConverter implements ElementConverter
         return $parent ? $this->nativeNavigationToggleFontSize($parent, $depth + 1) : 16.0;
     }
 
+    /** Resolve icon tokens where they are declared, before moving the box to Core's opener. */
+    private function nativeNavigationToggleChildBox(DOMElement $child): array
+    {
+        $box = $this->styleResolver->cascade->collapsedViewportDeclarations($child, array('width', 'height'));
+        foreach ($box as $property => $value) {
+            $box[$property] = $this->styleResolver->customProperties->resolveAtViewport(CssValueInspector::withoutImportant($value), $child, StyleResolver::MOBILE_REFERENCE_WIDTH);
+        }
+        return $box;
+    }
+
     private function nativeNavigationToggleDimensionIsUsable(string $value): bool
     {
+        // Authored CSS math remains a length even when its viewport-dependent
+        // value cannot be reduced to pixels here. Do not replace that box with
+        // an accessibility floor: it changes the height of the entire header.
+        if (1 === preg_match('/^(?:calc|min|max|clamp)\(/i', $value) && !preg_match('/[{}<>;]/', $value)) {
+            return true;
+        }
         if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)px$/', $value, $matches) ) {
             return false;
         }

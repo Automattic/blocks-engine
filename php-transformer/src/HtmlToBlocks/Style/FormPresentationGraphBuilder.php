@@ -27,7 +27,12 @@ final class FormPresentationGraphBuilder
     private const MAX_RULES = 8192;
     private const MAX_SELECTORS = 16384;
     private const MAX_CONDITION_DEPTH = 8;
-    private const MAX_VARIANTS = 256;
+    /**
+     * Variants are per control (each responsive or state condition a control's
+     * roles meet), so the bound scales with the control bound: a fixed total
+     * truncates exactly the long forms that most need their presentation.
+     */
+    private const MAX_VARIANTS = self::MAX_CONTROLS * 8;
     private const MAX_VISUAL_PARTS = 32;
     private const MAX_VISUAL_BYTES = 12288;
     private const MAX_VISUAL_DIMENSION = 4096;
@@ -595,8 +600,9 @@ final class FormPresentationGraphBuilder
         $hasCaptionLayer = false;
         $controlContainers = array();
         $exclusiveAncestors = (new FormControlTopologyBuilder())->exclusiveWrapperAncestors($form, $this->controlElements);
+        $formControls = $this->controls($form);
 
-        foreach ( $this->controls($form) as $index => $control ) {
+        foreach ( $formControls as $index => $control ) {
             if ( $index >= self::MAX_CONTROLS ) {
                 $this->truncated = true;
                 $this->diagnostics[] = 'control_limit';
@@ -613,6 +619,15 @@ final class FormPresentationGraphBuilder
                     continue;
                 }
                 $matched = $this->matched($element, $analysis['rules']);
+                if ('control' === $role && $element->parentNode instanceof DOMElement
+                    && count(array_filter($formControls, static fn (DOMElement $sibling): bool => $sibling->parentNode?->isSameNode($element->parentNode) ?? false)) > 1) {
+                    $parent = $this->matched($element->parentNode, $analysis['rules']);
+                    if (in_array($parent['base']['display']['value'] ?? '', array('flex', 'inline-flex'), true)) {
+                        foreach (array('flex' => '0 1 auto', 'width' => 'auto') as $property => $value) {
+                            $matched['base'][$property] ??= array('value' => $value, 'path' => 'user-agent', 'hash' => hash('sha256', 'native-flex-item'), 'selector' => SourceDom::elementSelector($element), 'order' => PHP_INT_MIN, 'declaration_order' => 0, 'specificity' => -1, 'important' => false);
+                        }
+                    }
+                }
                 $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules'], true);
                 $provenance = $this->provenance($matched['base'], null);
                 $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);

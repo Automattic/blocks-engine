@@ -378,7 +378,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->sourceElementClassifier
         );
         $this->emptyElementFootprint = new EmptyElementFootprint($this->styleResolver, $this->sourceElementClassifier,
-            new HostBlockGapEncoder($this->styleResolver, $this->blockFactory, $this->session)
+            new HostBlockGapEncoder($this->styleResolver, $this->blockFactory, $this->session),
+            $this->session->sourceStyleResolutionState()
         );
         $linkWrapperPropagator = new LinkWrapperPropagator($this->styleResolver, $this->blockFactory);
         $generatedBlockStyleProjector = new GeneratedBlockStyleProjector($this->runtime, $this->styleResolver, $this->session);
@@ -420,7 +421,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtime
         );
         $this->patternRecognizers = PatternRecognizerRegistry::createDefault($this, $this->runtime, $this->sourceElementClassifier, $this->richTextMaterializer);
-        $this->authoredMarqueeRecognizer = new AuthoredMarqueeRecognizer($this->sourceElementClassifier, $this->styleResolver, $this->richTextMaterializer, $this->runtime, $this->session);
+        $this->authoredMarqueeRecognizer = new AuthoredMarqueeRecognizer($this->sourceElementClassifier, $this->richTextMaterializer, $this->runtime, $this->session,
+            fn (DOMElement $element, string $className): string => $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext(), $className)
+        );
         $this->patternProbeContext = $this->createProbePatternContext();
         $this->navigationToggleSuppressor = new NavigationToggleSuppressor($this->session,
             $this->createNavigationToggleSuppressionContext(),
@@ -451,7 +454,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $pseudoFormAnalyzer = new PseudoFormAnalyzer($formControlMetadataBuilder);
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->session, $this->sourceElementClassifier, $pseudoFormAnalyzer);
         $this->generatedComponents = new Elements\GeneratedComponentLowering($this->session, $this->runtimeIslands, $this, $this);
-        $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->styleResolver, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
+        $this->renderNeutral = new Elements\RenderNeutralElements($this->session, $this->sourceElementClassifier, $this->sourceElementDescription, $this->runtimeIslands, $this->emptyElementFootprint);
         $styledClassBoundaries = new Support\StyledSourceClassBoundary($this->session);
         $this->emptyVisualRetention = new Elements\EmptyVisualRetentionPolicy(
             $this->styleResolver,
@@ -509,7 +512,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->documentEnvelope = new Support\SourceDocumentEnvelope($this->styleResolver);
         $customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $mediaLowering, $this->imageLowering, $this->layoutShells, $this);
         $listItemLowering = new Elements\ListItemLowering($this, $this, $this->runtime, $this->session, $this->styleResolver, $listStructure, $this->richTextMaterializer, $this->wrapperCoalescer, $this->authorLayoutOwnership);
-        $structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups);
+        $structuredInlineItemLowering = new Elements\StructuredInlineItemLowering($this, $this->runtime, $this->sourceElementClassifier, $this->styleResolver, $inlineSvgTextGroups, $this->richTextMaterializer);
         $inlineTextWrappers = new Elements\InlineTextWrapperLowering(
             $this,
             $this,
@@ -525,7 +528,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
         $inertElements = new Elements\InertElements($this->styleResolver, $this->sourceElementClassifier, $this->sourceVisibility, $this->runtimeIslands);
         $this->emptyInlineGeometry = new Elements\EmptyInlineGeometryLowering($this, $this->session, $this->sourceElementClassifier, $this->emptyElementFootprint, $authoredStateButtons, $this->layoutShells, $this->runtimeIslands);
-        $this->wrapperConventions = new Elements\CustomWrapperConventions($this->styleResolver, $this->renderNeutral);
+        $this->wrapperConventions = new Elements\CustomWrapperConventions($this->renderNeutral);
         $emptyVisualSpacers = new Elements\EmptyVisualSpacerLowering($this, $this, $this->session, $this->styleResolver, $this->emptyElementFootprint, $this->runtimeIslands);
         $this->fallbackReconciliation = new Diagnostics\FallbackReconciliation($this->runtimeIslands);
         $inlineCheckableControls = new Elements\InlineCheckableControlLowering($this, $this->runtime, $this->session, $this->sourceElementClassifier, $this->richTextMaterializer, $authoredStateButtons, $this->runtimeIslands, $this->layoutShells);
@@ -574,7 +577,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->authorStylesheetProjector = new AuthorStylesheetProjector(
             $this->styleResolver,
             $this->authorSelectorSemanticPreparer,
-            $authorStyleRuleProjector
+            $authorStyleRuleProjector,
+            $this->session->sourceStyleResolutionState()
         );
         $textLeafConverter = new TextLeafElementConverter($this->richTextMaterializer, $this->runtime, $this, $this->styleResolver, $this->sourceElementClassifier, $this->createTextLeafElementContext());
         $richTextConverter = new RichTextElementConverter($this, $this->styleResolver, $this->richTextMaterializer, $this->runtime, $this->createRichTextElementContext());
@@ -591,7 +595,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             (new Elements\ForeignObjectFitTextLowering($this, $richTextConverter, $this->styleResolver, $this->blockFactory))->block(...)
         ), $this->svgMaterializer, new SvgTextRunLowering(
             $this->styleResolver,
-            $this->styleResolver->resolveCssVariablesInValue(...),
+            $this->styleResolver->customProperties->resolve(...),
             $this,
             $this->session
         ));
@@ -644,7 +648,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->runtimeIslands->runtimeDomSelectorsForElement(...),
             $this->sourceElementDescription,
             $blockBindings->binding(...),
-            fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
+            fn (DOMElement $element, string $value): string => $this->styleResolver->customProperties->resolve($value, $element),
             $this->svgMaterializer->inlineSvgMarkup(...)
         );
         $this->commerceReporter = new CommerceFallbackReporter(
@@ -679,26 +683,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this->session
         );
-        $readableFormBlockBuilder = new ReadableFormBlockBuilder(
-            $formControlMetadataBuilder,
-            $readableFormControlBlockConverter,
-            $this->formRuntimeIslandRecorder,
-            $this->runtimeIslands,
-            fn (DOMElement $element): array => $this->authorLayoutOwnership->cssOwnedGroupAttributes($element),
-            $this->authorLayoutOwnership,
-            $this->styleResolver,
-            $this,
-            function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
-                return $this->layoutShells->blockForElements($elements, $innerBlocks, $sourceElement);
-            },
-            // A field box keeps the frames the author styles: attributes, or a tag the author's selectors address.
-            function (array $elements): ?array {
-                $styled = array_values(array_filter($elements, fn (DOMElement $element): bool => $element->hasAttributes() || '' !== $this->session->authorSelectorProjectionState()->tagMarker($element->tagName)));
-                return array() === $styled ? null : $this->layoutShells->blockForElements($styled, array(), $styled[0], true);
-            },
-            $this->session,
-            $this
-        );
         $nativeGetFormBlockBuilder = new NativeGetFormBlockBuilder(
             $this,
             function (DOMElement $element): array {
@@ -712,45 +696,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             $this->session
         );
-        $formCompositionPlanner = new FormCompositionPlanner(
-            $this->session,
-            $this,
-            $this->styleResolver,
-            $this
-        );
-        $formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
-            $this->runtimeIslands
-        );
-        $formSuccessPanelMetadataBuilder = new FormSuccessPanelMetadataBuilder(
-            $this->session,
-            $this->styleResolver->innerHtml(...)
-        );
-        $formFallbackFindingBuilder = new FormFallbackFindingBuilder($this->session,
-            $formFallbackContext,
-            $formControlMetadataBuilder,
-            $formSuccessPanelMetadataBuilder,
-            $pseudoFormAnalyzer
-        );
         $searchBlockConverter = new SearchBlockConverter($this->styleResolver, $this->session, $this, $this->svgMaterializer, $this->runtimeIslands, $this->createSearchBlockConversionContext(), $formControlMetadataBuilder, $pseudoFormAnalyzer);
-        $loginBlockConverter = new LoginBlockConverter($this);
-        $formDispatcher = new FormDispatcher(new FormDispatchContext(
-            $loginBlockConverter->loginBlockFromForm(...),
-            $searchBlockConverter->searchBlockFromForm(...),
-            $nativeGetFormBlockBuilder->build(...),
-            $formCompositionPlanner->compose(...),
-            fn (DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array => $formFallbackFindingBuilder->build($element, $readableFormBlock, $bindingBlock, $readableFormBlockBuilder->layoutGraph()),
-            $this->formRuntimeIslandRecorder->recordForm(...),
-            $readableFormBlockBuilder->build(...),
-            $formRuntimeRequirementAnalyzer->requiresPreservation(...),
-            $pseudoFormAnalyzer->isProviderPseudoForm(...)
-        ), $this, function (DOMElement $form): ?array {
-            $control = $this->createCommercePattern()->cartControlForCardForm($form);
-            if ( null === $control ) {
-                return null;
-            }
-            $button = $this->authoredFormControlBlockConverter->button($control, true);
-            return null !== $button ? $this->createBlock($button['blockName'], $button['attrs'], array(), $control) : null;
-        });
+        $formDispatcher = $this->createFormDispatcher($formControlMetadataBuilder, $pseudoFormAnalyzer, $formFallbackContext, $readableFormControlBlockConverter, $nativeGetFormBlockBuilder, $searchBlockConverter);
         $buttonLinkDispatcher = new ButtonLinkDispatcher($this->sourceElementClassifier, $this->createButtonLinkDispatchContext());
         $buttonConverter = new ButtonElementConverter($this->sourceElementClassifier, $this, $this->styleResolver, new ButtonElementContext(
             $searchBlockConverter->isReplacedSearchClusterControl(...),
@@ -946,7 +893,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->session
             ),
             new ScrollStateConverter(
-                $this->session,
                 $this,
                 $this->styleResolver,
                 fn (DOMElement $element, string $className): string => $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext(), $className)
@@ -1011,8 +957,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $inertElements,
             new Elements\OrphanListItemConverter($this->runtimeIslands, $this->sourceElementClassifier, $this->richTextMaterializer, $this, $this->layoutShells, $this),
             new Elements\ScriptOwnedCheckoutRegionConverter($commercePattern, $this),
-            new Elements\TransparentUnknownElementConverter($this->renderNeutral, $this->session, $this->generatedComponents, $flowContainerConverter),
-            new Elements\CustomElementRuntimeConverter($this->session, $this->styleResolver, $this->sourceElementDescription, $this->runtimeIslands, $this->generatedComponents, $this),
+            new Elements\TransparentUnknownElementConverter($this->renderNeutral, $this->session, $this->generatedComponents, $flowContainerConverter, $this, $this->blockFactory),
+            new Elements\CustomElementRuntimeConverter($this->session, $this->styleResolver, $this->sourceElementDescription, $this->runtimeIslands, $this->renderNeutral, $this->generatedComponents, $this),
         ));
     }
 
@@ -1228,7 +1174,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $styleAnalysis = $this->stylesheetAnalysisComposer->composedStyleAnalysis(
             $this->stylesheetAnalysisComposer->stylesheetPayloads($html, $staticCss, $options)
         );
-        $this->session->sourceStyleResolutionState()->installStylesheetAnalysis(StaticClassPromotions::detect($html), $styleAnalysis);
+        $this->session->sourceStyleResolutionState()->installStylesheetAnalysis(StaticClassPromotions::detect($html), $styleAnalysis, $this->styleResolver->hiddenStateStyleRules(...));
         $provenance               = array(
             array_merge(array(
                 'source_format' => 'html',
@@ -1241,9 +1187,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $sourceBodyClasses = $this->documentEnvelope->documentBodyClassNames($html);
         $this->session->installSourceDocument($this->documentEnvelope->documentRootTheme($html), NativeGetFormBlockBuilder::declaredDocumentHosts($html));
         $normalizedHtml = CaptureReplayScripts::withoutReplayScripts(
-            SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html)))
+            SourceDom::normalizeHtml5VoidElements($this->documentEnvelope->documentBodyHtml($this->documentEnvelope->normalizeExplicitPlaintextElements($html), array() !== $this->session->boxTreeViewports()))
         );
         $document = HtmlSerialization::parseFragment('<body>' . $normalizedHtml . '</body>');
+        CommerceStructureRecognizer::registerSourceDocument($document, (string) ($options['declarative_state_html'] ?? $html));
 
         $resultComposer = new HtmlResultComposer();
         $selectorCache = $this->session->sourceStyleResolutionState()->selectorMatchCache;
@@ -1259,7 +1206,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Resolve before dispatch: controls, rich text, and preserved markup
         // serialize source images without passing through native image lowering.
         $this->imageUrls->resolveSourceImages($body);
-        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewriteInlineStyles($body);
+        \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewriteInlineStyles($body, $this->styleResolver);
         CapturedNavigationPanels::restoreNative($body);
         CapturedNavigationPanels::restoreRestingStates($body);
         // Capture evidence, not content: read before anything serializes the source.
@@ -1295,7 +1242,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $paymentWidgetFindings = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PaymentProcessorWidgetPruner::prune($body);
         // Saved block markup re-enters as source; invert save shapes that moved
         // source identity onto synthesized wrappers before anything reads them.
-        OwnSaveShapeInverter::invert($body, $this->styleResolver->matchesStaticConditionalRule(...));
+        OwnSaveShapeInverter::invert($body, fn (DOMElement $element): bool => array() !== $this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional'));
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         DeclarativeCounterMaterializer::materialize($body, (string) ($options['declarative_state_html'] ?? ''));
         // Remove wrapper-convention custom elements before author selectors are
@@ -1435,7 +1382,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // author rules there as they do on the front end.
         $this->navigationStyleProjector->materializeEditorStaticStateStylesheet(
             implode("\n\n", array_column($authorStylesheetProjections, 'content'))
-            . ( '' === $authorStylesheets->contentBoxCss() ? '' : "\n\n" . $authorStylesheets->contentBoxCss() )
+            . ( '' === $authorStylesheets->contentBoxCss() ? '' : "\n\n" . $authorStylesheets->contentBoxCss() ),
+            $serializedBlocks
         );
         // Publish declaration addresses only after every generated support
         // family has contributed. Provisional source bindings never escape
@@ -1478,7 +1426,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $headMetadata = HeadMetadataReport::fromHtml($html);
         $authorLayoutTopologyFindings = $classIdentity->rewrite($authorLayoutTopologyFindings, $classReplacements);
-        $this->styleResolver->recordSourceSelectorMatchWork();
+        $this->session->sourceStyleResolutionState()->recordMatchWork($this->analysisCache);
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
         $bundledSnapshotBlocks = $this->runtime->bundledCoreBlockNames();
         $runtimeRegisteredBlocks = $this->runtime->runtimeRegisteredCoreBlockNames();
@@ -1689,6 +1637,79 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         );
     }
 
+    /**
+     * Wires everything only form dispatch uses: readable-form layout, composition
+     * planning, runtime preservation, fallback findings, and login forms.
+     */
+    private function createFormDispatcher(
+        FormControlMetadataBuilder $formControlMetadataBuilder,
+        PseudoFormAnalyzer $pseudoFormAnalyzer,
+        FormFallbackFindingContext $formFallbackContext,
+        ReadableFormControlBlockConverter $readableFormControlBlockConverter,
+        NativeGetFormBlockBuilder $nativeGetFormBlockBuilder,
+        SearchBlockConverter $searchBlockConverter
+    ): FormDispatcher
+    {
+        $readableFormBlockBuilder = new ReadableFormBlockBuilder(
+            $formControlMetadataBuilder,
+            $readableFormControlBlockConverter,
+            $this->formRuntimeIslandRecorder,
+            $this->runtimeIslands,
+            fn (DOMElement $element): array => $this->authorLayoutOwnership->cssOwnedGroupAttributes($element),
+            $this->authorLayoutOwnership,
+            $this->styleResolver,
+            $this,
+            function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
+                return $this->layoutShells->blockForElements($elements, $innerBlocks, $sourceElement);
+            },
+            // A field box keeps the frames the author styles: attributes, or a tag the author's selectors address.
+            function (array $elements): ?array {
+                $styled = array_values(array_filter($elements, fn (DOMElement $element): bool => $element->hasAttributes() || '' !== $this->session->authorSelectorProjectionState()->tagMarker($element->tagName)));
+                return array() === $styled ? null : $this->layoutShells->blockForElements($styled, array(), $styled[0], true);
+            },
+            $this->session,
+            $this
+        );
+        $formCompositionPlanner = new FormCompositionPlanner(
+            $this->session,
+            $this,
+            $this->styleResolver,
+            $this
+        );
+        $formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
+            $this->runtimeIslands
+        );
+        $formSuccessPanelMetadataBuilder = new FormSuccessPanelMetadataBuilder(
+            $this->session,
+            $this->styleResolver->innerHtml(...)
+        );
+        $formFallbackFindingBuilder = new FormFallbackFindingBuilder($this->session,
+            $formFallbackContext,
+            $formControlMetadataBuilder,
+            $formSuccessPanelMetadataBuilder,
+            $pseudoFormAnalyzer
+        );
+        $loginBlockConverter = new LoginBlockConverter($this);
+        return new FormDispatcher(new FormDispatchContext(
+            $loginBlockConverter->loginBlockFromForm(...),
+            $searchBlockConverter->searchBlockFromForm(...),
+            $nativeGetFormBlockBuilder->build(...),
+            $formCompositionPlanner->compose(...),
+            fn (DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array => $formFallbackFindingBuilder->build($element, $readableFormBlock, $bindingBlock, $readableFormBlockBuilder->layoutGraph()),
+            $this->formRuntimeIslandRecorder->recordForm(...),
+            $readableFormBlockBuilder->build(...),
+            $formRuntimeRequirementAnalyzer->requiresPreservation(...),
+            $pseudoFormAnalyzer->isProviderPseudoForm(...)
+        ), $this, function (DOMElement $form): ?array {
+            $control = $this->createCommercePattern()->cartControlForCardForm($form);
+            if ( null === $control ) {
+                return null;
+            }
+            $button = $this->authoredFormControlBlockConverter->button($control, true);
+            return null !== $button ? $this->createBlock($button['blockName'], $button['attrs'], array(), $control) : null;
+        });
+    }
+
     private function createPatternContext(): PatternContext
     {
         return new PatternContext(
@@ -1696,18 +1717,19 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this,
             new NavigationPatternContext(
                 $this->styleResolver,
+                $this->session,
                 $this->navigationStyleProjector,
                 $this->navigationToggleSuppressor,
                 $this->runtimeIslands,
                 $this->session->sourceTargetProjectionState(),
-                $this->session,
                 $this->svgMaterializer,
                 $this->projectedNavigation
             ),
             new MediaPatternContext($this->styleResolver, $this->imageUrls, $this->imageDimensions, $this->session),
             new ColumnsPatternContext($this->styleResolver),
             new MarkupPatternContext(
-                $this->session
+                $this->session,
+                $this->svgMaterializer->withReferencedDefinitions(...)
             ),
             new ButtonPatternContext(
                 $this->styleResolver,
@@ -1800,11 +1822,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             presentation: $this->styleResolver,
             navigationContext: new NavigationPatternContext(
                 $this->styleResolver,
-                session: $this->session,
+                $this->session,
                 publishesSubjects: false
             ),
             markupContext: new MarkupPatternContext(
-                $this->session
+                $this->session,
+                $this->svgMaterializer->withReferencedDefinitions(...)
             ),
             codeWindowContext: new CodeWindowPatternContext($this->codePresentation ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CodePresentation($this->styleResolver)),
             logoContext: new LogoPatternContext(
@@ -1906,7 +1929,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             return null;
         }
         $this->session->authorSelectorProjectionState()->markRetainedSourcePath($button->getNodePath() ?? '');
-        return $this->authoredFormControlBlockConverter->button($button, true);
+        return $this->authoredFormControlBlockConverter->button($button, true, true);
     }
 
     /** Keep containing-block-relative sizes on the original, editable control. */
@@ -1925,7 +1948,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Retain conditional rules rather than testing only the resting viewport.
         foreach ( $this->styleResolver->authoredControlPresentation($button, $sizes) as $declarations ) {
             foreach ( $declarations as $value ) {
-                if ( str_contains($this->styleResolver->resolveCssVariablesInValue($value, $button), '%') ) {
+                if ( str_contains($this->styleResolver->customProperties->resolve($value, $button), '%') ) {
                     return true;
                 }
             }
@@ -1944,7 +1967,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $anchor = 'a' === strtolower($sourceElement->tagName) ? $sourceElement : $sourceElement->getElementsByTagName('a')->item(0);
             if ($anchor instanceof DOMElement) {
                 $this->session->authorSelectorProjectionState()->markSocialAnchor($anchor);
-                $attrs = (new SocialSourceStyleProjector($this->styleResolver))->project($attrs, $anchor, $this->session->authorStyleAnalysis(), $this->session->sourceTargetProjectionState(), !str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item'));
+                $attrs = (new SocialSourceStyleProjector($this->styleResolver, $this->session->sourceStyleResolutionState()))->project($attrs, $anchor, $this->session->authorStyleAnalysis(), $this->session->sourceTargetProjectionState(), !str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-social-source-item'));
             }
         }
         if ( 'core/cover' === $name && $sourceElement instanceof DOMElement && in_array(CoverPattern::CONSUMED_BACKGROUND_CLASS, preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ) {
@@ -1953,7 +1976,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // Control boxes transport source attributes through runtime metadata.
         // Forms must also keep their core/group identity for provider substitution;
         // their hidden state travels through the generic runtime attributes.
-        if ( 'core/group' === $name && 'form' !== ($attrs['tagName'] ?? '') && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->emptyVisualRetention->preservesScriptStateWrapper($sourceElement) ) {
+        if ( 'core/group' === $name && ! str_contains((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS) && 'form' !== ($attrs['tagName'] ?? '') && ! isset($attrs['metadata']['blocksEngineControlBox']) && $sourceElement instanceof DOMElement && $this->emptyVisualRetention->preservesScriptStateWrapper($sourceElement) ) {
             return $this->layoutShells->blockForElements(array( $sourceElement ), $innerBlocks, $sourceElement);
         }
         if ( 'core/heading' === $name ) {
@@ -2036,6 +2059,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $preserveGeneratedStyle = 'core/accordion-heading' === $name
                 || ('core/button' === $name && $this->sourceElementClassifier->hasLogoBrandSignal($sourceElement))
                 || ('core/spacer' === $name && $this->emptyElementFootprint->isEmptyVisualInlineCandidate($sourceElement));
+            $imageFigureFlow = 'core/image' === $name && 'figure' !== $sourceTagName
+                ? $this->syntheticImageFigureFlow->syntheticImageFigureFlow($sourceElement)
+                : Elements\SyntheticImageFigureFlow::BOX;
             $attrs = $this->sourceBlockAttributeProjector->project(
                 $name,
                 $attrs,
@@ -2051,12 +2077,16 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     'core/button' === $name && '' !== $logicalControlPath && $hasAuthorControlProjection
                         && $this->authorLayoutOwnership->isDirectChildOfAuthorFlexLayout($logicalControl),
                     $preserveGeneratedStyle,
-                    'core/image' === $name
-                        && 'figure' !== $sourceTagName
-                        && $this->syntheticImageFigureFlow->syntheticImageFigureFollowsInlineFlow($sourceElement)
+                    Elements\SyntheticImageFigureFlow::INLINE === $imageFigureFlow,
+                    Elements\SyntheticImageFigureFlow::STRUT === $imageFigureFlow
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
+            $observations = $this->session->boxTreeEvidence($sourceElement);
+            $viewports = $this->session->boxTreeViewports();
+            $parents = $sourceElement->parentNode instanceof DOMElement ? $this->session->boxTreeEvidence($sourceElement->parentNode) : array();
+            $fluid = (new Style\BoxTreeFluidIntent())->lift($sourceElement, $this->styleResolver, $observations, $viewports, $parents, $name);
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,
@@ -2070,7 +2100,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     : $this->sourceVisibility->startsHidden($sourceElement),
                 SourceDom::htmlAttributes($sourceElement),
                 $this->sourceElementDescription->structureSignals($sourceElement, $attrs),
-                array() === $innerBlocks && 'core/group' === $name
+                // A populated group whose box is responsive and stylesheet-owned
+                // carries no block style, yet must stay independently editable
+                // rather than folding into a layout-shell wrapper list.
+                'core/group' === $name && (array() === $innerBlocks || $this->emptyVisualRetention->responsiveStylesheetOwnsWrapperBox($sourceElement))
                     ? $this->emptyVisualRetention->emptyVisualTopologyEvidence($sourceElement)
                     : array(),
                 'core/navigation' === $name && $this->sourceVisibility->wrapperHiddenAtCollapsedViewport($sourceElement)
@@ -2228,6 +2261,19 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $children = $this->convertChildren($button, $fallbacks, true, true);
         if ( array() === $children ) {
             return null;
+        }
+
+        if ( '' === trim($button->textContent) && $button->getElementsByTagName('img')->length > 0 ) {
+            $attributes = array();
+            foreach ($button->attributes as $attribute) {
+                $attributes[strtolower($attribute->nodeName)] = $attribute->nodeValue ?? '';
+            }
+            if (!isset($attributes['type'])) $attributes['type'] = 'submit';
+            return $this->createBlock('core/group', array(
+                'tagName' => 'button',
+                'className' => SourceDom::attr($button, 'class'),
+                'metadata' => array('blocksEngineControlBox' => $attributes, 'blocksEngineControlTagName' => 'button'),
+            ), $children, $button);
         }
 
         return $this->layoutShells->blockForElements(array($button), $children, $button);

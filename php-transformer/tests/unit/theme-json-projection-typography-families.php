@@ -201,6 +201,44 @@ $assert(
     json_encode( $faced['styles']['typography'] ?? null )
 );
 
+// 7e. A face theme.json registers is not shipped again in the source
+//     stylesheet: WordPress prints it on every document, so the stylesheet copy
+//     is only weight. Its font-display travels into theme.json. A face theme.json
+//     restates only in part (a fallback src, a conditional block) or cannot
+//     register (a remote file) stays in the stylesheet.
+$registeredCss = '@font-face{font-family:"Lora";font-style:normal;font-weight:400;font-display:swap;src:url(fonts/lora.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131}'
+    . '@font-face{font-family:Lora;font-style:italic;font-weight:400;src:url(fonts/lora-italic.woff2) format("woff2"),url(fonts/lora-italic.woff) format("woff")}'
+    . '@media print{@font-face{font-family:Lora;font-style:normal;font-weight:700;src:url(fonts/lora-bold.woff2)}}'
+    . '@font-face{font-family:"Remote";src:url(https://fonts.example.test/remote.woff2)}'
+    . 'body{font-family:Lora,serif}h1{font-family:"Remote",serif}';
+$registeredProjection = $project( array(
+    $cssAsset( $registeredCss ),
+    array( 'kind' => 'font', 'source_path' => 'assets/fonts/lora.woff2', 'target_path' => 'assets/fonts/lora.woff2', 'mime_type' => 'font/woff2' ),
+    array( 'kind' => 'font', 'source_path' => 'assets/fonts/lora-italic.woff2', 'target_path' => 'assets/fonts/lora-italic.woff2', 'mime_type' => 'font/woff2' ),
+    array( 'kind' => 'font', 'source_path' => 'assets/fonts/lora-bold.woff2', 'target_path' => 'assets/fonts/lora-bold.woff2', 'mime_type' => 'font/woff2' ),
+) );
+$registeredFaces = array();
+foreach ( $registeredProjection['theme']['settings']['typography']['fontFamilies'] ?? array() as $family ) {
+    foreach ( $family['fontFace'] ?? array() as $face ) $registeredFaces[ $face['src'] ] = $face;
+}
+$deliveredCss = (string) ( $registeredProjection['assets'][0]['content'] ?? '' );
+$assert(
+    'swap' === ( $registeredFaces['file:./assets/fonts/lora.woff2']['fontDisplay'] ?? null ),
+    '7e: the authored font-display travels with the face into theme.json',
+    json_encode( $registeredFaces )
+);
+$assert(
+    ! str_contains( $deliveredCss, 'fonts/lora.woff2' ) && strlen( $deliveredCss ) === ( $registeredProjection['assets'][0]['bytes'] ?? null ),
+    '7f: a face theme.json registers is removed from the delivered stylesheet',
+    $deliveredCss
+);
+$assert(
+    str_contains( $deliveredCss, 'fonts/lora-italic.woff' ) && str_contains( $deliveredCss, '@media print{@font-face{font-family:Lora;font-style:normal;font-weight:700;src:url(fonts/lora-bold.woff2)}}' )
+        && str_contains( $deliveredCss, 'remote.woff2' ) && str_ends_with( $deliveredCss, 'body{font-family:Lora,serif}h1{font-family:"Remote",serif}' ),
+    '7g: faces theme.json restates only in part, conditional faces, remote faces and every style rule stay in the stylesheet',
+    $deliveredCss
+);
+
 // Missing descriptors use the CSS @font-face default without changing declared weights.
 $defaultWeightProjection = $project( array(
     $cssAsset( '@font-face{font-family:Variable;src:url(fonts/variable.woff2)}@font-face{font-family:Variable;font-weight:700;src:url(fonts/variable-bold.woff2)}body{font-family:Variable}' ),
@@ -212,6 +250,42 @@ foreach ( $defaultWeightProjection['theme']['settings']['typography']['fontFamil
     foreach ( $family['fontFace'] ?? array() as $face ) $defaultWeightFaces[] = $face['fontWeight'] ?? null;
 }
 $assert( array( 'auto', '700' ) === $defaultWeightFaces, '7d: absent font-weight projects as auto while explicit weight remains unchanged', json_encode( $defaultWeightFaces ) );
+
+// 7h. A variable-font service lists one face per weight, all naming the same
+//     file and subset. theme.json restates such an unbroken run as one weight
+//     range, still removing every stylesheet copy; a broken run, whose
+//     in-between weight would match differently, keeps its separate faces.
+$variableFace = static fn( string $family, string $style, int $weight, string $file, string $range ): string => '@font-face{font-family:"' . $family . '";font-style:' . $style . ';font-weight:' . $weight . ';font-display:swap;src:url(fonts/' . $file . ') format("woff2");unicode-range:' . $range . '}';
+$variableCss = '';
+foreach ( array( 300, 400, 500 ) as $weight ) {
+    $variableCss .= $variableFace( 'Jost', 'normal', $weight, 'jost.woff2', 'U+0000-00FF' ) . $variableFace( 'Jost', 'normal', $weight, 'jost-ext.woff2', 'U+0100-024F' );
+}
+$variableCss .= $variableFace( 'Jost', 'italic', 300, 'jost-italic.woff2', 'U+0000-00FF' ) . $variableFace( 'Jost', 'italic', 500, 'jost-italic.woff2', 'U+0000-00FF' );
+$variableProjection = $project( array(
+    $cssAsset( $variableCss . 'body{font-family:Jost,sans-serif}' ),
+    array( 'kind' => 'font', 'source_path' => 'assets/fonts/jost.woff2', 'target_path' => 'assets/fonts/jost.woff2', 'mime_type' => 'font/woff2' ),
+    array( 'kind' => 'font', 'source_path' => 'assets/fonts/jost-ext.woff2', 'target_path' => 'assets/fonts/jost-ext.woff2', 'mime_type' => 'font/woff2' ),
+    array( 'kind' => 'font', 'source_path' => 'assets/fonts/jost-italic.woff2', 'target_path' => 'assets/fonts/jost-italic.woff2', 'mime_type' => 'font/woff2' ),
+) );
+$variableFaces = array_map(
+    static fn( array $face ): string => $face['fontStyle'] . ' ' . $face['fontWeight'] . ' ' . $face['src'],
+    $variableProjection['theme']['settings']['typography']['fontFamilies'][0]['fontFace'] ?? array()
+);
+$assert(
+    array(
+        'normal 300 500 file:./assets/fonts/jost.woff2',
+        'normal 300 500 file:./assets/fonts/jost-ext.woff2',
+        'italic 300 file:./assets/fonts/jost-italic.woff2',
+        'italic 500 file:./assets/fonts/jost-italic.woff2',
+    ) === $variableFaces,
+    '7h: an unbroken run of per-weight faces of one file registers as one weight-range face per subset',
+    json_encode( $variableFaces )
+);
+$assert(
+    'body{font-family:Jost,sans-serif}' === ( $variableProjection['assets'][0]['content'] ?? null ),
+    '7i: every per-weight stylesheet face theme.json restates is still removed',
+    (string) ( $variableProjection['assets'][0]['content'] ?? '' )
+);
 
 // ---------------------------------------------------------------------------
 // 8. Class-scoped typography never projects as Global Styles. The used stack
@@ -294,6 +368,35 @@ $assert(
     '10b: registering the extra family does not add competing element styles',
     json_encode( $withMono['styles'] ?? null )
 );
+
+// Equal-specificity unconditional definitions follow source order, but
+// conditional, selector-dependent and route-dependent values remain ambiguous.
+$override = ':root{--body-font:"Arno Pro",Georgia,serif}';
+$initial = ':root{--body-font:"Space Grotesk",sans-serif}body{font-family:var(--body-font)}';
+$framework = ':root{--fw-font:system-ui,sans-serif}body{font-family:var(--fw-font)}';
+foreach ( array(
+    'later :root override' => array( $cssAsset( $initial ), $cssAsset( $override, 'assets/fonts.css' ) ),
+    'same stylesheet override' => array( $cssAsset( $initial . $override ) ),
+    'same rule override' => array( $cssAsset( ':root{--body-font:serif;--body-font:"Arno Pro",Georgia,serif}body{font-family:var(--body-font)}' ) ),
+    'framework body rule first' => array( $cssAsset( $framework, 'assets/framework.css' ), $cssAsset( $initial ), $cssAsset( $override, 'assets/fonts.css' ) ),
+    'literal body rules' => array( $cssAsset( 'body{font-family:system-ui,sans-serif}body{font-family:"Arno Pro",Georgia,serif}' ) ),
+) as $name => $assets ) {
+    $theme = $project( $assets )['theme'];
+    $families = array_column( $theme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug' );
+    $slug = str_replace( 'var:preset|font-family|', '', $theme['styles']['typography']['fontFamily'] ?? '' );
+    $assert( '"Arno Pro",Georgia,serif' === ( $families[$slug] ?? null ), $name, json_encode( $theme ) );
+}
+foreach ( array(
+    'different selector' => array( $cssAsset( $initial . str_replace( ':root', 'html', $override ) ) ),
+    'scoped selector' => array( $cssAsset( $initial . str_replace( ':root', '.article', $override ) ) ),
+    'conditional override' => array( $cssAsset( $initial . '@media(min-width:600px){' . $override . '}' ) ),
+    'layered override' => array( $cssAsset( $initial . '@layer base{' . $override . '}' ) ),
+    'route-dependent override' => array( $cssAsset( $initial ), array_merge( $cssAsset( $override ), array( 'scopes' => array( array( 'kind' => 'document', 'source_path' => 'about.html' ) ) ) ) ),
+    'conditional body' => array( $cssAsset( 'body{font-family:serif}@media(min-width:600px){body{font-family:"Arno Pro",Georgia,serif}}' ) ),
+) as $name => $assets ) {
+    $theme = $project( $assets )['theme'];
+    $assert( ! isset( $theme['styles']['typography']['fontFamily'] ), $name, json_encode( $theme ) );
+}
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "ThemeJsonProjection typography-family unit tests: {$failures} failed, {$passes} passed\n");

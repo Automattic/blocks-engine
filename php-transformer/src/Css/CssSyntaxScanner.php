@@ -134,9 +134,10 @@ final class CssSyntaxScanner
      * other comment leaves nothing (a comment is not whitespace, so `.a`, a
      * comment and `.b` with no space between form the compound `.a.b`).
      * An unterminated comment runs to
-     * the end of the value and is dropped with it.
+     * the end of the value and is dropped with it. Publication may opt to
+     * preserve /*! license banners while dropping build-only annotations.
      */
-    public static function withoutComments(string $value): string
+    public static function withoutComments(string $value, bool $preserveLicenses = false): string
     {
         if ( ! str_contains($value, '/*') ) {
             return $value;
@@ -161,6 +162,12 @@ final class CssSyntaxScanner
                 if ( $next < $length ) {
                     $next = (int) self::consume($value, $next, $state);
                 }
+                if ($preserveLicenses && '!' === ($value[$start + 2] ?? '')) {
+                    $output .= substr($value, $start, $next - $start);
+                    $state['comment'] = false;
+                    $offset = $next;
+                    continue;
+                }
                 $before = $start > 0 ? $value[ $start - 1 ] : '';
                 $after  = $value[ $next ] ?? '';
                 if ( self::isNameCharacter($before) && self::isNameCharacter($after) ) {
@@ -180,6 +187,55 @@ final class CssSyntaxScanner
     private static function isNameCharacter(string $character): bool
     {
         return '' !== $character && ( ctype_alnum($character) || '-' === $character || '_' === $character || ord($character) >= 0x80 );
+    }
+
+    /**
+     * The stylesheet with whitespace that separates no tokens removed: each
+     * run collapses to one space, and none is kept beside `{`, `}`, `;` or
+     * `,`, after `:` or `(`, or before `)`, and a block's last `;` goes.
+     * Strings, comments, unquoted url()
+     * bodies and escapes (including an escaped delimiter such as `\,` or
+     * an escape's terminating space) are kept byte for byte, so every
+     * selector, value and descendant combinator is unchanged. `--x: ;` keeps
+     * its space. Malformed input is returned unchanged.
+     */
+    public static function withoutRedundantWhitespace(string $value): string
+    {
+        $state     = self::state();
+        $output    = '';
+        $length    = strlen($value);
+        $pending   = false;
+        // The structural delimiter last emitted, or '' after any other unit.
+        $delimiter = '{';
+        for ( $offset = 0; $offset < $length; ) {
+            $inert = $state['comment'] || $state['url'] || '' !== $state['quote'];
+            $character = $value[ $offset ];
+            if ( ! $inert && self::isCssWhitespace($character) ) {
+                $pending = true;
+                ++$offset;
+                continue;
+            }
+            if ( $pending ) {
+                $tight = in_array($delimiter, array( '{', '}', ';', ',', ':', '(' ), true)
+                    || in_array($character, array( '{', '}', ';', ',', ')' ), true);
+                if ( ! $tight || ( ':' === $delimiter && ( ';' === $character || '}' === $character ) ) ) {
+                    $output .= ' ';
+                }
+                $pending = false;
+            }
+            // A block's last declaration needs no terminating `;`.
+            if ( ! $inert && '}' === $character && ';' === $delimiter ) {
+                $output = substr($output, 0, -1);
+            }
+            $next = self::consume($value, $offset, $state);
+            if ( null === $next ) {
+                return $value;
+            }
+            $delimiter = ! $inert && $next === $offset + 1 && '' === $state['quote'] && ! $state['comment'] && false !== strpos('{};,:()', $character) ? $character : '';
+            $output .= substr($value, $offset, $next - $offset);
+            $offset = $next;
+        }
+        return self::isComplete($state) && ! $state['comment'] && '' === $state['quote'] ? $output : $value;
     }
 
     public static function isCssWhitespace(string $character): bool
@@ -226,6 +282,30 @@ final class CssSyntaxScanner
                 }
             }
             $offset = self::consume($value, $offset, $state) ?? ( $offset + 1 );
+        }
+
+        return null;
+    }
+
+    /**
+     * Offset of the `)`, `]` or quote closing the group opened at $open, or
+     * null when it never closes. Strings, comments, escapes and unquoted
+     * `url()` bodies are consumed as tokens, so `[title="a)"]`, `.w-\(` and
+     * `var(--a, ")")` close where the browser closes them.
+     */
+    public static function matchingClose(string $value, int $open): ?int
+    {
+        $state = self::state();
+        $length = strlen($value);
+        for ( $offset = $open; $offset < $length; ) {
+            $next = self::consume($value, $offset, $state);
+            if ( null === $next ) {
+                return null;
+            }
+            if ( self::isTopLevel($state) ) {
+                return $next - 1;
+            }
+            $offset = $next;
         }
 
         return null;

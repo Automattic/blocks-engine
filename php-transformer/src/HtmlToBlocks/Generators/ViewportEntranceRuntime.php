@@ -10,7 +10,7 @@ final class ViewportEntranceRuntime
 {
     /**
      * Capture activator semantics (viewport-entrances.ts,
-     * revision 7f4b5cc73eef0db4d61292eaa07ecd03c2d0e00b).
+     * revision 51fabbf9).
      * Keep attribute poses, CSS-animation bindings and startup contexts together:
      * the evidence is a replay contract, not an animation-provider heuristic.
      *
@@ -119,13 +119,35 @@ function replayViewportEntrances() {
                             observer.unobserve(element);
                     }
                 }
-                else if (state.repeat && !running) {
-                    apply('before');
-                    complete = false;
+                else if (!entry.isIntersecting && state.repeat && !running) {
+                    // `repeatSides` limits the reset to the sides the source
+                    // replays from; without it the entrance resets on both.
+                    const side = entry.boundingClientRect.top >= (entry.rootBounds?.top ?? 0) ? 'below' : 'above';
+                    if (!Array.isArray(state.repeatSides) || state.repeatSides.includes(side)) {
+                        apply('before');
+                        complete = false;
+                    }
                 }
             }
         }, { rootMargin: state.rootMargin, threshold: state.threshold });
         observer.observe(element);
+        if (state.repeat) {
+            // A jump straight across the viewport never intersects, so the
+            // observer would keep the side the element first left on.
+            const sideOf = () => {
+                const rect = element.getBoundingClientRect();
+                return rect.bottom <= 0 ? 'above' : rect.top >= innerHeight ? 'below' : null;
+            };
+            let lastSide = sideOf();
+            addEventListener('scroll', () => {
+                const side = sideOf();
+                if (side && lastSide && side !== lastSide) {
+                    observer.unobserve(element);
+                    observer.observe(element);
+                }
+                lastSide = side;
+            }, { passive: true });
+        }
         if (state.cssAnimations && state.startupContexts) {
             const startup = state.startupContexts.find(pose => pose.width === document.documentElement.clientWidth && pose.height === document.documentElement.clientHeight);
             if (startup?.started)

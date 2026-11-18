@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ImageDimensionResolver;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
@@ -278,7 +279,7 @@ final class CustomImageHostLowering implements ElementConverter
     private function imageHasDefinitePixelBox(DOMElement $image): bool
     {
         foreach ( array( 'width', 'height' ) as $property ) {
-            $inline = $this->styleResolver->inlineDeclarations($image)[$property] ?? '';
+            $inline = SourceDeclarations::inline($image)[$property] ?? '';
             $value = trim(CssValueInspector::withoutImportant((string) $inline));
             if ( '' === $value ) {
                 $pixels = HtmlDimensionAttribute::pixels(SourceDom::attr($image, $property));

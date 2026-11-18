@@ -3,19 +3,24 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ResponsivePropertyFamily;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
@@ -42,7 +47,7 @@ final class AuthoredCarouselBlockGenerator
         ' .blocks-engine-authored-carousel__previous' => 'left:1rem',
         ' .blocks-engine-authored-carousel__next' => 'right:1rem',
     );
-    private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right');
+    private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right', 'position');
     private const SLIDE_INDEX_ATTRIBUTES = array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item');
     private const GEOMETRY_VALUE_PATTERN = '^[0-9a-zA-Z.%()+*/,_ -]+(?:\\s*!important)?$';
 
@@ -102,6 +107,7 @@ final class AuthoredCarouselBlockGenerator
             'transitionDuration' => array('type' => 'number', 'default' => 300),
             'autoplayInterval' => array('type' => 'number', 'default' => 0),
             'showDots' => array('type' => 'boolean', 'default' => false),
+            'sourceDotsMarkup' => array('type' => 'string', 'default' => ''),
             'showStatus' => array('type' => 'boolean', 'default' => false),
             'statusFormat' => array('type' => 'string', 'default' => ''),
             'fullBleed' => array('type' => 'boolean', 'default' => false),
@@ -167,7 +173,7 @@ final class AuthoredCarouselBlockGenerator
         if ( attributes.stageMinHeight ) { style = style || {}; style[ '--blocks-engine-carousel-stage-min-height' ] = attributes.stageMinHeight; }
         var carouselClasses = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle );
         if ( 'src-swap' === presentation ) carouselClasses = 'blocks-engine-authored-carousel--src-swap';
-        var props = { className: carouselClasses + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        var props = { className: carouselClasses + ( attributes.sourcePresentationClasses ? ' ' + attributes.sourcePresentationClasses : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: normalizedCount( attributes.slideCount ), visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
         if ( attributes.thumbnailsHiddenBelow > 0 ) props[ 'data-carousel-thumbnails-hidden-below' ] = String( Math.round( attributes.thumbnailsHiddenBelow ) );
         if ( false === attributes.showArrows ) props[ 'data-carousel-arrows' ] = 'false';
         if ( false === attributes.keyboard ) props[ 'data-carousel-keyboard' ] = 'false';
@@ -249,7 +255,7 @@ final class AuthoredCarouselBlockGenerator
             var next = createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__next ' + ( props.attributes.nextControlClasses || '' ) + orientationClasses( props.attributes.nextControlOrientation ), style: orientedControlStyle( props.attributes.nextControlPresentation, props.attributes.nextControlOrientation ), 'data-carousel-next': 'true', 'data-wp-on--click': 'actions.next', 'data-wp-bind--disabled': 'state.atEnd', 'aria-label': 'Next slide', dangerouslySetInnerHTML: { __html: controlVisual( props.attributes.nextControlVisual ) } } );
             var controlIdentityProps = {};
             Object.keys( props.attributes.sourceControlAttributes || {} ).forEach( function( name ) { controlIdentityProps[ name ] = props.attributes.sourceControlAttributes[ name ]; } );
-            var controlsProps = Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), style: 'slideshow' === props.attributes.presentation ? { position: 'absolute', inset: 0, zIndex: 4, pointerEvents: 'none', boxSizing: 'border-box', width: 'auto', height: 'auto', margin: 0, padding: 0 } : undefined }, controlIdentityProps );
+            var controlsProps = Object.assign( { className: 'blocks-engine-authored-carousel__controls ' + ( props.attributes.sourceControlClasses || '' ), style: 'slideshow' === props.attributes.presentation ? { position: 'absolute', inset: 0, zIndex: 4, pointerEvents: 'none', boxSizing: 'border-box', width: 'auto', height: 'auto', minHeight: 0, maxHeight: 'none', margin: 0, padding: 0, border: 0, background: 'none', boxShadow: 'none' } : undefined }, controlIdentityProps );
             var controls = props.attributes.sourceControlTopology
                 ? createElement( 'div', Object.assign( { dangerouslySetInnerHTML: { __html: props.attributes.sourceControlTopology } }, controlsProps ) )
                 : createElement( 'div', controlsProps, previous, next );
@@ -290,7 +296,7 @@ final class AuthoredCarouselBlockGenerator
             return createElement( 'div', rootProps( props.attributes ),
                 controls,
                 stage,
-                dotCount > 0 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__dots', role: 'group', 'aria-label': 'Choose slide' }, dots ) : null,
+                dotCount > 0 ? ( props.attributes.sourceDotsMarkup ? createElement( 'div', { dangerouslySetInnerHTML: { __html: props.attributes.sourceDotsMarkup } } ) : createElement( 'div', { className: 'blocks-engine-authored-carousel__dots', role: 'group', 'aria-label': 'Choose slide' }, dots ) ) : null,
                 props.attributes.showPlayControl ? createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__playback blocks-engine-authored-carousel__playback--' + normalizedPlacement( props.attributes.playControlPosition ), style: { '--blocks-engine-carousel-control-inset': Math.max( 0, Math.min( 64, Math.round( Number( props.attributes.playControlInset ) || 0 ) ) ) + 'px' }, 'data-wp-on--click': 'actions.toggleAutoplay', 'data-wp-bind--aria-pressed': 'state.playing', 'data-wp-text': 'state.playbackLabel' }, 'Play' ) : null,
                 thumbnails.length > 1 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__thumbnails', role: 'group', 'aria-label': 'Choose slide' }, thumbnails.map( function( thumbnail, index ) {
                     return createElement( 'button', { key: index, type: 'button', className: 'blocks-engine-authored-carousel__thumbnail', 'aria-label': 'Show slide ' + ( index + 1 ), 'data-carousel-index': String( index ), 'data-wp-on--click': 'actions.goTo' }, createElement( 'img', { src: thumbnail.url, alt: thumbnail.alt || '', loading: 'lazy', decoding: 'async' } ) );
@@ -307,9 +313,18 @@ JS;
         $view = <<<'JS'
 import { store, getContext, getElement, withScope } from '@wordpress/interactivity';
 
-const slidesOf = ( ref ) => 'src-swap' === getContext().presentation
-    ? Array.from( ref.querySelectorAll( '.blocks-engine-authored-carousel__sequence > *' ) )
-    : Array.from( ref.querySelectorAll( '.blocks-engine-authored-carousel__track > *' ) );
+// Query Loop transport wrappers do not generate boxes. Page the rendered
+// cards, not the query, post-template or display:contents post wrappers.
+const slidesOf = ( ref ) => {
+    const container = ref.querySelector( 'src-swap' === getContext().presentation
+        ? '.blocks-engine-authored-carousel__sequence'
+        : '.blocks-engine-authored-carousel__track' );
+    const boxes = ( parent ) => Array.from( parent.children ).flatMap( ( child ) => {
+        const display = window.getComputedStyle( child ).display;
+        return 'contents' === display ? boxes( child ) : 'none' === display ? [] : [ child ];
+    } );
+    return container ? boxes( container ) : [];
+};
 
 const rootOf = ( ref ) => ref.closest( '.blocks-engine-authored-carousel' ) || ref.closest( '[data-wp-interactive="blocks-engine/carousel"]' );
 
@@ -376,6 +391,18 @@ const revealThumbnail = ( control, root ) => {
     }
 };
 
+const syncDots = ( root, context ) => {
+    root.querySelectorAll( '.blocks-engine-authored-carousel__dot' ).forEach( ( control ) => {
+        const index = Number( control.dataset.carouselIndex );
+        const active = index === context.index;
+        const item = control.parentElement?.matches( '.blocks-engine-authored-carousel__dots > li' ) ? control.parentElement : control;
+        item.hidden = index > maximumIndex( context );
+        ( item.dataset.carouselActiveClasses || '' ).split( /\s+/ ).filter( Boolean ).forEach( ( name ) => item.classList.toggle( name, active ) );
+        control.classList.toggle( 'blocks-engine-authored-carousel__dot--active', active );
+        control.setAttribute( 'aria-current', active ? 'true' : 'false' );
+    } );
+};
+
 const syncSlideshow = ( root, context, reveal = false ) => {
     if ( 'slideshow' !== context.presentation ) {
         return;
@@ -440,6 +467,7 @@ const show = ( requested, reveal = true ) => {
         syncSrcSwap( root, context );
         return;
     }
+    syncDots( root, context );
     syncSlideshow( root, context, reveal );
     if ( 'slideshow' === context.presentation ) {
         return;
@@ -486,6 +514,7 @@ store( 'blocks-engine/carousel', {
             context.visible = 'slideshow' === context.presentation || 'src-swap' === context.presentation ? 1 : visibleCount( ref );
             context.index = Math.min( context.index, maximumIndex( context ) );
             syncSlideshow( ref, context );
+            syncDots( ref, context );
             const root = rootOf( ref ) ?? ref;
             if ( 'src-swap' === context.presentation ) syncSrcSwap( root, context );
             let start = null;
@@ -505,7 +534,12 @@ store( 'blocks-engine/carousel', {
                 const index = event.detail?.index;
                 if ( Number.isInteger( index ) && index >= 0 && index < context.count ) show( index );
             } );
-            const resize = withScope( () => syncSlideshow( root, context ) );
+            const resize = withScope( () => {
+                if ( 'track' === context.presentation ) context.visible = visibleCount( root );
+                context.index = Math.min( context.index, maximumIndex( context ) );
+                syncSlideshow( root, context );
+                syncDots( root, context );
+            } );
             window.addEventListener( 'resize', resize );
             root.addEventListener( 'blocks-engine-carousel-select', select );
             if ( 'slideshow' === context.presentation && context.playing ) startAutoplay( root, context );
@@ -562,6 +596,7 @@ JS;
         // auto-height wrappers so their controls do not inflate normal flow.
         $style .= '.blocks-engine-authored-carousel--positioned-stage>.blocks-engine-authored-carousel__source-stage{height:100%;flex-shrink:0}.blocks-engine-authored-carousel--positioned-stage .blocks-engine-authored-carousel__viewport{height:100%}';
         $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0}:where(.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__next){transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
+        $style .= '.blocks-engine-authored-carousel__dots--source{position:static;inset:auto;gap:0;grid-column:1/-1}:where(.blocks-engine-authored-carousel__dots--source) .blocks-engine-authored-carousel__dot{width:revert;height:revert;border:revert;border-radius:revert;background:revert;color:inherit}';
         // A captured orientation is carried by the separate translate and scale
         // properties, as core/icon does, so the source's own transform cannot
         // combine with it. Inline rotation uses the rotate property.
@@ -571,7 +606,8 @@ JS;
         // A slide is positioned, hidden and sized as a box. An image that was
         // inline in its source slide gets a box-less synthetic figure, which
         // would leave every hidden slide stacked in the flow below the active one.
-        $style .= ':root .blocks-engine-authored-carousel__track>.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS . '{display:block}';
+        $style .= ':root .blocks-engine-authored-carousel__track>.' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS
+            . ',:root .blocks-engine-authored-carousel__track>.' . SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS . '{display:block}';
         $style .= '.blocks-engine-authored-carousel__source-stage{width:100%;min-width:0}.blocks-engine-authored-carousel--slideshow{margin-block-start:0;margin-block-end:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{min-height:var(--blocks-engine-carousel-stage-min-height,0)}.blocks-engine-authored-carousel__track>.wp-block-group{min-height:var(--blocks-engine-carousel-stage-min-height,auto);margin-block-start:0;margin-block-end:0}';
         // Overlay controls do not occupy the outer grid's auto tracks. If
         // source CSS restores display:grid, the stage must occupy its content
@@ -579,6 +615,13 @@ JS;
         // Thumbnail layouts below instead own their stage/pager tracks.
         $style .= '.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--thumbnails)>.blocks-engine-authored-carousel__source-stage{grid-column:1/-1}'
             . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--source-control-topology>.blocks-engine-authored-carousel__controls{display:block!important}';
+        // Controls the source positions over the track take no grid column,
+        // so the stage spans the root as the source track did instead of
+        // shrinking into the first auto column and clipping its slides there.
+        // A control rebuilt from a non-button element paints as that element:
+        // zero specificity lets every author rule still win over the reset.
+        $style .= '.blocks-engine-authored-carousel--overlay-controls>.blocks-engine-authored-carousel__source-stage{grid-column:1/-1}'
+            . ':where(.blocks-engine-authored-carousel__control--source-box){display:grid;align-content:start;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:inherit}';
         $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next::before{content:none}';
         $style .= '.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track{display:flex!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>*{display:none!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{display:block!important;position:relative!important;flex:0 0 calc(100% / var(--blocks-engine-carousel-visible));width:calc(100% / var(--blocks-engine-carousel-visible))}';
         $style .= '[data-carousel-arrows="false"]>.blocks-engine-authored-carousel__controls{display:none!important}';
@@ -589,6 +632,17 @@ JS;
         // A slideshow transition is a source characteristic, not a house style,
         // so the shape is a parameter and each variant is expressed here rather
         // than baked into the stacking rules above.
+        // A fading slideshow stacks every slide in one box. Offsets a source
+        // runtime left on its slides to stack them (translated back by their own
+        // index) would move a slide out of that box once it becomes active. Those
+        // offsets can arrive as id-weighted captured state, so the reset carries
+        // id weight through a reserved engine id no slide has.
+        // A slide that only paints a scaled background photo gets its height
+        // from the source box, never from the photo. The active slide stays in
+        // flow to size the stage, so the photo's percentage height has no
+        // definite basis there; it fills the positioned slide instead.
+        $style .= '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*>:is(.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . ImageLowering::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain):only-child{position:absolute;inset:0;width:auto;height:auto}';
+        $style .= '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--transition-fade .blocks-engine-authored-carousel__track>:not(#blocks-engine-authored-carousel-slide){transform:none!important;translate:none!important}';
         $style .= '.blocks-engine-authored-carousel--transition-slide .blocks-engine-authored-carousel__track>*{transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease,transform var(--blocks-engine-carousel-transition,300ms) ease}'
             . '.blocks-engine-authored-carousel--transition-slide .blocks-engine-authored-carousel__track>:not(.blocks-engine-authored-carousel__slide--active){transform:translateX(100%)}'
             . '.blocks-engine-authored-carousel--transition-slide[data-direction="backward"] .blocks-engine-authored-carousel__track>:not(.blocks-engine-authored-carousel__slide--active){transform:translateX(-100%)}'
@@ -697,11 +751,15 @@ JS;
             : '';
         if (!empty($attributes['showStatus'])) $classes .= ' blocks-engine-authored-carousel--show-status';
         if ('src-swap' === $presentation) $classes = 'blocks-engine-authored-carousel--src-swap' . ('' !== trim((string) ($attributes['sourcePresentationClasses'] ?? '')) ? ' ' . implode(' ', SourceDom::boundedClassTokens((string) $attributes['sourcePresentationClasses'])) : '');
+        $classes = htmlspecialchars($classes, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $stageAspect = 0 < $viewportHeight ? '' : $this->normalizedAspectRatio($attributes['stageAspectRatio'] ?? '');
         if ( '' !== $stageAspect ) {
             $classes .= ' blocks-engine-authored-carousel--stage-aspect';
         }
-        $styleDeclarations = array('position:relative');
+        // The root is the controls' containing block: relative unless the
+        // source root is already out of flow (a backdrop behind its section).
+        $rootPosition = (string) (ArrayField::array($attributes, 'sourceRootGeometry')['position'] ?? '');
+        $styleDeclarations = array('position:' . (in_array($rootPosition, array('absolute', 'fixed', 'sticky'), true) ? $rootPosition : 'relative'));
         foreach (array('thumbnailWidth' => 'thumbnail-size', 'thumbnailGap' => 'thumbnail-gap', 'stageGap' => 'gap') as $attribute => $variable) {
             $value = (string) ($attributes[$attribute] ?? '');
             if (preg_match('/^[0-9]+(?:\.[0-9]+)?(?:px|rem|em|%)$/D', $value)) {
@@ -733,14 +791,14 @@ JS;
             }
         }
         foreach (ArrayField::array($attributes, 'sourceRootGeometry') as $property => $value) {
-            if (in_array($property, self::ROOT_GEOMETRY_PROPERTIES, true) && is_string($value) && '' !== $this->safeCssGeometryValue($value)) {
+            if ('position' !== $property && in_array($property, self::ROOT_GEOMETRY_PROPERTIES, true) && is_string($value) && '' !== $this->safeCssGeometryValue($value)) {
                 $styleDeclarations[] = $property . ':' . htmlspecialchars($this->safeCssGeometryValue($value), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
         }
         $styleAttribute = array() === $styleDeclarations ? '' : ' style="' . implode(';', $styleDeclarations) . '"';
 
         $context = htmlspecialchars(
-            (string) json_encode(array_merge(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false, 'playing' => 0 < $autoplayInterval), empty($attributes['statusFormat']) ? array() : array('statusFormat' => $attributes['statusFormat'])), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            (string) json_encode(array_merge(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => $slideCount, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false, 'playing' => 0 < $autoplayInterval), empty($attributes['statusFormat']) ? array() : array('statusFormat' => $attributes['statusFormat'])), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
             ENT_QUOTES | ENT_SUBSTITUTE,
             'UTF-8'
         );
@@ -769,6 +827,9 @@ JS;
                 $dots .= '<button type="button" class="blocks-engine-authored-carousel__dot" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></button>';
             }
             $dots .= '</div>';
+            if ('' !== ($attributes['sourceDotsMarkup'] ?? '')) {
+                $dots = '<div>' . (string) $attributes['sourceDotsMarkup'] . '</div>';
+            }
         }
 
         $playbackPosition = in_array($attributes['playControlPosition'] ?? '', array( 'top-left', 'top-right', 'bottom-left', 'bottom-right' ), true)
@@ -825,11 +886,14 @@ JS;
         $controlsMarkup = '' !== $controlTopology
             ? $controlTopology
             : $previousButton . $nextButton;
+        // The host carries the root's classes only to scope source control
+        // selectors; it overlays the slides, so it must not repeat the root's
+        // own box paint above them.
         $controlsPositionStyle = 'slideshow' === $presentation
-            ? ' style="position:absolute;inset:0;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;margin:0;padding:0"'
+            ? ' style="position:absolute;inset:0;z-index:4;pointer-events:none;box-sizing:border-box;width:auto;height:auto;min-height:0;max-height:none;margin:0;padding:0;border:0;background:none;box-shadow:none"'
             : '';
         return array(
-            'opening' => '<div class="' . $classes . '"' . $identityAttributes . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><div class="blocks-engine-authored-carousel__controls ' . implode(' ', SourceDom::boundedClassTokens((string) ($attributes['sourceControlClasses'] ?? ''))) . '"' . $controlsPositionStyle . $controlIdentityAttributes . '>' . $controlsMarkup . '</div>' . $stageWrapperOpen,
+            'opening' => '<div class="' . $classes . '"' . $identityAttributes . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><div class="blocks-engine-authored-carousel__controls ' . htmlspecialchars(implode(' ', SourceDom::boundedClassTokens((string) ($attributes['sourceControlClasses'] ?? ''))), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' . $controlsPositionStyle . $controlIdentityAttributes . '>' . $controlsMarkup . '</div>' . $stageWrapperOpen,
             'closing' => $stageWrapperClose . $dots . $playback . $rail . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
         );
     }
@@ -838,7 +902,7 @@ JS;
     {
         $direction = $next ? 'next' : 'previous';
         $label = $next ? 'Next' : 'Previous';
-        $boundedClasses = implode(' ', SourceDom::boundedClassTokens($classes));
+        $boundedClasses = htmlspecialchars(implode(' ', SourceDom::boundedClassTokens($classes)), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $action = $next ? 'actions.next' : 'actions.previous';
         $bound = $next ? 'state.atEnd' : 'state.atStart';
         $style = '';
@@ -940,110 +1004,357 @@ JS;
             ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
 
         if ($element->hasAttribute('data-blocks-engine-slideshow')) {
-            $attributes = json_decode($element->getAttribute('data-blocks-engine-slideshow'), true);
-            if (!is_array($attributes)) return null;
-            $slides = array();
-            foreach ($element->childNodes as $item) {
-                if (!$item instanceof DOMElement) continue;
-                $fallbacks = array();
-                $children = $tree->children($item, $fallbacks, true);
-                if (1 === count($children)) $slides[] = $children[0];
-                else $slides[] = $createBlock->createBlock('core/group', array('layout' => array('type' => 'default')), $children, $item);
-            }
-            $registry->register(self::class, $this->definition($registry->namespace()));
-            $shell = $this->shell($attributes);
-            return array('blockName' => $registry->blockName(self::LOCAL_NAME), 'attrs' => $attributes, 'innerBlocks' => $slides,
-                'innerHTML' => $shell['opening'] . $shell['closing'], 'innerContent' => array_merge(array($shell['opening']), array_fill(0, count($slides), null), array($shell['closing'])));
+            return $this->declaredSlideshow($element, $tree, $createBlock, $registry);
         }
 
-        // Portable src-swap galleries expose a handful of live frame slots,
-        // not one DOM node per slide. Their ordered sequence is the authored
-        // slide collection; use the offset-zero image only as an image template.
-        if ($element->hasAttribute(CaptureEvidence::GALLERY_SEQUENCE)) {
-            $sequence = json_decode($element->getAttribute(CaptureEvidence::GALLERY_SEQUENCE), true);
-            $primary = null;
-            foreach ($element->getElementsByTagName('img') as $slot) {
-                if ($slot instanceof DOMElement && '0' === trim($slot->getAttribute(CaptureEvidence::GALLERY_SLOT))) {
-                    $primary = $slot;
-                    break;
-                }
-            }
-            if (is_array($sequence) && count($sequence) >= 2 && $primary instanceof DOMElement
-                && count(array_filter($sequence, static fn($url): bool => is_string($url) && '' !== trim($url))) === count($sequence)
-            ) {
-                $slides = array();
-                foreach ($sequence as $url) {
-                    $image = $primary->cloneNode(true);
-                    if (!$image instanceof DOMElement) return null;
-                    $image->setAttribute('src', $url);
-                    $image->removeAttribute('srcset');
-                    $image->removeAttribute('id');
-                    $image->removeAttribute(CaptureEvidence::GALLERY_SLOT);
-                    $slide = $convertImage($image);
-                    if (null === $slide || 'core/image' !== ($slide['blockName'] ?? null)) return null;
-                    $slides[] = $slide;
-                }
-                $sourceClone = $element->cloneNode(true);
-                if (!$sourceClone instanceof DOMElement) return null;
-                foreach ($sourceClone->getElementsByTagName('button') as $control) {
-                    if (!$control instanceof DOMElement) continue;
-                    $direction = trim($control->getAttribute(CaptureEvidence::GALLERY_DIRECTION));
-                    if (!in_array($direction, array('-1', '1'), true)) continue;
-                    $next = '1' === $direction;
-                    $control->setAttribute('data-carousel-' . ($next ? 'next' : 'previous'), 'true');
-                    $control->setAttribute('data-wp-on--click', $next ? 'actions.next' : 'actions.previous');
-                    $control->removeAttribute(CaptureEvidence::GALLERY_DIRECTION);
-                }
-                $sourceMarkup = '';
-                foreach ($sourceClone->childNodes as $child) $sourceMarkup .= $sourceClone->ownerDocument?->saveHTML($child) ?: '';
-                $sourceMarkup = SourceDom::safeFallbackHtmlString($sourceMarkup);
-                $sourceMarkup = preg_replace('/<!--.*?-->/s', '', $sourceMarkup) ?? $sourceMarkup;
-                $sourceMarkup .= '<!-- blocks-engine-src-swap-sequence -->';
-                $sourceIdentityAttributes = array();
-                foreach ($element->attributes as $attribute) {
-                    $name = strtolower($attribute->name);
-                    if ('id' === $name || str_starts_with($name, 'data-') || str_starts_with($name, 'aria-')) $sourceIdentityAttributes[$name] = $attribute->value;
-                }
-                $sourceIdentityAttributes[CaptureEvidence::GALLERY_INDEX] = '0';
-                $registry->register(self::class, $this->definition($registry->namespace()));
-                $attributes = array(
-                    'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
-                    'sourceIdentityAttributes' => $sourceIdentityAttributes,
-                    'sourcePresentationClasses' => implode(' ', SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'))),
-                    'srcSwapMarkup' => $sourceMarkup,
-                    'itemsPerView' => 1,
-                    'wrap' => true,
-                    'presentation' => 'src-swap',
-                    'slideCount' => count($slides),
-                    'initialSlide' => 0,
-                    'showDots' => false,
-                    'transitionStyle' => 'fade',
-                );
-                $shell = $this->shell($attributes);
-                $innerContent = array($shell['opening']);
-                foreach ($slides as $_) $innerContent[] = null;
-                $innerContent[] = $shell['closing'];
-                return array(
-                    'blockName' => $registry->blockName(self::LOCAL_NAME),
-                    'attrs' => $attributes,
-                    'innerBlocks' => $slides,
-                    'innerHTML' => $shell['opening'] . $shell['closing'],
-                    'innerContent' => $innerContent,
-                );
-            }
+        $gallery = $this->srcSwapGallerySource($element);
+        if ( null !== $gallery ) {
+            return $this->srcSwapGallery($element, $gallery[0], $gallery[1], $convertImage, $registry);
         }
 
-        if ( ! $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
-            [$identityList] = $this->richestCarouselList($element);
-            $hasIdentity = false;
-            for ( $candidate = $identityList; $candidate instanceof DOMElement && $candidate !== $element; $candidate = $candidate->parentNode ) {
-                $hasIdentity = $hasIdentity || $this->sourceElementClassifier->hasCarouselIdentity($candidate);
+        if ( ! $this->hasCarouselIdentityToList($element) ) {
+            return null;
+        }
+
+        [$hasPrevious, $hasNext] = $this->navigationDirections($element);
+        $ownedList = $this->ownedCarouselList($element);
+        if ( null === $ownedList ) {
+            return null;
+        }
+        [$list, $items, $localList] = $ownedList;
+        $paginationCount = $this->carouselPaginationCount($element);
+        // An image-only control cluster beside the slides is the source's own
+        // slide selector, so it is pagination even when the builder ships no
+        // labelled previous/next control.
+        $pagerItems = $list instanceof DOMElement ? $this->thumbnailPagerItems($element, $list) : array();
+        if ( (! $hasPrevious && ! $hasNext && $paginationCount < 2 && count($pagerItems) < 2) || ! $list instanceof DOMElement || count($items) < 2 ) {
+            return null;
+        }
+
+        // Even an explicitly named carousel cannot replace authored sections
+        // outside its slide list. Controls and pagers are excluded by the same
+        // content guard ownedCarouselList applies to enclosing page regions.
+        $contentList = $this->containsNode($element, $list) ? $list : $localList;
+        if ( $contentList instanceof DOMElement && $contentList !== $element
+            && ! $this->isPagerCollection($contentList, array()) && $this->carouselPaginationCount($contentList) < 2
+            && $this->hasAuthoredContentOutside($element, $contentList, $contentList, $items)
+        ) {
+            return null;
+        }
+
+        $slides = array();
+        $capturedGallery = $list->hasAttribute(CaptureEvidence::GALLERY_INITIAL);
+        if ($capturedGallery) foreach ($items as $item) {
+            $item->removeAttribute('hidden');
+            $display = $item->getAttribute(CaptureEvidence::GALLERY_DISPLAY);
+            if (preg_match('/^[a-z-]+$/D', $display)) {
+                $declarations = SourceDeclarations::parse($item->getAttribute('style'));
+                $declarations['display'] = $display;
+                $item->setAttribute('style', $styleResolver->cssDeclarationString($declarations));
             }
-            if ( ! $hasIdentity ) {
-                return null;
+        }
+        foreach ( $items as $sourceItem ) {
+            [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
+            // Only simple image slides can use caption conversion. Rich slides
+            // retain their media, links and authored text through child conversion.
+            $image = $this->sourceElementClassifier->isSingleMediaSlide($item, 'img') && ! $this->ownsAuthoredSlideBox($item, $styleResolver) ? $item->getElementsByTagName('img')->item(0) : null;
+            if ( $image instanceof DOMElement ) {
+                $slide = $convertImage($image);
+                if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
+                    if ( $temporary ) {
+                        $item->parentNode?->removeChild($item);
+                    }
+                    return null;
+                }
+                $caption = $this->carouselItemCaption($item, $runtime);
+                if ( '' !== $caption ) {
+                    $slide['attrs']['caption'] = $caption;
+                    $slide = $blockFactory->create('core/image', $slide['attrs'], array());
+                }
+                $slide = $this->imageSlideContainers($slide, $image, $item, $styleResolver, $createBlock);
+            } else {
+                $geometryStyles = $this->carrySourceGeometryIntoBlockTree($item, $styleResolver);
+                try {
+                    $slideFallbacks = array();
+                    if ( $this->hasBackgroundImage($item) ) {
+                        // Convert the painted owner itself: child-only conversion
+                        // loses its background, including entirely empty slides.
+                        $item->setAttribute('style', $styleResolver->specificityResolvedPresentationStyle($item));
+                        $slide = $tree->element($item, $slideFallbacks, true);
+                        $children = null === $slide ? array() : array($slide);
+                    } else {
+                        $children = $tree->children($item, $slideFallbacks, true);
+                        $slide = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($item), $children, $item);
+                    }
+                    if ( array() === $children || array() !== $slideFallbacks ) {
+                        if ( $temporary ) {
+                            $item->parentNode?->removeChild($item);
+                        }
+                        return null;
+                    }
+                } finally {
+                    $this->restoreInlineStyles($geometryStyles);
+                }
+            }
+            $slide = $this->carrySourceSlideLayout($slide, $item, $styleResolver);
+            $slides[] = $slide;
+            if ( $temporary ) {
+                $item->parentNode?->removeChild($item);
             }
         }
 
+        [$presentation, $initialSlide] = $this->slidePresentation($element, $list, $items, $pagerItems, $capturedGallery, $styleResolver);
+
+        $bullets = $this->bulletControls($element, $list, count($slides));
+        $showDots = $paginationCount >= 2 || $this->hasSlideIndexControl($element) || count($this->paginationControls($element)) >= 2 || array() !== $bullets;
+
+        [$transitionDuration, $autoplayInterval] = $this->slideTimings($items);
+
+        $geometryList = $localList instanceof DOMElement ? $localList : $list;
+        $geometryDeclarations = $styleResolver->structuralPresentationDeclarations($geometryList);
+        [$positionedStage, $viewportHeight, $stageMinHeight, $fullBleed] = $this->stageGeometry($element, $geometryDeclarations, $styleResolver);
+
+        $thumbnails = $this->thumbnails($pagerItems, count($slides));
+        $thumbnailPosition = array() === $thumbnails
+            ? 'bottom'
+            : $this->thumbnailPagerPosition($this->commonAncestor($pagerItems), $element, $geometryList, $styleResolver);
+
+        $playbackPlacement = $this->playbackControlPlacement($element, $styleResolver);
+        $sourceControls = $this->navigationControls($element);
+        $presentationTargets = array_merge(
+            $this->controlPresentationTargets($element, $this->allNavigationControls($element)),
+            $this->stageGeometryTargets($element, $geometryList),
+            $this->controlPresentationTargets($element, $this->paginationControls($element)),
+            $this->controlPresentationTargets($element, $bullets)
+        );
+        $sourceScope = $styleResolver->sourceCustomPropertyScope($element, $presentationTargets, $items);
+        if ($list->hasAttribute(CaptureEvidence::DIALOG_TRIGGER) && '' !== $list->getAttribute('id')) $sourceScope['attributes']['id'] = $list->getAttribute('id');
+        $controlsTopology = $this->sourceControlTopology($element, $styleResolver);
+        $controlClasses = array('previous' => '', 'next' => '');
+        $overlayControls = 'track' === $presentation && '' === $controlsTopology;
+        foreach ( $controlClasses as $direction => $_ ) {
+            $control = $sourceControls[$direction];
+            if ( ! $control instanceof DOMElement ) {
+                $overlayControls = false;
+                continue;
+            }
+            $tokens = $this->sourceClassTokens(SourceDom::attr($control, 'class'), $control, $styleResolver);
+            // A track control rebuilt from a non-button element keeps that
+            // element's box: no native button padding, border or centring.
+            if ( 'track' === $presentation && '' === $controlsTopology && 'button' !== strtolower($control->tagName) ) {
+                $tokens[] = 'blocks-engine-authored-carousel__control--source-box';
+            }
+            $controlClasses[$direction] = implode(' ', $tokens);
+            $position = strtolower(trim(CssValueInspector::withoutImportant((string) ($styleResolver->structuralPresentationDeclarations($control)['position'] ?? ''))));
+            $overlayControls = $overlayControls && in_array($position, array('absolute', 'fixed'), true);
+        }
+        $stageBox = 'slideshow' === $presentation && 0 === $viewportHeight
+            ? $this->stageBoxForItems($items, $styleResolver)
+            : array('ratio' => '', 'width' => 0);
+
+        $declaredRatio = $styleResolver->customProperties->resolveCascaded((string) ($geometryDeclarations['aspect-ratio'] ?? ''), $geometryList);
+        $declaredRatio = $this->normalizedAspectRatio(preg_replace('/\s+/', '', $declaredRatio));
+        if ('' !== $declaredRatio && 0 === $viewportHeight) {
+            $stageBox['ratio'] = $declaredRatio;
+        }
+        $thumbnailGeometry = array() === $thumbnails ? array() : $this->thumbnailGeometry($pagerItems, $thumbnailPosition, $geometryList, $styleResolver);
+
+        $status = $this->slideStatus($list);
+        $registry->register(self::class, $this->definition($registry->namespace()));
+        if ( array() !== $thumbnails ) {
+            $thumbnailGeometry = $this->thumbnailVisibility($thumbnailGeometry, $pagerItems, $element, $styleResolver, $session);
+        }
+        $attributes = $thumbnailGeometry + array(
+            'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
+            'sourceControlTopology' => $controlsTopology,
+            'controlPresentation' => array(),
+            'sourcePresentationClasses' => implode(' ', array_unique(array_merge(
+                SourceDom::boundedClassTokens((string) $sourceScope['className']),
+                SourceDom::boundedClassTokens((string) $sourceScope['stageClassName']),
+                $positionedStage ? array('blocks-engine-authored-carousel--positioned-stage') : array(),
+                $overlayControls ? array('blocks-engine-authored-carousel--overlay-controls') : array(),
+                $status instanceof DOMElement ? SourceDom::boundedClassTokens($styleResolver->liveRegionVisibilityClassName($status)) : array()
+            ))),
+            'sourceControlClasses' => $sourceScope['controlClassName'],
+            'sourceControlAttributes' => $sourceScope['controlAttributes'],
+            'sourceIdentityAttributes' => $sourceScope['attributes'],
+            'sourceCustomProperties' => $sourceScope['customProperties'],
+            'previousControlClasses' => $controlClasses['previous'],
+            'nextControlClasses' => $controlClasses['next'],
+            'previousControlVisual' => $sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '',
+            'nextControlVisual' => $sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : '',
+            'previousControlPresentation' => $sourceControls['previous'] instanceof DOMElement ? $this->resolvedControlPresentation($sourceControls['previous'], $styleResolver) : array(),
+            'previousControlOrientation' => 'slideshow' === $presentation && '' === $controlsTopology && $sourceControls['previous'] instanceof DOMElement ? $this->sourceControlOrientation($sourceControls['previous'], $styleResolver) : array(),
+            'nextControlPresentation' => $sourceControls['next'] instanceof DOMElement ? $this->resolvedControlPresentation($sourceControls['next'], $styleResolver) : array(),
+            'nextControlOrientation' => 'slideshow' === $presentation && '' === $controlsTopology && $sourceControls['next'] instanceof DOMElement ? $this->sourceControlOrientation($sourceControls['next'], $styleResolver) : array(),
+            'itemsPerView' => 'slideshow' === $presentation ? 1 : min(4, count($slides)),
+            'wrap' => $hasPrevious && $hasNext,
+            'presentation' => $presentation,
+            'slideCount' => count($slides),
+            'initialSlide' => $initialSlide,
+            'viewportHeight' => 'slideshow' === $presentation ? $viewportHeight : 0,
+            'stageMinHeight' => 'slideshow' === $presentation ? $stageMinHeight : '',
+            'sourceControlArtwork' => '' !== ($sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '') || '' !== ($sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : ''),
+            'stageWrappers' => $this->stageWrappers($element, $geometryList, $styleResolver, $items),
+            'stageTrackClassName' => $styleResolver->safeTrackClassName($geometryList, $items),
+            'stageGap' => $styleResolver->carouselTrackGap($items),
+            'sourceRootGeometry' => $this->sourceRootGeometry($element, $styleResolver),
+            'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
+            'autoplayInterval' => !$capturedGallery && 'slideshow' === $presentation ? $autoplayInterval : 0,
+            // A captured gallery paints its counter unless the source's only
+            // status is a silent live region, which has no visible box.
+            'showStatus' => $status instanceof DOMElement || ($capturedGallery && ! $this->hasSilentLiveRegion($element, $list)),
+            'showDots' => $showDots && array() === $thumbnails,
+            'sourceDotsMarkup' => $showDots && array() === $thumbnails ? ($this->sourceDotsMarkup($element, $styleResolver) ?: $this->sourceBulletsMarkup($bullets, $styleResolver)) : '',
+            'fullBleed' => 'slideshow' === $presentation && $fullBleed,
+            'thumbnails' => $thumbnails,
+            'thumbnailPosition' => $thumbnailPosition,
+            'stageAspectRatio' => $stageBox['ratio'],
+            'stageMaxWidth' => $stageBox['width'],
+            'transitionStyle' => 'slideshow' === $presentation ? $this->sourceTransitionStyle($items, $styleResolver) : 'fade',
+            'showPlayControl' => 'slideshow' === $presentation && $this->hasPlaybackToggle($element),
+            'playControlPosition' => $playbackPlacement['position'],
+            'playControlInset' => $playbackPlacement['inset'],
+        );
+        if ($status instanceof DOMElement && preg_match('~^\s*[0-9]+(\s*/\s*)[0-9]+\s*$~', $status->textContent ?? '', $statusMatch)) {
+            $attributes['statusFormat'] = '{index}' . $statusMatch[1] . '{count}';
+        }
+        return $this->carouselBlock($registry, $attributes, $slides);
+    }
+
+
+    /**
+     * A carousel the engine already emitted, round-tripped through its own
+     * marker: its attributes are authoritative and each child is one slide.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function declaredSlideshow(DOMElement $element, PatternTreeConverter $tree, SourceBlockCreator $createBlock, GeneratedBlockRegistry $registry): ?array
+    {
+        $attributes = json_decode($element->getAttribute('data-blocks-engine-slideshow'), true);
+        if (!is_array($attributes)) return null;
+        $slides = array();
+        foreach ($element->childNodes as $item) {
+            if (!$item instanceof DOMElement) continue;
+            $fallbacks = array();
+            $children = $tree->children($item, $fallbacks, true);
+            if (1 === count($children)) $slides[] = $children[0];
+            else $slides[] = $createBlock->createBlock('core/group', array('layout' => array('type' => 'default')), $children, $item);
+        }
+        $registry->register(self::class, $this->definition($registry->namespace()));
+        return $this->carouselBlock($registry, $attributes, $slides);
+    }
+
+    /**
+     * The ordered slide URLs and offset-zero image slot of a portable
+     * src-swap gallery, or null when the element is not one.
+     *
+     * @return array{0: array<int, string>, 1: DOMElement}|null
+     */
+    private function srcSwapGallerySource(DOMElement $element): ?array
+    {
+        if (!$element->hasAttribute(CaptureEvidence::GALLERY_SEQUENCE)) return null;
+        $sequence = json_decode($element->getAttribute(CaptureEvidence::GALLERY_SEQUENCE), true);
+        $primary = null;
+        foreach ($element->getElementsByTagName('img') as $slot) {
+            if ($slot instanceof DOMElement && '0' === trim($slot->getAttribute(CaptureEvidence::GALLERY_SLOT))) {
+                $primary = $slot;
+                break;
+            }
+        }
+        if (is_array($sequence) && count($sequence) >= 2 && $primary instanceof DOMElement
+            && count(array_filter($sequence, static fn($url): bool => is_string($url) && '' !== trim($url))) === count($sequence)
+        ) {
+            return array($sequence, $primary);
+        }
+        return null;
+    }
+
+    /**
+     * Portable src-swap galleries expose a handful of live frame slots, not
+     * one DOM node per slide. Their ordered sequence is the authored slide
+     * collection; the offset-zero image is only an image template.
+     *
+     * @param array<int, string> $sequence
+     * @param Closure(DOMElement): ?array<string, mixed> $convertImage
+     * @return array<string, mixed>|null
+     */
+    private function srcSwapGallery(DOMElement $element, array $sequence, DOMElement $primary, Closure $convertImage, GeneratedBlockRegistry $registry): ?array
+    {
+        $slides = array();
+        foreach ($sequence as $url) {
+            $image = $primary->cloneNode(true);
+            if (!$image instanceof DOMElement) return null;
+            $image->setAttribute('src', $url);
+            $image->removeAttribute('srcset');
+            $image->removeAttribute('id');
+            $image->removeAttribute(CaptureEvidence::GALLERY_SLOT);
+            $slide = $convertImage($image);
+            if (null === $slide || 'core/image' !== ($slide['blockName'] ?? null)) return null;
+            $slides[] = $slide;
+        }
+        $sourceClone = $element->cloneNode(true);
+        if (!$sourceClone instanceof DOMElement) return null;
+        foreach ($sourceClone->getElementsByTagName('button') as $control) {
+            if (!$control instanceof DOMElement) continue;
+            $direction = trim($control->getAttribute(CaptureEvidence::GALLERY_DIRECTION));
+            if (!in_array($direction, array('-1', '1'), true)) continue;
+            $next = '1' === $direction;
+            $control->setAttribute('data-carousel-' . ($next ? 'next' : 'previous'), 'true');
+            $control->setAttribute('data-wp-on--click', $next ? 'actions.next' : 'actions.previous');
+            $control->removeAttribute(CaptureEvidence::GALLERY_DIRECTION);
+        }
+        $sourceMarkup = '';
+        foreach ($sourceClone->childNodes as $child) $sourceMarkup .= $sourceClone->ownerDocument?->saveHTML($child) ?: '';
+        $sourceMarkup = SourceDom::safeFallbackHtmlString($sourceMarkup);
+        $sourceMarkup = preg_replace('/<!--.*?-->/s', '', $sourceMarkup) ?? $sourceMarkup;
+        $sourceMarkup .= '<!-- blocks-engine-src-swap-sequence -->';
+        $sourceIdentityAttributes = array();
+        foreach ($element->attributes as $attribute) {
+            $name = strtolower($attribute->name);
+            if ('id' === $name || str_starts_with($name, 'data-') || str_starts_with($name, 'aria-')) $sourceIdentityAttributes[$name] = $attribute->value;
+        }
+        $sourceIdentityAttributes[CaptureEvidence::GALLERY_INDEX] = '0';
+        $registry->register(self::class, $this->definition($registry->namespace()));
+        $attributes = array(
+            'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
+            'sourceIdentityAttributes' => $sourceIdentityAttributes,
+            'sourcePresentationClasses' => implode(' ', SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'))),
+            'srcSwapMarkup' => $sourceMarkup,
+            'itemsPerView' => 1,
+            'wrap' => true,
+            'presentation' => 'src-swap',
+            'slideCount' => count($slides),
+            'initialSlide' => 0,
+            'showDots' => false,
+            'transitionStyle' => 'fade',
+        );
+        return $this->carouselBlock($registry, $attributes, $slides);
+    }
+
+    /** Whether the root, or an element between it and its richest list, names a carousel. */
+    private function hasCarouselIdentityToList(DOMElement $element): bool
+    {
+        if ( $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
+            return true;
+        }
+        [$identityList] = $this->richestCarouselList($element);
+        for ( $candidate = $identityList; $candidate instanceof DOMElement && $candidate !== $element; $candidate = $candidate->parentNode ) {
+            if ( $this->sourceElementClassifier->hasCarouselIdentity($candidate) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether the root's carousel controls name a previous and a next
+     * direction, by metadata or by their visible label.
+     *
+     * @return array{0: bool, 1: bool}
+     */
+    private function navigationDirections(DOMElement $element): array
+    {
         $hasPrevious = false;
         $hasNext = false;
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
@@ -1067,6 +1378,19 @@ JS;
             $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
             $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
+        return array($hasPrevious, $hasNext);
+    }
+
+    /**
+     * The slide list this root owns, its items, and the list found inside the
+     * root itself; null when a smaller carousel or page region owns the list.
+     * A root with too few local items borrows a richer list from a counterpart
+     * sharing its carousel identity.
+     *
+     * @return array{0: DOMElement|null, 1: array<int, DOMElement>, 2: DOMElement|null}|null
+     */
+    private function ownedCarouselList(DOMElement $element): ?array
+    {
         [$list, $items] = $this->richestCarouselList($element);
         if ( $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
             [$outerList, $outerItems] = $this->outermostCarouselList($element);
@@ -1089,7 +1413,12 @@ JS;
                         return null;
                     }
                 }
-                if ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) {
+                // A declared carousel may wrap its track and controls in a
+                // neutral inner container. Keep that accessible root when it
+                // owns no other authored content; otherwise defer as before.
+                $declaredRoot = 'carousel' === strtolower(trim(SourceDom::attr($element, 'aria-roledescription')))
+                    && ! $this->hasAuthoredContentOutside($element, $owner, $list, $items);
+                if ( ! $declaredRoot && ( $this->containsNavigationPair($owner) || $this->carouselPaginationCount($owner) >= 2 || count($this->thumbnailPagerItems($owner, $list)) >= 2 ) ) {
                     return null;
                 }
                 // A lone previous or next control is still a complete carousel
@@ -1136,79 +1465,19 @@ JS;
                 }
             }
         }
-        $paginationCount = $this->carouselPaginationCount($element);
-        // An image-only control cluster beside the slides is the source's own
-        // slide selector, so it is pagination even when the builder ships no
-        // labelled previous/next control.
-        $pagerItems = $list instanceof DOMElement ? $this->thumbnailPagerItems($element, $list) : array();
-        if ( (! $hasPrevious && ! $hasNext && $paginationCount < 2 && count($pagerItems) < 2) || ! $list instanceof DOMElement || count($items) < 2 ) {
-            return null;
-        }
+        return array($list, $items, $localList);
+    }
 
-        // Even an explicitly named carousel cannot replace authored sections
-        // outside its slide list. Controls and pagers are excluded by the same
-        // content guard used for enclosing page regions above.
-        $contentList = $this->containsNode($element, $list) ? $list : $localList;
-        if ( $contentList instanceof DOMElement && $contentList !== $element
-            && ! $this->isPagerCollection($contentList, array()) && $this->carouselPaginationCount($contentList) < 2
-            && $this->hasAuthoredContentOutside($element, $contentList, $contentList, $items)
-        ) {
-            return null;
-        }
-
-        $slides = array();
-        $capturedGallery = $list->hasAttribute(CaptureEvidence::GALLERY_INITIAL);
-        if ($capturedGallery) foreach ($items as $item) {
-            $item->removeAttribute('hidden');
-            $display = $item->getAttribute(CaptureEvidence::GALLERY_DISPLAY);
-            if (preg_match('/^[a-z-]+$/D', $display)) {
-                $declarations = $styleResolver->cssDeclarations($item->getAttribute('style'));
-                $declarations['display'] = $display;
-                $item->setAttribute('style', $styleResolver->cssDeclarationString($declarations));
-            }
-        }
-        foreach ( $items as $sourceItem ) {
-            [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
-            // Only simple image slides can use caption conversion. Rich slides
-            // retain their media, links and authored text through child conversion.
-            $image = $this->sourceElementClassifier->isSingleMediaSlide($item, 'img') ? $item->getElementsByTagName('img')->item(0) : null;
-            if ( $image instanceof DOMElement ) {
-                $slide = $convertImage($image);
-                if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
-                    if ( $temporary ) {
-                        $item->parentNode?->removeChild($item);
-                    }
-                    return null;
-                }
-                $caption = $this->carouselItemCaption($item, $runtime);
-                if ( '' !== $caption ) {
-                    $slide['attrs']['caption'] = $caption;
-                    $slide = $blockFactory->create('core/image', $slide['attrs'], array());
-                }
-                $slide = $this->imageSlideContainers($slide, $image, $item, $styleResolver, $createBlock);
-            } else {
-                $geometryStyles = $this->carrySourceGeometryIntoBlockTree($item, $styleResolver);
-                try {
-                    $slideFallbacks = array();
-                    $children = $tree->children($item, $slideFallbacks, true);
-                    if ( array() === $children || array() !== $slideFallbacks ) {
-                        if ( $temporary ) {
-                            $item->parentNode?->removeChild($item);
-                        }
-                        return null;
-                    }
-                    $slide = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($item), $children, $item);
-                } finally {
-                    $this->restoreInlineStyles($geometryStyles);
-                }
-            }
-            $slide = $this->carrySourceSlideLayout($slide, $item, $styleResolver);
-            $slides[] = $slide;
-            if ( $temporary ) {
-                $item->parentNode?->removeChild($item);
-            }
-        }
-
+    /**
+     * Whether the slides move as a track or one at a time as a slideshow, and
+     * which slide the source showed first.
+     *
+     * @param array<int, DOMElement> $items
+     * @param array<int, DOMElement> $pagerItems
+     * @return array{0: string, 1: int}
+     */
+    private function slidePresentation(DOMElement $element, DOMElement $list, array $items, array $pagerItems, bool $capturedGallery, StyleResolver $styleResolver): array
+    {
         $listIdentity = strtolower(implode(' ', array($list->tagName, SourceDom::attr($list, 'class'), SourceDom::attr($list, 'role'), SourceDom::attr($list, 'data-hook'))));
         $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slider)(?:[^a-z0-9]|$)/', $listIdentity);
@@ -1234,6 +1503,14 @@ JS;
                 $presentation = 'slideshow';
             }
         }
+        // Stacked frames: one item exposed, the rest hidden from assistive
+        // technology, layered by z-index — one slide is on stage at a time.
+        $exposed = array_filter($items, static fn (DOMElement $item): bool => 'true' !== strtolower(SourceDom::attr($item, 'aria-hidden')));
+        if ( 1 < count($items) && 1 === count($exposed)
+            && '' !== CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations(reset($exposed))['z-index'] ?? ''))
+        ) {
+            $presentation = 'slideshow';
+        }
         // Selecting a slide from a thumbnail means one slide is on stage.
         if ( 1 < count($pagerItems) ) {
             $presentation = 'slideshow';
@@ -1251,20 +1528,34 @@ JS;
             $presentation = 'slideshow';
             $initialSlide = min(count($items) - 1, max(0, (int) $list->getAttribute(CaptureEvidence::GALLERY_INITIAL)));
         }
+        return array($presentation, $initialSlide);
+    }
 
-        $showDots = $paginationCount >= 2;
+    /** Whether any element selects a slide by its numeric index. */
+    private function hasSlideIndexControl(DOMElement $element): bool
+    {
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
                 continue;
             }
-            foreach ( array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item') as $attribute ) {
+            foreach ( self::SLIDE_INDEX_ATTRIBUTES as $attribute ) {
                 if ( ctype_digit(trim(SourceDom::attr($candidate, $attribute))) ) {
-                    $showDots = true;
-                    break 2;
+                    return true;
                 }
             }
         }
+        return false;
+    }
 
+    /**
+     * The slide transition and autoplay interval, in milliseconds, read from
+     * the slides' and their descendants' animation durations.
+     *
+     * @param array<int, DOMElement> $items
+     * @return array{0: int, 1: int}
+     */
+    private function slideTimings(array $items): array
+    {
         $durationMilliseconds = static function (string $value): int {
             if ( 1 !== preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)$/', strtolower(trim($value)), $matches) ) {
                 return 0;
@@ -1275,12 +1566,12 @@ JS;
         $transitionDuration = 0;
         $autoplayInterval = 0;
         foreach ( $items as $item ) {
-            $transitionDuration = max($transitionDuration, $durationMilliseconds((string) ($styleResolver->cssDeclarations(SourceDom::attr($item, 'style'))['animation-duration'] ?? '')));
+            $transitionDuration = max($transitionDuration, $durationMilliseconds((string) (SourceDeclarations::parse(SourceDom::attr($item, 'style'))['animation-duration'] ?? '')));
             foreach ( $item->getElementsByTagName('*') as $descendant ) {
                 if ( ! $descendant instanceof DOMElement ) {
                     continue;
                 }
-                $autoplayInterval = max($autoplayInterval, $durationMilliseconds((string) ($styleResolver->cssDeclarations(SourceDom::attr($descendant, 'style'))['animation-duration'] ?? '')));
+                $autoplayInterval = max($autoplayInterval, $durationMilliseconds((string) (SourceDeclarations::parse(SourceDom::attr($descendant, 'style'))['animation-duration'] ?? '')));
             }
         }
         if ( $autoplayInterval <= $transitionDuration ) {
@@ -1289,9 +1580,18 @@ JS;
         if ( 0 === $transitionDuration ) {
             $transitionDuration = 300;
         }
+        return array($transitionDuration, $autoplayInterval);
+    }
 
-        $geometryList = $localList instanceof DOMElement ? $localList : $list;
-        $geometryDeclarations = $styleResolver->structuralPresentationDeclarations($geometryList);
+    /**
+     * The stage's positioning, pixel height, minimum height, and whether the
+     * root bleeds past its container.
+     *
+     * @param array<string, mixed> $geometryDeclarations
+     * @return array{0: bool, 1: int, 2: string, 3: bool}
+     */
+    private function stageGeometry(DOMElement $element, array $geometryDeclarations, StyleResolver $styleResolver): array
+    {
         $listHeight = (string) ($geometryDeclarations['height'] ?? '');
         $rootHeight = (string) ($styleResolver->structuralPresentationDeclarations($element)['height'] ?? '');
         $positionedStage = 'absolute' === trim((string) ($geometryDeclarations['position'] ?? ''))
@@ -1299,16 +1599,29 @@ JS;
             && '' !== $this->safeCssDimension($rootHeight);
         $height = 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', trim($listHeight)) ? $listHeight : $rootHeight;
         $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($height), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
-        $stageMinHeight = $this->safeCssDimension((string) ($geometryDeclarations['min-height'] ?? ''));
-        $rootDeclarations = $styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        // A root that only reaches its rendered size through its minimum (a
+        // framework default height raised by an authored min-height) sizes the
+        // stage the same way.
+        $stageMinHeight = $this->safeCssDimension((string) ($geometryDeclarations['min-height'] ?? ''))
+            ?: $this->safeCssDimension((string) ($styleResolver->structuralPresentationDeclarations($element)['min-height'] ?? ''));
+        $rootDeclarations = SourceDeclarations::parse(SourceDom::attr($element, 'style'));
         $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
         $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
             && 1 === preg_match('/^-\s*(?:[0-9]+|[0-9]*\.[0-9]+)(?:px|rem|em|%)$/', strtolower(trim((string) ($rootDeclarations['left'] ?? ''))));
+        return array($positionedStage, $viewportHeight, $stageMinHeight, $fullBleed);
+    }
 
-        // Each thumbnail selects the slide at its own index, so a pager that
-        // does not line up with the captured slides is not a usable selector.
+    /**
+     * Each thumbnail selects the slide at its own index, so a pager that does
+     * not line up with the captured slides is not a usable selector.
+     *
+     * @param array<int, DOMElement> $pagerItems
+     * @return array<int, array{url: string, alt: string}>
+     */
+    private function thumbnails(array $pagerItems, int $slideCount): array
+    {
         $thumbnails = array();
-        foreach ( array_slice($pagerItems, 0, count($slides)) as $pagerItem ) {
+        foreach ( array_slice($pagerItems, 0, $slideCount) as $pagerItem ) {
             $thumbnailImage = $pagerItem->getElementsByTagName('img')->item(0);
             $url = $thumbnailImage instanceof DOMElement ? trim(SourceDom::attr($thumbnailImage, 'src')) : '';
             if ( '' === $url ) {
@@ -1316,54 +1629,44 @@ JS;
             }
             $thumbnails[] = array('url' => $url, 'alt' => trim(SourceDom::attr($thumbnailImage, 'alt')));
         }
-        if ( count($thumbnails) < 2 || count($thumbnails) !== count($slides) ) {
-            $thumbnails = array();
-        }
-        $thumbnailPosition = array() === $thumbnails
-            ? 'bottom'
-            : $this->thumbnailPagerPosition($this->commonAncestor($pagerItems), $element, $geometryList, $styleResolver);
+        return count($thumbnails) < 2 || count($thumbnails) !== $slideCount ? array() : $thumbnails;
+    }
 
-        $playbackPlacement = $this->playbackControlPlacement($element, $styleResolver);
-        $sourceControls = $this->navigationControls($element);
-        $presentationTargets = array_merge(
-            $this->controlPresentationTargets($element, $this->allNavigationControls($element)),
-            $this->stageGeometryTargets($element, $geometryList)
-        );
-        $sourceScope = $styleResolver->sourceCustomPropertyScope($element, $presentationTargets, $items);
-        if ($list->hasAttribute(CaptureEvidence::DIALOG_TRIGGER) && '' !== $list->getAttribute('id')) $sourceScope['attributes']['id'] = $list->getAttribute('id');
-        $controlContainer = $sourceControls['previous'] instanceof DOMElement && $sourceControls['next'] instanceof DOMElement
-            ? $this->navigationControlContainer($sourceControls['previous'], $sourceControls['next'])
-            : null;
-        $controlsTopology = $this->sourceControlTopology($element, $styleResolver);
-        $stageBox = 'slideshow' === $presentation && 0 === $viewportHeight
-            ? $this->stageBoxForItems($items, $styleResolver)
-            : array('ratio' => '', 'width' => 0);
-
-        $declaredRatio = $styleResolver->resolveStructuralCssVariablesInValue((string) ($geometryDeclarations['aspect-ratio'] ?? ''), $geometryList);
-        $declaredRatio = $this->normalizedAspectRatio(preg_replace('/\s+/', '', $declaredRatio));
-        if ('' !== $declaredRatio && 0 === $viewportHeight) {
-            $stageBox['ratio'] = $declaredRatio;
-        }
+    /**
+     * The thumbnail rail's item width, gap between thumbnails, and gap to the
+     * stage, kept only when each resolves to a plain length.
+     *
+     * @param array<int, DOMElement> $pagerItems
+     * @return array<string, string>
+     */
+    private function thumbnailGeometry(array $pagerItems, string $thumbnailPosition, DOMElement $geometryList, StyleResolver $styleResolver): array
+    {
         $thumbnailGeometry = array();
-        if (array() !== $thumbnails) {
-            $pagerRoot = $this->commonAncestor($pagerItems);
-            $layoutRoot = $pagerRoot instanceof DOMElement ? $this->commonAncestor(array($pagerRoot, $geometryList)) : null;
-            foreach (array('thumbnailWidth' => array($pagerItems[0], 'width'), 'thumbnailGap' => array($pagerRoot, in_array($thumbnailPosition, array('left', 'right'), true) ? 'row-gap' : 'column-gap'), 'stageGap' => array($layoutRoot, in_array($thumbnailPosition, array('left', 'right'), true) ? 'column-gap' : 'row-gap')) as $name => [$target, $property]) {
-                if (!$target instanceof DOMElement) continue;
-                $declarations = $styleResolver->structuralPresentationDeclarations($target);
-                $value = $styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations[$property] ?? ($property !== 'width' ? ($declarations['gap'] ?? '') : '')), $target);
-                if (preg_match('/^[0-9]+(?:\.[0-9]+)?(?:px|rem|em|%)$/D', trim($value))) $thumbnailGeometry[$name] = trim($value);
-            }
+        $pagerRoot = $this->commonAncestor($pagerItems);
+        $layoutRoot = $pagerRoot instanceof DOMElement ? $this->commonAncestor(array($pagerRoot, $geometryList)) : null;
+        foreach (array('thumbnailWidth' => array($pagerItems[0], 'width'), 'thumbnailGap' => array($pagerRoot, in_array($thumbnailPosition, array('left', 'right'), true) ? 'row-gap' : 'column-gap'), 'stageGap' => array($layoutRoot, in_array($thumbnailPosition, array('left', 'right'), true) ? 'column-gap' : 'row-gap')) as $name => [$target, $property]) {
+            if (!$target instanceof DOMElement) continue;
+            $declarations = $styleResolver->structuralPresentationDeclarations($target);
+            $value = $styleResolver->customProperties->resolveCascaded((string) ($declarations[$property] ?? ($property !== 'width' ? ($declarations['gap'] ?? '') : '')), $target);
+            if (preg_match('/^[0-9]+(?:\.[0-9]+)?(?:px|rem|em|%)$/D', trim($value))) $thumbnailGeometry[$name] = trim($value);
         }
+        return $thumbnailGeometry;
+    }
 
-        $status = $this->slideStatus($list);
-        $registry->register(self::class, $this->definition($registry->namespace()));
-        if ( array() !== $thumbnails ) {
-            for ( $node = $this->commonAncestor($pagerItems); $node instanceof DOMElement && ! $node->isSameNode($element); $node = $node->parentNode ) {
-                $breakpoint = $styleResolver->displayHiddenBelow($node);
-                if ( null !== $breakpoint ) {
-                    $thumbnailGeometry['thumbnailsHiddenBelow'] = max($thumbnailGeometry['thumbnailsHiddenBelow'] ?? 0, $breakpoint);
-                }
+    /**
+     * Record the widest breakpoint below which the source hid its thumbnail
+     * rail, and the generated rules that hide it there.
+     *
+     * @param array<string, int|string> $thumbnailGeometry
+     * @param array<int, DOMElement> $pagerItems
+     * @return array<string, int|string>
+     */
+    private function thumbnailVisibility(array $thumbnailGeometry, array $pagerItems, DOMElement $element, StyleResolver $styleResolver, HtmlTransformerSession $session): array
+    {
+        for ( $node = $this->commonAncestor($pagerItems); $node instanceof DOMElement && ! $node->isSameNode($element); $node = $node->parentNode ) {
+            $breakpoint = $styleResolver->displayHiddenBelow($node);
+            if ( null !== $breakpoint ) {
+                $thumbnailGeometry['thumbnailsHiddenBelow'] = max($thumbnailGeometry['thumbnailsHiddenBelow'] ?? 0, $breakpoint);
             }
         }
         if ( 0 < ($thumbnailGeometry['thumbnailsHiddenBelow'] ?? 0) ) {
@@ -1375,69 +1678,23 @@ JS;
                 $session->sourceTargetProjectionState()->record(SourceDom::elementSelector($element), $root . $suffix, $declarations, array('@media (max-width:' . ($hiddenBelow - 1) . 'px)'));
             }
         }
-        $attributes = $thumbnailGeometry + array(
-            'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
-            'sourceControlTopology' => $controlsTopology,
-            'controlPresentation' => array(),
-            'sourcePresentationClasses' => implode(' ', array_unique(array_merge(
-                SourceDom::boundedClassTokens((string) $sourceScope['className']),
-                SourceDom::boundedClassTokens((string) $sourceScope['stageClassName']),
-                $positionedStage ? array('blocks-engine-authored-carousel--positioned-stage') : array(),
-                $status instanceof DOMElement ? SourceDom::boundedClassTokens($styleResolver->liveRegionVisibilityClassName($status)) : array()
-            ))),
-            'sourceControlClasses' => $sourceScope['controlClassName'],
-            'sourceControlAttributes' => $sourceScope['controlAttributes'],
-            'sourceIdentityAttributes' => $sourceScope['attributes'],
-            'sourceCustomProperties' => $sourceScope['customProperties'],
-            'previousControlClasses' => $sourceControls['previous'] instanceof DOMElement ? implode(' ', $this->sourceClassTokens(SourceDom::attr($sourceControls['previous'], 'class'), $sourceControls['previous'], $styleResolver)) : '',
-            'nextControlClasses' => $sourceControls['next'] instanceof DOMElement ? implode(' ', $this->sourceClassTokens(SourceDom::attr($sourceControls['next'], 'class'), $sourceControls['next'], $styleResolver)) : '',
-            'previousControlVisual' => $sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '',
-            'nextControlVisual' => $sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : '',
-            'previousControlPresentation' => $sourceControls['previous'] instanceof DOMElement ? $this->resolvedControlPresentation($sourceControls['previous'], $styleResolver) : array(),
-            'previousControlOrientation' => 'slideshow' === $presentation && '' === $controlsTopology && $sourceControls['previous'] instanceof DOMElement ? $this->sourceControlOrientation($sourceControls['previous'], $styleResolver) : array(),
-            'nextControlPresentation' => $sourceControls['next'] instanceof DOMElement ? $this->resolvedControlPresentation($sourceControls['next'], $styleResolver) : array(),
-            'nextControlOrientation' => 'slideshow' === $presentation && '' === $controlsTopology && $sourceControls['next'] instanceof DOMElement ? $this->sourceControlOrientation($sourceControls['next'], $styleResolver) : array(),
-            'itemsPerView' => 'slideshow' === $presentation ? 1 : min(4, count($slides)),
-            'wrap' => $hasPrevious && $hasNext,
-            'presentation' => $presentation,
-            'slideCount' => count($slides),
-            'initialSlide' => $initialSlide,
-            'viewportHeight' => 'slideshow' === $presentation ? $viewportHeight : 0,
-            'stageMinHeight' => 'slideshow' === $presentation ? $stageMinHeight : '',
-            'sourceControlArtwork' => '' !== ($sourceControls['previous'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['previous']) : '') || '' !== ($sourceControls['next'] instanceof DOMElement ? $this->sourceControlVisual($sourceControls['next']) : ''),
-            'stageWrappers' => $this->stageWrappers($element, $geometryList, $styleResolver, $items),
-            'stageTrackClassName' => $styleResolver->safeTrackClassName($geometryList, $items),
-            'sourceRootGeometry' => array_intersect_key($styleResolver->sourceGeometryPresentationDeclarations($element), array_flip(self::ROOT_GEOMETRY_PROPERTIES)),
-            'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
-            'autoplayInterval' => !$capturedGallery && 'slideshow' === $presentation ? $autoplayInterval : 0,
-            'showStatus' => $capturedGallery || $status instanceof DOMElement,
-            'showDots' => $showDots && array() === $thumbnails,
-            'fullBleed' => 'slideshow' === $presentation && $fullBleed,
-            'thumbnails' => $thumbnails,
-            'thumbnailPosition' => $thumbnailPosition,
-            'stageAspectRatio' => $stageBox['ratio'],
-            'stageMaxWidth' => $stageBox['width'],
-            'transitionStyle' => 'slideshow' === $presentation ? $this->sourceTransitionStyle($items, $styleResolver) : 'fade',
-            'showPlayControl' => 'slideshow' === $presentation && $this->hasPlaybackToggle($element),
-            'playControlPosition' => $playbackPlacement['position'],
-            'playControlInset' => $playbackPlacement['inset'],
-        );
-        if ($status instanceof DOMElement && preg_match('~^\s*[0-9]+(\s*/\s*)[0-9]+\s*$~', $status->textContent ?? '', $statusMatch)) {
-            $attributes['statusFormat'] = '{index}' . $statusMatch[1] . '{count}';
-        }
-        $shell = $this->shell($attributes);
-        $innerContent = array($shell['opening']);
-        foreach ( $slides as $_ ) {
-            $innerContent[] = null;
-        }
-        $innerContent[] = $shell['closing'];
+        return $thumbnailGeometry;
+    }
 
+    /**
+     * @param array<string, mixed> $attributes
+     * @param array<int, array<string, mixed>> $slides
+     * @return array<string, mixed>
+     */
+    private function carouselBlock(GeneratedBlockRegistry $registry, array $attributes, array $slides): array
+    {
+        $shell = $this->shell($attributes);
         return array(
             'blockName' => $registry->blockName(self::LOCAL_NAME),
             'attrs' => $attributes,
             'innerBlocks' => $slides,
             'innerHTML' => $shell['opening'] . $shell['closing'],
-            'innerContent' => $innerContent,
+            'innerContent' => array_merge(array($shell['opening']), array_fill(0, count($slides), null), array($shell['closing'])),
         );
     }
 
@@ -1633,7 +1890,7 @@ JS;
     private function serializeControlTopologyOutputNode(DOMElement $element): string
     {
         $tag = strtolower($element->tagName);
-        if (in_array($tag, array('svg', 'path'), true)) {
+        if (in_array($tag, array('svg', 'path', 'img'), true)) {
             return $this->serializeSafeControlNode($element);
         }
         if (!in_array($tag, array('div', 'span', 'nav', 'ul', 'ol', 'li', 'section', 'button'), true)) {
@@ -1796,12 +2053,135 @@ JS;
     }
 
     /** A slide-indexed item, or a link or button that selects a numbered slide. */
-    private function isPaginationControl(DOMElement $element): bool
+    private function slideIndex(DOMElement $element): ?int
     {
-        foreach ( self::SLIDE_INDEX_ATTRIBUTES as $attribute ) {
-            if ( ctype_digit(trim(SourceDom::attr($element, $attribute))) ) {
+        foreach ($element->attributes as $attribute) {
+            if ((in_array($attribute->name, self::SLIDE_INDEX_ATTRIBUTES, true) || preg_match('/(?:^|-)slider-item$/', $attribute->name)) && ctype_digit(trim($attribute->value))) {
+                return (int) trim($attribute->value);
+            }
+        }
+        return null;
+    }
+
+    /** @return list<DOMElement> */
+    private function paginationControls(DOMElement $root): array
+    {
+        $controls = array();
+        foreach ($root->getElementsByTagName('*') as $element) {
+            if ($this->slideIndex($element) !== null) {
+                $controls[] = $element;
+            }
+        }
+        return $controls;
+    }
+
+    /** Preserve list/item/control topology so authored child selectors still match. */
+    private function sourceDotsMarkup(DOMElement $root, StyleResolver $styleResolver): string
+    {
+        $controls = $this->paginationControls($root);
+        if (count($controls) < 2 || !$controls[0]->firstElementChild instanceof DOMElement) {
+            return '';
+        }
+        $list = $controls[0]->parentNode;
+        if (!$list instanceof DOMElement || !in_array(strtolower($list->tagName), array('ul', 'ol'), true)) {
+            return '';
+        }
+        $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $markup = '<' . strtolower($list->tagName) . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceClassTokens(SourceDom::attr($list, 'class'), $list, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        foreach ($controls as $control) {
+            if ($control->parentNode !== $list) {
+                continue;
+            }
+            $index = $this->slideIndex($control);
+            $visual = $control->firstElementChild;
+            $classes = $visual instanceof DOMElement ? $this->sourceClassTokens(SourceDom::attr($visual, 'class'), $visual, $styleResolver) : array();
+            $activeClasses = $styleResolver->paginationActiveClasses($control);
+            $itemClasses = array_diff($this->sourceClassTokens(SourceDom::attr($control, 'class'), $control, $styleResolver), $activeClasses);
+            $markup .= '<li data-carousel-active-classes="' . $escape(implode(' ', $activeClasses)) . '" class="' . $escape(implode(' ', $itemClasses)) . '"><button type="button" class="blocks-engine-authored-carousel__dot ' . $escape(implode(' ', $classes)) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></button></li>';
+        }
+        return $markup . '</' . strtolower($list->tagName) . '>';
+    }
+
+    /**
+     * Runtime pagination without slide-index attributes: one container whose
+     * children are all empty button-role bullets, one per slide.
+     *
+     * @return list<DOMElement>
+     */
+    private function bulletControls(DOMElement $root, DOMElement $list, int $slideCount): array
+    {
+        if ($slideCount < 2) {
+            return array();
+        }
+        foreach ($root->getElementsByTagName('*') as $container) {
+            if (!$container instanceof DOMElement || $container === $list || $this->containsNode($list, $container) || $this->containsNode($container, $list)) {
+                continue;
+            }
+            $bullets = array();
+            foreach ($container->childNodes as $child) {
+                if ($child instanceof DOMText && '' === trim(str_replace("\xc2\xa0", ' ', $child->data))) {
+                    continue;
+                }
+                if (!$child instanceof DOMElement || null !== $child->firstElementChild || '' !== trim((string) $child->textContent)
+                    || !('button' === strtolower($child->tagName) || 'button' === SourceDom::role($child))
+                    || $this->isNavigationControl($child, $root)
+                ) {
+                    $bullets = array();
+                    break;
+                }
+                $bullets[] = $child;
+            }
+            if (count($bullets) === $slideCount) {
+                return $bullets;
+            }
+        }
+        return array();
+    }
+
+    /**
+     * Keep the bullet container and each bullet's classes so authored bullet
+     * selectors still match; the active classes follow carousel selection.
+     *
+     * @param list<DOMElement> $bullets
+     */
+    private function sourceBulletsMarkup(array $bullets, StyleResolver $styleResolver): string
+    {
+        $container = array() === $bullets ? null : $bullets[0]->parentNode;
+        if (!$container instanceof DOMElement) {
+            return '';
+        }
+        $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $tag = in_array(strtolower($container->tagName), array('div', 'nav', 'span', 'p'), true) ? strtolower($container->tagName) : 'div';
+        $markup = '<' . $tag . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceClassTokens(SourceDom::attr($container, 'class'), $container, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        foreach ($bullets as $index => $bullet) {
+            $button = 'button' === strtolower($bullet->tagName);
+            $activeClasses = $styleResolver->paginationActiveClasses($bullet);
+            $classes = array_diff($this->sourceClassTokens(SourceDom::attr($bullet, 'class'), $bullet, $styleResolver), $activeClasses);
+            $markup .= ($button ? '<button type="button"' : '<span role="button" tabindex="0"')
+                . ' data-carousel-active-classes="' . $escape(implode(' ', $activeClasses)) . '" class="' . $escape(trim('blocks-engine-authored-carousel__dot ' . implode(' ', $classes))) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></' . ($button ? 'button' : 'span') . '>';
+        }
+        return $markup . '</' . $tag . '>';
+    }
+
+    /** An empty announcer beside the slides: the source status is not painted. */
+    private function hasSilentLiveRegion(DOMElement $root, DOMElement $list): bool
+    {
+        foreach ($root->getElementsByTagName('*') as $element) {
+            if ($element instanceof DOMElement && ($element->hasAttribute('aria-live') || 'status' === SourceDom::role($element))
+                && 'off' !== strtolower(trim(SourceDom::attr($element, 'aria-live')))
+                && !$this->containsNode($list, $element) && !$this->containsNode($element, $list)
+                && '' === trim(str_replace("\xc2\xa0", ' ', (string) $element->textContent))
+            ) {
                 return true;
             }
+        }
+        return false;
+    }
+
+    private function isPaginationControl(DOMElement $element): bool
+    {
+        if ($this->slideIndex($element) !== null) {
+            return true;
         }
         if ( 'li' === strtolower($element->tagName) && ctype_digit(trim(SourceDom::attr($element, 'aria-label'))) ) {
             $list = $element->parentNode;
@@ -1917,11 +2297,13 @@ JS;
                 $parts[] = htmlspecialchars($child->nodeValue ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
                 continue;
             }
-            if (!$child instanceof DOMElement || !in_array(strtolower($child->tagName), array('div', 'span', 'svg'), true)) {
+            if (!$child instanceof DOMElement || !in_array(strtolower($child->tagName), array('div', 'span', 'svg', 'img'), true)) {
                 continue;
             }
             $class = strtolower(SourceDom::attr($child, 'class'));
-            if (in_array(strtolower($child->tagName), array('span', 'svg'), true) || $child->getElementsByTagName('svg')->length > 0 || str_contains($class, 'background')) {
+            // An arrow drawn by an image is the control's artwork just as an
+            // inline SVG is; without it the rebuilt button paints nothing.
+            if (in_array(strtolower($child->tagName), array('span', 'svg', 'img'), true) || $child->getElementsByTagName('svg')->length > 0 || $child->getElementsByTagName('img')->length > 0 || str_contains($class, 'background')) {
                 $parts[] = $this->serializeSafeControlNode($child);
             }
         }
@@ -1958,29 +2340,66 @@ JS;
         return $targets;
     }
 
-    private function serializeSafeControlNode(DOMElement $element): string
+    private function serializeSafeControlNode(DOMElement $element, bool $capturedPaint = false): string
     {
+        $capturedPaint = $capturedPaint || '' !== ($this->session?->capturedGlyphColor($element) ?? '');
         $tag = strtolower($element->tagName);
-        if (!in_array($tag, array('div', 'span', 'svg', 'path'), true)) {
+        if ('img' === $tag) {
+            return $this->serializeSafeControlImage($element);
+        }
+        if (!in_array($tag, array('div', 'span', 'svg', 'g', 'path', 'polyline', 'polygon', 'line', 'circle', 'ellipse', 'rect'), true)) {
             return '';
         }
         $attributes = '';
         foreach ($element->attributes as $attribute) {
             $name = strtolower($attribute->name);
-            if ('class' !== $name && !in_array($name, array('viewbox', 'xmlns', 'd', 'stroke', 'stroke-width', 'stroke-linecap', 'fill', 'width', 'height'), true)) {
+            if ('class' !== $name && !in_array($name, array('viewbox', 'xmlns', 'd', 'points', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'fill', 'color', 'width', 'height'), true)) {
                 continue;
             }
-            $attributes .= ' ' . $name . '="' . htmlspecialchars($attribute->value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            $attributes .= ' ' . ('viewbox' === $name ? 'viewBox' : $name) . '="' . htmlspecialchars($capturedPaint && in_array($name, array('fill', 'stroke'), true) && !in_array(strtolower($attribute->value), array('none', 'transparent'), true) ? 'currentColor' : $attribute->value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        $color = $this->session?->capturedGlyphColor($element) ?? '';
+        if ('' !== $color) {
+            $attributes .= ' color="' . htmlspecialchars($color, ENT_QUOTES, 'UTF-8') . '"';
         }
         $contents = '';
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) {
-                $contents .= $this->serializeSafeControlNode($child);
+                $contents .= $this->serializeSafeControlNode($child, $capturedPaint);
             } elseif ($child instanceof \DOMText) {
                 $contents .= htmlspecialchars($child->nodeValue ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
         }
         return '<' . $tag . $attributes . '>' . $contents . '</' . $tag . '>';
+    }
+
+    /**
+     * Control artwork drawn by an image keeps only its source, text
+     * alternative, sizing and author class. A URL with any scheme other than
+     * http(s), or a data URL that is not a safe image, drops the image.
+     */
+    private function serializeSafeControlImage(DOMElement $image): string
+    {
+        $src = trim(SourceDom::attr($image, 'src'));
+        if ('' === $src) {
+            return '';
+        }
+        if (preg_match('#^data:image/svg\+xml(?:[;,][^,]*)?,#i', $src)) {
+            $parts = explode(',', $src, 2);
+            $svg = str_contains(strtolower($parts[0]), ';base64') ? base64_decode($parts[1] ?? '', true) : rawurldecode($parts[1] ?? '');
+            if (false === $svg || !SourceDom::isSafeSvgContent($svg)) {
+                return '';
+            }
+        } elseif (preg_match('/^[a-z][a-z0-9+.-]*:/i', $src) && !preg_match('#^(?:https?:|data:image/(?:png|gif|jpe?g|webp|avif);base64,)#i', $src)) {
+            return '';
+        }
+        $attributes = ' src="' . htmlspecialchars($src, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        foreach (array('alt', 'class', 'width', 'height') as $name) {
+            if ($image->hasAttribute($name)) {
+                $attributes .= ' ' . $name . '="' . htmlspecialchars($image->getAttribute($name), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+        }
+        return '<img' . $attributes . '>';
     }
 
     private function safeControlVisual(string $markup): string
@@ -2010,7 +2429,7 @@ JS;
         $resolved = $styleResolver->structuralPresentationDeclarations($control);
         $result = array();
         foreach (array('width' => 'width', 'height' => 'height', 'padding' => 'padding', 'border' => 'border', 'border-radius' => 'border-radius', 'background' => 'background', 'background-color' => 'background-color', 'color' => 'color', 'font' => 'font') as $property => $key) {
-            if ($styleResolver->hasConditionalStyleFamily($control, $styleResolver->responsivePropertyFamily($property))) {
+            if ($styleResolver->hasConditionalStyleFamily($control, ResponsivePropertyFamily::of($property))) {
                 continue;
             }
             $value = trim((string) ($resolved[$property] ?? ''));
@@ -2214,7 +2633,7 @@ JS;
             }
         }
         foreach ( $candidates as $candidate ) {
-            $declarations = $styleResolver->cssDeclarations(SourceDom::attr($candidate, 'style'));
+            $declarations = SourceDeclarations::parse(SourceDom::attr($candidate, 'style'));
             $width = $this->pixelLength((string) ($declarations['width'] ?? ''));
             $left = $this->pixelLength((string) ($declarations['left'] ?? ''));
             $top = $this->pixelLength((string) ($declarations['top'] ?? ''));
@@ -2252,6 +2671,22 @@ JS;
     {
         $value = trim($value);
         return 1 === preg_match('~^(?:[0-9]+(?:\.[0-9]+)?(?:px|vh|vw|em|rem|%|svh|dvh)|(?:calc|min|max|clamp|var)\([0-9a-zA-Z.%+*/(), _-]+\))$~D', $value) ? $value : '';
+    }
+
+    /**
+     * Root margins, plus its position when the source root is out of flow.
+     *
+     * @return array<string, string>
+     */
+    private function sourceRootGeometry(DOMElement $element, StyleResolver $styleResolver): array
+    {
+        $geometry = array_intersect_key($styleResolver->sourceGeometryPresentationDeclarations($element), array_flip(self::ROOT_GEOMETRY_PROPERTIES));
+        $position = strtolower(trim(CssValueInspector::withoutImportant((string) ($geometry['position'] ?? ''))));
+        unset($geometry['position']);
+        if (in_array($position, array('absolute', 'fixed', 'sticky'), true)) {
+            $geometry['position'] = $position;
+        }
+        return $geometry;
     }
 
     private function safeCssGeometryValue(string $value): string
@@ -2425,6 +2860,18 @@ JS;
         return $block;
     }
 
+    /**
+     * A slide whose own rules size it, and that carries text beside its
+     * image, owns its box in the track. Flattening it to its image would drop
+     * that box, letting the track size the bare figure instead, and fold the
+     * slide's own text box into a figure caption, so it converts as authored
+     * content instead.
+     */
+    private function ownsAuthoredSlideBox(DOMElement $item, StyleResolver $styleResolver): bool
+    {
+        return '' !== trim($item->textContent ?? '') && array() !== $styleResolver->authorDeclaredValuesAtAnyViewport($item, array('width', 'max-width', 'flex-basis'));
+    }
+
     /** Preserve authored responsive image holders below the runtime slide. */
     private function imageSlideContainers(array $imageBlock, DOMElement $image, DOMElement $item, StyleResolver $styleResolver, SourceBlockCreator $createBlock): array
     {
@@ -2518,7 +2965,7 @@ JS;
         foreach ($elements as $element) {
             $oldStyle = $element->hasAttribute('style') ? $element->getAttribute('style') : null;
             $snapshot[] = array('element' => $element, 'style' => $oldStyle);
-            $inline = $styleResolver->cssDeclarations($oldStyle ?? '');
+            $inline = SourceDeclarations::parse($oldStyle ?? '');
             $missing = array_fill_keys(array_diff_key($allowed, $inline), true);
             if (array() === $missing) {
                 continue;
@@ -2631,12 +3078,19 @@ JS;
             }
             if ( 0 === $item->getElementsByTagName('img')->length
                 && ! $this->sourceElementClassifier->isNativeVideoSlide($item)
+                && ! $this->hasBackgroundImage($item)
                 && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
             ) {
                 return false;
             }
         }
         return true;
+    }
+
+    private function hasBackgroundImage(DOMElement $element): bool
+    {
+        return null !== $this->styleResolver
+            && '' !== (new BackgroundImageExtractor())->urlFromStyle($this->styleResolver->specificityResolvedPresentationStyle($element));
     }
 
     private function carouselPaginationCount(DOMElement $root): int
@@ -2688,13 +3142,14 @@ JS;
     private function isSlideStatus(DOMElement $element): bool
     {
         return 'status' === SourceDom::role($element)
+            || $element->hasAttribute('aria-live')
             || 1 === preg_match('~^\s*[0-9]+\s*/\s*[0-9]+\s*$~', $element->textContent ?? '');
     }
 
     private function slideStatus(DOMElement $list): ?DOMElement
     {
         foreach ($list->childNodes as $child) {
-            if ($child instanceof DOMElement && $this->isSlideStatus($child)) return $child;
+            if ($child instanceof DOMElement && $this->isSlideStatus($child) && 'off' !== SourceDom::attr($child, 'aria-live')) return $child;
         }
         return null;
     }
@@ -2726,7 +3181,7 @@ JS;
                 SourceDom::attr($child, 'data-testid'),
             )));
             if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item|group)(?:[^a-z0-9]|$)/', $identity)
-                && (0 < $child->getElementsByTagName('img')->length || $this->sourceElementClassifier->isNativeVideoSlide($child))
+                && (0 < $child->getElementsByTagName('img')->length || $this->sourceElementClassifier->isNativeVideoSlide($child) || $this->hasBackgroundImage($child))
             ) {
                 $items[] = $child;
                 continue;

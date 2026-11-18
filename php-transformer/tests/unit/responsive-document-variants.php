@@ -79,7 +79,7 @@ $largeVariantArtifact = array(
     )),
     'files' => array(
         array('path' => 'index.html', 'content' => '<!doctype html><html><head></head><body><main>Desktop</main></body></html>'),
-        array('path' => '.variants/mobile/index.html', 'content' => '<!doctype html><html><head><style media="screen">' . $largeVariantCss . '</style></head><body><main>Mobile</main></body></html>'),
+        array('path' => '.variants/mobile/index.html', 'content' => '<!doctype html><html><head><style media="screen">' . $largeVariantCss . '</style></head><body><main class="variant-large-first variant-large-last">Mobile</main></body></html>'),
     ),
 );
 $assert(strlen($largeVariantCss) > 1048576, 'Responsive variant regression CSS exceeds one megabyte.');

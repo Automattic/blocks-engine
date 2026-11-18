@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CaptureReplayScripts;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Support\InlineBodyStyle;
@@ -20,8 +21,6 @@ use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
  */
 final class ArtifactNormalizer
 {
-    use \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactDiagnostics;
-
     /** Role of a declared capture report: compiler evidence, never a site asset. */
     public const CAPTURE_REPORT_ROLE = 'capture-report';
 
@@ -121,7 +120,7 @@ final class ArtifactNormalizer
         foreach ( array_unique($entrypoints) as $entrypoint ) {
             $path = ArtifactPath::safeRelativePath($entrypoint);
             if ( '' === $path ) {
-                $diagnostics[] = $this->diagnostic('unsafe_entrypoint_path', 'warning', 'An artifact entrypoint was ignored because its path is empty, absolute, or escapes the artifact root.', array('path' => $entrypoint));
+                $diagnostics[] = ArtifactDiagnostics::make('unsafe_entrypoint_path', 'warning', 'An artifact entrypoint was ignored because its path is empty, absolute, or escapes the artifact root.', array('path' => $entrypoint));
                 continue;
             }
             $safeEntrypoints[] = $path;
@@ -133,25 +132,28 @@ final class ArtifactNormalizer
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'media_file_limit_exceeded', $file, ArtifactPath::safeRelativePath((string) ($file['path'] ?? '')), null);
                 if ( 1 === $rejectionCounts['media_file_limit_exceeded'] ) {
-                    $diagnostics[] = $this->diagnostic('media_file_limit_exceeded', 'warning', 'Additional referenced media files were ignored because the media file limit was reached.', array('max_media_files' => $limits['max_media_files']));
+                    $diagnostics[] = ArtifactDiagnostics::make('media_file_limit_exceeded', 'warning', 'Additional referenced media files were ignored because the media file limit was reached.', array('max_media_files' => $limits['max_media_files']));
                 }
                 continue;
             }
             if ( ! $isMedia && count($files) - $mediaFiles >= $limits['max_files'] ) {
-                $omitted = array_slice($rawFiles, $index);
-                $rejected += count($omitted);
-                $rejectionCounts['file_limit_exceeded'] = ($rejectionCounts['file_limit_exceeded'] ?? 0) + count($omitted);
-                $this->appendRejectionSamples($rejectionSamples, $omitted, 'file_limit_exceeded');
-                $truncationImpact = $this->truncationImpact(array_slice($rawFiles, $index), $files);
-                $diagnostics[] = $this->diagnostic('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => $limits['max_files'], 'truncation_impact' => $truncationImpact));
-                break;
+                ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'file_limit_exceeded', $file, ArtifactPath::safeRelativePath((string) ($file['path'] ?? '')), null);
+                if ( null === $truncationImpact ) {
+                    // Only non-media rows are omitted by this budget. Media
+                    // later in the list still passes through its own limits.
+                    $omitted = array_values(array_filter(array_slice($rawFiles, $index), static fn(array $candidate): bool => ! self::isReferenceBackedBinary($candidate)));
+                    $truncationImpact = $this->truncationImpact($omitted, $files);
+                    $diagnostics[] = ArtifactDiagnostics::make('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => $limits['max_files'], 'truncation_impact' => $truncationImpact));
+                }
+                continue;
             }
 
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
             if ( '' === $path ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'unsafe_artifact_path', $file, '', null);
-                $diagnostics[] = $this->diagnostic('unsafe_artifact_path', 'warning', 'An artifact file was ignored because its path is empty, absolute, or escapes the artifact root.', array('index' => $index));
+                $diagnostics[] = ArtifactDiagnostics::make('unsafe_artifact_path', 'warning', 'An artifact file was ignored because its path is empty, absolute, or escapes the artifact root.', array('index' => $index));
                 continue;
             }
 
@@ -171,47 +173,47 @@ final class ArtifactNormalizer
             $referenceMedia = self::isReferenceBackedBinary(array('path' => $path) + $file);
             // A declared capture report is hydrated but never converted, so it
             // is bounded on the report budget rather than the parse budget.
-            $capturedReport = ! $referenceMedia && isset($declaredReports[$path]);
+            $capturedReport = ! $referenceMedia && (isset($declaredReports[$path]) || \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isSidecarPath($path));
 
             if ( $referenceMedia && $payload['bytes'] > $limits['max_media_file_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_media_file_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_media_file_too_large', 'warning', 'A referenced media file was ignored because it exceeds the per-file media byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_media_file_bytes' => $limits['max_media_file_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_media_file_too_large', 'warning', 'A referenced media file was ignored because it exceeds the per-file media byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_media_file_bytes' => $limits['max_media_file_bytes']));
                 continue;
             }
 
             if ( $capturedReport && $payload['bytes'] > $limits['max_report_file_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_report_file_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_report_file_too_large', 'warning', 'A declared capture report was ignored because it exceeds the per-file report byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_file_bytes' => $limits['max_report_file_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_report_file_too_large', 'warning', 'A declared capture report was ignored because it exceeds the per-file report byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_file_bytes' => $limits['max_report_file_bytes']));
                 continue;
             }
 
             if ( $capturedReport && $reportBytes + $payload['bytes'] > $limits['max_report_total_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_report_total_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_report_total_too_large', 'warning', 'A declared capture report was ignored because the bundle report byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_total_bytes' => $limits['max_report_total_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_report_total_too_large', 'warning', 'A declared capture report was ignored because the bundle report byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_report_total_bytes' => $limits['max_report_total_bytes']));
                 continue;
             }
 
             if ( ! $referenceMedia && ! $capturedReport && $payload['bytes'] > $limits['max_file_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_file_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_file_bytes' => $limits['max_file_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_file_bytes' => $limits['max_file_bytes']));
                 continue;
             }
 
             if ( $referenceMedia && $mediaBytes + $payload['bytes'] > $limits['max_media_total_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_media_total_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_media_total_too_large', 'warning', 'A referenced media file was ignored because the bundle media byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_media_total_bytes' => $limits['max_media_total_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_media_total_too_large', 'warning', 'A referenced media file was ignored because the bundle media byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_media_total_bytes' => $limits['max_media_total_bytes']));
                 continue;
             }
 
             if ( ! $referenceMedia && ! $capturedReport && ( $bytes - $mediaBytes - $reportBytes ) + $payload['bytes'] > $limits['max_total_bytes'] ) {
                 ++$rejected;
                 $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_total_too_large', $file, $path, $payload['bytes']);
-                $diagnostics[] = $this->diagnostic('artifact_total_too_large', 'warning', 'An artifact file was ignored because the bundle byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_total_bytes' => $limits['max_total_bytes']));
+                $diagnostics[] = ArtifactDiagnostics::make('artifact_total_too_large', 'warning', 'An artifact file was ignored because the bundle byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_total_bytes' => $limits['max_total_bytes']));
                 continue;
             }
 
@@ -219,7 +221,7 @@ final class ArtifactNormalizer
             $seenPaths[$path] = true;
             $mimeType = $this->mimeType((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? (str_contains((string) ($file['type'] ?? ''), '/') ? $file['type'] : '')), $path);
             $kind = $this->kind((string) ($file['kind'] ?? $file['type'] ?? ''), $path, $payload['content'], $mimeType);
-            $declaredRole = $this->sanitizeKey((string) ($file['role'] ?? ''));
+            $declaredRole = ArtifactPath::sanitizeKey((string) ($file['role'] ?? ''));
             $role = $capturedReport ? self::CAPTURE_REPORT_ROLE : $this->role($declaredRole, $kind, $mimeType, $path);
             $intent = $this->intent((string) ($file['intent'] ?? ''), $kind, $role);
             $binary = $payload['binary'] || ( ! $this->isTextKind($kind) && $this->isBinaryMimeType($mimeType) );
@@ -330,7 +332,7 @@ final class ArtifactNormalizer
             }
 
             if ( 'mdx' === $kind ) {
-                $diagnostics[] = $this->diagnostic('mdx_source_document_detected', 'warning', 'MDX source document support is partial; the source was preserved and inspectable document/component metadata was extracted.', array('path' => $path));
+                $diagnostics[] = ArtifactDiagnostics::make('mdx_source_document_detected', 'warning', 'MDX source document support is partial; the source was preserved and inspectable document/component metadata was extracted.', array('path' => $path));
             }
 
             $bytes += $normalized['bytes'];
@@ -350,10 +352,16 @@ final class ArtifactNormalizer
             if ('html' === $file['kind']) $file['layout_geometry_proof'] = $layoutGeometryProof['proof'];
         }
         unset($file);
+        $boxTrees = BoxTreeReport::read($files);
+        $diagnostics = array_merge($diagnostics, $boxTrees['diagnostics']);
+        foreach ($files as &$file) {
+            if ('html' === $file['kind']) $file['box_tree'] = $boxTrees['trees'][$file['path']] ?? array();
+        }
+        unset($file);
         $sourceHash = self::sourceHash($files, $runtimeDeclarations);
         if ( 0 < $rejected ) {
             ksort($rejectionCounts);
-            $diagnostics[] = $this->diagnostic('artifact_inputs_rejected', 'warning', 'One or more artifact inputs were ignored during normalization.', array(
+            $diagnostics[] = ArtifactDiagnostics::make('artifact_inputs_rejected', 'warning', 'One or more artifact inputs were ignored during normalization.', array(
                 'rejected_count' => $rejected,
                 'rejected_by_code' => $rejectionCounts,
                 'samples' => $rejectionSamples,
@@ -362,7 +370,7 @@ final class ArtifactNormalizer
         }
         return array(
             'files'          => $files,
-            'diagnostics'    => $this->dedupeDiagnostics($diagnostics),
+            'diagnostics'    => ArtifactDiagnostics::dedupe($diagnostics),
             'rejected_count' => $rejected,
             'bytes'          => $bytes,
             'limits'         => $limits,
@@ -401,31 +409,15 @@ final class ArtifactNormalizer
         $samples[] = $this->rejectionSample($code, $file, $path, $bytes);
     }
 
-    /** @param array<int,array<string,mixed>> $samples @param array<int,array<string,mixed>> $files */
-    private function appendRejectionSamples(array &$samples, array $files, string $code): void
-    {
-        foreach ($files as $file) {
-            if (count($samples) >= self::MAX_REJECTION_SAMPLES) return;
-            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
-            $this->recordRejectionSample($samples, $code, $file, $path);
-        }
-    }
-
-    /** @param array<int,array<string,mixed>> $samples @param array<string,mixed> $file */
-    private function recordRejectionSample(array &$samples, string $code, array $file, string $path): void
-    {
-        $samples[] = $this->rejectionSample($code, $file, $path, null);
-    }
-
     /** @param array<string,mixed> $file @return array<string,mixed> */
     private function rejectionSample(string $code, array $file, string $path, ?int $bytes): array
     {
         $sample = array('code' => $code);
         if ('' !== $path) $sample['path'] = mb_strcut($path, 0, self::MAX_REJECTION_SAMPLE_PATH_BYTES, 'UTF-8');
         if (null !== $bytes) $sample['bytes'] = $bytes;
-        $role = $this->sanitizeKey((string) ($file['role'] ?? ''));
+        $role = ArtifactPath::sanitizeKey((string) ($file['role'] ?? ''));
         if (in_array($role, self::SAMPLE_ROLES, true)) $sample['declared_role'] = $role;
-        $type = $this->sanitizeKey((string) ($file['type'] ?? ''));
+        $type = ArtifactPath::sanitizeKey((string) ($file['type'] ?? ''));
         if (in_array($type, self::SAMPLE_TYPES, true)) $sample['declared_type'] = $type;
         return $sample;
     }
@@ -632,8 +624,8 @@ final class ArtifactNormalizer
             // enqueue ordering can place it between the same links.
             $linkOffsets = array();
             foreach ( StyleTagScanner::scanLinks($content) as $link ) {
-                $rel = preg_split('/\s+/', strtolower(trim($this->htmlAttribute($link['tag'], 'rel')))) ?: array();
-                if ( in_array('stylesheet', $rel, true) && '' !== $this->htmlAttribute($link['tag'], 'href') ) {
+                $rel = preg_split('/\s+/', strtolower(trim(HtmlTagScanner::attribute($link['tag'], 'rel')))) ?: array();
+                if ( in_array('stylesheet', $rel, true) && '' !== HtmlTagScanner::attribute($link['tag'], 'href') ) {
                     $linkOffsets[] = $link['offset'];
                 }
             }
@@ -643,11 +635,18 @@ final class ArtifactNormalizer
                 // Each sheet is its own stylesheet: close what its end leaves
                 // open before anything is appended or joined to it.
                 $css = CssSyntaxScanner::closedAtEnd(trim($style['content']));
-                if ( '' === $css || ! StyleTagScanner::isCssType($this->htmlAttribute($attributes, 'type')) ) {
+                if ( '' === $css || ! StyleTagScanner::isCssType(HtmlTagScanner::attribute($attributes, 'type')) ) {
                     continue;
                 }
                 $linkPosition = count(array_filter($linkOffsets, static fn(int $offset): bool => $offset < $style['offset']));
-                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'source_media' => array_key_exists(CaptureEvidence::SOURCE_MEDIA, \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, CaptureEvidence::DEVICE_STYLE => $this->htmlAttribute($attributes, CaptureEvidence::DEVICE_STYLE), 'type' => $this->htmlAttribute($attributes, 'type'), 'link_position' => $linkPosition );
+                // A sheet delivered under its own media never applies a nested
+                // @media its delivery excludes. A device-selected sheet's
+                // `media` is inert capture state, not its delivery, so it keeps
+                // every block.
+                if ( '' === HtmlTagScanner::attribute($attributes, CaptureEvidence::DEVICE_STYLE) && ! array_key_exists(CaptureEvidence::SOURCE_MEDIA, HtmlTagScanner::attributes($attributes)) ) {
+                    $css = MediaCondition::withoutUnreachableBlocks($css, HtmlTagScanner::attribute($attributes, 'media'));
+                }
+                $styles[] = array( 'content' => $css, 'media' => HtmlTagScanner::attribute($attributes, 'media'), 'source_media' => array_key_exists(CaptureEvidence::SOURCE_MEDIA, \Automattic\BlocksEngine\PhpTransformer\Support\HtmlTagScanner::attributes($attributes)) ? StyleTagScanner::authorMedia($attributes) : null, CaptureEvidence::DEVICE_STYLE => HtmlTagScanner::attribute($attributes, CaptureEvidence::DEVICE_STYLE), 'type' => HtmlTagScanner::attribute($attributes, 'type'), 'link_position' => $linkPosition );
             }
             // Spacing and custom properties inline on <body> are data the
             // reader sees, but the document is re-wrapped in a bare <body>
@@ -833,7 +832,7 @@ final class ArtifactNormalizer
                 if (CaptureReplayScripts::isReplayScript($script['tag']) || array_key_exists(CaptureEvidence::CHOICE_RUNTIME, HtmlTagScanner::attributes($script['tag']))) continue;
                 $attributes = $script['attributes'];
                 $body = trim($script['content']);
-                if ( '' === $body || '' !== $this->htmlAttribute($attributes, 'src') || ! $this->isExecutableScriptType($this->htmlAttribute($attributes, 'type')) ) {
+                if ( '' === $body || '' !== HtmlTagScanner::attribute($attributes, 'src') || ! $this->isExecutableScriptType(HtmlTagScanner::attribute($attributes, 'type')) ) {
                     continue;
                 }
 
@@ -846,10 +845,10 @@ final class ArtifactNormalizer
                     'intent'      => 'behavior',
                     'source'      => 'inline-script',
                     'placement'   => $script['placement'],
-                    'type'        => $this->htmlAttribute($attributes, 'type'),
+                    'type'        => HtmlTagScanner::attribute($attributes, 'type'),
                     'defer'       => $this->hasBooleanAttribute($attributes, 'defer'),
                     'async'       => $this->hasBooleanAttribute($attributes, 'async'),
-                    'superseded_by' => $this->htmlAttribute($attributes, 'data-blocks-engine-superseded-by'),
+                    'superseded_by' => HtmlTagScanner::attribute($attributes, 'data-blocks-engine-superseded-by'),
                     'source_path' => ArtifactPath::safeRelativePath((string) ($file['path'] ?? 'index.html')),
                     'selector'    => 'script:nth-of-type(' . $scriptIndex . ')',
                 ));
@@ -863,11 +862,6 @@ final class ArtifactNormalizer
     {
         $type = strtolower(trim($type));
         return '' === $type || in_array($type, array('module', 'text/javascript', 'application/javascript', 'text/ecmascript', 'application/ecmascript'), true);
-    }
-
-    private function htmlAttribute(string $attributes, string $name): string
-    {
-        return HtmlTagScanner::attributes($attributes)[strtolower($name)] ?? '';
     }
 
     private function hasBooleanAttribute(string $attributes, string $name): bool
@@ -884,7 +878,7 @@ final class ArtifactNormalizer
         if (is_array($file['payload_reference'] ?? null)) {
             $reference = $file['payload_reference'];
             if ('blocks-engine/payload-reference/v1' !== ($reference['schema'] ?? null) || !is_string($reference['id'] ?? null) || '' === $reference['id'] || !is_int($reference['bytes'] ?? null) || $reference['bytes'] < 0 || !is_string($reference['sha256'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $reference['sha256'])) {
-                return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'reference', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('invalid_payload_reference', 'warning', 'An artifact file was ignored because its payload reference is invalid.', array('path' => $path))));
+                return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'reference', 'binary' => false, 'bytes' => 0, 'diagnostics' => array(ArtifactDiagnostics::make('invalid_payload_reference', 'warning', 'An artifact file was ignored because its payload reference is invalid.', array('path' => $path))));
             }
             return array('accepted' => true, 'content' => '', 'content_base64' => '', 'encoding' => 'reference', 'binary' => true, 'bytes' => $reference['bytes'], 'diagnostics' => array(), 'payload_reference' => array('schema' => $reference['schema'], 'id' => $reference['id'], 'bytes' => $reference['bytes'], 'sha256' => $reference['sha256']));
         }
@@ -892,13 +886,13 @@ final class ArtifactNormalizer
             $base64 = preg_replace('/\s+/', '', $file['content_base64']) ?? '';
             $decoded = base64_decode($base64, true);
             if ( false === $decoded ) {
-                return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'base64', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('invalid_base64_content', 'warning', 'An artifact file was ignored because content_base64 is not valid base64.', array('path' => $path))));
+                return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'base64', 'binary' => false, 'bytes' => 0, 'diagnostics' => array(ArtifactDiagnostics::make('invalid_base64_content', 'warning', 'An artifact file was ignored because content_base64 is not valid base64.', array('path' => $path))));
             }
 
             $binary = $this->looksBinary($decoded);
             $diagnostics = array();
             if ( ! $binary && is_string($file['content'] ?? null) && '' !== $file['content'] && $file['content'] !== $decoded ) {
-                $diagnostics[] = $this->diagnostic('content_base64_preferred', 'info', 'Both content and content_base64 were provided; decoded content_base64 was used as the canonical payload.', array('path' => $path));
+                $diagnostics[] = ArtifactDiagnostics::make('content_base64_preferred', 'info', 'Both content and content_base64 were provided; decoded content_base64 was used as the canonical payload.', array('path' => $path));
             }
 
             return array('accepted' => true, 'content' => $binary ? '' : $decoded, 'content_base64' => $base64, 'encoding' => 'base64', 'binary' => $binary, 'bytes' => strlen($decoded), 'diagnostics' => $diagnostics);
@@ -906,7 +900,7 @@ final class ArtifactNormalizer
 
         $contentKey = array_key_exists('content', $file) ? 'content' : (array_key_exists('body', $file) ? 'body' : (array_key_exists('text', $file) ? 'text' : null));
         if (null === $contentKey || !is_string($file[$contentKey])) {
-            return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('missing_file_payload', 'warning', 'An artifact file was ignored because it has no explicit text or base64 payload.', array('path' => $path))));
+            return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => 0, 'diagnostics' => array(ArtifactDiagnostics::make('missing_file_payload', 'warning', 'An artifact file was ignored because it has no explicit text or base64 payload.', array('path' => $path))));
         }
         $content = $file[$contentKey];
         $mimeType = $this->mimeType((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? (str_contains((string) ($file['type'] ?? ''), '/') ? $file['type'] : '')), $path);
@@ -922,7 +916,7 @@ final class ArtifactNormalizer
 
     private function kind(string $kind, string $path, string $content, string $mimeType): string
     {
-        $kind = $this->sanitizeKey($kind);
+        $kind = ArtifactPath::sanitizeKey($kind);
         if ( in_array($kind, array('html', 'css', 'js', 'jsx', 'tsx', 'json', 'markdown', 'mdx', 'asset', 'blocks'), true) ) {
             return $kind;
         }
@@ -1004,7 +998,7 @@ final class ArtifactNormalizer
 
     private function role(string $role, string $kind, string $mimeType, string $path): string
     {
-        $role = $this->sanitizeKey($role);
+        $role = ArtifactPath::sanitizeKey($role);
         if ( '' !== $role ) {
             return $role;
         }
@@ -1041,7 +1035,7 @@ final class ArtifactNormalizer
 
     private function intent(string $intent, string $kind, string $role): string
     {
-        $intent = $this->sanitizeKey($intent);
+        $intent = ArtifactPath::sanitizeKey($intent);
         if ( '' !== $intent ) {
             return $intent;
         }
@@ -1122,19 +1116,14 @@ final class ArtifactNormalizer
         return hash_final($context);
     }
 
-    private function sanitizeKey(string $key): string
-    {
-        return preg_replace('/[^a-z0-9_-]+/', '-', strtolower(trim($key))) ?? '';
-    }
-
     /** @return array<string,string>|null */
     private function htmlTemplateSurfaceDeclaration(string $html): ?array
     {
         if ( ! preg_match('/<main\b([^>]*)>/i', $html, $match) ) {
             return null;
         }
-        $role = $this->htmlAttribute((string) $match[1], 'data-template-type');
-        $slug = $this->htmlAttribute((string) $match[1], 'data-template-slug');
+        $role = HtmlTagScanner::attribute((string) $match[1], 'data-template-type');
+        $slug = HtmlTagScanner::attribute((string) $match[1], 'data-template-slug');
         if ( '' === $role || '' === $slug || ! $this->isTemplateSurfaceRole($role) ) {
             return null;
         }

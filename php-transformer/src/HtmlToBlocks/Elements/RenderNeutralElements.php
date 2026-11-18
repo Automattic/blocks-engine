@@ -5,12 +5,17 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\RichTextInlineTags;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EntranceAnimation;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceCascade;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceElementDescription;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EmptyElementFootprint;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -32,9 +37,20 @@ final class RenderNeutralElements
     /** URL-bearing attributes; a nonempty value means the subtree references rendered content elsewhere. */
     private const SUBTREE_URL_ATTRIBUTES = array( 'src', 'srcset', 'href', 'data-src', 'data-url' );
 
+    /**
+     * Landmark (non-widget) roles a named custom element may carry, and the
+     * core/group tag that keeps them. `group` has no native tag core/group can
+     * save, so it would lose its role and stays on the fallback path.
+     */
+    private const LANDMARK_ROLE_TAGS = array(
+        'region' => 'section',
+        'complementary' => 'aside',
+        'navigation' => 'nav',
+        'search' => 'search',
+    );
+
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly StyleResolver $styleResolver,
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly SourceElementDescription $sourceElementDescription,
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
@@ -46,7 +62,7 @@ final class RenderNeutralElements
      * Whether a wrapper instance carries no identity, behavior, or presentation
      * of its own, and can therefore be replaced by its children.
      */
-    public function isRenderNeutralWrapper(DOMElement $element, bool $stylesPrepared = true): bool
+    public function isRenderNeutralWrapper(DOMElement $element, bool $stylesPrepared = true, bool $ignoreEmptyHostResets = false): bool
     {
         // Custom-element convention removal precedes selector preparation.
         // Keep its original conservative contract; effect-based checks belong
@@ -71,11 +87,35 @@ final class RenderNeutralElements
         }
         // Attribute spelling is not presentation. Check matched author rules
         // (including conditional rules) as well as the inline declarations.
-        $declarations = $this->styleResolver->inlineDeclarations($element);
+        $declarations = SourceDeclarations::inline($element);
         foreach ($this->session->authorStyleRuleCandidates($element) as $candidate) {
-            if (! ($candidate['parsed']['supported'] ?? false)) return false;
+            if (! ($candidate['parsed']['supported'] ?? false)) {
+                // Pseudo-element resets are indexed conservatively as
+                // unsupported host candidates. They still cannot create a box
+                // without content or other non-neutral declarations.
+                $hostSelector = preg_replace('/::?(?:before|after)\s*$/i', '', $candidate['selector']);
+                $parsedHost = CssSelectorMatcher::parse($hostSelector);
+                if ( $ignoreEmptyHostResets && $hostSelector !== $candidate['selector']
+                    && ($parsedHost['supported'] ?? false)
+                    && array(array('universal', '')) === CssSubjectIndex::buckets($parsedHost)
+                    && array() === array_filter($candidate['declarations'], fn (string $value, string $property): bool => ! $this->isEmptyHostReset($property, $value), ARRAY_FILTER_USE_BOTH)
+                ) {
+                    continue;
+                }
+                if ( $ignoreEmptyHostResets && $this->pseudoElementRuleCannotPaintEmptyHost($element, $candidate['selector']) ) {
+                    continue;
+                }
+                return false;
+            }
             if ($this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']) {
-                $declarations = array_merge($declarations, $candidate['declarations']);
+                $matched = $candidate['declarations'];
+                // A global reset is not host-owned presentation. Only ignore
+                // declarations that cannot give this empty host a footprint;
+                // targeted rules and universal paint/geometry remain evidence.
+                if ( $ignoreEmptyHostResets && array(array('universal', '')) === CssSubjectIndex::buckets($candidate['parsed']) ) {
+                    $matched = array_filter($matched, fn (string $value, string $property): bool => ! $this->isEmptyHostReset($property, $value), ARRAY_FILTER_USE_BOTH);
+                }
+                $declarations = array_merge($declarations, $matched);
             }
         }
         $inheritedText = array('white-space', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent');
@@ -87,6 +127,226 @@ final class RenderNeutralElements
         return true;
     }
 
+    /**
+     * Configuration alone may describe a runtime placeholder, but semantic
+     * attributes can describe missing visible output or a control. Only the
+     * former is safe to omit (or retain as a paint-free spacing group) before
+     * recording an unproven-runtime finding.
+     * The caller must already have established that the runtime is unproven.
+     */
+    public function isEmptyRenderNeutralConfiguredHost(DOMElement $element): bool
+    {
+        if ( 0 !== SourceDom::childElementCount($element)
+            || '' !== trim($element->textContent ?? '')
+            || $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element)
+            || $this->sourceElementClassifier->hasCommerceToken($element, array( 'checkout', 'cart' ))
+            || $this->sourceElementClassifier->hasTokenBoundary($element->tagName, 'checkout')
+            || $this->sourceElementClassifier->hasTokenBoundary($element->tagName, 'cart')
+            || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, false, true)
+            || ( ! $this->isRenderNeutralWrapper($element, true, true) && ! $this->configuredHostStylesArePaintFree($element) )
+        ) {
+            return false;
+        }
+
+        // These attributes describe output, state or form participation, not
+        // opaque configuration. Even a textless host can be a visible widget.
+        foreach ( array( 'title', 'alt', 'label', 'placeholder', 'name', 'type', 'value', 'status', 'checked', 'selected', 'disabled', 'required', 'readonly', 'form', 'for', 'href', 'src', 'srcset', 'width', 'height' ) as $attribute ) {
+            if ( $element->hasAttribute($attribute) ) {
+                return false;
+            }
+        }
+        foreach ( $element->attributes as $attribute ) {
+            if ( str_starts_with(strtolower($attribute->name), 'aria-') ) {
+                return false;
+            }
+        }
+        $id = SourceDom::namedFragmentTargetId($element);
+        return '' === $id || ! SourceDom::documentReferencesFragmentId($element, $id);
+    }
+
+    /**
+     * Only the empty configured-host path may retain geometry without paint.
+     * Inspect every matching rule, including conditional rules, rather than a
+     * single viewport's computed style. Unknown effects stay on the fallback path.
+     */
+    private function configuredHostStylesArePaintFree(DOMElement $element): bool
+    {
+        if ( null === $element->parentNode
+            || '' !== trim(SourceDom::attr($element, 'role'))
+            || array() !== $this->sourceElementDescription->interactiveAttributes($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
+            || $this->sourceElementClassifier->hasMotionStructureToken($element)
+        ) {
+            return false;
+        }
+        $declarations = SourceDeclarations::inline($element);
+        $reveal = $this->configuredHostHasEntranceReveal($element, $declarations);
+        foreach ( $this->session->authorStyleRuleCandidates($element) as $candidate ) {
+            $selector = $candidate['selector'];
+            $parsed = $candidate['parsed'];
+            if ( ! ($parsed['supported'] ?? false) ) {
+                // Shared with the render-neutral drop: unreachable or boxless
+                // pseudo-elements and global resets do not paint this host.
+                if ( $this->pseudoElementRuleCannotPaintEmptyHost($element, $selector) ) {
+                    continue;
+                }
+                $pseudo = CssSelectorMatcher::pseudoElementHost($selector);
+                if ( null === $pseudo ) {
+                    return false;
+                }
+                if ( $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $pseudo['selector'], $pseudo['parsed'])['matches']
+                    && array() !== array_filter($candidate['declarations'], fn (string $value, string $property): bool => ! $this->isEmptyHostReset($property, $value), ARRAY_FILTER_USE_BOTH)
+                ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $selector, $parsed)['matches'] ) {
+                // Do not let a later declaration hide possible conditional paint.
+                if ( ! $this->configuredHostDeclarationsArePaintFree($candidate['declarations'], $reveal) ) {
+                    return false;
+                }
+            }
+        }
+        return $this->configuredHostDeclarationsArePaintFree($declarations, $reveal);
+    }
+
+    /**
+     * A finite entrance reveal (fade/translate in) moves or fades an empty
+     * host's box; it paints nothing the placeholder would not already omit.
+     *
+     * @param array<string, string> $inline
+     */
+    private function configuredHostHasEntranceReveal(DOMElement $element, array $inline): bool
+    {
+        $declarations = $inline;
+        foreach ( $this->session->authorStyleRuleCandidates($element) as $candidate ) {
+            if ( ($candidate['parsed']['supported'] ?? false)
+                && $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
+            ) {
+                $declarations = array_merge($declarations, $candidate['declarations']);
+            }
+        }
+        return EntranceAnimation::matches(
+            $declarations,
+            $this->session->authorStyleAnalysis()->combinedCss(),
+            (new SourceCascade($this->session->sourceStyleResolutionState()))->customProperties($element)
+        );
+    }
+
+    /** @param array<string, string> $declarations */
+    private function configuredHostDeclarationsArePaintFree(array $declarations, bool $reveal = false): bool
+    {
+        foreach ( $declarations as $property => $value ) {
+            // Opacity and transitions cannot paint an empty host; reveal
+            // motion is only accepted once the keyframes prove a reveal.
+            if ( 'opacity' === $property || 'z-index' === $property || str_starts_with($property, 'transition')
+                || ('position' === $property && in_array(strtolower(trim($value)), array('static', 'relative'), true))
+                || ($reveal && (str_starts_with($property, 'animation') || in_array($property, array('transform', 'translate'), true)))
+            ) {
+                continue;
+            }
+            if ( in_array($property, array(
+                'white-space', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight',
+                'font-variant', 'line-height', 'letter-spacing', 'word-spacing', 'text-align',
+                'text-transform', 'text-indent', 'display', 'box-sizing',
+            ), true) || 1 === preg_match('/^(?:(?:padding|margin)(?:-(?:top|right|bottom|left|block(?:-start|-end)?|inline(?:-start|-end)?))?|(?:(?:min|max)-)?(?:width|height|inline-size|block-size)|(?:row-|column-)?gap)$/', $property) ) {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Pseudo-element rules are indexed as unsupported candidates for every
+     * host. Their subject compound still decides whether they can reach this
+     * host: a rule whose host part does not match cannot style it, and
+     * pseudo-elements other than ::before/::after generate no box on an empty
+     * custom element. Host-matching ::before/::after rules stay evidence.
+     */
+    private function pseudoElementRuleCannotPaintEmptyHost(DOMElement $element, string $selector): bool
+    {
+        if ( 1 !== preg_match('/(::?-?[a-z][a-z0-9-]*(?:\([^()]*\))?)\s*$/i', trim($selector), $suffix) ) {
+            return false;
+        }
+        $pseudo = strtolower(ltrim($suffix[1], ':'));
+        $isElementPseudo = str_starts_with($suffix[1], '::')
+            || in_array($pseudo, array('before', 'after', 'first-line', 'first-letter'), true);
+        if ( ! $isElementPseudo ) {
+            return false;
+        }
+        $host = trim(substr(trim($selector), 0, -strlen($suffix[1])));
+        if ( '' === $host || 1 === preg_match('/[\s>+~(]$/', $host) ) {
+            $host .= '*';
+        }
+        $parsed = CssSelectorMatcher::parse($host);
+        if ( ! ($parsed['supported'] ?? false) ) {
+            return false;
+        }
+        $matches = $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $host, $parsed)['matches'];
+        if ( ! $matches ) {
+            return true;
+        }
+        return ! in_array(preg_replace('/\(.*$/', '', $pseudo), array('before', 'after'), true);
+    }
+
+    /** Global box-model resets do not paint or size an otherwise empty host. */
+    private function isEmptyHostReset(string $property, string $value): bool
+    {
+        if ( 'box-sizing' === $property ) {
+            return true;
+        }
+        if ( 1 !== preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$/', $property) ) {
+            return false;
+        }
+        return 1 === preg_match('/^[+-]?0(?:\.0+)?(?:[a-z]+|%)?(?:\s+[+-]?0(?:\.0+)?(?:[a-z]+|%)?){0,3}$/', CssValueInspector::comparable($value));
+    }
+
+    /**
+     * The core/group a custom element's landmark semantics lower to: a
+     * landmark role (no widget role) with an accessible name that core/group
+     * can carry as `ariaLabel`. Returns null for anything else, including an
+     * unresolvable `aria-labelledby`, so those hosts keep their existing
+     * disposition.
+     *
+     * @return array{tagName: string, ariaLabel: string}|null
+     */
+    public function namedLandmark(DOMElement $element): ?array
+    {
+        if ( ! str_contains($element->tagName, '-') ) {
+            return null;
+        }
+        $tagName = self::LANDMARK_ROLE_TAGS[strtolower(trim(SourceDom::attr($element, 'role')))] ?? null;
+        if ( null === $tagName ) {
+            return null;
+        }
+        $label = trim(SourceDom::attr($element, 'aria-label'));
+        $labelledBy = array_filter(SourceDom::tokens(SourceDom::attr($element, 'aria-labelledby')), static fn (string $id): bool => '' !== $id);
+        if ( array() !== $labelledBy ) {
+            // aria-labelledby wins the accessible name; carry its text.
+            $parts = array();
+            foreach ( $labelledBy as $id ) {
+                $reference = $element->ownerDocument?->getElementById($id);
+                if ( null === $reference ) {
+                    foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $candidate ) {
+                        if ( $candidate instanceof DOMElement && $id === $candidate->getAttribute('id') ) {
+                            $reference = $candidate;
+                            break;
+                        }
+                    }
+                }
+                if ( ! $reference instanceof DOMElement ) {
+                    return null;
+                }
+                $parts[] = trim((string) preg_replace('/\s+/u', ' ', $reference->textContent ?? ''));
+            }
+            $label = trim(implode(' ', $parts));
+        }
+
+        return '' === $label ? null : array( 'tagName' => $tagName, 'ariaLabel' => $label );
+    }
+
     /** A neutral autonomous host whose ordinary light DOM needs no component lowering. */
     public function isRenderNeutralCustomFlowWrapper(DOMElement $element): bool
     {
@@ -95,7 +355,6 @@ final class RenderNeutralElements
             || '' !== trim(SourceDom::attr($element, 'class'))
             || '' !== trim(SourceDom::attr($element, 'id'))
             || $element->hasAttribute('hidden')
-            || '' === trim($element->textContent ?? '')
             || ! $this->isRenderNeutralWrapper($element)
             || ! $this->runtimeIslands->isSafeTransparentCustomElement($element, false, true)
         ) {
@@ -103,7 +362,7 @@ final class RenderNeutralElements
         }
 
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( 'none' === ($this->styleResolver->inlineDeclarations($descendant)['display'] ?? '') ) {
+            if ( 'none' === (SourceDeclarations::inline($descendant)['display'] ?? '') ) {
                 return false;
             }
         }
@@ -113,7 +372,9 @@ final class RenderNeutralElements
             if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
                 continue;
             }
-            if ( ! $child instanceof DOMElement || ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($child) ) {
+            // Native buttons (including icon-only buttons) are ordinary light
+            // DOM content too; their own converter retains control semantics.
+            if ( ! $child instanceof DOMElement || ( 'button' !== strtolower($child->tagName) && ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($child) ) ) {
                 return false;
             }
             $children[] = $child;
@@ -121,7 +382,8 @@ final class RenderNeutralElements
 
         // Repeated siblings may be a cohesive component; retain that existing
         // disposition rather than reclassifying collections as wrappers.
-        return 1 === count($children);
+        return 1 === count($children)
+            && ( '' !== trim($element->textContent ?? '') || 'button' === strtolower($children[0]->tagName) );
     }
 
     /**
@@ -129,7 +391,8 @@ final class RenderNeutralElements
      * text, no media, graphics, or iframes, no form or interactive controls,
      * no runtime or event metadata, no accessible role or name, no
      * URL-bearing attributes, and authored presentation limited to `display`
-     * (stylesheet rules addressing the tag and inline styles alike). Author
+     * and box-neutral positioning in stylesheet rules addressing the tag
+     * (inline styles remain display-only). Author
      * CSS reaching the subtree through a descendant's class, id, or
      * hyphenated tag name must not paint or occupy space either: a child
      * styled by `.rule-line{height:1px;background:#ccc}` is a visible
@@ -198,13 +461,23 @@ final class RenderNeutralElements
         if ( '' === $style ) {
             return true;
         }
-        foreach ( array_keys($this->styleResolver->cssDeclarations($style)) as $property ) {
+        foreach ( array_keys(SourceDeclarations::parse($style)) as $property ) {
             if ( 'display' !== strtolower(trim((string) $property)) ) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    /** Positioning alone cannot paint an otherwise empty, unrendered host. */
+    private function isEmptyBoxNeutralProperty(string $property): bool
+    {
+        return in_array(strtolower(trim($property)), array(
+            'display', 'position', 'top', 'right', 'bottom', 'left', 'z-index',
+            'inset', 'inset-block', 'inset-block-start', 'inset-block-end',
+            'inset-inline', 'inset-inline-start', 'inset-inline-end',
+        ), true);
     }
 
     /** Token-boundary selector match, as the host-tag pattern already uses. */
@@ -215,8 +488,8 @@ final class RenderNeutralElements
 
     /**
      * Whether author CSS leaves this custom-element subtree render-empty.
-     * Rules addressing the host tag may declare only `display` — the box they
-     * generate paints nothing over empty content. Rules reaching the subtree
+     * Rules addressing the host tag may declare `display` and box-neutral
+     * positioning — neither paints empty content. Rules reaching the subtree
      * through a class, id, or hyphenated tag name must not declare paint or
      * size either: descendant CSS such as `.rule-line{height:1px;background:
      * #ccc}` gives an otherwise-empty host visible presence. Token matching
@@ -235,9 +508,9 @@ final class RenderNeutralElements
 
         foreach ( CssValueSplitter::ruleBlocks($css) as $rule ) {
             if ( 1 === preg_match($tagPattern, $rule['selector']) ) {
-                // The host tag's own presentation stays display-only.
-                foreach ( array_keys($this->styleResolver->cssDeclarations($rule['declarations'])) as $property ) {
-                    if ( 'display' !== strtolower(trim((string) $property)) ) {
+                // Offsets and stacking alone give an empty host no visible content.
+                foreach ( array_keys(SourceDeclarations::parse($rule['declarations'])) as $property ) {
+                    if ( ! $this->isEmptyBoxNeutralProperty((string) $property) ) {
                         return false;
                     }
                 }
@@ -307,8 +580,10 @@ final class RenderNeutralElements
      * accessible name (a widget, not a wrapper) stays on the preservation
      * path, as do the legacy Shadow DOM insertion points `content` and
      * `shadow`, and a textless hyphenated custom element, which a script may
-     * still upgrade into rendered shadow content. Passive graphic-only light
-     * DOM, captured native media, or an empty host painting only its inline
+     * still upgrade into rendered shadow content. A named landmark role
+     * (`role="region" aria-label="…"`, see namedLandmark()) only names a
+     * section of the page, so it does not make the host a widget. Passive
+     * graphic-only light DOM, captured native media, or an empty host painting only its inline
      * background is the exception, unless configuration or a proven runtime
      * owns the host. As with a background-paint-only host, a host whose light
      * DOM is nothing but captured native media already renders without a
@@ -319,13 +594,22 @@ final class RenderNeutralElements
     {
         if ( ( ! RichTextInlineTags::isUnknownHtmlElement($element) && ! str_contains(strtolower($element->tagName), '-') )
             || in_array(strtolower($element->tagName), array( 'content', 'shadow' ), true)
-            || $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element)
+            // Motion topology names alone do not make static content runtime-owned.
+            || $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element, false)
             || ! $this->runtimeIslands->isSafeTransparentCustomElement($element)
         ) {
             return false;
         }
+        // A landmark host only names a section; a proven runtime definition
+        // may still give it widget behaviour, so it keeps the widget path.
+        $landmark = null !== $this->namedLandmark($element)
+            && ! ( new CustomElementRuntimeDependency() )->hasProvenRuntimeDependency(
+                $element,
+                $this->session->runtimeBehaviorState()->runtimeScriptMetadata(),
+                $this->session->runtimeBehaviorState()->runtimeProjectionScriptAssets()
+            );
         foreach ( array( 'role', 'aria-label', 'aria-labelledby' ) as $attribute ) {
-            if ( '' !== trim(SourceDom::attr($element, $attribute)) ) {
+            if ( ! $landmark && '' !== trim(SourceDom::attr($element, $attribute)) ) {
                 return false;
             }
         }

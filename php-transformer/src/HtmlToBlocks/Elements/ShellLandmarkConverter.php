@@ -48,7 +48,7 @@ final class ShellLandmarkConverter implements ElementConverter
                             // are deferred to selectors that won't follow the detached part.
                             $context = $this->styleResolver->styleAttributeMapper()->map(
                                 $this->styleResolver->presentationDeclarations($ancestor),
-                                fn (string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $ancestor)
+                                fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $ancestor)
                             );
                             if (!isset($context['style']['color'][$paint])) continue;
                             $attrs['style']['color'][$paint] = $context['style']['color'][$paint];

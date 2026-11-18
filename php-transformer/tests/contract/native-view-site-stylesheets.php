@@ -86,7 +86,7 @@ $assert(array() !== $extraScopes && array() === array_filter($extraScopes, stati
 $bootstrap = (string) (array_column($plan['writes'], null, 'target_path')['functions.php']['payload']['data'] ?? '');
 $frontend = (string) strstr(\Automattic\BlocksEngine\PhpTransformer\Tests\Support\BootstrapStyles::expand($bootstrap), "add_action( 'wp_enqueue_scripts'");
 $frontend = substr($frontend, 0, (int) strpos($frontend, '}, 1 );'));
-$assert(str_contains($frontend, '$blocks_engine_route_styles = false;'), 'The route flag guards the fallback run.');
+$assert(str_contains($frontend, '$blocks_engine_route_styles = array() !== $blocks_engine_style_routes;'), 'The route flag guards the fallback run.');
 
 preg_match_all('/^    if \( (.+?) \) \{\n((?:        [^\n]+\n)+)    \}$/m', $frontend, $blocks, PREG_SET_ORDER);
 $routes = array();

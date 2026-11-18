@@ -6,6 +6,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ResponsiveCorrespondence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
@@ -124,6 +126,8 @@ final class PresetBinding
     private const GENERATED_CLASS = '/^(?:' . CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX . '|' . ResponsiveCorrespondence::TOKEN_CLASS_PREFIX . '|wp-|has-|is-layout-|is-content-justification-|is-nowrap$|is-vertical$|blocks-engine-|align(?:wide|full|left|right|center)$)/';
 
     private const SPACING_SIDES = array('top', 'right', 'bottom', 'left');
+    /** Attributes binding writes, in the one order it emits them (see withBoundOrder()). */
+    private const BOUND_ATTRIBUTES = array('style', 'textColor', 'backgroundColor', 'borderColor', 'fontSize', 'fontFamily');
 
     /** Element-token marker: the element's start-tag attributes are listed as `attr:` tokens. */
     private const KNOWN_ATTRIBUTES = 'attrs:known';
@@ -185,14 +189,18 @@ final class PresetBinding
     private array $importantRules = array();
     /** @var array<string,list<array{tokens:list<string>|null,negated:list<string>,fragment:string}>> `[style*=…]` selectors per family; null tokens reach any element. */
     private array $styleTextRules = array();
+    /** @var array<string,array<string,list<array{0:string,1:string}>>> Per button box family (`border-radius`, `padding`), the declarations of rules naming each control marker. */
+    private array $controlBoxRules = array();
     /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>,compound?:array<string,mixed>}>> Subjects of interaction-state rules, per family. */
     private array $stateTokens = array();
     /** @var array<string,array<string,string>> Authored class list => property => the one observation every element agreed on, or `!`. */
     private array $classStyles = array();
-    /** @var array<string,array<string,list<string>>> Unconditional single-class colour declarations. */
+    /** @var array<string,array<string,list<string>>> Unconditional single-class colour and font-size declarations. */
     private array $classColors = array();
     /** @var array<string,list<array<string,mixed>>> Subjects of plain colour rules per family, with their value; null when a condition or layer applies. */
     private array $restingColors = array();
+    /** @var list<array<string,mixed>> Unconditional local custom-property rules. */
+    private array $localVariables = array();
     /** @var array<string,array<string,array<string,list<int>>>> Rule indexes by kind, family and required subject token. */
     private array $subjectBuckets = array();
     /** @var array<string,bool> restsOn() results by property, literal and token sets. */
@@ -200,6 +208,9 @@ final class PresetBinding
     private int $bound = 0;
     /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
     private array $fontDefaults = array();
+
+    /** @var array<string,string> Concrete body colours owned by the emitted theme. */
+    private array $bodyColorDefaults = array();
     private bool $themeDefaultsReady = false;
     /** Whether an author rule selects `mark` elements, which a span made a mark would join. */
     private bool $markRules = false;
@@ -207,6 +218,8 @@ final class PresetBinding
     private array $fontRules = array();
     /** @var array<string,string|false> Root custom properties; false when a value is scoped or conditional. */
     private array $variables = array();
+    /** @var array<string,array<string,string>> Unconditional root values by selector and stylesheet scope. */
+    private array $rootVariables = array();
     /** @var array<string,array<string,true>> Values custom properties take outside the root. */
     private array $scopedVariables = array();
     /** @var array<string,string> Custom properties every definition, all outside the root, sets to one value. */
@@ -222,9 +235,9 @@ final class PresetBinding
         foreach ($assets as $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $conditional = !in_array(strtolower(trim((string) ($asset['media'] ?? ''))), array('', 'all'), true);
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional): void {
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $asset): void {
                 $this->indexRule($prelude, $body);
-                $this->indexVariables($prelude, $body, $ancestors);
+                $this->indexVariables($prelude, $body, $conditional ? array_merge($ancestors, array('@media ' . $asset['media'])) : $ancestors, $asset['scopes'] ?? array(array('kind' => 'global')));
                 $this->indexRestingColors($prelude, $body, $conditional || array() !== $ancestors);
                 $font = self::declared(self::declarations($body), 'font-family');
                 $shorthand = self::declared(self::declarations($body), 'font');
@@ -244,11 +257,15 @@ final class PresetBinding
                         $selector = preg_replace('/^' . $routeScope . ' +|' . $routeScope . '$/', '', trim($selector)) ?? $selector;
                         if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', $selector, $match)) continue;
                         foreach (self::declarations($body) as [$property, $value]) {
-                            if (in_array($property, array('color', 'background-color', 'background'), true)) $this->classColors[$match[1]][$property][] = $value;
+                            if (in_array($property, array('color', 'background-color', 'background', 'font-size'), true)) $this->classColors[$match[1]][$property][] = $value;
                         }
                     }
                 }
             });
+        }
+        foreach ($this->rootVariables as $name => $definitions) {
+            $values = array_values(array_unique($definitions));
+            if (false !== ($this->variables[$name] ?? null)) $this->variables[$name] = 1 === count($values) ? $values[0] : false;
         }
         foreach ($this->scopedVariables as $name => $values) {
             if (!array_key_exists($name, $this->variables) && 1 === count($values)) $this->uniformVariables[$name] = (string) array_key_first($values);
@@ -259,8 +276,8 @@ final class PresetBinding
     }
 
     /**
-     * Only the theme that will be written may own inherited font defaults.
-     * Before that projection is available, binding conservatively keeps fonts.
+     * Only the theme that will be written may own body paint and inherited
+     * font defaults. Before projection, binding conservatively keeps them.
      *
      * @param array<string,mixed> $theme
      */
@@ -270,6 +287,14 @@ final class PresetBinding
         $this->fontDefaults = array();
         $families = array_column($theme['settings']['typography']['fontFamilies'] ?? array(), 'fontFamily', 'slug');
         $styles = $theme['styles'] ?? array();
+        $this->bodyColorDefaults = array();
+        $palette = array_column($theme['settings']['color']['palette'] ?? array(), 'color', 'slug');
+        foreach (array('color' => 'text', 'background-color' => 'background') as $property => $key) {
+            $value = $styles['color'][$key] ?? null;
+            if (!is_string($value)) continue;
+            $value = $palette[str_replace('var:preset|color|', '', $value)] ?? $value;
+            if (null !== CssColor::hex($value)) $this->bodyColorDefaults[$property] = $value;
+        }
         foreach (array('body', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6') as $tag) {
             $value = 'body' === $tag ? ($styles['typography']['fontFamily'] ?? null)
                 : ($styles['elements'][$tag]['typography']['fontFamily'] ?? $styles['elements']['heading']['typography']['fontFamily'] ?? null);
@@ -704,6 +729,7 @@ final class PresetBinding
     private function bindBlock(string $name, string $json, string $markup, int $after): ?array
     {
         $attributes = json_decode($json, false);
+        $authoredKeys = $attributes instanceof \stdClass ? array_keys(get_object_vars($attributes)) : array();
         if (!$attributes instanceof \stdClass || BlockAttributes::encode($attributes) !== $json) {
             $this->refuseLiteralColors($attributes);
             return null;
@@ -723,37 +749,55 @@ final class PresetBinding
         $tokens = $this->tagTokens($html, $classes . ' ' . (is_string($attributes->className ?? null) ? $attributes->className : ''), true);
         $supports = self::CLASS_SUPPORTS[$name] ?? array();
         $isLink = in_array($name, self::LINK_BLOCKS, true);
-        $addClasses = $dropClasses = array();
-        $bound = 0;
         $style = $attributes->style ?? new \stdClass();
         $deviceOverridden = $this->deviceOverriddenProperties($attributes, $declarations);
 
         $variation = $isLink && null !== $this->system->buttonVariationSlug() && $this->matchesButtonVariation($style);
         $buttonLook = $isLink && (isset($this->system->elements['button']) || $variation);
+        $d = new PresetBlockDraft($name, $html, $classes, $attributes, $style, $declarations, $tokens, $observed, $supports, $isLink, $deviceOverridden, $buttonLook);
+        $this->bindButtonLook($d, $variation);
+        $this->bindColorPresets($d);
+        $this->bindBorderColors($d);
+        $this->bindTypography($d);
+        $this->bindSpacing($d);
+        if (0 === $d->bound) return null;
+        return $this->boundBlock($d, $authoredKeys, $tagStart, $tagEnd);
+    }
+
+    /**
+     * A link block whose look matches the theme button: it takes the button
+     * variation class, and element-owned declarations leave its inline style.
+     */
+    private function bindButtonLook(PresetBlockDraft $d, bool $variation): void
+    {
+        $tokens = $d->tokens;
+        $buttonLook = $d->buttonLook;
+        $attributes = $d->attributes;
+        $style = $d->style;
         if ($variation) {
             $class = 'is-style-' . $this->system->buttonVariationSlug();
             $attributes->className = trim(($attributes->className ?? '') . ' ' . $class);
-            ++$bound;
+            ++$d->bound;
         }
         if ($buttonLook) {
             foreach (array('fontFamily' => 'font-family', 'fontSize' => 'font-size', 'fontWeight' => 'font-weight', 'textTransform' => 'text-transform', 'letterSpacing' => 'letter-spacing') as $key => $property) {
                 $value = $style->typography->{$key} ?? null;
-                if (is_string($value) && $this->matchesButtonElement($property, $value) && self::removeDeclaration($declarations, $property, $value)) {
+                if (is_string($value) && $this->matchesButtonElement($property, $value) && self::removeDeclaration($d->declarations, $property, $value)) {
                     unset($style->typography->{$key});
-                    if ('fontSize' === $key) $dropClasses[] = 'has-custom-font-size';
-                    ++$bound;
+                    if ('fontSize' === $key) $d->dropClasses[] = 'has-custom-font-size';
+                    ++$d->bound;
                 }
             }
             $value = $style->border->radius ?? null;
-            if (is_string($value) && $this->matchesButtonElement('border-radius', $value) && self::removeDeclaration($declarations, 'border-radius', $value)) {
+            if (is_string($value) && $this->matchesButtonElement('border-radius', $value) && !$this->controlRuleDeclares('border-radius', $tokens) && self::removeDeclaration($d->declarations, 'border-radius', $value)) {
                 unset($style->border->radius);
-                ++$bound;
+                ++$d->bound;
             }
             foreach (array('top', 'right', 'bottom', 'left') as $side) {
                 $value = $style->spacing->padding->{$side} ?? null;
-                if (is_string($value) && $this->matchesButtonElement('padding-' . $side, $value) && self::removeDeclaration($declarations, 'padding-' . $side, str_starts_with($value, 'var:preset|spacing|') ? 'var(--wp--preset--spacing--' . substr($value, strlen('var:preset|spacing|')) . ')' : $value)) {
+                if (is_string($value) && $this->matchesButtonElement('padding-' . $side, $value) && !$this->controlRuleDeclares('padding', $tokens) && self::removeDeclaration($d->declarations, 'padding-' . $side, str_starts_with($value, 'var:preset|spacing|') ? 'var(--wp--preset--spacing--' . substr($value, strlen('var:preset|spacing|')) . ')' : $value)) {
                     unset($style->spacing->padding->{$side});
-                    ++$bound;
+                    ++$d->bound;
                 }
             }
             foreach (array('text' => 'color', 'background' => 'background-color') as $key => $property) {
@@ -764,14 +808,31 @@ final class PresetBinding
                 // Native button elements need explicit palette bindings; link
                 // variants retain their existing element-default ownership.
                 if ('button' === ($attributes->tagName ?? null) && null !== $slug && $this->safe($property, $tokens, $added)) continue;
-                if (self::removeDeclaration($declarations, $property, $value)) {
+                if (self::removeDeclaration($d->declarations, $property, $value)) {
                     unset($style->color->{$key});
-                    $dropClasses[] = 'text' === $key ? 'has-text-color' : 'has-background';
-                    ++$bound;
+                    $d->dropClasses[] = 'text' === $key ? 'has-text-color' : 'has-background';
+                    ++$d->bound;
                 }
             }
         }
+    }
 
+    /**
+     * Text and background colours as palette attributes and preset classes,
+     * or as inline preset variables when a class would mask a state rule.
+     */
+    private function bindColorPresets(PresetBlockDraft $d): void
+    {
+        $name = $d->name;
+        $html = $d->html;
+        $classes = $d->classes;
+        $tokens = $d->tokens;
+        $observed = $d->observed;
+        $supports = $d->supports;
+        $deviceOverridden = $d->deviceOverridden;
+        $buttonLook = $d->buttonLook;
+        $attributes = $d->attributes;
+        $style = $d->style;
         $presets = array(
             'text' => array('textColor', 'color', 'color', 'has-text-color', 'has-%s-color'),
             'background' => array('backgroundColor', 'background-color', 'background-color', 'has-background', 'has-%s-background-color'),
@@ -796,48 +857,70 @@ final class PresetBinding
                 $observation = null;
             }
             $slug = $this->presetSlug('color', $literal, $observation, $reason);
+            if (null === $slug && is_string($literal) && self::paintsNothing($literal)) {
+                // A zero-alpha colour (a computed `rgba(255, 255, 255, 0)`)
+                // is no design value: it is the `transparent` keyword in
+                // effect, which paints and interpolates the same. Keep the
+                // declaration in its cascade slot, spelled as the keyword.
+                if (self::replaceDeclaration($d->declarations, $property, $literal, 'transparent')) {
+                    $style->color->{$key} = 'transparent';
+                    ++$d->bound;
+                }
+                continue;
+            }
             $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
             if (!$safe && is_string($literal) && ($this->rendersThroughClass($name, $property, $literal, $tokens) || ('state_variant' === $reason && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)))) {
                 // A preset class would mask the hover colour; the button
                 // element or author class renders this value with its state, so the
                 // literal only duplicated it.
-                if (!self::removeDeclaration($declarations, $property, $literal)) {
+                if (!self::removeDeclaration($d->declarations, $property, $literal)) {
                     $this->refuse('inconsistent_source');
                     continue;
                 }
                 unset($style->color->{$key});
-                $dropClasses[] = $flagClass;
-                ++$bound;
+                $d->dropClasses[] = $flagClass;
+                ++$d->bound;
                 continue;
             }
-            if (!$safe && 'state_variant' === $reason && null !== $slug && is_string($literal) && $this->restsOn($property, $literal, $tokens, 'button' === $name ? array($this->tagTokens($html, $classes, true), $this->tagTokens('<div>', 'wp-block-button ' . (is_string($attributes->className ?? null) ? $attributes->className : ''))) : null) && $this->inlinePreset($style->color, $key, 'color', $slug, $declarations, $property, $literal)) {
+            if (!$safe && 'state_variant' === $reason && null !== $slug && is_string($literal) && $this->restsOn($property, $literal, $tokens, 'button' === $name ? array($this->tagTokens($html, $classes, true), $this->tagTokens('<div>', 'wp-block-button ' . (is_string($attributes->className ?? null) ? $attributes->className : ''))) : null) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) {
                 // A preset class is !important and would mask the state
                 // rule. The resting rules paint this exact colour, so the
                 // inline declaration keeps its place in the cascade and only
                 // reads its value from the token.
-                ++$bound;
+                ++$d->bound;
                 continue;
             }
             if (!$safe) {
                 $this->refuse($reason);
                 continue;
             }
-            if ('background' === $key && !is_string($literal) && !$this->keepsPaddingWithBackground($name, $classes, $declarations, $observed)) {
+            if ('background' === $key && !is_string($literal) && !$this->keepsPaddingWithBackground($name, $classes, $d->declarations, $observed)) {
                 $this->refuse('background_padding');
                 continue;
             }
             if (is_string($literal)) {
-                if (!self::removeDeclaration($declarations, $property, $literal)) {
+                if (!self::removeDeclaration($d->declarations, $property, $literal)) {
                     $this->refuse('inconsistent_source');
                     continue;
                 }
                 unset($style->color->{$key});
             }
             $attributes->{$attribute} = $slug;
-            array_push($addClasses, ...array_map(static fn(string $class): string => sprintf($class, $slug), $added));
-            ++$bound;
+            array_push($d->addClasses, ...array_map(static fn(string $class): string => sprintf($class, $slug), $added));
+            ++$d->bound;
         }
+    }
 
+    /**
+     * Border colours: a link block's preset attribute, and inline preset
+     * variables for every border and border side.
+     */
+    private function bindBorderColors(PresetBlockDraft $d): void
+    {
+        $tokens = $d->tokens;
+        $isLink = $d->isLink;
+        $attributes = $d->attributes;
+        $style = $d->style;
         // core/button's border preset is serialized on the same inner element
         // as its text and background, including tagName: button.
         $border = $style->border->color ?? null;
@@ -845,11 +928,11 @@ final class PresetBinding
             $slug = $this->presetSlug('color', $border, null, $reason);
             $added = null === $slug ? array() : array('has-border-color', 'has-' . $slug . '-border-color');
             if (null !== $slug && $this->safe('border-color', $tokens, $added, false, false, $reason)) {
-                if (self::removeDeclaration($declarations, 'border-color', $border)) {
+                if (self::removeDeclaration($d->declarations, 'border-color', $border)) {
                     unset($style->border->color);
                     $attributes->borderColor = $slug;
-                    array_push($addClasses, ...$added);
-                    ++$bound;
+                    array_push($d->addClasses, ...$added);
+                    ++$d->bound;
                 } else $this->refuse('inconsistent_source');
             } else $this->refuse($reason);
         }
@@ -862,23 +945,52 @@ final class PresetBinding
             if (!is_string($literal) || str_starts_with($literal, 'var:')) continue;
             $property = '' === $side ? 'border-color' : 'border-' . $side . '-color';
             $slug = $this->presetSlug('color', $literal, null);
-            if (null !== $slug && $this->inlinePreset($group, 'color', 'color', $slug, $declarations, $property, $literal)) ++$bound;
+            if (null !== $slug && $this->inlinePreset($group, 'color', 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
         }
+    }
 
+    /**
+     * Font size and family as preset attributes and classes, or as inline
+     * preset variables where a class would change the cascade.
+     */
+    private function bindTypography(PresetBlockDraft $d): void
+    {
+        $html = $d->html;
+        $classes = $d->classes;
+        $tokens = $d->tokens;
+        $observed = $d->observed;
+        $supports = $d->supports;
+        $isLink = $d->isLink;
+        $deviceOverridden = $d->deviceOverridden;
+        $attributes = $d->attributes;
+        $style = $d->style;
         $typography = array(
             'fontSize' => array('fontSize', 'font-size', 'has-%s-font-size'),
             'fontFamily' => array('fontFamily', 'font-family', 'has-%s-font-family'),
         );
         foreach ($typography as $key => [$attribute, $property, $presetClass]) {
             if ('fontFamily' === $key && !$this->themeDefaultsReady) continue;
+            $literal = $style->typography->{$key} ?? null;
+            // Supplemental block tokens were not part of static-cascade usage.
+            // Keep the captured declaration's priority: a size preset class is
+            // !important and would mask the box-tree's mobile delta rules.
+            $supplemental = 'fontSize' === $key ? $this->system->fontSizes : $this->system->fontFamilies;
+            foreach ($supplemental as $preset) {
+                if (0 !== $preset['weight'] || !is_string($literal) || isset($attributes->{$attribute}) || isset($deviceOverridden[$property])) continue;
+                $value = 'fontSize' === $key ? $preset['size'] : $preset['fontFamily'];
+                if ($literal !== $value) continue;
+                if ($this->safe($property, $tokens, array(), true) && $this->inlinePreset($style->typography, $key, $property, $preset['slug'], $d->declarations, $property, $literal)) ++$d->bound;
+                continue 2;
+            }
             if ($isLink) {
-                // Button links carry no font preset class; a family equal to
-                // a preset stack reads its variable from the same inline
-                // declaration. Sizes stay as authored beside the element size.
-                if ('fontFamily' !== $key || isset($attributes->{$attribute})) continue;
+                // Keep button typography inline: preset classes would change
+                // priority and the link's font reset. An exact variable in the
+                // existing declaration preserves compact variants too; it does
+                // not need a matching class rule to prove its resting value.
+                if (isset($attributes->{$attribute}) || isset($deviceOverridden[$property])) continue;
                 $literal = $style->typography->{$key} ?? null;
-                $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? $this->presetSlug($property, $literal, null) : null;
-                if (null !== $slug && $this->inlinePreset($style->typography, $key, $property, $slug, $declarations, $property, $literal)) ++$bound;
+                $slug = is_string($literal) && !str_starts_with($literal, 'var:') ? ('fontSize' === $key ? $this->exactFontSizeSlug($this->resolve($literal)) : $this->presetSlug($property, $literal, null)) : null;
+                if (null !== $slug && $this->safe($property, $tokens, array(), true, false, $inlineReason, true) && $this->inlinePreset($style->typography, $key, $property, $slug, $d->declarations, $property, $literal)) ++$d->bound;
                 continue;
             }
             if (isset($attributes->{$attribute})) continue;
@@ -891,20 +1003,42 @@ final class PresetBinding
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $slug = $this->presetSlug($property, $literal, $observed[$property] ?? null);
-            if (null === $slug || !$this->safe($property, $tokens, array(sprintf($presetClass, $slug)))) continue;
+            if (null === $slug) {
+                // Class observations may vary across media or elements. An
+                // existing inline size can still name an exact preset without
+                // adding an important class or changing that cascade.
+                $inlineSlug = 'fontSize' === $key && is_string($literal) ? $this->exactFontSizeSlug($this->resolve($literal)) : null;
+                if (null !== $inlineSlug && $this->safe($property, $tokens, array(), true, false, $inlineReason, true) && $this->inlinePreset($style->typography, $key, $property, $inlineSlug, $d->declarations, $property, $literal)) ++$d->bound;
+                continue;
+            }
+            if (!$this->safe($property, $tokens, array(sprintf($presetClass, $slug)))) {
+                if (is_string($literal) && $this->safe($property, $tokens, array(), true, false, $inlineReason, true) && $this->inlinePreset($style->typography, $key, $property, $slug, $d->declarations, $property, $literal)) ++$d->bound;
+                continue;
+            }
             if (is_string($literal)) {
-                if (!self::removeDeclaration($declarations, $property, $literal)) continue;
+                if (!self::removeDeclaration($d->declarations, $property, $literal)) continue;
                 unset($style->typography->{$key});
             }
             // Element defaults own matching fonts; a preset class would pin
             // the block to the imported font after a Global Styles change.
             if ('fontFamily' !== $key || !$this->inheritsFont($html, $this->resolve($literal ?? $observed[$property] ?? ''))) {
                 $attributes->{$attribute} = $slug;
-                $addClasses[] = sprintf($presetClass, $slug);
+                $d->addClasses[] = sprintf($presetClass, $slug);
             }
-            ++$bound;
+            ++$d->bound;
         }
+    }
 
+    /**
+     * Padding, margin and block gap as inline spacing preset variables.
+     */
+    private function bindSpacing(PresetBlockDraft $d): void
+    {
+        $tokens = $d->tokens;
+        $observed = $d->observed;
+        $supports = $d->supports;
+        $isLink = $d->isLink;
+        $style = $d->style;
         foreach (array('padding', 'margin') as $box) {
             if ($isLink && 'margin' === $box) continue;
             $sides = $style->spacing->{$box} ?? null;
@@ -914,9 +1048,9 @@ final class PresetBinding
                     if (!is_string($value) || str_starts_with($value, 'var:')) continue;
                     $property = $box . '-' . $side;
                     $slug = $this->presetSlug('spacing', $value, 'padding' === $box ? ($observed[$property] ?? null) : null);
-                    if (null === $slug || !$this->safe($property, $tokens, array(), true) || !self::replaceDeclaration($declarations, $property, $value, 'var(--wp--preset--spacing--' . $slug . ')')) continue;
+                    if (null === $slug || !$this->safe($property, $tokens, array(), true) || !self::replaceDeclaration($d->declarations, $property, $value, 'var(--wp--preset--spacing--' . $slug . ')')) continue;
                     $sides->{$side} = 'var:preset|spacing|' . $slug;
-                    ++$bound;
+                    ++$d->bound;
                 }
             } elseif ('padding' === $box && in_array('padding', $supports, true) && !isset($style->spacing->padding)) {
                 // Class-driven padding is added side by side, in core's
@@ -925,15 +1059,15 @@ final class PresetBinding
                 foreach (self::SPACING_SIDES as $side) {
                     $property = 'padding-' . $side;
                     $slug = $this->presetSlug('spacing', null, $observed[$property] ?? null);
-                    if (null === $slug || array() !== array_filter($declarations, static fn(array $declaration): bool => str_starts_with($declaration[0], 'padding')) || !$this->safe($property, $tokens, array(), true, true)) continue;
+                    if (null === $slug || array() !== array_filter($d->declarations, static fn(array $declaration): bool => str_starts_with($declaration[0], 'padding')) || !$this->safe($property, $tokens, array(), true, true)) continue;
                     $padding->{$side} = 'var:preset|spacing|' . $slug;
                 }
                 if (array() !== get_object_vars($padding)) {
                     if (!isset($style->spacing) || !$style->spacing instanceof \stdClass) $style->spacing = new \stdClass();
                     $style->spacing->padding = $padding;
                     foreach (get_object_vars($padding) as $side => $value) {
-                        $declarations[] = array('padding-' . $side, 'var(--wp--preset--spacing--' . substr((string) $value, strlen('var:preset|spacing|')) . ')');
-                        ++$bound;
+                        $d->declarations[] = array('padding-' . $side, 'var(--wp--preset--spacing--' . substr((string) $value, strlen('var:preset|spacing|')) . ')');
+                        ++$d->bound;
                     }
                 }
             }
@@ -943,19 +1077,33 @@ final class PresetBinding
             $slug = $this->presetSlug('spacing', $gap, null);
             if (null !== $slug && $this->safe('gap', $tokens, array(), true)) {
                 $style->spacing->blockGap = 'var:preset|spacing|' . $slug;
-                ++$bound;
+                ++$d->bound;
             }
         }
+    }
 
-        if (0 === $bound) return null;
-        $this->bound += $bound;
+    /**
+     * The bound block delimiter and its rewritten tag.
+     *
+     * @param list<string> $authoredKeys
+     * @return array{0:string,1:int,2:int,3:string}
+     */
+    private function boundBlock(PresetBlockDraft $d, array $authoredKeys, int $tagStart, int $tagEnd): array
+    {
+        $name = $d->name;
+        $html = $d->html;
+        $classes = $d->classes;
+        $attributes = $d->attributes;
+        $style = $d->style;
+        $this->bound += $d->bound;
         if (array() !== get_object_vars($style)) $attributes->style = $style;
         if (isset($attributes->style)) self::prune($attributes);
-        $newStyle = self::declarationText($declarations);
+        $attributes = self::withBoundOrder($attributes, $authoredKeys);
+        $newStyle = self::declarationText($d->declarations);
         $newHtml = self::withAttribute($html, 'style', '' === $newStyle ? null : $newStyle);
-        if (array() !== $addClasses || array() !== $dropClasses) {
-            $current = array_diff(preg_split('/\s+/', trim($classes)) ?: array(), $dropClasses);
-            $newHtml = self::withAttribute($newHtml, 'class', implode(' ', array_values(array_unique(array_filter(array_merge($current, $addClasses), static fn(string $class): bool => '' !== $class)))));
+        if (array() !== $d->addClasses || array() !== $d->dropClasses) {
+            $current = array_diff(preg_split('/\s+/', trim($classes)) ?: array(), $d->dropClasses);
+            $newHtml = self::withAttribute($newHtml, 'class', implode(' ', array_values(array_unique(array_filter(array_merge($current, $d->addClasses), static fn(string $class): bool => '' !== $class)))));
         }
         $delimiter = '<!-- wp:' . $name . (array() === get_object_vars($attributes) ? '' : ' ' . BlockAttributes::encode($attributes)) . ' -->';
         return array($delimiter, $tagStart, $tagEnd, $newHtml);
@@ -991,6 +1139,7 @@ final class PresetBinding
     public function bindStylesheet(string $css): string
     {
         $transformer = new CssStylesheetTransformer();
+        // Yield unconditional body paint to matching emitted defaults.
         // Split selector arms so a shared utility still owns its font on
         // non-heading targets, including class arms that AuthorStylesheetProjector
         // scoped away from engine roles. Keep that exclusion; :where preserves
@@ -1000,16 +1149,32 @@ final class PresetBinding
                 if (!preg_match('/^@layer(?:\s|$)/', $ancestor)) return $prelude;
             }
             $value = self::declared(self::declarations($body), 'font-family');
-            if (null === $value || str_contains($body, '{')) return $prelude;
-            $value = $this->resolve($value);
+            if (str_contains($body, '{')) return $prelude;
+            if (null === $value && (array() === $this->bodyColorDefaults || !preg_match('/(?:^|,)\s*(?:body|(?::root\s+)?body\.editor-styles-wrapper)\s*(?:,|$)/', $prelude))) return $prelude;
+            $value = null === $value ? '' : $this->resolve($value);
             $rules = array();
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
                 $selector = trim($selector);
                 $tag = strtolower($selector);
                 if (1 === preg_match('/^(?::root\s+)?body\.editor-styles-wrapper$/', $tag)) $tag = 'body';
                 $kept = $body;
+                // A matching body paint belongs to Global Styles just like its
+                // font. Preset binding alone would keep the author declaration
+                // winning when the user edits styles.color rather than a preset.
+                // Never lift route/state/conditional selectors or a shorthand reset.
+                if ('body' === $tag) {
+                    $declarations = self::declarations($kept);
+                    $hasReset = null !== self::declared($declarations, 'all');
+                    $retained = array_values(array_filter($declarations, function (array $pair) use ($declarations, $hasReset): bool {
+                        [$property, $literal] = $pair;
+                        $expected = $this->bodyColorDefaults[$property] ?? null;
+                        if ($hasReset || null === $expected || ('background-color' === $property && null !== self::declared($declarations, 'background'))) return true;
+                        return CssColor::hex($this->resolve($literal)) !== CssColor::hex($expected);
+                    }));
+                    if (count($retained) !== count($declarations)) $kept = self::declarationText($retained);
+                }
                 if (isset($this->fontDefaults[$tag])) {
-                    $kept = self::declarationText(array_values(array_filter(self::declarations($body), static fn(array $pair): bool => 'font-family' !== $pair[0])));
+                    $kept = self::declarationText(array_values(array_filter(self::declarations($kept), static fn(array $pair): bool => 'font-family' !== $pair[0])));
                 } elseif (preg_match('/^\.[a-zA-Z_][a-zA-Z0-9_-]*(?::not\(:where\(\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . ')(?:\s*,\s*\.blocks-engine-role-(?:' . implode('|', EngineMarker::ROLE_KINDS) . '))*\)\))?$/', trim($selector))) {
                     $excluded = array();
                     foreach ($this->fontDefaults as $target => $font) {
@@ -1202,6 +1367,14 @@ final class PresetBinding
                 if (array() !== array_diff($classes, explode(' ', $key))) continue;
                 $matched = true;
                 $observed = $this->presetSlug('color', null, $properties[$property] ?? null);
+                // This fallback is still a stylesheet binding, not a block
+                // attribute. Scoped variables must obey the same palette
+                // boundary as directly resolved declarations.
+                if (null !== $observed) {
+                    foreach ($this->system->colors as $color) {
+                        if ($color['slug'] === $observed && null === $this->system->stylesheetColorSlug($color['color'])) return null;
+                    }
+                }
                 if (null === $observed || (null !== $slug && $slug !== $observed)) return null;
                 $slug = $observed;
             }
@@ -1236,18 +1409,25 @@ final class PresetBinding
         }
         if ('' === $value) return $declaration;
         if (str_starts_with($property, '--')) {
-            $font = CssFontShorthand::expand($value, false, $familyOffset);
-            if (isset($font['font-family'])) {
-                $family = substr($value, $familyOffset);
-                $slug = $this->exactFontFamilySlug($family);
-                foreach ($this->system->fontFamilies as $preset) {
-                    if (null !== $slug && $preset['slug'] === $slug && $this->sameFont($family, $preset['fontFamily'])) {
-                        ++$this->bound;
-                        return self::sourcePresets($parts[0]) . ':' . self::sourcePresets(substr($value, 0, $familyOffset))
-                            . 'var(--wp--preset--font-family--' . $slug . ')' . $important;
-                    }
+            CssFontShorthand::expand($value, false, $familyOffset);
+            // Without a shorthand prefix, the whole value may be a family stack.
+            $familyOffset ??= 0;
+            $family = substr($value, $familyOffset);
+            $slug = $this->exactFontFamilySlug($family);
+            foreach ($this->system->fontFamilies as $preset) {
+                if (null !== $slug && $preset['slug'] === $slug && $this->sameFont($family, $preset['fontFamily'])) {
+                    ++$this->bound;
+                    return self::sourcePresets($parts[0]) . ':' . self::sourcePresets(substr($value, 0, $familyOffset))
+                        . 'var(--wp--preset--font-family--' . $slug . (0 === $familyOffset ? ',' . self::sourcePresets($family) : '') . ')' . $important;
                 }
             }
+        }
+        // Borders may carry a colour alongside width/style tokens, or several
+        // colours in a longhand. Reuse the author-CSS token binder so only
+        // the colour changes and its original bytes remain the fallback.
+        if (1 === preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-color)?$/', $property)) {
+            $bound = $this->bindColorTokens($value);
+            return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
         }
         if ((str_starts_with($property, '--') || in_array($property, array('background', 'background-image'), true)) && null === CssColor::parse($this->resolve($value))) {
             $bound = $this->bindColorTokens($value);
@@ -1261,7 +1441,7 @@ final class PresetBinding
         };
         if (null === $kind) return $declaration;
         $slug = match ($kind) {
-            'color' => $this->comparable('color', $this->resolve($value)) ? $this->system->colorSlug($this->resolve($value)) : null,
+            'color' => $this->comparable('color', $this->resolve($value)) ? $this->system->stylesheetColorSlug($this->resolve($value)) : null,
             'font-size' => $this->exactFontSizeSlug($value),
             default => $this->exactFontFamilySlug($value),
         };
@@ -1301,7 +1481,7 @@ final class PresetBinding
                 // but retain the authored token as the rendering fallback.
                 $resolved = $this->resolve($token);
                 if (null !== CssColor::parse($resolved)) {
-                    $slug = $this->system->colorSlug($resolved);
+                    $slug = $this->system->stylesheetColorSlug($resolved);
                     $replacement = null !== $slug ? 'var(--wp--preset--color--' . $slug . ',' . self::sourcePresets($token) . ')' : $this->translucentMix($token, true);
                     if (null !== $replacement) ++$this->bound;
                 } elseif (1 === preg_match('/^((?:repeating-)?(?:linear|radial|conic)-gradient)\((.*)\)$/is', $token, $match) && CssValueSplitter::hasBalancedParens($token)) {
@@ -1327,11 +1507,11 @@ final class PresetBinding
         $color = CssColor::parse($resolved);
         if (null === $color) return null;
         $opaque = sprintf('#%02x%02x%02x', (int) round($color[0]), (int) round($color[1]), (int) round($color[2]));
-        $translucent = $this->comparable('color', $resolved) ? $this->system->translucentColor($resolved) : null;
+        $translucent = $this->comparable('color', $resolved) && null !== $this->system->stylesheetColorSlug($opaque) ? $this->system->translucentColor($resolved) : null;
         // Transparent gradient stops still carry the palette colour's RGB.
         // Keep whole-value transparent declarations on their existing path.
         if ($includeTransparent && 0.0 === $color[3]) {
-            $slug = $this->system->colorSlug($opaque);
+            $slug = $this->system->stylesheetColorSlug($opaque);
             if (null !== $slug) $translucent = array('slug' => $slug, 'percent' => 0);
         }
         if (null === $translucent) return null;
@@ -1358,13 +1538,15 @@ final class PresetBinding
     {
         $px = CssLength::toPx($value, $this->system->rootPx);
         if (null === $px) return null;
-        foreach ($this->system->fontSizes as $size) if (abs($size['px'] - $px) < 0.01 && $size['slug'] === $this->system->fontSizeSlug($value)) return $size['slug'];
+        foreach ($this->system->fontSizes as $size) if (0 !== $size['weight'] && abs($size['px'] - $px) < 0.01 && $size['slug'] === $this->system->fontSizeSlug($value)) return $size['slug'];
         return null;
     }
 
     private function exactFontFamilySlug(string $value): ?string
     {
-        return $this->system->fontFamilySlug($this->resolve($value));
+        $slug = $this->system->fontFamilySlug($this->resolve($value));
+        foreach ($this->system->fontFamilies as $family) if ($family['slug'] === $slug && 0 === $family['weight']) return null;
+        return $slug;
     }
 
     /**
@@ -1424,6 +1606,14 @@ final class PresetBinding
         if (null === $color) return 'unresolved_value';
         if ($color[3] <= 0.0) return null;
         return $color[3] < 1.0 ? 'alpha' : 'no_matching_token';
+    }
+
+    /** A literal colour other than the `transparent` keyword whose alpha is zero. */
+    private static function paintsNothing(string $literal): bool
+    {
+        if ('transparent' === strtolower(trim($literal))) return false;
+        $color = CssColor::parse($literal);
+        return null !== $color && $color[3] <= 0.0;
     }
 
     private function comparable(string $kind, string $value): bool
@@ -1490,6 +1680,10 @@ final class PresetBinding
             if (!$statesRendered && $this->stateMatches($family, $tokens)) return false;
             $reason = 'style_selector';
             foreach ($this->styleTextRules[$family] ?? array() as $rule) {
+                // A shared engine class is not enough to make a selector for
+                // another element type read this element's style attribute.
+                $tags = array_values(array_filter($rule['tokens'] ?? array(), static fn(string $token): bool => str_starts_with($token, 'tag:')));
+                if (array() !== $tags && array() === array_intersect_key(array_flip($tags), $tokens)) continue;
                 if (null !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
                 if (array() !== array_intersect_key(array_flip($rule['negated']), $finalClasses)) continue;
                 if (!$staysInline || $addsDeclaration || 1 !== preg_match('/^[a-z-]*:?$/', strtolower(trim($rule['fragment'], ' ;')))) return false;
@@ -1497,6 +1691,8 @@ final class PresetBinding
             if ($staysInline) continue;
             $reason = 'important';
             foreach ($this->importantRules[$family] ?? array() as $rule) {
+                $tags = array_values(array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'tag:')));
+                if (array() !== $tags && array() === array_intersect_key(array_flip($tags), $tokens)) continue;
                 if (array() !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
                 if (array() !== array_intersect_key(array_flip($rule['negated']), $finalClasses)) continue;
                 if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
@@ -1525,6 +1721,78 @@ final class PresetBinding
      *
      * @param array<string,true> $tokens
      */
+    /**
+     * A rule body's button box declarations per family, as the longhands the
+     * theme button element is compared on (`border-radius` per corner value,
+     * `padding-<side>`), with the rule's own custom properties substituted
+     * (`.btn{--edge:15px;padding-inline:var(--edge)}`).
+     *
+     * @return array<string,list<array{0:string,1:string}>>
+     */
+    private static function buttonBoxDeclarations(string $body): array
+    {
+        $declarations = array();
+        $locals = array();
+        foreach (CssValueSplitter::splitTopLevel($body, array(';')) as $declaration) {
+            $parts = explode(':', $declaration, 2);
+            if (2 !== count($parts)) continue;
+            $property = strtolower(trim($parts[0]));
+            $value = trim((string) preg_replace('/!\s*important\s*$/i', '', trim($parts[1])));
+            if (str_starts_with($property, '--')) $locals[trim($parts[0])] = $value;
+            else $declarations[] = array($property, $value);
+        }
+        $boxes = array();
+        foreach ($declarations as [$property, $value]) {
+            for ($depth = 0; $depth < 5 && str_contains($value, 'var('); $depth++) {
+                $value = (string) preg_replace_callback('/var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*))?\)/', static fn(array $match): string => $locals[$match[1]] ?? $match[0], $value);
+            }
+            $values = CssValueSplitter::splitTopLevelWhitespace($value) ?: array($value);
+            $values = array_values(array_filter(array_map('trim', $values), static fn(string $part): bool => '' !== $part));
+            if (1 === preg_match('/^border(?:-(?:top|bottom)-(?:left|right)|-(?:start|end)-(?:start|end))?-radius$/', $property)) {
+                foreach ($values as $part) $boxes['border-radius'][] = array('border-radius', $part);
+                continue;
+            }
+            $sides = match ($property) {
+                'padding' => array('top', 'right', 'bottom', 'left'),
+                'padding-block' => array('top', 'bottom'),
+                'padding-inline' => array('left', 'right'),
+                'padding-top', 'padding-block-start' => array('top'),
+                'padding-bottom', 'padding-block-end' => array('bottom'),
+                'padding-left', 'padding-inline-start' => array('left'),
+                'padding-right', 'padding-inline-end' => array('right'),
+                default => null,
+            };
+            if (null === $sides) continue;
+            $count = count($values);
+            foreach ($sides as $index => $side) {
+                $at = 'padding' === $property
+                    ? array(0, 1 < $count ? 1 : 0, 2 < $count ? 2 : 0, 3 < $count ? 3 : (1 < $count ? 1 : 0))[$index]
+                    : (2 === count($sides) && 1 < $count ? $index : 0);
+                $boxes['padding'][] = array('padding-' . $side, $values[$at] ?? $value);
+            }
+        }
+        return $boxes;
+    }
+
+    /**
+     * Whether an author rule projected onto this block's control declares
+     * another value for the family. The theme's button element look is
+     * weaker than that rule, so only the block's inline value keeps the
+     * source's winner (`.btn-social{border-radius:100%}` over `.btn`).
+     *
+     * @param array<string,true> $tokens
+     */
+    private function controlRuleDeclares(string $family, array $tokens): bool
+    {
+        foreach ($this->controlBoxRules[$family] ?? array() as $marker => $declarations) {
+            if (!isset($tokens['class:' . $marker])) continue;
+            foreach ($declarations as [$property, $value]) {
+                if (!$this->matchesButtonElement($property, $value)) return true;
+            }
+        }
+        return false;
+    }
+
     private function rendersThroughElement(string $name, string $key, string $slug, string $property, array $tokens): bool
     {
         if ('button' !== $name) return false;
@@ -1580,7 +1848,7 @@ final class PresetBinding
 
     /**
      * A value with its `var(--name)` references resolved through custom
-     * properties that are set once, unconditionally, on the document root
+     * properties whose final unconditional definitions agree on the document root
      * (`:root`, `html`, `:host`). Any other definition could give the
      * variable a different value under some block, so a value that reads
      * such a property stays as written, except that a fallback
@@ -1607,22 +1875,22 @@ final class PresetBinding
         return $value;
     }
 
-    /** @param list<string> $ancestors */
-    private function indexVariables(string $prelude, string $body, array $ancestors): void
+    /** @param list<string> $ancestors @param array<int,array<string,mixed>> $scopes */
+    private function indexVariables(string $prelude, string $body, array $ancestors, array $scopes): void
     {
-        if (!preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER)) return;
+        $declarations = CssRuleAnalyzer::customProperties($body);
+        if (array() === $declarations) return;
         $selectors = array_map(static fn(string $selector): string => strtolower(trim($selector)), CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude));
         $root = array() === array_diff($selectors, array(':root', 'html', ':host')) && array() === array_filter($ancestors, static fn(string $ancestor): bool => 1 !== preg_match('/^@layer(?:\s|$)/', $ancestor));
-        foreach ($matches as $match) {
-            $name = (string) $match[1];
-            $value = trim((string) $match[2]);
-            // Any definition with another value, wherever it applies, could
-            // give the variable that value under some block. Repeating the
-            // root value (editor mirrors such as `:root :root.editor-styles-wrapper`)
-            // changes nothing.
-            if (str_contains(strtolower($value), '!important') || (array_key_exists($name, $this->variables) && $this->variables[$name] !== $value)) $this->variables[$name] = false;
-            elseif ($root) $this->variables[$name] = $value;
-            else $this->scopedVariables[$name][$value] = true;
+        foreach ($declarations as ['name' => $name, 'value' => $value]) {
+            // Only the same unconditional selector and applicability has a
+            // source-order winner. Other selectors and at-rules still compete.
+            if (str_contains(strtolower($value), '!important')) $this->variables[$name] = false;
+            if ($root) {
+                $context = implode(',', $selectors) . "\n" . json_encode($scopes);
+                if (array() === $ancestors) $this->rootVariables[$name][$context] = $value;
+                else $this->rootVariables[$name][$context . "\n" . json_encode($ancestors) . "\n" . $value] = $value;
+            } else $this->scopedVariables[$name][$value] = true;
         }
     }
 
@@ -1647,6 +1915,13 @@ final class PresetBinding
                 foreach (self::families(self::nestedProperties((string) $part['body'])) as $family) $this->indexState($prelude, $family);
             }
         }
+        $boxFamilies = array();
+        foreach ($nested as $part) {
+            if (!isset($part['declarations'])) continue;
+            foreach (self::buttonBoxDeclarations((string) $part['declarations']) as $family => $declarations) {
+                $boxFamilies[$family] = array_merge($boxFamilies[$family] ?? array(), $declarations);
+            }
+        }
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
             if (preg_match_all('/\[\s*style\s*[*^$~|]?=\s*["\']?([^"\'\]]*)/i', $selector, $matches)) {
                 // Only a selector reading the subject's own style text is
@@ -1661,6 +1936,15 @@ final class PresetBinding
                 }
             }
             if (!str_contains($selector, 'blocks-engine-richtext-marker') && in_array('tag:mark', self::subjectTokens($selector)['tokens'] ?? array(), true)) $this->markRules = true;
+            // A rule projected onto a control outranks the theme's
+            // `:root :where(.wp-element-button)` look, so that look cannot
+            // stand in for the control's own inline value of these families.
+            if (array() !== $boxFamilies && 1 !== preg_match(self::STATE_PSEUDO, $selector)) {
+                foreach (EngineMarker::all($selector) as $marker) {
+                    if ('control' !== EngineMarker::markerKind($marker)) continue;
+                    foreach ($boxFamilies as $family => $declarations) $this->controlBoxRules[$family][$marker] = array_merge($this->controlBoxRules[$family][$marker] ?? array(), $declarations);
+                }
+            }
             if (1 === preg_match(self::STATE_PSEUDO, $selector)) {
                 foreach ($declared as $family => $_) $this->indexState($selector, $family);
                 continue;
@@ -1792,7 +2076,11 @@ final class PresetBinding
             if (!in_array($property, array('color', 'background-color', 'background'), true)) continue;
             foreach (self::families($property) as $family) $values[$family][] = $conditional ? null : $value;
         }
-        if (array() === $values) return;
+        $variables = array();
+        foreach (self::declarations($body) as [$property, $value]) {
+            if (str_starts_with($property, '--')) $variables[$property] = $conditional ? null : $value;
+        }
+        if (array() === $values && array() === $variables) return;
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
             if (1 === preg_match(self::STATE_PSEUDO, $selector)) continue;
             $subject = self::subjectTokens($selector);
@@ -1812,6 +2100,7 @@ final class PresetBinding
             foreach ($values as $family => $list) {
                 foreach ($list as $value) $this->restingColors[$family][] = $subject + array('value' => $value, 'order' => count($this->restingColors[$family] ?? array()));
             }
+            foreach ($variables as $property => $value) $this->localVariables[] = $subject + array('property' => $property, 'value' => $value, 'order' => count($this->localVariables));
         }
     }
 
@@ -1864,13 +2153,38 @@ final class PresetBinding
                     && (1 === $rule['depth'] || (2 === $rule['depth'] && isset($rule['parent']) && null !== $parentTokens && self::certainlyMatches($rule['parent'], $parentTokens)));
                 if ($certain && (null === $winner || self::outranks($rule, $winner))) $winner = $rule;
             }
-            if (null === $winner || CssColor::parse($this->resolve($winner['value'])) !== $color) return false;
+            if (null === $winner || CssColor::parse($this->resolveLocalColor($winner['value'], $own, $parentTokens)) !== $color) return false;
             foreach ($reaching as $rule) {
                 if (!self::outranks($rule, $winner)) continue;
-                if (null === $rule['value'] || CssColor::parse($this->resolve($rule['value'])) !== $color) return false;
+                if (null === $rule['value'] || CssColor::parse($this->resolveLocalColor($rule['value'], $own, $parentTokens)) !== $color) return false;
             }
         }
         return $this->safe($property, $tokens, array(), false, false, $reason, true);
+    }
+
+    /** Resolve a resting colour variable on the link, then its known parent.
+     * @param array<string,true> $own
+     * @param array<string,true>|null $parent
+     */
+    private function resolveLocalColor(string $value, array $own, ?array $parent): string
+    {
+        $resolved = $this->resolve($value);
+        if (null !== CssColor::parse($resolved)) return $resolved;
+        if (1 !== preg_match('/^var\((--[\w-]+)\)$/', trim($value), $match)) return $resolved;
+        foreach (array($own, $parent) as $tokens) {
+            if (null === $tokens) continue;
+            $winner = null;
+            $reaching = array();
+            foreach ($this->localVariables as $rule) {
+                if ($rule['property'] !== $match[1] || !self::stateSubjectApplies($rule, $tokens)) continue;
+                $reaching[] = $rule;
+                if (1 === ($rule['depth'] ?? 0) && null !== $rule['value'] && isset($rule['compound']) && self::certainlyMatches($rule['compound'], $tokens) && (null === $winner || self::outranks($rule, $winner))) $winner = $rule;
+            }
+            if (null === $winner) continue;
+            foreach ($reaching as $rule) if (self::outranks($rule, $winner) && $rule['value'] !== $winner['value']) return $resolved;
+            return $this->resolve($winner['value']);
+        }
+        return $resolved;
     }
 
     /**
@@ -1990,18 +2304,7 @@ final class PresetBinding
     /** The selector's last compound, after its final combinator. */
     private static function subjectCompound(string $selector): string
     {
-        $selector = trim($selector);
-        $depth = 0;
-        $start = 0;
-        $length = strlen($selector);
-        for ($i = 0; $i < $length; $i++) {
-            $char = $selector[$i];
-            if ('\\' === $char) { $i++; continue; }
-            if ('(' === $char || '[' === $char) $depth++;
-            elseif (')' === $char || ']' === $char) $depth--;
-            elseif (0 === $depth && (ctype_space($char) || '>' === $char || '+' === $char || '~' === $char)) $start = $i + 1;
-        }
-        return substr($selector, $start);
+        return CssSelectorTokenizer::tokenize(trim($selector))['rightmost_compound'];
     }
 
     /**
@@ -2166,13 +2469,7 @@ final class PresetBinding
 
     private static function declarations(string $style): array
     {
-        $declarations = array();
-        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
-            $parts = explode(':', $declaration, 2);
-            if (2 !== count($parts)) continue;
-            $declarations[] = array(strtolower(trim($parts[0])), trim($parts[1]));
-        }
-        return $declarations;
+        return array_map(static fn (array $declaration): array => array($declaration['name'], $declaration['value']), CssRuleAnalyzer::declarationList($style));
     }
 
     /** @param list<array{0:string,1:string}> $declarations */
@@ -2215,6 +2512,29 @@ final class PresetBinding
         if (!self::replaceDeclaration($declarations, $property, $literal, 'var(--wp--preset--' . $type . '--' . $slug . ')')) return false;
         $group->{$key} = 'var:preset|' . $type . '|' . $slug;
         return true;
+    }
+
+    /**
+     * Font families bind only once the theme defaults are known, so a block
+     * can be bound in two passes. The attributes binding writes take one
+     * order, at the place the first of them was authored, so the bytes do not
+     * depend on how many passes bound the block: a runtime anchor bound once
+     * still finds the page block bound twice.
+     *
+     * @param list<string> $authoredKeys
+     */
+    private static function withBoundOrder(\stdClass $attributes, array $authoredKeys): \stdClass
+    {
+        $keys = array_keys(get_object_vars($attributes));
+        $bound = array_values(array_intersect(self::BOUND_ATTRIBUTES, $keys));
+        $order = array();
+        foreach (array_merge(array_intersect($authoredKeys, $keys), array_diff($keys, $authoredKeys)) as $key) {
+            if (!in_array($key, $bound, true)) $order[] = $key;
+            elseif (!in_array($bound[0], $order, true)) array_push($order, ...$bound);
+        }
+        $result = new \stdClass();
+        foreach ($order as $key) $result->{$key} = $attributes->{$key};
+        return $result;
     }
 
     /** Drop style groups the rewrite emptied, as core's serializer would never emit them. */

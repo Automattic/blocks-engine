@@ -58,7 +58,7 @@ $assert(1 === $navigationSubjectRules, 'G2: source anchor color stays in its ori
 // The control marker's seed is an identity hash, not part of the contract.
 $normalizedAuthorCss = preg_replace('/blocks-engine-control-[a-f0-9]{12}-(\d+)/', 'blocks-engine-control-#-$1', $normalizedAuthorCss) ?? $normalizedAuthorCss;
 $assert(
-    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons){width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button){width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link):not(be-t-0){width:100%;max-width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0)>:where(.wp-block-button__link):not(be-t-0){display:inline-flex;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
+    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons){width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button){width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link):not(.be-c-0):not(.be-c-0):not(be-t-0){width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link):not(be-t-0){max-width:100%}:where(.blocks-engine-control-#-0):not(.be-c-0)>:where(.wp-block-button__link):not(be-t-0){display:inline-flex;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
     'G2: author-css contains only its leading at-rule preamble and rewritten author stylesheet'
 );
 $mixedAccessibleButton = ( new HtmlTransformer() )->transform(
@@ -181,7 +181,6 @@ $beforeFamilies = array(
     'css-owned-flow paragraph' => ':root :where(.blocks-engine-css-owned-flow>p:not(.blocks-engine-synthetic-paragraph,.blocks-engine-synthetic-embed-figure,.blocks-engine-synthetic-image-figure,.blocks-engine-synthetic-video-figure-fill,.blocks-engine-lowered-paragraph)){margin-top:revert;margin-bottom:revert}',
     'css-owned-flow direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-flow>*:not(.blocks-engine-synthetic-paragraph,.blocks-engine-synthetic-embed-figure,.blocks-engine-synthetic-image-figure,.blocks-engine-synthetic-video-figure-fill,.blocks-engine-lowered-paragraph)){margin-block-start:revert;margin-block-end:revert}',
     'css-owned-grid' => ':root :where(.blocks-engine-css-owned-grid)>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}',
-    'css-owned-grid item min-width safety net' => ':root :where(.blocks-engine-css-owned-grid)>*{min-width:0}',
     'positioned-fragment-link-carrier' => ':where(.blocks-engine-positioned-fragment-link-carrier){display:contents!important}',
     'empty-flex-item' => ':where(.blocks-engine-empty-flex-item){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}',
     'list-navigation alignment' => '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}',
@@ -191,7 +190,7 @@ $beforeFamilies = array(
     'non-overlay list-navigation transport' => '.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation)>.wp-block-navigation__container{display:contents!important}',
     'nativeSearchTriggerCssRules' => 'flex:0 0 24px!important;width:24px!important;height:80px!important',
 );
-$assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), '<figure class="wp-block-image blocks-engine-synthetic-image-figure blocks-engine-image"><img src="portrait.jpg" alt="Portrait"/></figure>'), 'direct source images mark their introduced core/image figure for margin normalization');
+$assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), '<figure class="wp-block-image blocks-engine-synthetic-image-figure blocks-engine-synthetic-image-figure-strut blocks-engine-image"><img src="portrait.jpg" alt="Portrait"/></figure>'), 'direct source images mark their introduced core/image figure for margin normalization');
 $assert(! str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), 'authored-figure blocks-engine-synthetic-image-figure'), 'authored source figures retain their own spacing contract');
 $afterFamilies = array(
     'logos-only social sprite neutralize' => '.wp-block-social-links:where(.blocks-engine-social-source-cluster).is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}',

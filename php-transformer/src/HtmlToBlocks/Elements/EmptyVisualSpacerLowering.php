@@ -75,8 +75,10 @@ final class EmptyVisualSpacerLowering
         // row-shaped compatibility box below.
         $isColumnAxis = in_array(strtolower(trim((string) ($parentDeclarations['flex-direction'] ?? 'row'))), array( 'column', 'column-reverse' ), true);
         $mainAxisSizeProperties = $isColumnAxis
-            ? array( 'height', 'min-height', 'max-height', 'flex', 'flex-basis' )
+            ? array( 'height', 'min-height', 'max-height', 'aspect-ratio', 'flex', 'flex-basis' )
             : array( 'width', 'min-width', 'max-width', 'flex', 'flex-basis' );
+        // A preferred ratio can derive a column item's height from its width,
+        // without an explicit height. Do not zero that derived main-axis size.
         // An authored main-axis size counts at any viewport: page builders
         // commonly state a column's width only inside a media-scoped rule
         // (for example `@media (min-width:768px){#col{width:48%}}`), so the
@@ -95,7 +97,7 @@ final class EmptyVisualSpacerLowering
             }
         }
         foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) && array_intersect_key($rule['declarations'], array_flip(array( 'content', 'display', 'width', 'min-width' ))) ) {
+            if ( $this->session->sourceStyleResolutionState()->matches($element, $rule['selector']) && array_intersect_key($rule['declarations'], array_flip(array( 'content', 'display', 'width', 'min-width' ))) ) {
                 return $attrs;
             }
         }
@@ -140,8 +142,8 @@ final class EmptyVisualSpacerLowering
         }
 
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $attrs['height'] = $this->styleResolver->resolveCssVariablesInValue($declarations['height']);
-        $attrs['width'] = $this->styleResolver->resolveCssVariablesInValue($declarations['width']);
+        $attrs['height'] = $this->styleResolver->customProperties->resolve($declarations['height']);
+        $attrs['width'] = $this->styleResolver->customProperties->resolve($declarations['width']);
 
         return $this->blocks->createBlock('core/spacer', $attrs, array(), $element);
     }

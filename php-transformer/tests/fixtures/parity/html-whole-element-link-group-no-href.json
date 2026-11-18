@@ -1,30 +1,90 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-whole-element-link-group-no-href",
-  "description": "A source anchor wraps editable block content using a layout shell, retaining target, rel and accessible name without unsupported core/group attributes.",
+  "description": "A source card anchor becomes a native stretched-link group, with target and rel on its heading link.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-whole-element-link-group-no-href.json",
     "notes": "Block-content links remain one navigable container, not duplicate links inside each heading and paragraph."
   },
-  "legacy_comparison": { "skip": true, "reason": "This upstream primitive fixture has no downstream legacy comparison." },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
   "operation": "html_transformer.transform",
-  "input": { "content": "<a class=\"panel-link\" href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\" aria-label=\"Open details\"><h2>Quarterly Review</h2><p>A summary of the latest reporting period.</p></a>" },
+  "input": {
+    "content": "<a class=\"panel-link\" href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\" aria-label=\"Open details\"><h2>Quarterly Review</h2><p>A summary of the latest reporting period.</p></a>"
+  },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "custom/layout-shell", "attrs": { "wrappers": [{ "tagName": "a", "attributes": { "aria-label": "Open details", "class": "panel-link", "href": "https://example.com/details/", "rel": "noopener", "target": "_blank" } }] } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Quarterly Review", "level": 2 } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "A summary of the latest reporting period." } }
+    {
+      "path": "blocks.0",
+      "name": "core/group",
+      "attrs": {
+        "className": "panel-link blocks-engine-stretched-link"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/heading",
+      "attrs": {
+        "content": "<a href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\">Quarterly Review</a>",
+        "level": 2
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.1",
+      "name": "core/paragraph",
+      "attrs": {
+        "content": "A summary of the latest reporting period."
+      }
+    }
   ],
   "expected_fallbacks": [],
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "blocks.0.attrs.href", "assert": "equals", "value": null },
-    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a aria-label=\"Open details\" class=\"panel-link\" href=\"https://example.com/details/\" rel=\"noopener\" target=\"_blank\">" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "<a href=\"https://example.com/details/\">Quarterly Review</a>" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"ariaLabel\"" },
-    { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "blocks",
+      "assert": "count",
+      "count": 1
+    },
+    {
+      "path": "blocks.0.attrs.href",
+      "assert": "equals",
+      "value": null
+    },
+    {
+      "path": "blocks.0.innerBlocks",
+      "assert": "count",
+      "count": 2
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<a href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\">"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "<a href=\"https://example.com/details/\">Quarterly Review</a>"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "\"ariaLabel\""
+    },
+    {
+      "path": "fallbacks",
+      "assert": "count",
+      "count": 0
+    },
+    {
+      "path": "coverage.0.fallback_count",
+      "assert": "equals",
+      "value": 0
+    }
   ]
 }

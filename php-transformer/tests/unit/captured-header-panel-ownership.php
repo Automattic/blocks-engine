@@ -22,6 +22,17 @@ $html = '<html><head><style>' . $css . '</style></head><body><header>'
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'content' => $html))))->toArray();
 $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
 $markup = implode('', array_column($plan['pages'] ?? array(), 'canonical_block_markup')) . implode('', array_column($plan['template_parts'] ?? array(), 'canonical_block_markup'));
+// Model Core resolving saved navigation for the render-free ownership probe.
+foreach ($plan['menus'] as $menu) {
+    if (!isset($menu['token'], $menu['block_markup'])) continue;
+    $token = '{{wordpress-site-plan:navigation:' . $menu['token'] . '}}';
+    $markup = preg_replace_callback('/<!-- wp:navigation (\{.*?\}) \/-->/s', static function (array $match) use ($token, $menu): string {
+        $attrs = json_decode($match[1], true);
+        if (($attrs['ref'] ?? null) !== $token) return $match[0];
+        unset($attrs['ref']);
+        return '<!-- wp:navigation ' . json_encode($attrs) . ' -->' . $menu['block_markup'] . '<!-- /wp:navigation -->';
+    }, $markup);
+}
 $failures = array();
 
 // The unprojected section must not lose its search icon to the sibling menu.

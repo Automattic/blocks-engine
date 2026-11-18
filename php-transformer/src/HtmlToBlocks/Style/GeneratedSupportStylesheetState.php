@@ -123,15 +123,27 @@ final class GeneratedSupportStylesheetState
         return $rules;
     }
 
+    /** @var array<string, array{marker: string, subjects: list<string>}> */
+    private array $navigationEditorTypographyScopes = array();
+
+    /** @param list<string> $subjects */
+    public function scopeNavigationEditorTypography(string $scope, array $subjects): void
+    {
+        $this->navigationEditorTypographyScopes[$scope] = array('marker' => $scope, 'subjects' => $subjects);
+    }
+
     /** @return list<string> */
     public function navigationEditorTypographyRules(): array
     {
         $rules = array();
-        foreach ($this->navigationEditorTypography as $entry) {
-            $rule = '.wp-block-navigation .wp-block-navigation-item.' . $entry['marker']
-                . ' .wp-block-navigation-item__content{' . $entry['declarations'] . '}';
-            foreach (array_reverse($entry['conditions']) as $condition) $rule = $condition . '{' . $rule . '}';
-            $rules[] = $rule;
+        foreach ($this->navigationEditorTypographyScopes as $scope) {
+            foreach ($this->navigationEditorTypography as $entry) {
+                if (!in_array($entry['marker'], $scope['subjects'], true)) continue;
+                $rule = '.wp-block-navigation.' . $scope['marker'] . ' .wp-block-navigation-item.' . $entry['marker']
+                    . ' .wp-block-navigation-item__content{' . $entry['declarations'] . '}';
+                foreach (array_reverse($entry['conditions']) as $condition) $rule = $condition . '{' . $rule . '}';
+                $rules[] = $rule;
+            }
         }
         return $rules;
     }
@@ -330,6 +342,14 @@ final class GeneratedSupportStylesheetState
     public function registerAccordionTogglePresentation(string $className, string $declarations): void
     {
         $this->accordionTogglePresentation[$className] = $declarations;
+    }
+
+    /** @var array<string, bool> */
+    private array $accordionNativeSummaries = array();
+
+    public function registerAccordionNativeSummaryPresentation(string $className): void
+    {
+        $this->accordionNativeSummaries[$className] = true;
     }
 
     public function registerAccordionTitlePresentation(string $className, string $declarations): void
@@ -568,6 +588,17 @@ final class GeneratedSupportStylesheetState
             if (str_contains($serializedBlocks, $className)) {
                 $parts[] = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle>.wp-block-accordion-heading__toggle-title{' . $declarations . '}';
             }
+        }
+        foreach ($this->accordionNativeSummaries as $className => $_native) {
+            $heading = '.wp-block-accordion-heading.' . $className;
+            // Core heading lacks margin support; keep its valid save shape and
+            // neutralize only the wrapper introduced for a native summary.
+            $parts[] = $heading . '{margin:0}';
+            $toggle = $heading . '>.wp-block-accordion-heading__toggle';
+            $parts[] = $toggle . '>.wp-block-accordion-heading__toggle-icon{display:none}';
+            $title = $toggle . '>.wp-block-accordion-heading__toggle-title';
+            $parts[] = $title . '{display:list-item;list-style:inside disclosure-closed}';
+            $parts[] = $toggle . '[aria-expanded="true"]>.wp-block-accordion-heading__toggle-title{list-style-type:disclosure-open}';
         }
         foreach ($this->accordionIconPresentation as $className => $states) {
             if (!str_contains($serializedBlocks, $className)) continue;

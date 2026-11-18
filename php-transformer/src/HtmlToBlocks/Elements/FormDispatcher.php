@@ -39,6 +39,10 @@ final class FormDispatcher
      */
     public function convert(DOMElement $element, array &$fallbacks): ?array
     {
+        if ( 0 === $element->childElementCount && '' === trim($element->textContent) ) {
+            return null;
+        }
+
         $cardPurchase = null !== $this->cardPurchaseBlock ? ($this->cardPurchaseBlock)($element) : null;
         if ( null !== $cardPurchase ) {
             return $cardPurchase;
@@ -65,8 +69,10 @@ final class FormDispatcher
             return $searchBlock;
         }
 
-        // Listing bounds keep a form intent finding and listing-control anchors.
-        if ( (new ListingControlsRecognizer())->hasNumericBoundsForForm($element) ) {
+        // Listing-inferred bounds keep a finding and listing-control anchors.
+        // Explicit paired text bounds can use the native GET workflow below.
+        $listingControls = new ListingControlsRecognizer();
+        if ( $listingControls->hasNumericBoundsForForm($element) && ! $listingControls->hasTextNumericBoundsForForm($element) ) {
             $readable = $this->context->buildReadableFormBlock($element, true, $fallbacks);
             if ( null !== $readable ) {
                 $fallbacks[] = $this->context->buildFallbackFinding($element, $readable);
@@ -96,9 +102,27 @@ final class FormDispatcher
             }
         }
 
+        // Variant choices are part of the purchase, not a reason to freeze the
+        // add-to-cart form as raw HTML: keep native blocks and report the
+        // commerce controls finding a shop provider binds (#6442).
+        if ( FormRuntimeRequirementAnalyzer::collectsOnlyPurchaseChoices($element) ) {
+            $readableFormBlock = $this->context->buildReadableFormBlock($element, true, $fallbacks);
+            if ( null !== $readableFormBlock ) {
+                $fallbacks[] = $this->context->buildFallbackFinding($element, $readableFormBlock);
+                $this->context->recordForm($element, $readableFormBlock);
+                return $readableFormBlock;
+            }
+        }
+
         $hasChoiceGroups = FormControlClassifier::hasCapturedChoiceGroups($element);
-        // A control without a prose summary (date, time, ...) keeps the exact
-        // preserved form on the page; the finding still carries the readable tree.
+        // Nested wrapping labels have a native source-owned subtree even
+        // when their control has no prose summary (for example a date input).
+        $nativeWrappingLabel = false;
+        foreach ($element->getElementsByTagName('label') as $label) {
+            foreach (FormControlClassifier::controlElements($label) as $control) {
+                if (!$control->parentNode->isSameNode($label)) $nativeWrappingLabel = true;
+            }
+        }
         $summarizable = FormControlClassifier::controlsHaveProseSummaries($element);
         if ( $summarizable && ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) ) {
             $composition = $this->context->compose($element, $fallbacks);
@@ -110,6 +134,15 @@ final class FormDispatcher
                 $fallbacks[] = $this->context->buildFallbackFinding($element, $readable, $composition['slot']);
                 $this->context->recordForm($element, $composition['block']);
                 return $composition['block'];
+            }
+        }
+
+        if (!$summarizable && $nativeWrappingLabel) {
+            $readable = $this->context->buildReadableFormBlock($element, true, $fallbacks);
+            if (null !== $readable) {
+                $fallbacks[] = $this->context->buildFallbackFinding($element, $readable);
+                $this->context->recordForm($element, $readable);
+                return $readable;
             }
         }
 
