@@ -6,9 +6,8 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
-// An excluded navigation design is not evidence of a distinct header layout.
-// The identical unanchored landmark must not turn that navigation into another
-// template part merely because its copy differs from the shared menu.
+// Route-local navigation belongs to its own editable header part even when
+// the landmark layout agrees. Never substitute the shared menu's copy.
 $files = array();
 foreach (array('index.html' => 'Home', 'about/index.html' => 'About', 'services/index.html' => 'Services') as $path => $title) {
     $links = '';
@@ -22,9 +21,9 @@ foreach (array('index.html' => 'Home', 'about/index.html' => 'About', 'services/
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
 WordPressSitePlan::assertValid($plan);
 $headers = array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null));
-if (1 !== count($headers)) throw new RuntimeException('Navigation-only exclusions must not create route-local header parts.');
+if (2 !== count($headers)) throw new RuntimeException('The navigation variant must have its own header part.');
 foreach ($plan['pages'] as $page) {
     $retained = str_contains($page['canonical_block_markup'], '<header');
-    if ($retained !== ('services/index.html' === $page['source_path'])) throw new RuntimeException('Only the non-equivalent navigation remains route-owned.');
+    if ($retained) throw new RuntimeException('Navigation variants must not leave a header in page content.');
 }
 echo "unanchored-header-navigation-exclusion: passed\n";
