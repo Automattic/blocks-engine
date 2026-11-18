@@ -384,9 +384,6 @@ final class InlineGeometry
      * Core supports cannot serialize arbitrary box dimensions. Keep only source
      * inline geometry in a generated stylesheet; class-owned declarations are
      * already retained by author stylesheet materialization.
-     *
-     * @param array<string, string> $declarationOverrides Values replacing
-     *        inline declarations the element already has.
      */
     public function className(
         DOMElement $element,
@@ -395,15 +392,11 @@ final class InlineGeometry
         array $forcedDeclarations = array(),
         bool $carrierOwnsInlineGeometry = false,
         bool $imageLeaf = false,
-        bool $buttonLinkShadow = false,
-        array $declarationOverrides = array()
+        bool $buttonLinkShadow = false
     ): string {
         $declarations = $carrierOwnsInlineGeometry
             ? $this->mediaTextInlineCascadeDeclarations(SourceDom::attr($element, 'style'))
             : ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
-        // A caller that re-expresses a captured value (a viewport-fluid
-        // offset in place of its capture-width pixels) replaces it here.
-        $declarations = array_merge($declarations, array_intersect_key($declarationOverrides, $declarations));
         // Entrance startup saves the transition shorthand, overwrites it with
         // none, then restores/removes it. Isolated longhands are cleared by
         // that reset; a persistent CSS carrier would incorrectly survive it.

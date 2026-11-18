@@ -51,12 +51,13 @@ if (str_contains($figureBody, '-155.812px')) {
     throw new RuntimeException('The source figure must not take the image offset.');
 }
 
-// A viewport-sized crop's pixel offsets were measured at the capture width
-// only; they must follow the frame at every width (centred focal point).
+// Issue #5859: a viewport-sized crop (`width:max(674px, 100vw)`) keeps the
+// pixel offsets the capture recorded. The crop runtime that wrote them does
+// not run on the captured document, so the source paints that crop at every
+// width; re-deriving a centred offset per viewport moved the copy's image
+// away from it at every width but the capture width.
 [$leafBody] = $leafRules('position: relative;font-size: 0px;left: 0px;top: -226.312px;width: max(674px, 100vw);height: max(449px, 66.64vw)');
-$top = 'calc(-1 * clamp(0px, 0.5 * max(449px, 66.64vw) - 50%, max(449px, 66.64vw) - 100%))';
-$left = 'calc(-1 * clamp(0px, 0.5 * max(674px, 100vw) - 50%, max(674px, 100vw) - 100%))';
-if (! str_contains($leafBody, 'top:' . $top) || ! str_contains($leafBody, 'left:' . $left) || str_contains($leafBody, '-226.312px')) {
-    throw new RuntimeException('A viewport-sized crop must re-express its offsets against the frame: ' . $leafBody);
+if (! preg_match('/(?:^|;)\s*top\s*:\s*-226\.312px\b/', $leafBody) || ! preg_match('/(?:^|;)\s*left\s*:\s*0(?:px)?\b/', $leafBody) || str_contains($leafBody, 'clamp(')) {
+    throw new RuntimeException('A viewport-sized crop must keep its captured offsets: ' . $leafBody);
 }
 echo "Figure image relative offset stays on the image leaf\n";
