@@ -1486,7 +1486,10 @@ final class ArtifactCompiler
         foreach ($files as $file) {
             if ($sourcePath !== ($file['path'] ?? null) || 'html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null)) continue;
             $proof = is_array($file['layout_geometry_proof'] ?? null) ? $file['layout_geometry_proof'] : $this->layoutGeometryProof;
-            $reductions = array_values(array_filter($proof['reductions'] ?? array(), static fn(mixed $reduction): bool => is_array($reduction) && $sourcePath === ($reduction['source_path'] ?? null) && hash('sha256', $file['content']) === ($reduction['source_hash'] ?? null)));
+            $structure = null;
+            $reductions = array_values(array_filter($proof['reductions'] ?? array(), static function (mixed $reduction) use ($sourcePath, $file, &$structure): bool {
+                return is_array($reduction) && $sourcePath === ($reduction['source_path'] ?? null) && LayoutGeometryProof::boundTo($reduction, $file['content'], $structure);
+            }));
             return array() === $reductions ? array() : array('schema' => LayoutGeometryProof::SCHEMA, 'reductions' => $reductions);
         }
         return array();
