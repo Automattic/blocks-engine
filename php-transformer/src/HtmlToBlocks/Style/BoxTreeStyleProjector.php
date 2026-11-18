@@ -100,6 +100,37 @@ final class BoxTreeStyleProjector
     }
 
     /**
+     * Restyle a source box that becomes no block, such as the document body
+     * the destination document supplies, under a fixed selector. Each given
+     * property is restated where lifted author intent, or one value observed
+     * at every capture, holds at every width and differs from its initial
+     * value: a varying pixel value would freeze at one capture, with no block
+     * to band it.
+     *
+     * @param array<string, string> $properties Property => its initial value, which is not restated.
+     * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
+     */
+    public function boxRule(string $selector, array $properties, array $observations, array $fluid = array()): string
+    {
+        $base = array();
+        $bands = array();
+        foreach ($properties as $property => $initial) {
+            $lifted = $fluid[$property] ?? array();
+            if (array() !== $lifted && null === $lifted[0][0]) {
+                if ($initial !== $lifted[0][1] || 1 < count($lifted)) $base[$property] = $lifted[0][1];
+                foreach (array_slice($lifted, 1) as [$maxWidth, $value]) $bands[self::width((float) $maxWidth)][$property] = $value;
+                continue;
+            }
+            $values = array_unique(array_map(static fn(array $observation): string => (string) ($observation['used_styles'][$property] ?? ''), $observations));
+            if (1 === count($values) && !in_array(reset($values), array('', $initial), true)) $base[$property] = reset($values);
+        }
+        $css = $this->rule($selector, $base);
+        uksort($bands, static fn(int|string $a, int|string $b): int => (float) $b <=> (float) $a);
+        foreach ($bands as $maxWidth => $declared) $css .= '@media (max-width:' . $maxWidth . 'px){' . $this->rule($selector, $declared) . '}';
+        return $css;
+    }
+
+    /**
      * Inherited typography an inline can set apart from its block. Color
      * stays with the link and state styles that already own it.
      */
