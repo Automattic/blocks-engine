@@ -15,11 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * state (an interaction pseudo-class, or a runtime state attribute the
  * capture replays) still override that pose the way they overrode the
  * resting author rule, and blocks keep their source classes, so those rules
- * are kept in their cascade position and conditional context. So are rules
- * selecting a capture device island class (desktop-only/mobile-only): the
- * capture's device sheet hides the island its viewport does not show, and
- * carriers record only the boxes the capture rendered, never that hiding,
- * so without the rule both islands of a pair render at every width. Resting rules
+ * are kept in their cascade position and conditional context. Resting rules
  * that bind an animation through a custom property a state rule defines are
  * kept down to their motion declarations. So are resting rules that bind
  * a scroll- or time-driven animation through a custom property whose value
@@ -36,7 +32,6 @@ final class EvidenceRouteStateRules
     private const INTERACTION = '/:(?:hover|focus|focus-visible|focus-within|active|checked|target)(?![\w-])/i';
     private const ATTRIBUTE = '\[(?:[^\]"\']|"[^"]*"|\'[^\']*\')*\]';
     private const MOTION = '/^(?:animation|view-timeline|scroll-timeline|timeline-scope)(?:-|$)/i';
-    private const DEVICE_ISLAND = '/\.(?:' . CaptureEvidence::DESKTOP_ONLY_CLASS . '|' . CaptureEvidence::MOBILE_ONLY_CLASS . ')(?![\w-])/';
 
     /** @var array<string, true> Custom properties a kept state rule defines. */
     private array $stateProperties = array();
@@ -242,7 +237,6 @@ final class EvidenceRouteStateRules
         // Attribute values and strings never name a state.
         $bare = (string) preg_replace('/"[^"]*"|\'[^\']*\'/', '""', $selector);
         if (preg_match(self::INTERACTION, $bare)) return true;
-        if (preg_match(self::DEVICE_ISLAND, $bare)) return true;
         foreach ($this->stateAttributes as $attribute) {
             if (preg_match('/\[\s*' . preg_quote($attribute, '/') . '\s*(?:[~|^$*]?=|\])/i', $bare)) return true;
         }

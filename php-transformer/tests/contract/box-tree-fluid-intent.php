@@ -76,16 +76,6 @@ $cases = array(
     '% width against the parent content width lifts' => array(
         'h1{width:50%}', array('n5.width' => array('200px', '100px'), 'n6.width' => array('100px', '50px')), array('width:50%'), array('width:50px'),
     ),
-    '% logical inline size lifts as the width it sets' => array(
-        'h1{inline-size:50%}', array('n5.width' => array('200px', '100px'), 'n6.width' => array('100px', '50px')), array('width:50%'), array('width:50px'),
-    ),
-    // imb-culinary-craft `.container-imb{width:100%;max-width:80rem}`: the
-    // widest capture's width is the max-width cap, not 100% of its parent.
-    // Frozen as pixels, that cap overflowed every width between captures.
-    '% width capped by its own max-width lifts beside the cap' => array(
-        'h1{width:100%;max-width:300px}', array('n5.width' => array('1440px', '250px'), 'n6.width' => array('300px', '250px'), 'n6.max-width' => array('300px', '300px')),
-        array('width:100%', 'max-width:300px'), array('{width:300px', ';width:300px', 'width:250px'),
-    ),
     'clamp() lifts' => array(
         'h1{font-size:clamp(10px,5.2vw,100px)}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:clamp(10px,5.2vw,100px)'), array('font-size:75px'),
     ),
@@ -189,6 +179,17 @@ $cases = array(
         'h1{width:auto}@media (max-width:500px){h1{width:300px}}', array('n6.width' => array('1440px', '300px')),
         array('width:1440px', 'width:300px'), array('h1 ;width:auto'),
     ),
+    // sdnunca header menu: the author switches the width's kind at a query.
+    'a % width an author query switches to max-content lifts per author band' => array(
+        'h1{width:85.57%}@media (max-width:1023px){h1{width:max-content}}',
+        array('n5.width' => array('1000px', '402px'), 'n6.width' => array('855.7px', '30.92px')),
+        array('h1 ;width:85.57%', '@media (max-width:1023px){', 'width:max-content'), array('width:855.7px', 'width:30.92px'),
+    ),
+    'a band neither lifter proves keeps its pixels' => array(
+        'h1{width:85.57%}@media (max-width:1023px){h1{width:30.92px}}',
+        array('n5.width' => array('1000px', '402px'), 'n6.width' => array('855.7px', '30.92px')),
+        array('width:855.7px', 'width:30.92px'), array('width:85.57%', 'width:max-content'),
+    ),
     'a logical size alias keeps its pixels' => array(
         'h1{inline-size:300px}', array('n6.width' => array('300px', '300px')), array('h1 ;width:300px'), array('h1 ;width:auto'),
     ),
@@ -200,15 +201,6 @@ $cases = array(
         'main{display:grid;grid-template-columns:minmax(0px,1fr);grid-template-rows:auto auto}',
         array('n5.display' => array('grid', 'grid'), 'n5.grid-template-columns' => array('1440px', '402px'), 'n5.grid-template-rows' => array('40px 20px', '60px 30px')),
         array('grid-template-columns:minmax(0px,1fr)', 'grid-template-rows:auto auto'), array('grid-template-columns:1440px', 'grid-template-columns:402px', 'grid-template-rows:40px'),
-    ),
-    // imb-culinary-craft `grid sm:grid-cols-2 lg:grid-cols-4`: the two-column
-    // tier lies between the 402px and 1440px captures; frozen, the four
-    // desktop pixel tracks overflowed the 768px viewport.
-    'a track tier no capture lands in still lifts at its author breakpoint' => array(
-        'main{display:grid}@media (width>=640px){main{grid-template-columns:repeat(2,minmax(0,1fr))}}@media (width>=1024px){main{grid-template-columns:repeat(4,minmax(0,1fr))}}',
-        array('n5.display' => array('grid', 'grid'), 'n5.grid-template-columns' => array('282px 282px 282px 282px', '362px')),
-        array('grid-template-columns:repeat(4,minmax(0,1fr))', '@media (max-width:1023px){.be-inline-geometry-', 'grid-template-columns:repeat(2,minmax(0,1fr))', '@media (max-width:639px){.be-inline-geometry-'),
-        array('282px', 'grid-template-columns:362px'),
     ),
     'a percentage track list lifts as written' => array(
         'main{display:grid;grid-template-columns:50% 50%}',

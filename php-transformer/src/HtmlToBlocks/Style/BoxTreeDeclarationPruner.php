@@ -200,33 +200,19 @@ final class BoxTreeDeclarationPruner
     );
 
     /**
-     * Elements the user agent clips to their own content box
-     * (`overflow:clip`). Observed on such a source, `clip` is that default,
-     * not authored clipping: an image's carrier lands on the block's wrapper
-     * (core/image's figure), where it would clip a box the source never did.
-     */
-    private const REPLACED_CLIP_TAGS = array('img', 'video', 'canvas', 'iframe', 'embed', 'object');
-
-    /**
      * @param array<string, string> $styles Observed used styles of one box.
      * @param array<string, string>|null $parent Observed used styles of the box it inherits from, if captured.
      * @param string $tagName The element the carrier lands on, when known.
-     * @param string $sourceTagName The observed source element, when known.
      * @return array<string, string> Property => one of the class constants.
      */
-    public function classify(array $styles, ?array $parent, string $blockName = '', string $tagName = '', string $sourceTagName = ''): array
+    public function classify(array $styles, ?array $parent, string $blockName = '', string $tagName = ''): array
     {
-        $replaced = in_array(strtolower($sourceTagName), self::REPLACED_CLIP_TAGS, true);
         $display = strtolower($styles['display'] ?? '');
         $parentDisplay = null === $parent ? null : strtolower($parent['display'] ?? '');
         $protected = array_fill_keys(self::BLOCK_BASE_PROPERTIES[$blockName] ?? array(), true);
         $ownDefaults = array_fill_keys(array_merge(self::TAG_INHERITED_DEFAULTS[strtolower($tagName)] ?? array(), self::BLOCK_INHERITED_DEFAULTS[$blockName] ?? array()), true);
         $result = array();
         foreach ($styles as $property => $value) {
-            if ($replaced && in_array($property, array('overflow-x', 'overflow-y'), true) && 'clip' === $value) {
-                $result[$property] = self::INITIAL;
-                continue;
-            }
             $result[$property] = $this->classifyOne($property, (string) $value, $styles, $parent, $display, $parentDisplay, isset($protected[$property]), isset($ownDefaults[$property]));
         }
         return $result;

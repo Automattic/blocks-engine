@@ -21,9 +21,8 @@ final class BoxTreeStyleProjector
      * @param string $blockName The block carrying the rule, whose WordPress base styles a pruned declaration falls back to.
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid Lifted author values: property => bands, widest
      *        first, each [max-width (null for the base rule), value] ({@see BoxTreeFluidIntent::lift()}).
-     * @param string $sourceTagName The observed source element, whose user-agent defaults are not the carrier's.
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), string $sourceTagName = ''): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array()): array
     {
         if (array() === $observations) return $attrs;
         $keys = array_keys($observations);
@@ -33,7 +32,7 @@ final class BoxTreeStyleProjector
         $tagName = self::emittedTag($blockName, $attrs);
         foreach ($keys as $key) {
             $parent = $parents[$key]['used_styles'] ?? null;
-            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName, $sourceTagName);
+            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, $fluid);
@@ -53,10 +52,6 @@ final class BoxTreeStyleProjector
             }
             return true;
         }, ARRAY_FILTER_USE_BOTH);
-        // Most core blocks never save `dimensions.maxWidth` (BlockFactory drops
-        // it; others fall back off the wrapper), so an observed max-width stays
-        // in the carrier, where it caps a lifted `width:100%` as in the source.
-        unset($invariant['max-width']);
         $mapped = $mapper->map(array_replace($unobserved, $invariant));
         $attrs['style'] = $mapped['style'];
         $attrs = array_replace($attrs, $mapped['attrs']);

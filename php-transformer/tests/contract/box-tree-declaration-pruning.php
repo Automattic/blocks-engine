@@ -131,11 +131,6 @@ $status = $pruner->classify($same, $same, '', 'strong');
 $assert(BoxTreeDeclarationPruner::INHERITED === $status['font-size'], 'A `strong` still inherits properties it has no default for.');
 $assert(BoxTreeDeclarationPruner::INHERITED === $pruner->classify($same, $same, '', 'div')['font-weight'], 'A `div` inherits its weight from the parent.');
 
-// A replaced element's user-agent `overflow:clip` does not reach its block wrapper.
-$clipped = array('overflow-x' => 'clip', 'overflow-y' => 'clip');
-$assert(array('overflow-x' => BoxTreeDeclarationPruner::INITIAL, 'overflow-y' => BoxTreeDeclarationPruner::INITIAL) === $pruner->classify($clipped, null, 'core/image', '', 'img'), 'An `img` does not carry its user-agent clip onto the image figure.');
-$assert(BoxTreeDeclarationPruner::KEPT === $pruner->classify($clipped, null, 'core/group', 'div', 'div')['overflow-x'], 'A `div` keeps its authored clip.');
-
 // Block attributes serialize inline and would beat every @media carrier rule,
 // so a value that varies by viewport stays entirely in the carrier (#6377).
 $state = new LayoutGeometryState();
