@@ -79,6 +79,17 @@ final class EngineSupportCss
             // including when core/image inserts an anchor around the image.
             $parts[] = ':where(figure.blocks-engine-image > img,figure.blocks-engine-image > a > img){max-width:100%}';
         }
+        if ( str_contains($serializedBlocks, 'be-stacking-order-') && str_contains($serializedBlocks, 'wp-block-image') ) {
+            // Captured stacked slides retain their paint order on the front end.
+            // In the editor every slide is editable: absolute siblings must not
+            // cover one another, and a caption overlay must not take the image's
+            // selection hit target. Only image-bearing stacking owners change.
+            $owner = ':root .editor-styles-wrapper .wp-block-group[class*="be-stacking-order-"]:has(figure.wp-block-image)';
+            $parts[] = $owner . '{position:relative!important;inset:auto!important;z-index:auto!important;height:auto!important;min-height:0!important;opacity:1!important;visibility:visible!important}'
+                . $owner . '>.wp-block-group:not(:has(figure.wp-block-image)){position:relative!important;inset:auto!important;transform:none!important;z-index:auto!important}'
+                . $owner . ' figure.wp-block-image{position:relative!important;z-index:1!important}'
+                . ':root .editor-styles-wrapper .wp-block-group:has(>.wp-block-group[class*="be-stacking-order-"] figure.wp-block-image){height:auto!important;min-height:0!important}';
+        }
         if (str_contains($serializedBlocks, 'blocks-engine-stacked-buttons')) {
             // Preserve normal block flow even when the authored bar is inline-block.
             $parts[] = '.wp-block-buttons.blocks-engine-stacked-buttons>.wp-block-button{display:block;margin:0}';

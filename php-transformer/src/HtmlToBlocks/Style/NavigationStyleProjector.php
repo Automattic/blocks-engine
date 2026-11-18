@@ -84,11 +84,6 @@ final class NavigationStyleProjector
             $this->session->generatedSupportStylesheetState()->navigationEditorTypographyRules(),
             $this->session->generatedSupportStylesheetState()->navigationEditorItemStyleRules()
         );
-        // Repairs that name only engine markup ship in their own engine-owned
-        // sheet: a route that retires author selectors (box-tree evidence)
-        // must still deliver them, or Gutenberg loses the selectable boxes
-        // and placeholders they restore (issue #5920).
-        $engineRules = array();
         // Source runtimes can hide an icon carrier until hover or animation.
         // They do not run in Gutenberg: expose the native image and its direct
         // group carrier there, so the image has a selectable box. Keep this in
@@ -100,7 +95,7 @@ final class NavigationStyleProjector
             && preg_match('/(?:^|[;{])\s*(?:visibility\s*:\s*hidden|display\s*:\s*none)\s*(?:!important\s*)?(?:[;}])/i', $this->session->authorStyleAnalysis()->combinedCss())
         ) {
             $image = 'figure.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '.wp-block-image';
-            $engineRules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
+            $rules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
                 . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){display:block!important;visibility:visible!important}';
         }
         foreach ( self::focusedEmptyRichTextRepairRules($projectedAuthorCss) as $repairRule ) {
@@ -170,7 +165,7 @@ final class NavigationStyleProjector
         }
         if ( $this->session->runtimeBehaviorState()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
-            $engineRules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
+            $rules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
                 . $selector . '>*{display:none!important}'
                 . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
         }
@@ -182,7 +177,7 @@ final class NavigationStyleProjector
             // reserve no height for it: the source layer is painted out of
             // normal flow, so any reserved height displaces every block after
             // it and moves the composition down the canvas.
-            $engineRules[] = $selector . '{min-height:0!important;overflow:hidden!important}'
+            $rules[] = $selector . '{min-height:0!important;overflow:hidden!important}'
                 . $selector . '>*{display:none!important}'
                 // Core's large empty-group placeholder has a more specific
                 // display declaration than the generic child selector.
@@ -204,7 +199,6 @@ final class NavigationStyleProjector
         }
 
         $this->context->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
-        $this->context->materializeStylesheetAsset($engineRules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor', EngineMarker::ENGINE_OWNED_STYLESHEET_ROLE);
     }
 
     /**

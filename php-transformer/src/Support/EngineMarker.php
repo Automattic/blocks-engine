@@ -42,13 +42,6 @@ final class EngineMarker
         'specificity-id' => 'be-i-',
     );
 
-    /**
-     * `source_role` of a generated stylesheet whose rules name only engine
-     * markup (no author selector), so routes that ship engine-owned styles
-     * still deliver it.
-     */
-    public const ENGINE_OWNED_STYLESHEET_ROLE = 'engine-owned';
-
     /** Compact output alias for CaptureEvidence::DEVICE_DOCUMENT. */
     public const DEVICE_SCOPE_ATTRIBUTE = 'data-be-d';
 
