@@ -49,10 +49,8 @@ foreach (array('index.html', 'guides/about.html', 'guides/team.html') as $source
     $markup = $documents[$source]['canonical_block_markup'] ?? '';
     // The skip link opens every route with the header, so it moves with it
     // and still renders before the header.
-    // The article's own header and footer stay in content as plain groups:
-    // a content item's header/footer is no landmark, so the page footer is
-    // its only <footer>.
-    $assert(0 === substr_count($markup, '"tagName":"header"') && !str_contains($markup, 'Skip to content') && str_contains($markup, 'article header') && str_contains($markup, 'article footer') && 1 === substr_count($markup, '"tagName":"footer"'), "{$source} removes the shared header with its skip link and retains the article header and footer and its footer: {$markup}");
+    // Only the article footer becomes a plain group; its header is unchanged.
+    $assert(1 === substr_count($markup, '"tagName":"header"') && !str_contains($markup, 'Skip to content') && str_contains($markup, 'article header') && str_contains($markup, 'article footer') && 1 === substr_count($markup, '"tagName":"footer"'), "{$source} removes the shared header with its skip link and retains the article header and footer and its footer: {$markup}");
 }
 $assert(1 === substr_count(ThemeTemplates::rendered($plan)['front-page'], '"slug":"header"') && 1 === substr_count($declaredWrites['templates/page.html']['payload']['data'], '"slug":"header"') && 1 === substr_count($declaredWrites['templates/index.html']['payload']['data'], '"slug":"header"'), 'All base templates bind the shared header exactly once.');
 $assert(1 === substr_count(ThemeTemplates::rendered($plan)['search'] ?? '', '"slug":"header","area":"header"'), 'The search template binds the shared header wherever index is bound, so search results do not render headerless.');

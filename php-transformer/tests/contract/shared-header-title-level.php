@@ -115,6 +115,6 @@ foreach (array('color:#933', 'font-size:32px') as $difference) {
     $assert(str_contains($home['canonical_block_markup'], '<header'), 'Different home presentation stays in content: ' . $difference);
 }
 $section = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<html><body><main><article><header><h1>Article title</h1></header><p>Article body</p></article></main></body></html>')))->toWordPressSitePlanView()['wordpress_site_plan'];
-$assert(str_contains($section['pages'][0]['canonical_block_markup'], 'Article title') && !str_contains($section['pages'][0]['canonical_block_markup'], '<header'), 'A single-page article header stays in content as a plain group, not a landmark copy.');
+$assert(str_contains($section['pages'][0]['canonical_block_markup'], '<header'), 'A single-page article header stays in content.');
 $assert(array() === array_filter($section['template_parts'], static fn(array $part): bool => 'header' === $part['area']), 'An article header is not site chrome.');
 echo "shared-header-title-level: ok\n";

@@ -491,8 +491,8 @@ final class SourceBlockAttributeProjector
 
         if ( 'core/group' === $name && ! isset($attrs['tagName']) ) {
             $semanticTag = self::semanticGroupTagName($sourceElement);
-            // A content item's own header/footer is no landmark (HTML maps it
-            // to a generic role). Saved as `<header>`/`<footer>` it reads as a
+            // A content item's own footer is no landmark (HTML maps it
+            // to a generic role). Saved as `<footer>` it reads as a
             // copy of the page shell inside page content, so it keeps the
             // tag only while author CSS still selects it by that tag.
             if ( null !== $semanticTag && ShellLandmarkPolicy::isContentItemLandmarkTag($sourceElement)

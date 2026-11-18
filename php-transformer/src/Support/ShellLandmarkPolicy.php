@@ -72,7 +72,7 @@ final class ShellLandmarkPolicy
     }
 
     /**
-     * A `<header>` or `<footer>` owned by an article, aside, nav, blockquote or
+     * A `<footer>` owned by an article, aside, nav, blockquote or
      * figure introduces or closes that content item (an entry's byline, a
      * card's actions, a quote's citation). HTML maps it to no landmark role,
      * so it is never page chrome: the same content-local ancestors
@@ -80,7 +80,7 @@ final class ShellLandmarkPolicy
      */
     public static function isContentItemLandmarkTag(\DOMElement $element): bool
     {
-        if (!in_array(strtolower($element->tagName), array('header', 'footer'), true) || '' !== trim($element->getAttribute('role'))) return false;
+        if ('footer' !== strtolower($element->tagName) || '' !== trim($element->getAttribute('role'))) return false;
         for ($ancestor = $element->parentNode; $ancestor instanceof \DOMElement; $ancestor = $ancestor->parentNode) {
             $tag = strtolower($ancestor->tagName);
             if (in_array($tag, array('article', 'aside', 'nav', 'blockquote', 'figure'), true)) return true;

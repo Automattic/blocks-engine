@@ -1,10 +1,9 @@
 <?php
 declare(strict_types=1);
 
-// An entry's own <footer> (and <header>) inside an <article> is no landmark:
-// HTML maps it to a generic role. Saved as <footer> in page content it reads
-// as a copy of the page shell, so it saves as a plain group, unless author
-// CSS still selects it by that tag.
+// An entry footer can save as a plain group when author CSS does not need
+// its tag. Keep article headers unchanged: broadening this normalization to
+// them changes presentation outside the footer defect.
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
@@ -39,8 +38,8 @@ foreach ($plan['pages'] as $entry) {
     $content = (string) ($entry['canonical_block_markup'] ?? $entry['block_markup'] ?? '');
     $assert(str_contains($content, 'entry-footer'), 'The entry footer must stay in page content');
     $assert(1 !== preg_match('/<footer[ >]/i', $content), 'An article footer must not save as a <footer> copy in page content: ' . $content);
-    $assert(1 !== preg_match('/<header[ >]/i', $content), 'An article header must not save as a <header> copy in page content: ' . $content);
-    $assert(!str_contains($content, '"name":"Footer"') && !str_contains($content, '"name":"Header"'), 'A content item header/footer must not be named as a landmark');
+    $assert(1 === preg_match('/<header[ >]/i', $content), 'Footer normalization must not change an article header: ' . $content);
+    $assert(!str_contains($content, '"name":"Footer"'), 'A content item footer must not be named as a landmark');
 }
 
 // Author CSS that selects the entry header by its tag keeps the tag.
