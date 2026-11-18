@@ -811,12 +811,12 @@ final class StyleResolver implements ElementPresentationResolver
      * @param list<DOMElement> $sources Source elements, the RichText root first.
      * @param list<DOMElement> $targets Their serialization clones, in the same order.
      */
-    private function restyleRichTextInlines(array $sources, array $targets): void
+    private function restyleRichTextInlines(array $sources, array $targets, int $from = 1): void
     {
         $viewports = $this->session->boxTreeViewports();
         if (array() === $viewports) return;
         $projector = null;
-        foreach (array_slice($sources, 1, null, true) as $index => $source) {
+        foreach (array_slice($sources, $from, null, true) as $index => $source) {
             $target = $targets[$index] ?? null;
             $parent = $source->parentNode;
             if (!$target instanceof DOMElement || !$parent instanceof DOMElement) continue;
@@ -827,6 +827,24 @@ final class StyleResolver implements ElementPresentationResolver
             $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
             if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
         }
+    }
+
+    /**
+     * An inline layout leaf (`<span class="flex font-medium">`) is saved
+     * whole as the RichText of a boxless paragraph, so the leaf itself is an
+     * inline inside that RichText, not its root: with box-tree evidence it
+     * keeps its observed typography only through an engine carrier, like any
+     * other RichText inline {@see restyleRichTextInlines()}.
+     *
+     * @return string The leaf's markup.
+     */
+    public function inlineLayoutLeafMarkup(DOMElement $element): string
+    {
+        if (array() === $this->session->boxTreeViewports()) return SourceDom::outerHtml($element);
+        $clone = $element->cloneNode(true);
+        if (!$clone instanceof DOMElement) return SourceDom::outerHtml($element);
+        $this->restyleRichTextInlines(array($element), array($clone), 0);
+        return SourceDom::outerHtml($clone);
     }
 
     /** Preserve authored inline CSS except typography already supplied by the parent. */

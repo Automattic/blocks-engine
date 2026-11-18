@@ -22,7 +22,8 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * names one of the sheets' `@keyframes` (Wix parallax: `--anm-0` carries the
  * keyframes, `--anm-tmln-0` the view timeline). The custom properties kept
  * rules and kept keyframes read are closed over: every rule that defines one
- * keeps that definition. Every `@keyframes` and `@property` the kept rules
+ * keeps that definition, as does every rule defining a custom property the
+ * emitted markup reads. Every `@keyframes` and `@property` the kept rules
  * reach is kept. Rules whose subject names an id no emitted element carries
  * are dropped. Everything else is dropped, except `@font-face` and `@layer`
  * order statements.
@@ -101,6 +102,10 @@ final class EvidenceRouteStateRules
         foreach ($trees as &$tree) $this->markConsumers($tree);
         unset($tree);
         if (preg_match_all('/(?<![\w-])animation(?:-name)?\s*:([^;{}]*)/i', $context, $bound)) foreach ($bound[1] as $value) $this->bindNames($value);
+        // Carried inline styles in the emitted markup still read author
+        // tokens (`font-family:var(--font-heading)`): their definitions are
+        // the only thing left to resolve them.
+        if (preg_match_all('/var\(\s*(--[\w-]+)/', $this->reach ?? $this->markup, $read)) foreach ($read[1] as $var) $this->referenced[$var] = $this->customProperties[$var] = true;
         // Close over the custom properties kept rules and kept keyframes read.
         do {
             $before = count($this->referenced) + count($this->names);

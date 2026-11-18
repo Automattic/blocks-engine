@@ -446,49 +446,39 @@ final class DesignSystem
      * fields are checked independently, including shape and spacing; matching
      * inherited typography and core's outline fill also establish ownership.
      *
-     * A declared form's submit control is a button block too: the form
-     * provider materializes it as a `core/button` carrying the control's
-     * declared presentation style and nothing else, so the element style
-     * reaches every field that presentation leaves out.
-     *
      * @param list<string> $markups Every page's block markup.
-     * @param list<array<string,mixed>> $providerButtonStyles Declared presentation style of each submit control a form provider materializes.
      */
-    public function withButtonElementsOwnedBy(array $markups, array $providerButtonStyles = array()): self
+    public function withButtonElementsOwnedBy(array $markups): self
     {
         if (!isset($this->elements['button'])) return $this;
         $dominant = isset($this->elements['button']['padding']) || isset($this->elements['button']['radius']);
         $owned = array('color' => true, 'background' => true, 'font_family' => true, 'font_size' => true, 'font_weight' => true);
-        $buttons = array();
         foreach ($markups as $markup) {
             if (!preg_match_all('/<!-- wp:button(?: (\{.*?\}))? \/?-->/s', $markup, $matches)) continue;
             foreach ($matches[1] as $json) {
                 $attributes = '' === $json ? array() : json_decode($json, true);
-                $buttons[] = is_array($attributes) ? $attributes : array();
+                if (!is_array($attributes)) $attributes = array();
+                $style = ArrayField::array($attributes, 'style');
+                $carried = array(
+                    'color' => isset($attributes['textColor']) || isset($style['color']['text']),
+                    'background' => isset($attributes['backgroundColor']) || isset($attributes['gradient']) || isset($style['color']['background']) || isset($style['color']['gradient']),
+                    'font_family' => isset($attributes['fontFamily']) || isset($style['typography']['fontFamily']),
+                    'font_size' => isset($attributes['fontSize']) || isset($style['typography']['fontSize']),
+                    'font_weight' => isset($style['typography']['fontWeight']),
+                );
+                if ($dominant) {
+                    // Missing ownership vetoes only this field, not the rest of
+                    // the dominant look. Matching inherited defaults are safe.
+                    $carried['font_family'] = $carried['font_family'] || self::familyKey((string) ($this->root['font_family'] ?? '')) === self::familyKey($this->elements['button']['font_family'] ?? '');
+                    $carried['font_weight'] = $carried['font_weight'] || '400' === ($this->elements['button']['font_weight'] ?? null);
+                    $carried['background'] = $carried['background'] || str_contains((string) ($attributes['className'] ?? ''), 'is-style-outline');
+                    $carried['radius'] = isset($style['border']['radius']);
+                    $carried['padding'] = isset($style['spacing']['padding']);
+                    $carried['text_transform'] = isset($style['typography']['textTransform']);
+                    $carried['letter_spacing'] = isset($style['typography']['letterSpacing']);
+                }
+                foreach ($carried as $field => $present) if (!$present) $owned[$field] = false;
             }
-        }
-        foreach ($providerButtonStyles as $style) $buttons[] = array('style' => $style);
-        foreach ($buttons as $attributes) {
-            $style = ArrayField::array($attributes, 'style');
-            $carried = array(
-                'color' => isset($attributes['textColor']) || isset($style['color']['text']),
-                'background' => isset($attributes['backgroundColor']) || isset($attributes['gradient']) || isset($style['color']['background']) || isset($style['color']['gradient']),
-                'font_family' => isset($attributes['fontFamily']) || isset($style['typography']['fontFamily']),
-                'font_size' => isset($attributes['fontSize']) || isset($style['typography']['fontSize']),
-                'font_weight' => isset($style['typography']['fontWeight']),
-            );
-            if ($dominant) {
-                // Missing ownership vetoes only this field, not the rest of
-                // the dominant look. Matching inherited defaults are safe.
-                $carried['font_family'] = $carried['font_family'] || self::familyKey((string) ($this->root['font_family'] ?? '')) === self::familyKey($this->elements['button']['font_family'] ?? '');
-                $carried['font_weight'] = $carried['font_weight'] || '400' === ($this->elements['button']['font_weight'] ?? null);
-                $carried['background'] = $carried['background'] || str_contains((string) ($attributes['className'] ?? ''), 'is-style-outline');
-                $carried['radius'] = isset($style['border']['radius']);
-                $carried['padding'] = isset($style['spacing']['padding']);
-                $carried['text_transform'] = isset($style['typography']['textTransform']);
-                $carried['letter_spacing'] = isset($style['typography']['letterSpacing']);
-            }
-            foreach ($carried as $field => $present) if (!$present) $owned[$field] = false;
         }
         $button = $this->elements['button'];
         foreach ($owned as $field => $isOwned) if (!$isOwned) unset($button[$field]);
