@@ -42,5 +42,23 @@ try {
         if (mode !== 'no-js') await compiled('#card0');
         await page.close();
     }
+    // A below-only repeating entrance replays only when it leaves below the viewport.
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const belowOnly = JSON.stringify({ attributes: { class: { before: 'reveal', after: 'reveal in' } }, threshold: [0], rootMargin: '0px', repeat: true, repeatSides: ['below'] });
+    await page.setContent(`<div style="height:1400px"></div><section id="below" class="reveal in" style="height:200px" data-blocks-engine-capture-viewport-entrance='${belowOnly}'>Card</section><div style="height:2400px"></div>`);
+    await page.addScriptTag({ content: runtime });
+    const pose = () => page.locator('#below').getAttribute('class');
+    await page.waitForTimeout(300);
+    assert.equal(await pose(), 'reveal', 'below-only entrance starts pending');
+    await page.evaluate(() => scrollTo(0, 1200));
+    await page.waitForTimeout(300);
+    assert.equal(await pose(), 'reveal in', 'below-only entrance reveals on entry');
+    await page.evaluate(() => scrollTo(0, 3000));
+    await page.waitForTimeout(300);
+    assert.equal(await pose(), 'reveal in', 'below-only entrance stays revealed above the viewport');
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.waitForTimeout(300);
+    assert.equal(await pose(), 'reveal', 'below-only entrance reverts below the viewport');
+    await page.close();
 } finally { await browser.close(); }
 console.log('Viewport entrance browser contract passed.');

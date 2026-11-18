@@ -29,11 +29,11 @@ $transform = static function (string $html): array {
 $fillClass = SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS;
 $fillRule = ':root :where(figure.' . $fillClass . '){width:100%}';
 
-// A source image explicitly fills both axes of its parent. The aspect ratio
+// A block source image explicitly fills both axes of its parent. The aspect ratio
 // belongs to the image, while the extra core/image figure needs the parent's
 // full inline extent rather than an intrinsic/shrink-to-fit width.
 list( $fillMarkup, $fillCss ) = $transform(
-    '<style>.media-frame{height:562px}.media-frame img{width:100%;height:100%;aspect-ratio:1440/562;object-fit:cover}</style>'
+    '<style>.media-frame{height:562px}.media-frame img{display:block;width:100%;height:100%;aspect-ratio:1440/562;object-fit:cover}</style>'
     . '<main><div class="media-frame"><img src="landscape.jpg" alt="Landscape" width="1440" height="562"></div></main>'
 );
 if ( ! preg_match('/<figure[^>]*\b' . preg_quote($fillClass, '/') . '\b[^>]*><img[^>]*style="[^"]*width:100%;height:100%/', $fillMarkup)

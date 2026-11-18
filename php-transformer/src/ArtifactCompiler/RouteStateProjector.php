@@ -74,6 +74,10 @@ final class RouteStateProjector
             }
         }
         $files = self::withoutUnstyledScriptClasses($files);
+        // A projection hook that only restates inline style is gone before
+        // alignment reads chrome vocabulary, or it would be renamed into a
+        // route class that no later step recognizes as capture evidence.
+        $files = self::withoutRestatingProjectionHooks($files);
         // Route bindings record class names, so they read the aligned ones.
         $files = self::withRouteAlignedChromeClasses($files);
         $files = self::bindNavigationRuns(self::bindRetainedLabels($files, $entryPath));
@@ -210,9 +214,17 @@ final class RouteStateProjector
                 $names = array();
                 foreach ($rows as $row) foreach ($row['nodes'][$position]->attributes as $attr) $names[$attr->name] = true;
                 $binding = array('rest' => array(), 'current' => array());
+                $restingItem = array('rest' => array(), 'current' => array());
                 foreach (array_keys($names) as $name) {
                     if (!in_array($name, array('class', 'style', 'aria-current'), true) && !str_starts_with($name, 'data-')) continue;
                     if (str_starts_with($name, 'data-blocks-engine-')) continue;
+                    if (!$rows[0]['retained'] && 'style' !== $name) {
+                        $restingState = self::restingState($rows, $position, $name);
+                        if (null !== $restingState) {
+                            $restingItem['rest'] += $restingState['rest'];
+                            $restingItem['current'] += $restingState['current'];
+                        }
+                    }
                     // Ordinary links already project anchor classes and colours.
                     // Only descendant inline paint needs this cross-route binding.
                     if (!$rows[0]['retained'] && ('style' !== $name || 'a' === strtolower($rows[0]['nodes'][$position]->tagName))) continue;
@@ -283,6 +295,14 @@ final class RouteStateProjector
                     }
                     ksort($binding['routes'], SORT_STRING);
                 }
+                if (array() !== $restingItem['rest']) {
+                    // Native navigation re-derives the served item itself, so
+                    // the evidence only rests a menu kept as markup.
+                    foreach ($rows as $row) {
+                        $row['nodes'][$position]->setAttribute(self::RESTING_STATE_ATTRIBUTE, (string) json_encode($restingItem, JSON_UNESCAPED_SLASHES));
+                        $changed[$row['index']] = true;
+                    }
+                }
                 if (array() === $binding['rest']) continue;
                 foreach ($rows as $row) {
                     $node = $row['nodes'][$position];
@@ -342,6 +362,82 @@ final class RouteStateProjector
     public const CURRENT_SOURCES_ATTRIBUTE = 'data-blocks-engine-current-sources';
 
     public const CURRENT_SECTION_ATTRIBUTE = 'data-blocks-engine-current-section';
+
+    /**
+     * How a navigation item rests, recorded without changing it: the class
+     * tokens and attribute values only its current copies carry, across the
+     * captures, and what its resting copies carry instead.
+     */
+    public const RESTING_STATE_ATTRIBUTE = 'data-blocks-engine-route-resting';
+
+    /**
+     * The route state one attribute of the same navigation item carries: class
+     * tokens every current copy has and no resting copy has (or the reverse),
+     * or one current value against one resting value. Other differences are
+     * the item's own content.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @return array{rest:array<string, mixed>, current:array<string, mixed>}|null
+     */
+    private static function restingState(array $rows, int $position, string $name): ?array
+    {
+        $selected = array_values(array_filter($rows, static fn(array $row): bool => $row['current']));
+        $resting = array_values(array_filter($rows, static fn(array $row): bool => !$row['current']));
+        $value = static fn(array $row): ?string => $row['nodes'][$position]->hasAttribute($name) ? $row['nodes'][$position]->getAttribute($name) : null;
+        if ('class' === $name) {
+            $tokens = static fn(array $peers): array => array_map(static fn(array $row): array => SourceDom::tokens((string) $value($row)), $peers);
+            $only = static fn(array $own, array $other): array => array_values(array_diff(array_intersect(...array_merge($own, array(array_merge(...$own)))), array_merge(...$other)));
+            $current = $only($tokens($selected), $tokens($resting));
+            $rest = $only($tokens($resting), $tokens($selected));
+            return array() === $current && array() === $rest ? null : array('rest' => array('class' => $rest), 'current' => array('class' => $current));
+        }
+        $current = array_values(array_unique(array_map($value, $selected), SORT_REGULAR));
+        $rest = array_values(array_unique(array_map($value, $resting), SORT_REGULAR));
+        if (1 !== count($current) || 1 !== count($rest) || $current === $rest) return null;
+        return array('rest' => array($name => $rest[0]), 'current' => array($name => $current[0]));
+    }
+
+    /**
+     * Markup kept as one component for every route rests its navigation items
+     * on the evidence the captures recorded, and binds each item's current
+     * state to the served route instead.
+     */
+    public static function withRestingNavigation(DOMElement $root): void
+    {
+        $nodes = array();
+        if ($root->hasAttribute(self::RESTING_STATE_ATTRIBUTE)) $nodes[] = $root;
+        foreach ($root->getElementsByTagName('*') as $node) if ($node->hasAttribute(self::RESTING_STATE_ATTRIBUTE)) $nodes[] = $node;
+        foreach ($nodes as $node) {
+            $state = json_decode($node->getAttribute(self::RESTING_STATE_ATTRIBUTE), true);
+            $node->removeAttribute(self::RESTING_STATE_ATTRIBUTE);
+            if (!is_array($state) || !is_array($state['rest'] ?? null) || !is_array($state['current'] ?? null)) continue;
+            // The binding resolves against its item's own link: the node
+            // itself, the link it holds, or the link holding it.
+            $link = null;
+            if ('a' === strtolower($node->tagName)) $link = 'self';
+            elseif (null !== $node->getElementsByTagName('a')->item(0)) $link = 'next';
+            else for ($cursor = $node->parentNode; $cursor instanceof DOMElement && null === $link; $cursor = $cursor->parentNode) if ('a' === strtolower($cursor->tagName)) $link = 'previous';
+            if (null === $link) continue;
+            $binding = array('rest' => array(), 'current' => array());
+            foreach ($state['rest'] as $name => $value) {
+                if ('class' === $name) {
+                    $restTokens = array_map('strval', (array) $value);
+                    $currentTokens = array_map('strval', (array) ($state['current']['class'] ?? array()));
+                    $classes = self::classes($node);
+                    $binding['rest']['class'] = implode(' ', array_values(array_unique(array_merge(array_diff($classes, $currentTokens), $restTokens))));
+                    $binding['current']['class'] = implode(' ', array_values(array_unique(array_merge(array_diff($classes, $restTokens), $currentTokens))));
+                    continue;
+                }
+                $binding['rest'][$name] = $value;
+                $binding['current'][$name] = $state['current'][$name] ?? null;
+            }
+            foreach ($binding['rest'] as $name => $value) {
+                if (null === $value || '' === $value && 'class' === $name) $node->removeAttribute($name); else $node->setAttribute($name, (string) $value);
+            }
+            if ('self' !== $link) $binding['link'] = $link;
+            $node->setAttribute('data-blocks-engine-route-state', (string) json_encode($binding, JSON_UNESCAPED_SLASHES));
+        }
+    }
 
     private static function sortedClasses(string $classes): string
     {
@@ -444,6 +540,54 @@ final class RouteStateProjector
         return $files;
     }
 
+    /**
+     * A capture's responsive projection hook names one route's width-scoped
+     * rules, so the same chrome element carries a differently named hook on
+     * each route that recorded one. When every rule naming the hook restates
+     * the element's own inline declarations, the hook records a reserialized
+     * style, not a presentation, and chrome drops it on every route.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private static function withoutRestatingProjectionHooks(array $files): array
+    {
+        // Only a site with several routes has chrome to share.
+        $chrome = 0; $documents = array();
+        foreach ($files as $index => $file) {
+            if ('html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || !preg_match('/<(?:header|footer)\b|\srole\s*=\s*["\']?(?:banner|contentinfo)/i', $file['content'])) continue;
+            ++$chrome;
+            if (str_contains($file['content'], CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX)) $documents[] = $index;
+        }
+        if ($chrome < 2 || array() === $documents) return $files;
+        $stylesheets = null;
+        $hook = '/^' . preg_quote(CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX, '/') . '[a-f0-9]{12}$/';
+        foreach ($documents as $index) {
+            $document = HtmlSerialization::parseFragment($files[$index]['content']);
+            $xpath = new DOMXPath($document);
+            $changed = false;
+            foreach ($xpath->query(self::CHROME_LANDMARKS) ?: array() as $landmark) {
+                if (!$landmark instanceof DOMElement) continue;
+                foreach ($xpath->query('descendant-or-self::*[contains(@class, "' . CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX . '")]', $landmark) ?: array() as $hooked) {
+                    if (!$hooked instanceof DOMElement) continue;
+                    $classes = self::classes($hooked);
+                    $kept = array_values(array_filter($classes, static function (string $class) use ($hooked, $files, $hook, &$stylesheets): bool {
+                        if (!preg_match($hook, $class)) return true;
+                        $stylesheets ??= self::stylesheets($files);
+                        return !self::restatesInlineStyle($class, $hooked->getAttribute('style'), $stylesheets);
+                    }));
+                    if ($kept === $classes) continue;
+                    if (array() === $kept) $hooked->removeAttribute('class'); else $hooked->setAttribute('class', implode(' ', $kept));
+                    $changed = true;
+                }
+            }
+            if (!$changed) continue;
+            $html = HtmlSerialization::documentHtml($document);
+            if (is_string($html)) $files[$index]['content'] = $html;
+        }
+        return $files;
+    }
+
     private static function marksCurrent(DOMElement $element): bool
     {
         return MenuVocabulary::containsCurrentStateToken($element->getAttribute('class'))
@@ -486,18 +630,6 @@ final class RouteStateProjector
                 foreach (iterator_to_array($xpath->query('.//*[@' . CaptureEvidence::ANCHOR_TARGET . ']', $landmark) ?: array()) as $target) {
                     if (!$target instanceof DOMElement || null !== $target->firstElementChild || '' !== trim($target->textContent) || !$landmark->parentNode instanceof \DOMNode) continue;
                     $landmark->parentNode->insertBefore($target, $landmark);
-                    $changed[$index] = true;
-                }
-                foreach ($xpath->query('descendant-or-self::*[contains(@class, "' . CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX . '")]', $landmark) ?: array() as $hooked) {
-                    if (!$hooked instanceof DOMElement) continue;
-                    $classes = self::classes($hooked);
-                    $kept = array_values(array_filter($classes, static function (string $class) use ($hooked, $files, &$stylesheets): bool {
-                        if (!preg_match('/^' . preg_quote(CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX, '/') . '[a-f0-9]{12}$/', $class)) return true;
-                        $stylesheets ??= self::stylesheets($files);
-                        return !self::restatesInlineStyle($class, $hooked->getAttribute('style'), $stylesheets);
-                    }));
-                    if ($kept === $classes) continue;
-                    if (array() === $kept) $hooked->removeAttribute('class'); else $hooked->setAttribute('class', implode(' ', $kept));
                     $changed[$index] = true;
                 }
                 $nodes = array_merge(array($landmark), iterator_to_array($xpath->query('.//*[@id]', $landmark) ?: array()));
@@ -674,7 +806,7 @@ final class RouteStateProjector
                                 if (!$alone) { $sheetRules[$sheet][1][$class] = true; continue; }
                                 // Copies keep each route's own scope, so the slot only lets equal rules meet.
                                 $read = preg_replace_callback($classPattern, static fn(array $other): string => isset($worn[$other[1]]) ? $other[0] : ".\x02", (string) preg_replace($named($class), ".\x01", trim($selector)));
-                                $sheetRules[$sheet][0][$class][] = implode("\0", $ancestors) . "\0" . $read . "\0" . RenderEquivalentMarkup::canonicalStyle($body);
+                                $sheetRules[$sheet][0][$class][] = array(implode("\0", $ancestors), $read, RenderEquivalentMarkup::canonicalStyle($body));
                             }
                         }
                     });
@@ -685,7 +817,7 @@ final class RouteStateProjector
             foreach ($rules as $class => $meaning) {
                 // Engine-minted classes (re-ingested control bindings) are no route vocabulary.
                 if (str_starts_with($class, 'blocks-engine-') || isset($unaliasable[$class]) || preg_match($named($class), $global)) continue;
-                $meanings[$index][$class] = hash('sha256', implode("\n", $meaning));
+                $meanings[$index][$class] = self::classMeaning($meaning);
             }
         }
         $names = array(); $readings = array();
@@ -1048,6 +1180,56 @@ final class RouteStateProjector
         }
 
         return $count;
+    }
+
+    /**
+     * What a class's own rules resolve to on one route. Builders restate a
+     * component's CSS per page, repeating a rule or emitting its breakpoint
+     * override before or after the base rule. Those spellings render alike:
+     * a declaration a later unconditional (or same-condition) one replaces is
+     * dead, and one restating the value already in force there is redundant.
+     * Rules whose properties overlap through shorthands keep their written
+     * order, since replacing one would need the shorthand's expansion.
+     *
+     * @param list<array{0:string,1:string,2:string}> $readings Condition, selector reading, canonical declarations.
+     */
+    private static function classMeaning(array $readings): string
+    {
+        $ordered = hash('sha256', implode("\n", array_map(static fn(array $reading): string => implode("\0", $reading), $readings)));
+        $parsed = array(); $names = array();
+        foreach ($readings as [$condition, $read, $style]) {
+            $declarations = array();
+            foreach (preg_split('/;(?![^(]*\))/', $style) ?: array() as $declaration) {
+                if ('' === $declaration) continue;
+                $colon = strpos($declaration, ':');
+                if (false === $colon || str_contains($declaration, '"') || str_contains($declaration, "'")) return $ordered;
+                $property = substr($declaration, 0, $colon);
+                $declarations[$property] = substr($declaration, $colon + 1);
+                if (!str_starts_with($property, '--')) $names[$property] = true;
+            }
+            $parsed[] = array($condition, $read, $declarations);
+        }
+        foreach (array_keys($names) as $name) foreach (array_keys($names) as $other) {
+            if ($name !== $other && str_starts_with((string) $other, $name . '-')) return $ordered;
+        }
+        $live = array();
+        foreach ($parsed as [$condition, $read, $declarations]) {
+            foreach ($declarations as $property => $value) {
+                $key = $read . "\0" . $property;
+                $entries = $live[$key] ?? array();
+                $important = 1 === preg_match('/!\s*important$/i', $value);
+                $last = end($entries);
+                $anyImportant = (bool) array_filter($entries, static fn(array $entry): bool => $entry[2]);
+                // Where the entry in force already covers this condition with
+                // this value, restating it changes nothing.
+                if (false !== $last && ('' === $last[0] || $condition === $last[0]) && $value === $last[1] && $important === $last[2] && ($important || !$anyImportant)) continue;
+                $entries = array_values(array_filter($entries, static fn(array $entry): bool => !(('' === $condition || $condition === $entry[0]) && ($important || !$entry[2]))));
+                $entries[] = array($condition, $value, $important);
+                $live[$key] = $entries;
+            }
+        }
+        ksort($live, SORT_STRING);
+        return hash('sha256', (string) json_encode($live, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     }
 
     /** @return list<string> */

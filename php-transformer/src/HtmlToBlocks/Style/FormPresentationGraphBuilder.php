@@ -27,7 +27,12 @@ final class FormPresentationGraphBuilder
     private const MAX_RULES = 8192;
     private const MAX_SELECTORS = 16384;
     private const MAX_CONDITION_DEPTH = 8;
-    private const MAX_VARIANTS = 256;
+    /**
+     * Variants are per control (each responsive or state condition a control's
+     * roles meet), so the bound scales with the control bound: a fixed total
+     * truncates exactly the long forms that most need their presentation.
+     */
+    private const MAX_VARIANTS = self::MAX_CONTROLS * 8;
     private const MAX_VISUAL_PARTS = 32;
     private const MAX_VISUAL_BYTES = 12288;
     private const MAX_VISUAL_DIMENSION = 4096;

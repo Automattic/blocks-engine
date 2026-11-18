@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocab
 use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use DOMElement;
@@ -77,12 +78,34 @@ final class NavigationStyleProjector
         return '' === $css ? array() : array( new CascadeRule(CascadeLayer::DIRECT_NAVIGATION_REPAIR, $css) );
     }
 
-    public function materializeEditorStaticStateStylesheet(string $projectedAuthorCss = ''): void
+    public function materializeEditorStaticStateStylesheet(string $projectedAuthorCss = '', string $serializedBlocks = ''): void
     {
         $rules = array_merge(
             $this->session->generatedSupportStylesheetState()->navigationEditorTypographyRules(),
             $this->session->generatedSupportStylesheetState()->navigationEditorItemStyleRules()
         );
+        // Repairs that name only engine markup ship in their own engine-owned
+        // sheet: a route that retires author selectors (box-tree evidence)
+        // must still deliver them, or Gutenberg loses the selectable boxes
+        // and placeholders they restore (issue #5920).
+        $engineRules = array();
+        // Source runtimes can hide an icon carrier until hover or animation.
+        // They do not run in Gutenberg: expose the native image and its direct
+        // group carrier there, so the image has a selectable box. Keep this in
+        // the editor-only asset, not in the site's shared support stylesheet.
+        // Ordinary image documents need no static-state override. In particular,
+        // do not allocate an additional compiled-site asset just because an image
+        // exists: this repair is for hidden author states, not image layout.
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS)
+            && preg_match('/(?:^|[;{])\s*(?:visibility\s*:\s*hidden|display\s*:\s*none)\s*(?:!important\s*)?(?:[;}])/i', $this->session->authorStyleAnalysis()->combinedCss())
+        ) {
+            $image = 'figure.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '.wp-block-image';
+            $engineRules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
+                . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){display:block!important;visibility:visible!important}';
+        }
+        foreach ( self::focusedEmptyRichTextRepairRules($projectedAuthorCss) as $repairRule ) {
+            $rules[] = $repairRule;
+        }
         $anchorProjectionCss = $this->editorAnchorProjectionCss($projectedAuthorCss);
         if ( '' !== $anchorProjectionCss ) {
             $rules[] = $anchorProjectionCss;
@@ -101,6 +124,38 @@ final class NavigationStyleProjector
             // negative delay lands on an animation that never advances, and the
             // element stays on whatever keyframe its fill mode paints.
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important}';
+            // A looping animation has no settled end state. Retaining its last
+            // keyframe can translate a marquee's editable children off canvas.
+            // Remove motion only for loops carrying image blocks: those children
+            // need selectable resting boxes. Do not disable keyframe fill: loops
+            // can also own text color or opacity, which must remain settled.
+            ( new CssStylesheetTransformer() )->visitStyleRules(
+                $this->session->authorStyleAnalysis()->combinedCss() . "\n" . $anchorProjectionCss,
+                static function (string $selector, string $body, array $ancestors) use (&$rules): void {
+                    $declarations = array_intersect_key(SourceDeclarations::parse($body), array_flip(
+                        array( 'animation', 'animation-iteration-count', '-webkit-animation', '-webkit-animation-iteration-count' )
+                    ));
+                    $looping = false;
+                    foreach ( $declarations as $value ) {
+                        foreach ( CssValueSplitter::splitTopLevel(strtolower($value), array( ',' )) as $animation ) {
+                            if ( in_array('infinite', CssValueSplitter::splitTopLevelWhitespace($animation), true) ) {
+                                $looping = true;
+                            }
+                        }
+                    }
+                    if ( ! $looping ) {
+                        return;
+                    }
+                    // Also guard the rule in CSS: saved/editor styles may be
+                    // present during a front-end preview, where the live loop
+                    // must retain its authored fill behavior.
+                    $rule = ':root .editor-styles-wrapper :is(' . trim($selector) . '):has(figure.wp-block-image){transform:none!important}';
+                    foreach ( array_reverse($ancestors) as $ancestor ) {
+                        $rule = $ancestor . '{' . $rule . '}';
+                    }
+                    $rules[] = $rule;
+                }
+            );
             // Editable roots do not carry render-time capture attributes.
             // Address only replay owners through their editor identity, and
             // leave their authored resting geometry intact.
@@ -115,7 +170,7 @@ final class NavigationStyleProjector
         }
         if ( $this->session->runtimeBehaviorState()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
-            $rules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
+            $engineRules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
                 . $selector . '>*{display:none!important}'
                 . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
         }
@@ -127,7 +182,7 @@ final class NavigationStyleProjector
             // reserve no height for it: the source layer is painted out of
             // normal flow, so any reserved height displaces every block after
             // it and moves the composition down the canvas.
-            $rules[] = $selector . '{min-height:0!important;overflow:hidden!important}'
+            $engineRules[] = $selector . '{min-height:0!important;overflow:hidden!important}'
                 . $selector . '>*{display:none!important}'
                 // Core's large empty-group placeholder has a more specific
                 // display declaration than the generic child selector.
@@ -149,6 +204,71 @@ final class NavigationStyleProjector
         }
 
         $this->context->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
+        $this->context->materializeStylesheetAsset($engineRules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor', EngineMarker::ENGINE_OWNED_STYLESHEET_ROLE);
+    }
+
+    /**
+     * Saved markup is never contenteditable, but a RichText is, and while an
+     * author replaces its text its DOM is briefly `:empty` (then
+     * `data-empty`). An authored `p:empty{display:none}` then hides the
+     * element being edited: typed text never lands, and its block toolbar
+     * anchors to a zero box over the canvas, covering the blocks beneath it
+     * (issue #5920). Keep the focused editable subject of such a rule shown.
+     * This is editor-only: the front end and saved-empty paragraphs keep the
+     * authored rule exactly as written.
+     *
+     * @return list<string>
+     */
+    private static function focusedEmptyRichTextRepairRules(string $projectedAuthorCss): array
+    {
+        if ( ! str_contains($projectedAuthorCss, ':empty') ) {
+            return array();
+        }
+        $rules = array();
+        ( new CssStylesheetTransformer() )->visitStyleRules(
+            $projectedAuthorCss,
+            static function (string $prelude, string $body, array $ancestors) use (&$rules): void {
+                if ( ! str_contains($prelude, ':empty') ) {
+                    return;
+                }
+                $display = strtolower(trim((string) (SourceDeclarations::parse($body)['display'] ?? '')));
+                if ( 'none' !== trim((string) preg_replace('/\s*!\s*important$/', '', $display)) ) {
+                    return;
+                }
+                $selectors = array();
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $selector = trim($selector);
+                    if ( str_contains($selector, '::') || str_contains($selector, '.editor-styles-wrapper') || 1 === preg_match('/:(?:before|after|first-line|first-letter)(?![\w-])/i', $selector) ) {
+                        continue;
+                    }
+                    $offset = null;
+                    if ( preg_match_all('/:empty(?![\w-])/', $selector, $matches, PREG_OFFSET_CAPTURE) ) {
+                        $offset = (int) end($matches[0])[1];
+                    }
+                    if ( null === $offset ) {
+                        continue;
+                    }
+                    // The empty compound must be the rule's subject, outside any
+                    // functional pseudo-class (`:not(:empty)`, `:has(:empty)`).
+                    $before = substr($selector, 0, $offset);
+                    $after = (string) preg_replace('/\([^()]*\)/', '', (string) preg_replace('/\([^()]*\)/', '', substr($selector, $offset + 6)));
+                    if ( substr_count($before, '(') !== substr_count($before, ')') || 1 === preg_match('/[\s>+~]/', $after) ) {
+                        continue;
+                    }
+                    $selectors[] = $before . ':focus:is(:empty,[data-empty="true"])[contenteditable="true"]' . substr($selector, $offset + 6);
+                }
+                if ( array() === $selectors ) {
+                    return;
+                }
+                $rule = ':root .editor-styles-wrapper :is(' . implode(',', $selectors) . '){display:revert!important}';
+                foreach ( array_reverse($ancestors) as $ancestor ) {
+                    $rule = $ancestor . '{' . $rule . '}';
+                }
+                $rules[$rule] = $rule;
+            }
+        );
+
+        return array_values($rules);
     }
 
     private function editorAnchorProjectionCss(string $projectedAuthorCss = ''): string
@@ -1281,7 +1401,11 @@ final class NavigationStyleProjector
                 if ( $this->navigationPropertyIsItemLayout($property) ) {
                     return null;
                 }
-                $values['revert'] = true;
+                // A line width reverts to the user-agent `medium`, which an
+                // author's universal `border-style:solid` (Tailwind preflight)
+                // paints as a 3px frame the source never had: the item had no
+                // edge at all, so its width is zero.
+                $values[$this->navigationPropertyIsLineWidth($property) ? '0' : 'revert'] = true;
                 continue;
             }
 
@@ -1396,6 +1520,11 @@ final class NavigationStyleProjector
         }
 
         return $siblingAnchors > 1;
+    }
+
+    private function navigationPropertyIsLineWidth(string $property): bool
+    {
+        return 1 === preg_match('/^(?:border(?:-(?:top|right|bottom|left|block|inline|block-start|block-end|inline-start|inline-end))?|outline)-width$/', $property);
     }
 
     private function navigationPropertyIsItemLayout(string $property): bool

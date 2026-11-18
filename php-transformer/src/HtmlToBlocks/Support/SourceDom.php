@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
@@ -275,6 +276,12 @@ final class SourceDom
         }
         self::canonicalizeLinkUrls($clone);
         if (null !== $inlineStyleFor) self::projectInlineStyles($element, $clone, $inlineStyleFor);
+        // Capture node identity binds evidence to the source document, not the output.
+        foreach ( self::subtreeElements($clone) as $node ) {
+            foreach ( iterator_to_array($node->attributes) as $attribute ) {
+                if ( BoxTree::isEvidenceAttribute($attribute->nodeName) ) $node->removeAttributeNode($attribute);
+            }
+        }
         return $clone;
     }
 
@@ -799,7 +806,7 @@ final class SourceDom
     {
         $attributes = array();
         foreach ( $element->attributes ?? array() as $attribute ) {
-            if ( HtmlAttributeName::isIntegerKey($attribute->nodeName) ) {
+            if ( HtmlAttributeName::isIntegerKey($attribute->nodeName) || BoxTree::isEvidenceAttribute($attribute->nodeName) ) {
                 continue;
             }
             $attributes[$attribute->nodeName] = $attribute->nodeValue ?? '';
@@ -959,9 +966,9 @@ final class SourceDom
     /**
      * Whitespace-delimited class tokens that a receipt may retain.
      *
-     * `.` and `:` are legal inside a token; they are not selector delimiters.
-     * Tokens that need CSS escaping are still tokens. Length and count stay
-     * bounded so metadata stays finite.
+     * Tokens that need CSS escaping are still tokens. Callers must escape
+     * identifiers in selectors and attribute values in HTML. Length and count
+     * stay bounded so metadata stays finite.
      *
      * @return list<string>
      */
@@ -985,7 +992,7 @@ final class SourceDom
     {
         return '' !== $token
             && strlen($token) <= $maxLength
-            && 1 === preg_match('/^[A-Za-z0-9_-][A-Za-z0-9_.:-]*$/D', $token);
+            && 0 === preg_match('/[\x09-\x0D\x20"\'<>\x5C]/', $token);
     }
 
     /**
@@ -2097,7 +2104,7 @@ final class SourceDom
             }
             while ( in_array(strtolower($child->tagName), array( 'span', 'div' ), true) ) {
                 foreach ( $child->attributes as $attribute ) {
-                    if ( ! in_array(strtolower($attribute->nodeName), array( 'class', 'id', 'style' ), true) ) {
+                    if ( ! BoxTree::isEvidenceAttribute($attribute->nodeName) && ! in_array(strtolower($attribute->nodeName), array( 'class', 'id', 'style' ), true) ) {
                         return false;
                     }
                 }

@@ -95,6 +95,14 @@ foreach (array('<nav>%s</nav>', '<div role="navigation">%s</div>', '<div data-bl
     $assert(str_contains($native['serialized_blocks'], 'wp:social-link ') || str_contains($native['serialized_blocks'], 'wp:navigation-link '), 'Navigation retains native link output.');
     $assert(str_contains($native['serialized_blocks'], 'https://example.test/social'), 'Navigation social links retain their targets.');
 }
+// Squarespace icons <use> symbols from a hidden page-level sprite the copy
+// does not emit, so each retained icon carries the symbol it draws.
+$sprite = (new HtmlTransformer())->transform('<div class="social"><a class="icon" href="https://www.linkedin.com/company/x" aria-label="LinkedIn"><svg viewBox="23 23 64 64"><use xlink:href="#linkedin-icon" width="110" height="110"></use></svg></a><a class="icon" href="https://www.facebook.com/x" aria-label="Facebook"><svg viewBox="23 23 64 64"><use xlink:href="#facebook-icon" width="110" height="110"></use></svg></a></div><main><p>Body</p></main><svg style="display:none"><symbol id="linkedin-icon" viewBox="0 0 64 64"><path d="M20 20h24v24H20z"/></symbol><symbol id="facebook-icon" viewBox="0 0 64 64"><path d="M30 20h4v24h-4z"/></symbol></svg>', array('static_css' => '.icon svg{fill:#818151;width:28px;height:28px}'))->toArray();
+$spriteDom = new DOMDocument();
+@$spriteDom->loadHTML($sprite['serialized_blocks']);
+$spriteLinks = array();
+foreach ($spriteDom->getElementsByTagName('a') as $anchor) $spriteLinks[$anchor->getAttribute('aria-label')] = $anchor->getElementsByTagName('symbol')->item(0)?->getAttribute('id');
+$assert(array('LinkedIn' => 'linkedin-icon', 'Facebook' => 'facebook-icon') === $spriteLinks, 'Each sprite icon link carries the symbol its <use> draws.');
 $dropdown = (new HtmlTransformer())->transform(require dirname(__DIR__) . '/fixtures/scoped-mixed-dropdown.php')->toArray();
 $assert(!str_contains($dropdown['serialized_blocks'], 'wp:html'), 'Both scoped dropdown copies contain only native blocks.');
 if (in_array('--json', $argv, true)) {

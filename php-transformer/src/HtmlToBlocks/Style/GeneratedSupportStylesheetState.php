@@ -123,15 +123,27 @@ final class GeneratedSupportStylesheetState
         return $rules;
     }
 
+    /** @var array<string, array{marker: string, subjects: list<string>}> */
+    private array $navigationEditorTypographyScopes = array();
+
+    /** @param list<string> $subjects */
+    public function scopeNavigationEditorTypography(string $scope, array $subjects): void
+    {
+        $this->navigationEditorTypographyScopes[$scope] = array('marker' => $scope, 'subjects' => $subjects);
+    }
+
     /** @return list<string> */
     public function navigationEditorTypographyRules(): array
     {
         $rules = array();
-        foreach ($this->navigationEditorTypography as $entry) {
-            $rule = '.wp-block-navigation .wp-block-navigation-item.' . $entry['marker']
-                . ' .wp-block-navigation-item__content{' . $entry['declarations'] . '}';
-            foreach (array_reverse($entry['conditions']) as $condition) $rule = $condition . '{' . $rule . '}';
-            $rules[] = $rule;
+        foreach ($this->navigationEditorTypographyScopes as $scope) {
+            foreach ($this->navigationEditorTypography as $entry) {
+                if (!in_array($entry['marker'], $scope['subjects'], true)) continue;
+                $rule = '.wp-block-navigation.' . $scope['marker'] . ' .wp-block-navigation-item.' . $entry['marker']
+                    . ' .wp-block-navigation-item__content{' . $entry['declarations'] . '}';
+                foreach (array_reverse($entry['conditions']) as $condition) $rule = $condition . '{' . $rule . '}';
+                $rules[] = $rule;
+            }
         }
         return $rules;
     }

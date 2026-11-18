@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceElementVisibility;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -61,7 +63,12 @@ final class InertElements implements ElementConverter
             }
 
             foreach ( $candidate->attributes as $attribute ) {
-                if ( str_starts_with(strtolower($attribute->name), 'data-') && '' !== trim($attribute->value) ) {
+                // Capture evidence (box-tree node ids, geometry ids) is not source runtime configuration.
+                $name = strtolower($attribute->name);
+                if ( BoxTree::isEvidenceAttribute($name) || str_starts_with($name, CaptureEvidence::ATTRIBUTE_PREFIX) ) {
+                    continue;
+                }
+                if ( str_starts_with($name, 'data-') && '' !== trim($attribute->value) ) {
                     return false;
                 }
             }

@@ -55,8 +55,11 @@ final class CssStylesheetWalk
             $css = substr($css, 0, $this->maxCssBytes);
             $diagnostic('css_bytes_truncated:' . $this->path, true);
         }
+        // One tree lookup per block: the cache keys trees by stylesheet text,
+        // so a per-rule lookup re-compares the whole sheet for every rule.
+        $tree = CssRuleTreeCache::parse($css, $this->ruleTrees);
         for ( $offset = 0, $length = strlen($css); $offset < $length; ) {
-            $boundary = $this->nextRuleBoundary($css, $offset);
+            $boundary = $tree->nextBoundary($offset);
             if ( null === $boundary ) {
                 if ( $this->hasNonTrivia($css, $offset) ) {
                     $diagnostic('malformed_stylesheet:' . $this->path, false);
@@ -69,12 +72,17 @@ final class CssStylesheetWalk
                 continue;
             }
 
-            $end = $this->matchingBrace($css, $boundary);
+            $end = $tree->blockEnd($boundary);
             if ( null === $end ) {
                 $diagnostic('malformed_stylesheet:' . $this->path, false);
                 return;
             }
 
+            if ( $tree->hasInvalidPrelude($offset) ) {
+                // A stray root `}` invalidates only the rule it precedes.
+                $offset = $end + 1;
+                continue;
+            }
             $prelude = trim(substr($css, $offset, $boundary - $offset));
             $body = substr($css, $boundary + 1, $end - $boundary - 1);
             $atRule = $this->atRule($prelude);
@@ -195,11 +203,6 @@ final class CssStylesheetWalk
         return array( 'kind' => 'all', 'conditions' => 'all' === ($left['kind'] ?? null) ? array_merge($left['conditions'], array($right)) : array($left, $right) );
     }
 
-    private function nextRuleBoundary(string $css, int $offset): ?int
-    {
-        return CssRuleTreeCache::parse($css, $this->ruleTrees)->nextBoundary($offset);
-    }
-
     private function hasNonTrivia(string $css, int $offset): bool
     {
         $state = CssSyntaxScanner::state();
@@ -256,10 +259,5 @@ final class CssStylesheetWalk
     private static function identifierLike(string $character): bool
     {
         return '' !== $character && (ctype_alnum($character) || '_' === $character || '-' === $character || '\\' === $character);
-    }
-
-    private function matchingBrace(string $css, int $openingBrace): ?int
-    {
-        return CssRuleTreeCache::parse($css, $this->ruleTrees)->blockEnd($openingBrace);
     }
 }

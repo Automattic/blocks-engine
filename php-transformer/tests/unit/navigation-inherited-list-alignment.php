@@ -48,6 +48,26 @@ foreach ( array( 'right' => 'right', 'center' => 'center', 'left' => null ) as $
     }
 }
 
+// Hidden items do not participate in inline packing; rendered block items still do.
+foreach ( array(
+    'visible inline item' => array( '.menu .more{display:inline-block}', 'right' ),
+    'hidden item' => array( '.menu .more{display:none}', 'right' ),
+    'rendered block item' => array( '.menu .more{display:block}', null ),
+    'all items hidden' => array( '.menu li{display:none}', null ),
+) as $variant => [$displayRule, $expected] ) {
+    $variantHtml = str_replace(
+        array( '#header-right{text-align:left}', '</style>', '</ul>' ),
+        array( '#header-right{text-align:right}', $displayRule . '</style>', '<li class="more"><a href="#">More</a></li></ul>' ),
+        $html
+    );
+    $result = (new HtmlTransformer())->transform($variantHtml)->toArray();
+    $navigation = $findNavigation($result['blocks']);
+    if ( $expected !== ($navigation['attrs']['layout']['justifyContent'] ?? null) ) {
+        fwrite(STDERR, 'FAIL: inherited right navigation packing with ' . $variant . ': ' . json_encode($navigation['attrs'] ?? array()) . PHP_EOL);
+        exit(1);
+    }
+}
+
 // An ancestor media rule unrelated to alignment keeps the unconditioned packing
 // and adds no per-document marker, so shared chrome stays identical across pages.
 $unrelated = (new HtmlTransformer())->transform(str_replace(array('#header-right{text-align:left}', '</style>'), array('#header-right{text-align:right}', '@media (prefers-reduced-motion:no-preference){body{--motion:1}}</style>'), $html))->toArray();

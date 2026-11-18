@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * A functional custom element is preserved only when captured script content
  * proves it defines that tag. A script URL, an unrelated script, or no script
- * must not silence the unsupported gate.
+ * must not silence the unsupported gate for a host with authored output.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -73,7 +73,7 @@ $assert(str_contains((string) ($materialized['serialized_blocks'] ?? ''), 'check
 $assert(1 === count($island($materialized)['required_scripts'] ?? array()) && 'widgets/checkout-widget.js' === ($materializedScript['attributes']['src'] ?? '') && str_contains((string) ($materializedScript['script_body'] ?? ''), 'customElements.define'), 'materialized provenance is the required script, not every page script');
 $assert(! in_array('html_unsupported_element', $codes($materialized), true), 'materialized provenance does not emit html_unsupported_element');
 
-$unproven = $transform('<main><script src="https://cdn.example.test/v3/buy-button.js"></script><p>Unrelated content</p><checkout-widget offer-id="public-offer" publishable-key="pk_test_public"></checkout-widget></main>');
+$unproven = $transform('<main><script src="https://cdn.example.test/v3/buy-button.js"></script><p>Unrelated content</p><checkout-widget style="height:20px" offer-id="public-offer" publishable-key="pk_test_public"></checkout-widget></main>');
 $unprovenFallback = array_values(array_filter($unproven['fallbacks'] ?? array(), static fn (array $fallback): bool => 'checkout-widget' === ($fallback['tag'] ?? '')));
 $assert(1 === count($unprovenFallback), 'an unproven script URL does not drop the finding');
 $assert(CustomElementRuntimeDependency::UNPROVEN_CODE === ($unprovenFallback[0]['diagnostic_code'] ?? ''), 'an unproven script URL stays an explicit missing-functional-content finding');

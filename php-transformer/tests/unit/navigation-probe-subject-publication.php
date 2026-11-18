@@ -22,7 +22,7 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
 )))->toArray();
 $output = stripslashes((string) json_encode($result, JSON_UNESCAPED_SLASHES));
 
-if (1 !== preg_match('/\.wp-block-navigation-item>div:not\([^)]*\)\{font-family:Lora;padding-left:36px\}/', $output)) {
+if (1 !== preg_match('/\.wp-block-navigation-item>div\.blocks-engine-navigation-box-[a-f0-9]{12}-\d+:not\([^)]*\)\{font-family:Lora;padding-left:36px\}/', $output)) {
     throw new RuntimeException('every menu item box keeps the source box paint');
 }
 if (0 !== preg_match('/nth-child\(\d+\)>div[^{}]*\{[^}]*padding-left:36px/', $output)) {

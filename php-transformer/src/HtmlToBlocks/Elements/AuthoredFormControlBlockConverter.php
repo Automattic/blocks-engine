@@ -26,6 +26,9 @@ use DOMElement;
 /** Converts native input, select, textarea, and button controls into editable block representations. */
 final class AuthoredFormControlBlockConverter
 {
+    /** Text-entry types whose only editable content is a single line of text. */
+    private const NATIVE_TEXT_INPUT_TYPES = array('text', 'email', 'search', 'tel', 'url', 'password', 'number');
+
     /** @var Closure(DOMElement): string */
     private readonly Closure $richTextLabelContent;
     /** @var Closure(DOMElement): string */
@@ -266,9 +269,6 @@ final class AuthoredFormControlBlockConverter
             return null;
         }
 
-        $generator = new AuthoredInputBlockGenerator();
-        $registry = $this->session->requireGeneratedBlockRegistry();
-        $registry->register(AuthoredInputBlockGenerator::class, $generator->definition($registry->namespace()));
         $isImage = 'image' === FormControlClassifier::controlType($input);
         $indicator = in_array(strtolower($input->tagName), array('progress', 'meter', 'output'), true);
         $attrs = array_filter(array(
@@ -309,6 +309,17 @@ final class AuthoredFormControlBlockConverter
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $attrs = array_replace($attrs, $state ?? array());
+        // A captured text-entry field whose default is its current state has an
+        // editable core text surface, like captured selects: the theme renders it native.
+        if (null !== $state && !$indicator) {
+            $native = $this->nativeTextInput($attrs, $input);
+            if (null !== $native) {
+                return $native;
+            }
+        }
+        $generator = new AuthoredInputBlockGenerator();
+        $registry = $this->session->requireGeneratedBlockRegistry();
+        $registry->register(AuthoredInputBlockGenerator::class, $generator->definition($registry->namespace()));
         $markup = $generator->markup($attrs);
 
         return array(
@@ -319,6 +330,40 @@ final class AuthoredFormControlBlockConverter
             'innerContent' => array( $markup ),
             '_source_anchor_selector' => SourceDom::elementSelector($input),
         );
+    }
+
+    /**
+     * Core search is the core block whose editor surface is a text field: its
+     * placeholder and label are edited with core tools, and the editor canvas
+     * shows a field where the front end does, not body text. Native semantics
+     * (type, name, constraints, value, label wrapper) are metadata, consumed
+     * by the theme renderer instead of a companion block.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>|null
+     */
+    private function nativeTextInput(array $attrs, DOMElement $input): ?array
+    {
+        if (!in_array($attrs['type'] ?? '', self::NATIVE_TEXT_INPUT_TYPES, true) || array_key_exists('initialValue', $attrs) || array_key_exists('initialChecked', $attrs) || !empty($attrs['indeterminate'])) {
+            return null;
+        }
+        $placeholder = (string) ($attrs['placeholder'] ?? '');
+        $label = (string) ($attrs['labelMarkup'] ?? '');
+        $label = '' !== $label ? $label : $this->runtime->escapeHtml((string) ($attrs['label'] ?? ''));
+        unset($attrs['placeholder'], $attrs['checked'], $attrs['indeterminate'], $attrs['labelMarkup']);
+        foreach (array('minLength' => 'minlength', 'maxLength' => 'maxlength', 'pattern' => 'pattern', 'autocomplete' => 'autocomplete', 'inputMode' => 'inputmode') as $key => $name) {
+            if ($input->hasAttribute($name)) {
+                $attrs[$key] = $input->getAttribute($name);
+            }
+        }
+
+        return $this->createBlock->createBlock('core/search', array_filter(array(
+            'label' => $label,
+            'showLabel' => '' !== $label,
+            'placeholder' => $placeholder,
+            'buttonPosition' => 'no-button',
+            'metadata' => array('blocksEngineInput' => $attrs),
+        ), static fn (mixed $value): bool => '' !== $value), array(), $input);
     }
 
     private function inputBeforeCaption(DOMElement $input, DOMElement $label): bool
@@ -346,9 +391,6 @@ final class AuthoredFormControlBlockConverter
             return null;
         }
 
-        $generator = new AuthoredTextareaBlockGenerator();
-        $registry = $this->session->requireGeneratedBlockRegistry();
-        $registry->register(AuthoredTextareaBlockGenerator::class, $generator->definition($registry->namespace()));
         $attrs = array_filter(array(
             'id' => SourceDom::attr($textarea, 'id'),
             'name' => SourceDom::attr($textarea, 'name'),
@@ -364,6 +406,7 @@ final class AuthoredFormControlBlockConverter
             'rows' => SourceDom::attr($textarea, 'rows'),
             'cols' => SourceDom::attr($textarea, 'cols'),
             'maxLength' => SourceDom::attr($textarea, 'maxlength'),
+            'minLength' => null !== $state ? SourceDom::attr($textarea, 'minlength') : '',
             'required' => $textarea->hasAttribute('required'),
             'disabled' => $textarea->hasAttribute('disabled'),
             'readOnly' => $textarea->hasAttribute('readonly'),
@@ -373,23 +416,59 @@ final class AuthoredFormControlBlockConverter
             'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $attrs = array_replace($attrs, $state ?? array());
+        // Capture-backed controls have an explicit state contract for the core
+        // preformatted renderer. Ordinary authored controls keep their saved
+        // native markup (including form submission and source CSS topology).
+        if (null !== $state) {
+            return $this->nativeTextarea($attrs, $textarea);
+        }
+        $generator = new AuthoredTextareaBlockGenerator();
+        $registry = $this->session->requireGeneratedBlockRegistry();
+        $registry->register(AuthoredTextareaBlockGenerator::class, $generator->definition($registry->namespace()));
         $markup = $generator->markup($attrs);
 
         return BlockFactory::leaf($registry->blockName(AuthoredTextareaBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 
     /**
-     * Return a compact native button on the same terms as `input()`: a submit
-     * (or other form-action) control the source styles has no readable prose
-     * equivalent, because a Gutenberg button saves as an anchor and cannot
-     * submit its ancestor form.
+     * A core preformatted block owns the editable default text: like the
+     * control it keeps the value's line breaks, and the editor canvas does not
+     * show the entry field as a prose paragraph the front end never renders.
+     * Native semantics are metadata, consumed by the theme renderer instead of
+     * a companion block.
+     * @param array<string, mixed> $attrs
+     */
+    private function nativeTextarea(array $attrs, DOMElement $source): array
+    {
+        // `value` stays as the captured default (it keeps the metadata an
+        // object); the renderer reads the saved block text instead. Line
+        // breaks are `<br>`, so a leading one survives the `<pre>` parser.
+        $value = (string) ($attrs['value'] ?? '');
+        $content = str_replace(array("\r\n", "\r", "\n"), '<br>', $this->runtime->escapeHtml(str_replace(array("\r\n", "\r"), "\n", $value)));
+        return $this->createBlock->createBlock('core/preformatted', array_filter(array(
+            'content' => $content,
+            'metadata' => array('blocksEngineTextarea' => $attrs),
+        ), static fn (mixed $value): bool => '' !== $value), array(), $source);
+    }
+
+    /**
+     * Return an editable native form action. Plain labels use core/button's
+     * native button tag; controls needing unsupported attributes or their
+     * original containing block retain the authored representation.
      *
      * @return array<string, mixed>|null
      */
-    public function button(DOMElement $button, bool $forceNative = false): ?array
+    public function button(DOMElement $button, bool $forceNative = false, bool $preserveContainingBlock = false): ?array
     {
         if ( ! $forceNative && array() === ($this->authoredPresentationDeclarations)($button) ) {
             return null;
+        }
+
+        // Core/button supports native form actions. Plain labels do not need
+        // a companion merely because their source has authored presentation.
+        // Let the normal source projection own the wrapper/control selectors.
+        if (!$preserveContainingBlock && $this->hasPlainCoreButtonLabel($button)) {
+            return $this->plainCoreButton($button);
         }
 
         $this->session->authorSelectorProjectionState()->recordAuthoredControlCandidate($button);
@@ -455,6 +534,10 @@ final class AuthoredFormControlBlockConverter
     /** @return array<string, mixed> */
     private function runtimeButtonBlock(DOMElement $button): array
     {
+        if ($this->hasPlainCoreButtonLabel($button)) {
+            return $this->plainCoreButton($button);
+        }
+
         // SVG controls have no RichText label. Model their artwork as core
         // images and containers rather than an opaque contentParts tree.
         // Inline-only icons and CSS-painted controls still use the native
@@ -473,6 +556,48 @@ final class AuthoredFormControlBlockConverter
         $markup = $generator->markup($attrs);
 
         return BlockFactory::leaf($registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME), $attrs, $markup);
+    }
+
+    private function hasPlainCoreButtonLabel(DOMElement $button): bool
+    {
+        if ('button' !== strtolower($button->tagName) || '' === trim($button->textContent) || SourceDom::childElementCount($button) > 0) return false;
+        // Bound controls and provider form actions keep their existing owning
+        // pipeline. Captured native forms, however, already retain their fields
+        // and need an editable, source-shaped action, like captured choices.
+        foreach ($button->attributes as $attribute) {
+            if (!in_array(strtolower($attribute->nodeName), array('type', 'class', 'style', CaptureEvidence::CHOICE_INDEX), true)) return false;
+        }
+        for ($ancestor = $button->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            if ('form' === strtolower($ancestor->tagName)) {
+                foreach ($ancestor->getElementsByTagName('*') as $field) {
+                    if ($field->hasAttribute(CaptureEvidence::NATIVE_CONTROL_STATE)) return true;
+                }
+                return false;
+            }
+        }
+        return $button->hasAttribute(CaptureEvidence::CHOICE_INDEX);
+    }
+
+    private function plainCoreButton(DOMElement $button): array
+    {
+        // Keep source selectors on the native control, not on synthetic button
+        // wrappers. The inner button is an editor-only RichText carrier.
+        $this->session->authorSelectorProjectionState()->recordAuthoredControlCandidate($button);
+        $this->session->authorSelectorProjectionState()->markRetainedSourcePath($button->getNodePath() ?? '');
+        $attributes = array();
+        foreach ($button->attributes as $attribute) {
+            $attributes[strtolower($attribute->nodeName)] = $attribute->nodeValue ?? '';
+        }
+        if (!isset($attributes['type'])) $attributes['type'] = 'submit';
+        $label = $this->createBlock->createBlock('core/button', array(
+            'tagName' => 'button',
+            'type' => $attributes['type'],
+            'text' => $this->runtime->escapeHtml($button->textContent),
+        ), array());
+        return $this->createBlock->createBlock('core/group', array(
+            'tagName' => 'div',
+            'metadata' => array('blocksEngineControlBox' => $attributes, 'blocksEngineControlTagName' => 'button', 'blocksEngineControlLabel' => true),
+        ), array($label), $button);
     }
 
     private function isCssDrawnControl(DOMElement $element): bool

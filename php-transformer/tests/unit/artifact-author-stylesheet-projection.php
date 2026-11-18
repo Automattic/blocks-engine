@@ -88,7 +88,9 @@ $runtimeRevealJs = implode("\n", array_column(array_filter($runtimeRevealAssets,
 preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $runtimeRevealMarkup, $runtimeRevealMarkerMatches);
 $runtimeRevealMarkers = array_keys(array_fill_keys($runtimeRevealMarkerMatches[0] ?? array(), true));
 $assert(2 === count($runtimeRevealMarkers) && ! str_contains($runtimeRevealMarkup, 'wp:html'), 'inline presentation runtime targets remain separate editable native blocks with deterministic identities');
-$assert(! str_contains($runtimeRevealCss, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealCss, ':where(.' . $marker . ')') || ! str_contains($runtimeRevealCss, ':where(.' . $marker . '):not(.be-c-') || ! str_contains($runtimeRevealCss, '.in-view')), 'initial and runtime-mutated author selectors project onto every editable runtime target');
+// Expand serialization-only marker lists before checking each target's arms.
+$runtimeRevealExpandedCss = (new \Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer())->transform($runtimeRevealCss, static fn(string $selector): string => \Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor::expand($selector));
+$assert(! str_contains($runtimeRevealCss, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealExpandedCss, ':where(.' . $marker . ')') || ! str_contains($runtimeRevealExpandedCss, ':where(.' . $marker . '):not(.be-c-') || ! str_contains($runtimeRevealExpandedCss, '.in-view')), 'initial and runtime-mutated author selectors project onto every editable runtime target');
 $assert(array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => str_contains($runtimeRevealCss, ':root .' . $marker . '{opacity:1!important')), 'retained presentation runtimes keep their authored closed state instead of receiving inert-content visibility repairs');
 $assert(! str_contains($runtimeRevealJs, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealJs, '.' . $marker)), 'materialized inline script queries the same projected identities as author CSS');
 
@@ -631,6 +633,22 @@ $adoptedSpanCss = array_values(array_filter($adoptedSpan['assets'] ?? array(), s
 $adoptedSpanPages = array_column($adoptedSpan['source_reports']['compiled_site']['pages'] ?? array(), 'block_markup', 'source_path');
 $adoptedSpanCarriers = preg_match_all('/<p class="[^"]*blocks-engine-synthetic-paragraph[^"]*blocks-engine-role-semantic blocks-engine-subject [^"]*">(?:construction|campaign)</', implode('', $adoptedSpanPages));
 $assert(2 === $adoptedSpanCarriers && 1 === count($adoptedSpanCss) && 'icons.css' === ($adoptedSpanCss[0]['path'] ?? '') && 0 === preg_match('/blocks-engine-semantic-[a-f0-9]{12}-\d+/', (string) ($adoptedSpanCss[0]['content'] ?? '')) && str_contains((string) ($adoptedSpanCss[0]['content'] ?? ''), 'font-size:2.25rem'), 'a text-only span adopted as its own paragraph is covered by the subject arm, so its stylesheet stays one shared asset with no per-element arm');
+
+// A universal rule reaches a linked logo, which its figure owns, and the
+// same icon on every page. The icon's projection must not depend on whether
+// the page also has the logo, so it keeps one class on both pages.
+$logoPage = static fn (string $logo): string => '<link rel="stylesheet" href="site.css">' . $logo . '<main><section><div class="row"><span class="icon">i</span><h2>Title</h2></div></section></main>';
+$logoSite = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => $logoPage('<section><figure class="logo"><div><div><a class="home" href="/"><img src="logo.png" width="40" height="40" alt="Home"></a></div></div></figure></section>') ),
+        array( 'path' => 'b.html', 'kind' => 'html', 'content' => $logoPage('') ),
+        array( 'path' => 'site.css', 'kind' => 'css', 'content' => '*,::before,::after{box-sizing:border-box}.icon{display:inline-block;line-height:1}.row{display:flex;gap:12px}.home{display:block;width:40px}' ),
+        array( 'path' => 'logo.png', 'kind' => 'image', 'content' => 'image-bytes' ),
+    ),
+) )->toArray();
+$iconClasses = array_map(static fn (string $markup): string => 1 === preg_match('/<p class="icon [^"]*?(blocks-engine-semantic-[a-f0-9]{12}-\d+)/', $markup, $icon) ? $icon[1] : '', array_column($logoSite['source_reports']['compiled_site']['pages'] ?? array(), 'block_markup', 'source_path'));
+$assert(2 === count($iconClasses) && '' !== ($iconClasses['b.html'] ?? '') && ($iconClasses['index.html'] ?? '') === $iconClasses['b.html'], 'a page-wide rule projects a content carrier the same way whether or not the page has a linked logo: ' . json_encode($iconClasses));
 
 // A source grid's attribute-specific desktop winner must remain later than a
 // shared fallback that still matches the attribute-free editable Group.

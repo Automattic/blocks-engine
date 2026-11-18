@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -179,6 +180,10 @@ final class ReadableFormBlockBuilder
     {
         foreach ( $block['innerBlocks'] ?? array() as $index => $child ) {
             $block['innerBlocks'][$index] = $this->inactiveControlBlock($child);
+        }
+        if ( isset($block['attrs']['metadata']['blocksEngineInput']) && is_array($block['attrs']['metadata']['blocksEngineInput']) ) {
+            $block['attrs']['metadata']['blocksEngineInput']['disabled'] = true;
+            return $block;
         }
         $localName = explode('/', $block['blockName'] ?? '')[1] ?? '';
         $generator = match ($localName) {
@@ -381,10 +386,9 @@ final class ReadableFormBlockBuilder
                 // child count. A row or a field's error/help content does not
                 // require a generated block. Provider control boxes and wrappers
                 // with attributes outside this native contract still need shells.
-                $classOnlyGroup = 1 === count($elements)
+                $nativeContainerGroup = 1 === count($elements)
                     && 'div' === strtolower($element->tagName)
-                    && (0 === $element->attributes->length
-                        || (1 === $element->attributes->length && $element->hasAttribute('class')))
+                    && $this->hasNativeContainerAttributes($element)
                     && null === $controlBox;
                 // Unowned div chains can also contain a control with help/error
                 // text. Those siblings do not make a composite control. Keep
@@ -399,9 +403,7 @@ final class ReadableFormBlockBuilder
                     && (1 === count($inner) || $controlWithFeedback);
                 foreach ($elements as $source) {
                     $nativeChain = $nativeChain && 'div' === strtolower($source->tagName)
-                        && $source->hasAttribute('class')
-                        && ($source->attributes->length === 1
-                            || ($source->attributes->length === 2 && $source->hasAttribute('style') && '' === trim($source->getAttribute('style'))));
+                        && $this->hasNativeContainerAttributes($source);
                 }
                 if ($nativeChain) {
                     $nested = $inner;
@@ -410,7 +412,7 @@ final class ReadableFormBlockBuilder
                     }
                     $shell = $nested[0];
                 } else {
-                    $shell = $classOnlyGroup
+                    $shell = $nativeContainerGroup
                         ? $this->createBlock->createBlock('core/group', $this->nativeContainerAttributes($element), $inner, $element)
                         : ($this->layoutShellBlockForElements)($elements, $inner, $element);
                 }
@@ -430,6 +432,33 @@ final class ReadableFormBlockBuilder
         }
 
         return $blocks;
+    }
+
+    /**
+     * Geometry provenance does not change a container's native transport. A
+     * Group carries the class and the id (as its anchor). A valueless data
+     * attribute is a presence marker: when no stylesheet, script or runtime
+     * selector tests for it, it is inert, so dropping it loses nothing and
+     * needs no generated block to keep it. A data attribute with a value
+     * carries data a Group cannot hold, so it keeps the shell.
+     */
+    private function hasNativeContainerAttributes(DOMElement $element): bool
+    {
+        foreach ($element->attributes as $attribute) {
+            $name = strtolower($attribute->name);
+            if (in_array($name, array('class', 'id', BoxTree::NODE_ATTRIBUTE), true)
+                || ('style' === $name && '' === trim($attribute->value))) {
+                continue;
+            }
+            if (str_starts_with($name, 'data-')
+                && '' === $attribute->value
+                && ! $this->runtimeDomTargets->isRuntimeDomTarget($element)
+                && ! DataAttributeReferences::isReferenced($this->session, $element, $name)) {
+                continue;
+            }
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -621,7 +650,8 @@ final class ReadableFormBlockBuilder
         // including responsive navigation alternatives built from selects.
         for ( $form = $control->parentNode; $form instanceof DOMElement; $form = $form->parentNode ) {
             if ( 'form' === strtolower($form->tagName) ) {
-                $forceNative = $forceNative || FormRuntimeRequirementAnalyzer::collectsOnlyChoices($form);
+                $forceNative = $forceNative || FormRuntimeRequirementAnalyzer::collectsOnlyChoices($form)
+                    || FormRuntimeRequirementAnalyzer::collectsOnlyPurchaseChoices($form);
                 break;
             }
         }

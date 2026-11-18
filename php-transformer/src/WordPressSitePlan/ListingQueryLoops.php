@@ -16,8 +16,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\BlockAttributes;
  * cards' own excerpts, featured images and literal fields move to the posts as
  * metadata, so the loop renders what the source showed.
  *
- * One instance serves one site plan run; it records the source container of
- * every loop it materializes for the stylesheet that presents them.
+ * One instance serves one site plan run; it records the projected markup
+ * around every listing or related-section loop for the stylesheet that
+ * presents them.
  */
 final class ListingQueryLoops
 {
@@ -38,13 +39,20 @@ final class ListingQueryLoops
     }
 
     /**
-     * The source container of each query loop materialized so far.
+     * Projected markup around each query loop materialized so far: the
+     * query and the source container it replaced the cards in.
      *
      * @return list<string>
      */
     public function queryContainers(): array
     {
         return $this->queryContainers;
+    }
+
+    /** Register projected markup containing a query and its source container. */
+    public function registerQueryContainer(string $markup): void
+    {
+        $this->queryContainers[] = $markup;
     }
 
     /**
@@ -151,9 +159,7 @@ final class ListingQueryLoops
             $page['content_hash'] = WordPressSitePlan::contentHash($replaced);
             $listingIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($sourceListingMarkup);
             $cards = $this->cardRanges($listingIndex, $posts, isset($postsByArchive[$page['source_path']]) ? 1 : 2) ?? array();
-            $firstCard = $cards[0] ?? null;
-            $parent = is_array($firstCard) ? $listingIndex->parent($firstCard) : null;
-            if (is_array($parent)) $this->queryContainers[] = substr($sourceListingMarkup, $parent['offset'], $parent['length']);
+            $this->registerQueryContainer($replaced);
             foreach ($fields as $source => $values) $postMeta[$source] = ($postMeta[$source] ?? array()) + $values;
             foreach ($cards as $card) {
                 $cardMarkup = substr($sourceListingMarkup, $card['offset'], $card['length']);
@@ -168,14 +174,8 @@ final class ListingQueryLoops
                     }
                 }
                 if (str_contains($replaced, '<!-- wp:post-featured-image')) {
-                    $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($card['post']['canonical_block_markup']);
-                    foreach ($cardIndex->ranges() as $leaf) {
-                        $slice = substr($cardMarkup, $leaf['offset'], $leaf['length']);
-                        if ('featured-image' !== $this->classifyCardBlock($slice, $card['post'], $card['route'], $postIndex) && !('image' === PostBlocks::sourceBlockName($slice) && str_contains($cardMarkup, '"wrappers"'))) continue;
-                        $image = PostBlocks::leadImage($slice);
-                        if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
-                        break;
-                    }
+                    $image = $this->cardFeaturedImage($cardMarkup, $card['post'], $card['route']);
+                    if (null !== $image) $featuredImages[$card['post']['source_path']] = $image;
                 }
                 $description = ListingExcerptProjection::description($card['post']);
                 if (null === $description) continue;
@@ -194,6 +194,62 @@ final class ListingQueryLoops
         foreach ($pages as &$page) if (isset($postMeta[$page['source_path']])) $page['metadata']['post_meta'] = ($page['metadata']['post_meta'] ?? array()) + $postMeta[$page['source_path']];
         unset($page);
         return $pages;
+    }
+
+    /**
+     * Extract the authored image for a card projected as core/post-featured-image.
+     *
+     * @param array<string,mixed> $post
+     * @return array<string,mixed>|null
+     */
+    public function cardFeaturedImage(string $markup, array $post, string $route): ?array
+    {
+        $slice = $this->cardFeaturedImageSlice($markup, $post, $route);
+        return null === $slice ? null : PostBlocks::leadImage($slice);
+    }
+
+    /**
+     * The card block projected as core/post-featured-image.
+     *
+     * @param array<string,mixed> $post
+     */
+    private function cardFeaturedImageSlice(string $markup, array $post, string $route): ?string
+    {
+        $index = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($markup);
+        $postIndex = new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($post['canonical_block_markup']);
+        foreach ($index->ranges() as $leaf) {
+            $slice = substr($markup, $leaf['offset'], $leaf['length']);
+            if ('featured-image' !== $this->classifyCardBlock($slice, $post, $route, $postIndex) && !('image' === PostBlocks::sourceBlockName($slice) && str_contains($markup, '"wrappers"'))) continue;
+            return $slice;
+        }
+        return null;
+    }
+
+    /**
+     * Every post renders its own image in the card box the source reserved.
+     * When every card image states the same box ratio, the template's
+     * featured image keeps that box and covers it; otherwise it is unchanged.
+     *
+     * @param array<int,array{offset:int,length:int,route:string,post:array<string,mixed>}> $cards
+     */
+    private function withCardImageRatio(string $template, string $markup, array $cards): string
+    {
+        if (!str_contains($template, '<!-- wp:post-featured-image')) return $template;
+        $ratio = null;
+        foreach ($cards as $card) {
+            $slice = $this->cardFeaturedImageSlice(substr($markup, $card['offset'], $card['length']), $card['post'], $card['route']);
+            $cardRatio = null === $slice ? null : PostBlocks::intrinsicRatio($slice);
+            if (null === $cardRatio || (null !== $ratio && $ratio !== $cardRatio)) return $template;
+            $ratio = $cardRatio;
+        }
+        if (null === $ratio) return $template;
+        return (string) preg_replace_callback('/<!-- wp:post-featured-image (\{.*?\}) \/-->/s', static function (array $match) use ($ratio): string {
+            $attrs = BlockAttributes::decodeComment('wp:post-featured-image ' . $match[1]);
+            if (!is_array($attrs) || isset($attrs['aspectRatio']) || isset($attrs['height'])) return $match[0];
+            $attrs['aspectRatio'] = $ratio;
+            $attrs['scale'] = 'cover';
+            return '<!-- wp:post-featured-image ' . BlockAttributes::encode($attrs) . ' /-->';
+        }, $template);
     }
 
     /**
@@ -464,7 +520,7 @@ final class ListingQueryLoops
         } elseif (1 === count($uniqueGaps) && 1 === preg_match('/^<!-- wp:(?:separator|spacer)\b/', trim($uniqueGaps[0]))) {
             $template .= $uniqueGaps[0];
         }
-        return $template;
+        return $this->withCardImageRatio($template, $markup, $cards);
     }
 
     /**
@@ -1028,6 +1084,66 @@ final class ListingQueryLoops
             $anchors[] = array('href' => $href, 'text' => $text);
         }
         return $anchors;
+    }
+
+    /**
+     * The term each post's related listing is scoped to, or null when no term
+     * explains every post's cards (the listing then stays latest posts).
+     *
+     * A post's cards are explained by a term it belongs to when they are
+     * distinct other members of it, and their count is min(perPage,
+     * members - 1) for the largest card count perPage. Sources may shuffle
+     * related cards on each load, so membership is the proof, not order: a
+     * term's listings keep date order only when every card list is its
+     * newest other members, newest first, with no tied timestamps among them.
+     * Otherwise they are random, as the source showed. When several terms
+     * explain a post, the smallest one is the closest description.
+     *
+     * @param array<string,list<?string>> $cardsByPost Card source paths each post lists, in order (null for an unmatched card).
+     * @param array<int,array<string,mixed>> $posts Every site post, for publication timestamps.
+     * @param array<int,array<string,mixed>> $terms The plan's taxonomy entities.
+     * @param bool $uniform Whether every post renders one template, so they all need the same scope.
+     * @return array<string,array{taxonomy:string,slug:string,order_by:string,per_page:int}>|null
+     */
+    public static function relatedTermScopes(array $cardsByPost, array $posts, array $terms, bool $uniform): ?array
+    {
+        if (array() === $cardsByPost) return null;
+        $timestamps = array();
+        foreach ($posts as $post) if (is_string($post['source_path'] ?? null) && is_string($post['publication_timestamp'] ?? null)) $timestamps[$post['source_path']] = $post['publication_timestamp'];
+        $perPage = max(array_map('count', $cardsByPost));
+        $choices = array();
+        foreach ($cardsByPost as $source => $cards) {
+            if (array() === $cards || in_array(null, $cards, true) || in_array($source, $cards, true) || count(array_unique($cards)) !== count($cards)) return null;
+            $best = null;
+            foreach ($terms as $term) {
+                if ('taxonomy_term' !== ($term['kind'] ?? null) || !is_string($term['taxonomy'] ?? null) || !is_string($term['slug'] ?? null)) continue;
+                $members = $term['membership_source_paths'] ?? array();
+                if (!in_array($source, $members, true)) continue;
+                $others = array_values(array_diff($members, array($source)));
+                if (array() !== array_diff($cards, $others) || count($cards) !== min($perPage, count($others))) continue;
+                if (null === $best || count($others) < count($best['others'])) $best = array('taxonomy' => $term['taxonomy'], 'slug' => $term['slug'], 'others' => $others);
+            }
+            if (null === $best) return null;
+            $choices[$source] = $best;
+        }
+        $newestFirst = array();
+        foreach ($choices as $source => $choice) {
+            $key = $choice['taxonomy'] . ':' . $choice['slug'];
+            $stamps = array_map(static fn(string $member): ?string => $timestamps[$member] ?? null, $choice['others']);
+            $ordered = !in_array(null, $stamps, true) && count(array_unique($stamps)) === count($stamps);
+            if ($ordered) {
+                $newest = array_combine($choice['others'], $stamps);
+                arsort($newest, SORT_STRING);
+                $ordered = array_slice(array_keys($newest), 0, count($cardsByPost[$source])) === $cardsByPost[$source];
+            }
+            $newestFirst[$key] = ($newestFirst[$key] ?? true) && $ordered;
+        }
+        if ($uniform && count($newestFirst) > 1) return null;
+        $scopes = array();
+        foreach ($choices as $source => $choice) {
+            $scopes[$source] = array('taxonomy' => $choice['taxonomy'], 'slug' => $choice['slug'], 'order_by' => $newestFirst[$choice['taxonomy'] . ':' . $choice['slug']] ? 'date' : 'rand', 'per_page' => $perPage);
+        }
+        return $scopes;
     }
 
     /** A stable set of linked routes, independent of slider state and geometry. */

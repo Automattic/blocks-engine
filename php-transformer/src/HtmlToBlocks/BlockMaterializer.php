@@ -50,9 +50,16 @@ final class BlockMaterializer
             // targeting. The render filter restores them on native block roots.
             foreach (array(CaptureEvidence::DEVICE_INLINE, CaptureEvidence::DEVICE_CLASS, CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::RESPONSIVE_FRAGMENT) as $evidenceAttribute) {
                 if ($sourceFacts->sourceElement->hasAttribute($evidenceAttribute)
-                    && !(CaptureEvidence::VIEWPORT_ENTRANCE === $evidenceAttribute && 'core/buttons' === $name && 'a' === strtolower($sourceFacts->sourceElement->tagName))) {
+                    && !(CaptureEvidence::VIEWPORT_ENTRANCE === $evidenceAttribute && 'core/buttons' === $name && in_array(strtolower($sourceFacts->sourceElement->tagName), array('a', 'button'), true))) {
                     $runtimeAttributes[$evidenceAttribute] = $sourceFacts->sourceElement->getAttribute($evidenceAttribute);
                 }
+            }
+            // A synthetic paragraph is only a validity carrier. Its retained
+            // anchor already owns the entrance evidence and live class tokens.
+            if ('core/paragraph' === $name
+                && str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-synthetic-paragraph')
+                && preg_match('/^\s*<a\b[^>]*\s' . preg_quote(CaptureEvidence::VIEWPORT_ENTRANCE, '/') . '=/i', (string) ($attrs['content'] ?? ''))) {
+                unset($runtimeAttributes[CaptureEvidence::VIEWPORT_ENTRANCE]);
             }
             // Preserve native hidden state without changing the block identity.
             // A block cannot save `hidden`, so the generic render filter

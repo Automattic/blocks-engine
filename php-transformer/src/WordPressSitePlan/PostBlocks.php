@@ -37,8 +37,13 @@ final class PostBlocks
 
     public static function date(string $slice): string
     {
+        // A date-bearing leaf can also carry an authored label and icon. Split
+        // only the date (including its link), never discard the surrounding copy.
+        $labelled = self::labelledDate($slice);
+        if (null !== $labelled) return $labelled;
         $attrs = array();
         $blockAttrs = self::sourceAttributes($slice);
+        if (true === ($blockAttrs['isLink'] ?? false)) $attrs['isLink'] = true;
         if (is_array($blockAttrs['style'] ?? null)) $attrs['style'] = $blockAttrs['style'];
         $format = PublicationDate::visibleFormat(trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($slice), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? ''));
         if (null !== $format) {
@@ -51,6 +56,74 @@ final class PostBlocks
         self::keepBlockVisibility($attrs, $blockAttrs);
         $encoded = array() === $attrs ? '' : ' ' . BlockAttributes::encode($attrs);
         return '<!-- wp:post-date' . $encoded . ' /-->';
+    }
+
+    /**
+     * Keep inline ancestors balanced on either side of the dynamic date. The
+     * outer paragraph becomes a row, so post-date is never nested in RichText.
+     */
+    private static function labelledDate(string $slice): ?string
+    {
+        if (!preg_match('/<time\b[^>]*datetime=/i', $slice)) return null;
+        $document = new \DOMDocument();
+        @$document->loadHTML('<?xml encoding="UTF-8">' . $slice, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $times = $document->getElementsByTagName('time');
+        if (1 !== $times->length) return null;
+        $time = $times->item(0);
+        if (!$time instanceof \DOMElement) return null;
+        if (ListingExcerptProjection::text($slice) === ListingExcerptProjection::text($document->saveHTML($time) ?: '')) return null;
+        $target = $time;
+        if ($time->parentNode instanceof \DOMElement && 'a' === $time->parentNode->tagName
+            && trim($time->parentNode->textContent) === trim($time->textContent)) $target = $time->parentNode;
+        $root = $target;
+        while ($root->parentNode instanceof \DOMElement) $root = $root->parentNode;
+        // libxml < 2.14 URL-encodes braces in URI attributes on saveHTML().
+        // Restore only plan tokens present in the input, never arbitrary URLs.
+        preg_match_all('/\{\{wordpress-site-plan:asset:[^}]+\}\}/', $slice, $tokens);
+        $restore = array();
+        foreach ($tokens[0] as $token) $restore[str_replace(array('{', '}'), array('%7B', '%7D'), $token)] = $token;
+        $serialize = static fn(\DOMNode $node): string => strtr($document->saveHTML($node) ?: '', $restore);
+        $seen = false;
+        $split = static function (\DOMNode $node) use (&$split, &$seen, $target, $serialize): array {
+            if ($node === $target) {
+                $seen = true;
+                return array('', '');
+            }
+            $ancestor = $target->parentNode;
+            while (null !== $ancestor && $ancestor !== $node) $ancestor = $ancestor->parentNode;
+            if (null === $ancestor) return $seen ? array('', $serialize($node)) : array($serialize($node), '');
+            $parts = array('', '');
+            foreach ($node->childNodes as $child) {
+                $childParts = $split($child);
+                foreach (array(0, 1) as $side) $parts[$side] .= $childParts[$side];
+            }
+            foreach ($parts as &$part) {
+                if ('' === trim($part)) continue;
+                $clone = $node->cloneNode(false);
+                $shell = $serialize($clone);
+                $end = strpos($shell, '>');
+                $part = (false === $end ? '' : substr($shell, 0, $end + 1)) . $part . '</' . $node->nodeName . '>';
+            }
+            return $parts;
+        };
+        // Split children, leaving the source outer box to the group.
+        $parts = array('', '');
+        foreach ($root->childNodes as $child) {
+            $childParts = $split($child);
+            foreach (array(0, 1) as $side) $parts[$side] .= $childParts[$side];
+        }
+        $attrs = self::sourceAttributes($slice);
+        $classes = self::preservedClassName($slice, array('wp-block-paragraph'));
+        if (null !== $classes) $attrs['className'] = $classes;
+        $attrs['layout'] = array('type' => 'flex', 'flexWrap' => 'wrap');
+        $paragraph = static fn(string $html): string => '' === trim($html) ? '' : '<!-- wp:paragraph --><p>' . $html . '</p><!-- /wp:paragraph -->';
+        $dateClasses = array();
+        foreach (array($target, $time) as $element) {
+            if ($element->hasAttribute('class')) $dateClasses[] = $element->getAttribute('class');
+        }
+        $dateSource = array('className' => implode(' ', array_unique($dateClasses)), 'isLink' => 'a' === $target->tagName);
+        $date = self::date('<!-- wp:paragraph ' . BlockAttributes::encode($dateSource) . ' -->' . $serialize($target) . '<!-- /wp:paragraph -->');
+        return '<!-- wp:group ' . BlockAttributes::encode($attrs) . ' --><div class="wp-block-group' . (null === $classes ? '' : ' ' . htmlspecialchars($classes, ENT_QUOTES, 'UTF-8')) . '">' . $paragraph($parts[0]) . $date . $paragraph($parts[1]) . '</div><!-- /wp:group -->';
     }
 
     /**
@@ -86,7 +159,12 @@ final class PostBlocks
         return '<!-- wp:post-featured-image ' . BlockAttributes::encode($attrs) . ' /-->';
     }
 
-    public static function query(int $perPage, string $template, bool $inherit = false, ?string $sectionSlug = null, string $sourcePagination = ''): string
+    /**
+     * @param array{taxonomy:string,slug:string,order_by:string}|null $relatedTerm
+     *        The current post's term a related listing is scoped to, from
+     *        ListingQueryLoops::relatedTermScopes().
+     */
+    public static function query(int $perPage, string $template, bool $inherit = false, ?string $sectionSlug = null, string $sourcePagination = '', ?array $relatedTerm = null): string
     {
         $attrs = array(
             'queryId' => 1,
@@ -106,6 +184,11 @@ final class PostBlocks
             'className' => WordPressSitePlan::LISTING_QUERY_CLASS,
         );
         if (null !== $sectionSlug) $attrs['query']['taxQuery'] = array('category' => array('{{wordpress-site-plan:term:category:' . $sectionSlug . '}}'));
+        if (null !== $relatedTerm) {
+            $attrs['query']['orderBy'] = $relatedTerm['order_by'];
+            $attrs['query']['taxQuery'] = array('include' => array($relatedTerm['taxonomy'] => array('{{wordpress-site-plan:term:' . $relatedTerm['taxonomy'] . ':' . $relatedTerm['slug'] . '}}')));
+            $attrs['query']['excludeCurrent'] = true;
+        }
         $encoded = BlockAttributes::encode($attrs);
         $pagination = '' !== $sourcePagination ? $sourcePagination : ($inherit
             ? '<!-- wp:query-pagination {"paginationArrow":"arrow","layout":{"type":"flex","justifyContent":"space-between"}} --><!-- wp:query-pagination-previous /--><!-- wp:query-pagination-next /--><!-- /wp:query-pagination --><!-- wp:query-no-results --><!-- wp:paragraph --><p>No posts found.</p><!-- /wp:paragraph --><!-- /wp:query-no-results -->'
@@ -130,8 +213,30 @@ final class PostBlocks
         $images = array_values(array_filter(HtmlMarkupParser::htmlMarkupNodes($slice), static fn(array $node): bool => 'tag' === ($node['kind'] ?? null) && 'img' === strtolower((string) ($node['name'] ?? ''))));
         if (1 !== count($images)) return null;
         $attributes = is_array($images[0]['attributes'] ?? null) ? $images[0]['attributes'] : array();
-        if (1 !== preg_match('/^' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '(asset-[0-9a-f]{16})\}\}$/', (string) ($attributes['src'] ?? ''), $match)) return null;
+        $visibleImage = self::sourceAttributes($slice)['metadata']['blocksEngineVisibleImage']['url'] ?? null;
+        $url = is_string($visibleImage) ? $visibleImage : (string) ($attributes['src'] ?? '');
+        if (1 !== preg_match('/^' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '(asset-[0-9a-f]{16})\}\}$/', $url, $match)) return null;
         return array('asset_token' => $match[1], 'alt' => html_entity_decode((string) ($attributes['alt'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    }
+
+    /**
+     * The box ratio an image block's source img stated with width/height,
+     * reduced to lowest terms (510x286 is "255/143").
+     */
+    public static function intrinsicRatio(string $slice): ?string
+    {
+        if ('image' !== self::sourceBlockName($slice)) return null;
+        $size = self::sourceAttributes($slice)['metadata']['blocksEngineIntrinsicSize'] ?? null;
+        $width = is_array($size) && is_int($size['width'] ?? null) ? $size['width'] : 0;
+        $height = is_array($size) && is_int($size['height'] ?? null) ? $size['height'] : 0;
+        if ($width <= 0 || $height <= 0) return null;
+        $divisor = $width;
+        for ($rest = $height; 0 !== $rest;) {
+            $next = $divisor % $rest;
+            $divisor = $rest;
+            $rest = $next;
+        }
+        return intdiv($width, $divisor) . '/' . intdiv($height, $divisor);
     }
 
     /** @return array<string,mixed> */

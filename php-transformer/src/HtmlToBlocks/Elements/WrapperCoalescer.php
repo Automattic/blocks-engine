@@ -480,7 +480,7 @@ final class WrapperCoalescer
         foreach ($element->childNodes as $node) {
             if (XML_TEXT_NODE === $node->nodeType && '' !== trim((string) $node->nodeValue)) return false;
         }
-        foreach ($element->attributes as $attribute) {
+        foreach (\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::authoredAttributes($element) as $attribute) {
             if (! in_array(strtolower($attribute->nodeName), array('class', 'style', 'data-node-view-wrapper', 'data-node-view-content', 'data-node-view-content-inner'), true)) return false;
         }
         foreach ($this->session->authorStyleRuleCandidates($element) as $rule) {
@@ -524,7 +524,8 @@ final class WrapperCoalescer
      */
     public function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
-        if ( ($this->preservesScriptStateWrapper)($element)
+        if ( $this->boxTreeClassifierOwnsWrappers()
+            || ($this->preservesScriptStateWrapper)($element)
             || !empty($childBlock['attrs']['metadata']['blocksEngineRuntimeAttributes']) ) {
             return null;
         }
@@ -668,6 +669,16 @@ final class WrapperCoalescer
     }
 
     /**
+     * On a box-tree evidence route the ADR 0005 classifier alone decides which
+     * source boxes collapse (HtmlCompilation drops neutral boxes before they
+     * convert), so no selector-survival heuristic folds a wrapper here.
+     */
+    private function boxTreeClassifierOwnsWrappers(): bool
+    {
+        return array() !== $this->session->boxTreeViewports();
+    }
+
+    /**
      * Runs the same three disqualification phases, in the same
      * short-circuiting order, that the original single boolean expression
      * evaluated — so a disqualification reason here changes nothing about
@@ -678,6 +689,9 @@ final class WrapperCoalescer
      */
     private function coalescingResolution(DOMElement $element, array $childBlock): array
     {
+        if ($this->boxTreeClassifierOwnsWrappers()) {
+            return array('disposition' => WrapperDisposition::preserve('box_tree_classified'), 'proof' => null, 'attrs' => array(), 'source_child' => null);
+        }
         $proof = $this->layoutGeometryProofFor($element);
         $fullWidthTransparentShell = $this->hasOnlyFullWidthTransparentInlineGeometry($element);
         $redundantNestedLayout = $this->isRedundantNestedLayoutWrapper($element, $childBlock);
@@ -1222,6 +1236,7 @@ final class WrapperCoalescer
      */
     public function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array
     {
+        if ($this->boxTreeClassifierOwnsWrappers()) return null;
         $proof = $this->layoutGeometryProofFor($element);
         if (null === $proof || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim(SourceDom::attr($element, 'id')) || '' !== trim(SourceDom::attr($element, 'role')) || array() !== $this->sourceElementDescription->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
         $children = $this->tree->children($element, $fallbacks, true);

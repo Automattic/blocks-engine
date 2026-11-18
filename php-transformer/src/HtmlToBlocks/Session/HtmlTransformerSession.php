@@ -57,11 +57,11 @@ final class HtmlTransformerSession
 
     public function __construct(Runtime $runtime, SourceElementDescription $sourceElementDescription)
     {
-        $this->fallbackEmitter = new FallbackEmitter($runtime, $sourceElementDescription);
+        $this->reusableComponentState = new ReusableComponentState();
+        $this->fallbackEmitter = new FallbackEmitter($runtime, $sourceElementDescription, $this->reusableComponentState);
         $this->presentationResolutionCache = new PresentationResolutionCache();
         $this->sourceStyleResolutionState = new SourceStyleResolutionState();
         $this->runtimeDomState = new RuntimeDomState();
-        $this->reusableComponentState = new ReusableComponentState();
         $this->authorSelectorProjectionState = new AuthorSelectorProjectionState();
         $this->generatedSupportStylesheetState = new GeneratedSupportStylesheetState();
         $this->transformationProvenanceState = new TransformationProvenanceState();
@@ -306,6 +306,11 @@ final class HtmlTransformerSession
     private array $boxTree = array();
 
     /** Browser observations for the source element, keyed by captured viewport. */
+    public function boxTreeViewports(): array
+    {
+        return $this->boxTree['viewports'] ?? array();
+    }
+
     public function boxTreeEvidence(\DOMElement $element): array
     {
         return \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::forElement($this->boxTree, $element);

@@ -165,7 +165,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             : $this->ensureInlineSvgSizing($html, $element);
         $html = $this->bakeCascadedSvgTextLayout($this->resolveMaterializedSvgColors($html, $element), $element);
 
-        return $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($html, $element));
+        return $this->restoreSvgCasing($this->withReferencedDefinitions($html, $element));
     }
 
     /** Sanitized SVG markup that renders as an isolated image, author paint included. */
@@ -1053,6 +1053,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         if ( str_contains($value, 'var(') ) {
             $value = $this->plainDeclarationValue($resolveVariables($value));
         }
+        // Wix's SVG root states the fill as `calc(100% - var(--stroke-width,0px))`:
+        // an unset stroke width leaves a zero offset, which is still the full axis.
+        while ( 1 === preg_match('/^calc\(\s*(.*?)\s*\)$/', $value, $calc) ) {
+            $value = preg_replace('/\s*[-+]\s*0(?:\.0*)?(?:[a-z]+|%)?$/', '', $calc[1]) ?? $calc[1];
+        }
 
         return '100%' === $value;
     }
@@ -1150,8 +1155,10 @@ final class SvgMaterializer implements SvgElementMaterializer
     {
         // WordPress core's `.wp-block-image img { height:auto }` is loaded
         // after theme styles; the native wrapper class lets the fill win.
-        return '.' . $class . $figureRule . '.wp-block-image.' . $class . $imgRule
-            . '.wp-block-image.' . $class . str_replace('>img', '>a>img', $imgRule) . '.' . $class . '>a{display:block;width:100%;height:100%}';
+        // One selector list reaches the linked image too, as core/image wraps
+        // linked media in an anchor.
+        return '.' . $class . $figureRule . '.wp-block-image.' . $class . '>img,.wp-block-image.' . $class . '>a' . $imgRule
+            . '.' . $class . '>a{display:block;width:100%;height:100%}';
     }
 
     /**
@@ -1272,11 +1279,11 @@ final class SvgMaterializer implements SvgElementMaterializer
     }
 
     /**
-     * SVG image assets are standalone documents. Copy local definitions used by
-     * the image into its payload so a document-level capture store is not needed
-     * at render time.
+     * Emitted SVG markup leaves its source document behind. Copy the local
+     * definitions it references (a sprite <symbol>, gradients, clip paths) into
+     * the markup so it does not depend on a page-level store that is not emitted.
      */
-    private function inlineSvgMaterializationMarkup(string $html, DOMElement $element): string
+    public function withReferencedDefinitions(string $html, DOMElement $element): string
     {
         if ( ! $element->ownerDocument instanceof \DOMDocument ) {
             return $html;

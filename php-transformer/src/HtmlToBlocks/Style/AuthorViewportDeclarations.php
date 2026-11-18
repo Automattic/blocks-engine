@@ -21,6 +21,10 @@ final class AuthorViewportDeclarations
     private array $ruleSource = array();
     /** @var array<string, array{rules: list<array<string, mixed>>, parsed: array<string, array<string, mixed>>, declaring: array<string, list<array<string, mixed>>>}> */
     private array $rulesByViewport = array();
+    /** @var list<array<string, mixed>>|null */
+    private ?array $breakpointSource = null;
+    /** @var list<float> */
+    private array $breakpoints = array();
 
     public function __construct(
         private readonly HtmlTransformerSession $session,
@@ -99,6 +103,39 @@ final class AuthorViewportDeclarations
         };
 
         return $this->cascade->declarationsAtViewport($element, $properties, $rules, $matches, $viewportWidth);
+    }
+
+    /**
+     * Viewport widths at which an author `@media` condition can switch, in
+     * pixels, ascending. Between two consecutive breakpoints every author
+     * declaration resolves the same, so a caller can sample them to find
+     * where the author's cascade changes.
+     *
+     * @return list<float>
+     */
+    public function widthBreakpoints(): array
+    {
+        $styleRules = $this->session->authorStyleAnalysis()->styleRules();
+        if ( $styleRules === $this->breakpointSource ) {
+            return $this->breakpoints;
+        }
+        $widths = array();
+        foreach ( $styleRules as $rule ) {
+            foreach ( ArrayField::array($rule, 'conditions') as $condition ) {
+                $condition = (string) $condition;
+                if ( ! preg_match('/^\s*(?:\/\*.*?\*\/\s*)*@media\b/is', $condition) || ! preg_match_all('/(\d*\.?\d+)\s*(px|r?em)\b/i', $condition, $matches, PREG_SET_ORDER) ) {
+                    continue;
+                }
+                foreach ( $matches as $match ) {
+                    $width = (float) $match[1] * ( 'px' === strtolower($match[2]) ? 1.0 : 16.0 );
+                    $widths[ (string) $width ] = $width;
+                }
+            }
+        }
+        sort($widths);
+        $this->breakpointSource = $styleRules;
+
+        return $this->breakpoints = array_values($widths);
     }
 
     /**

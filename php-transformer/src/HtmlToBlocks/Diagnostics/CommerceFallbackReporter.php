@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\SchemaProductEvidenc
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CustomElementRuntimeDependency;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
@@ -171,6 +172,16 @@ final class CommerceFallbackReporter
             }
             $listing = $this->listingControls($element, $products);
 
+            // A split product-detail layout (a cover beside one purchase panel)
+            // is not a collection: its media and panel are sibling tracks of
+            // one product, not independent cards. A provider repeats the card
+            // in place of the region's children, so claiming the layout would
+            // discard the cover and its track, and claiming the panel alone
+            // would nest the authored panel inside a second copy of itself.
+            if ( 1 === count($products) && array() === $listing && $this->isSplitDetailLayout($element) ) {
+                continue;
+            }
+
             // A card only reaches here via schema.org evidence, a cart control,
             // or the weaker image-corroborated catalog path (see
             // `CommerceStructureRecognizer::productCardData()`). A grid needs
@@ -269,6 +280,27 @@ final class CommerceFallbackReporter
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
         }
+    }
+
+    /**
+     * A two-track layout of one product card and its text-free media, such
+     * as a cover beside a purchase panel.
+     */
+    private function isSplitDetailLayout(DOMElement $element): bool
+    {
+        if ( 2 !== SourceDom::childElementCount($element) ) {
+            return false;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement
+                && null === $this->recognizer->productCardData($child)
+                && '' === SourceDom::renderedTextContent($child)
+                && ('img' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('img')->length)
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -908,6 +940,7 @@ final class CommerceFallbackReporter
      */
     public function appendCommerceControlsFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml = ''): void
     {
+        $this->appendPurchaseFormFallbacks($body, $fallbacks, $sourceHtml);
         $this->appendFormlessPurchaseFallbacks($body, $fallbacks, $sourceHtml);
         $emitted = 0;
         foreach ( $body->getElementsByTagName('*') as $element ) {
@@ -943,6 +976,41 @@ final class CommerceFallbackReporter
                 'control_count'     => count($controlGroups),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->provenance->fallback());
             ++$emitted;
+        }
+    }
+
+    /**
+     * Purchase forms need an anchor even when quantity/options live outside the
+     * form or runtime preservation bypasses the ordinary form finding.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function appendPurchaseFormFallbacks(DOMElement $body, array &$fallbacks, string $sourceHtml): void
+    {
+        if ( ! SchemaProductEvidence::hasSingleProduct($sourceHtml) ) return;
+        $reported = array();
+        foreach ( $fallbacks as $fallback ) {
+            if ( 'commerce_add_to_cart' === ($fallback['form_intent'] ?? '') && ! empty($fallback['binding']) ) {
+                $reported[$fallback['selector'] ?? ''] = true;
+            }
+        }
+        foreach ( $body->getElementsByTagName('form') as $form ) {
+            $selector = SourceDom::elementSelector($form);
+            if ( isset($reported[$selector]) || SourceDom::hasNonAuthoredAncestor($form)
+                || 'commerce_add_to_cart' !== FormRuntimeRequirementAnalyzer::formIntent($form) ) continue;
+            $fallbacks[] = FallbackDiagnostic::build(array(
+                'type' => 'html',
+                'reason' => 'commerce_controls_require_runtime',
+                'diagnostic_code' => 'html_commerce_controls_fallback',
+                'kind' => 'html_commerce_controls_fallback',
+                'message' => 'An add-to-cart form requires commerce runtime binding.',
+                'source_format' => 'html',
+                'tag' => 'form',
+                'selector' => $selector,
+                'form_intent' => 'commerce_add_to_cart',
+                'binding' => $this->blockBindings->binding(array(), 'commerce_add_to_cart_form', $this->runtimeIslands->runtimeDomSelectorsForElement($form), $form),
+                'controls' => $this->metadataBuilder->controls($form),
+            ), $this->provenance->fallback());
         }
     }
 
@@ -1163,7 +1231,8 @@ final class CommerceFallbackReporter
      * the source's client-side cart was. The layout blocks are unchanged.
      *
      * The binding anchors on the cart view's script scope: the outermost
-     * runtime DOM target around the summary, below the page landmarks. That is
+     * runtime DOM target around the summary, below and excluding containers of
+     * page landmarks. That is
      * the element the source script looks up before rendering, so a provider
      * that replaces it also retires the source's cart rendering instead of
      * leaving it to draw a second, empty cart beside the provider's. A summary
@@ -1182,6 +1251,16 @@ final class CommerceFallbackReporter
                 break;
             }
             $scope = $this->cartViewScope($summary);
+            if ( $this->containsPageLandmark($scope) ) {
+                $this->session->transformationEvidenceState()->recordConversionDiagnostic(array(
+                    'code' => 'runtime_binding_declined',
+                    'severity' => 'warning',
+                    'message' => 'Declined a cart binding whose only scope contains page landmarks.',
+                    'source' => self::class,
+                    'context' => array('reason' => 'page_wide_cart_scope', 'role' => 'commerce_cart', 'selector' => SourceDom::elementSelector($scope)),
+                ));
+                continue;
+            }
             $id = spl_object_id($scope);
             if ( isset($scopes[$id]) ) {
                 continue;
@@ -1319,7 +1398,8 @@ final class CommerceFallbackReporter
         for ( $node = $summary; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( in_array(strtolower($node->tagName), array( 'html', 'body', 'main', 'header', 'footer', 'nav' ), true)
                 || $node->hasAttribute(CaptureEvidence::DOCUMENT_SCOPE)
-                || '' !== ShellLandmarkPolicy::landmarkKind($node->tagName, SourceDom::attr($node, 'role')) ) {
+                || '' !== ShellLandmarkPolicy::landmarkKind($node->tagName, SourceDom::attr($node, 'role'))
+                || $this->containsPageLandmark($node) ) {
                 break;
             }
             // The summary's checkout control belongs to its enclosing form;
@@ -1330,6 +1410,19 @@ final class CommerceFallbackReporter
         }
 
         return $scope;
+    }
+
+    /** App wrappers containing page landmarks are not replaceable cart regions. */
+    private function containsPageLandmark(DOMElement $element): bool
+    {
+        foreach ( SourceDom::descendantElements($element) as $descendant ) {
+            if ( in_array(strtolower($descendant->tagName), array('main', 'header', 'footer', 'nav'), true)
+                || '' !== ShellLandmarkPolicy::landmarkKind($descendant->tagName, SourceDom::attr($descendant, 'role')) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
