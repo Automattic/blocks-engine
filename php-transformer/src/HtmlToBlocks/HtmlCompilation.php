@@ -1651,7 +1651,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // A plain div has no native attributes requiring shell transport;
             // keep its children editable without introducing Core flow spacing.
             $block = $preserveLinkContainers && 'div' === strtolower($child->tagName) && 0 === $child->attributes->length
-                ? $this->createBlock('core/group', $this->authorLayoutOwnership->cssOwnedGroupAttributes($child), $this->convertChildren($child, $fallbacks, $captureUnsupported, true), $child)
+                ? $this->createBlock('core/group', $this->linkedContentBoxAttributes($child), $this->convertChildren($child, $fallbacks, $captureUnsupported, true), $child)
                 : $this->convertElement($child, $fallbacks, $captureUnsupported);
             if ( null !== $block ) {
                 // Retain the public source boundary rather than private metadata.
@@ -1738,6 +1738,21 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             $this->richTextStylingHooks->inlineContent(...)
         );
+    }
+
+    /**
+     * The Group standing in for a plain linked content div. The source div
+     * contributes no spacing of its own, so its children keep exactly their
+     * author margins: Core flow spacing is cancelled unless the author already
+     * owns the box as a native grid.
+     *
+     * @return array<string, mixed>
+     */
+    private function linkedContentBoxAttributes(DOMElement $element): array
+    {
+        $attrs = $this->authorLayoutOwnership->cssOwnedGroupAttributes($element);
+
+        return isset($attrs['layout']) ? $attrs : AuthorLayoutOwnership::withCssOwnedFlow($attrs);
     }
 
     /**
