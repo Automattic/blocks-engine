@@ -137,12 +137,20 @@ final class BoxTreeReport
     {
         if (array() === $tree) return false;
         $seen = array();
-        foreach (HtmlSerialization::parseDocument($html)->getElementsByTagName('*') as $element) {
+        $document = HtmlSerialization::parseDocument($html);
+        $body = $document->getElementsByTagName('body')->item(0);
+        if (!$body instanceof \DOMElement) return false;
+        // Head resources and compiler-generated metadata have no rendered box.
+        // Their absence from the capture must not re-enable author selectors
+        // on an otherwise fully projected route. Report-only nodes likewise
+        // do not imply that a rendered element lacks evidence.
+        foreach (array($body, ...iterator_to_array($body->getElementsByTagName('*'))) as $element) {
+            if (in_array(strtolower($element->tagName), array('script', 'style', 'link', 'meta', 'title', 'template'), true)) continue;
             $id = $element->getAttribute(BoxTree::NODE_ATTRIBUTE);
             if ('' === $id || isset($seen[$id]) || !isset($tree['nodes'][$id])) return false;
             $seen[$id] = true;
         }
-        return count($seen) === count($tree['nodes']);
+        return true;
     }
 
     public static function coverage(array $files): array

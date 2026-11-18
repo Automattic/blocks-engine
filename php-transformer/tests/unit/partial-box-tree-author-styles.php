@@ -34,4 +34,24 @@ if (!str_contains($delivered, 'position:relative') || !str_contains($delivered, 
 if (!empty($plan['pages'][0]['document_metadata']['engine_owned_styles'])) {
     throw new RuntimeException('Partial evidence cannot claim exclusive stylesheet ownership.');
 }
+// Missing non-rendered head nodes must not re-enable author rules for a
+// completely observed body (and must not change fold carrier delivery).
+$html = file_get_contents(__DIR__ . '/../fixtures/box-tree/index.html');
+$tree = json_decode(file_get_contents(__DIR__ . '/../fixtures/box-tree/index.json'), true, 512, JSON_THROW_ON_ERROR);
+$html = str_replace('</head>', '<meta name="description" content="Unobserved metadata"><link rel="stylesheet" href="author.css"></head>', $html);
+$tree['source_hash'] = hash('sha256', $html);
+$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $html,
+    'author.css' => 'h1{height:200px}',
+    'box-tree/index.json' => json_encode($tree),
+)))->toWordPressSitePlanView()['wordpress_site_plan'];
+if (empty($plan['pages'][0]['document_metadata']['engine_owned_styles'])) {
+    throw new RuntimeException('Unobserved head resources cannot revoke ownership of fully observed body boxes.');
+}
+$assets = array_column($plan['assets'], null, 'target_path');
+foreach (ThemeBootstrap::documentStylesheets($plan, 'index.html') as $row) {
+    if (str_contains($assets[$row['target_path']]['content'] ?? '', 'h1{height:200px}')) {
+        throw new RuntimeException('Head metadata must not resurrect author layout on observed boxes.');
+    }
+}
 echo "Partial box-tree author styles regression passed\n";
