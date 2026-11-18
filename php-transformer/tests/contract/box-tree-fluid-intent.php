@@ -189,6 +189,17 @@ $cases = array(
         'h1{width:auto}@media (max-width:500px){h1{width:300px}}', array('n6.width' => array('1440px', '300px')),
         array('width:1440px', 'width:300px'), array('h1 ;width:auto'),
     ),
+    // sdnunca header menu: the author switches the width's kind at a query.
+    'a % width an author query switches to max-content lifts per author band' => array(
+        'h1{width:85.57%}@media (max-width:1023px){h1{width:max-content}}',
+        array('n5.width' => array('1000px', '402px'), 'n6.width' => array('855.7px', '30.92px')),
+        array('h1 ;width:85.57%', '@media (max-width:1023px){', 'width:max-content'), array('width:855.7px', 'width:30.92px'),
+    ),
+    'a band neither lifter proves keeps its pixels' => array(
+        'h1{width:85.57%}@media (max-width:1023px){h1{width:30.92px}}',
+        array('n5.width' => array('1000px', '402px'), 'n6.width' => array('855.7px', '30.92px')),
+        array('width:855.7px', 'width:30.92px'), array('width:85.57%', 'width:max-content'),
+    ),
     'a logical size alias keeps its pixels' => array(
         'h1{inline-size:300px}', array('n6.width' => array('300px', '300px')), array('h1 ;width:300px'), array('h1 ;width:auto'),
     ),

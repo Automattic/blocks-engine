@@ -215,6 +215,8 @@ final class ThemeTemplates
                  $retainsChrome = false;
                  foreach ($pages as $page) if (TemplateSlugs::forPage($page) === $templateSlug && self::contentCarriesChrome($page['canonical_block_markup'], $part['area'])) $retainsChrome = true;
                  if ($retainsChrome) continue;
+                 // The lifecycle's shared frame may already render this area.
+                 if (isset($frames[$templateSlug]) && array() !== $frames[$templateSlug]['shells'] && self::contentCarriesChrome($frames[$templateSlug]['opening'] . $frames[$templateSlug]['closing'], (string) $part['area'])) continue;
                  if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
                  $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['tag_name'] . '","className":"blocks-engine-shell-transport"} /-->' . "\n";
                  $wrapper = $part['placement']['template_wrappers'][$templateSlug] ?? null;

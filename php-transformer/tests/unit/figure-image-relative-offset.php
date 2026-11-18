@@ -51,12 +51,12 @@ if (str_contains($figureBody, '-155.812px')) {
     throw new RuntimeException('The source figure must not take the image offset.');
 }
 
-// A viewport-sized crop's pixel offsets were measured at the capture width
-// only; they must follow the frame at every width (centred focal point).
+// Viewport-relative sizing does not prove that a runtime recalculates its
+// offsets. The whole-site capture keeps these pixels at every width, even
+// with focal-point metadata. Preserve the authored placement independently
+// of the image size rather than inventing a focal-point crop algorithm.
 [$leafBody] = $leafRules('position: relative;font-size: 0px;left: 0px;top: -226.312px;width: max(674px, 100vw);height: max(449px, 66.64vw)');
-$top = 'calc(-1 * clamp(0px, 0.5 * max(449px, 66.64vw) - 50%, max(449px, 66.64vw) - 100%))';
-$left = 'calc(-1 * clamp(0px, 0.5 * max(674px, 100vw) - 50%, max(674px, 100vw) - 100%))';
-if (! str_contains($leafBody, 'top:' . $top) || ! str_contains($leafBody, 'left:' . $left) || str_contains($leafBody, '-226.312px')) {
-    throw new RuntimeException('A viewport-sized crop must re-express its offsets against the frame: ' . $leafBody);
+if (! preg_match('/(?:^|;)\s*top\s*:\s*-226\.312px\b/', $leafBody) || str_contains($leafBody, 'clamp(')) {
+    throw new RuntimeException('Viewport-sized images must retain authored pixel offsets: ' . $leafBody);
 }
 echo "Figure image relative offset stays on the image leaf\n";

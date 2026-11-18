@@ -2037,14 +2037,16 @@ final class StyleResolver implements ElementPresentationResolver
      * not the image, so the image's own relative offsets have no other
      * carrier. A relatively positioned image (a focal-point crop that shifts
      * the image inside its clipping frame, `position:relative;top:-156px`)
-     * keeps those offsets on the leaf. Without a source figure the synthetic
+     * keeps those offsets on the leaf. Viewport-relative image sizing and
+     * focal-point metadata do not prove that the authored pixel offsets vary;
+     * retain them rather than infer a runtime crop algorithm.
+     * Without a source figure the synthetic
      * figure takes the image's positioning instead.
      */
     public function imageLeafPlacementClassName(DOMElement $image, bool $sourceFigure = false): string
     {
         $declarations = SourceDeclarations::inline($image);
         $placement = array_keys(array_filter($declarations, NativeImageLeafPresentation::isPlacementProperty(...), ARRAY_FILTER_USE_KEY));
-        $overrides = array();
         if ( $sourceFigure ) {
             $position = CssValueInspector::declared($declarations, 'position');
             if ( '' === $position ) {
@@ -2055,54 +2057,12 @@ final class StyleResolver implements ElementPresentationResolver
                     $declarations,
                     array_flip(array( 'position', 'top', 'right', 'bottom', 'left', 'inset' ))
                 )));
-                $overrides = $this->fluidCropOffsets($image, $declarations);
             }
         }
         if ( array() === $placement ) {
             return '';
         }
-        return $this->inlineGeometry()->className($image, array_values(array_diff(array_keys($declarations), $placement)), $placement, array(), false, true, false, $overrides);
-    }
-
-    /**
-     * Re-express a cover crop's captured pixel offsets for every viewport.
-     *
-     * A crop runtime (Squarespace's `content-fill`) sizes the image to cover
-     * its clipping frame with viewport units (`height:max(449px, 66.64vw)`)
-     * and writes the offset that centres the focal point as pixels measured
-     * at the capture width (`top:-226.312px`). Those pixels are only right at
-     * that width: narrower, the frame is covered horizontally and the image
-     * must shift left with no vertical offset. The runtime offset is
-     * `-clamp(0, focal * size - frame / 2, size - frame)`, which CSS states
-     * directly with the frame as the percentage basis of `top`/`left`.
-     *
-     * @param array<string, string> $declarations
-     * @return array<string, string>
-     */
-    private function fluidCropOffsets(DOMElement $image, array $declarations): array
-    {
-        $focal = array_map('trim', explode(',', $image->getAttribute('data-image-focal-point')));
-        $overrides = array();
-        foreach (array( 'left' => array( 'width', 'right', 0 ), 'top' => array( 'height', 'bottom', 1 ) ) as $offset => [$size, $opposite, $axis]) {
-            $value = CssValueInspector::comparable(CssValueInspector::withoutImportant((string) ($declarations[$offset] ?? '')));
-            $extent = CssValueInspector::comparable(CssValueInspector::withoutImportant((string) ($declarations[$size] ?? '')));
-            if (
-                1 !== preg_match('/^(?:0|-?(?:\d+|\d*\.\d+)px)$/', $value)
-                || 0.0 < (float) $value
-                || isset($declarations[$opposite])
-                || 1 !== preg_match('/\d(?:[sld]?v[whib]|[sld]?vmin|[sld]?vmax)\b/', $extent)
-                || 1 !== preg_match('/^[\d\s.,+\-*\/a-z()]+$/', $extent)
-                || str_contains($extent, '%')
-            ) {
-                continue;
-            }
-            $point = isset($focal[$axis]) && is_numeric($focal[$axis]) ? max(0.0, min(1.0, (float) $focal[$axis])) : 0.5;
-            $point = rtrim(rtrim(number_format($point, 4, '.', ''), '0'), '.');
-            $point = '' === $point ? '0' : $point;
-            $overrides[$offset] = 'calc(-1 * clamp(0px, ' . $point . ' * ' . $extent . ' - 50%, ' . $extent . ' - 100%))';
-        }
-
-        return $overrides;
+        return $this->inlineGeometry()->className($image, array_values(array_diff(array_keys($declarations), $placement)), $placement, array(), false, true, false);
     }
 
     /** @param array<string, string> $declarations */

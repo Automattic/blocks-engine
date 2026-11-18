@@ -630,6 +630,17 @@ final class ImageLowering
             }
         }
 
+        // A linked image may become a listing card's per-post featured image.
+        // Its authored width/height state the box the card reserved, which the
+        // lowered figure no longer carries once author CSS makes it fluid.
+        if ( $link instanceof DOMElement ) {
+            $intrinsicWidth = trim(SourceDom::attr($image, 'width'));
+            $intrinsicHeight = trim(SourceDom::attr($image, 'height'));
+            if ( 1 === preg_match('/^[1-9]\d{0,5}$/', $intrinsicWidth) && 1 === preg_match('/^[1-9]\d{0,5}$/', $intrinsicHeight) ) {
+                $attrs['metadata'] = array_merge(ArrayField::array($attrs, 'metadata'), array( 'blocksEngineIntrinsicSize' => array( 'width' => (int) $intrinsicWidth, 'height' => (int) $intrinsicHeight ) ));
+            }
+        }
+
         $selection = $this->authoredImageSelection($image, (string) $attrs['url'], $picture);
         if ( array() !== $selection ) {
             $attrs['metadata'] = array_merge(ArrayField::array($attrs, 'metadata'), array( 'blocksEngineImageSelection' => $selection ));

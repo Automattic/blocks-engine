@@ -8,6 +8,21 @@ final class CssRuleTree
 {
     public readonly bool $wellFormed;
 
+    /**
+     * Whether the block structure parsed, allowing stray root `}` tokens.
+     * CSS Syntax error recovery makes such a `}` part of the following
+     * qualified rule's prelude, invalidating only that rule.
+     */
+    public readonly bool $recoverable;
+
+    /** @var array<int, true> Root rule starts whose prelude holds a stray `}`. */
+    private array $invalidPreludes = array();
+
+    public function hasInvalidPrelude(int $start): bool
+    {
+        return isset($this->invalidPreludes[$start]);
+    }
+
     /** @var array<int, int> */
     private array $ends = array();
 
@@ -41,6 +56,7 @@ final class CssRuleTree
         $scope = -1;
         $start = 0;
         $valid = true;
+        $stray = false;
         $length = strlen($source);
         for ($offset = 0; $offset < $length;) {
             $offset = CssSyntaxScanner::inertEnd($source, $offset, $state, '{};');
@@ -59,20 +75,30 @@ final class CssRuleTree
                     $scope = $offset;
                     $start = $offset + 1;
                 } elseif ('}' === $source[$offset]) {
-                    if (!$stack) { $valid = false; break; }
+                    if (!$stack) {
+                        // Stays in the prelude of the rule that follows.
+                        $stray = true;
+                        $this->invalidPreludes[$start] = true;
+                        $offset = $next;
+                        continue;
+                    }
                     [$scope, $start, $boundary] = array_pop($stack);
                     $this->ends[$boundary] = $offset;
                     $this->append($scope, $start, $boundary, $offset);
                     $start = $offset + 1;
                 } elseif (';' === $source[$offset]) {
                     $this->append($scope, $start, $offset, $offset);
+                    // A `;` does not end a root qualified-rule prelude, so the
+                    // stray `}` still invalidates the next block rule.
+                    if (isset($this->invalidPreludes[$start])) $this->invalidPreludes[$offset + 1] = true;
                     $start = $offset + 1;
                 }
             }
             $offset = $next;
         }
         $this->tails = array();
-        $this->wellFormed = $valid && !$stack && CssSyntaxScanner::isComplete($state);
+        $this->recoverable = $valid && !$stack && CssSyntaxScanner::isComplete($state);
+        $this->wellFormed = $this->recoverable && !$stray;
     }
 
     /** @var list<int>|null Root rule starts, ascending: root rules are disjoint and appended in source order. */
