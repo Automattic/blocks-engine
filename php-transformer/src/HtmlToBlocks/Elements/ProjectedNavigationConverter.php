@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
@@ -207,7 +208,19 @@ final class ProjectedNavigationConverter implements ElementConverter
                 break;
             }
         }
-        $anchor = $navigation->getElementsByTagName('a')->item(0);
+        // The overlay's link colour is the menu's resting link colour. The
+        // link naming the served document wears its current look on that
+        // route only, so reading it would give the route's header a paint of
+        // its own and split the shared header from its peers.
+        $anchor = null;
+        $routeState = new NavigationPatternContext($this->styleResolver, $this->session);
+        foreach ($navigation->getElementsByTagName('a') as $link) {
+            if (!$link instanceof DOMElement) continue;
+            $anchor ??= $link;
+            if ($routeState->targetsCurrentDocument($link->getAttribute('href'))) continue;
+            $anchor = $link;
+            break;
+        }
         $color = $anchor instanceof DOMElement
             ? $this->portableCollapsedPaint($anchor, (string) ($this->styleResolver->cascade->collapsedViewportDeclarations($anchor, array('color'))['color'] ?? ''))
             : '';
