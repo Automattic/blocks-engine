@@ -77,9 +77,8 @@ $declarations = array();
         if (preg_match('/^@media\b/i', trim((string) $ancestor))) return;
     }
     foreach (CssStylesheetTransformer::splitSelectorList($selector) ?? array() as $arm) {
-        // A carrier rule repeats its class for specificity, written as the
-        // class shim (`.c:not(.be-c-0)`).
-        $compound = preg_split('/(?=\.)/', (string) preg_replace('/:not\(\.be-c-\d+\)$/', '', trim($arm)), -1, PREG_SPLIT_NO_EMPTY) ?: array();
+        // A carrier rule repeats its class for specificity (`.c.c`).
+        $compound = preg_split('/(?=\.)/', trim($arm), -1, PREG_SPLIT_NO_EMPTY) ?: array();
         $own = array() !== $compound && array() === array_diff($compound, array_map(static fn(string $class): string => '.' . $class, $classes));
         if ($own) $declarations = array_replace($declarations, SourceDeclarations::parse($body));
     }

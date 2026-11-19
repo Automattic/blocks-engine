@@ -48,7 +48,7 @@ foreach (ThemeBootstrap::documentStylesheets($plan, 'index.html') as $row) {
     if ('editor' !== $row['stylesheet_target']) $frontend .= $content;
 }
 
-$boxless = array_values(array_filter(preg_split('/\s+/', $figure[1]) ?: array(), static fn(string $class): bool => 1 === preg_match('/\.' . preg_quote($class, '/') . ':not\(\.be-c-\d+\)\{display:contents\}/', $frontend)));
+$boxless = array_values(array_filter(preg_split('/\s+/', $figure[1]) ?: array(), static fn(string $class): bool => str_contains($frontend, '.' . $class . '.' . $class . '{display:contents}')));
 $assert(1 === count($boxless), 'The front end keeps the source structure: the figure carrier is display:contents.');
 $carrier = $boxless[0];
 

@@ -270,8 +270,9 @@ final class BoxTreeClassifier
      *   static child whose border box is the box's.
      * - `own-placement`: placement in the parent (grid lines, self-alignment,
      *   order, flex item factors, margins, float/clear) moves to a child whose
-     *   own values are initial, where the child's margin box then equals the
-     *   box's margin box.
+     *   own values are initial (or, in a one-cell grid box, grid lines naming
+     *   that cell), where the child's margin box then equals the box's margin
+     *   box.
      *
      * Never folded: pseudo-elements, clipping overflow, transforms, filters,
      * opacity, blending, isolation, z-index, non-flow boxes, and every
@@ -294,6 +295,8 @@ final class BoxTreeClassifier
         $moves = $rules = array();
         $equalBox = true;
         $boxless = true;
+        // A border-box child measures a moved constraint on its border box.
+        $childBorderBox = true;
         $constrained = false;
         $paints = false;
         $relative = false;
@@ -358,9 +361,10 @@ final class BoxTreeClassifier
             }
             foreach (self::PLACEMENT_INITIAL as $property => $initial) {
                 if ($b[$property] === $c[$property]) continue;
-                if ($initial !== $c[$property]) return null;
+                if ($initial !== $c[$property] && !self::fillsSoleGridCell($b, $property, $c[$property])) return null;
                 $moves[$property] = $property;
             }
+            $childBorderBox = $childBorderBox && 'border-box' === ($c['box-sizing'] ?? null);
             foreach (self::CONSTRAINT_INITIAL as $property => $initial) {
                 if (in_array($b[$property], $initial, true)) continue;
                 if (!in_array($c[$property], $initial, true)) return null;
@@ -407,7 +411,10 @@ final class BoxTreeClassifier
         // Positioned descendants resolve against the padding box: it must not change.
         if (($containing || $relative) && !$equalBox) return null;
         if ($paints && !$equalBox) return null;
-        if ($constrained && !($equalBox && $boxless)) return null;
+        // With an equal box the box has no padding or border, so its
+        // constraint bounds the border box the child shares: the child holds
+        // it as is when it has no box either, or sizes its border box.
+        if ($constrained && !($equalBox && ($boxless || $childBorderBox))) return null;
         foreach ($source as $side => $from) {
             if (null !== $from) $moves['margin-' . $side] = $from . '-' . $side;
         }
@@ -429,6 +436,20 @@ final class BoxTreeClassifier
         if (array() === $rules) return null;
         $moves += $inheritedMoves;
         return array('rules' => $rules, 'moves' => $moves, 'equal_box' => $equalBox);
+    }
+
+    /**
+     * A child's grid line inside a one-cell grid box names that cell, which is
+     * the box itself: it places the child nowhere once the box's own placement
+     * replaces it.
+     */
+    private static function fillsSoleGridCell(array $box, string $property, string $value): bool
+    {
+        if (!str_starts_with($property, 'grid-') || 'grid' !== $box['display']) return false;
+        foreach (array('grid-template-columns', 'grid-template-rows') as $template) {
+            if (!preg_match('/^(?:\d*\.)?\d+px$/', trim((string) ($box[$template] ?? '')))) return false;
+        }
+        return in_array(trim($value), str_ends_with($property, '-start') ? array('1') : array('2', 'span 1'), true);
     }
 
     /** Whether a box paints a background, border, shadow or outline of its own. */
@@ -499,6 +520,8 @@ final class BoxTreeClassifier
     /** Non-resting states: interaction pseudo-classes and runtime state attributes the capture replays. */
     private const STATE_PSEUDO_CLASS = '/(?<!:):(?:hover|focus-visible|focus-within|focus|active|checked|target)(?![\w(-])/i';
     private const STATE_ATTRIBUTE = '/\[\s*data-interact-/i';
+    /** A `:not()` filter, with up to two levels of nested parentheses. */
+    private const NEGATION = '/:not\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/i';
 
     private static function isAutonomousCustomElement(DOMElement $element): bool
     {
@@ -528,7 +551,10 @@ final class BoxTreeClassifier
                     $tokens = CssSelectorTokenizer::tokenize($selector);
                     foreach ($tokens['supported'] ? $tokens['compounds'] : array($selector) as $compound) {
                         $compound = trim((string) preg_replace(self::STATE_PSEUDO_CLASS, '', $compound));
-                        $compounds['' === $compound ? '*' : $compound] = true;
+                        // Only negations left (`:not(.x):focus`) names no box:
+                        // like `*`, it is whichever element enters the state.
+                        $positive = trim((string) preg_replace(self::NEGATION, '', $compound));
+                        $compounds['' === $positive || '*' === $positive ? '*' : $compound] = true;
                     }
                 }
             }

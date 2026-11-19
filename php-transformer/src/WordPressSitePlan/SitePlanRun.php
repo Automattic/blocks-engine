@@ -12,7 +12,6 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifes
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityShimCompactor;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssMathValueCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\ShadowedDeclarationPruner;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
@@ -369,7 +368,7 @@ final class SitePlanRun
         // Carriers are final: a marker list naming most of a kind's carriers
         // is written through that kind's role class instead.
         $assets = CompleteMarkerLists::compact($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
-        $assets = $this->finalStylesheets($assets, $navigationMarkup, (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        $assets = $this->finalStylesheets($assets, $navigationMarkup);
         // Readers are final: an author property no shipped sheet, markup,
         // record, theme.json or script names computes nothing.
         $assets = UnreadCustomProperties::prune($assets, array($navigationMarkup, implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme'], $rootDocuments, array_column($pages, 'document_metadata')), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)));
@@ -545,7 +544,7 @@ final class SitePlanRun
      * @param array<int,array<string,mixed>> $assets
      * @return array<int,array<string,mixed>>
      */
-    private function finalStylesheets(array $assets, string $navigationMarkup, string $runtimeRecords = ''): array
+    private function finalStylesheets(array $assets, string $navigationMarkup): array
     {
         $assets = CompiledAssets::withVariantScopedIdSelectors($assets);
         $assets = NavigationInstanceDiagnostics::withoutOrphanedRules($assets, $navigationMarkup);
@@ -565,13 +564,6 @@ final class SitePlanRun
         // block for each carrier it reaches (a class, its control twin, the
         // editor canvas); that block ships once, for all of them.
         $compactor = new CssStylesheetTransformer();
-        // A class shim no emitted markup, record, script or stylesheet names
-        // can be on no element, so negating it matches everything and weighs
-        // one class: `.c:not(.be-c-0)` is `.c.c` at its shorter spelling.
-        $classShim = AuthorStyleAnalysis::allocateSiteMarker('specificity-class', array_merge(
-            array($navigationMarkup, $runtimeRecords),
-            array_values(array_map(static fn (array $asset): string => $asset['content'], array_filter($assets, static fn (array $asset): bool => is_string($asset['content'] ?? null) && true !== ($asset['binary'] ?? false))))
-        ));
         foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             // A declaration a later one in its block always overrides never
@@ -596,10 +588,8 @@ final class SitePlanRun
             $compacted = CssSelectorListCompactor::withoutSubsumedArmsInStylesheet($compacted);
             // Projection pays each arm's specificity one shim at a time
             // (`:not(.be-c-0):not(.be-c-0)`, `:where(.x):not(.be-c-0)`); every
-            // arm ships that weight at its smallest spelling. A carrier that
-            // repeats its own class to outrank core rules (`.c.c`) pays it in
-            // every rule and breakpoint; it ships as the class shim instead.
-            $compacted = CssSpecificityShimCompactor::stylesheet($compacted, $classShim);
+            // arm ships that weight at its smallest spelling.
+            $compacted = CssSpecificityShimCompactor::stylesheet($compacted);
             // Projection writes combinators and selector lists spaced out;
             // the selector whitespace that separates no tokens ships once
             // per arm. Declaration values are left byte for byte.
