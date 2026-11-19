@@ -110,10 +110,8 @@ $result = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\Artifact
     . '"><h1>Reveal</h1></div></main></body></html>',
 )))->toArray()['source_reports']['wordpress_site_plan'];
 $css = implode("\n", array_column(array_filter($result['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
-// The marker keeps its weight in a specificity shim or a `:where()`, at
-// whichever spelling is smallest; the condition stays on it either way.
-$assert(1 === preg_match('/\.blocks-engine-attribute-[a-f0-9]{12}-0' . preg_quote($condition, '/') . '/', $css)
-    && 0 === preg_match('/\.blocks-engine-attribute-[a-f0-9]{12}-0\)?(?::not\([.#be0-9tci-]+\))*\{opacity:1/', $css), 'Attribute markers retain runtime class conditions rather than publishing an unconditional after pose.');
+$assert(1 === preg_match('/:where\(\.blocks-engine-attribute-[a-f0-9]{12}-0' . preg_quote($condition, '/') . '\)/', $css)
+    && 0 === preg_match('/:where\(\.blocks-engine-attribute-[a-f0-9]{12}-0\)[^{]*\{opacity:1/', $css), 'Attribute markers retain runtime class conditions rather than publishing an unconditional after pose.');
 }
 $result = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' =>
     '<html><head><style>[data-fx^=fade][data-fx^=fade]{transform:translate3d(-100px,0,0)}[data-fx^=fade][data-fx^=fade].on{opacity:1;transform:none}</style></head><body><main><h1>Reveal</h1><img class="pic on" data-fx="fade-right" width="200" height="120" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII="></main></body></html>',

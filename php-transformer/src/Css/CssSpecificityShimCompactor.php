@@ -22,12 +22,11 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  * - all shim negations fold into one, `:not(be-t-0#be-i-0.be-c-0.be-c-0)`;
  * - a class the compound names twice is named once, its second weight folded
  *   in as a class shim;
- * - a class `:where()` restates beside the same class outside it is dropped
- *   from the `:where()`;
- * - a `:where()` of classes (or a type) that shims already pay for is
- *   unwrapped: `:where(.m):not(.be-c-0)` is `.m`, `:where(figure):not(be-t-0)`
- *   is `figure`;
  * - inside `:where()`, which weighs nothing, shims are dropped.
+ *
+ * A `:where()` the engine wraps a carrier in stays as written: it is how
+ * stylesheets address engine markers and role classes, so only the shims
+ * beside it fold.
  *
  * Arguments of `:is()`, `:not()` and `:where()` are compacted the same way:
  * each argument keeps its matches and weight, so the list keeps both. Every
@@ -146,36 +145,6 @@ final class CssSpecificityShimCompactor
         }
         $pieces = $kept;
 
-        $hasType = array() !== array_filter($pieces, static fn (array $piece): bool => 'type' === $piece['kind']);
-        $kept = array();
-        $element = false;
-        foreach ($pieces as $piece) {
-            if ('element' === $piece['kind']) $element = true;
-            if ($element || 'pseudo' !== $piece['kind'] || 'where' !== $piece['name'] || 1 !== preg_match('/^([A-Za-z][\w-]*)?((?:\.' . self::IDENT . ')*)$/D', $piece['args'], $match)) {
-                $kept[] = $piece;
-                continue;
-            }
-            $type = $match[1] ?? '';
-            preg_match_all('/\.' . self::IDENT . '/', $match[2], $named);
-            $inner = array_values(array_filter(array_unique($named[0]), static fn (string $class): bool => !isset($classes[$class])));
-            if ('' !== $type && !$weightless && !$hasType && array() !== $shims['type']) {
-                array_shift($shims['type']);
-                array_unshift($kept, array('kind' => 'type', 'text' => $type));
-                $hasType = true;
-                $type = '';
-            }
-            if (!$weightless) {
-                while (array() !== $inner && array() !== $shims['class']) {
-                    array_shift($shims['class']);
-                    $class = array_shift($inner);
-                    $classes[$class] = true;
-                    $kept[] = array('kind' => 'class', 'text' => $class);
-                }
-            }
-            if ('' === $type && array() === $inner) continue;
-            $kept[] = array('kind' => 'pseudo', 'name' => 'where', 'args' => $type . implode('', $inner), 'text' => ':where(' . $type . implode('', $inner) . ')');
-        }
-        $pieces = $kept;
         if (array() === $pieces && array() === $shims['type'] && array() === $shims['id'] && array() === $shims['class']) return $compound;
 
         $head = $tail = '';
