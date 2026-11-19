@@ -181,7 +181,12 @@ final class BoxTreeClassifier
         $behavior = self::behavior($element, $node, $tree, $referenced, $stateTargeted, $linkCarried);
         if (null !== $behavior) return $behavior;
         if (1 !== count($node['children'])) return 'own-sizing';
-        $placement = self::placement($node, $tree['nodes'][$node['children'][0]] ?? array());
+        $childNode = $tree['nodes'][$node['children'][0]] ?? array();
+        // display:contents has no principal box. Its child's placement belongs
+        // to the outer layout already; comparing it to the wrapper's unused
+        // placement values invents a Group boundary.
+        if (self::boxlessContents($element, $node, $childNode)) return 'equal-child-geometry';
+        $placement = self::placement($node, $childNode);
         if (null !== $placement) return $placement;
         foreach ($element->childNodes as $child) {
             if ($child instanceof \DOMText && '' !== trim($child->textContent)) return 'own-sizing';
@@ -195,6 +200,29 @@ final class BoxTreeClassifier
             }
         }
         return 'equal-child-geometry';
+    }
+
+    /** A single-child, non-interactive contents wrapper contributes no box. */
+    private static function boxlessContents(DOMElement $element, array $node, array $child): bool
+    {
+        // Custom hosts have a separate transparent-hook lowering. Their DOM
+        // boundary still supplies selector and runtime context to descendants;
+        // treating them as ordinary neutral boxes changes that lowering.
+        if (str_contains($element->tagName, '-')) return false;
+        foreach ($element->childNodes as $text) {
+            if ($text instanceof \DOMText && '' !== trim($text->textContent)) return false;
+        }
+        foreach ($node['viewports'] as $viewport => $observation) {
+            $styles = $observation['used_styles'];
+            $own = $child['viewports'][$viewport]['used_styles'] ?? null;
+            if ('contents' !== ($styles['display'] ?? null) || !is_array($own)) return false;
+            // Do not erase a live ancestor state rule, or rebase an inherited
+            // value the child derives from this wrapper.
+            foreach (array_merge(self::INHERITED, array('pointer-events')) as $property) {
+                if (($styles[$property] ?? null) !== ($own[$property] ?? null)) return false;
+            }
+        }
+        return !self::targetedByState($element, self::stateCompounds($element->ownerDocument));
     }
 
     /**
