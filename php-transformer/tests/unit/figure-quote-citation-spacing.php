@@ -13,8 +13,9 @@ $result = (new HtmlTransformer())->transform(
 $quote = $result['blocks'][0] ?? array();
 $text = $quote['innerBlocks'][0] ?? array();
 if ('core/quote' !== ($quote['blockName'] ?? '')
-    || '12px' !== ($text['attrs']['style']['spacing']['margin']['bottom'] ?? '')
-    || !str_contains($text['innerHTML'] ?? '', 'margin-bottom:12px')
+    || isset($text['attrs']['style']['spacing'])
+    || 'blocks-engine-synthetic-paragraph' !== ($text['attrs']['className'] ?? '')
+    || !str_contains($text['innerHTML'] ?? '', 'display:block;margin:0 0 12px')
     || isset($text['attrs']['inlineGeometryStyle'])
     || 'pass' !== ((new BlockValidityValidator())->validateBlocks($result['blocks'])['status'] ?? '')
 ) {

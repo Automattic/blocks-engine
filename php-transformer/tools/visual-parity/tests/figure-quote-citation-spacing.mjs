@@ -11,7 +11,7 @@ try {
     const measure = async html => {
         await page.setContent(html);
         return page.locator('.review').evaluate(quote => {
-            const text = quote.querySelector('blockquote,p');
+            const text = quote.querySelector('blockquote,p > mark');
             const box = text.getBoundingClientRect();
             const caption = quote.querySelector('figcaption,cite > span');
             return {

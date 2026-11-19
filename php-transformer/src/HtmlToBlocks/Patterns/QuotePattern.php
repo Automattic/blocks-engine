@@ -187,16 +187,13 @@ final class QuotePattern implements PatternRecognizerInterface
         }
         $quoteChildren = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes);
         if ( array() !== $quoteChildren ) {
-            // Only an authored quotation margin requires a block box. Without
-            // one, retain the margin-neutral synthetic carrier contract.
-            $spacing = $quotes->figureQuotationSpacing($blockquote);
+            // The native paragraph remains a transparent RichText carrier.
+            // Preserve the consumed quotation's box locally, without opting
+            // the carrier into WordPress block spacing/layout styles.
             $quoteChildren[0] = $createBlock('core/paragraph', array(
-                'content' => $value,
-                'className' => 'blocks-engine-synthetic-paragraph' . (array() !== $spacing ? ' blocks-engine-source-box-paragraph' : ''),
-                'style' => array_filter(array(
-                    'typography' => $quotes->figureQuotationTypography($blockquote),
-                    'spacing' => $spacing,
-                )),
+                'content' => $quotes->figureQuotationContent($blockquote, $value),
+                'className' => 'blocks-engine-synthetic-paragraph',
+                'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
             ));
         }
         $innerBlocks = array_merge($innerBlocks, $quoteChildren);

@@ -34,23 +34,22 @@ final class QuotePatternContext
         return $mapped['style']['typography'] ?? array();
     }
 
-    /**
-     * Margins belong to the quotation, not the figure that also holds its
-     * attribution. Map them without registering generated box geometry.
-     *
-     * @return array<string, mixed>
-     */
-    public function figureQuotationSpacing(DOMElement $blockquote): array
+    /** Keep the consumed quotation's margins local to its RichText box. */
+    public function figureQuotationContent(DOMElement $blockquote, string $content): string
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($blockquote);
         $margins = array_intersect_key($declarations, array_flip(array(
             'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
         )));
-        $mapped = $this->styleResolver->styleAttributeMapper()->map(
-            $margins,
-            fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $blockquote)
-        );
-        return $mapped['style']['spacing'] ?? array();
+        if (array() === $margins) {
+            return $content;
+        }
+        foreach ($margins as &$value) {
+            $value = $this->styleResolver->customProperties->resolve($value, $blockquote);
+        }
+        unset($value);
+        $style = $this->styleResolver->cssDeclarationString($margins);
+        return '<mark role="none" style="background-color:transparent;color:inherit;display:block;' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>';
     }
 
     /**
