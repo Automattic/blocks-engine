@@ -47,6 +47,18 @@ final class QuotePatternContext
             : $content;
     }
 
+    /** A padded figure is a card box, separate from the quotation's text box. */
+    public function hasFigurePadding(DOMElement $figure): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($figure);
+        foreach (array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'padding-block', 'padding-inline') as $property) {
+            if (isset($declarations[$property]) && ! preg_match('/^(?:0(?:px|em|rem|%)?\s*)+$/', trim($declarations[$property]))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Preserve the typography of the caption consumed by a native quote. */
     public function figureCaptionContent(DOMElement $caption): string
     {
