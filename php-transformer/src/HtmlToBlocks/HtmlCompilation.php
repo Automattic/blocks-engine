@@ -2059,29 +2059,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $parents = $element->parentNode === $box ? $boxObservations : array();
         $bands = (new Style\BoxTreeFluidIntent())->lift($element, $this->styleResolver, $own, $viewports, $parents, '', $this->session->boxTreeEvidence(...))['width'] ?? array();
-        if ( array() === $bands ) {
-            return false;
-        }
-        if ( array() === array_filter(array_column($bands, 1), static fn(string $value): bool => '100%' !== $value) ) {
-            return true;
-        }
-        // An `auto` width fills the containing block too, for a block-level
-        // box in the box's block flow: with the equal border boxes the
-        // classifier saw, it has no inline margins to keep.
-        if ( array() !== array_filter(array_column($bands, 1), static fn(string $value): bool => 'auto' !== $value) ) {
-            return false;
-        }
-        foreach ( $observations as $key => $observation ) {
-            $styles = $observation['used_styles'] ?? array();
-            $boxDisplay = (string) ($boxObservations[$key]['used_styles']['display'] ?? '');
-            if ( !in_array($styles['display'] ?? '', array('block', 'flow-root'), true)
-                || !in_array($styles['position'] ?? 'static', array('static', 'relative', 'sticky'), true)
-                || 'none' !== ($styles['float'] ?? 'none')
-                || !in_array($boxDisplay, array('block', 'flow-root'), true) ) {
-                return false;
-            }
-        }
-        return true;
+        return array() !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => '100%' !== $value);
     }
 
     /**
@@ -2549,9 +2527,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 'fluid' => $fluidIntent->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
             );
         }
-        // The host's sizing intent is lifted from its own box; only the
-        // projected layout takes the list's container longhands.
-        if ('core/navigation' === $name) $observations = $this->withNavigationListLayout($observations, $attrs, $sourceElement);
         $classesBefore = self::classTokens((string) ($attrs['className'] ?? ''));
         $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image, $inlineSupports);
         $carrierNode = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
@@ -2560,59 +2535,6 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $attrs;
-    }
-
-    /** Container longhands a flex or grid list lays its items out with. */
-    private const LIST_LAYOUT_PROPERTIES = array('display', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-content', 'justify-items', 'row-gap', 'column-gap', 'grid-template-columns', 'grid-template-rows', 'grid-auto-flow', 'grid-auto-columns', 'grid-auto-rows');
-
-    /**
-     * An in-flow list navigation renders its generated list as
-     * `display:contents` (EngineSupportCss), so the navigation host owns the
-     * source list's layout box: its items lay out in the host. The host's own
-     * observed display (a block `<nav>` around a flex `<ul>`) would stack the
-     * items that the source list laid out in a row, so at each capture where
-     * both are rendered the host takes the list's container longhands.
-     *
-     * @param array<string, mixed> $observations
-     * @param array<string, mixed> $attrs
-     * @return array<string, mixed>
-     */
-    private function withNavigationListLayout(array $observations, array $attrs, DOMElement $host): array
-    {
-        $classes = self::classTokens((string) ($attrs['className'] ?? ''));
-        if (! in_array('blocks-engine-list-navigation', $classes, true) || in_array('blocks-engine-native-responsive-navigation', $classes, true)) return $observations;
-        $list = in_array(strtolower($host->tagName), array('ul', 'ol'), true) ? null : self::navigationList($host);
-        if (! $list instanceof DOMElement) return $observations;
-        $listObservations = $this->session->boxTreeEvidence($list);
-        foreach ($observations as $key => $observation) {
-            $hostStyles = $observation['used_styles'] ?? null;
-            $listStyles = $listObservations[$key]['used_styles'] ?? null;
-            if (! is_array($hostStyles) || ! is_array($listStyles)) continue;
-            $listDisplay = (string) ($listStyles['display'] ?? '');
-            if (! in_array($listDisplay, array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) continue;
-            if (! in_array((string) ($hostStyles['display'] ?? ''), array('block', 'flow-root'), true)) continue;
-            // An inline-level list keeps the host's own outer display.
-            $listStyles['display'] = str_ends_with($listDisplay, 'grid') ? 'grid' : 'flex';
-            foreach (self::LIST_LAYOUT_PROPERTIES as $property) {
-                if (array_key_exists($property, $listStyles)) $hostStyles[$property] = $listStyles[$property];
-            }
-            $observations[$key]['used_styles'] = $hostStyles;
-        }
-
-        return $observations;
-    }
-
-    /** The source list a navigation host's items come from: its first list outside any list item. */
-    private static function navigationList(DOMElement $host): ?DOMElement
-    {
-        foreach ($host->childNodes as $child) {
-            if (! $child instanceof DOMElement || 'li' === strtolower($child->tagName)) continue;
-            if (in_array(strtolower($child->tagName), array('ul', 'ol'), true)) return $child;
-            $list = self::navigationList($child);
-            if ($list instanceof DOMElement) return $list;
-        }
-
-        return null;
     }
 
     /**

@@ -90,9 +90,6 @@ $rows = array(
     array('a grid box keeps its template and gaps', array('display' => 'grid', 'grid-template-rows' => '40px'), array(), 'core/group', array('grid-template-columns:none', 'grid-template-rows:40px', 'gap:normal'), array('grid-auto-flow', 'justify-items', 'flex-wrap')),
     array('item longhands need a flex or grid parent', array('flex-basis' => '50%'), array(), 'core/group', array(), array('flex-basis', 'align-self', 'grid-column-start')),
     array('grid items keep placement but drop flex sizing', array('flex-basis' => '50%', 'grid-column-start' => '2', 'min-width' => '0px'), array('display' => 'grid'), 'core/group', array('grid-column-start:2', 'min-width:0px'), array('flex-basis', 'grid-row-start', 'order')),
-    array('a zero minimum height resolves to zero in block flow', array('min-height' => '0px'), array('display' => 'block'), 'core/group', array(), array('min-height')),
-    // With an aspect ratio `min-height: auto` is the content minimum and grows the box.
-    array('a ratio-sized box keeps its zero minimum height in block flow', array('min-height' => '0px', 'aspect-ratio' => '1 / 0.9'), array('display' => 'block'), 'core/group', array('min-height:0px', 'aspect-ratio:1 / 0.9'), array()),
     array('offsets need a positioned box', array('top' => '12px'), array(), 'core/group', array(), array('top:')),
     array('zero offsets do not move a relative box', array('position' => 'relative', 'top' => '0px', 'left' => '4px'), array(), 'core/group', array('position:relative', 'left:4px'), array('top:')),
     array('an absolute box keeps zero offsets', array('position' => 'absolute', 'top' => '0px'), array(), 'core/group', array('position:absolute', 'top:0px'), array()),

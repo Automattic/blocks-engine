@@ -347,11 +347,9 @@ final class BoxTreeDeclarationPruner
         if ('text-decoration-color' === $property) return $value === ($styles['color'] ?? null);
         // A relatively positioned box with zero offsets does not move.
         if (in_array($property, self::OFFSETS, true) && 'relative' === ($styles['position'] ?? null)) return 'auto' === $value || '0px' === $value;
-        // Outside a flex or grid parent `min-*: auto` resolves to zero, unless
-        // the box keeps an aspect ratio: then `auto` is its content-based
-        // minimum, which a ratio-sized box whose content overflows grows to.
+        // Outside a flex or grid parent `min-*: auto` resolves to zero.
         if (in_array($property, self::MIN_SIZE, true)) {
-            return 'auto' === $value || ('0px' === $value && null !== $parentDisplay && ! self::isFlex($parentDisplay) && ! self::isGrid($parentDisplay) && 'auto' === ($styles['aspect-ratio'] ?? 'auto'));
+            return 'auto' === $value || ('0px' === $value && null !== $parentDisplay && ! self::isFlex($parentDisplay) && ! self::isGrid($parentDisplay));
         }
         return in_array($value, self::INITIAL_VALUES[$property] ?? array(), true);
     }

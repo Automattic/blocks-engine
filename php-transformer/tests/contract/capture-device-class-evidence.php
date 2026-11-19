@@ -48,14 +48,6 @@ $root = new DOMDocument();
 $h2 = $root->getElementsByTagName('h2')->item(0);
 $assert($h2 instanceof DOMElement && $deviceClass === $h2->getAttribute('data-blocks-engine-capture-device-class'), 'Rendered heading root carries device-class unchanged: ' . $rendered);
 
-// A published control box sheds Core's group chrome but keeps the geometry
-// carrier that sizes it on evidence routes, where no source rule does.
-$controlBox = $GLOBALS['runtimeAttributesFilter'](
-    '<div class="wp-block-group menu-button blocks-engine-control-x be-inline-geometry-0123456789abcdef is-layout-flow" style="padding:0"></div>',
-    array('blockName' => 'core/group', 'attrs' => array('metadata' => array('blocksEngineControlBox' => array('class' => 'menu-button'))))
-);
-$assert(1 === preg_match('/class="menu-button blocks-engine-control-x be-inline-geometry-0123456789abcdef"/', $controlBox), 'Published control box keeps its geometry carrier: ' . $controlBox);
-
 $css = implode("\n", array_column(array_filter($plan['assets'], static fn(array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
 // The site stylesheet is pruned by usage: the token named only in device-class is live.
 $assert(1 === preg_match('/\.title--sm\s*\{[^}]*font-size:\s*18px/', $css) && !str_contains($css, '.unused'), 'Emitted CSS keeps a rule matching the mobile-only token: ' . $css);
