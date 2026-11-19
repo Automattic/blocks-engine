@@ -25,7 +25,7 @@ foreach ($routes as $source => $path) {
 foreach ($files as &$html) {
     $html = preg_replace_callback('/<body>(.*)<\/body>/s', static fn(array $match): string => '<body>'
         . '<div class="data-blocks-engine-capture-desktop-document" data-blocks-engine-capture-document-scope="">' . $match[1] . '</div>'
-        . '<div class="data-blocks-engine-capture-mobile-document" data-blocks-engine-capture-document-scope="">' . $match[1] . '</div></body>', $html);
+        . '<div class="data-blocks-engine-capture-mobile-document" data-blocks-engine-capture-document-scope="">' . str_replace('id="site-header"', 'id="site-header--data-blocks-engine-capture-mobile"', $match[1]) . '</div></body>', $html);
 }
 unset($html);
 $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toArray()['source_reports']['wordpress_site_plan'];
@@ -34,6 +34,9 @@ foreach ($plan['pages'] as $page) {
 }
 $headers = array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === $part['area']);
 if (count($headers) < 2) throw new RuntimeException('Route-local header parts are missing.');
+if (!str_contains(implode("\n", array_column($headers, 'canonical_block_markup')), 'site-header--data-blocks-engine-capture-mobile')) {
+    throw new RuntimeException('Device-local source identity was lost while moving the shell.');
+}
 foreach ($plan['pages'] as $page) {
     foreach (array('desktop', 'mobile') as $device) {
         if (!str_contains($page['canonical_block_markup'], 'data-blocks-engine-capture-' . $device . '-document')) {

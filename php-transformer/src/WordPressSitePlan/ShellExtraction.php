@@ -2358,7 +2358,7 @@ final class ShellExtraction
                 // Do not promote a second occurrence on a route that already
                 // contributed its shell, or one retained for unsafe placement.
                 if (isset($part['provenance']['sources'][$page['source_path']])) continue;
-                $excluded = array_filter($diagnostics, static fn(array $d): bool => 'header' === ($d['area'] ?? null) && (bool) array_filter($d['exclusions'] ?? array(), static fn(array $e): bool => $page['source_path'] === ($e['source_path'] ?? null) && 'non_equivalent' === ($e['reason'] ?? null)));
+                $excluded = array_filter($diagnostics, static fn(array $d): bool => 'header' === ($d['area'] ?? null) && (bool) array_filter($d['exclusions'] ?? array(), static fn(array $e): bool => $page['source_path'] === ($e['source_path'] ?? null) && in_array($e['reason'] ?? null, array('non_equivalent', 'missing'), true)));
                 if (array() === $excluded) continue;
                 $rows = $this->nestedLandmarkCandidates(new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($page['canonical_block_markup']), $page['source_path'], 'header');
                 // A captured route can have one landmark per device document.
@@ -2375,7 +2375,12 @@ final class ShellExtraction
                     $tokens = (new \Automattic\BlocksEngine\PhpTransformer\Support\BlockMarkupIndex($row['markup']))->tokens();
                     $attrs = json_decode($tokens[0]['attributes'] ?? '', true);
                     $wrapper = array($attrs['style'] ?? array(), $attrs['className'] ?? '');
-                    $sharedWrapper = $anchors[$attrs['anchor'] ?? ''] ?? null;
+                    $sourceAnchor = preg_replace('/--data-blocks-engine-capture-(?:mobile|desktop)$/', '', (string) ($attrs['anchor'] ?? ''));
+                    $sharedWrapper = $anchors[$sourceAnchor] ?? null;
+                    // Multiple device landmarks prove presentation, not ownership.
+                    // Require the shared shell's source anchor before moving them;
+                    // archive-owned responsive chrome must remain in its template.
+                    if (count($rows) > 1 && null === $sharedWrapper) continue;
                     // An unanchored landmark can still prove route-shell ownership
                     // through the same authored wrapper and copy. Keep its layout
                     // in a route-local part rather than freezing the donor's paint.
@@ -2393,7 +2398,7 @@ final class ShellExtraction
                     // into an editable part, even when block layout is identical.
                     if (!$anchorVariant && (!empty($attrs['anchor']) || (array() === $bindings['refs'] && str_contains($row['markup'], '<!-- wp:navigation '))) && $wrapper === $sharedWrapper
                         && self::navigationClasses($row['markup']) === $partNavigationClasses
-                        && self::descendantShellLayout($row['markup']) === self::descendantShellLayout($part['canonical_block_markup'])) continue;
+                        && self::descendantShellLayout($row['markup']) === self::descendantShellLayout($partLandmark)) continue;
                     $hoist = array() === $bindings['refs'] ? null : $this->sharedShellBindingHoist($runtimeDeclarations, $pages, array($index), array($index => $bindings['refs']), $row + array('template_part_markup' => $row['markup']), 'header');
                     if (array() !== $bindings['refs'] && null === $hoist) continue;
                     $edges = array($index => array($row + array('identity' => $row['identity_markup'], 'nested' => true)));
