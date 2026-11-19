@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = new URL('../../..', import.meta.url).pathname;
-const source = '<!doctype html><style>body{margin:0;font:16px Arial}figure{margin:0}.review{box-sizing:border-box;width:340px;min-height:112px;padding:24px 36px 20px}.review blockquote{margin:0 0 12px;font-size:14px;font-style:italic;line-height:1.45}.review figcaption{font-size:9px;font-weight:700;line-height:1.5}</style><figure class="review"><blockquote>A quotation spanning two lines with enough words to wrap.</blockquote><figcaption>Publication</figcaption></figure><div id="next">Next section</div>';
+const source = '<!doctype html><style>body{margin:0;font:16px Arial}figure{margin:0}.review{box-sizing:border-box;width:340px;min-height:112px;padding:24px 36px 20px}.review blockquote{margin:0 0 12px;font-size:14px;font-style:italic;line-height:1.45}.review figcaption{font-size:9px;font-weight:700;line-height:1.5}</style><figure class="review"><blockquote>A quotation spanning several lines with enough words to wrap and exceed the minimum height of this figure, so the citation must not add an inherited parent line box.</blockquote><figcaption>Publication</figcaption></figure><div id="next">Next section</div>';
 const result = JSON.parse(execFileSync('php', ['-r', 'require $argv[1]."/vendor/autoload.php"; echo json_encode((new Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler())->compile(["entrypoint"=>"index.html","files"=>["index.html"=>stream_get_contents(STDIN)]])->toArray());', root], { input: source, encoding: 'utf8' }));
 const css = result.assets.filter(asset => asset.kind === 'css').map(asset => asset.content ?? '').join('\n');
 const browser = await chromium.launch({ headless: true });
@@ -13,7 +13,16 @@ try {
         return page.locator('.review').evaluate(quote => {
             const text = quote.querySelector('blockquote,p');
             const box = text.getBoundingClientRect();
-            return { textTop: box.top, textHeight: box.height, marginBottom: parseFloat(getComputedStyle(text).marginBottom) };
+            const caption = quote.querySelector('figcaption,cite > span');
+            return {
+                textTop: box.top,
+                textHeight: box.height,
+                marginBottom: parseFloat(getComputedStyle(text).marginBottom),
+                captionTop: caption.getBoundingClientRect().top,
+                captionHeight: caption.getBoundingClientRect().height,
+                figureHeight: quote.getBoundingClientRect().height,
+                nextTop: document.querySelector('#next').getBoundingClientRect().top,
+            };
         });
     };
     for (const width of [390, 768, 1440]) {

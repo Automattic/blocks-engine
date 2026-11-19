@@ -79,7 +79,10 @@ final class QuotePatternContext
             }
         }
         $style = $this->styleResolver->cssDeclarationString($declarations);
-        return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
+        // The caption was a block, not an inline run inside the figure's
+        // inherited line box. Keep its typography on that block so a larger
+        // parent strut cannot increase the quote's height and move later flow.
+        return '' === $style ? $content : '<span style="display:block;' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
     }
 
     public function citationFromElement(DOMElement $element): string
