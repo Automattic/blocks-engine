@@ -672,6 +672,12 @@ final class SourceElementClassifier
             if ( ! $source instanceof DOMElement || '' === SourceDom::attr($source, 'srcset') ) {
                 continue;
             }
+            // A source offering exactly the image's own resources selects
+            // nothing, whatever media or type it declares.
+            $sourceUrls = SrcsetParser::urls(SourceDom::attr($source, 'srcset'));
+            if ( array() !== $imageUrls && array() === array_diff($sourceUrls, $imageUrls) && array() === array_diff($imageUrls, $sourceUrls) ) {
+                continue;
+            }
             $media = strtolower(preg_replace('/\s+/', '', trim(SourceDom::attr($source, 'media'))) ?? '');
             if ( '' !== $media && 'all' !== $media && ! in_array($media, array('(min-width:0)', '(min-width:0px)'), true) ) {
                 return true;
