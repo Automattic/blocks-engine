@@ -2112,6 +2112,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function foldCarried(string $boxId, array $block): bool
     {
+        // Raw markup does not render block attributes. Even if projection
+        // lifted the moves and assigned a className, core/html never puts
+        // that carrier on the SVG (or other raw element) it saves.
+        if ( 'core/html' === ($block['blockName'] ?? null) ) {
+            return false;
+        }
         $carrierNode = $this->foldsCarried[$boxId] ?? null;
         if ( null === $carrierNode ) {
             return false;
