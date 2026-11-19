@@ -859,9 +859,10 @@ final class StyleResolver implements ElementPresentationResolver
      * into their child (ADR 0005 neutral and folded) emit none.
      *
      * @param bool $block Whether the source element is the block itself.
+     * @param list<string>|null $properties Limit replacement carriers to these properties.
      * @return string The carrier class, or '' off an evidence route or when nothing differs.
      */
-    public function boxTreeElementCarrier(DOMElement $source, bool $block = false): string
+    public function boxTreeElementCarrier(DOMElement $source, bool $block = false, ?array $properties = null): string
     {
         $viewports = $this->session->boxTreeViewports();
         if (array() === $viewports) return '';
@@ -869,10 +870,19 @@ final class StyleResolver implements ElementPresentationResolver
         if (array() === $observations) return '';
         $parent = $block ? $this->session->boxTreeOutputParent($source) : $source->parentNode;
         $parents = $parent instanceof DOMElement ? $this->session->boxTreeEvidence($parent) : array();
+        if (null !== $properties) {
+            // A replaced element already has dedicated sizing and paint lowering.
+            // Only its outer layout belongs on the replacement's carrier.
+            $allowed = array_fill_keys($properties, true);
+            foreach ($observations as &$observation) {
+                $observation['used_styles'] = array_intersect_key($observation['used_styles'] ?? array(), $allowed);
+            }
+            unset($observation);
+        }
         $intent = new BoxTreeFluidIntent();
         $pseudoFluid = array();
         foreach (array('before', 'after') as $pseudo) {
-            $pseudoFluid[$pseudo] = $intent->liftPseudo($source, $this, $observations, $viewports, $pseudo);
+            $pseudoFluid[$pseudo] = null === $properties ? $intent->liftPseudo($source, $this, $observations, $viewports, $pseudo) : array();
         }
         return (new BoxTreeStyleProjector())->elementCarrier(
             $observations,
@@ -880,7 +890,9 @@ final class StyleResolver implements ElementPresentationResolver
             $this->session->layoutGeometryState(),
             $parents,
             strtolower($source->tagName),
-            $intent->lift($source, $this, $observations, $viewports, $parents),
+            null === $properties
+                ? $intent->lift($source, $this, $observations, $viewports, $parents)
+                : array_intersect_key($intent->lift($source, $this, $observations, $viewports, $parents), $allowed),
             $pseudoFluid
         );
     }
