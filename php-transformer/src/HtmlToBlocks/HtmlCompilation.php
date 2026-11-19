@@ -2001,6 +2001,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( null === $fold ) {
             return $fluid;
         }
+        // Absolute inset-zero placement replaces the child's former alignment,
+        // rather than carrying either element's alignment bands forward.
+        if (isset($fold['moves']['position']) && 'absolute' === (reset($observations)['used_styles']['position'] ?? null)) {
+            unset($fluid['align-self'], $fluid['justify-self']);
+        }
         $box = $element->parentNode;
         while ( $box instanceof DOMElement && $fold['from'] !== $box->getAttribute(BoxTree::NODE_ATTRIBUTE) ) {
             $box = $box->parentNode;

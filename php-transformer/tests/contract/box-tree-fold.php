@@ -67,6 +67,12 @@ $underlay = array('position' => 'relative', 'top' => '0px', 'right' => '0px', 'b
     'overflow-x' => 'clip', 'overflow-y' => 'clip', 'grid-column-start' => '1', 'grid-row-start' => '1', 'background-color' => 'rgb(255, 128, 0)');
 foreach (array(
     array(),
+    array('child' => array('align-self' => 'stretch', 'justify-self' => 'stretch'), 'allow' => true),
+    array('box' => array('border-radius' => '4.5px'), 'allow' => true, 'expect' => array('border-radius' => '4.5px')),
+    array('box' => array('border-radius' => '4.5px'), 'child' => array('overflow-x' => 'visible', 'overflow-y' => 'visible')),
+    array('box' => array('border-radius' => '4.5px'), 'child' => array('border-radius' => '2px')),
+    array('box' => array('border-radius' => '4.5px'), 'child' => array('border-top' => '1px solid rgb(0, 0, 0)')),
+    array('box' => array('border-radius' => '4.5px', 'border-top' => '1px solid rgb(0, 0, 0)')),
     array('box' => array('top' => '1px')),
     array('child' => array('overflow-x' => 'visible')),
     array('child' => array('box-shadow' => 'rgb(0, 0, 0) 0px 2px 4px 0px')),
@@ -82,7 +88,7 @@ foreach (array(
         'box' => array_replace($layer, $change['box'] ?? array()),
         'child' => array_replace($underlay, $change['child'] ?? array()),
         'child_box' => $change['child_box'] ?? $box,
-        'expect' => array('position' => 'absolute', 'top' => '0px', 'right' => '0px', 'bottom' => '0px', 'left' => '0px'),
+        'expect' => array_merge(array('position' => 'absolute', 'top' => '0px', 'right' => '0px', 'bottom' => '0px', 'left' => '0px'), $change['expect'] ?? array()),
     );
 }
 
@@ -138,6 +144,9 @@ foreach ($cases as $case) {
     $assert(1 === preg_match('/<!-- wp:paragraph (\{[^\n]*?\}) -->\s*<p[^>]*>Folded child/', $markup, $match), $name . ': the child takes the box\'s place.');
     $attrs = json_decode($match[1], true);
     $css = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $result['assets'] ?? array()));
+    if ('absolute' === ($case['box']['position'] ?? null) && 'stretch' === ($case['child']['align-self'] ?? null)) {
+        $assert(!str_contains($css, 'align-self:stretch') && !str_contains($css, 'justify-self:stretch'), $name . ': the child drops its former self-alignment.');
+    }
     $classes = array_filter(preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array());
     foreach ($case['expect'] as $property => $value) {
         $declared = false;
