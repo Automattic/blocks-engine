@@ -54,7 +54,7 @@ final class BoxTreeStyleProjector
             $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
-        $bands = $this->liftFluid($declarations, $keys, $fluid);
+        $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, $blockName, $tagName);
         $baseKey = $keys[0];
         $base = $declarations[$baseKey];
         $mapper = new StyleAttributeMapper();
@@ -118,7 +118,7 @@ final class BoxTreeStyleProjector
             $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $sourceTag);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
-        $bands = $this->liftFluid($declarations, $keys, $fluid);
+        $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, $blockName, $sourceTag);
         if ($synthetic) {
             // Existing presentation belongs to the descendant too, but must
             // never resurrect an observed property pruned from the evidence.
@@ -293,7 +293,7 @@ final class BoxTreeStyleProjector
             $status[$key] = $this->pruner->classify($typography[$key]['used_styles'], is_array($parent) ? $parent : null);
             $declarations[$key] = $this->kept($typography[$key]['used_styles'], $status[$key]);
         }
-        $bands = $this->liftFluid($declarations, $keys, array_intersect_key($fluid, $properties));
+        $bands = $this->liftFluid($declarations, $keys, array_intersect_key($fluid, $properties), $typography, $parents);
         return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $typography, $viewports, $bands, false, $parents), $state);
     }
 
@@ -324,7 +324,7 @@ final class BoxTreeStyleProjector
             $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, '', $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
-        $bands = $this->liftFluid($declarations, $keys, $fluid);
+        $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, '', $tagName);
         return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid), $state);
     }
 
@@ -385,13 +385,21 @@ final class BoxTreeStyleProjector
      * pruned ones included: without its base value a narrower band could
      * not switch it back.
      *
+     * A lifted base value that restates the property's initial value (or
+     * cannot apply to the box) in every capture's context is not declared at
+     * all, exactly as the pruner drops an observed one. With a narrower band
+     * the base stays, so the cascade within the carrier stays explicit.
+     *
      * @param array<string, array<string, string>> $declarations Kept declarations by viewport key, updated in place.
      * @param list<string> $keys Viewport keys, widest first.
+     * @param array<string, array<string, mixed>> $observations The box's observations, by viewport key.
+     * @param array<string, array<string, mixed>> $parents Its parent's observations, by viewport key.
      * @return array<string, array<string, string>> Band declarations by max-width.
      */
-    private function liftFluid(array &$declarations, array $keys, array $fluid): array
+    private function liftFluid(array &$declarations, array $keys, array $fluid, array $observations = array(), array $parents = array(), string $blockName = '', string $tagName = ''): array
     {
         $bands = array();
+        $unbanded = array();
         foreach ($fluid as $property => $propertyBands) {
             if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
             $kept = 0;
@@ -404,10 +412,24 @@ final class BoxTreeStyleProjector
             }
             if (0 === $kept && isset(self::GRID_LINES[$property])) continue;
             foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
+            if (1 === count($propertyBands) && 'display' !== $property) $unbanded[] = $property;
             foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
                 $bands[self::width((float) $maxWidth)][$property] = $value;
             }
         }
+        if (array() === $unbanded || array() === $observations) return $bands;
+        $redundant = array_fill_keys($unbanded, true);
+        foreach ($keys as $key) {
+            $used = $observations[$key]['used_styles'] ?? null;
+            if (!is_array($used)) return $bands;
+            $parent = $parents[$key]['used_styles'] ?? null;
+            $status = $this->pruner->classifyLifted(array_replace($used, $declarations[$key]), is_array($parent) ? $parent : null, array_keys($redundant), $blockName, $tagName);
+            foreach (array_keys($redundant) as $property) {
+                $reason = $status[$property] ?? BoxTreeDeclarationPruner::KEPT;
+                if (BoxTreeDeclarationPruner::INITIAL !== $reason && BoxTreeDeclarationPruner::NOT_APPLICABLE !== $reason) unset($redundant[$property]);
+            }
+        }
+        foreach ($keys as $key) $declarations[$key] = array_diff_key($declarations[$key], $redundant);
         return $bands;
     }
 

@@ -315,10 +315,11 @@ $cases = array(
         array('grid-template-rows:minmax(max(0.5px, 0.29 * (100vw - 0px)), auto) minmax(0px, auto)'),
         array('grid-template-rows:418.047px', 'grid-template-rows:300px', 'var(--scale)'),
     ),
-    'an absent grid-auto-rows restates the initial keyword' => array(
+    // The lifted initial keyword is not restated either (#6766).
+    'an absent grid-auto-rows falls back to its initial value' => array(
         'main{display:grid}',
         array('n5.display' => array('grid', 'grid'), 'n5.grid-auto-rows' => array('40px', '60px')),
-        array('grid-auto-rows:auto'), array('grid-auto-rows:40px', 'grid-auto-rows:60px'),
+        array('display:grid'), array('grid-auto-rows'),
     ),
     'an in-flow % height lifts as written' => array(
         'h1{height:100%}', array('n6.height' => array('703.516px', '615.875px')),
@@ -352,8 +353,8 @@ $cases = array(
             'n5.padding-left' => array('10px', '10px'), 'n5.padding-right' => array('10px', '10px'), 'n5.padding-top' => array('0px', '0px'), 'n5.padding-bottom' => array('0px', '0px'),
             'n6.position' => array('absolute', 'absolute'), 'n6.left' => array('110px', '60px'), 'n6.top' => array('25px', '15px'),
             'n6.right' => array('110px', '60px'), 'n6.bottom' => array('25px', '15px')),
-        // The four offsets fold into one inset shorthand, in top/right/bottom/left order.
-        array('h1 inset:50% auto auto 50%'), array('h1 110px', 'h1 60px', 'h1 25px', 'h1 15px'),
+        // The lifted initial `auto` offsets are not restated (#6766).
+        array('h1 ;top:50%', 'h1 ;left:50%'), array('h1 110px', 'h1 60px', 'h1 25px', 'h1 15px', 'h1 ;right:', 'h1 ;bottom:', 'h1 inset:'),
     ),
     'a calc(% - px) offset lifts through the inset shorthand' => array(
         'main{position:relative}h1{position:absolute;inset:0 auto auto calc(50% - 24px)}',
