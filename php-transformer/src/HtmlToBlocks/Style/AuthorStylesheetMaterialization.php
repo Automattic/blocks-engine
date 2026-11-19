@@ -202,11 +202,13 @@ final class AuthorStylesheetMaterialization
         // moved into render metadata by the time blocks are serialized.
         $afterAuthorCss->addAll(CascadeLayer::REVEAL_SETTLE, ( new RevealAnimationSettler() )->settleRules($settleableAuthorCss, '', $html));
         // DOMDocument synthesizes a body for fragments; its margin belongs to
-        // the host document, not to the imported content.
+        // the host document, not to the imported content. A shared shell's
+        // support CSS joins every member route, but its synthetic document
+        // keeps only their common stylesheets: its body is none of theirs.
         $bodyDeclarations = preg_match('/<(?:html|body)\b/i', $html)
             ? $this->styleResolver->authorStructuralDeclarations($this->session->authorStyleAnalysis()->sourceBody())
             : null;
-        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, ( new EditorCanvasBodyBackground() )->supportCss($settleableAuthorCss, $bodyDeclarations, null !== $bodyDeclarations && $this->htmlOwnsCanvas($this->session->authorStyleAnalysis()->sourceBody())));
+        $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, ( new EditorCanvasBodyBackground() )->supportCss($settleableAuthorCss, $bodyDeclarations, null !== $bodyDeclarations && $this->htmlOwnsCanvas($this->session->authorStyleAnalysis()->sourceBody()), ! $this->projectsOnlyMatchedAuthorRules));
         // Engine support CSS may join an author cascade layer, and naming a
         // layer registers it. The editor injects author CSS after the enqueued
         // editor styles, so that registration would otherwise arrive first and
