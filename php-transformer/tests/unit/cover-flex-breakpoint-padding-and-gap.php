@@ -63,6 +63,51 @@ $assert(
 );
 $assert(! str_contains((string) ($unpadded['attrs']['className'] ?? ''), 'blocks-engine-cover-gap'), 'A source without a gap adds no gap carrier.');
 
+// #6778: use the reported page through the public transform. The same
+// contracts apply at both viewport widths; no measured UA margins are baked
+// into attributes (the browser remains their owner).
+$issuePage = '<style>body{margin:0;font-family:sans-serif}'
+    . '.stack{display:flex;flex-direction:column;gap:20px;padding:34px;background:#eee}'
+    . '.painted{display:flex;flex-direction:column;gap:20px;padding:34px;min-height:360px;justify-content:center;align-items:flex-start;background:linear-gradient(90deg,#0009,#0004),url(https://picsum.photos/id/10/800/400) center/cover;color:#fff}'
+    . '</style><main><div class="stack"><h3>Plain stack</h3><p>Paragraph with its default margins.</p><a href="https://example.com/">Link</a></div>'
+    . '<div class="painted"><h3>Painted stack</h3><p>Paragraph with its default margins.</p><a href="https://example.com/">Link</a></div></main>';
+$findCover = static function (array $blocks) use (&$findCover): array {
+    foreach ( $blocks as $block ) {
+        if ( 'core/cover' === ($block['blockName'] ?? '') ) {
+            return $block;
+        }
+        $found = $findCover($block['innerBlocks'] ?? array());
+        if ( array() !== $found ) {
+            return $found;
+        }
+    }
+    return array();
+};
+foreach ( array( 'UA margins' => $issuePage, 'authored margins' => str_replace('</style>', '.painted>h3{margin:12px 7px}.painted>p{margin:9px 5px}</style>', $issuePage) ) as $label => $page ) {
+    $result = (new HtmlTransformer())->transform($page)->toArray();
+    $cover = $findCover($result['blocks'] ?? array());
+    $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
+    $group = $cover['innerBlocks'][0] ?? array();
+    $assert('core/cover' === ($cover['blockName'] ?? ''), $label . ': the issue panel lowers to a cover.');
+    $assert(str_contains((string) ($group['attrs']['className'] ?? ''), 'blocks-engine-css-owned-flow'), $label . ': cover items use the plain stack margin contract.');
+    $assert(str_contains($css, '.blocks-engine-css-owned-flow.is-layout-flex)>:where(') && str_contains($css, '{margin:revert}'), $label . ': physical flex-item margins revert before author CSS.');
+    $assert('center left' === ($cover['attrs']['contentPosition'] ?? ''), $label . ': native cover placement projects both source axes.');
+    $assert(array('type' => 'flex', 'orientation' => 'vertical', 'flexWrap' => 'nowrap', 'justifyContent' => 'left', 'verticalAlignment' => 'center') === ($group['attrs']['layout'] ?? null), $label . ': the editor-native group projects both source axes.');
+    $assert(str_contains((string) ($cover['attrs']['className'] ?? ''), 'blocks-engine-cover-fill')
+        && str_contains($css, '.blocks-engine-cover-fill>.wp-block-cover__inner-container{flex:1 1 auto;align-self:stretch;display:flex;flex-direction:column}')
+        && str_contains($css, '.blocks-engine-cover-fill>.wp-block-cover__inner-container>.wp-block-group{flex-grow:1}'), $label . ': the column group fills the cover so vertical centring has free space.');
+    $assert(str_contains($css, $gapRule), $label . ': gap remains additive to child margins.');
+    foreach ( $group['innerBlocks'] ?? array() as $child ) {
+        $assert(! isset($child['attrs']['style']['spacing']['margin']), $label . ': no fixed browser margin is synthesized on a child.');
+    }
+}
+
+// A flow marker without a native flex wrapper must not change unrelated
+// document stylesheets (including form diagnostic asset identities).
+$flowOnly = (new HtmlTransformer())->transform('<div style="display:flex;flex-direction:column;gap:20px"><h3>Title</h3><p>Copy</p></div>')->toArray();
+$flowCss = implode("\n", array_column($flowOnly['assets'] ?? array(), 'content'));
+$assert(! str_contains($flowCss, '.blocks-engine-css-owned-flow.is-layout-flex)>:where('), 'A plain CSS-owned stack needs no native flex reset.');
+
 if ( $failures > 0 ) {
     exit(1);
 }
