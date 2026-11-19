@@ -2218,7 +2218,20 @@ final class ArtifactCompiler
                 }
             }
             $routeBudget = max(self::ROUTE_SCOPE_BYTES_FACTOR * $largestCopy, intdiv($totalCopyBytes, self::ROUTE_SCOPE_COPY_TOTAL_DIVISOR), self::ROUTE_SCOPE_BYTES_FLOOR);
-            if (array() !== $routed['scoped'] && $routed['route_bytes'] > $routeBudget) {
+            // Every route loads the whole scoped sheet: each route's variants
+            // (and their gates) weigh on every other route, while a page copy
+            // weighs only on its own. Variants that grow the sheet by more
+            // than the largest copy make the heaviest route heavier than any
+            // route is with copies, whatever the cache saves across routes.
+            $routeGrowth = 0;
+            if (array() !== $routed['scoped'] && $routed['route_bytes'] <= $routeBudget && $routed['route_bytes'] > 0) {
+                $routeGrowth = strlen($recompact($transformer->concatenateWithoutRedundantRules(array($routed['stylesheet'])))) - strlen($recompact(implode("\n", $fallbackSharedStylesheets)));
+            }
+            if (array() !== $routed['scoped'] && $routeGrowth > max($largestCopy, self::ROUTE_SCOPE_BYTES_FLOOR)) {
+                $projectionDiagnostics[] = ArtifactDiagnostics::make('author_stylesheet_route_scope_fallback', 'warning', sprintf('%s: route-scoped variants grow every route\'s stylesheet by %d bytes, more than the largest page copy %d (floor %d); emitting page copies', $path, $routeGrowth, $largestCopy, self::ROUTE_SCOPE_BYTES_FLOOR));
+                foreach ($routed['scoped'] as $owner) $pages[$owner] ??= $pageProjections[$owner] ?? array();
+                $routed['stylesheet'] = implode("\n", $fallbackSharedStylesheets);
+            } elseif (array() !== $routed['scoped'] && $routed['route_bytes'] > $routeBudget) {
                 $projectionDiagnostics[] = ArtifactDiagnostics::make('author_stylesheet_route_scope_fallback', 'warning', sprintf('%s: route-scoped variants add %d cached-sheet bytes, over budget %d = max(%dx largest copy %d, total copies %d / %d, floor %d); emitting page copies', $path, $routed['route_bytes'], $routeBudget, self::ROUTE_SCOPE_BYTES_FACTOR, $largestCopy, $totalCopyBytes, self::ROUTE_SCOPE_COPY_TOTAL_DIVISOR, self::ROUTE_SCOPE_BYTES_FLOOR));
                 foreach ($routed['scoped'] as $owner) $pages[$owner] ??= $pageProjections[$owner] ?? array();
                 $routed['stylesheet'] = implode("\n", $fallbackSharedStylesheets);
