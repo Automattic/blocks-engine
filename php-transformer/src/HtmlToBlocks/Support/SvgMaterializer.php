@@ -138,10 +138,10 @@ final class SvgMaterializer implements SvgElementMaterializer
             return $imageBlock;
         }
 
-        // Links only work in the parent document, not an image document. Reuse
-        // the typed artwork companion, but only when links are the sole reason
-        // this SVG fails the native image compatibility checks.
-        if ( $this->hasSvgRegionLink($element) && $this->isNativeImageCompatibleSvg($element, $html, true) ) {
+        // Links and author web fonts only work in the parent document, not an
+        // image document. Reuse the typed artwork companion, but only when they
+        // are the sole reason this SVG fails the native image compatibility checks.
+        if ( ( $this->hasSvgRegionLink($element) || $this->usesAuthorFontFace($html) ) && $this->isNativeImageCompatibleSvg($element, $html, true) ) {
             return $this->svgArtworkBlock($element, $inlineHtml);
         }
 
@@ -790,7 +790,14 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
 
-        // An SVG directly beside a block starts a phrasing-to-block transition.
+        // An SVG the author lays out as a block-level box is not phrasing
+        // content, so it opens no line box beside its block siblings: it is a
+        // standalone image block, like the same SVG without siblings.
+        if ( $this->hasBlockLevelDisplay($element) ) {
+            return false;
+        }
+
+        // An inline SVG directly beside a block starts a phrasing-to-block transition.
         // A paragraph is the editor-valid native host for the image object.
         for ( $sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
             if ( $sibling instanceof DOMElement ) {
@@ -806,6 +813,17 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return false;
+    }
+
+    /** Whether unconditional source CSS gives the SVG a block-level outer display. */
+    private function hasBlockLevelDisplay(DOMElement $element): bool
+    {
+        $display = CssValueInspector::declared($this->styleResolver->structuralPresentationDeclarations($element), 'display');
+        if ( '' === $display ) {
+            $display = CssValueInspector::declared($this->styleResolver->authorStructuralDeclarations($element), 'display');
+        }
+
+        return in_array($display, array( 'block', 'flow-root', 'list-item', 'flex', 'grid', 'table' ), true);
     }
 
     /**
@@ -1738,9 +1756,14 @@ final class SvgMaterializer implements SvgElementMaterializer
         return false;
     }
 
-    private function isNativeImageCompatibleSvg(DOMElement $element, string $html, bool $allowRegionLinks = false): bool
+    /**
+     * With `$inPageDocument`, check the SVG for rendering inline in the page
+     * instead: region links and author `@font-face` families then work, and
+     * every other image check still applies.
+     */
+    private function isNativeImageCompatibleSvg(DOMElement $element, string $html, bool $inPageDocument = false): bool
     {
-        if ( ! $this->isPassiveSvgMarkup($element, $allowRegionLinks) ) {
+        if ( ! $this->isPassiveSvgMarkup($element, $inPageDocument) ) {
             return false;
         }
 
@@ -1767,11 +1790,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
         // Only anchor destinations are exempt; external use/image references
         // must continue to fail the ordinary image compatibility checks.
-        $referenceMarkup = $allowRegionLinks ? (preg_replace('/<a\b[^>]*>/i', '', $html) ?? $html) : $html;
+        $referenceMarkup = $inPageDocument ? (preg_replace('/<a\b[^>]*>/i', '', $html) ?? $html) : $html;
         if ( preg_match('/\s(?:href|xlink:href)\s*=\s*(["\'])(?!#)[^"\']+\1/i', $referenceMarkup) ) {
             return false;
         }
-        if ( $this->usesAuthorFontFace($html) ) {
+        if ( ! $inPageDocument && $this->usesAuthorFontFace($html) ) {
             return false;
         }
 

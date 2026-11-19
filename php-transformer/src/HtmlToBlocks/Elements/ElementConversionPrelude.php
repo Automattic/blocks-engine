@@ -414,7 +414,11 @@ final class ElementConversionPrelude implements ElementConverter
             return $this->createBlock->createBlock('core/paragraph', $attrs, array(), $element);
         }
         $identity = AddressableInlineLayoutLeaf::identity($element, $this->styleResolver);
-        $content = null !== $identity ? SourceDom::innerHtml($element) : SourceDom::outerHtml($element);
+        // On a box-tree route the author sheet is retired and the carrier
+        // paragraph generates no box, so the element keeps its own captured
+        // box (display, margins, typography) through a carrier on itself.
+        $boxless = null === $identity ? $this->styleResolver->boxTreeBoxlessContent($element) : null;
+        $content = null !== $identity ? SourceDom::innerHtml($element) : SourceDom::outerHtml($boxless ?? $element);
         $inlineSvgContent = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
         if ( null !== $inlineSvgContent ) {
             $content = $inlineSvgContent;
@@ -424,14 +428,6 @@ final class ElementConversionPrelude implements ElementConverter
         }
 
         $className = AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS;
-        // The paragraph is the RichText root. A boxless root cannot be hit or
-        // take focus, so a click on its text selects the enclosing group
-        // instead (issue #5901). Around a block leaf an inline box lays out
-        // exactly as the boxless carrier, so the front end and editor both
-        // keep that box; the editor then matches the front end it previews.
-        if (null === $identity && $this->authorLayoutOwnership->isInFlowBlockLeaf($element)) {
-            $className .= ' ' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_BOX_CLASS;
-        }
         if (null !== $identity) {
             $className .= ' blocks-engine-addressable-inline-' . ('inline-block' === $identity['display'] ? 'block' : 'text');
             $className .= ' ' . $identity['class_name'];

@@ -289,7 +289,7 @@ $assertSame('core/group', $landscapeRowBlock['blockName'] ?? null, 'Constrained 
 $landscapeImageMarkup = (string) ($landscapeRowBlock['innerBlocks'][0]['innerHTML'] ?? '');
 $assertContains('blocks-engine-synthetic-flex-image-figure', $landscapeRowBlock['innerBlocks'][0]['attrs']['className'] ?? '', 'Flex-item image figure is tagged for transparent layout participation.');
 $landscapeRowStyles = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $landscapeRowResult['assets'] ?? array()));
-$assertContains('figure.blocks-engine-synthetic-flex-image-figure){display:contents}', $landscapeRowStyles, 'Synthetic figure does not replace the source image flex item geometry.');
+$assertContains('figure.blocks-engine-synthetic-flex-image-figure:not([hidden])){display:contents}', $landscapeRowStyles, 'Synthetic figure does not replace the source image flex item geometry.');
 $assertContains('width:3rem;height:3rem', $landscapeImageMarkup, 'Transparent figure keeps the authored image dimensions unchanged.');
 
 // A non-default root changes what 3rem means. At 24px, the same decorated

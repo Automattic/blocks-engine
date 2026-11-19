@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControls
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
+use Closure;
 use DOMDocument;
 use DOMElement;
 use WeakMap;
@@ -112,7 +113,13 @@ final class FormRuntimeRequirementAnalyzer
      */
     public static function collectsOnlyChoices(DOMElement $form): bool
     {
-        return in_array(self::formIntent($form), array( 'preference', 'choice_submission' ), true);
+        return self::isChoiceOnlyIntent(self::formIntent($form));
+    }
+
+    /** Whether a {@see self::formIntent()} result names a form made only of bounded choices. */
+    public static function isChoiceOnlyIntent(string $intent): bool
+    {
+        return in_array($intent, array( 'preference', 'choice_submission' ), true);
     }
 
     /**
@@ -123,7 +130,20 @@ final class FormRuntimeRequirementAnalyzer
      */
     public static function collectsOnlyPurchaseChoices(DOMElement $form): bool
     {
-        if ( 'commerce_add_to_cart' !== self::formIntent($form) ) {
+        $soleActionControl = FormControlClassifier::soleActionControlMemo();
+
+        return self::collectsOnlyPurchaseChoicesWithIntent($form, self::formIntent($form, $soleActionControl), $soleActionControl);
+    }
+
+    /**
+     * {@see self::collectsOnlyPurchaseChoices()} for a form whose intent the
+     * caller already classified.
+     *
+     * @param Closure(DOMElement): bool $soleActionControl From {@see FormControlClassifier::soleActionControlMemo()}.
+     */
+    public static function collectsOnlyPurchaseChoicesWithIntent(DOMElement $form, string $intent, Closure $soleActionControl): bool
+    {
+        if ( 'commerce_add_to_cart' !== $intent ) {
             return false;
         }
         $hasChoice = false;
@@ -134,7 +154,7 @@ final class FormRuntimeRequirementAnalyzer
                 $hasChoice = true;
                 continue;
             }
-            if ( '' === trim(SourceDom::attr($control, 'role')) && FormControlClassifier::isSubmitLikeControl($control) ) {
+            if ( '' === trim(SourceDom::attr($control, 'role')) && FormControlClassifier::isSubmitLikeControl($control, $soleActionControl) ) {
                 continue;
             }
             return false;
@@ -143,9 +163,17 @@ final class FormRuntimeRequirementAnalyzer
         return $hasChoice;
     }
 
-    /** Classifies source semantics only; classes and vendor attributes are not intent. */
-    public static function formIntent(DOMElement $form): string
+    /**
+     * Classifies source semantics only; classes and vendor attributes are not intent.
+     *
+     * @param (Closure(DOMElement): bool)|null $soleActionControl Shares the
+     *        form's sole-action fact with a caller that already holds it.
+     */
+    public static function formIntent(DOMElement $form, ?Closure $soleActionControl = null): string
     {
+        // Every control's submit classification asks the same whole-form
+        // question; answer it once per form, not once per control.
+        $soleActionControl ??= FormControlClassifier::soleActionControlMemo();
         $path = strtolower((string) parse_url(SourceDom::attr($form, 'action'), PHP_URL_PATH));
         $controls = self::intentControls($form);
         // Hidden submission data is deliberately absent from the authored-control
@@ -181,7 +209,7 @@ final class FormRuntimeRequirementAnalyzer
                 && in_array($controlType, array( 'submit', 'image' ), true) ) {
                 $hasSubmit = true;
             }
-            if ( FormControlClassifier::isSubmitLikeControl($control) ) {
+            if ( FormControlClassifier::isSubmitLikeControl($control, $soleActionControl) ) {
                 $donate = $donate || self::hasDonationSubmitSemantics($control);
             }
         }
@@ -216,14 +244,14 @@ final class FormRuntimeRequirementAnalyzer
             // date); a form that asks for free text such as a name or phone
             // collects a message, never a catalog filter.
             $freeText = $freeText || 'textarea' === $tag || ('input' === $tag && in_array($type, array( '', 'text', 'tel', 'email', 'url' ), true) && ! in_array($name, array( 'q', 's', 'search', 'query' ), true));
-            if ( FormControlClassifier::isSubmitLikeControl($control) ) {
+            if ( FormControlClassifier::isSubmitLikeControl($control, $soleActionControl) ) {
                 $subscribe = $subscribe || 1 === preg_match('/\b(?:subscribe|newsletter)\b/i', ($control->textContent ?? '') . ' ' . SourceDom::attr($control, 'value'));
             }
         }
         // A submit label alone ("Add to Cart or Get a Quote") does not make a
         // form that asks for the visitor's email a cart form: a purchase form
         // carries the item, never the buyer's contact details.
-        if ( preg_match('~(?:^|/)cart/add(?:[/.]|$)~', $path) || ($hiddenItem && $quantity) || (! $email && self::hasCommerceSubmissionSignal($form, true)) ) {
+        if ( preg_match('~(?:^|/)cart/add(?:[/.]|$)~', $path) || ($hiddenItem && $quantity) || (! $email && self::hasCommerceSubmissionSignal($form, true, $soleActionControl)) ) {
             return 'commerce_add_to_cart';
         }
         if ( $password ) return 'login';
@@ -270,7 +298,7 @@ final class FormRuntimeRequirementAnalyzer
         // select with a submit may belong to a larger flow, and so may anything
         // that buys, registers, or searches, so those stay unknown.
         if ( $onlyChoices && $hasSubmit && ! $select && ! $email && ! $search && ! $hiddenItem
-            && ! self::hasCommerceSubmissionSignal($form)
+            && ! self::hasCommerceSubmissionSignal($form, false, $soleActionControl)
             && ! self::hasSourceBehavior($form)
             && array() !== array_filter($choiceGroupSizes, static fn (int $size): bool => $size > 1) ) {
             return 'choice_submission';
@@ -449,10 +477,12 @@ final class FormRuntimeRequirementAnalyzer
         return 1 === preg_match('/\b(?:donat(?:e|ion)|give|contribut(?:e|ion))\b/i', $haystack);
     }
 
-    private static function hasCommerceSubmissionSignal(DOMElement $form, bool $addToCartOnly = false): bool
+    /** @param (Closure(DOMElement): bool)|null $soleActionControl */
+    private static function hasCommerceSubmissionSignal(DOMElement $form, bool $addToCartOnly = false, ?Closure $soleActionControl = null): bool
     {
+        $soleActionControl ??= FormControlClassifier::soleActionControlMemo();
         foreach ( $form->getElementsByTagName('*') as $control ) {
-            if ( $control->hasAttribute('disabled') || ! FormControlClassifier::isSubmitLikeControl($control) ) {
+            if ( $control->hasAttribute('disabled') || ! FormControlClassifier::isSubmitLikeControl($control, $soleActionControl) ) {
                 continue;
             }
 

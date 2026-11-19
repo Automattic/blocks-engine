@@ -147,8 +147,9 @@ final class EngineSupportCss
             // core/image inserts a figure between a source flex/grid item and
             // the image. Keep the wrapper in the DOM for Gutenberg, but remove
             // its layout box so the source image retains its native replaced-
-            // element min-content and flex-shrink behavior.
-            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}'
+            // element min-content and flex-shrink behavior. A `hidden` figure
+            // keeps the UA `display:none`, also when script toggles it later.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ':not([hidden])){display:contents}'
                 // Gutenberg selects the block root, not its img. A transparent
                 // root has no hit-test box and cannot expose the image toolbar.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block}';
@@ -232,8 +233,9 @@ final class EngineSupportCss
             // This figure has no source box. Remove its layout box so image
             // percentages keep the source containing block, rather than a
             // cyclic shrink-to-fit basis. Keep the image itself inline too.
+            // A `hidden` figure keeps the UA `display:none` at the same weight.
             $inlineFigure = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS;
-            $parts[] = $inlineFigure . '{display:contents}'
+            $parts[] = $inlineFigure . ':where(:not([hidden])){display:contents}'
                 // Keep a selectable, shrink-wrapped root in Gutenberg only.
                 // Source positioning belongs to the image's transparent front-end
                 // carrier. Applying it to an editor box can stack block roots on
@@ -266,9 +268,10 @@ final class EngineSupportCss
             // parent was image + strut tall. Keep that line box: the figure has
             // no source box and the image stays inline on the source baseline.
             // This figure owns no source positioning, so unlike the inline
-            // carrier its image never inherits the figure's placement.
+            // carrier its image never inherits the figure's placement. A
+            // `hidden` figure keeps the UA `display:none` at the same weight.
             $strutFigure = SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS;
-            $parts[] = ':root .' . $strutFigure . '{display:contents}'
+            $parts[] = ':root .' . $strutFigure . ':where(:not([hidden])){display:contents}'
                 // Gutenberg still needs a selectable, shrink-wrapped block root.
                 . ':root .editor-styles-wrapper figure.' . $strutFigure . '.wp-block-image{display:inline-block}'
                 . ':root .' . $strutFigure . ' img{display:inline}'
@@ -306,12 +309,6 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
             $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
-            if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_BOX_CLASS) ) {
-                // Around an in-flow block leaf the carrier's line fragments are
-                // empty, so an inline box changes no layout and gives the
-                // RichText root a box to hit-test and focus (issue #5901).
-                $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_BOX_CLASS . '){display:inline}';
-            }
             // An anchor inside the carrier exists only because a content-wrapping
             // link was pushed down onto it. It has no presentation of its own,
             // but as a block box it establishes a line box from the inherited

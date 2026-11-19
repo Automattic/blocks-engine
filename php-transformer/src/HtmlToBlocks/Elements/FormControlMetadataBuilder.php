@@ -38,6 +38,34 @@ final class FormControlMetadataBuilder
 
     private ?FormPresentationGraphBuilder $formPresentationGraph = null;
 
+    private static int $formMetadataBuilds = 0;
+
+    /**
+     * Full form metadata builds ({@see self::form()}) since process start;
+     * observable for tests. Each walks every control's context, typography
+     * and hidden state, so callers that need only where a form submits read
+     * {@see self::submission()} instead (#6731).
+     */
+    public static function formMetadataBuilds(): int
+    {
+        return self::$formMetadataBuilds;
+    }
+
+    /**
+     * Where and how a form submits: its authored action and lower-cased
+     * method, '' when absent. Shared with {@see self::form()} so both read
+     * the same values.
+     *
+     * @return array{action: string, method: string}
+     */
+    public static function submission(DOMElement $form): array
+    {
+        return array(
+            'action' => SourceDom::attr($form, 'action'),
+            'method' => strtolower(SourceDom::attr($form, 'method')),
+        );
+    }
+
     /**
      * @param HtmlTransformerSession|null $session Source stylesheets for the form presentation graph's
      *     typography, paint and hidden-state cascade; without one those facts are not resolved.
@@ -123,13 +151,15 @@ final class FormControlMetadataBuilder
     /** @return array<string, mixed> */
     public function form(DOMElement $form): array
     {
+        ++self::$formMetadataBuilds;
+        $submission = self::submission($form);
         $metadata = array_filter(array(
             'id'           => SourceDom::attr($form, 'id'),
             'name'         => SourceDom::attr($form, 'name'),
             'class'        => SourceDom::attr($form, 'class'),
             'aria_label'   => SourceDom::attr($form, 'aria-label'),
-            'action'       => SourceDom::attr($form, 'action'),
-            'method'       => strtolower(SourceDom::attr($form, 'method')),
+            'action'       => $submission['action'],
+            'method'       => $submission['method'],
             'enctype'      => SourceDom::attr($form, 'enctype'),
             'target'       => SourceDom::attr($form, 'target'),
             'autocomplete' => SourceDom::attr($form, 'autocomplete'),
@@ -237,6 +267,10 @@ final class FormControlMetadataBuilder
         }
 
         $recorded = array();
+        // Every node asks whether claimed copy contains it, so index the
+        // claims once instead of scanning all of them per node.
+        $claimedLabels = self::elementSet($claimedLabels);
+        $claimedTexts = array_fill_keys($claimedTexts, true);
         foreach ( $form->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
                 continue;
@@ -397,13 +431,13 @@ final class FormControlMetadataBuilder
      * the element that labels the control, or it is the text the builder
      * resolved as the control's own field description.
      *
-     * @param array<int, DOMElement> $claimedLabels
-     * @param array<int, string>     $claimedTexts
+     * @param array<int, DOMElement> $claimedLabels {@see self::elementSet()}
+     * @param array<string, true>    $claimedTexts  Claimed texts as keys.
      */
     private function isControlOwnedCopy(DOMElement $node, string $text, array $claimedLabels, array $claimedTexts): bool
     {
-        foreach ( $claimedLabels as $label ) {
-            if ( SourceDom::elementContains($label, $node) ) {
+        for ( $ancestor = $node; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( self::inElementSet($claimedLabels, $ancestor) ) {
                 return true;
             }
         }
@@ -411,13 +445,36 @@ final class FormControlMetadataBuilder
         // A field's own wrapper (`<p><label for="e">Email</label><input id="e"></p>`,
         // `<p><button>Join</button></p>`) has no text of its own: everything it
         // reads is a claimed label or a control it contains.
-        return in_array($text, $claimedTexts, true) || '' === $this->unclaimedText($node, $claimedLabels);
+        return isset($claimedTexts[$text]) || '' === $this->unclaimedText($node, $claimedLabels);
+    }
+
+    /**
+     * Elements keyed by object id for O(1) membership. The set holds each
+     * element, so no other live wrapper can share its id.
+     *
+     * @param array<int, DOMElement> $elements
+     * @return array<int, DOMElement>
+     */
+    private static function elementSet(array $elements): array
+    {
+        $set = array();
+        foreach ( $elements as $element ) {
+            $set[spl_object_id($element)] = $element;
+        }
+
+        return $set;
+    }
+
+    /** @param array<int, DOMElement> $set {@see self::elementSet()} */
+    private static function inElementSet(array $set, DOMElement $element): bool
+    {
+        return isset($set[spl_object_id($element)]) && $set[spl_object_id($element)]->isSameNode($element);
     }
 
     /**
      * Text of an element outside the claimed labels and the controls it contains.
      *
-     * @param array<int, DOMElement> $claimedLabels
+     * @param array<int, DOMElement> $claimedLabels {@see self::elementSet()}
      */
     private function unclaimedText(DOMElement $element, array $claimedLabels): string
     {
@@ -430,10 +487,8 @@ final class FormControlMetadataBuilder
             if ( ! $child instanceof DOMElement || FormControlClassifier::isControlElement($child) ) {
                 continue;
             }
-            foreach ( $claimedLabels as $label ) {
-                if ( $label->isSameNode($child) ) {
-                    continue 2;
-                }
+            if ( self::inElementSet($claimedLabels, $child) ) {
+                continue;
             }
             $text .= $this->unclaimedText($child, $claimedLabels);
         }
@@ -965,11 +1020,11 @@ final class FormControlMetadataBuilder
     {
         $candidates = array();
         $listbox = $this->ownedListboxPanel($control);
-        $honeypotCopy = FormControlClassifier::honeypotCopyElements($wrapper);
+        $honeypotCopy = self::elementSet(FormControlClassifier::honeypotCopyElements($wrapper));
         $labels = SourceDom::associatedLabels($control);
         // Preserve the single wrapping label's leading-name/trailing-helper
         // convention, but never read another associated label as helper copy.
-        $excludedLabels = array_filter($labels, static fn (DOMElement $label): bool => 1 < count($labels) || ! $labelElement instanceof DOMElement || ! $label->isSameNode($labelElement));
+        $excludedLabels = self::elementSet(array_filter($labels, static fn (DOMElement $label): bool => 1 < count($labels) || ! $labelElement instanceof DOMElement || ! $label->isSameNode($labelElement)));
         foreach ( $wrapper->getElementsByTagName('*') as $node ) {
             if ( ! $node instanceof DOMElement ) {
                 continue;

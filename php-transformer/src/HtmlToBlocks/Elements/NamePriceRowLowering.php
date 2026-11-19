@@ -76,7 +76,7 @@ final class NamePriceRowLowering
             return false;
         }
 
-        $direction = strtolower(trim((string) ($container['flex-direction'] ?? 'row')));
+        $direction = CssValueInspector::declared($container, 'flex-direction') ?: 'row';
         $wrap = strtolower(trim((string) ($container['flex-wrap'] ?? 'nowrap')));
         if ( ! in_array($direction, array( 'row', 'row-reverse' ), true) || 'nowrap' !== $wrap ) {
             return false;

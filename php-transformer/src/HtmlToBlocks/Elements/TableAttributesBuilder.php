@@ -192,7 +192,40 @@ final class TableAttributesBuilder
             }
         }
 
+        // core/table saves its figcaption after the table, so it renders below.
+        // A source caption on the top side keeps that markup and reorders the
+        // figure's children for this block only.
+        if ( $this->captionRendersAtTop($table) ) {
+            $rules[] = '.' . $marker . '{display:flex;flex-direction:column}';
+            $rules[] = '.' . $marker . '>figcaption{order:-1}';
+        }
+
         $this->layoutGeometry()->registerRule($marker, implode("\n", $rules));
+    }
+
+    /**
+     * Whether the table's visible caption renders above it. `caption-side`
+     * inherits and defaults to `top`, so the nearest declared value from the
+     * caption outward decides.
+     */
+    private function captionRendersAtTop(DOMElement $table): bool
+    {
+        $caption = SourceDom::firstChildElement($table, 'caption');
+        if ( ! $caption instanceof DOMElement
+            || '' === trim($caption->textContent)
+            || 1 === preg_match('/(?:^|\s)(?:sr-only|screen-reader-only|screen-reader-text|visually-hidden)(?:\s|$)/i', $caption->getAttribute('class'))
+        ) {
+            return false;
+        }
+        for ( $node = $caption; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $side = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($node)['caption-side'] ?? '')));
+            $side = trim((string) preg_replace('/\s*!important$/', '', $side));
+            if ( '' === $side || 'inherit' === $side || 'unset' === $side ) {
+                continue;
+            }
+            return ! in_array($side, array( 'bottom', 'block-end' ), true);
+        }
+        return true;
     }
 
     /** `width`, `height` and `bgcolor` are hints, not inline styles: keep the entire selector at zero specificity. */

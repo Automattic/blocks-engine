@@ -471,6 +471,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $navigationSource));
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $element, $navigationContext);
@@ -1010,6 +1011,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $cluster));
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $cluster, $navigationContext);
@@ -3528,7 +3530,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // stays on the plain linked-submenu path.
         $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor) && $anchor->parentNode?->isSameNode($item)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
-            $anchorClassName = (string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class'));
+            $anchorClassName = SourceDom::mergeClassNames((string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class')), $navigationContext->boxTreeElementCarrier($anchor));
             // The subject renders on every route; the served route's own hooks do not.
             if ($isCurrentNavigationItem) $anchorClassName = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $anchorClassName))['className'] ?? '');
             // Stylesheet declarations stay on their source subject. Only explicit
@@ -5198,6 +5200,18 @@ final class NavigationPattern implements PatternRecognizerInterface
         // bare word `toggle`, which an authored `lang-toggle` or `theme-toggle`
         // satisfies while being an ordinary link.
         if ( 'a' === $tagName && SourceDom::navigatesToDestination($element) ) {
+            return false;
+        }
+
+        // A toggle-like identity alone does not make an empty capture a
+        // source-owned control. Do not let inert siblings claim the menu's
+        // wrapper and prevent its desktop/mobile copies from being recognized.
+        // A CSS-drawn hamburger keeps child bars (<span>s); only a fully
+        // empty element (no text, no child elements) is inert.
+        if ( '' === trim($element->textContent ?? '')
+            && null === $element->firstElementChild
+            && ! in_array($tagName, array( 'a', 'button' ), true)
+            && ! AuthoredButtonBlockGenerator::isRoleButton($element) ) {
             return false;
         }
 

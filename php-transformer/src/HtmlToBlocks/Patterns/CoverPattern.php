@@ -175,7 +175,7 @@ final class CoverPattern implements PatternRecognizerInterface
         $declarations = $this->styleResolver->declarations($style);
         $display = CssValueInspector::declared($declarations, 'display');
         if ( in_array($display, array( 'flex', 'grid' ), true) ) {
-            $column = 'grid' === $display || 'column' === ($declarations['flex-direction'] ?? 'row');
+            $column = 'grid' === $display || 'column' === CssValueInspector::declared($declarations, 'flex-direction');
             $align = (string) ($declarations['align-items'] ?? 'stretch');
             $justify = (string) ($declarations['justify-content'] ?? 'normal');
             $vertical = 'flex' === $display && $column ? $justify : $align;
@@ -358,7 +358,7 @@ final class CoverPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $direction = strtolower(trim((string) ($declarations['flex-direction'] ?? 'row')));
+        $direction = CssValueInspector::declared($declarations, 'flex-direction') ?: 'row';
         if ( ! in_array($direction, array( 'row', 'column' ), true) ) {
             return 'columns_layout';
         }
