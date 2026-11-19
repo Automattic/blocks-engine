@@ -31,6 +31,28 @@ $css = static function (array $result): string {
     return implode("\n", $parts);
 };
 
+// Static predicates must survive both canonical blocks and lowered containers.
+foreach (array(array('h3', 'hide'), array('p', 'hide'), array('div', 'hide'), array('h3', 'data-hide')) as [$tag, $attribute]) {
+    $source = '<style>.title[' . $attribute . '=true]{display:none}</style><main>';
+    foreach (array('true', 'false', null) as $value) {
+        $source .= '<' . $tag . ' class="title"' . (null === $value ? '' : ' ' . $attribute . '="' . $value . '"') . '>Title ' . ($value ?? 'absent') . '</' . $tag . '>';
+    }
+    $result = $transform($source . '<p>Shown</p></main>');
+    $candidate = \Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner::candidateHtmlFromSerializedBlocks((string) $result['serialized_blocks']);
+    $dom = new DOMDocument();
+    $previous = libxml_use_internal_errors(true);
+    $dom->loadHTML('<?xml encoding="utf-8" ?>' . $candidate);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+    $cascade = new \Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade($dom, $css($result));
+    $subjects = (new DOMXPath($dom))->query('//*[contains(concat(" ", normalize-space(@class), " "), " title ")]');
+    $assert(3 === $subjects->length, $tag . '[' . $attribute . '] retains all three source subjects');
+    foreach ($subjects as $index => $subject) {
+        $display = $cascade->resolve($subject, array('display'), array());
+        $assert((0 === $index) === ('none' === ($display['display'] ?? '')), $tag . '[' . $attribute . '] hides exactly the source match, subject ' . $index);
+    }
+}
+
 $nestedMargins = $transform('<style>@layer components{.shell{max-width:1280px;margin-inline:auto;padding-inline:24px;@media (width >=768px){padding-inline:48px;margin-inline:32px;@supports (display:grid){margin-inline:40px}}margin-inline:12px}.row{display:flex;justify-content:center;gap:24px}.label{padding-inline:16px}}</style><div class="shell"><div class="row"><p class="label">One</p><p class="label">Two</p></div></div>');
 $nestedMarginRules = array();
 (new CssStylesheetTransformer())->visitStyleRules($css($nestedMargins), static function (string $selector, string $body, array $conditions) use (&$nestedMarginRules): void {
