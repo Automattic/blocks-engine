@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ChromeJournal\ChromeJournal;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ChromeJournal\ChromeJournalStore;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssNestingFlattener;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
@@ -286,6 +288,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      * @var array<string, string>
      */
     private array $neutralBoxChildren = array();
+
+    /** Converts the page's repeated subtrees through the site's journals. */
+    private ?ChromeJournal $chromeJournal = null;
 
     /**
      * Folded boxes' moves, keyed by the receiving child's node id: the box id
@@ -1306,6 +1311,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $this->session->sourceStyleResolutionState()->invalidateSelectorMatches();
         $this->styleResolver->collectEditorHiddenStateFindings($body);
         $this->session->reusableComponentState()->installRecognition($this->reusableComponentRecognizer->recognize($body));
+        $chromeJournal = $options['chrome_journal'] ?? null;
+        $this->chromeJournal = is_array($chromeJournal) && ($chromeJournal['store'] ?? null) instanceof ChromeJournalStore
+            ? new ChromeJournal($this->session, $chromeJournal['store'], $body, ArrayField::array($chromeJournal, 'selectors'), $options)
+            : null;
 
         $timer->start('transform.conversion');
         $fallbacks = array_map(
@@ -2121,6 +2130,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
+        // A folded child converts with its box's declarations, decided outside
+        // the subtree, so it always converts.
+        if ( true === $this->chromeJournal?->covers($element) && !isset($this->foldedInto[$element->getAttribute(BoxTree::NODE_ATTRIBUTE)]) ) {
+            return $this->chromeJournal->convert($element, $fallbacks, fn (array &$fallbacks): ?array => $this->convertElement($element, $fallbacks, $captureUnsupported));
+        }
         $hookChild = $this->boxlessWrapperHookChild($element);
         if ( null !== $hookChild ) {
             return $this->convertElement($hookChild, $fallbacks, $captureUnsupported);
@@ -2404,8 +2418,24 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                     'fluid' => $fluidIntent->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
                 );
             }
+            // core/details renders the source `<summary>` bare: its own evidence styles that element.
+            $summary = array();
+            $sourceSummary = 'core/details' === $name && 'details' === $sourceTagName ? SourceDom::firstChildElement($sourceElement, 'summary') : null;
+            if ($sourceSummary instanceof DOMElement) {
+                $summaryObservations = $this->session->boxTreeEvidence($sourceSummary);
+                $summaryPseudoFluid = array();
+                foreach ( array( 'before', 'after' ) as $pseudo ) {
+                    $summaryPseudoFluid[$pseudo] = $fluidIntent->liftPseudo($sourceSummary, $this->styleResolver, $summaryObservations, $viewports, $pseudo, $this->liftEvidence());
+                }
+                $summary = array(
+                    'observations' => $summaryObservations,
+                    'parents' => $observations,
+                    'fluid' => $fluidIntent->lift($sourceSummary, $this->styleResolver, $summaryObservations, $viewports, $observations, '', $this->liftEvidence()),
+                    'pseudoFluid' => $summaryPseudoFluid,
+                );
+            }
             $classesBefore = self::classTokens((string) ($attrs['className'] ?? ''));
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image);
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image, $summary);
             $carrierNode = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
             if ( '' !== $carrierNode ) {
                 $this->boxTreeCarriers[$carrierNode] = array_values(array_diff(self::classTokens((string) ($attrs['className'] ?? '')), $classesBefore));

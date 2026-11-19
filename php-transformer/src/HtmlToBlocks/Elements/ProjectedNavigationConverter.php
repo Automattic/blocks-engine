@@ -1393,7 +1393,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $layout = array_map('strtolower', $this->portableCollapsedPlacement($row, array('display', 'flex-direction', 'justify-content')));
         if ( ! in_array($layout['display'] ?? '', array('flex', 'inline-flex'), true)
-            || ! in_array($layout['flex-direction'] ?? 'row', array('row', ''), true) ) {
+            || ! in_array(CssValueInspector::declared($layout, 'flex-direction'), array('row', ''), true) ) {
             return null;
         }
         $wrapperBox = $this->portableCollapsedPlacement($wrapper, array('order', 'margin-left', 'margin-inline-start', 'gap', 'column-gap'));
