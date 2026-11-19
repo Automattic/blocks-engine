@@ -252,9 +252,19 @@ final class PresetBinding
                         // Remove only that generated scope, not author contexts/states.
                         $routeScope = ':where\(:root:(?:is|not)\(\.be-r-[a-f0-9]+(?:,\.be-r-[a-f0-9]+)*\)\)';
                         $selector = preg_replace('/^' . $routeScope . ' +|' . $routeScope . '$/', '', trim($selector)) ?? $selector;
-                        if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', $selector, $match)) continue;
+                        $control = false;
+                        if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', $selector, $match)) {
+                            // A single author class projected onto a native
+                            // control's button element (`.filter-btn` as its
+                            // subject class). Only its border colour is read
+                            // here: the class renders it with its states.
+                            if (1 !== preg_match('/^:where\(\.blocks-engine-role-control\.blocks-engine-subject\.(' . preg_quote(EngineMarker::SUBJECT_CLASS_PREFIX, '/') . '[a-f0-9]+)\)(?::not\(\.be-c-\d+\))*\s*>\s*:where\(\.wp-block-button__link\)(?::not\(be-t-\d+\))*$/', $selector, $match)) continue;
+                            $control = true;
+                        }
                         foreach (self::declarations($body) as [$property, $value]) {
-                            if (in_array($property, array('color', 'background-color', 'background', 'font-size'), true)) $this->classColors[$match[1]][$property][] = $value;
+                            if (!$control && in_array($property, array('color', 'background-color', 'background', 'font-size'), true)) $this->classColors[$match[1]][$property][] = $value;
+                            elseif ('border-color' === $property) $this->classColors[$match[1]][$property][] = $value;
+                            elseif ('border' === $property) $this->classColors[$match[1]]['border-color'][] = self::borderShorthandColor($value);
                         }
                     }
                 }
@@ -995,6 +1005,18 @@ final class PresetBinding
             $literal = $group->color ?? null;
             if (!is_string($literal) || str_starts_with($literal, 'var:')) continue;
             $property = '' === $side ? 'border-color' : 'border-' . $side . '-color';
+            if ('' === $side && $this->rendersThroughClass($d->name, $property, $literal, $tokens)) {
+                // As with a button's text and background (bindColorPresets()):
+                // the author class renders this border colour with its
+                // states, so the literal only duplicated it, outside the
+                // editable design system, and masked the class's hover rule.
+                if (self::removeDeclaration($d->declarations, $property, $literal)) {
+                    unset($group->color);
+                    $d->dropClasses[] = 'has-border-color';
+                    ++$d->bound;
+                    continue;
+                }
+            }
             $slug = $this->presetSlug('color', $literal, null);
             if (null !== $slug && $this->inlinePreset($group, 'color', 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
         }
@@ -2414,6 +2436,21 @@ final class PresetBinding
     private static function declarationText(array $declarations): string
     {
         return implode(';', array_map(static fn(array $declaration): string => $declaration[0] . ':' . $declaration[1], $declarations));
+    }
+
+    /**
+     * The colour a `border` shorthand sets (`1px solid #e0ddd7`), or the
+     * shorthand itself when no single component parses as a colour, which no
+     * literal then matches. A shorthand without a colour sets `currentcolor`.
+     */
+    private static function borderShorthandColor(string $value): string
+    {
+        $colors = array();
+        foreach (preg_split('/\s+(?![^()]*\))/', trim($value)) ?: array() as $part) {
+            if (null !== CssColor::parse($part) || 'currentcolor' === strtolower($part)) $colors[] = $part;
+        }
+        if (1 === count($colors)) return $colors[0];
+        return array() === $colors ? 'currentcolor' : $value;
     }
 
     /** @param list<array{0:string,1:string}> $declarations */
