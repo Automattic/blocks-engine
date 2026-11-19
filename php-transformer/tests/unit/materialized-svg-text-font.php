@@ -38,7 +38,16 @@ $transform = static function (string $css): array {
         }
     }
 
-    return array( 'blocks' => (string) ( $out['serialized_blocks'] ?? '' ), 'svg' => $svg );
+    $inline = '';
+    $walk = static function (array $blocks) use (&$walk, &$inline): void {
+        foreach ( $blocks as $block ) {
+            $inline .= (string) ( $block['attrs']['svg'] ?? '' );
+            $walk($block['innerBlocks'] ?? array());
+        }
+    };
+    $walk($out['blocks'] ?? array());
+
+    return array( 'blocks' => (string) ( $out['serialized_blocks'] ?? '' ), 'svg' => $svg, 'inline' => $inline );
 };
 
 // 1. System font: the materialized asset's <text> carries the author font.
@@ -57,7 +66,7 @@ $webFont = $transform(
 );
 $assert(! str_contains($webFont['blocks'], 'materialized-svg'), '6: the web-font SVG is not externalized as an image', $webFont['blocks']);
 $assert(
-    1 === preg_match('/<svg\b[^>]*viewBox="0 0 600 100"[^>]*>\s*<text\b[^>]*class="label"[^>]*>MAKE IT MAKE SENSE<\/text>\s*<\/svg>/', $webFont['blocks']),
+    1 === preg_match('/<svg\b[^>]*viewBox="0 0 600 100"[^>]*>\s*<text\b[^>]*class="label"[^>]*>MAKE IT MAKE SENSE<\/text>\s*<\/svg>/', $webFont['inline']),
     '7: the web-font SVG stays inline with its text intact',
     $webFont['blocks']
 );
