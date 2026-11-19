@@ -18,13 +18,12 @@ $result = (new HtmlTransformer())->transform(
 $quote = $result['blocks'][0]['innerBlocks'][0] ?? array();
 $citation = $quote['attrs']['citation'] ?? '';
 if ('core/quote' !== ($quote['blockName'] ?? '')
-    || str_contains($citation, 'display:block')
-    || !preg_match('/be-inline-geometry-[a-f0-9]+/', $quote['attrs']['className'] ?? '')
-    || !str_contains(json_encode($result), '>cite{display:block;font-size:9px}')
+    || !str_contains($citation, '<span style="display:block;font-size:9px;font-weight:700;letter-spacing:.16em">Publication</span>')
+    || str_contains(json_encode($result), '>cite{')
     || 'core/list' !== ($result['blocks'][1]['blockName'] ?? '')
     || 'pass' !== ((new BlockValidityValidator())->validateBlocks($result['blocks'])['status'] ?? '')
 ) {
-    throw new RuntimeException('Consumed figure captions must style the citation host, not introduce a block inside an inline cite: ' . json_encode($result));
+    throw new RuntimeException('Consumed figure captions must retain their own line box without restyling the citation host: ' . json_encode($result));
 }
 // Unstyled captions must retain native citation behavior, even under inherited
 // typography. They do not have a separate authored line box to project.

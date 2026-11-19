@@ -59,28 +59,16 @@ final class QuotePatternContext
                 $declarations[$property] = $value;
             }
         }
+        // A figcaption owns a block line box. Keeping its metrics on an
+        // inline span leaves the larger citation strut in that line and can
+        // enlarge a wrapping quote rail. Preserve that box on the RichText
+        // span, without changing the native cite's typography or generating
+        // a per-quote stylesheet rule.
+        if (isset($declarations['font-size']) || isset($declarations['line-height'])) {
+            $declarations = array_merge(array('display' => 'block'), $declarations);
+        }
         $style = $this->styleResolver->cssDeclarationString($declarations);
         return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
-    }
-
-    /** Project the consumed caption's line box onto Core's citation host. */
-    public function figureCaptionClass(DOMElement $caption): string
-    {
-        // Only the line metrics need to move onto the host. Other typography
-        // already lives on the RichText span; restating inherited styles here
-        // changes native citation styling and can change wrapping elsewhere.
-        $authored = $this->styleResolver->structuralPresentationDeclarations($caption);
-        $declarations = array();
-        foreach (array('font-size', 'line-height') as $property) {
-            $value = isset($authored[$property]) ? $this->styleResolver->authoredInheritedPropertyWinner($caption, $property) : '';
-            if ('' !== $value) {
-                $declarations[$property] = $value;
-            }
-        }
-        if (array() === $declarations) {
-            return '';
-        }
-        return $this->styleResolver->registerFigureCitationStyle($caption, array_merge(array('display' => 'block'), $declarations));
     }
 
     public function citationFromElement(DOMElement $element): string

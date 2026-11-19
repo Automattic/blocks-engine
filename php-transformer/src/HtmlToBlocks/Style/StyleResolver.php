@@ -3718,16 +3718,6 @@ final class StyleResolver implements ElementPresentationResolver
         return implode(' ', $classes);
     }
 
-    /** @param array<string, string> $declarations */
-    public function registerFigureCitationStyle(DOMElement $caption, array $declarations): string
-    {
-        $style = $this->cssDeclarationString($declarations);
-        $geometry = $this->session->layoutGeometryState();
-        $carrier = $geometry->allocateCarrier($this->geometryStructuralPath($caption) . "\nfigure-citation\n" . $style);
-        $geometry->registerRule($carrier, '.' . $carrier . '>cite{' . $style . '}');
-        return $carrier;
-    }
-
     public function generatedGeometryCss(string $serializedBlocks): string
     {
         return $this->session->layoutGeometryState()->cssForSerializedBlocks($serializedBlocks);
