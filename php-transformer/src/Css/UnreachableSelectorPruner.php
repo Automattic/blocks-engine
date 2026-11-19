@@ -19,7 +19,12 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
  *
  * Tokens the converter (including route-aligned classes) or WordPress mint
  * are not source evidence and never
- * decide an arm: `wp-`, `is-`, `has-`, editor and engine names. Neither do
+ * decide an arm: `wp-`, `is-`, `has-`, editor and engine names. On the
+ * source side of a site whose documents are not WordPress output, `is-` and
+ * `has-` names are the source framework's own state vocabulary (`is-invalid`,
+ * `has-validation`): WordPress mints its states only on the blocks the
+ * import emits, which the projection and WordPress's own styles cover, so
+ * they need source evidence like any other class. Neither do
  * state tokens that route-state projection strips from the served item.
  * A string ending in `-` or `_` keeps every token it may build live. An arm with an escaped or non-ASCII identifier is
  * kept.
@@ -27,6 +32,13 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
 final class UnreachableSelectorPruner
 {
     private const MINTED = '/^(?:wp-|is-|has-|blocks-engine-|be-|route-class-|editor-|block-editor-|components-)/';
+    /** Names WordPress mints as element state, which its own runtime scripts may add to WordPress output. */
+    private const WORDPRESS_STATE = '/^(?:is|has)-/';
+    /** A token only WordPress output spells: block classes, the site root or core asset paths. */
+    private const WORDPRESS_OUTPUT = '/(?<![\w-])wp-(?:block-|site-blocks\b|content\/|includes\/)/';
+
+    /** Whether `is-` and `has-` names may be WordPress state the evidence cannot show. */
+    private bool $wordPressStates = true;
 
     /** @var array<string, true> */
     private array $live = array();
@@ -49,6 +61,9 @@ final class UnreachableSelectorPruner
     public function __construct(array $texts, private bool $pruneTypes = false, ?array $stylesheets = null)
     {
         $this->evidenceText = implode("\n", $texts);
+        // Source documents that are not WordPress output never receive
+        // WordPress's runtime state classes before conversion.
+        if ($pruneTypes && 1 === preg_match('/<html\b/i', $this->evidenceText)) $this->wordPressStates = 1 === preg_match(self::WORDPRESS_OUTPUT, $this->evidenceText);
         $prefixes = $markup = array();
         foreach ($texts as $text) {
             // Set keys in place: a property union (`+=`) copies the whole set per text.
@@ -250,7 +265,7 @@ final class UnreachableSelectorPruner
             }
             $token = $decoded;
         }
-        if ((isset($this->live[$token]) && !($classOrId && isset($this->markupNames[$token]))) || 1 === preg_match(self::MINTED, $token) || 1 === preg_match('/^' . SourceClassIdentity::REVEAL_STATE . '$/i', $token)
+        if ((isset($this->live[$token]) && !($classOrId && isset($this->markupNames[$token]))) || (1 === preg_match(self::MINTED, $token) && ($this->wordPressStates || 1 !== preg_match(self::WORDPRESS_STATE, $token))) || 1 === preg_match('/^' . SourceClassIdentity::REVEAL_STATE . '$/i', $token)
             || SourceClassIdentity::containsCurrentStateToken($token)) return true;
         foreach ($this->livePrefixes as $prefix) {
             if (str_starts_with($token, $prefix)) return true;
