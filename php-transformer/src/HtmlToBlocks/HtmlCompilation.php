@@ -1978,7 +1978,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $box = $box->parentNode;
         }
         if ( !$box instanceof DOMElement ) {
-            return array_diff_key($fluid, $fold['moves'], array_flip(self::FOLD_SIZING));
+            return array_diff_key($fluid, $fold['moves'], self::FOLD_SIZING);
         }
         $this->foldsCarried[$fold['from']] = $this->liftingFor;
         $boxObservations = $this->session->boxTreeEvidence($box);
@@ -2003,10 +2003,16 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $fluid[$to] = $bands;
             }
         }
-        foreach ( self::FOLD_SIZING as $property ) {
+        foreach ( self::FOLD_SIZING as $property => $sides ) {
             $bands = $boxFluid[$property] ?? null;
             $keywords = null !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => !in_array($value, self::INTRINSIC_SIZES, true));
-            if ( $keywords && ($fold['equal_box'] || ($fluid[$property] ?? null) === $bands) ) {
+            // The child's border box is the box's at every capture and it now
+            // sits in the box's containing block, so the box's proven size
+            // (a `%` of that block, a viewport length) sizes the child alike,
+            // when the child's own `width`/`height` measures that border box.
+            $carried = null !== $bands && $fold['equal_box'] && self::sizesBorderBox($observations, $sides)
+                && ($sameFont || !preg_grep('/\d(?:\.\d+)?em\b/i', array_column($bands, 1)));
+            if ( $carried || ($keywords && ($fold['equal_box'] || ($fluid[$property] ?? null) === $bands)) ) {
                 $fluid[$property] = $bands;
             } else {
                 unset($fluid[$property]);
@@ -2056,8 +2062,35 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         return array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array(), static fn(string $token): bool => '' !== $token));
     }
 
-    /** Sizes a folded box's intent decides for its child. */
-    private const FOLD_SIZING = array('width', 'height');
+    /** Sizes a folded box's intent decides for its child => the sides that size's box model adds. */
+    private const FOLD_SIZING = array('width' => array('left', 'right'), 'height' => array('top', 'bottom'));
+
+    /**
+     * Whether the observed `width`/`height` of a box is its border box at
+     * every capture: border-box sizing, or no padding or border on that axis.
+     *
+     * @param array<string, array<string, mixed>> $observations
+     * @param list<string> $sides
+     */
+    private static function sizesBorderBox(array $observations, array $sides): bool
+    {
+        foreach ( $observations as $observation ) {
+            $styles = $observation['used_styles'] ?? array();
+            if ( 'border-box' === strtolower((string) ($styles['box-sizing'] ?? 'content-box')) ) {
+                continue;
+            }
+            foreach ( $sides as $side ) {
+                if ( 0.0 !== (float) ($styles['padding-' . $side] ?? 1) ) {
+                    return false;
+                }
+                $border = strtolower((string) ($styles['border-' . $side] ?? ''));
+                if ( !preg_match('/^0px\b|\b(?:none|hidden)\b/', $border) ) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
 
     private const INTRINSIC_SIZES = array('auto', 'none', 'fit-content', 'min-content', 'max-content', 'stretch');
 

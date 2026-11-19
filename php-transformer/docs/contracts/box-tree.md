@@ -218,7 +218,11 @@ Moved declarations keep the box's author bands: the box's own fluid lift (in
 the box's context) replaces the child's for every moved property, renamed from
 padding to margin where needed (an `em` band moves only when the font sizes
 agree). The child's `width`/`height` keep its captured pixels unless the box's
-intent is an intrinsic keyword that also holds for the child. Lifting treats
+intent is an intrinsic keyword that also holds for the child, or the child's
+border box equals the box's at every capture and the child's size measures its
+border box (border-box sizing, or no padding or border on that axis): then the
+box's lifted size of any kind (a `%` of the containing block the child now
+shares, a viewport length) sizes the child. Lifting treats
 every collapsed box as `display: contents`, so percentages resolve against the
 containing block the output actually has. A projected style group the block
 cannot serialize (a paragraph's shadow) stays in the engine rule.
