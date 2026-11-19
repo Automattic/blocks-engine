@@ -27,9 +27,12 @@ $html = '<body><header><nav class="bar"><a href="#top" class="logo">Brand</a><di
     . '<dialog id="blocks-engine-dialog-xyz" data-blocks-engine-captured-dialog="true" data-blocks-engine-triggers="blocks-engine-dialog-trigger-abc" class="grid"><a href="#a">Alpha</a><a href="#b">Beta</a><a href="#c">Gamma</a></dialog></body>';
 $blocks = (string) ( ( new HtmlTransformer() )->transform($html, array())->toArray()['serialized_blocks'] ?? '' );
 
-$assert(str_contains($blocks, 'id="blocks-engine-dialog-trigger-abc"'), 'the dialog trigger keeps the id the dialog binds to', $blocks);
+// An icon-only trigger is a core container published as the native button,
+// with its id among the box attributes it renders.
+$published = str_contains($blocks, '"blocksEngineControlTagName":"button"') && str_contains($blocks, '"id":"blocks-engine-dialog-trigger-abc"');
+$assert(str_contains($blocks, 'id="blocks-engine-dialog-trigger-abc"') || $published, 'the dialog trigger keeps the id the dialog binds to', $blocks);
 $assert(str_contains($blocks, '"data-blocks-engine-triggers":"blocks-engine-dialog-trigger-abc"'), 'the dialog still names its trigger', $blocks);
-$assert(1 === preg_match('/<button[^>]*>/', $blocks) && str_contains($blocks, 'Toggle menu'), 'the trigger converts to an operable button that keeps its label', $blocks);
+$assert((1 === preg_match('/<button[^>]*>/', $blocks) || $published) && str_contains($blocks, 'Toggle menu'), 'the trigger converts to an operable button that keeps its label', $blocks);
 
 // An unbound hamburger beside a converted navigation is still redundant chrome.
 $unbound = (string) ( ( new HtmlTransformer() )->transform(str_replace(array(' id="blocks-engine-dialog-trigger-abc"', ' data-blocks-engine-captured-dialog="true"'), '', $html), array())->toArray()['serialized_blocks'] ?? '' );

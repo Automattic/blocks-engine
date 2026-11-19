@@ -553,10 +553,12 @@ final class AuthoredFormControlBlockConverter
 
         // SVG controls have no RichText label. Model their artwork as core
         // images and containers rather than an opaque contentParts tree.
-        // Inline-only icons and CSS-painted controls still use the native
-        // authored button. Only block-container artwork needs a container tree;
-        // inline content already belongs to the button's editable label path.
-        if ('button' === strtolower($button->tagName) && SourceDom::isBoundCapturedDialogTrigger($button) && $button->getElementsByTagName('div')->length > 0 && $button->getElementsByTagName('svg')->length > 0 && $this->isCssDrawnControl($button)) {
+        // CSS-painted controls and icons nested in inline wrappers still use
+        // the native authored button. Block-container artwork needs a
+        // container tree; an icon that is the button's whole content (only
+        // SVG children) has no label path either, so it is the control's
+        // core image, rendered back as its source SVG.
+        if ('button' === strtolower($button->tagName) && ((SourceDom::isBoundCapturedDialogTrigger($button) && $button->getElementsByTagName('div')->length > 0) || $this->isSvgOnlyDialogTrigger($button)) && $button->getElementsByTagName('svg')->length > 0 && $this->isCssDrawnControl($button)) {
             return $this->cssDrawnControlGroup($button);
         }
 
@@ -613,6 +615,24 @@ final class AuthoredFormControlBlockConverter
         ), array($label), $button);
     }
 
+    /**
+     * A bound captured dialog trigger whose whole content is SVG artwork
+     * (every element child an SVG, no text). The native dialog binds it by
+     * id, which the published group renders back with the source SVG.
+     */
+    private function isSvgOnlyDialogTrigger(DOMElement $button): bool
+    {
+        if (!SourceDom::isBoundCapturedDialogTrigger($button)) return false;
+        if ('' !== trim($button->textContent)) return false;
+        $found = false;
+        foreach ($button->childNodes as $child) {
+            if (!$child instanceof DOMElement) continue;
+            if ('svg' !== strtolower($child->tagName)) return false;
+            $found = true;
+        }
+        return $found;
+    }
+
     private function isCssDrawnControl(DOMElement $element): bool
     {
         if ('svg' === strtolower($element->tagName)) {
@@ -653,11 +673,17 @@ final class AuthoredFormControlBlockConverter
         foreach ($element->attributes as $attribute) {
             $attributes[strtolower($attribute->nodeName)] = $attribute->nodeValue ?? '';
         }
-        if ('button' === strtolower($element->tagName) && !isset($attributes['type'])) $attributes['type'] = 'submit';
+        $metadata = array('blocksEngineControlBox' => $attributes);
+        if ('button' === strtolower($element->tagName)) {
+            if (!isset($attributes['type'])) $metadata['blocksEngineControlBox']['type'] = 'submit';
+            // Core's editor keeps a selectable group; the published control
+            // remains the native button the source runtime binds to.
+            $metadata['blocksEngineControlTagName'] = 'button';
+        }
         return $this->createBlock->createBlock('core/group', array(
             'tagName' => strtolower($element->tagName),
             'className' => SourceDom::attr($element, 'class'),
-            'metadata' => array('blocksEngineControlBox' => $attributes),
+            'metadata' => $metadata,
         ), $children, $element);
     }
 

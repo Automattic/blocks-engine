@@ -531,7 +531,11 @@ final class WrapperCoalescer
     {
         if ( $this->boxTreeClassifierOwnsWrappers()
             || ($this->preservesScriptStateWrapper)($element)
-            || !empty($childBlock['attrs']['metadata']['blocksEngineRuntimeAttributes']) ) {
+            || !empty($childBlock['attrs']['metadata']['blocksEngineRuntimeAttributes'])
+            // A captured control publishes only its own source box (the
+            // runtime attributes filter replaces the group's classes), so a
+            // wrapper folded into it would lose its classes on the front end.
+            || $this->isCapturedControlBox($childBlock) ) {
             return null;
         }
         $textWrapper = $this->coalescedInheritedTextWrapper($element, $childBlock);

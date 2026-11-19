@@ -23,8 +23,9 @@ if (str_contains($markup, '/layout-shell') || !str_contains($markup, '<!-- wp:im
 $document = new DOMDocument();
 @$document->loadHTML($markup);
 $xpath = new DOMXPath($document);
-if (1 !== $xpath->query('//nav[contains(@class,"opener")]/div[contains(@class,"slot")]/figure[contains(@class,"icon")]/img')->length) {
-    throw new RuntimeException('Native wrappers must retain the landmark and icon carrier without redundant artwork groups.');
+// The control publishes only its own box, so the slot keeps its own group.
+if (1 !== $xpath->query('//nav[contains(@class,"opener")]/div[contains(@class,"slot")]/div[not(@class) or contains(@class,"wp-block-group")]/figure[contains(@class,"icon")]/img')->length) {
+    throw new RuntimeException('Native wrappers must retain the landmark, slot and icon carrier without redundant artwork groups.');
 }
 if ('pass' !== ($result['source_reports']['wp_block_validity']['status'] ?? '')) {
     throw new RuntimeException('Native landmark chain must serialize valid core blocks.');
