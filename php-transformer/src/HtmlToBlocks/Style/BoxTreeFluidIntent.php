@@ -319,7 +319,12 @@ final class BoxTreeFluidIntent
         }
         if ('line-height' === $property && count(array_unique(array_column(array_column($observations, 'used_styles'), $property))) < 2
             && count(array_filter($proven, static fn(string $value): bool => 1 === preg_match('/^\d*\.?\d+$/', $value))) === count($proven)) return null;
-        return $this->bands($widths, $samples, $proven, fn(float $width): ?string => $this->declared($property, $width), false);
+        $sample = fn(float $width): ?string => $this->declared($property, $width);
+        // An unstyled range outside the captures must not invalidate a proven
+        // author lift between them. Otherwise an optional extrapolation freezes
+        // the whole property back to capture pixels (including tablet layout).
+        return $this->bands($widths, $samples, $proven, $sample, false)
+            ?? $this->bands($widths, array_filter($samples, static fn(float $width): bool => $width > min($widths) && $width < max($widths)), $proven, $sample, false);
     }
 
     /**
