@@ -74,15 +74,16 @@ final class AuthorStylesheetProjector
     {
         $bridges = array();
         $navigationHosts = array();
+        $navigationRoots = $this->navigationContainerScope->navigationRootClassLists($context->emittedMarkup);
         $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody(), $this->styleResolver);
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, &$bridges, &$navigationHosts): string {
+            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, $navigationRoots, &$bridges, &$navigationHosts): string {
                 $css = $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions);
                 $css = $this->withProviderFieldWrapperHeight($prelude, $css, $context);
                 $bridge = $this->projectedLayerBridge($prelude, $css, $ancestors, $context);
                 if ( '' !== $bridge ) $bridges[$bridge] = true;
-                foreach ( $this->navigationContainerHosts($prelude, $context) as $host ) {
+                foreach ( $this->navigationContainerHosts($prelude, $context, $navigationRoots) as $host ) {
                     if ( ! in_array($host, $navigationHosts, true) ) $navigationHosts[] = $host;
                 }
                 return $css;
@@ -129,13 +130,14 @@ final class AuthorStylesheetProjector
     /**
      * Navigation wrapper hosts a source rule names (see NavigationContainerHostScope).
      *
+     * @param list<list<string>> $roots Navigation root class lists for this projection.
      * @return list<list<string>>
      */
-    private function navigationContainerHosts(string $prelude, AuthorStylesheetProjectionContext $context): array
+    private function navigationContainerHosts(string $prelude, AuthorStylesheetProjectionContext $context, array $roots): array
     {
         return $this->navigationContainerScope->hostClassSets(
             $prelude,
-            $context->emittedMarkup,
+            $roots,
             function (string $compound) use ($context): array {
                 $parsed = $context->sourceStyles->parsedSelector($compound);
                 return $parsed['supported'] ? $this->selectors->matchingSourceElements($compound, $parsed, $context) : array();
