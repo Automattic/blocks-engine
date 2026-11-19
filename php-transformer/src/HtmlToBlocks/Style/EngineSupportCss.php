@@ -429,6 +429,13 @@ final class EngineSupportCss
             // margins (notably p's 1em). Author CSS follows and remains in
             // control; synthesized boxes get their own zero-margin resets.
             $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '>*' . self::notZeroMarginBox() . '){margin-block-start:revert;margin-block-end:revert}';
+            // Native flex groups also have Core's physical margin:0 reset.
+            // Match its weight without outranking projected author margins.
+            // Emit only for markup using this contract, keeping unrelated
+            // CSS-owned flow documents' stylesheets unchanged.
+            if ( preg_match('/class="(?=[^"]*\bis-layout-flex\b)(?=[^"]*\b' . self::CSS_OWNED_FLOW_CLASS . '\b)[^"]*"/', $serializedBlocks) ) {
+                $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>:where(*' . self::notZeroMarginBox() . '){margin:revert}';
+            }
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
             // Core flow margins are not part of a source grid contract; the

@@ -143,7 +143,7 @@ final class ChromeJournal
         return hash('sha256', serialize(array(
             $this->pageDigest,
             $this->session->authorStyleAnalysis()->contextIdentity($element),
-            $element->ownerDocument?->saveHTML($element),
+            SubtreeIdentity::normalize((string) $element->ownerDocument?->saveHTML($element)),
             // Source descriptions of the subtree read its root's preceding
             // heading and its ancestors below body.
             SourceDom::nearestPreviousHeadingText($element),
@@ -181,7 +181,22 @@ final class ChromeJournal
         foreach (self::elements($element) as $index => $node) $indexes[$node] = $index;
         $encoded = self::encodeElements(array('delta' => $delta, 'fallbacks' => $fallbacks, 'block' => $block), $indexes);
         if (null === $encoded) return null;
+        $nodeIds = array();
+        foreach ($attributes as $index => $original) {
+            if (!isset($original[BoxTree::NODE_ATTRIBUTE])) continue;
+            $id = $original[BoxTree::NODE_ATTRIBUTE];
+            if ('' === $id || array_key_exists($id, $nodeIds)) return null;
+            $nodeIds[$id] = $index;
+        }
+        foreach ($element->ownerDocument->getElementsByTagName('*') as $node) {
+            if (isset($indexes[$node]) || !$node->hasAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
+            $id = $node->getAttribute(BoxTree::NODE_ATTRIBUTE);
+            if ('' === $id || array_key_exists($id, $nodeIds)) return null;
+            // References outside the recorded subtree cannot be rebased safely.
+            $nodeIds[$id] = null;
+        }
         return $encoded + array(
+            'node_ids' => $nodeIds,
             'dom' => $dom,
             'root_path' => $element->getNodePath(),
             'source_path' => $this->session->sourcePath(),
@@ -203,8 +218,19 @@ final class ChromeJournal
         $xpath = new \DOMXPath($element->ownerDocument);
         $markers = array();
         $missing = false;
-        $translate = function (mixed $value, ?string $field = null) use (&$translate, &$markers, &$missing, $journal, $elements, $rootPath, $targetPath, $offset, $xpath): mixed {
+        $nodeIds = array();
+        foreach ($journal['node_ids'] ?? array() as $id => $index) {
+            $target = null !== $index ? ($elements[$index] ?? null) : null;
+            $nodeIds[$id] = $target?->getAttribute(BoxTree::NODE_ATTRIBUTE) ?: null;
+        }
+        $nodePattern = array() === $nodeIds ? null : '~(?<![a-zA-Z0-9_-])(?:' . implode('|', array_map(static fn (string $id): string => preg_quote($id, '~'), array_keys($nodeIds))) . ')(?![a-zA-Z0-9_-])~';
+        $translate = function (mixed $value, ?string $field = null) use (&$translate, &$markers, &$missing, $journal, $elements, $rootPath, $targetPath, $offset, $xpath, $nodeIds, $nodePattern): mixed {
             if (is_string($value)) {
+                if (null !== $nodePattern) $value = preg_replace_callback($nodePattern, static function (array $match) use ($nodeIds, &$missing): string {
+                    $replacement = $nodeIds[$match[0]];
+                    if (null === $replacement) $missing = true;
+                    return $replacement ?? $match[0];
+                }, $value);
                 if ($value === $journal['source_path']) return $targetPath;
                 if (str_starts_with($value, $journal['root_path'])) $value = $rootPath . substr($value, strlen($journal['root_path']));
                 return array() === $markers ? $value : strtr($value, $markers);
@@ -227,6 +253,9 @@ final class ChromeJournal
             }
             return $translated;
         };
+        // Validate all node-id translations before allocating markers or applying state.
+        $translate(array($journal['delta'], $journal['block'], $journal['fallbacks'], $journal['dom'], $journal['allocations']));
+        if ($missing) return null;
         $analysis = $this->session->authorStyleAnalysis();
         foreach ($journal['allocations'] as [$method, $arguments, $marker]) {
             $markers[$marker] = $analysis->$method(...array_map($translate, $arguments));
@@ -241,7 +270,7 @@ final class ChromeJournal
 
         // Namespace declarations are not attributes DOM can set or remove.
         $current = self::attributes($element);
-        foreach ($journal['dom'] as $index => $attributes) {
+        foreach ($translate($journal['dom']) as $index => $attributes) {
             $node = $elements[$index];
             foreach (array_diff_key($current[$index], $attributes) as $name => $_) if (!str_starts_with($name, 'xmlns')) $node->removeAttribute($name);
             foreach ($attributes as $name => $value) if (!str_starts_with($name, 'xmlns') && ($current[$index][$name] ?? null) !== $value) $node->setAttribute($name, $value);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ChromeJournal\SubtreeIdentity;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 
 /**
@@ -16,7 +17,6 @@ final class RepeatedSubtrees
 {
     /** Smaller subtrees convert faster than a journal records. */
     private const MIN_BYTES = 2048;
-    private const MAX_DEPTH = 4;
 
     /**
      * @param array<int,array<string,mixed>> $files
@@ -28,7 +28,11 @@ final class RepeatedSubtrees
         foreach ($files as $file) {
             if ('html' !== ($file['kind'] ?? null) || HtmlFragmentIncludes::isTemplatePartFile($file) || !is_string($file['content'] ?? null)) continue;
             $body = HtmlSerialization::parseDocument($file['content'])->getElementsByTagName('body')->item(0);
-            if ($body instanceof \DOMElement) $pages[] = self::subtrees($body, 1);
+            if ($body instanceof \DOMElement) {
+                $subtrees = array();
+                self::subtrees($body, $subtrees, true);
+                $pages[] = $subtrees;
+            }
         }
         if (count($pages) < 2) return array();
         $counts = array();
@@ -51,18 +55,33 @@ final class RepeatedSubtrees
         return $selectors;
     }
 
-    /** @return array<string,string> Selector => selector and markup hash. */
-    private static function subtrees(\DOMElement $parent, int $depth): array
+    /**
+     * Hash each element once, bottom-up, without serializing its descendants again.
+     * @param array<string,string> $subtrees Selector => selector and structural hash.
+     * @return array{string,int} Structural hash and serialized byte size.
+     */
+    private static function subtrees(\DOMElement $parent, array &$subtrees, bool $body = false): array
     {
-        $subtrees = array();
+        $attributes = array();
+        foreach ($parent->attributes as $attribute) $attributes[$attribute->name] = SubtreeIdentity::normalize($attribute->name . '="' . htmlspecialchars(SubtreeIdentity::normalize($attribute->value), ENT_QUOTES) . '"');
+        $parts = array($parent->tagName, $attributes);
+        $bytes = strlen((string) $parent->ownerDocument?->saveHTML($parent->cloneNode(false)));
         foreach ($parent->childNodes as $child) {
-            if (!$child instanceof \DOMElement) continue;
-            $markup = (string) $child->ownerDocument?->saveHTML($child);
-            if (strlen($markup) < self::MIN_BYTES) continue;
-            $selector = SourceDom::elementSelector($child);
-            $subtrees[$selector] = hash('sha256', $selector . "\0" . $markup);
-            if ($depth < self::MAX_DEPTH) $subtrees += self::subtrees($child, $depth + 1);
+            if ($child instanceof \DOMElement) {
+                [$hash, $size] = self::subtrees($child, $subtrees);
+                $parts[] = $hash;
+                $bytes += $size;
+            } else {
+                $markup = SubtreeIdentity::normalize((string) $child->ownerDocument?->saveHTML($child));
+                $parts[] = array($child->nodeType, $markup);
+                $bytes += strlen($markup);
+            }
         }
-        return $subtrees;
+        $hash = hash('sha256', serialize($parts));
+        if (!$body && $bytes >= self::MIN_BYTES) {
+            $selector = SourceDom::elementSelector($parent);
+            $subtrees[$selector] = hash('sha256', $selector . "\0" . $hash);
+        }
+        return array($hash, $bytes);
     }
 }
