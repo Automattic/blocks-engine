@@ -24,14 +24,17 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * rules and kept keyframes read are closed over: every rule that defines one
  * keeps that definition. Every `@keyframes` and `@property` the kept rules
  * reach is kept. Rules whose subject names an id no emitted element carries
- * are dropped. Everything else is dropped, except `@font-face` and `@layer`
- * order statements.
+ * are dropped. The capture's device gate (rules hiding a desktop-only or
+ * mobile-only island) is kept as its bare island classes: carriers record one
+ * viewport, so only the gate hides the other island. Everything else is
+ * dropped, except `@font-face` and `@layer` order statements.
  */
 final class EvidenceRouteStateRules
 {
     private const INTERACTION = '/:(?:hover|focus|focus-visible|focus-within|active|checked|target)(?![\w-])/i';
     private const ATTRIBUTE = '\[(?:[^\]"\']|"[^"]*"|\'[^\']*\')*\]';
     private const MOTION = '/^(?:animation|view-timeline|scroll-timeline|timeline-scope)(?:-|$)/i';
+    private const DEVICE_ISLAND = '/\.(?:' . CaptureEvidence::DESKTOP_ONLY_CLASS . '|' . CaptureEvidence::MOBILE_ONLY_CLASS . ')(?![\w-])/';
 
     /** @var array<string, true> Custom properties a kept state rule defines. */
     private array $stateProperties = array();
@@ -45,6 +48,8 @@ final class EvidenceRouteStateRules
     private array $keyframes = array();
     /** @var array<string, true> Custom properties that carry an animation binding. */
     private array $motionProperties = array();
+    /** @var array<string, true> Device gate rules already kept, by condition, islands and body. */
+    private array $gates = array();
 
     /**
      * @param list<string> $stateAttributes Runtime state attributes the capture replays.
@@ -197,17 +202,58 @@ final class EvidenceRouteStateRules
     }
 
     /** @param list<array<string, mixed>> $nodes */
-    private function markState(array &$nodes): void
+    private function markState(array &$nodes, string $context = ''): void
     {
         foreach ($nodes as &$node) {
-            if ('group' === $node['type']) $this->markState($node['children']);
+            if ('group' === $node['type']) $this->markState($node['children'], $context . $node['prelude'] . '{');
             if ('style' !== $node['type']) continue;
-            $selectors = $this->reachable(array_values(array_filter(CssStylesheetTransformer::splitSelectorList($node['prelude']) ?? array(), fn(string $selector): bool => $this->isState($selector))));
+            $members = CssStylesheetTransformer::splitSelectorList($node['prelude']) ?? array();
+            $islands = $this->islands($members, $node['body']);
+            if (array() !== $islands) {
+                // The capture's device gate shows one island of a desktop/mobile
+                // pair per viewport. A carrier records one viewport's resting
+                // pose, so the gate is the only thing hiding the other island.
+                // The source hid the island element itself: its bare class
+                // states that, whatever arms delivery projected it into, once
+                // per condition across the retired sheets.
+                $key = $context . implode(',', $islands) . '{' . trim($node['body']);
+                if (isset($this->gates[$key])) continue;
+                $this->gates[$key] = true;
+                $node['keep'] = array('selectors' => $islands, 'body' => $node['body'], 'state' => true);
+                continue;
+            }
+            $selectors = $this->reachable(array_values(array_filter($members, fn(string $selector): bool => $this->isState($selector))));
             if (array() === $selectors) continue;
             $node['keep'] = array('selectors' => $selectors, 'body' => $node['body'], 'state' => true);
             foreach ($this->declarations($node['body']) as [$property]) if (str_starts_with($property, '--')) $this->stateProperties[$property] = true;
             $this->bind($node['body'], false);
         }
+    }
+
+    /**
+     * Device island classes a gate rule hides that the routes render: the
+     * rule only hides, and an island class is the subject of a member.
+     *
+     * @param list<string> $members
+     * @return list<string>
+     */
+    private function islands(array $members, string $body): array
+    {
+        $declarations = $this->declarations($body);
+        if (1 !== count($declarations) || 'display' !== strtolower($declarations[0][0]) || !preg_match('/^none\s*(?:!\s*important)?$/i', $declarations[0][1])) return array();
+        $reach = $this->reach ?? $this->markup;
+        $islands = array();
+        foreach ($members as $member) {
+            // The subject compound: the text after the last combinator
+            // outside functional pseudo-classes.
+            do $member = (string) preg_replace('/\([^()]*\)/', '', $member, -1, $count); while ($count > 0);
+            $subject = (string) preg_replace('/^.*[\s>+~]/s', '', trim($member));
+            if (!preg_match_all(self::DEVICE_ISLAND, $subject, $matches)) continue;
+            foreach ($matches[0] as $class) if ('' === $reach || str_contains($reach, substr($class, 1))) $islands[$class] = true;
+        }
+        $islands = array_keys($islands);
+        sort($islands);
+        return $islands;
     }
 
     /** @param list<array<string, mixed>> $nodes */
