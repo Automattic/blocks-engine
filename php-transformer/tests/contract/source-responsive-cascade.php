@@ -16,9 +16,9 @@ $assert(str_contains($css, '@supports(display:grid){@container(min-width:600px){
 $assert(str_contains($css, '@layer utilities{'), 'Source layers survive projection.');
 $walk = static function (array $blocks) use (&$walk, $assert): void {
     foreach ($blocks as $block) {
-        if (in_array($block['blockName'], array('core/image', 'core/embed'), true) || str_ends_with($block['blockName'], '/visual-iframe')) {
+        if (in_array($block['blockName'], array('core/image', 'core/embed'), true)) {
             foreach (array('width', 'height') as $axis) {
-                $value = $block['attrs'][$axis] ?? '';
+                $value = $block['attrs'][$axis] ?? $block['attrs']['metadata']['blocksEngineIframe'][$axis] ?? '';
                 $assert(!is_numeric($value) && !preg_match('/^\d+(?:\.\d+)?px$/', (string) $value), 'No captured pixel geometry in responsive block attributes.');
             }
         }

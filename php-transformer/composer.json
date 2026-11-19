@@ -73,6 +73,7 @@
     "test:native-button-control-font-browser": "node tests/unit/native-button-control-font-browser.mjs",
     "test:stretched-button-box-sizing-browser": "node tests/unit/stretched-button-box-sizing-browser.mjs",
     "test:form-submit-centred-carrier-browser": "node tests/unit/form-submit-centred-carrier-browser.mjs",
+    "test:inherited-alignment-lone-link-browser": "node tests/unit/inherited-alignment-lone-link-browser.mjs",
     "test:search-input-group-browser": "node tests/unit/search-input-group-browser.mjs",
     "test:sibling-link-lists-browser": "node tests/contract/sibling-link-lists-browser.mjs",
     "test:navigation-icon-reset-browser": "node tests/unit/navigation-icon-reset-browser.mjs",

@@ -61,8 +61,29 @@ final class RenderNeutralElements
     /**
      * Whether a wrapper instance carries no identity, behavior, or presentation
      * of its own, and can therefore be replaced by its children.
+     *
+     * `$allowInertPositioning` lets an offsetless `position: relative` pass
+     * for callers that have proven the wrapper is neither a containing block
+     * nor a paint layer anything depends on.
      */
-    public function isRenderNeutralWrapper(DOMElement $element, bool $stylesPrepared = true, bool $ignoreEmptyHostResets = false): bool
+    public function isRenderNeutralWrapper(DOMElement $element, bool $stylesPrepared = true, bool $ignoreEmptyHostResets = false, bool $allowInertPositioning = false): bool
+    {
+        return $this->renderNeutralWrapper($element, $stylesPrepared, $ignoreEmptyHostResets, $allowInertPositioning, true);
+    }
+
+    /**
+     * Whether a wrapper generates no box and carries nothing a descendant
+     * inherits: every matched author declaration is `display: contents` or a
+     * zero box-model reset, and no pseudo-element rule can render on it.
+     * Unlike a render-neutral wrapper, inherited text declarations count as
+     * presentation, because they live on the wrapper's own rule.
+     */
+    public function isBoxlessWrapper(DOMElement $element): bool
+    {
+        return $this->renderNeutralWrapper($element, true, true, false, false);
+    }
+
+    private function renderNeutralWrapper(DOMElement $element, bool $stylesPrepared, bool $ignoreEmptyHostResets, bool $allowInertPositioning, bool $allowInheritedText): bool
     {
         // Custom-element convention removal precedes selector preparation.
         // Keep its original conservative contract; effect-based checks belong
@@ -105,6 +126,11 @@ final class RenderNeutralElements
                 if ( $ignoreEmptyHostResets && $this->pseudoElementRuleCannotPaintEmptyHost($element, $candidate['selector']) ) {
                     continue;
                 }
+                // A pseudo-element rule whose host cannot match this wrapper
+                // cannot style it, so it does not veto neutrality.
+                if ( false === $this->pseudoElementHostMatches($element, $candidate['selector'], true) ) {
+                    continue;
+                }
                 return false;
             }
             if ($this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']) {
@@ -120,7 +146,8 @@ final class RenderNeutralElements
         }
         $inheritedText = array('white-space', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'line-height', 'letter-spacing', 'word-spacing', 'text-align', 'text-transform', 'text-indent');
         foreach ($declarations as $property => $value) {
-            if (!in_array($property, $inheritedText, true) && !('display' === $property && 'contents' === trim($value))) {
+            if (!($allowInheritedText && in_array($property, $inheritedText, true)) && !('display' === $property && 'contents' === trim($value))
+                && !($allowInertPositioning && 'position' === $property && in_array(trim(CssValueInspector::comparable($value)), array('relative', 'static'), true))) {
                 return false;
             }
         }
@@ -267,14 +294,38 @@ final class RenderNeutralElements
      */
     private function pseudoElementRuleCannotPaintEmptyHost(DOMElement $element, string $selector): bool
     {
-        if ( 1 !== preg_match('/(::?-?[a-z][a-z0-9-]*(?:\([^()]*\))?)\s*$/i', trim($selector), $suffix) ) {
+        $pseudo = $this->trailingElementPseudo($selector);
+        $matches = $this->pseudoElementHostMatches($element, $selector);
+        if ( null === $pseudo || null === $matches ) {
             return false;
         }
+        return ! $matches || ! in_array(preg_replace('/\(.*$/', '', $pseudo), array('before', 'after'), true);
+    }
+
+    /** The trailing element pseudo of a selector (`before`, `placeholder`, ...), or null. */
+    private function trailingElementPseudo(string $selector): ?string
+    {
+        if ( 1 !== preg_match('/(::?-?[a-z][a-z0-9-]*(?:\([^()]*\))?)\s*$/i', trim($selector), $suffix) ) {
+            return null;
+        }
         $pseudo = strtolower(ltrim($suffix[1], ':'));
-        $isElementPseudo = str_starts_with($suffix[1], '::')
-            || in_array($pseudo, array('before', 'after', 'first-line', 'first-letter'), true);
-        if ( ! $isElementPseudo ) {
-            return false;
+        return str_starts_with($suffix[1], '::') || in_array($pseudo, array('before', 'after', 'first-line', 'first-letter'), true)
+            ? $pseudo
+            : null;
+    }
+
+    /**
+     * Whether a trailing pseudo-element rule's host compound, with its
+     * ancestor constraints, matches this element. Null when the selector has
+     * no trailing pseudo-element or its host is outside the static matcher.
+     * With $anyState, user-action states (`:hover`) on the host may match.
+     */
+    private function pseudoElementHostMatches(DOMElement $element, string $selector, bool $anyState = false): ?bool
+    {
+        if ( 1 !== preg_match('/(::?-?[a-z][a-z0-9-]*(?:\([^()]*\))?)\s*$/i', trim($selector), $suffix)
+            || null === $this->trailingElementPseudo($selector)
+        ) {
+            return null;
         }
         $host = trim(substr(trim($selector), 0, -strlen($suffix[1])));
         if ( '' === $host || 1 === preg_match('/[\s>+~(]$/', $host) ) {
@@ -282,13 +333,9 @@ final class RenderNeutralElements
         }
         $parsed = CssSelectorMatcher::parse($host);
         if ( ! ($parsed['supported'] ?? false) ) {
-            return false;
+            return null;
         }
-        $matches = $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $host, $parsed)['matches'];
-        if ( ! $matches ) {
-            return true;
-        }
-        return ! in_array(preg_replace('/\(.*$/', '', $pseudo), array('before', 'after'), true);
+        return $this->session->sourceStyleResolutionState()->selectorMatchCache->matches($element, $host, $parsed, $anyState)['matches'];
     }
 
     /** Global box-model resets do not paint or size an otherwise empty host. */

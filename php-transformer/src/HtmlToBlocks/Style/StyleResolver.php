@@ -3104,6 +3104,53 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether an inherited `left`/`center`/`right` lifted onto $element's
+     * block only reaches the source line when that block keeps a box.
+     *
+     * The element is inline-level, in flow, and the only content of a block
+     * container's line, so the source alignment positioned the element itself
+     * inside that container. A boxless carrier (`display:contents` or
+     * `display:inline`) would hold the lifted alignment on no line box.
+     * Inline content that shares the line with siblings, and flex/grid items
+     * (blockified, so text-align never placed them), keep boxless carriers.
+     */
+    public function inheritedTextAlignmentNeedsLineBox(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement
+            || ! in_array($this->inheritedTextAlignmentDeclaration($element), array( 'left', 'center', 'right' ), true) ) {
+            return false;
+        }
+        foreach ( $parent->childNodes as $sibling ) {
+            if ( $sibling === $element || XML_COMMENT_NODE === $sibling->nodeType
+                || ( XML_TEXT_NODE === $sibling->nodeType && '' === trim($sibling->textContent ?? '') ) ) {
+                continue;
+            }
+            return false;
+        }
+        $inlineLevelTags = array( 'a', 'abbr', 'b', 'cite', 'code', 'em', 'i', 'label', 'mark', 'q', 's', 'small', 'span', 'strong', 'sub', 'sup', 'u', 'button', 'input', 'img', 'select', 'textarea' );
+        $own = $this->structuralPresentationDeclarations($element);
+        $display = CssValueInspector::comparable((string) ($own['display'] ?? ''));
+        if ( '' === $display ) {
+            $display = in_array(strtolower($element->tagName), $inlineLevelTags, true) ? 'inline' : 'block';
+        }
+        $float = CssValueInspector::comparable((string) ($own['float'] ?? ''));
+        $position = CssValueInspector::comparable((string) ($own['position'] ?? ''));
+        if ( ! in_array($display, array( 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true)
+            || ! in_array($float, array( '', 'none' ), true)
+            || in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        $parentDisplay = CssValueInspector::comparable((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? ''));
+        if ( '' === $parentDisplay ) {
+            $parentDisplay = in_array(strtolower($parent->tagName), $inlineLevelTags, true) ? 'inline' : 'block';
+        }
+
+        return in_array($parentDisplay, array( 'block', 'flow-root', 'list-item', 'table-cell' ), true)
+            && ! $this->hasConditionalStyleFamily($parent, 'layout');
+    }
+
+    /**
      * The alignment a text wrapper's GENERATED inner RichText blocks must carry
      * so the source's own alignment survives, or '' when nothing is at risk.
      *
@@ -5395,9 +5442,35 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function resolvedCascadeStyle(DOMElement $element, string $collection, float $viewportWidth = self::DESKTOP_REFERENCE_WIDTH, ?callable $excludeSelector = null, bool $inline = true): string
     {
+        $state = $this->session->sourceStyleResolutionState();
+        $style = $inline ? SourceDom::attr($element, 'style') : '';
+        // The winners depend only on the matched rules, the viewport and the
+        // inline style, so they are remembered with the matched rules. An
+        // exclusion callback is opaque and always resolves afresh.
+        $declarations = null === $excludeSelector
+            ? $state->derivedFromMatchingRules(
+                $element,
+                $collection,
+                'cascade-style' . "\0" . $viewportWidth . "\0" . $style,
+                fn (array $rules): array => $this->cascadeWinners($rules, $viewportWidth, null, $style)
+            )
+            : $this->cascadeWinners($state->matchingRules($element, $collection), $viewportWidth, $excludeSelector, $style);
+
+        return $this->cssDeclarationString(array_replace(SourceCascade::presentationalHints($element), $declarations));
+    }
+
+    /**
+     * Serialized cascade winners of matched rules at one viewport, with the
+     * inline style applied over them.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @return array<string, string>
+     */
+    private function cascadeWinners(array $rules, float $viewportWidth, ?callable $excludeSelector, string $inlineStyle): array
+    {
         $cascade = array();
         $sequence = 0;
-        foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, $collection) as $rule ) {
+        foreach ( $rules as $rule ) {
             if ( ( ! empty($rule['conditions']) && ! $this->cascade->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) )
                 || ( null !== $excludeSelector && $excludeSelector((string) $rule['selector']) )
             ) {
@@ -5410,7 +5483,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        foreach ( SourceDeclarations::parse($inline ? SourceDom::attr($element, 'style') : '') as $property => $value ) {
+        foreach ( SourceDeclarations::parse($inlineStyle) as $property => $value ) {
             $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), ++$sequence);
         }
 
@@ -5427,7 +5500,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        return $this->cssDeclarationString(array_replace(SourceCascade::presentationalHints($element), $declarations));
+        return $declarations;
     }
 
     /**
@@ -7049,17 +7122,76 @@ final class StyleResolver implements ElementPresentationResolver
     /** Evidence of generated text painted with a captured webfont, not a vendor class convention. */
     public function hasBeforeFontGlyph(DOMElement $element): bool
     {
+        return null !== $this->beforeFontGlyphFamily($element);
+    }
+
+    /**
+     * The `@font-face` family that paints the element's generated `::before`
+     * text, read from the cascade-winning pseudo-element declarations and
+     * falling back to the element's own family, which the pseudo inherits.
+     */
+    public function beforeFontGlyphFamily(DOMElement $element): ?string
+    {
         $families = $this->authorFontFaceFamilies();
-        if (array() === $families) return false;
-        foreach ($this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule) {
-            if ('before' !== ($rule['pseudo'] ?? '') || !$this->session->sourceStyleResolutionState()->matches($element, $rule['selector'])) continue;
-            $declarations = $rule['declarations'];
-            $content = trim((string) ($declarations['content'] ?? ''));
-            if (!preg_match('/^([\'"]).+\1$/s', $content)) continue;
-            $family = (string) ($declarations['font-family'] ?? $this->resolvedSvgCascadeValue($element, 'font-family') ?? '');
-            foreach (CssFontFamily::names($family) as $name) {
-                if (isset($families[strtolower($name)])) return true;
+        if (array() === $families) return null;
+        $declarations = $this->beforePseudoDeclarations($element);
+        if (!preg_match('/^([\'"]).+\1$/s', trim($declarations['content'] ?? ''))) return null;
+        $family = $declarations['font-family'] ?? trim(preg_replace('/\s*!\s*important\s*$/i', '', (string) $this->resolvedSvgCascadeValue($element, 'font-family')) ?? '');
+        foreach (CssFontFamily::names($family) as $name) {
+            if (isset($families[strtolower($name)])) return $family;
+        }
+        return null;
+    }
+
+    /**
+     * Cascade-winning `::before` declarations at the desktop reference
+     * viewport: importance, then specificity, then source order.
+     *
+     * @return array<string, string> Values without their `!important` flag.
+     */
+    public function beforePseudoDeclarations(DOMElement $element): array
+    {
+        $state = $this->session->sourceStyleResolutionState();
+        $entries = array();
+        $order = 0;
+        foreach ($state->pseudoElementRules() as $rule) {
+            ++$order;
+            if ('before' !== ($rule['pseudo'] ?? '') || !$state->matches($element, (string) $rule['selector'])) continue;
+            if (!empty($rule['conditions']) && !$this->cascade->conditionsApplyAtViewport($rule['conditions'], self::DESKTOP_REFERENCE_WIDTH)) continue;
+            $specificity = $this->cascade->specificity((string) $rule['selector']);
+            foreach ($rule['declarations'] as $property => $value) {
+                $entries[] = SourceCascade::entry(strtolower((string) $property), (string) $value, false, $specificity, $order, null);
             }
+        }
+        usort($entries, static fn (array $left, array $right): int => CssCascade::wins($left, $right)
+            ? (CssCascade::wins($right, $left) ? 0 : 1) : -1);
+        $declarations = array();
+        foreach ($entries as $entry) {
+            $declarations[$entry['property']] = trim(preg_replace('/\s*!\s*important\s*$/i', '', $entry['value']) ?? $entry['value']);
+        }
+        return $declarations;
+    }
+
+    /**
+     * Whether the author cascade paints real generated content on this
+     * element's `::before` or `::after`: the winning `content` declaration,
+     * by specificity then source order, draws something other than nothing.
+     */
+    public function paintsGeneratedContent(DOMElement $element): bool
+    {
+        $state = $this->session->sourceStyleResolutionState();
+        $winners = array();
+        foreach (array_values($state->pseudoElementRules()) as $order => $rule) {
+            $pseudo = (string) ($rule['pseudo'] ?? '');
+            $content = $rule['declarations']['content'] ?? null;
+            if (!is_string($content) || !in_array($pseudo, array('before', 'after'), true) || !$state->matches($element, (string) $rule['selector'])) continue;
+            $rank = array(CssSelectorMatcher::specificity(CssSelectorMatcher::parse((string) $rule['selector'])), $order);
+            if (!isset($winners[$pseudo]) || $rank >= $winners[$pseudo]['rank']) $winners[$pseudo] = array('rank' => $rank, 'content' => $content);
+        }
+        foreach ($winners as $winner) {
+            $content = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', trim($winner['content']))));
+            if (in_array($content, array('', 'none', 'normal', 'initial', 'unset', 'revert', 'inherit', '""', "''", 'open-quote', 'close-quote', 'no-open-quote', 'no-close-quote'), true)) continue;
+            return true;
         }
         return false;
     }

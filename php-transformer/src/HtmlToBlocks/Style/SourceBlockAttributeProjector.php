@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextLanguageDirection;
 use DOMElement;
 
 /** Projects source identities and structural carriers onto canonical block attributes. */
@@ -163,6 +164,11 @@ final class SourceBlockAttributeProjector
         $attrs = $this->withGroupSourceSemantics($name, $attrs, $sourceElement);
         $attrs = $this->withSocialAnchorIdentity($name, $attrs, $sourceElement, $sourceTagName, $context);
         $attrs = $this->withGlobalZeroBoxes($name, $attrs, $sourceElement, $context);
+        // An inline source element's own lang/dir already rides in the
+        // RichText it is part of; only the text element's own box adds it.
+        if ( ! $facts->isInlineSourceElement ) {
+            $attrs = RichTextLanguageDirection::apply($name, $attrs, $sourceElement);
+        }
         return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
     }
 
@@ -323,6 +329,13 @@ final class SourceBlockAttributeProjector
                 // display:contents would discard its margin/paint/geometry.
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SOURCE_BOX_PARAGRAPH_CLASS);
             }
+            // The carrier holds the wrapper's lifted alignment for a line it
+            // fills alone. Boxless, that alignment would apply to no line box.
+            $alignedLineBox = in_array($attrs['style']['typography']['textAlign'] ?? '', array( 'left', 'center', 'right' ), true)
+                && $this->styleResolver->inheritedTextAlignmentNeedsLineBox($sourceElement);
+            if ( $alignedLineBox ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SOURCE_BOX_PARAGRAPH_CLASS);
+            }
             if ( 'a' === $sourceTagName && $this->sourceAnchorHasNoTextDecoration($sourceElement) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
             }
@@ -333,7 +346,8 @@ final class SourceBlockAttributeProjector
                 $presentation = $this->styleResolver->structuralPresentationDeclarations($sourceElement);
                 $display = CssValueInspector::comparable((string) ($presentation['display'] ?? ''));
                 $float = CssValueInspector::comparable((string) ($presentation['float'] ?? ''));
-                if ( in_array($display, array('', 'inline'), true)
+                if ( ! $alignedLineBox
+                    && in_array($display, array('', 'inline'), true)
                     && in_array($float, array('', 'none'), true)
                     && ! $this->isDirectChildOfAuthorOwnedLayout($sourceElement)
                     && $this->anchorPrecedesBlock($sourceElement) ) {

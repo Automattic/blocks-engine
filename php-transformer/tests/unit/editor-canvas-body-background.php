@@ -79,6 +79,16 @@ foreach (array(
     }
 }
 
+// #6513: a stray top-level `}` after the author's body reset invalidates only
+// the rule that follows it, so body{margin:0} is still seen and no 8px UA
+// margin is restored over it.
+$stray = (new HtmlTransformer())->transform(
+    '<!doctype html><html><head><style>body{margin:0}}.stray{color:red}.bar{background:#111f38;color:#fff;padding:12px}</style></head>'
+    . '<body><div class="bar">Call 346-336-6686</div><p class="stray">Hello</p></body></html>'
+)->toArray();
+$strayCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($stray['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? ''))));
+$assert(! str_contains($strayCss, 'body,body.editor-styles-wrapper{margin-'), 'a stray brace after body{margin:0} does not hide the author margin reset');
+
 // #5686: a source that paints its canvas on html keeps a transparent body, so
 // a fixed z -1 body::before backdrop shows above the canvas instead of under
 // the theme background core paints on body. Any body background, class-bound
