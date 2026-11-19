@@ -51,6 +51,8 @@ final class AuthorStylesheetProjector
     /** Projects source selectors onto the block markup they convert to. */
     private readonly AuthorSelectorProjector $selectors;
 
+    private readonly NavigationContainerHostScope $navigationContainerScope;
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer,
@@ -59,6 +61,7 @@ final class AuthorStylesheetProjector
     ) {
         $this->buttonDeclarationRouting = new ButtonDeclarationRouting($styleResolver, $semanticPreparer);
         $this->selectors = new AuthorSelectorProjector($styleResolver, $semanticPreparer);
+        $this->navigationContainerScope = new NavigationContainerHostScope();
     }
 
     /**
@@ -744,7 +747,17 @@ final class AuthorStylesheetProjector
 
         $css .= $this->editorOverrideRules($css, $context);
 
-        return $css . $this->editorShellChildCombinatorVariants($css, $context->emittedMarkup) . $this->editorEmptyRichTextVariants($css);
+        $css .= $this->editorShellChildCombinatorVariants($css, $context->emittedMarkup) . $this->editorEmptyRichTextVariants($css);
+
+        return $this->navigationContainerScope->scope(
+            $css,
+            $prelude,
+            $context->emittedMarkup,
+            function (string $compound) use ($context): array {
+                $parsed = $context->sourceStyles->parsedSelector($compound);
+                return $parsed['supported'] ? $this->selectors->matchingSourceElements($compound, $parsed, $context) : array();
+            }
+        );
     }
 
     /**

@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-table-cell-responsive-navigation-host",
-  "description": "A menu wrapper laid out as a `display:table-cell` lowers onto a responsive core/navigation root (the source has a mobile menu toggle). Core's global `body .is-layout-flex{display:flex}` (0,1,1) outranks the author's `.nav{display:table-cell}` (0,1,0), so the host left the table row, its `width:50%` resolved against an anonymous cell and the seven links wrapped onto two rows (header 76px to 112px at 1440px). The host restates only the table-cell display at the author rule's position; the source's collapse-range `display:none` is not lifted, so Core's open button still shows.",
+  "description": "A menu wrapper laid out as a `display:table-cell` lowers onto a responsive core/navigation root (the source has a mobile menu toggle). Core's global `body .is-layout-flex{display:flex}` (0,1,1) outranks the author's `.nav{display:table-cell}` (0,1,0), so the host left the table row, its `width:50%` resolved against an anonymous cell and the seven links wrapped onto two rows (header 76px to 112px at 1440px). The host restates only the table-cell display at the author rule's position; the source's collapse-range `display:none` is not lifted, so Core's open button still shows. Core also renders the navigation className on its inner `ul.wp-block-navigation__container`, so the wrapper's box rules (`.nav{width:50%}`, the table-cell display) must exclude that duplicated list; otherwise the list is sized a second time inside the host (half its width) and the items wrap.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-table-cell-responsive-navigation-host.json",
@@ -34,7 +34,22 @@
     {
       "path": "source_reports.author_stylesheet_projections.0.content",
       "assert": "contains",
-      "value": ".logo,.nav,.extras{ display: table-cell; vertical-align: middle; }:root .wp-block-navigation.nav{display:table-cell}"
+      "value": ".logo,.nav,.extras{vertical-align: middle}.logo,.nav:not(:where(.wp-block-navigation__container)),.extras{display: table-cell}:root .wp-block-navigation.nav:not(:where(.wp-block-navigation__container)){display:table-cell}"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "contains",
+      "value": ".nav {text-align: center}.nav:not(:where(.wp-block-navigation__container)){width: 50%}"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "not_contains",
+      "value": ".nav { width: 50%"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "contains",
+      "value": "@media (max-width: 768px) {.nav:not(:where(.wp-block-navigation__container)){display: none}"
     },
     {
       "path": "source_reports.author_stylesheet_projections.0.content",
