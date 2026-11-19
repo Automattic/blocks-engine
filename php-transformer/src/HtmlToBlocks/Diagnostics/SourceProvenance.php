@@ -34,7 +34,7 @@ final class SourceProvenance
             'tag'               => strtolower($element->tagName),
             'selector'          => SourceDom::elementSelector($element),
             'source_attributes' => $this->safeSourceAttributes($element),
-            'source_fragment'   => $this->safeSourceFragment($element),
+            'source_fragment'   => $this->safeSourceFragment($sourceHtml),
             'source_digest'     => hash('sha256', $sourceHtml),
             'source_bytes'      => strlen($sourceHtml),
             'source_path'       => $this->session->transformationProvenanceState()->fallback()['source'] ?? '',
@@ -141,9 +141,9 @@ final class SourceProvenance
         return $safe;
     }
 
-    private function safeSourceFragment(DOMElement $element): string
+    /** @param string $html The element's {@see SourceDom::safeFallbackHtml()}, serialized once per entry. */
+    private function safeSourceFragment(string $html): string
     {
-        $html = SourceDom::safeFallbackHtml($element, $this->session->authorSelectorProjectionState()->tagMarkers());
         $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
         $html = preg_replace('/\s+(href|src)\s*=\s*("\s*javascript:[^"]*"|\'\s*javascript:[^\']*\'|javascript:[^\s>]+)/i', '', $html) ?? '';
 

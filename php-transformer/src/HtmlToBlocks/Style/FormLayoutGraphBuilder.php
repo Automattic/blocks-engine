@@ -54,6 +54,17 @@ final class FormLayoutGraphBuilder
     /** Custom-property resolution over {@see $selectorCache}; replaced with it at every build(). */
     private FormCustomPropertyResolver $customProperties;
 
+    private static int $builds = 0;
+
+    /**
+     * Layout graphs built since process start; observable for tests. A form
+     * dispatch shares each of its graphs between readers (#6752).
+     */
+    public static function builds(): int
+    {
+        return self::$builds;
+    }
+
     /** @param list<DOMElement>|null $controlElements Explicit inventory in metadata row order. */
     public function __construct(private readonly ?array $controlElements = null)
     {
@@ -68,6 +79,7 @@ final class FormLayoutGraphBuilder
      */
     public function build(DOMElement $form, array $stylesheets, string $inlineCss = '', ?array &$structure = null): array
     {
+        ++self::$builds;
         $this->diagnostics = array();
         $this->truncated = false;
         // One match memo per build: the layout analyses and both presentation
@@ -154,11 +166,10 @@ final class FormLayoutGraphBuilder
                 $ancestorVisits[$id] = $ancestor;
             }
         }
-        $ancestorVisits = array_values($ancestorVisits);
-        // A selector whose subject needs an id, class or tag no element
-        // carries is a supported non-match for all of them; skip the walk.
-        $scopeSubjects = $selectorCache->subjectTokens($scopeElements);
-        $ancestorSubjects = $selectorCache->subjectTokens($ancestorVisits);
+        // Each selector is matched only against the elements carrying its
+        // rightmost compound's key.
+        $scopeIndex = $selectorCache->subjectElementIndex($scopeElements);
+        $ancestorIndex = $selectorCache->subjectElementIndex(array_values($ancestorVisits));
         $analysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
@@ -167,18 +178,7 @@ final class FormLayoutGraphBuilder
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
-            static function (array $selector, string $selectorText) use ($scopeElements, $scopeSubjects, $selectorCache): bool {
-                if ( ! $selectorCache->subjectMayMatch($selector, $scopeSubjects) ) {
-                    return false;
-                }
-                foreach ( $scopeElements as $element ) {
-                    $match = $selectorCache->matches($element, $selectorText, $selector);
-                    if ( ! $match['supported'] || $match['matches'] ) {
-                        return true;
-                    }
-                }
-                return false;
-            },
+            static fn (array $selector, string $selectorText): bool => $selectorCache->anySubjectMatches($scopeIndex, $selectorText, $selector, true),
             CssAnalysisLimits::MAX_SCANNED_SELECTORS
         );
         $this->diagnostics = array_merge($this->diagnostics, $analysis['diagnostics']);
@@ -191,17 +191,7 @@ final class FormLayoutGraphBuilder
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
-            static function (array $selector, string $selectorText) use ($ancestorVisits, $ancestorSubjects, $selectorCache): bool {
-                if ( ! $selectorCache->subjectMayMatch($selector, $ancestorSubjects) ) {
-                    return false;
-                }
-                foreach ( $ancestorVisits as $ancestor ) {
-                    if ( $selectorCache->matches($ancestor, $selectorText, $selector)['matches'] ) {
-                        return true;
-                    }
-                }
-                return false;
-            },
+            static fn (array $selector, string $selectorText): bool => $selectorCache->anySubjectMatches($ancestorIndex, $selectorText, $selector, false),
             CssAnalysisLimits::MAX_SCANNED_SELECTORS
         );
         $this->diagnostics = array_merge($this->diagnostics, $customPropertyAnalysis['diagnostics']);

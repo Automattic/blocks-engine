@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ImageDimensionResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ImageUrlResolver;
@@ -68,6 +69,25 @@ final class MediaPatternContext
     public function mediaTextStyle(DOMElement $element): string { return $this->styleResolver->mediaTextPresentationStyle($element); }
     /** Whether a media/container-conditional rule varies the element's min-height. */
     public function hasConditionalMinHeight(DOMElement $element): bool { return array() === $this->styleResolver->classOwnedResponsiveDeclarations($element, array( 'min-height' => '0' )); }
+    /**
+     * Whether the source sizes the box by `aspect-ratio` or an explicit
+     * `height` at some viewport while declaring no `min-height` at any.
+     */
+    public function isSizedWithoutMinHeight(DOMElement $element): bool
+    {
+        $values = $this->styleResolver->authorDeclaredValuesAtAnyViewport($element, array( 'aspect-ratio', 'height', 'min-height' ));
+        if ( isset($values['min-height']) ) {
+            return false;
+        }
+        foreach ( array( 'aspect-ratio', 'height' ) as $property ) {
+            foreach ( $values[$property] ?? array() as $value ) {
+                if ( ! in_array(CssValueInspector::comparable($value), array( '', 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
     /** @return array<string, string> */
     public function presentationDeclarations(DOMElement $element): array { return $this->styleResolver->resolvedPresentationDeclarations($element); }
     public function documentRootFontSize(DOMElement $element): ?float { return $this->styleResolver->documentRootFontSize($element); }

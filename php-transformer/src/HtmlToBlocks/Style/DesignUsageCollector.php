@@ -601,6 +601,7 @@ final class DesignUsageCollector
      * the reason when the value cannot be bound: `!important`, `!transparent` (paints nothing), `!state` (a `:hover`/`:focus` style changes it),
      * `!breakpoint` (a media condition changes it in a way an observation
      * cannot record, or it reads a custom property one redefines) or
+     * `!context` (the winning selector is not an element-local class recipe),
      * `!value` (not a plain colour, absolute length or family stack). A
      * font size relative to the parent's (`inherit`, `unset`, `em`, `%`,
      * `smaller`, `larger`) carries the parent's `!breakpoint` when a media
@@ -620,7 +621,14 @@ final class DesignUsageCollector
             'font-size' => isset($declarations['font-size']) ? $this->fontSizeObservation($declarations['font-size'], $parentPx) : '',
             'font-family' => isset($declarations['font-family']) ? self::familyObservation($declarations['font-family']) : '',
         ) + $this->paddingObservations($declarations, $fontPx);
+        $origins = $this->resolver->classRecipeOrigins($element);
+        $paddingOrigins = $this->paddingObservations($origins, $fontPx);
         foreach ($resting as $property => $observation) {
+            $origin = match ($property) {
+                'background-color' => $origins['background-color'] ?? $origins['background'] ?? '!context',
+                default => $paddingOrigins[$property] ?? $origins[$property] ?? '!context',
+            };
+            if ('' !== $observation && '!context' === $origin) $observation = '!context';
             if ('' !== $observation && !str_starts_with($observation, '!')) $observation = $this->withVariants($element, $property, $observation, $parentPx);
             if ('' !== $observation && !str_starts_with($observation, '!') && $this->readsConditionalVariable($element, $property)) $observation = '!breakpoint';
             if ('font-size' === $property && $parentSizeConditional && '' !== $observation && !str_starts_with($observation, '!') && self::parentRelativeFontSize($declarations['font-size'])) $observation = '!breakpoint';
@@ -786,7 +794,7 @@ final class DesignUsageCollector
             $important = 1 === preg_match('/!\s*important\s*$/i', $value);
             foreach ($physical as $index => $side) {
                 $px = $important || !isset($values[$index]) ? null : CssLength::toPx((string) $values[$index], $this->rootPx, $fontPx);
-                $sides[$side] = match (true) { $important => '!important', null === $px => '!value', default => CssLength::format($px) };
+                $sides[$side] = match (true) { $important => '!important', '!context' === $value => '!context', null === $px => '!value', default => CssLength::format($px) };
             }
         }
         $observations = array();

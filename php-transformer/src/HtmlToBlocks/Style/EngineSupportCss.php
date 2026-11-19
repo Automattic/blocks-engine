@@ -183,6 +183,12 @@ final class EngineSupportCss
                 // the anchor fill the figure so the image resolves against it.
                 . ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.blocks-engine-linked-image-figure)>a{display:block;width:100%;height:100%}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS) ) {
+            // The converse of a layer fill image: a later positioned layer
+            // paints over an in-flow fill image. Put that layer in editor flow
+            // after the image, so a click on the image reaches the image block.
+            $parts[] = ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS . '~.block-editor-block-list__block{position:static!important;inset:auto!important}';
+        }
         if ( str_contains($serializedBlocks, RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS) ) {
             // Saved, an empty source text block is an empty element with no line
             // box. In the editor, RichText fills it with a padding character and
@@ -605,6 +611,13 @@ final class EngineSupportCss
                 . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-8>.wp-block-image{width:calc((100% - 7 * ' . $gap . ') / 8) !important}'
                 . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.is-cropped>.wp-block-image img{aspect-ratio:1;height:auto;object-fit:cover;width:100%}';
         }
+        if ( str_contains($serializedBlocks, LayoutTableLowering::LAYOUT_TABLE_ROOT_CLASS) ) {
+            // A lowered table root stays a block formatting context, as the
+            // source table was: it moves below a float it cannot fit beside
+            // instead of squeezing its columns into the space next to it.
+            // Zero specificity: Core layout displays and author CSS still win.
+            $parts[] = ':where(.wp-block-group.' . LayoutTableLowering::LAYOUT_TABLE_ROOT_CLASS . '){display:flow-root}';
+        }
         if ( str_contains($serializedBlocks, self::LAYOUT_TABLE_COLUMNS_CLASS) ) {
             $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . ':not(:where(.blocks-engine-layout-table-table,.blocks-engine-layout-table-row)){display:flex;flex-wrap:nowrap;gap:0;box-sizing:border-box}'
                 . "\n" . ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column:not(:where(.blocks-engine-layout-table-cell)){box-sizing:border-box;min-width:0}'
@@ -905,6 +918,10 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, CoverPattern::CONSUMED_BACKGROUND_CLASS) ) {
             $parts[] = ':root .wp-block-cover.' . CoverPattern::CONSUMED_BACKGROUND_CLASS . '{background-image:none!important}';
+        }
+        if ( str_contains($serializedBlocks, CoverPattern::SOURCE_SIZED_CLASS) ) {
+            // The authored aspect-ratio/height sizes the hero, not core's 430px floor.
+            $parts[] = ':root .wp-block-cover.' . CoverPattern::SOURCE_SIZED_CLASS . '{min-height:0}';
         }
         if ( str_contains($serializedBlocks, CoverPattern::FILL_CLASS) ) {
             $fill = ':root .wp-block-cover.' . CoverPattern::FILL_CLASS . '>.wp-block-cover__inner-container';
