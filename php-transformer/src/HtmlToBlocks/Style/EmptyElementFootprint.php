@@ -107,6 +107,18 @@ final class EmptyElementFootprint
         return false;
     }
 
+    /**
+     * Whether an element that renders nothing still takes a share of its
+     * parent's layout: a sized table cell, or a sized or growing flex item.
+     * Reads the element's cascaded declarations (every matching rule in
+     * cascade order, then inline style), so a slot assembled from separate
+     * rules counts the same as one declared in a single rule.
+     */
+    public function reservesLayoutSlot(DOMElement $element): bool
+    {
+        return $this->isEmptyLayoutItemSpacer($element);
+    }
+
     private function isEmptyLayoutItemSpacer(DOMElement $element): bool
     {
         $parent = $element->parentNode;
