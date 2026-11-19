@@ -2616,7 +2616,8 @@ final class PresetBinding
      * preset variable (`var:preset|color|primary`, which core serializes as
      * `var(--wp--preset--color--primary)`). Unlike a preset class this adds
      * no `!important` and keeps the declaration where it was, so it renders
-     * exactly as before until the token changes in Global Styles.
+     * exactly as before until the token changes in Global Styles. Font sizes
+     * use the CSS variable form in attributes too, for core's editor hook.
      *
      * @param list<array{0:string,1:string}> $declarations
      */
@@ -2625,7 +2626,9 @@ final class PresetBinding
         if ('color' === $kind && null === CssColor::parse($this->resolve($literal))) return false;
         $type = 'color' === $kind ? 'color' : $kind;
         if (!self::replaceDeclaration($declarations, $property, $literal, 'var(--wp--preset--' . $type . '--' . $slug . ')')) return false;
-        $group->{$key} = 'var:preset|' . $type . '|' . $slug;
+        // Core's editor passes custom font sizes straight to inline CSS;
+        // its internal preset syntax is only resolved by frontend serialization.
+        $group->{$key} = 'font-size' === $kind ? 'var(--wp--preset--font-size--' . $slug . ')' : 'var:preset|' . $type . '|' . $slug;
         return true;
     }
 
