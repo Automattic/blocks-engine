@@ -102,22 +102,6 @@ final class ButtonPatternContext
      */
     public function isUnconditionalFlexRow(DOMElement $element): bool
     {
-        return $this->hasUnconditionalStaticDisplay($element, array( 'flex' ));
-    }
-
-    /**
-     * Whether the element is a statically positioned box that no breakpoint
-     * takes out of the normal block flow: it declares no display of its own
-     * (a `div`'s initial `block`) or `display:block` everywhere.
-     */
-    public function isUnconditionalBlockBox(DOMElement $element): bool
-    {
-        return $this->hasUnconditionalStaticDisplay($element, array( '', 'block' ));
-    }
-
-    /** @param list<string> $accepted Comparable display values; '' accepts an undeclared display. */
-    private function hasUnconditionalStaticDisplay(DOMElement $element, array $accepted): bool
-    {
         if ( ! $this->styleResolver instanceof StyleResolver ) {
             return false;
         }
@@ -125,7 +109,7 @@ final class ButtonPatternContext
         $declared = $this->styleResolver->declaredPresentation($element, 'display');
         $displays = null === $inline ? array_merge(array( $declared->base() ), array_values($declared->conditional())) : array( $inline );
         foreach ( $displays as $display ) {
-            if ( ! in_array(CssValueInspector::comparable($this->styleResolver->customProperties->resolve((string) $display, $element)), $accepted, true) ) {
+            if ( 'flex' !== CssValueInspector::comparable($this->styleResolver->customProperties->resolve((string) $display, $element)) ) {
                 return false;
             }
         }

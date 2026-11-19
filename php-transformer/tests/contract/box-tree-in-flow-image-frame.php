@@ -75,6 +75,9 @@ $assert(2 === count(array_keys($names, 'group', true)), 'Only the card and its b
 $assert(1 === preg_match('/<!-- wp:image \{[^}]*"className":"[^"]*\bframe\b/', $filled), 'The image block\'s figure carries the frame\'s classes.');
 $assert(str_contains($filled, 'alt="Set lunch"'), 'The image keeps its own description.');
 $assert(str_contains($filled, 'transform:scale(1.05)'), 'The image keeps its own hover zoom inside the clipping figure.');
+// No author selector names div. Lowering one frame must not opt every div
+// into tag projection: that also changes unrelated Groups and shared CSS.
+$assert(!str_contains($filled, 'blocks-engine-source-div-'), 'Image-frame lowering does not allocate a site-wide div projection marker.');
 
 $inset = $compile(8);
 $assert(3 === count(array_keys($blockNames(strstr($inset, "\n", true)), 'group', true)) && 1 === preg_match('/<!-- wp:group \{[^}]*"className":"frame/', $inset), 'An image inset within its frame keeps the frame as its own box.');

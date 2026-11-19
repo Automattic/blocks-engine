@@ -54,7 +54,6 @@ final class InFlowImageFrameLowering
         if (null === $image) {
             return null;
         }
-        $this->session->authorSelectorProjectionState()->ensureTagMarker(strtolower($frame->tagName));
         $block = $this->imageLowering->convertImage($image, $frame);
 
         return null !== $block && 'core/image' === ($block['blockName'] ?? null) ? $block : null;
