@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -485,14 +487,19 @@ final class ReadableFormBlockBuilder
      * attribute is a presence marker: when no stylesheet, script or runtime
      * selector tests for it, it is inert, so dropping it loses nothing and
      * needs no generated block to keep it. A data attribute with a value
-     * carries data a Group cannot hold, so it keeps the shell.
+     * carries data a Group cannot hold, so it keeps the shell, except the
+     * capture hooks every materialized block restores on its root. An inline
+     * style is projected onto the Group's presentation like any flow
+     * container's, but a custom property it declares for descendants is not,
+     * so that one keeps the shell.
      */
     private function hasNativeContainerAttributes(DOMElement $element): bool
     {
         foreach ($element->attributes as $attribute) {
             $name = strtolower($attribute->name);
             if (in_array($name, array('class', 'id', BoxTree::NODE_ATTRIBUTE), true)
-                || ('style' === $name && '' === trim($attribute->value))) {
+                || in_array($name, CaptureEvidence::BLOCK_ROOT_ATTRIBUTES, true)
+                || ('style' === $name && array() === CssRuleAnalyzer::customProperties($attribute->value))) {
                 continue;
             }
             if (str_starts_with($name, 'data-')

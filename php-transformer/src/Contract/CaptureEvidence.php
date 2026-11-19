@@ -88,6 +88,12 @@ final class CaptureEvidence
     public const RESPONSIVE_CLASS_PREFIX = 'data-blocks-engine-capture-responsive-class-';
     /** Authored fragment shared by responsive target copies; ids remain variant-specific. */
     public const RESPONSIVE_FRAGMENT = 'data-blocks-engine-capture-responsive-fragment';
+    /**
+     * Capture presentation hooks every materialized block carries as runtime
+     * attributes; the render filter restores them on its root, so an element
+     * holding them needs no generated block to keep them.
+     */
+    public const BLOCK_ROOT_ATTRIBUTES = array(self::DEVICE_INLINE, self::DEVICE_CLASS, self::VIEWPORT_ENTRANCE, self::RESPONSIVE_FRAGMENT);
     /** Marks the capture's responsive-fragment resolver script; the theme ships its own runtime. */
     public const RESPONSIVE_FRAGMENT_RESOLVER = 'data-blocks-engine-capture-responsive-fragments';
     /** Source identity of a responsive counterpart element. */
