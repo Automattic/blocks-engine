@@ -1743,7 +1743,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
-     * Carry a source list that stacks block items onto core's flow layout.
+     * Carry a source list that stacks block items onto core's stacked layout.
      *
      * An in-flow list navigation renders its generated list as
      * `display:contents`, so the items lay out in the navigation host. With no
@@ -1755,7 +1755,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      * `.item{display:flex}`, as it does in the browser). Floated
      * block items still need flow: a flex row ignores the float that the
      * projected item rule carries. UA-only floated items keep the existing
-     * horizontal output rather than being mistaken for a stack.
+     * horizontal output rather than being mistaken for a stack. An explicitly
+     * block-displayed list uses a vertical, non-wrapping flex layout because its
+     * list-box projection maps the authored display onto the native flex root.
      *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
@@ -1770,10 +1772,12 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $items = 0;
+        $floated = false;
         foreach ( $list->childNodes as $child ) {
             if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
                 continue;
             }
+            $floated = $floated || $navigationContext->isFloated($child);
             $itemDisplay = $navigationContext->cascadeDisplay($child);
             if ( '' === $itemDisplay && $navigationContext->isFloated($child) ) {
                 return $attrs;
@@ -1785,7 +1789,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         if ( 0 < $items ) {
-            $attrs['layout'] = array( 'type' => 'default' );
+            // The list-box projector maps authored block display to flex.
+            // Keep that box vertical; floated items still require flow.
+            $attrs['layout'] = ! $floated && in_array($navigationContext->cascadeDisplay($list), array( 'block', 'flow-root' ), true)
+                ? array( 'type' => 'flex', 'orientation' => 'vertical', 'flexWrap' => 'nowrap' )
+                : array( 'type' => 'default' );
         }
 
         return $attrs;
