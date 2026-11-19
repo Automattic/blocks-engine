@@ -1111,11 +1111,9 @@ final class SharedChromeStylesheets
                 }
             }
         }
-        // Engine support sheets hold the engine's own per-element projection,
-        // never the author cascade that keeps a chrome element's hooks in one
-        // stylesheet. A marker only the parts carry names the part's element
-        // alone: its support rules follow the part to every route rendering
-        // it, even when the element's authored hooks stay on the route.
+        // Responsive display must follow a part even when its authored hooks
+        // stay route-owned. Other support declarations still compete with the
+        // authored cascade and must not move to a later shared stylesheet.
         $supportClasses = array_diff_key($classes, $routeHooks['content_marker']);
         $classes = array_diff_key($classes, $routeHooks['marker']);
         unset($routeHooks['marker'], $routeHooks['content_marker']);
@@ -1186,13 +1184,25 @@ final class SharedChromeStylesheets
                 continue;
             }
             $support = 'engine-support' === ($asset['source'] ?? null);
-            $assetClassMatcher = $support ? $supportClassMatcher : $classMatcher;
-            $shared = self::sharedChromeRules($asset['content'], $support ? $supportLiftsToChrome : $liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $assetClassMatcher);
+            $content = $asset['content'];
+            $displayShared = null;
+            if ($support) {
+                // Split by declaration, not by element: lifting an element's
+                // typography, spacing or paint here changes its cascade order.
+                $display = self::displayDeclarations($content, true);
+                $displayShared = self::sharedChromeRules($display, $supportLiftsToChrome, $reanchor, array(), $liveElementMarkers, $supportClassMatcher);
+                if (null !== $displayShared) {
+                    $content = self::displayDeclarations($content, false)
+                        . self::routeRules($display, $supportTargetsChrome, $supportClassMatcher);
+                }
+            }
+            $shared = self::sharedChromeRules($content, $liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher);
+            if (null !== $displayShared) $shared = ($shared ?? '') . $displayShared;
             if (null === $shared) {
                 $keep($asset);
                 continue;
             }
-            $route = self::withoutSharedKeyframes(self::routeRules($asset['content'], $support ? $supportTargetsChrome : $targetsChrome, $assetClassMatcher), $shared);
+            $route = self::withoutSharedKeyframes(self::routeRules($content, $targetsChrome, $classMatcher), $shared);
             $contract = self::sharedChromeContract($asset);
             $sharedAsset = self::sharedChromeAsset($asset, $shared, $contract, $routeClasses);
             $shared = (string) $sharedAsset['content'];
@@ -1490,12 +1500,7 @@ final class SharedChromeStylesheets
         return $result;
     }
 
-    /**
-     * The stylesheet without the alternatives lifted into shared chrome.
-     *
-     * @param callable(string):bool $targetsChrome
-     * @param array<string,mixed> $classMatcher
-     */
+    /** Remove top-level keyframes already carried by the shared stylesheet. */
     private static function withoutSharedKeyframes(string $route, string $shared): string
     {
         // Definition rules survive style-rule projection. The global slice
@@ -1520,6 +1525,29 @@ final class SharedChromeStylesheets
         return $route;
     }
 
+    /** Keep either display declarations or their source-ordered complement. */
+    private static function displayDeclarations(string $css, bool $display): string
+    {
+        return (new CssStylesheetTransformer())->transformStyleRules(
+            $css,
+            static function (string $prelude, string $body) use ($display): string {
+                $declarations = \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarationList($body);
+                $kept = array();
+                foreach ($declarations as $declaration) {
+                    if ($display !== ('display' === $declaration['name'])) continue;
+                    $kept[] = $declaration['name'] . ':' . $declaration['value'];
+                }
+                return array() === $kept ? '' : $prelude . '{' . implode(';', $kept) . '}';
+            }
+        );
+    }
+
+    /**
+     * The stylesheet without the alternatives lifted into shared chrome.
+     *
+     * @param callable(string):bool $targetsChrome
+     * @param array<string,mixed> $classMatcher
+     */
     private static function routeRules(string $css, callable $targetsChrome, array $classMatcher): string
     {
         return (new CssStylesheetTransformer())->transformStyleRules(
