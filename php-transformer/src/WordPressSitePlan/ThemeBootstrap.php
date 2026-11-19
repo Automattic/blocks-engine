@@ -325,12 +325,6 @@ PHP;
             $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { \$classes = \$block['attrs']['metadata']['blocksEngineLinkClass'] ?? ''; if ( ! is_string( \$classes ) || '' === \$classes ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) foreach ( preg_split( '/\\s+/', \$classes ) ?: array() as \$class ) \$tag->add_class( \$class ); return \$tag->get_updated_html(); }, 10, 2 );";
         }
         self::serve($lines, $served, $units, 'post_title_link_class');
-        if (self::markupContains($documents, 'blocks-engine-new-page-title')) {
-            // Imported pages already own their authored heading (or its absence).
-            // Only newly authored pages need the fallback template's title slot.
-            $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { if ( ! in_array( 'blocks-engine-new-page-title', preg_split( '/\\s+/', (string) ( \$block['attrs']['className'] ?? '' ) ) ?: array(), true ) ) return \$content; return get_post_meta( get_the_ID(), '_blocks_engine_reconciliation_identity', true ) ? '' : \$content; }, 10, 2 );";
-        }
-        self::serve($lines, $served, $units, 'new_page_title');
         if (self::markupContains($documents, 'blocksEngineIcon')) {
             $lines[] = self::ACCORDION_ICON_RENDERER;
         }
@@ -566,6 +560,29 @@ PHP;
             $lines[] = "    return \$match[2];";
             $lines[] = "}, 10, 2 );";
             break;
+        }
+        // A route-specific page can carry a title while the generic template
+        // has only a content slot. Supply that missing chrome at render time,
+        // without changing template equivalence or captured shell composition.
+        $pageTemplate = null;
+        foreach ($templates as $template) if ('page' === ($template['slug'] ?? null)) $pageTemplate = $template['canonical_block_markup'];
+        $hasTitledOverride = false;
+        $hasUntitledPage = false;
+        foreach ($pages as $page) {
+            if ('page' !== ($page['post_type'] ?? null)) continue;
+            $titled = 1 === preg_match('/<h1\\b/i', $page['canonical_block_markup']);
+            if (str_starts_with(TemplateSlugs::forPage($page), 'page-') && $titled) $hasTitledOverride = true;
+            if (!$titled) $hasUntitledPage = true;
+        }
+        if ($hasTitledOverride && $hasUntitledPage && is_string($pageTemplate) && !str_contains($pageTemplate, '<!-- wp:post-title')) {
+            $lines[] = <<<'PHP'
+add_filter( 'render_block_core/post-content', static function ( string $content ): string {
+    global $wp_current_template_id;
+    if ( ! is_singular( 'page' ) || get_the_ID() !== get_queried_object_id() || ! is_string( $wp_current_template_id ) || ! str_ends_with( $wp_current_template_id, '//page' ) ) return $content;
+    if ( get_post_meta( get_the_ID(), '_blocks_engine_reconciliation_identity', true ) || preg_match( '/<h1\b/i', $content ) ) return $content;
+    return render_block( array( 'blockName' => 'core/post-title', 'attrs' => array( 'level' => 1 ), 'innerBlocks' => array(), 'innerHTML' => '', 'innerContent' => array() ) ) . $content;
+}, 10, 1 );
+PHP;
         }
         self::serve($lines, $served, $units, 'template_frame');
         if (self::markupContains($documentsWithMenus, 'data-blocks-engine-route-state')) {

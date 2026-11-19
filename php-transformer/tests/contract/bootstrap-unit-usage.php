@@ -52,8 +52,7 @@ foreach ($unused as $hook) {
     $assert(!str_contains($plain['functions'], "'{$hook}'"), "functions.php does not register {$hook} for a site that never uses it.");
 }
 $assert(in_array('render_block_core/navigation-link', $hooks($plain['plan']), true), 'Navigation links still get their current-item filter.');
-$assert(array('new_page_title') === ($features($plain['plan'])['render_block_core/post-title'] ?? null), 'New-page title ownership is attributed to its own feature.');
-$assert(17 === count($units), 'The plain site emits 17 bootstrap units: ' . count($units) . ' ' . json_encode($units));
+$assert(16 === count($units), 'The plain site emits 16 bootstrap units: ' . count($units) . ' ' . json_encode($units));
 
 // The same features are emitted once the plan contains what they act on.
 $rich = $compile('<header><nav><ul><li><a href="/">Home</a></li><li><a href="/services">Services</a><ul><li><a href="/about">About</a></li></ul></li></ul></nav></header><main><h1>{title}</h1><img src="hero.png" alt="Hero" width="10" height="10"></main>', ' class="site-body" data-theme="dark"');

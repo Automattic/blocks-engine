@@ -19,30 +19,44 @@ $failures = 0;
 $assert = static function (bool $condition, string $message) use (&$failures): void {
     if (!$condition) { ++$failures; fwrite(STDERR, "FAIL: {$message}\n"); }
 };
-$assert(str_contains($templates['page'], '<!-- wp:post-title {"level":1,"className":"blocks-engine-new-page-title"} /-->'), 'new pages have a native level-one title');
-$assert(!str_contains($templates['front-page'] ?? '', 'blocks-engine-new-page-title'), 'the captured front page does not inherit the new-page title');
+$assert(!str_contains($templates['page'], '<!-- wp:post-title'), 'captured generic template structure is unchanged');
 
-// Exercise the generated runtime hook: imported content keeps its exact title
-// ownership, while a new page gets the native title. Ordinary title blocks are
-// unaffected, including titles in query loops and authored custom templates.
 $filters = array();
 function add_filter(string $name, callable $callback, int $priority = 10, int $accepted = 1): void { global $filters; $filters[$name] = $callback; }
 function get_the_ID(): int { return 42; }
+function get_queried_object_id(): int { global $queried; return $queried; }
+function is_singular(string $type): bool { global $singular; return $singular; }
 function get_post_meta(int $id, string $key, bool $single): string { global $identity; return $identity; }
+function render_block(array $block): string { return 'core/post-title' === $block['blockName'] && 1 === $block['attrs']['level'] ? '<h1>New page</h1>' : ''; }
 $hook = '';
-foreach (explode("\n", $bootstrap) as $line) {
-    if (str_starts_with($line, "add_filter( 'render_block_core/post-title'") && str_contains($line, 'blocks-engine-new-page-title')) $hook = $line;
+foreach (explode("\n", $bootstrap) as $i => $line) {
+    if (str_starts_with($line, "add_filter( 'render_block_core/post-content', static function ( string \$content ):")) {
+        $hook = implode("\n", array_slice(explode("\n", $bootstrap), $i, 6));
+    }
 }
-$assert('' !== $hook, 'generated theme includes the title ownership filter');
+$assert('' !== $hook, 'generated theme supplies missing generic page chrome');
 if ('' !== $hook) {
     eval($hook);
-    $filter = $filters['render_block_core/post-title'];
-    $block = array('attrs' => array('className' => 'blocks-engine-new-page-title'));
-    $identity = 'imported-page';
-    $assert('' === $filter('<h1>Policy</h1>', $block), 'captured pages do not gain duplicate titles');
+    $filter = $filters['render_block_core/post-content'];
+    $wp_current_template_id = 'theme//page';
+    $singular = true;
+    $queried = 42;
     $identity = '';
-    $assert('<h1>New page</h1>' === $filter('<h1>New page</h1>', $block), 'new pages render their title');
+    $content = '<div><p>Content</p></div>';
+    $assert('<h1>New page</h1>' . $content === $filter($content), 'new generic pages render a native title');
     $identity = 'imported-page';
-    $assert('<h1>Custom title</h1>' === $filter('<h1>Custom title</h1>', array()), 'ordinary title slots remain untouched');
+    $assert($content === $filter($content), 'captured pages retain their exact content');
+    $identity = '';
+    $assert('<h1>Authored</h1>' === $filter('<h1>Authored</h1>'), 'an authored title is not duplicated');
+    $wp_current_template_id = 'theme//page-custom';
+    $assert($content === $filter($content), 'custom templates retain their own title ownership');
+    $wp_current_template_id = 'theme//front-page';
+    $assert($content === $filter($content), 'front pages are unchanged');
+    $wp_current_template_id = 'theme//page';
+    $queried = 99;
+    $assert($content === $filter($content), 'query loop content is unchanged');
+    $queried = 42;
+    $singular = false;
+    $assert($content === $filter($content), 'other post types are unchanged');
 }
 exit($failures ? 1 : 0);
