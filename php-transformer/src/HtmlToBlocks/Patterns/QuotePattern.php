@@ -188,7 +188,13 @@ final class QuotePattern implements PatternRecognizerInterface
         $separateBoxes = $caption instanceof DOMElement && $quotes->figureOwnsLayoutBox($figure);
         if ($separateBoxes) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-figure-quote');
-            $attrs['style']['typography'] = $quotes->figureQuotationTypography($caption);
+            // Only the caption's line-box dimensions belong on this carrier.
+            // Its weight, family and other text styles already live on the
+            // citation span and must not become inherited quotation styles.
+            $attrs['style']['typography'] = array_intersect_key(
+                $quotes->figureQuotationTypography($caption),
+                array_flip(array('fontSize', 'lineHeight'))
+            );
         }
         $quoteChildren = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes);
         if ( array() !== $quoteChildren ) {

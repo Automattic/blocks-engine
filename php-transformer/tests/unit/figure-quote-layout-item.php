@@ -23,6 +23,8 @@ if ('core/quote' !== ($quote['blockName'] ?? '')
     || 'blocks-engine-figure-quotation' !== ($text['attrs']['className'] ?? '')
     || '12px' !== ($text['attrs']['style']['spacing']['margin']['bottom'] ?? '')
     || '9px' !== ($quote['attrs']['style']['typography']['fontSize'] ?? '')
+    || isset($quote['attrs']['style']['typography']['fontWeight'])
+    || isset($quote['attrs']['style']['typography']['fontFamily'])
     || !str_contains($quote['attrs']['citation'] ?? '', 'Publication')
     || 'pass' !== ((new BlockValidityValidator())->validateBlocks($result['blocks'])['status'] ?? '')
 ) {
