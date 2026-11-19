@@ -237,11 +237,6 @@ final class EvidenceRouteStateRules
         // Attribute values and strings never name a state.
         $bare = (string) preg_replace('/"[^"]*"|\'[^\']*\'/', '""', $selector);
         if (preg_match(self::INTERACTION, $bare)) return true;
-        // A device island is shown only on its own device. Carriers record
-        // each island's resting pose, which the capture observes per source
-        // element rather than per island, so they cannot hide the other
-        // device's island: the capture's visibility sheet still does.
-        if (preg_match('/\.(?:' . preg_quote(CaptureEvidence::DESKTOP_ONLY_CLASS, '/') . '|' . preg_quote(CaptureEvidence::MOBILE_ONLY_CLASS, '/') . ')(?![\w-])/', $bare)) return true;
         foreach ($this->stateAttributes as $attribute) {
             if (preg_match('/\[\s*' . preg_quote($attribute, '/') . '\s*(?:[~|^$*]?=|\])/i', $bare)) return true;
         }
