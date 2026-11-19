@@ -267,7 +267,10 @@ final class PostChrome
             if (!isset($bySlug[$slug]) || isset($bySlug[$slug]['source_path']) || str_contains($bySlug[$slug]['canonical_block_markup'], '<!-- wp:post-title')) continue;
             $bound[$slug][$index] = $page;
         }
+        $canonical = null;
+        $canonicalSize = 0;
         foreach ($bound as $slug => $posts) {
+            $baseTemplate = $bySlug[$slug];
             // Peers establish article boundaries even when optional chrome
             // later divides this template's posts into singleton layouts.
             if (count($posts) < 2) continue;
@@ -342,13 +345,19 @@ final class PostChrome
                     // A partial group cannot change the template used by the other
                     // layouts (or by posts whose complete article must be retained).
                     $target = '' === $layout['scope'] && count($layout['members']) === count($posts) ? $slug : 'single-post-article-' . substr(hash('sha256', $slug . "\0" . $identity . ('' === $layout['scope'] ? '' : "\0" . $layout['scope'])), 0, 12);
-                    $template = $bySlug[$slug];
+                    $template = $baseTemplate;
                     $template['slug'] = $target;
                     $template['target_path'] = 'templates/' . $target . '.html';
                     $template['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $template['target_path'], $template['target_path']);
                     $template['canonical_block_markup'] = preg_replace_callback('/<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->/', static fn(array $match): string => $factored['single'], $template['canonical_block_markup'], 1);
                     $template['content_hash'] = WordPressSitePlan::contentHash($template['canonical_block_markup']);
                     $bySlug[$target] = $template;
+                    // The largest factored post design owns the hierarchy slot.
+                    // Stable traversal breaks ties without depending on post IDs.
+                    if (count($layout['members']) > $canonicalSize) {
+                        $canonical = $target;
+                        $canonicalSize = count($layout['members']);
+                    }
                     foreach ($factored['pages'] as $index => $page) {
                         $pages[$index] = $page;
                         if ($target === $slug) continue;
@@ -365,6 +374,50 @@ final class PostChrome
                     unset($part);
                 }
             }
+        }
+        if (null !== $canonical) {
+            $remap = array($canonical => 'single');
+            if ('single' !== $canonical) {
+                // Unfactored articles still need their original frame; do not
+                // put the canonical chrome around their retained full article.
+                $fallback = 'single-post-article-' . substr(hash('sha256', $bySlug['single']['canonical_block_markup']), 0, 12);
+                $remap['single'] = $fallback;
+                $original = $bySlug['single'];
+                $bySlug['single'] = $bySlug[$canonical];
+                unset($bySlug[$canonical]);
+                if (array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null) && 'single' === ($page['route_template'] ?? 'single'))) $bySlug[$fallback] = $original;
+                foreach (array('single', $fallback) as $target) {
+                    if (!isset($bySlug[$target])) continue;
+                    $bySlug[$target]['slug'] = $target;
+                    $bySlug[$target]['target_path'] = 'templates/' . $target . '.html';
+                    $bySlug[$target]['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $bySlug[$target]['target_path'], $bySlug[$target]['target_path']);
+                }
+                foreach ($parts as &$part) {
+                    foreach (array('template_slugs', 'excluded_template_slugs') as $field) {
+                        if (isset($part['placement'][$field])) $part['placement'][$field] = array_values(array_unique(array_map(static fn(string $value): string => $remap[$value] ?? $value, $part['placement'][$field])));
+                    }
+                    if (in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)) {
+                        $field = str_contains($bySlug['single']['canonical_block_markup'], '"slug":"' . $part['slug'] . '"') ? 'template_slugs' : 'excluded_template_slugs';
+                        $other = 'template_slugs' === $field ? 'excluded_template_slugs' : 'template_slugs';
+                        $part['placement'][$field][] = 'single';
+                        $part['placement'][$other] = array_values(array_diff($part['placement'][$other] ?? array(), array('single')));
+                    }
+                    $wrappers = $part['placement']['template_wrappers'] ?? array();
+                    if ($wrappers) {
+                        $part['placement']['template_wrappers'] = array();
+                        foreach ($wrappers as $key => $value) $part['placement']['template_wrappers'][$remap[$key] ?? $key] = $value;
+                    }
+                }
+                unset($part);
+            }
+            foreach ($pages as &$page) {
+                if ('post' !== ($page['post_type'] ?? null)) continue;
+                $target = $remap[$page['route_template'] ?? 'single'] ?? ($page['route_template'] ?? 'single');
+                $page['route_template'] = $target;
+                if ('single' === $target) unset($page['metadata']['post_meta']['_wp_page_template']);
+                else $page['metadata']['post_meta']['_wp_page_template'] = $target;
+            }
+            unset($page);
         }
         foreach ($pages as $index => $page) {
             $source = $page['source_path'] ?? '';

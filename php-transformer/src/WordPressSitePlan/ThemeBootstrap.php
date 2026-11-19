@@ -506,7 +506,7 @@ PHP;
             $lines[] = "    \$matches = \$site_editor; if ( ! \$matches && \$post instanceof WP_Post ) foreach ( \$style['scopes'] as \$scope ) {";
             $lines[] = "        if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
             $lines[] = "        if ( 'global' === \$scope['kind'] ) { \$matches = true; break; }";
-            $lines[] = "        if ( 'post' === \$scope['kind'] && 'post' === \$post->post_type && \$scope['reconciliation_identity'] === get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ) ) { \$matches = true; break; }";
+            $lines[] = "        if ( 'post_template' === \$scope['kind'] && 'post' === \$post->post_type && ( 'single' === \$scope['template'] ? '' === get_page_template_slug( \$post->ID ) : \$scope['template'] === get_page_template_slug( \$post->ID ) ) ) { \$matches = true; break; }";
             $lines[] = "        if ( 'page' === \$scope['kind'] ) { \$identity = get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ); if ( '' !== \$identity ? \$scope['reconciliation_identity'] === \$identity : 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; } }";
             $lines[] = "    }";
             $lines[] = "    return \$matches;";
@@ -943,7 +943,28 @@ PHP;
                 $expanded[] = $part;
             }
         }
-        return $expanded;
+        // Replay a design's sequence once, rather than testing the identities
+        // of every imported post. Keep source ownership for publication clients.
+        $postTemplates = $representatives = array();
+        foreach ($pages as $page) {
+            if ('post' !== ($page['post_type'] ?? null)) continue;
+            $template = $page['route_template'] ?? 'single';
+            $postTemplates[$page['source_path']] = $template;
+            $representatives[$template] ??= $page['source_path'];
+        }
+        $designScope = static function (array $scope) use ($postTemplates): array {
+            if ('post' !== $scope['kind']) return $scope;
+            return array('kind' => 'post_template', 'template' => $postTemplates[$scope['source_path']] ?? 'single', 'source_path' => $scope['source_path']);
+        };
+        $result = array();
+        foreach ($expanded as $row) {
+            if (isset($row['route'], $postTemplates[$row['route']]) && $representatives[$postTemplates[$row['route']]] !== $row['route']) continue;
+            $row['scope'] = $designScope($row['scope']);
+            if (isset($row['scopes'])) $row['scopes'] = array_map($designScope, $row['scopes']);
+            $row['condition'] = self::compactStylesheetCondition($row['scopes'] ?? array($row['scope']));
+            $result[] = $row;
+        }
+        return $result;
     }
 
     /**
@@ -961,6 +982,12 @@ PHP;
     {
         $assets = ArrayField::array($plan, 'assets');
         $importLoaded = self::importLoadedStylesheets($assets);
+        $pages = ArrayField::array($plan, 'pages');
+        $bySource = array_column($pages, null, 'source_path');
+        if ('post' === ($bySource[$sourcePath]['post_type'] ?? null)) {
+            $template = $bySource[$sourcePath]['route_template'] ?? 'single';
+            foreach ($pages as $page) if ('post' === ($page['post_type'] ?? null) && $template === ($page['route_template'] ?? 'single')) { $sourcePath = $page['source_path']; break; }
+        }
         $sequence = array();
         foreach (self::stylesheetEnqueues($assets, ArrayField::array($plan, 'pages'), $plan['theme']['document_roots'] ?? array()) as $enqueue) {
             $asset = $enqueue['asset'];
@@ -1037,6 +1064,7 @@ PHP;
         if ('archive' === ($scope['kind'] ?? null)) return var_export($scope['route_path'], true) . ' === blocks_engine_archive_path()';
         if (!empty($scope['front_page'])) return 'is_front_page()';
         if ('post' === ($scope['kind'] ?? null)) return "is_singular( 'post' ) && " . var_export($scope['reconciliation_identity'], true) . " === get_post_meta( get_queried_object_id(), '_blocks_engine_reconciliation_identity', true )";
+        if ('post_template' === ($scope['kind'] ?? null)) return "is_singular( 'post' ) && " . ('single' === $scope['template'] ? "'' === get_page_template_slug( get_queried_object_id() )" : var_export($scope['template'], true) . " === get_page_template_slug( get_queried_object_id() )");
         if ($compact) return "0 !== \$blocks_engine_page_id && ( '' !== \$blocks_engine_page_identity ? " . var_export($scope['reconciliation_identity'], true) . " === \$blocks_engine_page_identity : " . var_export($scope['route_path'], true) . " === \$blocks_engine_page_uri )";
         return "0 !== ( \$blocks_engine_page_id = " . self::DOCUMENT_ID_EXPRESSION . " ) && ( '' !== ( \$blocks_engine_page_identity = get_post_meta( \$blocks_engine_page_id, '_blocks_engine_reconciliation_identity', true ) ) ? " . var_export($scope['reconciliation_identity'], true) . " === \$blocks_engine_page_identity : 'page' === get_post_type( \$blocks_engine_page_id ) && " . var_export($scope['route_path'], true) . " === trim( get_page_uri( \$blocks_engine_page_id ), '/' ) )";
     }
