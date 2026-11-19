@@ -2055,6 +2055,22 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element, $nativeBackgroundColor);
     }
 
+    /** Restore only the consumed blockquote's paragraph, not unrelated synthetic text. */
+    public function figureQuotationClassName(DOMElement $blockquote): string
+    {
+        $authored = $this->structuralPresentationDeclarations($blockquote);
+        $declarations = array('display' => 'block');
+        foreach (array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'margin-block', 'margin-block-start', 'margin-block-end', 'margin-inline', 'margin-inline-start', 'margin-inline-end') as $property) {
+            if (isset($authored[$property])) {
+                $declarations[$property] = $authored[$property];
+            }
+        }
+        $body = $this->cssDeclarationString($declarations);
+        $className = $this->session->layoutGeometryState()->allocateCarrier($this->geometryStructuralPath($blockquote) . "\nfigure-quotation\n" . $body);
+        $this->session->layoutGeometryState()->registerRule($className, 'p.' . $className . '{' . $body . '}');
+        return $className;
+    }
+
     /** Keep the native citation's font metrics and spacing, but restore the caption's block flow. */
     public function figureQuoteCaptionClassName(DOMElement $caption): string
     {

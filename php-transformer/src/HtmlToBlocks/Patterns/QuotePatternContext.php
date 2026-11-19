@@ -47,6 +47,12 @@ final class QuotePatternContext
             : $content;
     }
 
+    /** Preserve the consumed quotation's line box and separation from its caption. */
+    public function figureQuotationClassName(DOMElement $blockquote): string
+    {
+        return $this->styleResolver->figureQuotationClassName($blockquote);
+    }
+
     /** Preserve the typography and independent line box of a consumed caption. */
     public function figureCaptionContent(DOMElement $caption): string
     {

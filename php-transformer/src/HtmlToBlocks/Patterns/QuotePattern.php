@@ -174,8 +174,9 @@ final class QuotePattern implements PatternRecognizerInterface
             return new PatternRecognitionResult($createBlock('core/pullquote', array_merge($attrs, array( 'value' => $value )), array(), $figure));
         }
 
-        if ( $consumedCaption && '' !== trim($citation) ) {
-            $attrs['className'] = trim(($attrs['className'] ?? '') . ' ' . $quotes->figureCaptionClassName($caption));
+        $captionCarrier = $consumedCaption && '' !== trim($citation) ? $quotes->figureCaptionClassName($caption) : '';
+        if ( '' !== $captionCarrier ) {
+            $attrs['className'] = trim(($attrs['className'] ?? '') . ' ' . $captionCarrier);
         }
 
         $fallbacks = array();
@@ -196,7 +197,7 @@ final class QuotePattern implements PatternRecognizerInterface
             // (especially margins) must not become the synthetic paragraph's box.
             $quoteChildren[0] = $createBlock('core/paragraph', array(
                 'content' => $value,
-                'className' => 'blocks-engine-synthetic-paragraph',
+                'className' => trim('blocks-engine-synthetic-paragraph ' . ('' !== $captionCarrier ? $quotes->figureQuotationClassName($blockquote) : '')),
                 'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
             ));
         }
