@@ -95,8 +95,22 @@ final class CssCascade
             || ('aspect-ratio' === $property && 1 === preg_match('#^\d*\.?\d+\s*(?:/\s*\d*\.?\d+)?$#', $value))
             || ('object-fit' === $property && in_array($value, array( 'cover', 'contain' ), true))
             || self::declaresWidelyAvailableColorFunction($property, $value)
+            || self::testsCustomProperty($property, $value)
             ? true
             : null;
+    }
+
+    /**
+     * Whether a support test declares a custom property. A custom property
+     * accepts any token sequence, so every browser that evaluates `@supports`
+     * also supports `(--name: value)`. Squarespace gates its whole site-width
+     * system behind `@supports (--test-custom-property: true)`; reading that
+     * gate as unknown leaves its definitions conditional and resolves every
+     * reference to its fallback.
+     */
+    private static function testsCustomProperty(string $property, string $value): bool
+    {
+        return 1 === preg_match('/^--[a-z0-9_-]+$/', $property) && '' !== $value;
     }
 
     /**

@@ -129,6 +129,9 @@ final class BoxTreeClassifier
                     foreach ($effective['nodes'][$child]['viewports'] as $viewport => &$observation) {
                         if (!isset($node['viewports'][$viewport])) continue;
                         foreach ($fold['moves'] as $to => $from) $observation['used_styles'][$to] = $node['viewports'][$viewport]['used_styles'][$from];
+                        if (isset($fold['moves']['position']) && 'absolute' === $observation['used_styles']['position']) {
+                            $observation['used_styles']['align-self'] = $observation['used_styles']['justify-self'] = 'auto';
+                        }
                     }
                     unset($observation);
                     // The child's border box is the box's, so it now contains what the box contained.
@@ -181,7 +184,12 @@ final class BoxTreeClassifier
         $behavior = self::behavior($element, $node, $tree, $referenced, $stateTargeted, $linkCarried);
         if (null !== $behavior) return $behavior;
         if (1 !== count($node['children'])) return 'own-sizing';
-        $placement = self::placement($node, $tree['nodes'][$node['children'][0]] ?? array());
+        $childNode = $tree['nodes'][$node['children'][0]] ?? array();
+        // display:contents has no principal box. Its child's placement belongs
+        // to the outer layout already; comparing it to the wrapper's unused
+        // placement values invents a Group boundary.
+        if (self::boxlessContents($element, $node, $childNode)) return 'equal-child-geometry';
+        $placement = self::placement($node, $childNode);
         if (null !== $placement) return $placement;
         foreach ($element->childNodes as $child) {
             if ($child instanceof \DOMText && '' !== trim($child->textContent)) return 'own-sizing';
@@ -195,6 +203,29 @@ final class BoxTreeClassifier
             }
         }
         return 'equal-child-geometry';
+    }
+
+    /** A single-child, non-interactive contents wrapper contributes no box. */
+    private static function boxlessContents(DOMElement $element, array $node, array $child): bool
+    {
+        // Custom hosts have a separate transparent-hook lowering. Their DOM
+        // boundary still supplies selector and runtime context to descendants;
+        // treating them as ordinary neutral boxes changes that lowering.
+        if (str_contains($element->tagName, '-')) return false;
+        foreach ($element->childNodes as $text) {
+            if ($text instanceof \DOMText && '' !== trim($text->textContent)) return false;
+        }
+        foreach ($node['viewports'] as $viewport => $observation) {
+            $styles = $observation['used_styles'];
+            $own = $child['viewports'][$viewport]['used_styles'] ?? null;
+            if ('contents' !== ($styles['display'] ?? null) || !is_array($own)) return false;
+            // Do not erase a live ancestor state rule, or rebase an inherited
+            // value the child derives from this wrapper.
+            foreach (array_merge(self::INHERITED, array('pointer-events')) as $property) {
+                if (($styles[$property] ?? null) !== ($own[$property] ?? null)) return false;
+            }
+        }
+        return !self::targetedByState($element, self::stateCompounds($element->ownerDocument));
     }
 
     /**
@@ -392,11 +423,17 @@ final class BoxTreeClassifier
                 if ('z-index' === $property && $fill && $b[$property] === ($c[$property] ?? null)) continue;
                 if (isset($b[$property]) && !in_array(strtolower(trim($b[$property])), $inert, true)) return null;
             }
+            // A square clipping child can take the box's rounded clip. The
+            // geometry and border checks below still require equal, borderless boxes.
+            $roundedClip = !in_array($b['border-radius'], array('0px', 'none'), true)
+                && '0px' === $c['border-radius']
+                && $b['overflow-x'] === $c['overflow-x'] && $b['overflow-y'] === $c['overflow-y'];
             foreach (array('overflow-x', 'overflow-y') as $overflow) {
                 if (!in_array($b[$overflow], array('hidden', 'clip', 'auto', 'scroll'), true)) continue;
                 if ($b[$overflow] !== $c[$overflow] || 'none' !== $c['box-shadow']
                     || self::paintsLine($c['outline']) || !self::identityTransform($c['transform'])
-                    || $b['border-radius'] !== $c['border-radius']) return null;
+                    || ($b['border-radius'] !== $c['border-radius'] && !$roundedClip)) return null;
+                if ($roundedClip) $moves['border-radius'] = 'border-radius';
                 $clipped = true;
             }
             $display = $b['display'];
@@ -453,6 +490,9 @@ final class BoxTreeClassifier
                 }
             }
             foreach (self::PLACEMENT_INITIAL as $property => $initial) {
+                // Four zero insets determine an absolute fill's placement;
+                // the child's former self-alignment is no longer relevant.
+                if ($fill && in_array($property, array('align-self', 'justify-self'), true)) continue;
                 if ($b[$property] === $c[$property]) continue;
                 if ($initial !== $c[$property] && !self::fillsSoleGridCell($b, $property, $c[$property])) return null;
                 $moves[$property] = $property;
@@ -466,7 +506,7 @@ final class BoxTreeClassifier
             if (self::boxPaints($b)) {
                 if (self::boxPaints($c) || !in_array($c['border-radius'], array('0px', 'none'), true)) return null;
                 // A rounded child that clips would start clipping its own content.
-                if (!in_array($b['border-radius'], array('0px', 'none'), true) && (in_array($c['overflow-x'], array('hidden', 'clip', 'auto', 'scroll'), true) || in_array($c['overflow-y'], array('hidden', 'clip', 'auto', 'scroll'), true))) return null;
+                if (!$roundedClip && !in_array($b['border-radius'], array('0px', 'none'), true) && (in_array($c['overflow-x'], array('hidden', 'clip', 'auto', 'scroll'), true) || in_array($c['overflow-y'], array('hidden', 'clip', 'auto', 'scroll'), true))) return null;
                 $paints = true;
             }
             foreach (self::INHERITED as $property) {

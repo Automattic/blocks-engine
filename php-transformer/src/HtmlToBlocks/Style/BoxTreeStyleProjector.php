@@ -258,6 +258,9 @@ final class BoxTreeStyleProjector
         $baseKey = $keys[0];
         $parentDisplay = (string) ($parents[$baseKey]['used_styles']['display'] ?? '');
         $item = 1 === preg_match('/(?<![\w-])(?:inline-)?(?:flex|grid)(?![\w-])/', $parentDisplay);
+        // Outside a layout item there is no wrapper box to place. Keep
+        // positioning (including fixed offsets) on the source link itself.
+        if (!$item) return null;
         $outer = $item ? self::OUTER_BOX + self::OUTER_ITEM_SIZE : self::OUTER_BOX;
         $placed = array();
         $declaredOuter = array();

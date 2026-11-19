@@ -7,7 +7,6 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormStepTrackDetector;
 use DOMElement;
 
 /** Builds the provider-materializable diagnostic for a form-like element. */
@@ -122,7 +121,7 @@ final class FormFallbackFindingBuilder
         if ( array() !== $choiceGroups ) {
             $finding['choice_groups'] = $choiceGroups;
         }
-        $steps = true === ($layoutGraph['truncated'] ?? true) ? null : (new FormStepTrackDetector())->detect($element, $layoutGraph, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
+        $steps = true === ($layoutGraph['truncated'] ?? true) ? null : FormBuildScope::stepTrack($element, $layoutGraph, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         if ( null !== $steps ) {
             $finding['steps'] = $steps;
         }

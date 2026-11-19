@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -56,6 +57,12 @@ final class InertScaffoldingSuppressor implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks, bool $captureUnsupported = false): ConversionOutcome
     {
+        // Capture selection notices belong to its runtime, not source content,
+        // regardless of the selected device or whether runtime CSS is present.
+        if ($element->hasAttribute(CaptureEvidence::DEVICE_UNAVAILABLE)) {
+            return ConversionOutcome::handled(null);
+        }
+
         // A closed, script-populated dialog shell has no source content to lose.
         // Open dialogs render even when empty (including user-agent border and
         // padding); they and dialogs with descendants retain their existing path.

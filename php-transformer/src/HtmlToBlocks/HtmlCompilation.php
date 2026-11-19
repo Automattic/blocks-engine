@@ -888,7 +888,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $readableFormControlBlockConverter,
             $this->authoredMarqueeRecognizer,
             $authoredCarouselGenerator,
-            $emptyVisualSpacers
+            $emptyVisualSpacers,
+            new Elements\InFlowImageFrameLowering($this->imageLowering, $this->session, $this->runtimeIslands, $this->sourceElementDescription, $this->styleResolver)
         );
         $mediaDispatchConverter = new MediaDispatchElementConverter(new MediaDispatchElementContext(
             $this,
@@ -2000,6 +2001,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         if ( null === $fold ) {
             return $fluid;
         }
+        // Absolute inset-zero placement replaces the child's former alignment,
+        // rather than carrying either element's alignment bands forward.
+        if (isset($fold['moves']['position']) && 'absolute' === (reset($observations)['used_styles']['position'] ?? null)) {
+            unset($fluid['align-self'], $fluid['justify-self']);
+        }
         $box = $element->parentNode;
         while ( $box instanceof DOMElement && $fold['from'] !== $box->getAttribute(BoxTree::NODE_ATTRIBUTE) ) {
             $box = $box->parentNode;
@@ -2184,6 +2190,14 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     {
         $parent = $element->parentNode;
         while ( $parent instanceof DOMElement && null !== $this->neutralBoxChild($parent) ) {
+            // A contents wrapper never supplied a layout box, even before
+            // reduction. Keep its observation as the projection context:
+            // rebasing the child here changes pruning and fluid inference
+            // merely because an editor-only Group has disappeared.
+            $observations = $this->session->boxTreeEvidence($parent);
+            if (array() !== $observations && count($observations) === count(array_filter($observations, static fn (array $observation): bool => 'contents' === ($observation['used_styles']['display'] ?? null)))) {
+                break;
+            }
             $parent = $parent->parentNode;
         }
         return $parent instanceof DOMElement ? $parent : null;
