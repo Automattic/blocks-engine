@@ -995,6 +995,19 @@ final class ThemeJsonProjection
         // and the editor gap control enabled.
         if (!isset($styles['spacing']['blockGap'])) $styles['spacing']['blockGap'] = false;
         $settings['spacing']['blockGap'] = true;
+        // Authored CSS also owns root padding that is not projected (a
+        // shorthand, a responsive override, a calc()). WordPress's own
+        // theme.json sets `styles.spacing.padding` to 0px on every side, and
+        // core prints it as `body{padding-top:0px;…}` in the global styles
+        // stylesheet, after the source stylesheet and at the same 0-0-1
+        // specificity as an authored `body` rule, so it silently replaces the
+        // source's padding. Root styles have no responsive states, so the
+        // source value cannot move into Global Styles faithfully. Empty sides
+        // override core's default in the theme.json merge, and core
+        // (WP_Theme_JSON::compute_style_properties()) and the editor's style
+        // engine skip empty values, so no root padding rule is printed and
+        // the source cascade stands.
+        if (!isset($styles['spacing']['padding'])) $styles['spacing']['padding'] = array('top' => '', 'right' => '', 'bottom' => '', 'left' => '');
         // The source's dominant responsive breakpoints ride alongside the other
         // projected settings. WordPress 7.1 turns them into the `@mobile` and
         // `@tablet` style-state media queries
