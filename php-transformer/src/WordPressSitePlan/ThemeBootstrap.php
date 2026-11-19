@@ -176,7 +176,10 @@ PHP;
     public const SINGLE_SOURCE_IMAGE_RUNTIME = <<<'PHP'
 $blocks_engine_single_source_images = new ArrayObject();
 add_filter( 'render_block_core/image', static function ( string $content, array $block ) use ( $blocks_engine_single_source_images ): string {
-    if ( isset( $block['attrs']['metadata']['blocksEngineImageSelection'] ) ) return $content;
+    $selection = $block['attrs']['metadata']['blocksEngineImageSelection'] ?? null;
+    // Loading hints and an empty picture wrapper do not supply alternatives.
+    // Only authored responsive candidates belong to the selection renderer.
+    if ( is_array( $selection ) && ( ! empty( $selection['srcset'] ) || ! empty( $selection['sources'] ) ) ) return $content;
     $tag = new WP_HTML_Tag_Processor( $content );
     if ( ! $tag->next_tag( 'FIGURE' ) || ! $tag->has_class( 'blocks-engine-image' ) ) return $content;
     if ( ! $tag->next_tag( 'IMG' ) || null !== $tag->get_attribute( 'srcset' ) ) return $content;
