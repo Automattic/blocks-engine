@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Closure;
 
 /**
  * Final identity of generated control classes, after all support families have
@@ -42,6 +43,8 @@ final class DeclarationAddressedClasses
                 (string) ($stylesheet['type'] ?? ''),
             );
             $transformer->visitStyleRules((string) $stylesheet['content'], static function (string $selector, string $body, array $parents) use (&$records, $context): void {
+                // Only a rule naming a provisional identity contributes one.
+                if (!str_contains($selector, 'blocks-engine-')) return;
                 $declarations = self::declarations($body);
                 // Expand cascade-equivalent marker alternatives only for identity;
                 // published selectors and their specificity remain untouched.
@@ -78,10 +81,11 @@ final class DeclarationAddressedClasses
     {
         $rewritten = $this->rewrite($value, $replacements);
         $finalMarkup = $this->rewrite($markup, $replacements);
-        $rebase = function (array &$item, array $original) use (&$rebase, $markup, $finalMarkup, $replacements): void {
+        $rewriteMarkup = $this->rewriter($replacements);
+        $rebase = function (array &$item, array $original) use (&$rebase, $markup, $finalMarkup, $rewriteMarkup): void {
             $position = $original['position'] ?? null;
             if ('generic/block-binding/v1' === ($original['schema'] ?? null) && is_array($position) && isset($original['search_block_markup'])) {
-                $offset = strlen($this->rewrite(substr($markup, 0, $position['offset']), $replacements));
+                $offset = strlen($rewriteMarkup(substr($markup, 0, $position['offset'])));
                 $search = $item['search_block_markup'];
                 $item['position']['offset'] = $offset;
                 $item['position']['length'] = strlen($search);
@@ -162,8 +166,32 @@ final class DeclarationAddressedClasses
      */
     public function rewrite(mixed $value, array $replacements): mixed
     {
+        return $this->rewriter($replacements)($value);
+    }
+
+    /**
+     * {@see rewrite()} with the replacement map partitioned once, for a
+     * caller that rewrites many values against the same map.
+     *
+     * @param array<string, string> $replacements
+     * @return Closure(mixed): mixed
+     */
+    private function rewriter(array $replacements): Closure
+    {
         $paths = array_filter($replacements, static fn (string $key): bool => str_starts_with($key, 'assets/css/'), ARRAY_FILTER_USE_KEY);
-        return $this->rewriteValue($value, $replacements, $paths);
+        // Replacement keys are provisional identities and stylesheet paths;
+        // a key without either prefix cannot change and skips strtr().
+        $prefixedKeys = array() === array_filter(array_keys($replacements), static fn (int|string $key): bool => ! str_contains((string) $key, 'blocks-engine-') && ! str_contains((string) $key, 'assets/css/'));
+        return fn (mixed $value): mixed => $this->rewriteValue($value, $replacements, $paths, $prefixedKeys);
+    }
+
+    /** @param array<string, string> $replacements */
+    private static function rewriteKey(string $key, array $replacements, bool $prefixedKeys): string
+    {
+        if (array() === $replacements || ($prefixedKeys && ! str_contains($key, 'blocks-engine-') && ! str_contains($key, 'assets/css/'))) {
+            return $key;
+        }
+        return strtr($key, $replacements);
     }
 
     /** Coalesced identities must not leave repeated alternatives in published CSS. */
@@ -182,10 +210,13 @@ final class DeclarationAddressedClasses
      * @param array<string, string> $replacements
      * @param array<string, string> $paths
      */
-    private function rewriteValue(mixed $value, array $replacements, array $paths): mixed
+    private function rewriteValue(mixed $value, array $replacements, array $paths, bool $prefixedKeys): mixed
     {
         if (is_string($value)) {
-            $value = preg_replace_callback(self::PATTERN, static fn (array $match): string => $replacements[$match[0]] ?? $match[0], $value) ?? $value;
+            // Every provisional identity contains the literal prefix.
+            if (array() !== $replacements && str_contains($value, 'blocks-engine-')) {
+                $value = preg_replace_callback(self::PATTERN, static fn (array $match): string => $replacements[$match[0]] ?? $match[0], $value) ?? $value;
+            }
             return str_contains($value, 'assets/css/') ? strtr($value, $paths) : $value;
         }
         if (!is_array($value)) return $value;
@@ -193,7 +224,7 @@ final class DeclarationAddressedClasses
         $contentAddressed = self::isContentAddressedStylesheet($value);
         $rewritten = array();
         foreach ($value as $key => $item) {
-            $rewritten[is_string($key) ? strtr($key, $replacements) : $key] = $this->rewriteValue($item, $replacements, $paths);
+            $rewritten[is_string($key) ? self::rewriteKey($key, $replacements, $prefixedKeys) : $key] = $this->rewriteValue($item, $replacements, $paths, $prefixedKeys);
         }
         $value = $rewritten;
         if ('css' === ($value['kind'] ?? '') && is_string($value['content'] ?? null)) {

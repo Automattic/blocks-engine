@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityShimCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssMathValueCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\ShadowedDeclarationPruner;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
@@ -116,7 +117,9 @@ final class SitePlanRun
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
         $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
-        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups)->withBlockTypography($markups)->withBlockColors($markups);
+        // A box-tree carrier on a button's link owns that button's look.
+        $stylesheets = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) ? $asset['content'] : null, $assets), 'is_string'));
+        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups, $stylesheets)->withBlockTypography($markups)->withBlockColors($markups);
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
@@ -364,7 +367,18 @@ final class SitePlanRun
         // never becomes matches nothing on any route. Menus keep their markup
         // in `block_markup`: their figures are emitted too.
         $assets = AbsentImageFigureSelectors::prune($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
+        // Carriers are final: a marker list naming most of a kind's carriers
+        // is written through that kind's role class instead.
+        $assets = CompleteMarkerLists::compact($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
+        // Readers are final: an author property no shipped sheet, markup,
+        // record, theme.json or script names computes nothing.
+        $assets = UnreadCustomProperties::prune($assets, array($navigationMarkup, implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme'], $rootDocuments, array_column($pages, 'document_metadata')), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)));
+        // Bytes are final: arms only the editor canvas can match move from
+        // each sheet visitors load into an editor-only extract after it.
+        $known = array_column($assets, 'target_path');
+        $assets = EditorCanvasStylesheets::split($assets);
+        $tokens = array_merge($tokens, $this->tokens(array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['target_path'] ?? null, $known, true)))));
         // Writing canonicalizes references and can still drop rules (a missing
         // font source drops its face). Emptiness is judged on the written bytes,
         // and a row whose write came out empty describes those bytes.
@@ -574,6 +588,10 @@ final class SitePlanRun
             }
             // A restated arm folded beside the arm it restricts adds nothing.
             $compacted = CssSelectorListCompactor::withoutSubsumedArmsInStylesheet($compacted);
+            // Projection pays each arm's specificity one shim at a time
+            // (`:not(.be-c-0):not(.be-c-0)`, `:where(.x):not(.be-c-0)`); every
+            // arm ships that weight at its smallest spelling.
+            $compacted = CssSpecificityShimCompactor::stylesheet($compacted);
             // Projection writes combinators and selector lists spaced out;
             // the selector whitespace that separates no tokens ships once
             // per arm. Declaration values are left byte for byte.
@@ -745,7 +763,10 @@ final class SitePlanRun
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
         $documentChrome = $this->shellExtraction->separateCaptureDocumentChrome($shells['pages'], $shells['runtime_declarations'], $runtimeEntityRecords);
         $shells['diagnostics'] = array_merge($shells['diagnostics'], $documentChrome['diagnostics']);
-        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($documentChrome['pages'], $parts, $shells['runtime_declarations']);
+        $leadingChrome = $this->shellExtraction->withLeadingBoundChromeInHeader($documentChrome['pages'], $parts, $shells['runtime_declarations'], $assets);
+        $parts = $leadingChrome['parts'];
+        $shells['runtime_declarations'] = $leadingChrome['runtime_declarations'];
+        $shellFrames = $this->shellExtraction->hoistInlineShellFrames($leadingChrome['pages'], $parts, $shells['runtime_declarations']);
         $pages = $shellFrames['pages'];
         $folded = $this->shellExtraction->foldFrameTrailingChrome($shellFrames['frames'], $parts, $pages);
         $shellFrames['frames'] = $folded['frames'];

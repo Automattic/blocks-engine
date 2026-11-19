@@ -200,6 +200,73 @@ final class BoxTreeDeclarationPruner
     );
 
     /**
+     * Initial values of box-model and sizing longhands, as authors spell them.
+     * An observed used value never reads `auto` or `0%`, so these are only
+     * consulted for a lifted author value ({@see self::classifyLifted()}),
+     * where the author's winner restates the property's default.
+     */
+    private const LIFTED_INITIAL_VALUES = array(
+        'width' => array('auto'),
+        'height' => array('auto'),
+        'max-width' => array('none'),
+        'margin-right' => array('0', '0px', '0%'),
+        'margin-left' => array('0', '0px', '0%'),
+    );
+
+    /** A one-track grid template, which only a grid box can use. */
+    private const LIFTED_ONE_TRACK = array('1fr', 'minmax(0px,1fr)', 'minmax(0,1fr)');
+
+    /** Elements whose user-agent styles or presentational hints size them or give them margins. */
+    private const LIFTED_TAG_DEFAULTS = array(
+        'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'dl', 'dd', 'menu', 'blockquote', 'figure', 'pre', 'hr', 'fieldset', 'body',
+        'img', 'picture', 'svg', 'video', 'audio', 'iframe', 'embed', 'object', 'canvas', 'input', 'textarea', 'select', 'button', 'table',
+    );
+
+    /** Blocks whose WordPress core styles size their wrapper or emit an element with default margins. */
+    private const LIFTED_BLOCK_DEFAULTS = array(
+        'core/image', 'core/gallery', 'core/table', 'core/embed', 'core/video', 'core/audio', 'core/pullquote', 'core/quote', 'core/separator',
+        'core/site-logo', 'core/avatar', 'core/post-featured-image', 'core/cover', 'core/spacer', 'core/column', 'core/button', 'core/search',
+        'core/paragraph', 'core/heading', 'core/list', 'core/code', 'core/preformatted', 'core/verse', 'core/html',
+    );
+
+    /**
+     * Classify lifted author base values (BoxTreeFluidIntent) in the box's
+     * context, as {@see self::classify()} does observed ones. Beyond the
+     * observed initial values, an author `auto`, `none` or zero sizing or
+     * inline margin is initial where neither the element nor the block's
+     * base styles set the property, and a one-track grid template does not
+     * apply outside a grid box.
+     *
+     * @param array<string, string> $styles The box's used styles with the lifted values in place.
+     * @param list<string> $properties The lifted properties to classify.
+     * @return array<string, string> Property => one of the class constants.
+     */
+    public function classifyLifted(array $styles, ?array $parent, array $properties, string $blockName = '', string $tagName = ''): array
+    {
+        $status = array_intersect_key($this->classify($styles, $parent, $blockName, $tagName), array_flip($properties));
+        $tagName = strtolower($tagName);
+        $known = '' !== $blockName || '' !== $tagName;
+        $defaults = in_array($tagName, self::LIFTED_TAG_DEFAULTS, true) || in_array($blockName, self::LIFTED_BLOCK_DEFAULTS, true);
+        $protected = array_fill_keys(self::BLOCK_BASE_PROPERTIES[$blockName] ?? array(), true);
+        foreach ($status as $property => $reason) {
+            $value = strtolower(preg_replace('/\s+/', '', (string) $styles[$property]) ?? '');
+            // A CSS-wide keyword is an author instruction (inherit over a
+            // user-agent default), not an observed value to compare.
+            if (in_array($value, array('inherit', 'initial', 'unset', 'revert', 'revert-layer'), true)) {
+                $status[$property] = self::KEPT;
+                continue;
+            }
+            if (self::KEPT !== $reason || isset($protected[$property])) continue;
+            if (in_array($property, array('grid-template-columns', 'grid-template-rows'), true)) {
+                if (in_array($value, self::LIFTED_ONE_TRACK, true) && !self::isGrid(strtolower($styles['display'] ?? ''))) $status[$property] = self::NOT_APPLICABLE;
+                continue;
+            }
+            if ($known && !$defaults && in_array($value, self::LIFTED_INITIAL_VALUES[$property] ?? array(), true)) $status[$property] = self::INITIAL;
+        }
+        return $status;
+    }
+
+    /**
      * @param array<string, string> $styles Observed used styles of one box.
      * @param array<string, string>|null $parent Observed used styles of the box it inherits from, if captured.
      * @param string $tagName The element the carrier lands on, when known.
@@ -225,6 +292,7 @@ final class BoxTreeDeclarationPruner
         if (in_array($property, BoxTree::INHERITED_PROPERTIES, true) || in_array($property, self::EXTRA_INHERITED, true)) {
             // The element would compute its own default, not the parent's value.
             if ($ownDefault) return self::KEPT;
+            if ('pointer-events' === $property && self::passThroughLayer($value, $styles)) return self::KEPT;
             return null !== $parent && isset($parent[$property]) && self::inheritedValue($property, (string) $parent[$property]) === self::inheritedValue($property, $value) ? self::INHERITED : self::KEPT;
         }
         if ($protected) return self::KEPT;
@@ -284,6 +352,18 @@ final class BoxTreeDeclarationPruner
             return 'auto' === $value || ('0px' === $value && null !== $parentDisplay && ! self::isFlex($parentDisplay) && ! self::isGrid($parentDisplay));
         }
         return in_array($value, self::INITIAL_VALUES[$property] ?? array(), true);
+    }
+
+    /**
+     * An out-of-flow box that lets pointers through to the content it covers
+     * (a pinned header layer, an overlay) states that itself. The block editor
+     * gives every block wrapper `pointer-events: auto`, so the inherited
+     * `none` never reaches the block there, and the layer swallows clicks
+     * meant for the blocks beneath it.
+     */
+    private static function passThroughLayer(string $value, array $styles): bool
+    {
+        return 'none' === $value && in_array($styles['position'] ?? '', array('absolute', 'fixed'), true);
     }
 
     /** Inherited values compared by rendering: a fully transparent shadow paints nothing. */

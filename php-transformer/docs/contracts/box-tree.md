@@ -93,6 +93,17 @@ Invalid evidence produces a warning diagnostic (`box_tree_schema_invalid`,
 `box_tree_styles_invalid`, or `box_tree_duplicate_route`). Conversion proceeds
 without rejected evidence; this evidence never authorizes layout reductions.
 
+Routes may declare different viewport sets (a producer can sample mobile HTML
+per template cluster). After acceptance, routes whose header or footer shares a
+source identity and agrees on every viewport they have in common merge their
+chrome observations as a union of viewports, and record each other as chrome
+peers of that landmark root. A route that samples an extra viewport therefore
+joins the shared chrome, which gains that viewport's geometry instead of
+forking. The route's other nodes, its page content, keep route-local evidence. Classification treats an
+observation missing at one viewport conservatively: equal child geometry and
+containment inside a clip are unproven there. The contract is
+`tests/unit/shared-header-extra-viewport-box-tree.php`.
+
 Normalized HTML files carry `box_tree`. The compiler passes it into each HTML
 session; `HtmlTransformerSession::boxTreeEvidence(DOMElement)` exposes the
 viewport observations for that exact source element. This is independent of

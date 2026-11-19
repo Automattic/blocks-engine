@@ -63,8 +63,13 @@ final class SourceCascade
      */
     public function specificity(string $selector): array
     {
-        return array_values(CssSelectorMatcher::specificityCounts($this->state->parsedSelector($selector)));
+        // A pure function of the selector text, asked once per matched rule
+        // per element; remember it per selector (#6789).
+        return $this->specificities[$selector] ??= array_values(CssSelectorMatcher::specificityCounts($this->state->parsedSelector($selector)));
     }
+
+    /** @var array<string, array{int, int, int}> Selector text to its specificity. */
+    private array $specificities = array();
 
     /**
      * Whether a declaration's at-rule conditions all hold at one viewport width.

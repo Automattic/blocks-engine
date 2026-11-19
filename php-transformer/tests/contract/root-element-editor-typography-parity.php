@@ -48,24 +48,25 @@ $assert('Georgia,serif' === $bodyFamily, 'The projected body preset keeps the so
 
 // Root-element declarations keep root semantics: the authored root rule rides
 // the shared stylesheet into the editor document, and its presentation is
-// re-stated onto the canvas through a restatement wholly wrapped in :where(),
-// so the canvas inherits it as the document default without the restatement
-// ever weighing more than the body-level styles that must outrank it.
+// re-stated onto the canvas through a restatement wrapped in :where() plus one
+// type shim, so the canvas inherits it as the document default: it weighs an
+// element default (0,0,1), above editor-only zero-weight plugin body defaults
+// and never more than the body-level styles that must outrank it.
 $assert(str_contains($editorCss, 'html{font-family:sans-serif;line-height:1.15}'), 'The source root rule keeps its authored form as the editor document root default.');
-$restatedSelector = ':where(html .editor-styles-wrapper)';
-$assert(str_contains($editorCss, $restatedSelector . '{font-family:sans-serif;line-height:1.15}'), 'Root-element presentation is re-stated onto the canvas so inherited defaults still arrive.');
+$assert(1 === preg_match('/(:where\(html \.editor-styles-wrapper\):not\([a-z0-9-]+\))\{font-family:sans-serif;line-height:1\.15\}/', $editorCss, $restated), 'Root-element presentation is re-stated onto the canvas so inherited defaults still arrive.');
+$restatedSelector = $restated[1];
 $parsedRestatement = CssSelectorMatcher::parse($restatedSelector);
-$assert($parsedRestatement['supported'] && 0 === CssSelectorMatcher::specificity($parsedRestatement), 'The restated root selector weighs (0,0,0), so no body-level style can lose to it.');
+$assert($parsedRestatement['supported'] && CssSelectorMatcher::specificity(CssSelectorMatcher::parse('body')) === CssSelectorMatcher::specificity($parsedRestatement), 'The restated root selector weighs one type (0,0,1), an element default.');
 $parsedBodyCarrier = CssSelectorMatcher::parse(':root body.editor-styles-wrapper');
 $assert(CssSelectorMatcher::specificity($parsedBodyCarrier) > CssSelectorMatcher::specificity($parsedRestatement), 'Body-level presentation keeps its canvas-scoped carrier and outranks the inherited default.');
 $assert(str_contains($editorCss, ':root body.editor-styles-wrapper{'), 'Body-level presentation keeps its canvas-scoped carrier.');
 
 // The canvas resolves the body typeface, exactly as the frontend does. Core
-// applies the theme.json body typography to the editor canvas body; a plain
-// body rule carries that presentation into the render-free cascade.
+// applies the theme.json body typography to the editor canvas body as a plain
+// body rule in the global styles, which load after the theme's editor styles.
 $document = new DOMDocument();
-$document->loadHTML('<!doctype html><html><head><style>' . $editorCss . '</style></head><body class="editor-styles-wrapper"><main><h1>Hello</h1><p>Body text in Georgia.</p></main></body></html>');
-$cascade = new StaticCssCascade($document, 'body{font-family:' . $bodyFamily . '}');
+$document->loadHTML('<!doctype html><html><head><style>' . $editorCss . '</style><style>body{font-family:' . $bodyFamily . '}</style></head><body class="editor-styles-wrapper"><main><h1>Hello</h1><p>Body text in Georgia.</p></main></body></html>');
+$cascade = new StaticCssCascade($document);
 $canvasBody = $document->getElementsByTagName('body')->item(0);
 $paragraph = $document->getElementsByTagName('p')->item(0);
 $assert(null !== $canvasBody && null !== $paragraph, 'The editor canvas fixture resolves both the canvas body and its paragraph.');

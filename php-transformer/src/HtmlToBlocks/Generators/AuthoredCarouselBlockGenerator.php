@@ -635,6 +635,10 @@ JS;
         // auto-height wrappers so their controls do not inflate normal flow.
         $style .= '.blocks-engine-authored-carousel--positioned-stage>.blocks-engine-authored-carousel__source-stage{height:100%;flex-shrink:0}.blocks-engine-authored-carousel--positioned-stage .blocks-engine-authored-carousel__viewport{height:100%}';
         $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted)),.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted)){position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0}:where(.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__previous:not(.blocks-engine-authored-carousel__control--source-painted),.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__next:not(.blocks-engine-authored-carousel__control--source-painted)){transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted)){left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted)){right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
+        // A positioned slideshow stage fills its root: the viewport and track
+        // take the root height (a pixel viewport height still wins inline) and
+        // every slide fills the track, as the source percentage chain did.
+        $style .= '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--positioned-stage{--blocks-engine-carousel-height:100%}.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--positioned-stage .blocks-engine-authored-carousel__track>*{height:100%!important}';
         $style .= '.blocks-engine-authored-carousel__dots--source{position:static;inset:auto;gap:0;grid-column:1/-1}:where(.blocks-engine-authored-carousel__dots--source) .blocks-engine-authored-carousel__dot{width:revert;height:revert;border:revert;border-radius:revert;background:revert;color:inherit}';
         // A captured orientation is carried by the separate translate and scale
         // properties, as core/icon does, so the source's own transform cannot
@@ -1175,6 +1179,7 @@ JS;
         $geometryList = $localList instanceof DOMElement ? $localList : $list;
         $geometryDeclarations = $styleResolver->structuralPresentationDeclarations($geometryList);
         [$positionedStage, $viewportHeight, $stageMinHeight, $fullBleed] = $this->stageGeometry($element, $geometryDeclarations, $styleResolver);
+        $positionedStage = $positionedStage || ( 0 === $viewportHeight && $this->stageFillsRoot($element, $geometryDeclarations, $items, $styleResolver) );
 
         $thumbnails = $this->thumbnails($pagerItems, count($slides));
         $thumbnailPosition = array() === $thumbnails
@@ -1691,6 +1696,28 @@ JS;
         $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
             && 1 === preg_match('/^-\s*(?:[0-9]+|[0-9]*\.[0-9]+)(?:px|rem|em|%)$/', strtolower(trim((string) ($rootDeclarations['left'] ?? ''))));
         return array($positionedStage, $viewportHeight, $stageMinHeight, $fullBleed);
+    }
+
+    /**
+     * Whether the source track and its items fill a sized carousel root through
+     * full percentage heights, so the inserted stage wrappers must keep that
+     * chain instead of collapsing to the slide's natural ratio.
+     *
+     * @param array<string, mixed> $geometryDeclarations
+     * @param array<int, DOMElement> $items
+     */
+    private function stageFillsRoot(DOMElement $element, array $geometryDeclarations, array $items, StyleResolver $styleResolver): bool
+    {
+        $rootHeight = CssValueInspector::declared($styleResolver->structuralPresentationDeclarations($element), 'height');
+        if ( array() === $items || '' === $this->safeCssDimension($rootHeight) || '100%' !== CssValueInspector::declared($geometryDeclarations, 'height') ) {
+            return false;
+        }
+        foreach ( $items as $item ) {
+            if ( '100%' !== CssValueInspector::declared($styleResolver->structuralPresentationDeclarations($item), 'height') ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
