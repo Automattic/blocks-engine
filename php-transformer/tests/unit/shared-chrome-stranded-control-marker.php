@@ -15,6 +15,8 @@ $presentation = '.' . $control . '{padding:24px;color:red}';
 $author = ':where(.' . $control . ')>:where(.wp-block-button__link){letter-spacing:.2em}.' . $subject . '{text-transform:uppercase}';
 $assets = array(
     array('kind' => 'css', 'source' => 'engine-support', 'content' => $hide . $presentation . '.fitment-intro{color:red}', 'source_path' => 'support.css', 'path' => 'support.css', 'target_path' => 'assets/support.css', 'scopes' => array(array('kind' => 'page', 'source_path' => 'fitment.html'))),
+    array('kind' => 'css', 'source' => 'engine-support', 'content' => '.about-intro{color:blue}', 'source_path' => 'about-support.css', 'path' => 'about-support.css', 'target_path' => 'assets/about-support.css', 'scopes' => array(array('kind' => 'page', 'source_path' => 'about.html'))),
+    array('kind' => 'css', 'source' => 'engine-support', 'content' => '.other{color:green}', 'source_path' => 'other-support.css', 'path' => 'other-support.css', 'target_path' => 'assets/other-support.css', 'scopes' => array(array('kind' => 'page', 'source_path' => 'other.html'))),
     array('kind' => 'css', 'source' => 'author', 'content' => $author, 'source_path' => 'site.css', 'path' => 'site.css', 'target_path' => 'assets/site.css', 'scopes' => array(array('kind' => 'global'))),
 );
 $classes = $control . ' ' . $subject;
@@ -38,4 +40,7 @@ if (str_contains($shared, $control)) throw new RuntimeException('Route-kept cont
 if (!str_contains($route('support.css'), $hide) || !str_contains($route('support.css'), '.fitment-intro')) throw new RuntimeException('Route-kept controls retain their support rules: ' . $route('support.css'));
 if ($author !== $route('site.css') || str_contains($shared, 'letter-spacing')) throw new RuntimeException('Author rules of a route-kept chrome element stay in one route stylesheet: ' . $route('site.css') . "\n" . $shared);
 if (!str_contains($route('support.css'), $presentation) || str_contains($shared, 'padding:24px')) throw new RuntimeException('Stranded control presentation must not spread to other routes: ' . $shared);
+if (!str_contains($route('about-support.css'), $hide)) throw new RuntimeException('Adopting route lost responsive control visibility');
+if (str_contains($route('about-support.css'), $presentation) || str_contains($route('other-support.css'), $control)) throw new RuntimeException('Control visibility escaped its adopting routes');
+if (count($projected) !== count($assets)) throw new RuntimeException('Visibility copy added an asset');
 echo "Shared chrome stranded control marker passed\n";

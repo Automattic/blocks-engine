@@ -1110,6 +1110,7 @@ final class SharedChromeStylesheets
                 }
             }
         }
+        $assets = self::copyControlVisibilityToRoutes($assets, $parts, array_intersect_key($classes, $routeHooks['marker']));
         $classes = array_diff_key($classes, $routeHooks['marker']);
         unset($routeHooks['marker']);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
@@ -1214,6 +1215,54 @@ final class SharedChromeStylesheets
             $projected[] = $sharedAsset;
         }
         return $projected;
+    }
+
+    /**
+     * A route-kept control can retain the chosen capture's marker in a shared
+     * part. Copy only its generated wrapper hiding rule to the adopting routes'
+     * existing support sheets. Do not promote presentation or add global assets:
+     * both would change the cascade outside the control.
+     */
+    private static function copyControlVisibilityToRoutes(array $assets, array $parts, array $markers): array
+    {
+        $rules = array();
+        foreach ($markers as $marker => $_) {
+            if ('control' !== EngineMarker::markerKind($marker)) continue;
+            foreach ($assets as $asset) {
+                if ('engine-support' !== ($asset['source'] ?? null) || !empty($asset['media'])) continue;
+                $matched = false;
+                $css = (new CssStylesheetTransformer())->transformStyleRules((string) ($asset['content'] ?? ''), static function (string $selector, string $body) use ($marker, &$matched): string {
+                    if (1 !== preg_match('/^\\s*display\\s*:\\s*none\\s*!important\\s*;?\\s*$/i', $body)
+                        || !str_contains($selector, '.' . $marker . '.' . $marker . '.wp-block-buttons:has(>.' . $marker . '.wp-block-button:only-child)')) return '';
+                    $matched = true;
+                    return $selector . '{' . $body . '}';
+                });
+                if ($matched) $rules[$marker][$css] = true;
+            }
+        }
+        $byRoute = array();
+        foreach ($parts as $part) {
+            if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
+            $markup = (string) ($part['canonical_block_markup'] ?? '');
+            foreach ($rules as $marker => $slices) {
+                if (!str_contains($markup, $marker)) continue;
+                foreach ($part['placement']['source_paths'] ?? array_keys($part['provenance']['sources'] ?? array()) as $source) {
+                    $byRoute[$source] = ($byRoute[$source] ?? array()) + $slices;
+                }
+            }
+        }
+        foreach ($assets as &$asset) {
+            if ('engine-support' !== ($asset['source'] ?? null) || !empty($asset['media'])) continue;
+            $copies = array();
+            foreach ($asset['scopes'] ?? array() as $scope) {
+                if ('page' === ($scope['kind'] ?? null)) $copies += $byRoute[$scope['source_path'] ?? ''] ?? array();
+            }
+            $content = (string) ($asset['content'] ?? '');
+            foreach ($copies as $css => $_) if (!str_contains($content, $css)) $content .= "\n" . $css;
+            if ($content !== ($asset['content'] ?? '')) $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
+        }
+        unset($asset);
+        return $assets;
     }
 
     /**
