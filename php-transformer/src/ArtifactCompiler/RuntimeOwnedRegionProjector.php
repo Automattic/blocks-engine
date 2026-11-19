@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use DOMElement;
 use DOMXPath;
@@ -10,7 +11,7 @@ use DOMXPath;
 /** Replace capture-proven runtime roots before form discovery or DOM conversion. */
 final class RuntimeOwnedRegionProjector
 {
-    private const MARKER = 'data-blocks-engine-capture-runtime-owner';
+    private const MARKER = CaptureEvidence::RUNTIME_OWNER;
 
     /**
      * @param array<int,array<string,mixed>> $files
@@ -25,9 +26,9 @@ final class RuntimeOwnedRegionProjector
             $document = HtmlSerialization::parseDocument($file['content']);
             $xpath = new DOMXPath($document);
             $regions = array();
-            foreach ($xpath->query('//script[@type="application/json"][@data-blocks-engine-capture-source-evidence="runtime-owned-regions"]') ?: array() as $script) {
+            foreach ($xpath->query('//script[@type="application/json"][@' . CaptureEvidence::SOURCE_EVIDENCE . '="runtime-owned-regions"]') ?: array() as $script) {
                 $evidence = json_decode($script->textContent, true);
-                if (!is_array($evidence) || 'blocks-engine-capture/runtime-owned-regions/v1' !== ($evidence['schema'] ?? null)) continue;
+                if (!is_array($evidence) || CaptureEvidence::RUNTIME_OWNED_REGIONS_SCHEMA !== ($evidence['schema'] ?? null)) continue;
                 foreach (is_array($evidence['regions'] ?? null) ? $evidence['regions'] : array() as $region) {
                     if (is_array($region) && is_string($region['id'] ?? null) && '' !== $region['id']) $regions[$region['id']] = $region;
                 }
