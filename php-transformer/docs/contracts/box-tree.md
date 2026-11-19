@@ -220,7 +220,8 @@ padding to margin where needed (an `em` band moves only when the font sizes
 agree). The child's `width`/`height` keep its captured pixels unless the box's
 intent is an intrinsic keyword that also holds for the child, or the child's
 border box equals the box's at every capture and the child's size measures its
-border box (border-box sizing, or no padding or border on that axis): then the
+border box (border-box sizing, or no padding or border on that axis) and its
+own lifted size is `auto` at every band: then the
 box's lifted size of any kind (a `%` of the containing block the child now
 shares, a viewport length) sizes the child. Lifting treats
 every collapsed box as `display: contents`, so percentages resolve against the

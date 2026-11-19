@@ -130,7 +130,9 @@ $calls = array();
 $fallbacks = array();
 $recorded = array();
 $mode = 'submit-only';
-$submitForm = $formFrom('<form><button type="submit">Join</button></form>');
+// The readable build only differs with form events allowed when the form
+// carries events, so the retry is modelled on a form that does.
+$submitForm = $formFrom('<form onsubmit="return join()"><button type="submit">Join</button></form>');
 $result = $dispatcher->convert($submitForm, $fallbacks);
 $assert(true === ($result['attrs']['allowEvents'] ?? false), 'submit-only-form-retries-with-events');
 $assert(array( $result ) === $recorded, 'submit-only-form-records-runtime-contract');

@@ -99,16 +99,56 @@ final class FormControlClassifier
         if ( '' === $for || null === $document || !isset(self::$wholeDocuments[$document]) || self::namesLabelledElement($element) ) {
             return false;
         }
-        if ( $document->getElementById($for) instanceof DOMElement ) {
+        if ( self::indexedIdIsConnected($document, $for) || $document->getElementById($for) instanceof DOMElement ) {
             return false;
         }
-        foreach ( (new \DOMXPath($document))->query('//*[@id]') ?: array() as $candidate ) {
-            if ( $candidate instanceof DOMElement && $candidate->getAttribute('id') === $for ) {
-                return false;
-            }
-        }
+        // Documents assembled node by node register no ids, so look the id
+        // up with one XPath predicate rather than reading every id-bearing
+        // element in PHP for each label (#6752).
+        return true !== (new \DOMXPath($document))->evaluate('boolean(//*[@id = ' . SourceDom::xpathLiteral($for) . '])');
+    }
 
-        return true;
+    /** @var WeakMap<DOMDocument, array<string, string>>|null Node path of the first element per id, indexed once per document. */
+    private static ?WeakMap $idIndexes = null;
+
+    private static int $idIndexBuilds = 0;
+
+    /**
+     * Document id indexes {@see self::isDangling()} has built since process
+     * start; observable for tests. A document is indexed once, not searched
+     * once per label (#6752).
+     */
+    public static function idIndexBuilds(): int
+    {
+        return self::$idIndexBuilds;
+    }
+
+    /**
+     * Whether the element at the path the document's id index recorded for
+     * `$id` still carries it. The index is built once per document and may
+     * go stale as conversion edits the DOM, so only a confirmed hit counts;
+     * anything else falls through to the document lookups, which answer as
+     * before. Paths, not elements, are kept so the index holds no node of
+     * the document it is keyed by.
+     */
+    private static function indexedIdIsConnected(DOMDocument $document, string $id): bool
+    {
+        self::$idIndexes ??= new WeakMap();
+        $xpath = new \DOMXPath($document);
+        if ( ! isset(self::$idIndexes[$document]) ) {
+            ++self::$idIndexBuilds;
+            $index = array();
+            foreach ( $xpath->query('//*[@id]') ?: array() as $candidate ) {
+                if ( $candidate instanceof DOMElement ) {
+                    $index[$candidate->getAttribute('id')] ??= (string) $candidate->getNodePath();
+                }
+            }
+            self::$idIndexes[$document] = $index;
+        }
+        $path = self::$idIndexes[$document][$id] ?? '';
+        $candidate = '' === $path ? null : ($xpath->query($path) ?: null)?->item(0);
+
+        return $candidate instanceof DOMElement && $id === $candidate->getAttribute('id');
     }
 
     private static function hasContent(DOMElement $element): bool

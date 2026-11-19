@@ -39,7 +39,10 @@ final class SharedChromeStylesheets
     /** A compiler route gate compound: `:where(:root:is(.be-r-…))`, `:where(:root:not(.be-r-…))` or `:where(:root.be-r)`. */
     private const ROUTE_GATE = '/^:where\(:root(?::(?:is|not)\((?:\.be-r-[a-f0-9]+,?)+\)|\.be-r(?::not\((?:\.be-r-[a-f0-9]+,?)+\))?)\)$/';
 
-    private const GENERATED_CLASS_PATTERN = '/blocks-engine-(?:[a-z-]+-[0-9a-f]{12}-\d+|subject-class-[0-9a-f]{12})(?![\w-])/';
+    // A content-addressed marker (a navigation toggle, overlay or link icon:
+    // a hash and no instance index) is generated too: the part that carries
+    // it on every route it renders needs the rules it names on each of them.
+    private const GENERATED_CLASS_PATTERN = '/blocks-engine-(?!editor-anchor-)[a-z-]+-[0-9a-f]{12}(?:-\d+)?(?![\w-])/';
 
     private const BOX_PROPERTIES = '/(?:^|[;{\s])(?:(?:max-)?width|z-index|overflow(?:-[xy])?|inset|top|right|bottom|left)\s*:/i';
 

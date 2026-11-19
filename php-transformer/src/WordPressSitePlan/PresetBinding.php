@@ -388,6 +388,10 @@ final class PresetBinding
     private function bindNavigations(string $markup): string
     {
         if (!str_contains($markup, '<!-- wp:navigation ')) return $markup;
+        $markup = (string) preg_replace_callback('/<!-- wp:navigation (\{(?:(?!-->).)*\}) (\/?-->)/s', function (array $match): string {
+            $attributes = $this->navigationFontSize($match[1]);
+            return null === $attributes ? $match[0] : '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' ' . $match[2];
+        }, $markup);
         return (string) preg_replace_callback('/<!-- wp:navigation (\{(?:(?!-->).)*\}) -->(.*?)<!-- \/wp:navigation -->/s', function (array $match): string {
             $attributes = json_decode($match[1], false);
             if (!$attributes instanceof \stdClass || BlockAttributes::encode($attributes) !== $match[1] || isset($attributes->textColor) || isset($attributes->style->color->text)) return $match[0];
@@ -398,6 +402,42 @@ final class PresetBinding
             ++$this->bound;
             return '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' -->' . $match[2] . '<!-- /wp:navigation -->';
         }, $markup);
+    }
+
+    /**
+     * The navigation's attributes with its literal `style.typography.fontSize`
+     * bound to the exact font-size preset, or null when there is none to
+     * bind. Core renders a navigation's typography from its attributes alone
+     * (the block has no saved wrapper markup, open or as a `ref`), and turns
+     * a `var:preset|font-size|…` reference into the `!important`
+     * `has-{slug}-font-size` class. So the preset is bound as `fontSize` only
+     * where that class would not change the cascade (safe()); otherwise the
+     * literal becomes the preset's CSS variable, which core keeps as the same
+     * inline declaration, now following the token.
+     */
+    private function navigationFontSize(string $json): ?\stdClass
+    {
+        $attributes = json_decode($json, false);
+        if (!$attributes instanceof \stdClass || BlockAttributes::encode($attributes) !== $json || isset($attributes->fontSize)) return null;
+        $typography = $attributes->style->typography ?? null;
+        $literal = $typography instanceof \stdClass ? ($typography->fontSize ?? null) : null;
+        if (!is_string($literal) || str_starts_with($literal, 'var')) return null;
+        $slug = null;
+        foreach ($this->system->fontSizes as $preset) if (0 === $preset['weight'] && $preset['size'] === $literal) $slug = $preset['slug'];
+        $slug ??= $this->exactFontSizeSlug($this->resolve($literal));
+        if (null === $slug) return null;
+        $tokens = $this->tagTokens('<nav>', is_string($attributes->className ?? null) ? $attributes->className : '');
+        if ($this->safe('font-size', $tokens, array('has-' . $slug . '-font-size'))) {
+            unset($typography->fontSize);
+            $attributes->fontSize = $slug;
+            self::prune($attributes);
+        } elseif ($this->safe('font-size', $tokens, array(), true, false, $reason, true)) {
+            $typography->fontSize = 'var(--wp--preset--font-size--' . $slug . ')';
+        } else {
+            return null;
+        }
+        ++$this->bound;
+        return $attributes;
     }
 
     /**

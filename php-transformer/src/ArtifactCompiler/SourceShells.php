@@ -235,12 +235,13 @@ final class SourceShells
         foreach ($currentNodes as $node) {
             // Explicit current tokens are state, not evidence that an item's
             // other classes must match its structurally different siblings.
-            // Only inside navigation: selected content elsewhere is structure.
+            // Only inside navigation (a nav element or a navigation role):
+            // selected content elsewhere is structure.
             $marked = false;
             $inNavigation = false;
             for ($ancestor = $node; $ancestor instanceof \DOMElement; $ancestor = $ancestor->parentNode) {
                 if (array() !== array_filter(SourceDom::tokens($ancestor->getAttribute('class')), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...)) || str_contains($ancestor->getAttribute('data-blocks-engine-route-resting'), '"class"')) $marked = true;
-                if ('nav' === strtolower($ancestor->tagName)) {
+                if ('nav' === strtolower($ancestor->tagName) || 'navigation' === strtolower($ancestor->getAttribute('role'))) {
                     $inNavigation = true;
                     break;
                 }

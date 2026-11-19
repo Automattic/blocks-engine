@@ -2730,6 +2730,50 @@ final class ArtifactCompiler
         );
     }
 
+    /**
+     * A route that sampled an extra viewport carries a responsive projection
+     * hook its peers lack, so its chrome reads as a different source group.
+     * Merge groups that differ only by projection hooks when box-tree
+     * evidence records their routes as chrome peers: their observations
+     * agree on every viewport they share ({@see BoxTreeReport}). Without that
+     * evidence a hook may select distinct responsive rules, so it keeps its
+     * own group.
+     *
+     * @param array<string,array<string,array<string,mixed>>> $groups Members by source identity.
+     * @return array<string,array<string,array<string,mixed>>>
+     */
+    private static function withChromePeerGroups(array $groups, string $area, int|string $variant): array
+    {
+        if (count($groups) < 2) return $groups;
+        $hook = '/\s*\b' . preg_quote(CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX, '/') . '[a-f0-9]{12}\b/';
+        $buckets = array();
+        foreach ($groups as $identity => $members) {
+            $row = current($members)['rows'][$area][$variant];
+            $withoutHooks = preg_replace('/\sclass="\s*"/', '', preg_replace($hook, '', (string) $row['identity']) ?? '') ?? '';
+            $buckets[hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity::markup($withoutHooks))][] = $identity;
+        }
+        $peers = static function (array $members) use ($area, $variant): array {
+            $paths = array();
+            foreach ($members as $document) {
+                $root = preg_match('/^<[^>]*\s' . preg_quote(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE, '/') . '="([^"]*)"/', (string) $document['rows'][$area][$variant]['markup'], $match) ? $match[1] : null;
+                if (null !== $root) $paths = array_merge($paths, $document['chrome_peers'][$root] ?? array());
+            }
+            return $paths;
+        };
+        foreach ($buckets as $identities) {
+            if (count($identities) < 2) continue;
+            // Largest group first: it names the merged group.
+            usort($identities, static fn(string $a, string $b): int => count($groups[$b]) <=> count($groups[$a]));
+            $target = array_shift($identities);
+            foreach ($identities as $identity) {
+                if (array() === array_intersect($peers($groups[$identity]), array_keys($groups[$target]))) continue;
+                $groups[$target] += $groups[$identity];
+                unset($groups[$identity]);
+            }
+        }
+        return $groups;
+    }
+
     private static function withoutBoxTreeNodeIds(string $markup): string
     {
         return preg_replace('/\s' . preg_quote(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE, '/') . '="[^"]*"/', '', $markup) ?? $markup;
@@ -2831,6 +2875,7 @@ final class ArtifactCompiler
                     $groups[$variant][$row['source_identity']][$path] = $document;
                 }
             }
+            foreach ($groups as $variant => $variantGroups) $groups[$variant] = self::withChromePeerGroups($variantGroups, $area, $variant);
             foreach ($groups as $variant => $variantGroups) foreach ($variantGroups as $sourceIdentity => $members) {
                 // A member whose landmark styles come from another stylesheet
                 // renders it under other rules and keeps its own copy, unless

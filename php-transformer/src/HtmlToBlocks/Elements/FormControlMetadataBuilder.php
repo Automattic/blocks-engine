@@ -929,8 +929,52 @@ final class FormControlMetadataBuilder
                 return $this->contentStartsWith($label, $control);
             }
         }
+        $follows = self::followsOutsideAncestry($label, $control);
+        if ( null !== $follows ) {
+            return $follows;
+        }
         $xpath = new \DOMXPath($control->ownerDocument);
         return (int) $xpath->evaluate('count(preceding::*)', $label) > (int) $xpath->evaluate('count(preceding::*)', $control);
+    }
+
+    /**
+     * Whether `$later` comes after `$earlier` in document order, read from
+     * their nearest common ancestor's children instead of counting every
+     * preceding element of the document twice per control (#6752). When
+     * neither contains the other, that is exactly whether `$later` has more
+     * preceding elements. Null when one contains the other or they share no
+     * ancestor, which the count answers.
+     */
+    private static function followsOutsideAncestry(DOMElement $later, DOMElement $earlier): ?bool
+    {
+        $laterChain = array();
+        for ( $node = $later; null !== $node; $node = $node->parentNode ) {
+            $laterChain[] = $node;
+        }
+        $branches = array();
+        foreach ( $laterChain as $position => $node ) {
+            $branches[spl_object_id($node)] = $position;
+        }
+        $earlierBranch = null;
+        for ( $node = $earlier; null !== $node; $node = $node->parentNode ) {
+            $position = $branches[spl_object_id($node)] ?? null;
+            if ( null !== $position && $laterChain[$position]->isSameNode($node) ) {
+                if ( 0 === $position || null === $earlierBranch ) {
+                    return null;
+                }
+                $laterBranch = $laterChain[$position - 1];
+                for ( $sibling = $earlierBranch->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
+                    if ( $sibling->isSameNode($laterBranch) ) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            $earlierBranch = $node;
+        }
+
+        return null;
     }
 
     private function contentStartsWith(DOMElement $container, DOMElement $control): bool

@@ -2009,8 +2009,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // The child's border box is the box's at every capture and it now
             // sits in the box's containing block, so the box's proven size
             // (a `%` of that block, a viewport length) sizes the child alike,
-            // when the child's own `width`/`height` measures that border box.
-            $carried = null !== $bands && $fold['equal_box'] && self::sizesBorderBox($observations, $sides)
+            // when the child's own `width`/`height` measures that border box
+            // and its author size is `auto` (it fills whatever box holds it).
+            // A child with no lifted intent of its own keeps its pixels.
+            $carried = null !== $bands && $fold['equal_box'] && self::autoOnly($fluid[$property] ?? null)
+                && self::sizesBorderBox($observations, $sides)
                 && ($sameFont || !preg_grep('/\d(?:\.\d+)?em\b/i', array_column($bands, 1)));
             if ( $carried || ($keywords && ($fold['equal_box'] || ($fluid[$property] ?? null) === $bands)) ) {
                 $fluid[$property] = $bands;
@@ -2090,6 +2093,17 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         }
         return true;
+    }
+
+    /**
+     * Whether lifted bands say `auto` at every band: the element's own author
+     * size defers to its container, so the folded box's size is its size.
+     *
+     * @param list<array{0: float|null, 1: string}>|null $bands
+     */
+    private static function autoOnly(?array $bands): bool
+    {
+        return null !== $bands && array() !== $bands && array('auto') === array_values(array_unique(array_column($bands, 1)));
     }
 
     private const INTRINSIC_SIZES = array('auto', 'none', 'fit-content', 'min-content', 'max-content', 'stretch');
