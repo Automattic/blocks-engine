@@ -868,6 +868,19 @@ final class SourceDom
         return self::$labelIndexes[$document][$id] ?? array();
     }
 
+    /** `$value` as an XPath 1.0 string literal, whatever quotes it holds. */
+    public static function xpathLiteral(string $value): string
+    {
+        if ( ! str_contains($value, '"') ) {
+            return '"' . $value . '"';
+        }
+        if ( ! str_contains($value, "'") ) {
+            return "'" . $value . "'";
+        }
+
+        return 'concat("' . str_replace('"', '", \'"\', "', $value) . '")';
+    }
+
     public static function elementSelector(DOMElement $element): string
     {
         $parts = array();

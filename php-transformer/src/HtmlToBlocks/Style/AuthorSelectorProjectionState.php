@@ -604,17 +604,30 @@ final class AuthorSelectorProjectionState
         // A carrier restated in a block attribute (a navigation link label)
         // is JSON-escaped in the block comment.
         $markup = str_replace(array( '\\u003c', '\\u003e', '\\u0022' ), array( '<', '>', '"' ), $markup);
+        // Every allocated rich-text marker has one shape, so the markup is
+        // read once for all of them rather than once per marker (#6752).
+        $shape = 'blocks-engine-richtext-[a-f0-9]{12}-\d+';
+        $indexed = null;
         foreach ( $this->subjectCarriers['richtext'] ?? array() as $marker => $carrier ) {
             $marker = (string) $marker;
             if ( null === $carrier || isset($this->withheldSubjectCarriers['richtext'][$marker]) ) {
                 continue;
             }
-            $pattern = preg_quote($marker, '/') . '(?!\d)';
-            $occurrences = preg_match_all('/' . $pattern . '/', $markup);
-            if ( ! is_int($occurrences) || 0 === $occurrences
-                || ! preg_match_all('/<(?:mark|span)\b[^>]*' . $pattern . '[^>]*>/i', $markup, $tags) || count($tags[0]) !== $occurrences
-            ) {
-                continue;
+            if ( 1 === preg_match('/^' . $shape . '$/D', $marker) ) {
+                $indexed ??= self::richTextMarkerOccurrences($markup, $shape);
+                $occurrences = $indexed['occurrences'][$marker] ?? 0;
+                $tags = array( $indexed['tags'][$marker] ?? array() );
+                if ( 0 === $occurrences || count($tags[0]) !== $occurrences ) {
+                    continue;
+                }
+            } else {
+                $pattern = preg_quote($marker, '/') . '(?!\d)';
+                $occurrences = preg_match_all('/' . $pattern . '/', $markup);
+                if ( ! is_int($occurrences) || 0 === $occurrences
+                    || ! preg_match_all('/<(?:mark|span)\b[^>]*' . $pattern . '[^>]*>/i', $markup, $tags) || count($tags[0]) !== $occurrences
+                ) {
+                    continue;
+                }
             }
             $expected = array( EngineMarker::roleClass($marker), ...EngineMarker::subjectClasses($carrier['tag'], array_map('strval', array_keys($carrier['classes']))) );
             foreach ( $tags[0] as $tag ) {
@@ -625,6 +638,38 @@ final class AuthorSelectorProjectionState
             }
             $this->confirmedRichTextCarriers[$marker] = true;
         }
+    }
+
+    /**
+     * Each rich-text marker's occurrences in the markup, and the `<mark>` or
+     * `<span>` start tags that carry it, each tag once. A marker's digits
+     * end where the next character is not a digit, as `marker(?!\d)` reads
+     * it, so one scan answers what a scan per marker would.
+     *
+     * @return array{occurrences: array<string, int>, tags: array<string, list<string>>}
+     */
+    private static function richTextMarkerOccurrences(string $markup, string $shape): array
+    {
+        $occurrences = array();
+        if ( preg_match_all('/' . $shape . '/', $markup, $matches) ) {
+            foreach ( $matches[0] as $marker ) {
+                $occurrences[$marker] = ($occurrences[$marker] ?? 0) + 1;
+            }
+        }
+        $tags = array();
+        if ( array() !== $occurrences && preg_match_all('/<(?:mark|span)\b[^>]*>/i', $markup, $matches) ) {
+            foreach ( $matches[0] as $tag ) {
+                // Tags are read case-insensitively, as the per-marker tag
+                // pattern was.
+                if ( false === stripos($tag, 'blocks-engine-richtext-') || ! preg_match_all('/' . $shape . '/i', $tag, $carried) ) {
+                    continue;
+                }
+                foreach ( array_unique(array_map('strtolower', $carried[0])) as $marker ) {
+                    $tags[$marker][] = $tag;
+                }
+            }
+        }
+        return array( 'occurrences' => $occurrences, 'tags' => $tags );
     }
 
     /** @return list<string> */

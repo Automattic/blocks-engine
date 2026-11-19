@@ -91,6 +91,21 @@ final class NavigationToggleSuppressor
             }
         }
 
+        $previous = $this->labelsByFor;
+        try {
+            $this->collectProjectedNavigationRelationshipsFrom($root, $elementsById);
+        } finally {
+            $this->labelsByFor = $previous;
+        }
+    }
+
+    /** @param array<string, DOMElement> $elementsById */
+    private function collectProjectedNavigationRelationshipsFrom(DOMElement $root, array $elementsById): void
+    {
+        // Most elements are rejected as toggles by reads alone, so they share
+        // one label index; a recognised toggle's projection may edit the DOM,
+        // so the index starts over after each (#6752).
+        $this->labelsByFor = new \WeakMap();
         foreach ( $root->getElementsByTagName('*') as $control ) {
             if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) || $this->isInsideNativeDisclosurePanel($control) ) {
                 continue;
@@ -98,6 +113,7 @@ final class NavigationToggleSuppressor
             if ( ! $this->isHamburgerMenuToggleControl($control) && ! $this->isProjectableHashAnchorMenuToggle($control) ) {
                 continue;
             }
+            $this->labelsByFor = new \WeakMap();
 
             $ownedPanels = array();
             foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-controls')) as $controlledId ) {
@@ -1109,12 +1125,56 @@ final class NavigationToggleSuppressor
      */
     public function collectSupersededNavToggleSelectors(DOMElement $root): void
     {
-        foreach ( $root->getElementsByTagName('*') as $element ) {
-            if ( $element instanceof DOMElement && $this->isRedundantMenuToggleControl($element) ) {
-                $this->recordSupersededNavToggleSelectors($element);
-                $this->recordSupersededControlPaths($element);
+        // The pass only records selectors and paths, so each document's
+        // labels are indexed by their trimmed `for` once for it (#6752).
+        $previous = $this->labelsByFor;
+        $this->labelsByFor = new \WeakMap();
+        try {
+            foreach ( $root->getElementsByTagName('*') as $element ) {
+                if ( $element instanceof DOMElement && $this->isRedundantMenuToggleControl($element) ) {
+                    $this->recordSupersededNavToggleSelectors($element);
+                    $this->recordSupersededControlPaths($element);
+                }
+            }
+        } finally {
+            $this->labelsByFor = $previous;
+        }
+    }
+
+    /** @var \WeakMap<DOMDocument, array<string, list<DOMElement>>>|null Document labels by trimmed `for`, while {@see collectSupersededNavToggleSelectors()} runs. */
+    private ?\WeakMap $labelsByFor = null;
+
+    /**
+     * The document's labels whose trimmed `for` is `$id`, in document order.
+     *
+     * @return list<DOMElement>
+     */
+    private function labelsNaming(DOMDocument $document, string $id): iterable
+    {
+        if ( null !== $this->labelsByFor ) {
+            if ( ! isset($this->labelsByFor[$document]) ) {
+                $index = array();
+                foreach ( $document->getElementsByTagName('label') as $label ) {
+                    if ( $label instanceof DOMElement ) {
+                        $index[trim(SourceDom::attr($label, 'for'))][] = $label;
+                    }
+                }
+                $this->labelsByFor[$document] = $index;
+            }
+
+            return $this->labelsByFor[$document][$id] ?? array();
+        }
+        // Outside that pass the DOM may change between lookups. A `for` that
+        // trims to the id contains it, so XPath narrows the labels to those
+        // without reading each one in PHP per checkbox.
+        $labels = array();
+        foreach ( (new \DOMXPath($document))->query('//*[contains(@for, ' . SourceDom::xpathLiteral($id) . ')]') ?: array() as $label ) {
+            if ( $label instanceof DOMElement && 'label' === $label->tagName && $id === trim(SourceDom::attr($label, 'for')) ) {
+                $labels[] = $label;
             }
         }
+
+        return $labels;
     }
 
     /**
@@ -1442,11 +1502,8 @@ final class NavigationToggleSuppressor
             return false;
         }
 
-        foreach ( $document->getElementsByTagName('label') as $label ) {
-            if ( $label instanceof DOMElement
-                && $controlId === trim(SourceDom::attr($label, 'for'))
-                && $this->isCheckboxBoundEmptyLabel($label)
-            ) {
+        foreach ( $this->labelsNaming($document, $controlId) as $label ) {
+            if ( $this->isCheckboxBoundEmptyLabel($label) ) {
                 return true;
             }
         }
