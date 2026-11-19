@@ -360,8 +360,9 @@ final class AuthorStylesheetMaterialization
         $media = trim($media);
         $sitePruner = $this->session->authorStyleAnalysis()->siteSelectorPruner;
         if (null !== $sitePruner) {
-            // Prune only the projection input. Analysis and source provenance
-            // retain the authored inventory and its specificity ceiling.
+            // Reuse the text already pruned for selector preparation and the
+            // conversion cascade. Raw assets retain authored provenance and
+            // inventory for consumers that still need the complete stylesheet.
             // Keep ID ancestry here: route reconciliation needs the same
             // inventory on every route to coalesce page-local arms. The final
             // asset pruner can drop absent IDs after that reconciliation.
