@@ -24,8 +24,10 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * rules and kept keyframes read are closed over: every rule that defines one
  * keeps that definition. Every `@keyframes` and `@property` the kept rules
  * reach is kept. Rules whose subject names an id no emitted element carries
- * are dropped. Everything else is dropped, except `@font-face` and `@layer`
- * order statements.
+ * are dropped. Device island visibility rules (the capture's viewport gate
+ * between its desktop and mobile islands) are kept like state rules.
+ * Everything else is dropped, except `@font-face` and `@layer` order
+ * statements.
  */
 final class EvidenceRouteStateRules
 {
@@ -237,6 +239,10 @@ final class EvidenceRouteStateRules
         // Attribute values and strings never name a state.
         $bare = (string) preg_replace('/"[^"]*"|\'[^\']*\'/', '""', $selector);
         if (preg_match(self::INTERACTION, $bare)) return true;
+        // A device island's presence is the capture's viewport selection, not
+        // a resting pose: carriers record each island where it renders and
+        // never the other island hidden there, so the visibility gate stays.
+        if (preg_match_all('/\.(-?[A-Za-z_][\w-]*)/', $bare, $classes)) foreach ($classes[1] as $class) if (CaptureEvidence::isDeviceIslandClass($class)) return true;
         foreach ($this->stateAttributes as $attribute) {
             if (preg_match('/\[\s*' . preg_quote($attribute, '/') . '\s*(?:[~|^$*]?=|\])/i', $bare)) return true;
         }

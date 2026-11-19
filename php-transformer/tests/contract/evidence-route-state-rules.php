@@ -75,3 +75,12 @@ $assert(!str_contains($kept, 'comp-gone') && str_contains($kept, '#comp-q:hover{
 $editor = array('kind' => 'css', 'source' => 'editor-static-state', 'content' => '@font-face{font-family:G;src:url(g.woff2)}#comp-q:hover{color:green}', 'scopes' => array(array('kind' => 'page', 'source_path' => 'index.html')));
 $kept = EvidenceRouteStylesheets::retire(array($editor), array($page))[0]['content'];
 $assert('@font-face{font-family:G;src:url(g.woff2)}' === $kept, 'editor static state sheets keep only font faces on evidence routes', $kept);
+
+// Device islands (issue #5859): carriers record each island only where it
+// renders, so the capture's viewport gate between its desktop and mobile
+// islands is not a resting pose. Without it both islands render at every width.
+$page['canonical_block_markup'] = '<figure class="wp-block-image ' . CaptureEvidence::DESKTOP_ONLY_CLASS . '"><img src="a.png"/></figure><figure class="wp-block-image ' . CaptureEvidence::MOBILE_ONLY_CLASS . '"><img src="a-2.png"/></figure>';
+$kept = $retire('@media(min-width:1024px){.' . CaptureEvidence::MOBILE_ONLY_CLASS . '{display:none!important}}@media(max-width:1023px){.' . CaptureEvidence::DESKTOP_ONLY_CLASS . '{display:none!important}}.x{color:blue}');
+$assert(str_contains($kept, '@media(min-width:1024px){.' . CaptureEvidence::MOBILE_ONLY_CLASS . '{display:none!important}}'), 'the mobile island stays hidden at desktop widths on evidence routes', $kept);
+$assert(str_contains($kept, '@media(max-width:1023px){.' . CaptureEvidence::DESKTOP_ONLY_CLASS . '{display:none!important}}'), 'the desktop island stays hidden at mobile widths on evidence routes', $kept);
+$assert(!str_contains($kept, 'color:blue'), 'resting rules beside the device gate are still retired', $kept);
