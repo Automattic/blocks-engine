@@ -686,13 +686,31 @@ final class BoxTreeFluidIntent
     }
 
     /**
+     * Use a capture's recorded height at its own width. Between captures, scale
+     * the nearest capture's aspect ratio to preserve its orientation: a portrait
+     * band then ends at the author's width breakpoint, not an arbitrary height.
+     * Without a recorded height, orientation and height queries remain unknown.
+     */
+    private function captureHeight(float $width): ?float
+    {
+        $nearest = null;
+        foreach ($this->viewports as $viewport) {
+            if (!isset($viewport['width'], $viewport['height']) || (float) $viewport['width'] <= 0 || (float) $viewport['height'] <= 0) continue;
+            $distance = abs((float) $viewport['width'] - $width);
+            if (null === $nearest || $distance < $nearest[0]) $nearest = array($distance, (float) $viewport['width'], (float) $viewport['height']);
+        }
+        if (null === $nearest) return null;
+        return $nearest[0] < 0.01 ? $nearest[2] : $width * $nearest[2] / $nearest[1];
+    }
+
+    /**
      * The author value that wins for a longhand at one width, read through
      * its shorthand when the shorthand is declared later in the cascade. null
      * when nothing is declared; '' when the declaration cannot be resolved.
      */
     private function declared(string $property, float $width): ?string
     {
-        $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width, pseudoElement: $this->pseudo);
+        $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width, pseudoElement: $this->pseudo, viewportHeight: $this->captureHeight($width));
         $order = array_flip(array_keys($winners));
         $shorthand = null;
         foreach ((array) (self::SHORTHANDS[$property] ?? array()) as $candidate) {
