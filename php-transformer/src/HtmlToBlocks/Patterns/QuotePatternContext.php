@@ -35,6 +35,22 @@ final class QuotePatternContext
     }
 
     /**
+     * A padded or bordered figure is a separate box, not the quotation host.
+     * Collapsing it makes the quotation an inline child of the figure's line
+     * box and loses the inner blockquote's independent spacing and baseline.
+     */
+    public function figureOwnsBox(DOMElement $figure): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($figure);
+        foreach ($declarations as $property => $value) {
+            if (str_starts_with($property, 'padding') || str_starts_with($property, 'border')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * The quotation's RichText. Under a clip that author motion carries it
      * across, the text runs the source split with empty comments
      * (`“<!---->{quote}<!---->”`) are painted one by one, so they keep

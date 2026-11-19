@@ -134,6 +134,10 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
 
+        if ($quotes->figureOwnsBox($figure)) {
+            return null;
+        }
+
         $citation = $quotes->citationFromElement($blockquote);
         $caption = SourceDom::firstChildElement($figure, 'figcaption');
         // The figure collapses into core/quote only when it holds just the
