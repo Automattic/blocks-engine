@@ -309,8 +309,14 @@ final class AuthorStylesheetMaterialization
         $rootObservations = $this->session->boxTreeEvidence($root);
         $fluid = ( new BoxTreeFluidIntent() )->lift($body, $this->styleResolver, $observations, $viewports, $rootObservations);
         $projector = new BoxTreeStyleProjector();
-        return $projector->boxRule(':root', array( 'background-color' => 'rgba(0, 0, 0, 0)' ), $rootObservations)
-            . $projector->boxRule(':root body', self::BODY_BOX_PROPERTIES, $observations, $fluid);
+        // The root font size sizes every rem, and the body's is the size its
+        // content inherits: carriers prune a size equal to their parent's, and
+        // keep relative sizes relative, so both are restated where they differ
+        // from what the destination root and body would otherwise compute.
+        $rootSizes = array_unique(array_map(static fn(array $observation): string => (string) ($observation['used_styles']['font-size'] ?? ''), $rootObservations));
+        $inheritedSize = 1 === count($rootSizes) ? (string) reset($rootSizes) : '';
+        return $projector->boxRule(':root', array( 'background-color' => 'rgba(0, 0, 0, 0)', 'font-size' => '16px' ), $rootObservations)
+            . $projector->boxRule(':root body', self::BODY_BOX_PROPERTIES + array( 'font-size' => $inheritedSize ), $observations, $fluid);
     }
 
     /** Whether the source paints its canvas on `html` and never on `body`, under any condition. */
