@@ -313,6 +313,7 @@ final class BoxTreeFluidIntent
             $actual = (string) ($observations[$key]['used_styles'][$property] ?? '');
             if ($value !== $actual
                 && !('aspect-ratio' === $property && self::sameRatio($value, $actual))
+                && !(1 === preg_match('/^[+-]?0*\.?0+$/', $value) && 0.0 === self::pixels($actual))
                 && null === $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents)
                 && (!isset(self::INTRINSIC[$property]) || $value !== $this->intrinsicKeyword($property, $width))) return null;
             $proven[$key] = $value;
