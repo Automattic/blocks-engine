@@ -471,6 +471,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $navigationSource));
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $element, $navigationContext);
@@ -1010,6 +1011,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $cluster));
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $cluster, $navigationContext);
@@ -3528,7 +3530,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // stays on the plain linked-submenu path.
         $subjectMarker = $item->isSameNode($anchor) || (null !== $submenuContainer && ! $this->isSubmenuToggleControl($anchor) && $anchor->parentNode?->isSameNode($item)) ? '' : ($navigationContext?->navigationAnchorSubjectMarker($anchor, $item) ?? '');
         if ('' !== $subjectMarker) {
-            $anchorClassName = (string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class'));
+            $anchorClassName = SourceDom::mergeClassNames((string) ($anchorAttrs['className'] ?? $anchor->getAttribute('class')), $navigationContext->boxTreeElementCarrier($anchor));
             // The subject renders on every route; the served route's own hooks do not.
             if ($isCurrentNavigationItem) $anchorClassName = (string) ($this->withoutAuthoredCurrentNavigationSignals(array('className' => $anchorClassName))['className'] ?? '');
             // Stylesheet declarations stay on their source subject. Only explicit

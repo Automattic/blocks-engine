@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAn
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\SourceTargetProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -87,6 +88,7 @@ final class NavigationPatternContext
         // particular inset and its logical forms) survive that filtering.
         $geometry = $this->styleResolver->inlineGeometryClassName($element);
         if ('' !== $geometry) $markers[] = $geometry;
+        $markers[] = $this->styleResolver->boxTreeElementCarrier($element);
         return $markers;
     }
 
@@ -1446,7 +1448,7 @@ final class NavigationPatternContext
             }
             if (1 !== count($children)) return array();
             $marker = $this->navigationSubjectMarker($node, 'box');
-            $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node))));
+            $boxes[] = array('tag' => $tag, 'marker' => $marker, 'style' => $node->getAttribute('style'), 'className' => SourceDom::mergeClassNames($node->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($node)), $this->styleResolver->boxTreeElementCarrier($node)));
         }
         if (array() !== $boxes) {
             // These carriers exist only at frontend render time. Resolve the
@@ -1486,9 +1488,15 @@ final class NavigationPatternContext
             if (!$child instanceof DOMElement) continue;
             if ($child->isSameNode($branch)) { $after = true; continue; }
             if (!in_array(strtolower($child->tagName), array('span', 'div'), true) || $child->childElementCount || '' !== trim($child->textContent ?? '') || $child->hasAttribute('role') || $child->hasAttribute('tabindex')) continue;
-            $result[] = array('tag' => strtolower($child->tagName), 'after' => $after, 'className' => SourceDom::mergeClassNames($child->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($child))), 'style' => $child->getAttribute('style'));
+            $result[] = array('tag' => strtolower($child->tagName), 'after' => $after, 'className' => SourceDom::mergeClassNames($child->getAttribute('class'), implode(' ', $this->sourcePresentationMarkers($child)), $this->styleResolver->boxTreeElementCarrier($child)), 'style' => $child->getAttribute('style'));
         }
         return $result;
+    }
+
+    /** An evidence route's observed box for source markup an item keeps ({@see StyleResolver::boxTreeElementCarrier()}). */
+    public function boxTreeElementCarrier(DOMElement $element): string
+    {
+        return $this->styleResolver->boxTreeElementCarrier($element);
     }
 
     /** A text-free, link-free sibling of the link that paints only an SVG glyph. */
@@ -1748,6 +1756,25 @@ final class NavigationPatternContext
         }
 
         return $overlayMenu;
+    }
+
+    /**
+     * A menu shown at the reference viewport whose source also shows an
+     * equivalent copy elsewhere: its navigation serves both widths, so the
+     * hides that swapped the copies must not hide it. Records the source
+     * menu and returns the marker its navigation carries, or ''.
+     */
+    public function mergedDeviceNavigationMarker(DOMElement $element, DOMElement $navigationSource): string
+    {
+        if ( $this->isHiddenAtReferenceViewport($element)
+            || ! ( $this->navigationToggleSuppressor?->hasEquivalentNavigationVariant($element) ?? false ) ) {
+            return '';
+        }
+        $projections = $this->session->authorSelectorProjectionState();
+        $projections->markMergedDeviceNavigationSource($element);
+        $projections->markMergedDeviceNavigationSource($navigationSource);
+
+        return AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS;
     }
 
     public function capturedMenuFold(DOMElement $row): ?CapturedMenuDialogFold

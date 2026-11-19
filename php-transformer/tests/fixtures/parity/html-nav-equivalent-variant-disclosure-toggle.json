@@ -16,7 +16,7 @@
     "content": "<header><nav id=\"primary-menu\" class=\"main-nav\" aria-label=\"Primary\"><ul><li><a href=\"/\">Home</a></li><li><a href=\"/about\">About</a></li><li><a href=\"/contact\">Contact</a></li><li><a href=\"#\" aria-expanded=\"false\" aria-haspopup=\"menu\">More</a></li></ul></nav></header><nav id=\"mobile-menu-panel\" class=\"mobile-menu-panel\" aria-label=\"Primary\" hidden><details><summary aria-expanded=\"false\">More</summary></details><ul><li><a href=\"/\">Home</a></li><li><a href=\"/about\">About</a></li><li><a href=\"/contact\">Contact</a></li></ul></nav>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/navigation", "attrs": { "anchor": "primary-menu", "className": "main-nav blocks-engine-list-navigation blocks-engine-native-responsive-navigation", "style": { "spacing": { "blockGap": "0px" } }, "overlayMenu": "mobile" } },
+    { "path": "blocks.0", "name": "core/navigation", "attrs": { "anchor": "primary-menu", "className": "main-nav blocks-engine-list-navigation blocks-engine-native-responsive-navigation blocks-engine-merged-device-navigation", "style": { "spacing": { "blockGap": "0px" } }, "overlayMenu": "mobile" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Home", "url": "/", "kind": "custom" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about", "kind": "custom" } },
     { "path": "blocks.0.innerBlocks.2", "name": "core/navigation-link", "attrs": { "label": "Contact", "url": "/contact", "kind": "custom" } },

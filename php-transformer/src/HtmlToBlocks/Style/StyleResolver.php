@@ -834,21 +834,55 @@ final class StyleResolver implements ElementPresentationResolver
      * inline-layout carrier paragraph) as RichText: its descendants are
      * restyled as in any RichText, and the element itself, the box the
      * source laid out, takes every captured declaration through a box-tree
-     * carrier. Null without evidence for the element.
+     * carrier ({@see self::boxTreeElementCarrier()}). Null without evidence
+     * for the element.
      */
     public function boxTreeBoxlessContent(DOMElement $element): ?DOMElement
     {
-        $viewports = $this->session->boxTreeViewports();
-        $parent = $element->parentNode;
-        if (array() === $viewports || !$parent instanceof DOMElement) return null;
-        $observations = $this->session->boxTreeEvidence($element);
-        if (array() === $observations) return null;
-        $parents = $this->session->boxTreeEvidence($parent);
+        if (!$element->parentNode instanceof DOMElement || array() === $this->session->boxTreeEvidence($element)) return null;
         $clone = $this->richTextSerializationSource($element);
-        $fluid = (new BoxTreeFluidIntent())->lift($element, $this, $observations, $viewports, $parents, '', fn(DOMElement $node): array => $this->session->boxTreeEvidence($node));
-        $class = (new BoxTreeStyleProjector())->elementCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, strtolower($element->tagName), $fluid);
+        $class = $this->boxTreeElementCarrier($element);
         if ('' !== $class) $clone->setAttribute('class', SourceDom::mergeClassNames($clone->getAttribute('class'), $class));
         return $clone;
+    }
+
+    /**
+     * With box-tree evidence the author stylesheet is not shipped (ADR 0005),
+     * so an observed element the output keeps as source markup inside a
+     * block, rather than as a block or a RichText inline, keeps its rendered
+     * box only through an engine carrier: a navigation item's label boxes and
+     * label, or an authored control's icon wrapper and artwork. Saved
+     * markup keeps every source element, so its source parent is the box it
+     * inherits from in the output too. A block that saves its own source
+     * markup (an authored control) restyles its own box the same way, but
+     * inherits from its nearest ancestor that emits a box: boxes collapsed
+     * into their child (ADR 0005 neutral and folded) emit none.
+     *
+     * @param bool $block Whether the source element is the block itself.
+     * @return string The carrier class, or '' off an evidence route or when nothing differs.
+     */
+    public function boxTreeElementCarrier(DOMElement $source, bool $block = false): string
+    {
+        $viewports = $this->session->boxTreeViewports();
+        if (array() === $viewports) return '';
+        $observations = $this->session->boxTreeEvidence($source);
+        if (array() === $observations) return '';
+        $parent = $block ? $this->session->boxTreeOutputParent($source) : $source->parentNode;
+        $parents = $parent instanceof DOMElement ? $this->session->boxTreeEvidence($parent) : array();
+        $intent = new BoxTreeFluidIntent();
+        $pseudoFluid = array();
+        foreach (array('before', 'after') as $pseudo) {
+            $pseudoFluid[$pseudo] = $intent->liftPseudo($source, $this, $observations, $viewports, $pseudo);
+        }
+        return (new BoxTreeStyleProjector())->elementCarrier(
+            $observations,
+            $viewports,
+            $this->session->layoutGeometryState(),
+            $parents,
+            strtolower($source->tagName),
+            $intent->lift($source, $this, $observations, $viewports, $parents),
+            $pseudoFluid
+        );
     }
 
     /** Preserve authored inline CSS except typography already supplied by the parent. */
@@ -6395,6 +6429,7 @@ final class StyleResolver implements ElementPresentationResolver
             'border-left-width',
             'border-right-width',
             'border-spacing',
+            'caption-side',
             'border-top',
             'border-top-color',
             'border-top-left-radius',

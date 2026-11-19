@@ -110,9 +110,12 @@ foreach (array('color:#933', 'font-size:32px') as $difference) {
     $differentFiles['index.html'] = str_replace('</style>', 'h1.' . $titleClass . '{' . $difference . '}</style>', $differentFiles['index.html']);
     $different = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $differentFiles))->toWordPressSitePlanView()['wordpress_site_plan'];
     $differentHeaders = array_values(array_filter($different['template_parts'], static fn(array $part): bool => 'header' === $part['area']));
-    $assert(1 === count($differentHeaders) && !str_contains($differentHeaders[0]['canonical_block_markup'], '<h1'), 'Different title presentation must not merge: ' . $difference);
+    // Same chrome, different title paint: the home binds its own variant part
+    // (#6723); the shared part never takes the home title level.
+    $sharedHeader = current(array_filter($differentHeaders, static fn(array $part): bool => 'header' === $part['slug']));
+    $assert(2 === count($differentHeaders) && is_array($sharedHeader) && !str_contains($sharedHeader['canonical_block_markup'], '<h1'), 'Different title presentation must not merge: ' . $difference);
     $home = array_values(array_filter($different['pages'], static fn(array $page): bool => !empty($page['entrypoint'])))[0];
-    $assert(str_contains($home['canonical_block_markup'], '<header'), 'Different home presentation stays in content: ' . $difference);
+    $assert(!str_contains($home['canonical_block_markup'], '<header'), 'Different home presentation leaves content for its variant part: ' . $difference);
 }
 $section = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<html><body><main><article><header><h1>Article title</h1></header><p>Article body</p></article></main></body></html>')))->toWordPressSitePlanView()['wordpress_site_plan'];
 $assert(str_contains($section['pages'][0]['canonical_block_markup'], '<header'), 'A single-page article header stays in content.');

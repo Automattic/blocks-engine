@@ -148,6 +148,7 @@ final class BoxTreeStyleProjector
         $wrapper = $synthetic && null === $split ? $this->rule(self::SELECTOR, array('display' => 'contents')) : '';
         $class = $this->carrier($wrapper . $css, $state);
         if ('' === $class) return $attrs;
+        if ($synthetic) $state->markBoxlessImageFigureCarrier($class);
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
     }
@@ -265,34 +266,6 @@ final class BoxTreeStyleProjector
     private const IMAGE_DIMENSION_ATTRIBUTES = array('width' => 'width', 'height' => 'height', 'aspectRatio' => 'aspect-ratio', 'scale' => 'object-fit');
 
     /**
-     * Restyle a phrasing element saved verbatim as a block's only content
-     * while the block itself generates no box (the `display:contents`
-     * inline-layout carrier paragraph): the element is the box the source
-     * laid out, so it keeps every captured declaration, its display, box
-     * model and typography alike, not only the typography of
-     * {@see self::inlineCarrier()}.
-     *
-     * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
-     * @return string The carrier class, or '' when nothing differs from the element's defaults.
-     */
-    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $sourceTag, array $fluid = array()): string
-    {
-        $keys = array_values(array_filter(array_keys($observations), static fn(string $key): bool => isset($viewports[$key]['width']) && is_array($observations[$key]['used_styles'] ?? null)));
-        if (array() === $keys) return '';
-        usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
-        $observations = array_intersect_key($observations, array_flip($keys));
-        $status = array();
-        $declarations = array();
-        foreach ($keys as $key) {
-            $parent = $parents[$key]['used_styles'] ?? null;
-            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, '', $sourceTag);
-            $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
-        }
-        $bands = $this->liftFluid($declarations, $keys, $fluid);
-        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents), $state);
-    }
-
-    /**
      * Restyle an inline element inside RichText, which has no block
      * attributes: its observed typography that differs from its source
      * parent's goes entirely to a carrier class. A value equal to the
@@ -322,6 +295,37 @@ final class BoxTreeStyleProjector
         }
         $bands = $this->liftFluid($declarations, $keys, array_intersect_key($fluid, $properties));
         return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $typography, $viewports, $bands, false, $parents), $state);
+    }
+
+    /**
+     * Restyle an observed element the output keeps as source markup inside a
+     * block (a navigation label's box, an authored control's icon artwork):
+     * it has no block attributes and is not a RichText inline, so its whole
+     * observed box goes to one carrier class, exactly as a block's would,
+     * against its source parent's observations. Without it such an element
+     * keeps only its source classes, whose author rules an evidence route
+     * does not ship.
+     *
+     * @param string $tagName The emitted (source) element's tag, for UA defaults.
+     * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
+     * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid {@see BoxTreeFluidIntent::liftPseudo()}, by name.
+     * @return string The carrier class, or '' when nothing observed differs from what the element gets anyway.
+     */
+    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $tagName, array $fluid = array(), array $pseudoFluid = array()): string
+    {
+        $observations = array_filter($observations, static fn(mixed $observation, string|int $key): bool => isset($viewports[$key]['width']) && is_array($observation['used_styles'] ?? null), ARRAY_FILTER_USE_BOTH);
+        if (array() === $observations) return '';
+        $keys = array_map('strval', array_keys($observations));
+        usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
+        $status = array();
+        $declarations = array();
+        foreach ($keys as $key) {
+            $parent = $parents[$key]['used_styles'] ?? null;
+            $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, '', $tagName);
+            $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
+        }
+        $bands = $this->liftFluid($declarations, $keys, $fluid);
+        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid), $state);
     }
 
     /**
@@ -362,6 +366,14 @@ final class BoxTreeStyleProjector
     /** Keyword properties BoxTreeFluidIntent lifts only when they explain every capture, pruned or not. */
     private const SWITCHED_KEYWORDS = array('display' => true, 'visibility' => true);
 
+    /**
+     * Grid lines BoxTreeFluidIntent lifts only from author winners at every
+     * capture: a capture pruned at the initial `auto` is still explained, so
+     * a placement switching to `auto` follows the author's breakpoint. Lines
+     * every capture pruned (not a grid item) stay out.
+     */
+    private const GRID_LINES = array('grid-row-start' => true, 'grid-row-end' => true, 'grid-column-start' => true, 'grid-column-end' => true);
+
     private const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
 
     /**
@@ -382,9 +394,15 @@ final class BoxTreeStyleProjector
         $bands = array();
         foreach ($fluid as $property => $propertyBands) {
             if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
+            $kept = 0;
             foreach ($keys as $key) {
-                if (!isset($declarations[$key][$property]) && !isset(self::SWITCHED_KEYWORDS[$property])) continue 2;
+                if (isset($declarations[$key][$property])) {
+                    ++$kept;
+                    continue;
+                }
+                if (!isset(self::SWITCHED_KEYWORDS[$property]) && !isset(self::GRID_LINES[$property])) continue 2;
             }
+            if (0 === $kept && isset(self::GRID_LINES[$property])) continue;
             foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
             foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
                 $bands[self::width((float) $maxWidth)][$property] = $value;

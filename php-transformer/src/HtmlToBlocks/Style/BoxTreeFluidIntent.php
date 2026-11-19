@@ -69,6 +69,10 @@ use DOMElement;
  *   is restated as written, every `var()` expanded, rather than as the
  *   resolved track sizes the capture reports. Only a list of fixed lengths
  *   keeps its pixels; an absent one is restated as the initial value.
+ * - Grid placement lines (`grid-row-start` … `grid-column-end`) are read
+ *   through whichever of `grid-row`/`grid-column` or `grid-area` wins, its
+ *   omitted lines expanded per CSS Grid §8.4, so a placement the author
+ *   switches at a breakpoint lifts at that breakpoint, like `display`.
  *
  * `%` resolves against the observed CSS containing block: the content box
  * of the nearest ancestor that generates a block box (skipping
@@ -104,7 +108,7 @@ final class BoxTreeFluidIntent
 {
     private const TOLERANCE = 0.5;
 
-    /** Longhand => the shorthand that also sets it. */
+    /** Longhand => the shorthand(s) that also set it; the latest declared one wins. */
     private const SHORTHANDS = array(
         'font-size' => 'font', 'line-height' => 'font', 'font-family' => 'font',
         'font-weight' => 'font', 'font-style' => 'font',
@@ -112,8 +116,8 @@ final class BoxTreeFluidIntent
         'padding-top' => 'padding', 'padding-right' => 'padding', 'padding-bottom' => 'padding', 'padding-left' => 'padding',
         'top' => 'inset', 'right' => 'inset', 'bottom' => 'inset', 'left' => 'inset',
         'flex-basis' => 'flex',
-        'grid-column-start' => 'grid-column', 'grid-column-end' => 'grid-column',
-        'grid-row-start' => 'grid-row', 'grid-row-end' => 'grid-row',
+        'grid-column-start' => array('grid-column', 'grid-area'), 'grid-column-end' => array('grid-column', 'grid-area'),
+        'grid-row-start' => array('grid-row', 'grid-area'), 'grid-row-end' => array('grid-row', 'grid-area'),
         'row-gap' => 'gap', 'column-gap' => 'gap',
     );
 
@@ -259,7 +263,9 @@ final class BoxTreeFluidIntent
         $aliases = array();
         foreach (array_intersect_key(self::INTRINSIC, array_flip($properties)) as $intrinsic) $aliases = array_merge($aliases, array_slice($intrinsic, 1));
         foreach (array_intersect_key(self::MARGIN_ALIASES, array_flip($properties)) as $margin) $aliases = array_merge($aliases, $margin);
-        $this->requested = array_values(array_unique(array_merge($properties, array_values(array_intersect_key(self::SHORTHANDS, array_flip($properties))), $aliases)));
+        $shorthands = array();
+        foreach (array_intersect_key(self::SHORTHANDS, array_flip($properties)) as $names) $shorthands = array_merge($shorthands, (array) $names);
+        $this->requested = array_values(array_unique(array_merge($properties, $shorthands, $aliases)));
         // The widths where the author's cascade can change between captures.
         $samples = array();
         $widest = reset($widths);
@@ -646,8 +652,11 @@ final class BoxTreeFluidIntent
     {
         $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width, pseudoElement: $this->pseudo);
         $order = array_flip(array_keys($winners));
-        $shorthand = self::SHORTHANDS[$property] ?? null;
-        $fromShorthand = null !== $shorthand && isset($order[$shorthand]) && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
+        $shorthand = null;
+        foreach ((array) (self::SHORTHANDS[$property] ?? array()) as $candidate) {
+            if (isset($order[$candidate]) && (null === $shorthand || $order[$candidate] > $order[$shorthand])) $shorthand = $candidate;
+        }
+        $fromShorthand = null !== $shorthand && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
         $name = $fromShorthand ? $shorthand : $property;
         if (!isset($winners[$name])) return null;
         $value = trim(CssValueInspector::withoutImportant((string) $winners[$name]));
@@ -664,14 +673,43 @@ final class BoxTreeFluidIntent
             return trim(CssValueInspector::withoutImportant(CssFontShorthand::expand($value, true)[$property] ?? ''));
         }
         if ('flex' === $shorthand) return '';
-        if ('grid-column' === $shorthand || 'grid-row' === $shorthand) {
-            $parts = CssValueSplitter::splitTopLevel($value, array('/'));
-            return str_ends_with($property, '-start') ? trim($parts[0]) : trim($parts[1] ?? (preg_match('/^[a-z_][\\w-]*$/i', $parts[0]) && 'span' !== $parts[0] ? $parts[0] : 'auto'));
+        if ('grid-column' === $shorthand || 'grid-row' === $shorthand || 'grid-area' === $shorthand) {
+            return self::gridLines($value, $shorthand)[$property] ?? '';
         }
         // `gap` is `<row-gap> <column-gap>?`, the first two box sides.
         if ('gap' === $shorthand) return CssValueInspector::expandBoxShorthand($value)['row-gap' === $property ? 0 : 1];
         $side = self::SIDES['inset' === $shorthand ? $property : substr($property, (int) strrpos($property, '-') + 1)] ?? null;
         return null === $side ? '' : CssValueInspector::expandBoxShorthand($value)[$side];
+    }
+
+    /**
+     * The grid line longhands a `grid-area`, `grid-row` or `grid-column`
+     * value sets (CSS Grid §8.4). An omitted line copies the line it pairs
+     * with when that is a lone `<custom-ident>`, and is `auto` otherwise:
+     * `grid-area` pairs column-start with row-start, row-end with row-start
+     * and column-end with column-start.
+     *
+     * @return array<string, string>
+     */
+    private static function gridLines(string $value, string $shorthand): array
+    {
+        $parts = array_map('trim', CssValueSplitter::splitTopLevel($value, array('/')));
+        $limit = 'grid-area' === $shorthand ? 4 : 2;
+        if (count($parts) > $limit || in_array('', $parts, true)) return array();
+        $omitted = static fn(string $line): string => 1 === preg_match('/^-?[a-z_][\w-]*$/i', $line)
+            && !in_array(strtolower($line), array('auto', 'span', 'inherit', 'initial', 'unset', 'revert', 'revert-layer'), true) ? $line : 'auto';
+        if ('grid-area' !== $shorthand) {
+            $axis = substr($shorthand, 5);
+            return array('grid-' . $axis . '-start' => $parts[0], 'grid-' . $axis . '-end' => $parts[1] ?? $omitted($parts[0]));
+        }
+        $rowStart = $parts[0];
+        $columnStart = $parts[1] ?? $omitted($rowStart);
+        return array(
+            'grid-row-start' => $rowStart,
+            'grid-column-start' => $columnStart,
+            'grid-row-end' => $parts[2] ?? $omitted($rowStart),
+            'grid-column-end' => $parts[3] ?? $omitted($columnStart),
+        );
     }
 
     /**

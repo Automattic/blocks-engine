@@ -2037,6 +2037,12 @@ final class NavigationToggleSuppressor
         return $toggle;
     }
 
+    /** Whether the source shows an equivalent copy of this menu at other widths. */
+    public function hasEquivalentNavigationVariant(DOMElement $navigation): bool
+    {
+        return '' === $this->inlineMirrorMarker($navigation) && $this->hasEquivalentSourceNavigationVariant($navigation);
+    }
+
     private function hasEquivalentSourceNavigationVariant(DOMElement $navigation): bool
     {
         $document = $navigation->ownerDocument;
