@@ -199,6 +199,16 @@ See [Native control state](../native-control-state.md).
 | `data-blocks-engine-capture-component-runtime` | attribute on `<script>` | ignored | Portable tab replay helper; retired only when its exact recognized body is replaced by native tabs. |
 | `data-blocks-engine-capture-component-carousel-runtime` | attribute on `<script>` | ignored | Component carousel replay helper, with state HTML and click transitions in its config. |
 
+### Source-evidence keys
+
+Source-evidence keys are values of `data-blocks-engine-capture-source-evidence`,
+not attributes. Readers compose selectors from that attribute and the published
+key; schemas use `blocks-engine-capture/<key>/v<n>`.
+
+| Name | Kind | Meaning |
+| ---- | ---- | ------- |
+| `runtime-owned-regions` | source-evidence key | Selects inline `application/json` scripts carrying runtime-owned region evidence. The `regions` list contains records with an `id` matching a runtime-owner marker, `script` provenance (including an HTTP(S) origin), and optional `roots`. Matching roots become editable handoff notices with accepted reported-loss diagnostics; unmatched roots remain unchanged. |
+
 ### Sidecar schemas
 
 | Name | Kind | Meaning |
