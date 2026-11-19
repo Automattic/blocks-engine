@@ -471,6 +471,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $navigationSource));
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $element, $navigationContext);
@@ -1010,6 +1011,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext->mergedDeviceNavigationMarker($element, $cluster));
             $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withResponsiveOverlayMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $cluster, $navigationContext);

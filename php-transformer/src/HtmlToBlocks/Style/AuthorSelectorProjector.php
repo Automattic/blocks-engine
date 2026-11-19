@@ -822,7 +822,36 @@ final class AuthorSelectorProjector
                 return $hostSelector;
             }
         }
+        // Every match is a submenu list (`.sf-menu ul{position:absolute;
+        // top:-99999em}`). Core repeats the menu's classes on its top-level
+        // `ul.wp-block-navigation__container`, a descendant of the `<nav>`
+        // carrying them, so the authored rule would also move the whole
+        // menu. Keep it on the submenus the source matched.
+        if ( $this->matchesOnlyNavigationSubmenuLists($matches, $parsed, $context) ) {
+            return $this->rewriteSourceTagTypes($selector, $parsed, $context, ':where(:not(.wp-block-navigation__container))');
+        }
         return null;
+    }
+
+    /**
+     * @param list<DOMElement> $matches
+     * @param array<string, mixed> $parsed
+     */
+    private function matchesOnlyNavigationSubmenuLists(array $matches, array $parsed, AuthorStylesheetProjectionContext $context): bool
+    {
+        $subject = CssSelectorCompoundInspector::rightmost($parsed['compounds']);
+        if ( array() === $matches || 2 > count($parsed['compounds'])
+            || ! in_array(strtolower((string) ($subject['type'] ?? '')), array( 'ul', 'ol' ), true)
+            || ! str_contains($context->emittedMarkup, 'wp:navigation ') ) {
+            return false;
+        }
+        foreach ( $matches as $element ) {
+            if ( ! $context->selectorProjections->isNavigationSubmenuListSource($element) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

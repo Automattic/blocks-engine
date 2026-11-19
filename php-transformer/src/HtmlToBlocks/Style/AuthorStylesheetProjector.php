@@ -1143,6 +1143,9 @@ final class AuthorStylesheetProjector
             return (array() === $static || '' === $projectedPrelude ? '' : $projectedPrelude . '{' . $this->styleResolver->cssDeclarationString($static) . '}')
                 . (array() === $motionSelectors ? '' : implode(',', $motionSelectors) . '{' . $this->styleResolver->cssDeclarationString($motion) . '}');
         }
+        if ( $inConditional ) {
+            $projectedPrelude = $this->withoutMergedDeviceNavigationHide($prelude, $projectedPrelude, $body, $context);
+        }
         // Centered source dropdown boxes are desktop presentation, not Core's
         // open-overlay stack. Keep the authored rule outside that stack rather
         // than relying on a later, higher-specificity alignment override.
@@ -1699,6 +1702,45 @@ final class AuthorStylesheetProjector
      * @param list<string> $properties
      * @param list<string> $values
      */
+    /**
+     * A desktop menu and the equivalent copy the source shows at other widths
+     * become one core/navigation that serves every width. A width-gated
+     * `display:none` on the kept copy (`@media(max-width:780px){#menu{display:none}}`)
+     * swapped it for the absorbed copy; on the merged block it would hide the
+     * only menu there. Keep the rule for every other subject and add no weight.
+     */
+    private function withoutMergedDeviceNavigationHide(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( '' === $projectedPrelude
+            || ! str_contains($context->emittedMarkup, AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS)
+            || ! self::anyDeclaredAs($body, array( 'display' ), array( 'none' )) ) {
+            return $projectedPrelude;
+        }
+        $hidesMergedNavigation = false;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! ( $parsed['supported'] ?? false ) ) {
+                continue;
+            }
+            foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                if ( $context->selectorProjections->isMergedDeviceNavigationSource($element->getNodePath() ?? '') ) {
+                    $hidesMergedNavigation = true;
+                    break 2;
+                }
+            }
+        }
+        if ( ! $hidesMergedNavigation ) {
+            return $projectedPrelude;
+        }
+        $guard = ':where(:not(.' . AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS . '))';
+
+        return implode(',', array_map(static function (string $selector) use ($guard): string {
+            $selector = trim($selector);
+            $pseudo = strpos($selector, '::');
+            return false === $pseudo ? $selector . $guard : substr($selector, 0, $pseudo) . $guard . substr($selector, $pseudo);
+        }, CssStylesheetTransformer::splitSelectorList($projectedPrelude) ?? array()));
+    }
+
     private static function anyDeclaredAs(string $body, array $properties, array $values): bool
     {
         foreach ( CssRuleAnalyzer::declarations($body, $properties) as [ 'value' => $value ] ) {
