@@ -1983,7 +1983,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      * folded box's declarations takes the box's bands for them (lifted in the
      * box's own context), never its own; sizing keeps the child's captured
      * pixels unless the box's intent is an intrinsic keyword that holds for
-     * the child too.
+     * the child too, or the box's proven width when the child filled it: a
+     * child whose border box was the box's ({@see BoxTreeClassifier} equal
+     * box) and whose own `width:100%` is proven against it is the box's width
+     * at every width, so it takes the box's place in the box's containing
+     * block with the box's intent rather than the captured pixels.
      *
      * @return array<string, list<array{0: float|null, 1: string}>>
      */
@@ -2029,11 +2033,33 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $keywords = null !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => !in_array($value, self::INTRINSIC_SIZES, true));
             if ( $keywords && ($fold['equal_box'] || ($fluid[$property] ?? null) === $bands) ) {
                 $fluid[$property] = $bands;
+            } elseif ( null !== $bands && 'width' === $property && $fold['equal_box'] && $this->fillsFoldedBox($element, $box, $observations, $viewports, $boxObservations) ) {
+                $fluid[$property] = $bands;
             } else {
                 unset($fluid[$property]);
             }
         }
         return $fluid;
+    }
+
+    /**
+     * Whether a folded box's child declares that it fills the box: its own
+     * width, lifted with the box still in place as its containing block, is
+     * `100%` at every width the author's cascade reaches.
+     *
+     * @param array<string, array<string, mixed>> $observations
+     * @param array<string, array<string, mixed>> $viewports
+     * @param array<string, array<string, mixed>> $boxObservations
+     */
+    private function fillsFoldedBox(DOMElement $element, DOMElement $box, array $observations, array $viewports, array $boxObservations): bool
+    {
+        $own = array();
+        foreach ( $observations as $key => $observation ) {
+            $own[$key] = array('used_styles' => array_intersect_key($observation['used_styles'] ?? array(), array_flip(array('width', 'min-width', 'max-width', 'position', 'font-size'))));
+        }
+        $parents = $element->parentNode === $box ? $boxObservations : array();
+        $bands = (new Style\BoxTreeFluidIntent())->lift($element, $this->styleResolver, $own, $viewports, $parents, '', $this->session->boxTreeEvidence(...))['width'] ?? array();
+        return array() !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => '100%' !== $value);
     }
 
     /**
