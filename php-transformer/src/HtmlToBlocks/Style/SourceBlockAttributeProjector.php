@@ -309,6 +309,16 @@ final class SourceBlockAttributeProjector
                 $context->generatedStyles->registerVideoSizeHint($marker, $rule);
             }
             $declarations = $this->styleResolver->resolvedPresentationDeclarations($sourceElement);
+            $aspectRatio = CssValueInspector::declared($declarations, 'aspect-ratio');
+            if ( '' !== $aspectRatio && 'auto' !== $aspectRatio ) {
+                // Author classes now style core/video's figure. Its native
+                // replaced element must use that same ratio, rather than the
+                // poster or metadata ratio. Inheritance also follows responsive
+                // author rules on the carrier without freezing a viewport value.
+                $marker = 'blocks-engine-video-aspect-ratio';
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $marker);
+                $context->generatedStyles->registerVideoSizeHint($marker, '.' . $marker . '>video{aspect-ratio:inherit}');
+            }
             if ( '100%' === CssValueInspector::declared($declarations, 'width')
                 && '100%' === CssValueInspector::declared($declarations, 'height') ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_FILL_VIDEO_FIGURE_CLASS);
