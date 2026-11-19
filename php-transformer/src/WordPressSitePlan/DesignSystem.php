@@ -526,11 +526,18 @@ final class DesignSystem
      * scale, its names and its roles are unchanged, and each new token is the
      * exact value, so binding never changes a rendered font.
      *
+     * A fluid size (`clamp(42px,6.5vw,84px)`) built only from absolute and
+     * viewport lengths renders the same for every block at a given viewport,
+     * whatever its parent, so it is one exact token too (fluidFontSize()).
+     * Its preset has no single pixel size (`px` 0), so an absolute literal
+     * never resolves to it through fontSizeSlug(); only the identical value
+     * binds to it.
+     *
      * @param list<string> $markups Every page's block markup.
      */
     public function withBlockTypography(array $markups): self
     {
-        $sizes = $families = array();
+        $sizes = $families = $fluid = array();
         foreach ($markups as $markup) {
             if (!preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) continue;
             foreach ($matches[1] as $json) {
@@ -545,6 +552,8 @@ final class DesignSystem
                         $pixel = CssLength::format($px);
                         if (!isset($sizes[$pixel]) || strcmp($size, $sizes[$pixel]) < 0) $sizes[$pixel] = $size;
                     }
+                } elseif (null !== ($range = $this->fluidFontSize($size)) && !in_array($size, array_column($this->fontSizes, 'size'), true)) {
+                    $fluid[$size] = $range;
                 }
                 $stack = is_string($typography['fontFamily'] ?? null) ? trim($typography['fontFamily']) : '';
                 $key = self::familyKey($stack);
@@ -552,7 +561,7 @@ final class DesignSystem
                 $families[$key][$stack] = ($families[$key][$stack] ?? 0) + 1;
             }
         }
-        if (array() === $sizes && array() === $families) return $this;
+        if (array() === $sizes && array() === $families && array() === $fluid) return $this;
         $fontSizes = $this->fontSizes;
         $used = array_fill_keys(array_column($fontSizes, 'slug'), true);
         uksort($sizes, static fn(string $a, string $b): int => (float) $a <=> (float) $b);
@@ -563,6 +572,16 @@ final class DesignSystem
             for ($suffix = 2; isset($used[$slug]); $suffix++) $slug = $base . '-' . $suffix;
             $used[$slug] = true;
             $fontSizes[] = array('slug' => $slug, 'name' => self::sizeName((float) $px, $this->rootPx), 'size' => $value, 'px' => (float) $px, 'weight' => 0);
+        }
+        uksort($fluid, static fn(string $a, string $b): int => ($fluid[$a][1] <=> $fluid[$b][1]) ?: ($fluid[$a][0] <=> $fluid[$b][0]) ?: strcmp($a, $b));
+        foreach ($fluid as $value => [$min, $max]) {
+            $range = CssLength::format($min) === CssLength::format($max) ? rtrim(CssLength::format($max), 'px') : rtrim(CssLength::format($min), 'px') . '-' . rtrim(CssLength::format($max), 'px');
+            $base = self::presetSlug('fluid-' . $range);
+            $slug = $base;
+            for ($suffix = 2; isset($used[$slug]); $suffix++) $slug = $base . '-' . $suffix;
+            $used[$slug] = true;
+            $name = 'Fluid ' . (string) preg_replace('/\s*\([^)]*\)$/', '', self::sizeName($max, $this->rootPx)) . ' (' . $range . 'px)';
+            $fontSizes[] = array('slug' => $slug, 'name' => $name, 'size' => $value, 'px' => 0.0, 'weight' => 0);
         }
         $fontFamilies = $this->fontFamilies;
         $used = array_fill_keys(array_merge(array('body', 'heading'), array_column($fontFamilies, 'slug')), true);
@@ -582,6 +601,36 @@ final class DesignSystem
             $fontFamilies[] = array('slug' => $slug, 'name' => $name, 'fontFamily' => $stack, 'key' => (string) $key, 'role' => 'family', 'weight' => 0);
         }
         return new self($this->colors, $fontSizes, $fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation);
+    }
+
+    /**
+     * The smallest and largest absolute bound, in pixels, of a fluid font
+     * size: a `clamp()`, `min()` or `max()` whose terms are absolute lengths
+     * (`px`, `rem`), viewport lengths (`vw`, `vh`, `vmin`, `vmax` and their
+     * `s`/`l`/`d` variants) and plain numbers. Null for anything else: an
+     * `em`, `%`, `ch` or `var()` term renders differently under each parent.
+     *
+     * @return array{0:float,1:float}|null
+     */
+    private function fluidFontSize(string $value): ?array
+    {
+        if (1 !== preg_match('/^(?:clamp|min|max)\(.*\)$/is', $value)) return null;
+        $terms = (string) preg_replace('/\b(?:clamp|min|max|calc)\(|[(),+*\/\s]|(?<![\d.])-/i', ' ', $value);
+        $absolute = array();
+        foreach (preg_split('/\s+/', trim($terms)) ?: array() as $term) {
+            if ('' === $term) continue;
+            if (1 !== preg_match('/^(?:\d+\.?\d*|\.\d+)(px|rem|[sld]?v(?:w|h|i|b|min|max))?$/i', $term, $match)) return null;
+            $unit = strtolower($match[1] ?? '');
+            if ('px' === $unit || 'rem' === $unit) $absolute[] = (float) CssLength::toPx($term, $this->rootPx);
+        }
+        if (array() === $absolute || max($absolute) <= 0) return null;
+        // A clamp() names its own bounds; otherwise the absolute terms span it.
+        if (1 === preg_match('/^clamp\(\s*([^(),]+?)\s*,.*,\s*([^(),]+?)\s*\)$/is', $value, $bounds)) {
+            $low = CssLength::toPx($bounds[1], $this->rootPx);
+            $high = CssLength::toPx($bounds[2], $this->rootPx);
+            if (null !== $low && null !== $high && $low > 0 && $high >= $low) return array($low, $high);
+        }
+        return array(min($absolute), max($absolute));
     }
 
     /**
