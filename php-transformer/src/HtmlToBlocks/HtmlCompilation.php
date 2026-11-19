@@ -2419,7 +2419,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 );
             }
             $classesBefore = self::classTokens((string) ($attrs['className'] ?? ''));
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image);
+            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image, $innerBlocks);
             $carrierNode = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
             if ( '' !== $carrierNode ) {
                 $this->boxTreeCarriers[$carrierNode] = array_values(array_diff(self::classTokens((string) ($attrs['className'] ?? '')), $classesBefore));

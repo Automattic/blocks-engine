@@ -27,10 +27,12 @@ final class BoxTreeStyleProjector
      * @param string $sourceTag The observed source element's tag name.
      * @param array{observations?: array<string, array<string, mixed>>, parents?: array<string, array<string, mixed>>, fluid?: array<string, list<array{0: float|null, 1: string}>>} $image
      *        The painting `<img>` inside an authored core/image `<figure>`: its observations, its parent's, and its lifted author values.
+     * @param array<int, array<string, mixed>> $innerBlocks The block's inner blocks: a core/buttons wrapper's
+     *        control is the core/button it holds, whose `tagName` fixes the element the carrier targets.
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array()): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array(), array $innerBlocks = array()): array
     {
-        $target = self::renderedElement($blockName, $attrs, $sourceTag);
+        $target = self::renderedElement($blockName, $attrs, $sourceTag, $innerBlocks);
         if (array() !== $observations) {
             $attrs = self::SELECTOR === $target
                 ? $this->projectBox($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid)
@@ -253,12 +255,18 @@ final class BoxTreeStyleProjector
     }
 
     /** Map source identity once, before any captured, author or pseudo rule is emitted. */
-    private static function renderedElement(string $blockName, array $attrs, string $sourceTag): string
+    private static function renderedElement(string $blockName, array $attrs, string $sourceTag, array $innerBlocks = array()): string
     {
         $sourceTag = strtolower($sourceTag);
         if ('core/image' === $blockName && 'img' === $sourceTag) return self::SELECTOR . ' img';
-        if ('core/button' === $blockName) return self::SELECTOR . ' > a.wp-block-button__link';
-        if ('core/buttons' === $blockName && in_array($sourceTag, array('a', 'button'), true)) return self::SELECTOR . ' > .wp-block-button > a.wp-block-button__link';
+        // core/button renders its link as `<button>` when `tagName` is `button`,
+        // otherwise as `<a>`: the carrier must name the element actually emitted.
+        if ('core/button' === $blockName) return self::SELECTOR . ' > ' . self::emittedTag($blockName, $attrs) . '.wp-block-button__link';
+        if ('core/buttons' === $blockName && in_array($sourceTag, array('a', 'button'), true)) {
+            $control = $innerBlocks[0] ?? array();
+            $controlAttrs = 'core/button' === ($control['blockName'] ?? '') && is_array($control['attrs'] ?? null) ? $control['attrs'] : array();
+            return self::SELECTOR . ' > .wp-block-button > ' . self::emittedTag('core/button', $controlAttrs) . '.wp-block-button__link';
+        }
         // Only a link survives RichText as the paragraph's own child: a span
         // is lowered to a `<mark>` carrier or unwrapped, so a `> span` rule
         // would match nothing and the transparent paragraph would leave its
@@ -615,6 +623,7 @@ final class BoxTreeStyleProjector
             'core/list-item' => 'li',
             'core/code', 'core/preformatted', 'core/verse' => 'pre',
             'core/quote' => 'blockquote',
+            'core/button' => 'button' === ($attrs['tagName'] ?? '') ? 'button' : 'a',
             default => '',
         };
     }
