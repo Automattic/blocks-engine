@@ -3173,7 +3173,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         if (array() !== $artwork) $linkAttrs['metadata']['blocksEngineNavigationAnchor'] += $artwork;
         else $linkAttrs = $this->withClassName($linkAttrs, $navigationContext?->linkIconMarker($anchor) ?? '');
 
-        return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
+        // Anchor presentation already has its own runtime subject and carrier.
+        // The block itself renders the source item, not the anchor: projecting
+        // the anchor onto the LI loses the item's flex gaps and divider space.
+        $source = isset($linkAttrs['metadata']['blocksEngineNavigationAnchor']) ? ($item ?? $anchor) : $anchor;
+        return $createBlock('core/navigation-link', $linkAttrs, array(), $source);
     }
 
     /**
