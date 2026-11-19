@@ -22,16 +22,18 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  * broken by value, and each joins the first cluster within tolerance or
  * starts a new one. The heaviest member names the cluster's value.
  *
- * - Colours: one binding rule (colorSlug()) serves block attributes,
- *   stylesheet declarations (`var(--wp--preset--color--<slug>, <literal>)`),
- *   custom-property values and element styles. A colour binds to the token
- *   whose value is that exact 8-bit colour; a near shade the palette omits
- *   binds to its family's representative token (#3043). The representative
- *   renders the shade at most COLOR_CONSOLIDATION_DISTANCE off, below the
- *   bound an untrained observer notices without a side-by-side comparison,
- *   and the shade then follows a Global Styles palette change with the
- *   rest of its family. A shade further away is not folded: it keeps a
- *   token of its own exact value.
+ * - Colours: a preset binding never changes a painted colour. A block
+ *   attribute, a stylesheet declaration or an element style binds a colour
+ *   only to a token whose value is that exact 8-bit colour (colorSlug()),
+ *   so an import paints 1:1 until a site owner edits the palette.
+ *   A near shade the palette omits (nearShades) follows its family's
+ *   representative instead through a stylesheet derivation
+ *   (nearShadeColor()): `rgb(from var(--wp--preset--color--base) calc(r - 8)
+ *   calc(g - 8) calc(b - 11))` paints the exact source shade at the default
+ *   palette and moves with the representative when the palette is edited
+ *   (#3043, #6754). Block attributes never carry a derivation: WordPress's
+ *   safecss strips relative colours and color-mix() from inline styles, so
+ *   a block-level near shade keeps its exact literal.
  *
  *   Grouping selects distinct palette entries: opaque colours within
  *   CIE76 ΔE*ab 2.3 (one just-noticeable difference) form a family, and
@@ -40,7 +42,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
  *   `#1e293b`) does not compete with a distinct colour for a role. Roles
  *   take each family's heaviest colour. Other distinct families receive
  *   exact tokens by painted weight. Near shades are not palette entries:
- *   they bind to their family's representative (nearShades). Unpainted
+ *   stylesheets derive them from their family's representative. Unpainted
  *   stylesheet colours do not create palette entries.
  *
  *   Clustering, slot ranking and `accent-N` order use each colour's
@@ -121,8 +123,8 @@ final class DesignSystem
     private const EXACT_PX = 0.001;
     /**
      * ΔE*ab within which a colour family joins a heavier one, which then
-     * represents it in the palette and in every binding (see the class
-     * comment).
+     * represents it in the palette; stylesheets derive the omitted shade
+     * from it (nearShadeColor()). It never decides what binds exactly.
      */
     public const COLOR_CONSOLIDATION_DISTANCE = 5.0;
 
@@ -161,7 +163,7 @@ final class DesignSystem
      * @param array<string,mixed> $elements Shared element values and proven no-op per-level heading typography.
      * @param list<string> $literalColors Painted opaque colours without a token (retained for report compatibility).
      * @param array<string,string> $buttonVariation Dominant look scoped to matching button blocks when an element would reach unowned values.
-     * @param array<string,string> $nearShades Opaque hex of each near shade the palette omits => hex of its family's representative token.
+     * @param array<string,string> $nearShades Opaque hex of each near shade the palette omits => hex of its family's representative token (nearShadeColor()).
      */
     /** @var list<array{slug:string,name:string,color:string,role:string,weight:int}> */
     public readonly array $colors;
@@ -232,9 +234,7 @@ final class DesignSystem
     {
         if (!CssColor::opaque($value)) return null;
         $hex = CssColor::hex($value);
-        if (null === $hex) return null;
-        $block = $this->colorIndex()['block'];
-        return $block[$hex] ?? (isset($this->nearShades[$hex]) ? ($block[$this->nearShades[$hex]] ?? null) : null);
+        return null === $hex ? null : ($this->colorIndex()['block'][$hex] ?? null);
     }
 
     /**
@@ -420,14 +420,45 @@ final class DesignSystem
     }
 
     /**
-     * Slug of the token this colour binds to, or null. The one colour
-     * binding rule: block attributes, stylesheet bindings (`var(--wp--preset
-     * --color--<slug>, <literal>)`), custom-property values and element
-     * styles all bind through this method. A colour binds to the token that
-     * paints the same 8-bit colour; a near shade the palette omits
-     * (nearShades) binds to its family's representative, at most
-     * COLOR_CONSOLIDATION_DISTANCE off, so it follows a palette change with
-     * its family. Observed translucent colours bind to derived tint presets
+     * A near shade the palette omits, restated as a CSS relative colour
+     * derived from its family's representative preset, or null. At the
+     * default palette it renders the exact source shade (the channel
+     * offsets are the source minus the representative, alpha kept); when a
+     * site owner edits the representative the shade moves with it:
+     * `#f7f7f4` beside `base` #ffffff is
+     * `rgb(from var(--wp--preset--color--base) calc(r - 8) calc(g - 8) calc(b - 11))`.
+     *
+     * Stylesheets only: safecss strips relative colours from block inline
+     * styles, so callers emit the source literal first as the fallback for
+     * engines without relative colour support.
+     */
+    public function nearShadeColor(string $value): ?string
+    {
+        $color = CssColor::parse($value);
+        if (null === $color || $color[3] <= 0.0) return null;
+        $rgb = array_map(static fn(float $channel): int => (int) round($channel), array_slice($color, 0, 3));
+        $hex = vsprintf('#%02x%02x%02x', $rgb);
+        $representative = $this->nearShades[$hex] ?? null;
+        $slug = null === $representative ? null : $this->stylesheetColorSlug($representative);
+        $base = null === $slug ? null : CssColor::parse($representative);
+        if (null === $base) return null;
+        $channels = array();
+        foreach (array('r', 'g', 'b') as $i => $name) {
+            $offset = $rgb[$i] - (int) round($base[$i]);
+            $channels[] = 0 === $offset ? $name : 'calc(' . $name . ($offset > 0 ? ' + ' : ' - ') . abs($offset) . ')';
+        }
+        $alpha = $color[3] < 1.0 ? ' / ' . rtrim(rtrim(sprintf('%.4F', $color[3]), '0'), '.') : '';
+        return 'rgb(from var(--wp--preset--color--' . $slug . ') ' . implode(' ', $channels) . $alpha . ')';
+    }
+
+    /**
+     * Slug of the token whose value is exactly this colour, or null. The
+     * one colour binding rule: block attributes, stylesheet bindings and
+     * element styles all bind through this method, and only to a token
+     * that paints the same 8-bit colour, so binding never changes what
+     * renders. A near shade the palette omits binds nothing here; stylesheets
+     * derive it from its representative (nearShadeColor()). Observed
+     * translucent colours bind to derived tint presets
      * when possible, otherwise to exact standalone alpha presets.
      */
     public function colorSlug(string $value): ?string
@@ -450,8 +481,7 @@ final class DesignSystem
             return isset($index['slug'][$slug]) ? $slug : null;
         }
         $hex = CssColor::hex($value);
-        if (null === $hex) return null;
-        return $index['hex'][$hex] ?? (isset($this->nearShades[$hex]) ? ($index['hex'][$this->nearShades[$hex]] ?? null) : null);
+        return null === $hex ? null : ($index['hex'][$hex] ?? null);
     }
 
     /**
@@ -604,9 +634,10 @@ final class DesignSystem
      * The system with exact tokens for distinct opaque literal colours a block
      * carries as its `style.color` text or background. A near shade of an
      * existing preset (within COLOR_CONSOLIDATION_DISTANCE) does not re-enter
-     * the palette: it binds to that preset through the one colour binding
-     * rule (colorSlug(), blockColorSlug()), like the near shades palette()
-     * folds.
+     * the palette and keeps its exact literal on the block: safecss strips a
+     * relative colour from a block's inline style, and a preset attribute
+     * would repaint it. It is recorded in nearShades so stylesheet rules
+     * painting it derive it from that preset (nearShadeColor()).
      *
      * Like withBlockTypography(), this covers the colour the browser rendered
      * for a block's source node (box-tree evidence: a computed `rgb(0, 0, 0)`
@@ -645,17 +676,18 @@ final class DesignSystem
         $colors = $this->colors;
         $nearShades = $this->nearShades;
         foreach (array_keys($counts) as $hex) {
-            // A near shade binds to its family's representative, the nearest
-            // preset, rather than re-entering the palette as a block token.
+            // A near shade keeps its block literal rather than re-entering
+            // the palette; stylesheets derive it from the nearest preset.
             do $slug = 'accent-' . (++$accent); while (isset($used[$slug]));
             $used[$slug] = true;
             $near = $this->nearestColor($hex);
             if (null !== $near) {
-                $nearShades[$hex] = $near;
+                $nearShades[$hex] ??= $near;
                 continue;
             }
             $colors[] = array('slug' => $slug, 'name' => self::colorName($hex), 'color' => $hex, 'role' => self::BLOCK_COLOR_ROLE, 'weight' => 0);
         }
+        ksort($nearShades, SORT_STRING);
         return new self($colors, $this->fontSizes, $this->fontFamilies, $this->spacing, $this->layout, $this->root, $this->elements, $this->rootPx, $this->documentCount, $this->literalColors, $this->buttonVariation, $nearShades);
     }
 
@@ -795,8 +827,8 @@ final class DesignSystem
      *   whose display name repeats an earlier preset's in the same category.
      * - `literal_color_count`: painted opaque colours without a palette token
      *   (report `literal_colors`); zero when every usage colour is registered.
-     *   Near shades among them still bind to their family's representative
-     *   (report `near_shades`).
+     *   Near shades among them keep their exact paint and stylesheets derive
+     *   them from their family's representative (report `near_shades`).
      * - `literal_preset_color_count`: block colour attributes (text,
      *   background, border and its sides, link) that store a literal equal
      *   to a palette preset, so a palette edit skips them; zero when every
@@ -1271,8 +1303,9 @@ final class DesignSystem
             $taken[$color] = $role;
         }
         // Only distinct family representatives enter the palette. A near
-        // shade binds to its family's representative instead (nearShades),
-        // so it follows a palette change with the rest of its family.
+        // shade keeps its exact paint; stylesheets derive it from its
+        // family's representative (nearShades), so it follows a palette
+        // change with the rest of its family.
         $taken = array_flip(array_column($palette, 'color'));
         $rest = array_keys(array_diff_key($prominence, $taken));
         $isLead = static fn(string $color): int => $clusters[$memberOf[$color]]['color'] === $color ? 1 : 0;
@@ -1295,7 +1328,8 @@ final class DesignSystem
         $nearShades = array();
         foreach (array_keys(array_diff_key($prominence, array_flip(array_column($palette, 'color')))) as $color) {
             // A family member can sit further from the representative than the
-            // bound (it joined through a nearer member); it then stays literal.
+            // bound (it joined through a nearer member); it then stays a
+            // plain literal.
             $representative = $representatives[$memberOf[$color]] ?? null;
             $hex = CssColor::hex($color);
             if (null === $hex || null === $representative || (CssColor::distance($color, $representative) ?? INF) > self::COLOR_CONSOLIDATION_DISTANCE) continue;
@@ -1385,8 +1419,8 @@ final class DesignSystem
      * COLOR_CONSOLIDATION_DISTANCE, however much it is used, so a shade a
      * reader cannot tell from a heavier colour does not outrank a distinct
      * colour for a role. The merged cluster is one family: only its
-     * representative becomes a token and its other members bind to that
-     * token (see palette()). Clusters
+     * representative becomes a token and stylesheets derive its other
+     * members from that token (see palette()). Clusters
      * are visited heaviest first, so a cluster joins one that already holds
      * whatever merged into it; the heavier cluster keeps its colour.
      *
