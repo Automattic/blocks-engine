@@ -2242,9 +2242,10 @@ final class AuthorStylesheetProjector
      * through a restatement, because the editor iframe's root does not carry
      * the source identity until the canvas runtime reconciles it. That
      * restatement never speaks over a body-level style: inherited
-     * presentation restates wholly inside `:where()`, weighing (0,0,0), so it
-     * stays the inherited default that any body rule — the source's own
-     * body rule or theme.json body typography — outranks, while root-owned
+     * presentation restates inside `:where()` plus one type shim, weighing
+     * (0,0,1), so it stays the inherited default that any body rule — the
+     * source's own body rule or theme.json body typography — outranks, yet
+     * beats editor-only zero-weight plugin body defaults, while root-owned
      * custom properties are tokens no body-level style competes with and
      * carry on the canvas-body carrier the reconciled canvas root
      * satisfies.
@@ -2302,10 +2303,15 @@ final class AuthorStylesheetProjector
         }
 
         // The root restatement carries disjoint declarations on two arms.
-        // Presentation restates wholly inside :where() and weighs (0,0,0): it
-        // acts as the inherited default and every body-level rule — theme.json
-        // body typography or the source's own body rule — outranks it, exactly
-        // as it does on the frontend where the declaration stays on the root.
+        // Presentation restates inside :where() plus one type shim, weighing
+        // (0,0,1): it acts as the inherited default and every body-level rule
+        // — theme.json body typography or the source's own body rule —
+        // outranks it, exactly as it does on the frontend where the
+        // declaration stays on the root. The type weight is the element
+        // default the frontend body inherits over: a plugin's editor-only
+        // zero-weight body default (Jetpack ships :where(body){font-family:
+        // -apple-system…} into the canvas) is not on the frontend and must
+        // not replace the source root's inherited font in the editor.
         // Custom properties are route-scoped tokens rather than presentation,
         // so they carry on the canvas-body carrier without any body-level
         // style to outrank.
@@ -2322,7 +2328,7 @@ final class AuthorStylesheetProjector
             $rootSelectors
         ));
         return $css
-            . ('' === $default ? '' : ':where(' . $defaultSelectors . '){' . $default . '}')
+            . ('' === $default ? '' : ':where(' . $defaultSelectors . '):not(' . $context->authorStyles->specificityShim() . '){' . $default . '}')
             . ('' === $carrier ? '' : ':where(' . $carrierSelectors . ') .editor-styles-wrapper{' . $carrier . '}');
     }
 
