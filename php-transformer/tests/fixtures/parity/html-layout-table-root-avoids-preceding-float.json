@@ -1,0 +1,53 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-layout-table-root-avoids-preceding-float",
+  "description": "A layout table lowered to core/group > core/columns keeps the table's block formatting context. A `width:100%` table after a full-width float is placed below the float at full width (source at 1440px: row x=0 y=88 w=800). The lowered group was a plain block that ignored the float, so its flex columns squeezed into the zero-width space beside it (row x=800 y=0 w=0, cells 30px wide, 1087px tall). The table root group now carries `blocks-engine-layout-table-root`, which the engine support CSS makes `display:flow-root`, so the row renders at x=0 y=88 w=800.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-layout-table-root-avoids-preceding-float.json",
+    "notes": "Reduction of issue #6799: Weebly multicolumn table following a floated full-width heading strip."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>body{margin:0;font:16px sans-serif}.box{width:800px}.boxc{float:left;width:100%;background:#eee;padding:10px 0}.tbl{width:100%;table-layout:fixed}</style><div class=\"box\"><div class=\"boxc\"><h2>Columbarium</h2></div><table class=\"tbl\"><tbody><tr><td style=\"width:48%;padding:0 15px\"><div style=\"height:25px\"></div><div class=\"paragraph\">Our columbarium is nestled between the redwood trees and Grace House.</div></td><td style=\"width:52%;padding:0 15px\"><div class=\"img\"><img src=\"x.gif\" width=\"300\" height=\"200\" alt=\"Columbarium\"></div><div class=\"paragraph\">Benches are among the niches.</div></td></tr></tbody></table></div>"
+  },
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<!-- wp:group {\"className\":\"tbl blocks-engine-layout-table-root "
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<div class=\"wp-block-group tbl blocks-engine-layout-table-root "
+    },
+    {
+      "path": "assets.2.content",
+      "assert": "contains",
+      "value": ":where(.wp-block-group.blocks-engine-layout-table-root){display:flow-root}"
+    }
+  ],
+  "expected_blocks": [
+    {
+      "path": "blocks.0.innerBlocks.1",
+      "name": "core/group"
+    },
+    {
+      "path": "blocks.0.innerBlocks.1.innerBlocks.0",
+      "name": "core/columns",
+      "attrs": {
+        "className": "blocks-engine-layout-table-columns"
+      }
+    }
+  ]
+}
