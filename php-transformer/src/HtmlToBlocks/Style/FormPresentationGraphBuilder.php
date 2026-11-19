@@ -157,6 +157,9 @@ final class FormPresentationGraphBuilder
     private const MAX_RULE_INDEXES = 8;
     /** @var list<array{rules: list<array<string, mixed>>, index: array<string, mixed>, collection: string}> Subject indexes over the rule lists {@see candidateRules()} has seen. */
     private array $ruleIndexes = array();
+    /** @var array<string, list<array{element: DOMElement, rules: array<int|string, array<string, mixed>>, result: array<string, mixed>, truncated: bool, diagnostics: list<string>}>> {@see matched()} results per element. */
+    private array $matchedMemo = array();
+    private int $matchedMemoHits = 0;
     /** Selector match memo for one source document; a cache-owning caller shares it across the passes of one compile. */
     private readonly CssSelectorMatchCache $matchCache;
     /** Custom-property resolution over {@see $matchCache}'s source document. */
@@ -565,18 +568,10 @@ final class FormPresentationGraphBuilder
                 $visits[$path] = $ancestor;
             }
         }
-        $visits = array_values($visits);
-        $subjects = $cache->subjectTokens($visits);
-        return static function (array $selector, string $selectorText) use ($visits, $subjects, $cache, $retainUnsupported): bool {
-            if ( ! $cache->subjectMayMatch($selector, $subjects) ) {
-                return false;
-            }
-            foreach ($visits as $ancestor) {
-                $match = $cache->matches($ancestor, $selectorText, $selector);
-                if ($match['matches'] || ($retainUnsupported && ! $match['supported'])) return true;
-            }
-            return false;
-        };
+        // Each selector is matched only against the visited elements that
+        // carry its rightmost compound's id, class, tag or attribute key.
+        $index = $cache->subjectElementIndex(array_values($visits));
+        return static fn (array $selector, string $selectorText): bool => $cache->anySubjectMatches($index, $selectorText, $selector, $retainUnsupported);
     }
 
     /** @param list<array<string, mixed>> $stylesheets @return array<string, mixed> */
@@ -1613,6 +1608,42 @@ final class FormPresentationGraphBuilder
 
     /** @param list<array<string, mixed>> $rules */
     private function matched(DOMElement $element, array $rules, bool $expandFlex = false): array
+    {
+        // One build asks for the same element's facts from several roles;
+        // matching against one rule list is answered once per builder.
+        $memoKey = spl_object_id($element) . ':' . (int) $expandFlex;
+        foreach ( $this->matchedMemo[$memoKey] ?? array() as $entry ) {
+            if ( $entry['element'] === $element && $entry['rules'] === $rules ) {
+                ++$this->matchedMemoHits;
+                // Replay the per-call diagnostics the match recorded.
+                if ( $entry['truncated'] ) $this->truncated = true;
+                array_push($this->diagnostics, ...$entry['diagnostics']);
+                return $entry['result'];
+            }
+        }
+        $diagnosticsBefore = count($this->diagnostics);
+        $result = $this->matchedUncached($element, $rules, $expandFlex);
+        $diagnostics = array_slice($this->diagnostics, $diagnosticsBefore);
+        // The entry holds its element, so the object id stays unique. Only
+        // the rule limit truncates, and it always records its diagnostic.
+        $this->matchedMemo[$memoKey][] = array(
+            'element' => $element,
+            'rules' => $rules,
+            'result' => $result,
+            'truncated' => in_array('rules_per_role_limit', $diagnostics, true),
+            'diagnostics' => $diagnostics,
+        );
+        return $result;
+    }
+
+    /** Hits of the per-builder {@see matched()} memo, for regression tests. */
+    public function matchedMemoHits(): int
+    {
+        return $this->matchedMemoHits;
+    }
+
+    /** @param list<array<string, mixed>> $rules */
+    private function matchedUncached(DOMElement $element, array $rules, bool $expandFlex): array
     {
         $allowed = $expandFlex ? array_merge(self::PROPERTIES, self::ROW_ONLY_PROPERTIES) : self::PROPERTIES;
         $rules = $this->candidateRules($element, $rules);

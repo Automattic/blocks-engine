@@ -2967,7 +2967,7 @@ final class AuthorStylesheetProjector
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if (!$parsed['supported']) continue;
             foreach ($this->selectors->matchingSourceElements($selector, $parsed, $context) as $element) {
-                $path = $element->getNodePath() ?? '';
+                $path = $context->authorStyles->sourcePath($element);
                 // Overlay lists still own an inner UL, not the opener's root.
                 $target = $context->selectorProjections->navigationListBoxSubject($path);
                 if ('' === $target) continue;

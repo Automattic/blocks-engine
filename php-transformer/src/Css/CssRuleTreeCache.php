@@ -8,6 +8,21 @@ final class CssRuleTreeCache
 {
     private static ?self $current = null;
 
+    /**
+     * Memo budgets. A page with a large author stylesheet projects it to
+     * long marker-scoped selector lists that several passes split again; a
+     * 4 MiB budget filled before the projected stylesheet's preludes were
+     * memoized, so each later pass rescanned megabytes of them (#6789).
+     */
+    public const MAX_MEMO_ENTRIES = 65536;
+
+    public const MAX_MEMO_SCALARS = 524288;
+
+    public const MAX_MEMO_BYTES = 16777216;
+
+    /** One result larger than the former whole budget is never retained. */
+    public const MAX_MEMO_ENTRY_BYTES = 4194304;
+
     /** @var array<string, CssRuleTree> */
     private array $trees = array();
 
@@ -40,7 +55,7 @@ final class CssRuleTreeCache
         foreach (is_array($result) ? $result : array($result) as $key => $value) {
             $bytes += (is_string($key) ? strlen($key) : 0) + (is_string($value) ? strlen($value) : 0);
         }
-        if ($cache->memoEntries < 16384 && $cache->memoScalars + $scalars <= 131072 && $cache->memoBytes + $bytes <= 4194304) {
+        if ($bytes <= self::MAX_MEMO_ENTRY_BYTES && $cache->memoEntries < self::MAX_MEMO_ENTRIES && $cache->memoScalars + $scalars <= self::MAX_MEMO_SCALARS && $cache->memoBytes + $bytes <= self::MAX_MEMO_BYTES) {
             $cache->strings[$variant][$source] = $result;
             ++$cache->memoEntries;
             $cache->memoScalars += $scalars;
