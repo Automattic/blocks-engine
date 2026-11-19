@@ -2498,6 +2498,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $sourceTagName = strtolower($sourceElement->tagName);
         $withheld = array_fill_keys($withheld, true);
         $observations = $this->session->boxTreeEvidence($sourceElement);
+        if (array() === $observations) $observations = $this->unobservedIslandOpacity($sourceElement);
         foreach ($observations as $key => $observation) {
             if (is_array($observation['used_styles'] ?? null)) $observations[$key]['used_styles'] = array_diff_key($observation['used_styles'], $withheld);
         }
@@ -2535,6 +2536,33 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
 
         return $attrs;
+    }
+
+    /**
+     * Device fragments grafted from another capture have no route box-tree
+     * observation. Preserve an authored transparent resting state without
+     * inventing geometry (or other presentation) for those unobserved boxes.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function unobservedIslandOpacity(DOMElement $element): array
+    {
+        $viewports = $this->session->boxTreeViewports();
+        if (array() === $viewports || '' === $element->getAttribute(BoxTree::NODE_ATTRIBUTE)) return array();
+        $profile = null;
+        for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode) {
+            $classes = SourceDom::tokens($node->getAttribute('class'));
+            if (in_array(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::MOBILE_ONLY_CLASS, $classes, true)) { $profile = 'mobile'; break; }
+            if (in_array(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::DESKTOP_ONLY_CLASS, $classes, true)) { $profile = 'desktop'; break; }
+        }
+        if (null === $profile) return array();
+        $widths = array_filter(array_map(static fn (mixed $viewport): float => is_array($viewport) ? (float) ($viewport['width'] ?? 0) : 0.0, $viewports), static fn (float $width): bool => $width > 0);
+        if (array() === $widths) return array();
+        $key = isset($widths[$profile]) ? $profile : array_search('mobile' === $profile ? min($widths) : max($widths), $widths, true);
+        $declared = $this->styleResolver->authorViewport->atViewport($element, array('opacity'), $widths[$key], true);
+        $opacity = trim((string) ($declared['opacity'] ?? ''));
+        if (!is_numeric($opacity) || 0.0 !== (float) $opacity) return array();
+        return array($key => array('used_styles' => array('opacity' => '0')));
     }
 
     /**
