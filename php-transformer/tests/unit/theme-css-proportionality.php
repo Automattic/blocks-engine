@@ -19,6 +19,8 @@ foreach (array(4, 12) as $count) {
     if (strlen($output) > 12 * strlen($css)) throw new RuntimeException('Theme CSS must stay proportional to source CSS');
     if (null !== $previousBytes && $previousBytes !== strlen($output)) throw new RuntimeException('Adding root identities must not repeat shared rules');
     $previousBytes = strlen($output);
-    if (1 !== substr_count($output, ':root{--ink:')) throw new RuntimeException('Root custom properties must be emitted once');
+    // The body rule reading --ink moves to theme.json, so the final plan
+    // ships the inventory at most once (and not at all once nothing reads it).
+    if (1 < substr_count($output, ':root{--ink:')) throw new RuntimeException('Root custom properties must be emitted at most once');
     if (1 !== substr_count($output, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-')) throw new RuntimeException('Repeated labels must use one shared selector');
 }

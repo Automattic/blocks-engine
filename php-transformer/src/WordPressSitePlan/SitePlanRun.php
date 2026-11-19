@@ -369,6 +369,9 @@ final class SitePlanRun
         // is written through that kind's role class instead.
         $assets = CompleteMarkerLists::compact($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
+        // Readers are final: an author property no shipped sheet, markup,
+        // record, theme.json or script names computes nothing.
+        $assets = UnreadCustomProperties::prune($assets, array($navigationMarkup, implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme'], $rootDocuments, array_column($pages, 'document_metadata')), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)));
         // Bytes are final: arms only the editor canvas can match move from
         // each sheet visitors load into an editor-only extract after it.
         $known = array_column($assets, 'target_path');

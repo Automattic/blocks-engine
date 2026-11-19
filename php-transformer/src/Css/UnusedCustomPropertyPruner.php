@@ -17,8 +17,15 @@ final class UnusedCustomPropertyPruner
     private array $used = array();
     private bool $uncertain = false;
 
-    /** @param list<string> $stylesheets @param list<string> $evidence Markup and runtime sources. */
-    public function __construct(array $stylesheets, array $evidence)
+    /**
+     * @param list<string> $stylesheets
+     * @param list<string> $evidence Markup and runtime sources.
+     * @param bool $complete Whether the stylesheets and evidence are every
+     *     reader the site will ship. Then a component-scoped declaration
+     *     nothing reads computes nothing either: there is no later reader its
+     *     styling API could still serve, so any rule's unread property goes.
+     */
+    public function __construct(array $stylesheets, array $evidence, private bool $complete = false)
     {
         // Count even references in dead declarations. This deliberately avoids
         // changing fallback/cycle semantics and is conservative across sheets.
@@ -82,11 +89,14 @@ final class UnusedCustomPropertyPruner
             // and every name a value references is itself counted as read.
             // An unread empty reset value is removable too; a read empty
             // value still suppresses var() fallbacks and must be retained.
-            $inventory = $this->isInventory($selector);
+            $inventory = $this->complete || $this->isInventory($selector);
             $kept = array_filter($declarations, fn (array $declaration): bool => !$inventory
                 || !str_starts_with($declaration['name'], '--')
                 || str_starts_with($declaration['name'], '--wp--')
                 || str_starts_with($declaration['name'], '--be--source--preset--')
+                // Engine properties are read by runtime styles the plugin
+                // prints, which no shipped stylesheet shows.
+                || ($this->complete && preg_match('/^--(?:blocks-engine|be)-/', $declaration['name']))
                 || isset($this->used[$declaration['name']]));
             if (count($kept) === count($declarations)) return $selector . '{' . $body . '}';
             if (array() === $kept) return '';
