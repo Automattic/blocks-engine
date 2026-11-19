@@ -358,23 +358,19 @@ final class BoxTreeFluidIntent
     }
 
     /**
-     * Whether a declared `aspect-ratio` (its `var()` expanded) is the used
-     * one. The browser reports the same `<ratio>` re-serialized and rounded
-     * (`1/0.7079850648855999` is used as `1 / 0.707985`), so a string
-     * comparison would reject the author's ratio and freeze it per capture,
-     * moving its switch from the author's breakpoint to the narrow capture.
+     * Whether two `aspect-ratio` values name the same ratio: the computed
+     * value restates `1/var(--r)` as `1 / 1.11243`, rounded.
      */
-    private static function sameRatio(string $declared, string $used): bool
+    private static function sameRatio(string $declared, string $observed): bool
     {
         $ratio = static function (string $value): ?float {
-            if (1 !== preg_match('/^\s*(\d*\.?\d+)\s*(?:\/\s*(\d*\.?\d+)\s*)?$/', $value, $match)) return null;
-            $height = isset($match[2]) ? (float) $match[2] : 1.0;
-            return $height > 0.0 ? (float) $match[1] / $height : null;
+            if (!preg_match('/^\s*(?:auto\s+)?(\d*\.?\d+)\s*(?:\/\s*(\d*\.?\d+))?\s*$/i', $value, $m)) return null;
+            $denominator = isset($m[2]) ? (float) $m[2] : 1.0;
+            return $denominator > 0 ? (float) $m[1] / $denominator : null;
         };
-        $declaredRatio = $ratio($declared);
-        $usedRatio = $ratio($used);
-        if (null === $declaredRatio || null === $usedRatio) return false;
-        return abs($declaredRatio - $usedRatio) <= 1e-4 * max(1.0, $usedRatio);
+        $a = $ratio($declared);
+        $b = $ratio($observed);
+        return null !== $a && null !== $b && $b > 0 && abs($a / $b - 1) < 1e-4;
     }
 
     /** Whether a value is a viewport-, font- or containing-block-relative expression. */
@@ -679,6 +675,16 @@ final class BoxTreeFluidIntent
         }
         $fromShorthand = null !== $shorthand && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
         $name = $fromShorthand ? $shorthand : $property;
+        // A later `inline-size` sets the used width in horizontal writing. It
+        // lifts only where the nearest ancestor that declares a width declares
+        // a fluid one: frozen there, the child keeps capture pixels its
+        // container no longer has (#5870). Elsewhere the logical alias keeps
+        // its projection (#6648).
+        if ('width' === $property && isset($order['inline-size']) && (!isset($order[$name]) || $order['inline-size'] > $order[$name])
+            && $this->parentWidthFluid($width) && $this->horizontalWriting($width)) {
+            $name = 'inline-size';
+            $fromShorthand = false;
+        }
         if (!isset($winners[$name])) return null;
         $value = trim(CssValueInspector::withoutImportant((string) $winners[$name]));
         if ('' === $value) return null;
@@ -701,6 +707,36 @@ final class BoxTreeFluidIntent
         if ('gap' === $shorthand) return CssValueInspector::expandBoxShorthand($value)['row-gap' === $property ? 0 : 1];
         $side = self::SIDES['inset' === $shorthand ? $property : substr($property, (int) strrpos($property, '-') + 1)] ?? null;
         return null === $side ? '' : CssValueInspector::expandBoxShorthand($value)[$side];
+    }
+
+    /**
+     * Whether the nearest ancestor that declares a width (`width` or a later
+     * `inline-size`) at this width declares a fluid one. Ancestors that
+     * declare none take their width from above, so the walk passes them.
+     */
+    private function parentWidthFluid(float $width): bool
+    {
+        for ($node = $this->element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+            $winners = $this->resolver->authorViewport->atViewport($node, array('width', 'inline-size'), $width);
+            $order = array_flip(array_keys($winners));
+            $name = isset($order['inline-size']) && (!isset($order['width']) || $order['inline-size'] > $order['width']) ? 'inline-size' : 'width';
+            $value = trim(CssValueInspector::withoutImportant((string) ($winners[$name] ?? '')));
+            if ('' === $value || 'auto' === strtolower($value)) continue;
+            return self::expression(trim($this->resolver->customProperties->resolveAtViewport($value, $node, $width)));
+        }
+        return false;
+    }
+
+    /** Whether the element's resolved `writing-mode` at this width is horizontal (`horizontal-tb`, the initial value). */
+    private function horizontalWriting(float $width): bool
+    {
+        for ($node = $this->element; $node instanceof DOMElement; $node = $node->parentNode) {
+            $winner = $this->resolver->authorViewport->atViewport($node, array('writing-mode'), $width);
+            $mode = strtolower(trim(CssValueInspector::withoutImportant((string) ($winner['writing-mode'] ?? ''))));
+            if ('' === $mode || 'inherit' === $mode || 'unset' === $mode) continue;
+            return in_array($mode, array('horizontal-tb', 'initial', 'revert', 'revert-layer'), true);
+        }
+        return true;
     }
 
     /**

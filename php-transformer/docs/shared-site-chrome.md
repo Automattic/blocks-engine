@@ -38,6 +38,11 @@ Routes whose header or footer agrees on the box-tree viewports they share stay
 one part even when one route's sidecar samples an extra viewport (`mobile`):
 intake merges that chrome subtree's agreeing observations as a union of
 viewports, while the route's page content keeps its own evidence (`docs/contracts/box-tree.md`).
+The extra viewport can leave a responsive projection hook on that route's
+chrome only; such a source group joins the others only when the box-tree
+records its routes as chrome peers. Without that evidence a projection hook
+may select distinct responsive rules and keeps its own part, and a
+route-current token outside navigation stays part of the chrome's identity.
 
 When the source has no area landmark, extraction adds a semantic header/footer
 Group marked `blocks-engine-shell-landmark`. The same frontend-only transport

@@ -28,6 +28,15 @@ final class LayoutTableLowering
     /** Class a lowered source table cell carries (`blocks-engine-layout-table-` . role). */
     public const LAYOUT_TABLE_CELL_CLASS = 'blocks-engine-layout-table-cell';
 
+    /**
+     * Class the group a whole source table lowers to carries. A table is a
+     * block formatting context: it never overlaps a preceding float and moves
+     * below one it cannot fit beside. The support CSS gives the group the same
+     * contract (`display:flow-root`) so its columns are not squeezed into the
+     * space beside the float.
+     */
+    public const LAYOUT_TABLE_ROOT_CLASS = 'blocks-engine-layout-table-root';
+
     public function __construct(
         private readonly SourceBlockCreator $blocks,
         private readonly HtmlTransformerSession $session,
@@ -553,7 +562,17 @@ final class LayoutTableLowering
             $attrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical', 'justifyContent' => $alignment );
         }
 
-        return $this->blocks->createBlock('core/group', $attrs, $children, $table);
+        return $this->blocks->createBlock('core/group', $this->layoutTableRootAttributes($attrs), $children, $table);
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function layoutTableRootAttributes(array $attrs): array
+    {
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYOUT_TABLE_ROOT_CLASS);
+        return $attrs;
     }
 
     /** Where a cell places its content vertically: `top`, `center` (the default) or `bottom`. */
@@ -618,12 +637,10 @@ final class LayoutTableLowering
         if ($this->layoutTableUsesAutoTracks($table)) {
             $tableAttributes = $this->layoutTablePresentationCarrier($table, $tableAttributes, 'table');
         }
-        if (1 === count($rows)) {
-            return array() === $tableAttributes
-                ? $rows[0]
-                : $this->blocks->createBlock('core/group', $tableAttributes, $rows, $table);
+        if (1 === count($rows) && array() === $tableAttributes) {
+            return $rows[0];
         }
 
-        return $this->blocks->createBlock('core/group', $tableAttributes, $rows, $table);
+        return $this->blocks->createBlock('core/group', $this->layoutTableRootAttributes($tableAttributes), $rows, $table);
     }
 }

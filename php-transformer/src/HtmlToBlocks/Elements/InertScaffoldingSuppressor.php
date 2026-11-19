@@ -359,12 +359,18 @@ final class InertScaffoldingSuppressor implements ElementConverter
      */
     private function isHiddenPresentationScaffolding(DOMElement $element): bool
     {
-        $declarations = $this->styleResolver->authorStructuralDeclarations($element);
-        $hiddenOutOfFlow = SourceDom::isAriaHidden($element)
-            && 'hidden' === CssValueInspector::comparable($declarations['visibility'] ?? '')
-            && in_array(CssValueInspector::comparable($declarations['position'] ?? ''), array( 'absolute', 'fixed' ), true);
-        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
-            || ( ! $hiddenOutOfFlow && 'none' !== CssValueInspector::comparable((string) (SourceDeclarations::inline($element)['display'] ?? '')) ) ) {
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) ) {
+            return false;
+        }
+        // Only an aria-hidden element can be hidden out of flow, so the
+        // cascade is resolved for it alone.
+        $hiddenOutOfFlow = false;
+        if ( SourceDom::isAriaHidden($element) ) {
+            $declarations = $this->styleResolver->authorStructuralDeclarations($element);
+            $hiddenOutOfFlow = 'hidden' === CssValueInspector::comparable($declarations['visibility'] ?? '')
+                && in_array(CssValueInspector::comparable($declarations['position'] ?? ''), array( 'absolute', 'fixed' ), true);
+        }
+        if ( ! $hiddenOutOfFlow && 'none' !== CssValueInspector::comparable((string) (SourceDeclarations::inline($element)['display'] ?? '')) ) {
             return false;
         }
 

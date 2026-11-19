@@ -90,15 +90,6 @@ $cases = array(
     '% width against the parent content width lifts' => array(
         'h1{width:50%}', array('n5.width' => array('200px', '100px'), 'n6.width' => array('100px', '50px')), array('width:50%'), array('width:50px'),
     ),
-    // sdnunca case-study images: `aspect-ratio:1/var(--aspect-ratio)` with
-    // the token switched at the author's 1023px breakpoint. Frozen per
-    // capture, the 1440px ratio held down to 403px and every card between
-    // was taller than the source.
-    'an aspect ratio a width query switches is banded at the author breakpoint' => array(
-        ':root{--ar:1.11243}@media (max-width:1023px){:root{--ar:0.926199}}h1{aspect-ratio:1/var(--ar)}',
-        array('n6.aspect-ratio' => array('1 / 1.11243', '1 / 0.926199')),
-        array('aspect-ratio:1/1.11243', '@media (max-width:1023px){.be-inline-geometry-'), array('max-width:402px', 'aspect-ratio:1 / 0.926199', 'var(--ar)'),
-    ),
     'clamp() lifts' => array(
         'h1{font-size:clamp(10px,5.2vw,100px)}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:clamp(10px,5.2vw,100px)'), array('font-size:75px'),
     ),
@@ -298,6 +289,35 @@ $cases = array(
     ),
     'a logical size alias keeps its pixels' => array(
         'h1{inline-size:300px}', array('n6.width' => array('300px', '300px')), array('h1 ;width:300px'), array('h1 ;width:auto'),
+    ),
+    // A Wix link layer fills its card with `inline-size:100%`; the card's
+    // own width is a percentage, so the layer must follow it (#5870).
+    'a logical width under a fluid-width parent lifts' => array(
+        'main{width:80%}h1{inline-size:50%}',
+        array('n5.width' => array('1152px', '321.6px'), 'n6.width' => array('576px', '160.8px')),
+        array('h1 ;width:50%'), array('h1 ;width:576px', 'h1 ;width:160.8px'),
+    ),
+    'a logical width under a parent of undeclared width keeps its pixels' => array(
+        'h1{inline-size:50%}',
+        array('n5.width' => array('1440px', '402px'), 'n6.width' => array('720px', '201px')),
+        array(), array('h1 ;width:50%'),
+    ),
+    'a later width wins over an earlier logical width' => array(
+        'main{width:80%}h1{inline-size:50%}h1{width:300px}',
+        array('n5.width' => array('1152px', '321.6px'), 'n6.width' => array('300px', '300px')),
+        array('h1 ;width:300px'), array('h1 ;width:50%'),
+    ),
+    // A Wix image card sets `aspect-ratio:1/var(--aspect-ratio)` and switches
+    // the token at 1023px: the 768px copy must take the narrow ratio (#5870).
+    'an aspect ratio its author switches at a breakpoint lifts in that band' => array(
+        ':root{--r:1.1124283722087114}@media (max-width:1023px){:root{--r:0.9261990960401161}}h1{aspect-ratio:1/var(--r)}',
+        array('n6.aspect-ratio' => array('1 / 1.11243', '1 / 0.926199')),
+        array('@media (max-width:1023px){.be-inline-geometry-', 'aspect-ratio:1/0.9261990960401161'),
+        array('aspect-ratio:1 / 0.926199'),
+    ),
+    'an aspect ratio its author does not explain keeps per-capture output' => array(
+        'h1{aspect-ratio:1/2}', array('n6.aspect-ratio' => array('1 / 1.11243', '1 / 0.926199')),
+        array('aspect-ratio:1 / 0.926199'), array('aspect-ratio:1/2'),
     ),
     'a flex shorthand basis keeps its pixels' => array(
         'main{display:flex}h1{flex:0 0 300px}',

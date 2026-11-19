@@ -72,6 +72,24 @@ final class ShellLandmarkPolicy
     }
 
     /**
+     * A `<footer>` owned by an article, aside, nav, blockquote or
+     * figure introduces or closes that content item (an entry's byline, a
+     * card's actions, a quote's citation). HTML maps it to no landmark role,
+     * so it is never page chrome: the same content-local ancestors
+     * isDocumentEdgeLandmark() refuses. An explicit landmark role keeps it.
+     */
+    public static function isContentItemLandmarkTag(\DOMElement $element): bool
+    {
+        if ('footer' !== strtolower($element->tagName) || '' !== trim($element->getAttribute('role'))) return false;
+        for ($ancestor = $element->parentNode; $ancestor instanceof \DOMElement; $ancestor = $ancestor->parentNode) {
+            $tag = strtolower($ancestor->tagName);
+            if (in_array($tag, array('article', 'aside', 'nav', 'blockquote', 'figure'), true)) return true;
+            if ('body' === $tag) return false;
+        }
+        return false;
+    }
+
+    /**
      * A unique landmark at the document edge can be page chrome even inside
      * main or a top-level section. Article/aside landmarks remain content.
      */

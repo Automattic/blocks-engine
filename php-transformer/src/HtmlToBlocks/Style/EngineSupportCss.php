@@ -605,6 +605,13 @@ final class EngineSupportCss
                 . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.columns-8>.wp-block-image{width:calc((100% - 7 * ' . $gap . ') / 8) !important}'
                 . "\n" . ':root .wp-block-gallery.' . self::SLIDESHOW_GALLERY_CLASS . '.is-cropped>.wp-block-image img{aspect-ratio:1;height:auto;object-fit:cover;width:100%}';
         }
+        if ( str_contains($serializedBlocks, LayoutTableLowering::LAYOUT_TABLE_ROOT_CLASS) ) {
+            // A lowered table root stays a block formatting context, as the
+            // source table was: it moves below a float it cannot fit beside
+            // instead of squeezing its columns into the space next to it.
+            // Zero specificity: Core layout displays and author CSS still win.
+            $parts[] = ':where(.wp-block-group.' . LayoutTableLowering::LAYOUT_TABLE_ROOT_CLASS . '){display:flow-root}';
+        }
         if ( str_contains($serializedBlocks, self::LAYOUT_TABLE_COLUMNS_CLASS) ) {
             $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . ':not(:where(.blocks-engine-layout-table-table,.blocks-engine-layout-table-row)){display:flex;flex-wrap:nowrap;gap:0;box-sizing:border-box}'
                 . "\n" . ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column:not(:where(.blocks-engine-layout-table-cell)){box-sizing:border-box;min-width:0}'

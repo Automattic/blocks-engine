@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ListingControlsRecognizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** Selects the editable, compositional, or preserved representation of a form. */
@@ -38,6 +39,19 @@ final class FormDispatcher
      * @return array<string, mixed>|null
      */
     public function convert(DOMElement $element, array &$fallbacks): ?array
+    {
+        // A dispatch builds the readable block and its finding from one
+        // inventory, layout graph and label index (#6752).
+        return FormBuildScope::run(function () use ($element, &$fallbacks): ?array {
+            return $this->dispatch($element, $fallbacks);
+        });
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function dispatch(DOMElement $element, array &$fallbacks): ?array
     {
         if ( 0 === $element->childElementCount && '' === trim($element->textContent) ) {
             return null;
@@ -137,16 +151,37 @@ final class FormDispatcher
             }
         }
 
+        // Form events are the only difference between a readable build that
+        // allows them and one that does not. Without any, the fall-through
+        // below builds the form once and reuses that build where a second
+        // one would follow, reporting its flow findings again as that build
+        // would (#6752).
+        $reusable = array() === SourceDom::eventMetadata($element);
+        $readableBuild = null;
+        $readable = function (bool $allowFormEvents) use ($element, &$fallbacks, &$readableBuild, $reusable): ?array {
+            if ( ! $reusable ) {
+                return $this->context->buildReadableFormBlock($element, $allowFormEvents, $fallbacks);
+            }
+            if ( null !== $readableBuild ) {
+                array_push($fallbacks, ...$readableBuild['findings']);
+                return $readableBuild['block'];
+            }
+            $before = count($fallbacks);
+            $block = $this->context->buildReadableFormBlock($element, $allowFormEvents, $fallbacks);
+            $readableBuild = array( 'block' => $block, 'findings' => array_slice($fallbacks, $before) );
+            return $block;
+        };
+
         if (!$summarizable && $nativeWrappingLabel) {
-            $readable = $this->context->buildReadableFormBlock($element, true, $fallbacks);
-            if (null !== $readable) {
-                $fallbacks[] = $this->context->buildFallbackFinding($element, $readable);
-                $this->context->recordForm($element, $readable);
-                return $readable;
+            $readableBlock = $readable(true);
+            if (null !== $readableBlock) {
+                $fallbacks[] = $this->context->buildFallbackFinding($element, $readableBlock);
+                $this->context->recordForm($element, $readableBlock);
+                return $readableBlock;
             }
         }
 
-        $readableFormBlock = $this->context->buildReadableFormBlock($element, false, $fallbacks);
+        $readableFormBlock = $readable(false);
         if ( null !== $readableFormBlock && ! $this->context->requiresPreservation($element) && $summarizable ) {
             if ( FormControlClassifier::hasDataEntryControls($element) || $hasChoiceGroups ) {
                 $fallbacks[] = $this->context->buildFallbackFinding($element, $readableFormBlock);
@@ -163,7 +198,7 @@ final class FormDispatcher
             return $preservationBlock;
         }
 
-        $readableFormBlock = $this->context->buildReadableFormBlock($element, true, $fallbacks);
+        $readableFormBlock = $readable(true);
         $this->context->recordForm($element, $readableFormBlock);
 
         // Surface a finding so consumers can map the preserved controls onto a provider.
@@ -194,7 +229,7 @@ final class FormDispatcher
     public function capturePseudoFormFallback(DOMElement $element, array &$fallbacks): void
     {
         if ( $this->context->isProviderPseudoForm($element) ) {
-            $fallbacks[] = $this->context->buildFallbackFinding($element, $this->context->buildReadableFormBlock($element, true));
+            $fallbacks[] = FormBuildScope::run(fn (): array => $this->context->buildFallbackFinding($element, $this->context->buildReadableFormBlock($element, true)));
         }
     }
 }

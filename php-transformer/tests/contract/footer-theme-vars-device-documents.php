@@ -67,9 +67,9 @@ foreach ($plan['assets'] as $asset) {
         if (!str_contains($body, '--theme-bg') || !str_contains($body, '--theme-paragraph-font')) return;
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
             // Re-anchored to the hoisted part, gated to one route.
+            // Routes declaring the same values may share one rule, one arm each.
             if (str_contains($selector, ':has(> #site-footer)') && str_ends_with(trim($selector), ':where(.footer-vars)') && preg_match('/^:where\(:root:(?:is|not)\(\.be-r-[a-f0-9]+\)\) /', $selector)) {
-                $variableRules[$prelude] = true;
-                return;
+                $variableRules[trim($selector)] = true;
             }
         }
     });

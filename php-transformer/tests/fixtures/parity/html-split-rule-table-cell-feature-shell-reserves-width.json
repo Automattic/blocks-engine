@@ -1,0 +1,66 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-split-rule-table-cell-feature-shell-reserves-width",
+  "description": "An empty `display:table-cell` whose class names a platform feature (`cart`) is authored layout when its cascaded declarations give it a width, even when `display` and `width` come from separate rules. The Weebly header shape (`.nav{display:table-cell}` + `.membership-cart{width:25%}` around an empty login slot) and a same-class two-rule cell (`.cart{display:table-cell}.cart{width:25%}`) both survive as empty groups carrying their source classes, so the logo and menu keep their 25%/50% columns. An unstyled empty search shell is still dropped as dead chrome.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-split-rule-table-cell-feature-shell-reserves-width.json",
+    "notes": "Reduction of issue #6798 (Weebly 'unite' header), following #6748 and #6781."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>body { margin: 0; }.container { display: table; table-layout: fixed; width: 100%; }.logo { width: 25%; display: table-cell; }.nav { display: table-cell; vertical-align: middle; }.desktop-nav { width: 50%; text-align: center; }.membership-cart { width: 25%; text-align: right; }.cart { display: table-cell; }.cart { width: 25%; }</style><div class=\"container\"><div class=\"logo\"><a href=\"/\">Logo</a></div><div class=\"nav desktop-nav\"><a href=\"/a\">A</a> <a href=\"/b\">B</a></div><div class=\"nav membership-cart\"><span id=\"member-login\"></span></div></div><div class=\"container\"><div class=\"logo\"><a href=\"/\">Logo</a></div><div class=\"nav desktop-nav\"><a href=\"/c\">C</a> <a href=\"/d\">D</a></div><div class=\"cart\"></div></div><div class=\"header-search search\"></div><main><h1>Welcome</h1></main>"
+  },
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<div class=\"wp-block-group nav membership-cart blocks-engine-empty-visual-group\"></div>"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<div class=\"wp-block-group cart blocks-engine-empty-visual-group\"></div>"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "member-login"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "header-search"
+    },
+    {
+      "path": "source_reports.author_stylesheet_projections.0.content",
+      "assert": "contains",
+      "value": ".membership-cart { width: 25%; text-align: right; }.cart { display: table-cell; }.cart { width: 25%; }"
+    }
+  ],
+  "expected_blocks": [
+    {
+      "path": "blocks.0.innerBlocks.2",
+      "name": "core/group",
+      "attrs": {
+        "className": "nav membership-cart blocks-engine-empty-visual-group"
+      }
+    },
+    {
+      "path": "blocks.1.innerBlocks.2",
+      "name": "core/group",
+      "attrs": {
+        "className": "cart blocks-engine-empty-visual-group"
+      }
+    }
+  ]
+}

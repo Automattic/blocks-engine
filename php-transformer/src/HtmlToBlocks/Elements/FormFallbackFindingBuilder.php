@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormStepTrackDetector;
 use DOMElement;
@@ -36,7 +35,7 @@ final class FormFallbackFindingBuilder
     {
         $controlElements = FormWorkflowControlInventory::elements($element, $this->metadataBuilder, $this->session);
         $controls = $this->metadataBuilder->controls($element, array(), $controlElements);
-        $layoutGraph ??= (new FormLayoutGraphBuilder())->build($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
+        $layoutGraph ??= FormBuildScope::layoutGraph($element, null, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         $presentationBuilder = new FormPresentationGraphBuilder(
             fn (DOMElement $control, string $value): string => $this->context->resolvePresentationValue($control, $value),
             fn (DOMElement $element): string => $this->context->sanitizeInlineSvgMarkup($element),
@@ -132,7 +131,7 @@ final class FormFallbackFindingBuilder
         $topologyBuilder = new FormControlTopologyBuilder();
         $finding['control_topology'] = $topologyBuilder->build($element, $controlElements);
         $finding['sibling_relations'] = $topologyBuilder->directLabelControlPairs($element, $controlElements);
-        $finding['layout_graph'] = (new FormLayoutGraphBuilder($controlElements))->build($element, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
+        $finding['layout_graph'] = FormBuildScope::layoutGraph($element, $controlElements, $this->session->authorStyleAnalysis()->stylesheetAssets(), $this->session->sourceStyleResolutionState()->formLayoutCss());
         $finding['presentation_graph'] = (new FormPresentationGraphBuilder(
             fn (DOMElement $control, string $value): string => $this->context->resolvePresentationValue($control, $value),
             fn (DOMElement $node): string => $this->context->sanitizeInlineSvgMarkup($node),

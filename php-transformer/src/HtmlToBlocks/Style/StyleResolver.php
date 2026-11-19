@@ -824,9 +824,47 @@ final class StyleResolver implements ElementPresentationResolver
             $parents = $this->session->boxTreeParentEvidence($source, $parent);
             if (array() === $observations || array() === $parents) continue;
             $fluid = (new BoxTreeFluidIntent())->lift($source, $this, $observations, $viewports, $parents);
-            $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
+            $projector ??= new BoxTreeStyleProjector();
+            // An inline the source laid out as a box of its own (a `flex`
+            // badge ring, an `inline-block` pill) is a box, not a run of text:
+            // its size, padding, border and paint have no block attribute to
+            // live in and its author rules do not ship, so the whole observed
+            // box goes to its carrier, as a kept source element's does.
+            $class = self::richTextInlineBox($source, $observations)
+                ? $projector->elementCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, strtolower($source->tagName), $fluid)
+                : $projector->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);
             if ('' !== $class) $target->setAttribute('class', SourceDom::mergeClassNames($target->getAttribute('class'), $class));
         }
+    }
+
+    /**
+     * Whether a RichText inline lays out as a decorated box of its own at
+     * some capture: a non-replaced element whose used display is neither
+     * inline nor absent and that paints its box (padding, border, background
+     * or shadow). A flex item's text span is blockified too, but paints
+     * nothing, so its typography is all it sets apart. Replaced content
+     * (images, icons, controls) keeps its own conversion paths.
+     *
+     * @param array<string, array<string, mixed>> $observations
+     */
+    private static function richTextInlineBox(DOMElement $source, array $observations): bool
+    {
+        if (in_array(strtolower($source->tagName), array('img', 'svg', 'picture', 'video', 'audio', 'canvas', 'iframe', 'object', 'embed', 'input', 'select', 'textarea', 'button', 'br', 'wbr'), true)) return false;
+        foreach ($observations as $observation) {
+            $styles = is_array($observation['used_styles'] ?? null) ? $observation['used_styles'] : array();
+            $display = strtolower(trim((string) ($styles['display'] ?? 'inline')));
+            if (in_array($display, array('', 'inline', 'none', 'contents'), true)) continue;
+            foreach (array('top', 'right', 'bottom', 'left') as $side) {
+                // `border-<side>` is captured as its used shorthand, width first.
+                if (0.0 !== (float) ($styles['padding-' . $side] ?? 0) || 0.0 !== (float) ($styles['border-' . $side] ?? 0)) return true;
+            }
+            $background = strtolower(trim((string) ($styles['background-color'] ?? '')));
+            if (!in_array($background, array('', 'transparent', 'rgba(0, 0, 0, 0)'), true)) return true;
+            foreach (array('background-image', 'box-shadow') as $property) {
+                if (!in_array(strtolower(trim((string) ($styles[$property] ?? 'none'))), array('', 'none'), true)) return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1823,6 +1861,8 @@ final class StyleResolver implements ElementPresentationResolver
         $properties = array_map('strtolower', $properties);
         $readers = array();
         foreach ( $this->session->sourceStyleResolutionState()->matchingRules($element, 'static') as $rule ) {
+            // Only a rule that reads a custom property can add a reader.
+            if ( array() === ($rule['customPropertyReferences'] ?? array()) ) continue;
             $declared = array_map('strtolower', array_map('strval', array_keys($rule['declarations'] ?? array())));
             if ( isset($rule['pendingFont']) ) array_push($declared, ...self::FONT_SHORTHAND_LONGHANDS);
             if ( array() !== array_intersect($properties, $declared) ) {
@@ -4169,8 +4209,7 @@ final class StyleResolver implements ElementPresentationResolver
             $entries[] = SourceCascade::entry((string) $property, (string) $value, true, array( 0, 0, 0 ), PHP_INT_MAX, null);
         }
         // Stable: equal facts (one rule's declarations) keep declaration order.
-        usort($entries, static fn (array $left, array $right): int => CssCascade::wins($left, $right)
-            ? (CssCascade::wins($right, $left) ? 0 : 1) : -1);
+        $entries = self::inCascadeWinOrder($entries);
 
         $declarations = array();
         foreach ( $entries as $entry ) {
@@ -4178,6 +4217,36 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $cache->structuralDeclarations[$cacheKey] = $declarations;
+    }
+
+    /**
+     * Cascade entries weakest first, as a stable sort by
+     * {@see CssCascade::wins()} orders them. Each entry's win order is
+     * compared as one precomputed key, (importance, inline, layer,
+     * specificity, source order), instead of two wins() calls per comparison.
+     *
+     * @param list<array{important: bool, inline: bool, specificity: array<int, int>, order: int, layer: int|null}> $entries
+     * @return list<array{important: bool, inline: bool, specificity: array<int, int>, order: int, layer: int|null}>
+     */
+    private static function inCascadeWinOrder(array $entries): array
+    {
+        $keys = array();
+        foreach ( $entries as $index => $entry ) {
+            $important = (bool) $entry['important'];
+            $layer = $entry['layer'] ?? null;
+            // Unlayered declarations beat layered ones, later layers earlier
+            // ones; importance reverses both.
+            $layerKey = null === $layer ? ($important ? -INF : INF) : ($important ? -$layer : $layer);
+            $specificity = $entry['specificity'];
+            $keys[$index] = array( (int) $important, (int) (bool) ($entry['inline'] ?? false), $layerKey, $specificity[0] ?? 0, $specificity[1] ?? 0, $specificity[2] ?? 0, $entry['order'] );
+        }
+        $positions = array_keys($entries);
+        usort($positions, static fn (int $left, int $right): int => $keys[$left] <=> $keys[$right]);
+        $sorted = array();
+        foreach ( $positions as $position ) {
+            $sorted[] = $entries[$position];
+        }
+        return $sorted;
     }
 
     /**
@@ -4476,7 +4545,8 @@ final class StyleResolver implements ElementPresentationResolver
         int $sequence,
         ?int $layer = null
     ): void {
-        $cacheKey = serialize(array($property, $rawValue));
+        // Length-prefixed, so the pair stays unambiguous without serialize().
+        $cacheKey = strlen($property) . ':' . $property . $rawValue;
         if (! isset($this->mediaTextDeclarationNormalizationCache[$cacheKey])) {
             $normalizedProperty = str_starts_with($property, '--') ? $property : strtolower($property);
             $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
@@ -4928,10 +4998,9 @@ final class StyleResolver implements ElementPresentationResolver
     /** @param array<string, string> $declarations */
     private function hasKeyboardFocusReveal(DOMElement $element, array $declarations): bool
     {
-        foreach ($this->session->sourceStyleResolutionState()->revealStateRules() as $rule) {
+        foreach ($this->session->sourceStyleResolutionState()->matchingRevealStateRules($element) as $rule) {
             if (
                 ! in_array((string) ($rule['state'] ?? ''), array('focus', 'focus-visible', 'focus-within'), true)
-                || ! $this->session->sourceStyleResolutionState()->matches($element, (string) ($rule['base_selector'] ?? ''))
                 || ! $this->session->sourceStyleResolutionState()->matches($element, (string) ($rule['state_subject_selector'] ?? ''))
             ) {
                 continue;
@@ -5033,10 +5102,7 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $revealed = array();
-        foreach ($this->session->sourceStyleResolutionState()->revealStateRules() as $rule) {
-            if (! $this->session->sourceStyleResolutionState()->matches($element, (string) $rule['base_selector'])) {
-                continue;
-            }
+        foreach ($this->session->sourceStyleResolutionState()->matchingRevealStateRules($element) as $rule) {
             $state = (array) ($rule['declarations'] ?? array());
             if ('none' === CssValueInspector::declared($declarations, 'display') && $this->isVisibleDisplay((string) ($state['display'] ?? ''))) {
                 $revealed['display'] = true;
