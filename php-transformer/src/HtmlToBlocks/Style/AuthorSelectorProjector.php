@@ -406,6 +406,20 @@ final class AuthorSelectorProjector
         // The emitted tree is authoritative: add a zero-specificity hop
         // only when that topology actually exists, keeping the source arm
         // for matches that were not wrapped.
+        // A column cover inserts two neutral layout boxes between the
+        // source panel and its items. Keep a child selector's source weight
+        // while following that emitted edge (not arbitrary descendants).
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $combinators = $parsed['combinators'] ?? array();
+        if ( is_array($rightmost) && '>' === end($combinators) ) {
+            $start = (int) $rightmost['start'];
+            $coverChild = substr($selector, 0, $start)
+                . ':where(.wp-block-cover__inner-container)>:where(.wp-block-group.' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>'
+                . substr($selector, $start);
+            if ( $this->matchesEmittedMarkup($coverChild, $context->emittedMarkup) ) {
+                $arms[] = $coverChild;
+            }
+        }
         $carrierChild = $this->projectParagraphCarrierChildSelector($selector, $parsed, $context);
         if ( null !== $carrierChild ) {
             $arms[] = $carrierChild;

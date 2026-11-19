@@ -90,7 +90,10 @@ foreach ( array( 'UA margins' => $issuePage, 'authored margins' => str_replace('
     $group = $cover['innerBlocks'][0] ?? array();
     $assert('core/cover' === ($cover['blockName'] ?? ''), $label . ': the issue panel lowers to a cover.');
     $assert(str_contains((string) ($group['attrs']['className'] ?? ''), 'blocks-engine-css-owned-flow'), $label . ': cover items use the plain stack margin contract.');
-    $assert(str_contains($css, '.blocks-engine-css-owned-flow.is-layout-flex)>:where(') && str_contains($css, '{margin:revert}'), $label . ': physical flex-item margins revert before author CSS.');
+    $assert(str_contains($css, ':root:root :where(.wp-block-group.blocks-engine-css-owned-flow.is-layout-flex)>:where(') && str_contains($css, '{margin:revert}'), $label . ': physical flex-item margins beat core before author CSS.');
+    if ( 'authored margins' === $label ) {
+        $assert(str_contains($css, '.painted>:where(.wp-block-cover__inner-container)>:where(.wp-block-group.blocks-engine-css-owned-flow.is-layout-flex)>h3'), $label . ': child selectors follow the inserted cover layout boxes.');
+    }
     $assert('center left' === ($cover['attrs']['contentPosition'] ?? ''), $label . ': native cover placement projects both source axes.');
     $assert(array('type' => 'flex', 'orientation' => 'vertical', 'flexWrap' => 'nowrap', 'justifyContent' => 'left', 'verticalAlignment' => 'center') === ($group['attrs']['layout'] ?? null), $label . ': the editor-native group projects both source axes.');
     $assert(str_contains((string) ($cover['attrs']['className'] ?? ''), 'blocks-engine-cover-fill')
