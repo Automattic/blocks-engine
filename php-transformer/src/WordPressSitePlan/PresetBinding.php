@@ -212,6 +212,22 @@ final class PresetBinding
     /** @var array<string,array<string,array<string,list<int>>>> Rule indexes by kind, family and required subject token. */
     private array $subjectBuckets = array();
     private int $bound = 0;
+    /** Set by bindColorTokens() when it derived a near shade (nearShadeColor()). */
+    private bool $derivedNearShade = false;
+    /**
+     * Near-shade derivations of the rule being bound. They are emitted under
+     * RELATIVE_COLOR_SUPPORTS after the declarations that keep the literal.
+     *
+     * @var list<string>
+     */
+    private array $derivedDeclarations = array();
+    /**
+     * A near-shade derivation reads a preset through var(), so a browser
+     * without relative colours would accept it at parse time and compute it
+     * as `unset`; a later declaration in the same block could never fall
+     * back to the literal. The feature query keeps the literal for them.
+     */
+    private const RELATIVE_COLOR_SUPPORTS = '@supports (color:rgb(from red r g b))';
     /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
     private array $fontDefaults = array();
     /** Preset slugs of the projected font defaults, keyed like $fontDefaults. @var array<string,string> */
@@ -1227,6 +1243,13 @@ final class PresetBinding
      *   A `var()` in a whole colour must resolve the same way as
      *   for a block literal, or have unanimous class-list rendering evidence
      *   for a class-only selector when global resolution is impossible.
+     * - A literal near shade the palette omits (DesignSystem::nearShadeColor())
+     *   keeps its literal, and a feature-queried copy of the rule right after
+     *   it restates the shade relative to its family's representative:
+     *   `.band{background:#f7f7f4}` gains `@supports (color:rgb(from red r g b))
+     *   {.band{background:rgb(from var(--wp--preset--color--base) calc(r - 8)
+     *   calc(g - 8) calc(b - 11))}}`. Both paint the source shade until the
+     *   representative is edited; the derived value then follows it.
      * - A font size binds only when it is the preset's own length, and a
      *   font family only when it is the preset's own stack, so no fallback
      *   or rounding changes what renders. Font-shorthand custom properties
@@ -1309,11 +1332,27 @@ final class PresetBinding
                     // Keep off-look controls unchanged, but let the registered
                     // variation beat both author rules and wp-element-button.
                     $excluded = implode(',', array_map(static fn(string $arm): string => trim($arm) . ':not(:where(.is-style-' . $slug . ' *))', CssValueSplitter::splitTopLevel($prelude, array(','))));
-                    return $prelude . '{' . $this->bindRuleBody($transformer, implode(';', $kept), false) . '}' . $excluded . '{' . $this->bindRuleBody($transformer, implode(';', $shared), false) . '}';
+                    return $this->boundRule($transformer, $prelude, implode(';', $kept)) . $this->boundRule($transformer, $excluded, implode(';', $shared));
                 }
             }
-            return $prelude . '{' . $this->bindRuleBody($transformer, $body, self::rootSelector($prelude), $prelude) . '}';
+            return $this->boundRule($transformer, $prelude, $body, self::rootSelector($prelude), $prelude);
         });
+    }
+
+    /**
+     * The bound rule, followed by a feature-queried copy of its selector
+     * carrying any near-shade derivations: `.note{color:#151515}` becomes
+     * `.note{color:#151515}@supports (color:rgb(from red r g b)){.note{color:rgb(from var(--wp--preset--color--contrast) calc(r + 4) calc(g + 4) calc(b + 4))}}`.
+     * The copy directly follows the rule with the same selector and
+     * importance, so it wins exactly where the literal would have.
+     */
+    private function boundRule(CssStylesheetTransformer $transformer, string $prelude, string $body, bool $rootSelector = false, string $selector = ''): string
+    {
+        $this->derivedDeclarations = array();
+        $rule = $prelude . '{' . $this->bindRuleBody($transformer, $body, $rootSelector, $selector) . '}';
+        $derived = $this->derivedDeclarations;
+        $this->derivedDeclarations = array();
+        return array() === $derived ? $rule : $rule . self::RELATIVE_COLOR_SUPPORTS . '{' . $prelude . '{' . implode(';', $derived) . '}}';
     }
 
     /**
@@ -1480,7 +1519,14 @@ final class PresetBinding
         foreach ($transformer->splitStyleRuleBody($body) as $part) {
             if (!isset($part['declarations'])) {
                 $nested = '' === $part['at_rule'] || in_array($part['at_rule'], array('media', 'supports', 'container', 'layer', 'scope'), true);
-                $result .= $part['prelude'] . '{' . ($nested ? $this->bindRuleBody($transformer, $part['body'], $rootSelector) : $part['body']) . '}';
+                $outer = $this->derivedDeclarations;
+                $this->derivedDeclarations = array();
+                $inner = $nested ? $this->bindRuleBody($transformer, $part['body'], $rootSelector) : $part['body'];
+                // A nested rule's derivations stay nested in it: bare
+                // declarations in a nested feature query apply to its selector.
+                if (array() !== $this->derivedDeclarations) $inner = rtrim($inner) . ('' === trim($inner) || preg_match('/[;}]\s*$/', $inner) ? '' : ';') . self::RELATIVE_COLOR_SUPPORTS . '{' . implode(';', $this->derivedDeclarations) . '}';
+                $this->derivedDeclarations = $outer;
+                $result .= $part['prelude'] . '{' . $inner . '}';
                 continue;
             }
             $declarations = $part['declarations'];
@@ -1582,16 +1628,19 @@ final class PresetBinding
         // Borders may carry a colour alongside width/style tokens, or several
         // colours in a longhand. Reuse the author-CSS token binder so only
         // the colour changes and its original bytes remain the fallback.
+        $source = self::sourcePresets($parts[0]) . ':' . self::sourcePresets($value) . $important;
         if (1 === preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-color)?$/', $property)) {
+            $this->derivedNearShade = false;
             $bound = $this->bindColorTokens($value);
-            return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
+            return $this->boundTokens($declaration, $parts[0], $value, $bound, $important, $source);
         }
         // A light-dark() pair binds each scheme's colour on its own, so the
         // dark argument keeps rendering under a dark preference.
         $schemeColor = null !== CssColor::lightDark($this->resolve($value)) && in_array($property, array('color', 'background-color', 'background'), true);
         if ($schemeColor || ((str_starts_with($property, '--') || in_array($property, array('background', 'background-image'), true)) && null === CssColor::parse($this->resolve($value)))) {
+            $this->derivedNearShade = false;
             $bound = $this->bindColorTokens($value);
-            return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
+            return $this->boundTokens($declaration, $parts[0], $value, $bound, $important, $source);
         }
         $kind = match (true) {
             in_array($property, array('color', 'background-color', 'background'), true), str_starts_with($property, '--') => 'color',
@@ -1609,6 +1658,15 @@ final class PresetBinding
             $slug = $this->observedSelectorColorSlug($selector, $property);
         }
         if (null === $slug && 'color' === $kind) {
+            // A near shade the palette omits keeps its literal here and is
+            // restated as a relative colour of its representative under a
+            // feature query (boundRule()), exact at the default palette.
+            $derived = $this->nearShade($value);
+            if (null !== $derived) {
+                ++$this->bound;
+                $this->derivedDeclarations[] = self::sourcePresets($parts[0]) . ':' . $derived . $important;
+                return $source;
+            }
             $mix = $this->translucentMix($value);
             if (null === $mix) return $declaration;
             ++$this->bound;
@@ -1624,6 +1682,20 @@ final class PresetBinding
         // weight repeated on every rule. A different stack stays the fallback.
         $fallback = 'font-family' === $kind && $this->presetHoldsFamily($slug, $value) ? '' : ',' . self::sourcePresets($value);
         return self::sourcePresets($parts[0]) . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . $fallback . ')' . $important;
+    }
+
+    /**
+     * A declaration whose colour tokens bindColorTokens() rewrote. When a
+     * token is a near-shade derivation the rewritten value moves under the
+     * feature query (boundRule()) and the declaration keeps its source value.
+     */
+    private function boundTokens(string $declaration, string $property, string $value, string $bound, string $important, string $source): string
+    {
+        if ($bound === self::sourcePresets($value)) return $declaration;
+        $rewritten = self::sourcePresets($property) . ':' . $bound . $important;
+        if (!$this->derivedNearShade) return $rewritten;
+        $this->derivedDeclarations[] = $rewritten;
+        return $source;
     }
 
     /**
@@ -1649,6 +1721,7 @@ final class PresetBinding
                 } elseif (null !== CssColor::parse($resolved)) {
                     $slug = $this->system->stylesheetColorSlug($resolved);
                     $replacement = null !== $slug ? 'var(--wp--preset--color--' . $slug . ',' . self::sourcePresets($token) . ')' : $this->translucentMix($token, true);
+                    if (null === $replacement && null !== ($replacement = $this->nearShade($token))) $this->derivedNearShade = true;
                     if (null !== $replacement) ++$this->bound;
                 } elseif (1 === preg_match('/^((?:repeating-)?(?:linear|radial|conic)-gradient)\((.*)\)$/is', $token, $match) && CssValueSplitter::hasBalancedParens($token)) {
                     $replacement = $match[1] . '(' . $this->bindColorTokens($match[2]) . ')';
@@ -1658,6 +1731,18 @@ final class PresetBinding
             }
         }
         return $result . self::sourcePresets(substr($value, $offset));
+    }
+
+    /**
+     * A literal near shade the palette omits as a relative colour of its
+     * family's representative preset (DesignSystem::nearShadeColor()). A
+     * value that reads a custom property is left alone: the property's own
+     * definition carries the derivation.
+     */
+    private function nearShade(string $value): ?string
+    {
+        if (str_contains($value, 'var(') || !$this->comparable('color', $value)) return null;
+        return $this->system->nearShadeColor($value);
     }
 
     /**
