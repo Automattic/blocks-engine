@@ -1914,11 +1914,12 @@ final class AuthorSelectorProjector
         foreach ( array_values(array_unique(array_map('strval', $compound['classes'] ?? array()))) as $class ) {
             $classes[] = EngineMarker::subjectClassClass($class);
         }
-        // Every carrier with a subject tag or class also carries the subject
-        // base, so only a universal compound needs the base to address it;
-        // inside `:where()` the base adds no weight either.
-        if ( 1 === count($classes) ) {
-            $classes[] = EngineMarker::SUBJECT_BASE_CLASS;
+        // RichText carriers imply the base through their subject tag/class.
+        // Other roles retain the established selector contract, including the
+        // base immediately after the role (semantic geometry carriers rely on
+        // this public author-CSS representation).
+        if ( 'richtext' !== $kind || 1 === count($classes) ) {
+            array_splice($classes, 1, 0, array( EngineMarker::SUBJECT_BASE_CLASS ));
         }
         return array( 'target' => ':where(.' . implode('.', $classes) . ')', 'rest' => array_values(array_diff($routed, $carriers['covered'])) );
     }

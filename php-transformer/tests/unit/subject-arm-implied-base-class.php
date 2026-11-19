@@ -2,13 +2,10 @@
 declare(strict_types=1);
 
 /**
- * A context-free subject arm addresses its carriers by role and subject
- * classes. Every carrier with a subject tag or class also carries the subject
- * base class, so an arm that names a subject tag or class does not restate
- * the base: it selects the same carriers, at the same (zero) weight, in fewer
- * bytes. Only a universal subject, which has no other subject class, keeps
- * the base. The carriers themselves still carry the base class, which the
- * runtime that replays source class tokens relies on.
+ * Context-free RichText arms omit the implied subject base when naming a
+ * subject tag or class, without changing their zero specificity or carriers.
+ * Universal subjects and other roles retain the established base contract.
+ * The carriers keep the base for runtime source-class replay.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -46,8 +43,18 @@ if ( 1 !== preg_match('/class="[^"]*\bblocks-engine-subject\b[^"]*\bblocks-engin
     $failures[] = 'carriers keep the subject base beside their subject classes';
 }
 
+// Public transform output must keep semantic geometry selectors compatible
+// with the positioned-inline parity contract, not just preserve the pixels.
+$semantic = $css(( new HtmlTransformer() )->transform(
+    '<style>.photo{position:relative}.badge{position:absolute;top:.75rem;left:.75rem;z-index:2}</style>'
+    . '<div class="photo"><img src="/photo.jpg" alt="Photo"><span class="badge"><em>New</em></span></div>'
+)->toArray());
+if ( ! str_contains($semantic, ':where(.blocks-engine-role-semantic.blocks-engine-subject.blocks-engine-subject-class-') ) {
+    $failures[] = 'semantic geometry arms retain the subject-base selector contract';
+}
+
 if ( array() !== $failures ) {
     fwrite(STDERR, 'FAIL: ' . implode('; ', $failures) . PHP_EOL . $stylesheet . PHP_EOL);
     exit(1);
 }
-echo "Subject arms name the subject base only where nothing else implies it\n";
+echo "RichText arms omit the implied base; semantic arms preserve their contract\n";
