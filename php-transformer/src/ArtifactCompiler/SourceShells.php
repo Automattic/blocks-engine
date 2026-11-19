@@ -120,8 +120,7 @@ final class SourceShells
         $count = 0;
         foreach ($dom->getElementsByTagName('*') as $node) {
             foreach (array(CaptureEvidence::VIEWPORT_ENTRANCE, CaptureEvidence::GLYPH_COLOR) as $attribute) if ($node->hasAttribute($attribute)) ++$count;
-            // Responsive samples describe this route's viewport, not shared
-            // entrance state. They must not elect a donor for every route.
+            foreach (SourceDom::tokens($node->getAttribute('class')) as $class) if (str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX)) ++$count;
         }
         return $count;
     }
@@ -154,17 +153,6 @@ final class SourceShells
                 // The source still owns provenance here: do not infer sampled
                 // paint from the SVG produced later by social-link lowering.
                 $node->removeAttribute(CaptureEvidence::GLYPH_COLOR);
-                // RouteStateProjector records how to restore current-link state
-                // only on routes where it observed that state. This transport
-                // payload is not authored shell structure. Keep it when this
-                // method is used to prepare emission (ignoreViewportEntrance=false).
-                $resting = json_decode($node->getAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE), true);
-                if (is_array($resting['rest']['class'] ?? null) && is_array($resting['current']['class'] ?? null)) {
-                    $tokens = SourceDom::tokens($node->getAttribute('class'));
-                    $tokens = array_values(array_unique(array_merge(array_diff($tokens, $resting['current']['class']), $resting['rest']['class'])));
-                    $node->setAttribute('class', implode(' ', $tokens));
-                }
-                $node->removeAttribute(RouteStateProjector::RESTING_STATE_ATTRIBUTE);
                 // A selector-resolved dialog ancestor can sit at a different
                 // depth on each route. Its state is shared; the distance from
                 // the trigger is capture context, not landmark identity. Keep
@@ -232,16 +220,33 @@ final class SourceShells
                 if (array() === $classes) $node->removeAttribute('class');
                 else $node->setAttribute('class', implode(' ', $classes));
             }
+            // Sibling class intersection describes route state only at the
+            // menu-item level: the current node and its wrappers up to the
+            // first level whose same-tag siblings are navigation peers. Layout
+            // wrappers above it keep their classes on every route.
+            $atItemLevel = true;
             for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
                 if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
                 $classes = SourceDom::tokens($cursor->getAttribute('class'));
-                if (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
+                if ($atItemLevel && $cursor->parentNode instanceof \DOMElement) {
                     $siblingClasses = array();
+                    $hasNavigationPeer = false;
                     foreach ($cursor->parentNode->childNodes as $sibling) {
                         if (!$sibling instanceof \DOMElement || $sibling === $cursor || $sibling->tagName !== $cursor->tagName) continue;
+                        if ('a' === strtolower($sibling->tagName) || 0 !== $sibling->getElementsByTagName('a')->length) $hasNavigationPeer = true;
                         foreach (SourceDom::tokens($sibling->getAttribute('class')) as $class) $siblingClasses[$class] = true;
                     }
-                    if (array() !== $siblingClasses) $cursor->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($siblingClasses[$class])))));
+                    // A known current token names the route state itself; the
+                    // item's other classes (`homepage`, `folder`) are what the
+                    // item is on every route. Only without one does sibling
+                    // intersection have to infer state from utility classes.
+                    if (array() !== $siblingClasses && array() !== array_filter($classes, \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...))) {
+                        $state = \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::routeState($cursor);
+                        $classes = array_values(array_diff($classes, $state));
+                        if (array() === $classes) $cursor->removeAttribute('class');
+                        else $cursor->setAttribute('class', implode(' ', $classes));
+                    } elseif (array() !== $classes && array() !== $siblingClasses) $cursor->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($siblingClasses[$class])))));
+                    if ($hasNavigationPeer) $atItemLevel = false;
                 }
                 if ('nav' === strtolower($cursor->tagName) || 'navigation' === strtolower($cursor->getAttribute('role'))) break;
             }

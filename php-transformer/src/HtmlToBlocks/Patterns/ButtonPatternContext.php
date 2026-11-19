@@ -95,6 +95,28 @@ final class ButtonPatternContext
         return SourceDeclarations::parse($this->resolvedStyle($element));
     }
 
+    /**
+     * Whether the element is a statically positioned `display:flex` box at
+     * every breakpoint the source declares, so a core/buttons flex root can
+     * stand in for it without changing its formatting context anywhere.
+     */
+    public function isUnconditionalFlexRow(DOMElement $element): bool
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) {
+            return false;
+        }
+        $inline = SourceDeclarations::inline($element)['display'] ?? null;
+        $declared = $this->styleResolver->declaredPresentation($element, 'display');
+        $displays = null === $inline ? array_merge(array( $declared->base() ), array_values($declared->conditional())) : array( $inline );
+        foreach ( $displays as $display ) {
+            if ( 'flex' !== CssValueInspector::comparable($this->styleResolver->customProperties->resolve((string) $display, $element)) ) {
+                return false;
+            }
+        }
+
+        return in_array(CssValueInspector::declared($this->resolvedDeclarations($element), 'position'), array( '', 'static' ), true);
+    }
+
     public function controlSurfaceStyle(DOMElement $element): string
     {
         if ( ! $this->styleResolver instanceof StyleResolver ) {

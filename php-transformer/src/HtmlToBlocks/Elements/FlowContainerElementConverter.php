@@ -285,7 +285,8 @@ final class FlowContainerElementConverter implements ElementConverter
             // Native core/buttons save markup is laid out by its own block
             // CSS. Its author flex rules restate that layout, so the native
             // block keeps each button (and its width class) editable.
-            if ( SourceDom::hasClass($element, 'wp-block-buttons') && ! SourceDom::isDeviceVisibilityCarrier($element) ) {
+            // A flex row around one native button is that native container.
+            if ( ( SourceDom::hasClass($element, 'wp-block-buttons') || $this->hasSoleButtonChild($element) ) && ! SourceDom::isDeviceVisibilityCarrier($element) ) {
                 $buttons = $this->context->recognizePatterns($element, $fallbacks, array( ButtonsContainerPattern::class ));
                 if ( null !== $buttons ) {
                     return ConversionOutcome::handled($buttons);
@@ -605,6 +606,13 @@ final class FlowContainerElementConverter implements ElementConverter
         }
 
         return 3 <= $items;
+    }
+
+    /** Cheap pre-check; ButtonsPattern decides whether the row is a native core/buttons. */
+    private function hasSoleButtonChild(DOMElement $element): bool
+    {
+        return 1 === $element->childElementCount
+            && 'button' === strtolower((string) $element->firstElementChild?->tagName);
     }
 
     private function hasMultipleAddressableInlineChildren(DOMElement $element): bool

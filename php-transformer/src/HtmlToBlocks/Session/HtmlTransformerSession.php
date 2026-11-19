@@ -325,11 +325,7 @@ final class HtmlTransformerSession
     public function overrideBoxTreeObservations(array $observations): void
     {
         foreach ($observations as $id => $viewports) {
-            if (isset($this->boxTree['nodes'][$id])) {
-                foreach ($viewports as &$observation) $observation['preserve_folded_longhands'] = true;
-                unset($observation);
-                $this->boxTree['nodes'][$id]['viewports'] = $viewports;
-            }
+            if (isset($this->boxTree['nodes'][$id])) $this->boxTree['nodes'][$id]['viewports'] = $viewports;
         }
     }
 

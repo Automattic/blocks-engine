@@ -83,7 +83,7 @@ final class AuthoredCarouselBlockGenerator
     private const GEOMETRY_VALUE_PATTERN = '^[0-9a-zA-Z.%()+*/,_ -]+(?:\\s*!important)?$';
 
     /**
-     * @param Closure(DOMElement): ?array<string, mixed> $convertImage
+     * @param Closure(DOMElement, ?DOMElement=): ?array<string, mixed> $convertImage
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier = new SourceElementClassifier(),
@@ -1119,7 +1119,9 @@ JS;
             // retain their media, links and authored text through child conversion.
             $image = $this->sourceElementClassifier->isSingleMediaSlide($item, 'img') && ! $this->ownsAuthoredSlideBox($item, $styleResolver) ? $item->getElementsByTagName('img')->item(0) : null;
             if ( $image instanceof DOMElement ) {
-                $slide = $convertImage($image);
+                // A slide image wrapped in its own link keeps that link.
+                $link = $image->parentNode instanceof DOMElement && 'a' === strtolower($image->parentNode->tagName) && $image->parentNode !== $item ? $image->parentNode : null;
+                $slide = $convertImage($image, $link);
                 if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
                     if ( $temporary ) {
                         $item->parentNode?->removeChild($item);
@@ -1579,6 +1581,23 @@ JS;
             $presentation = 'slideshow';
         }
         $initialSlide = 0;
+        // Cross-faded frames (FlexSlider's fade animation): every frame
+        // declares its opacity and exactly one of them is opaque.
+        $opaque = array();
+        foreach ( $items as $index => $item ) {
+            $opacity = CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations($item)['opacity'] ?? ''));
+            if ( '' === $opacity || ! is_numeric($opacity) ) {
+                $opaque = array();
+                break;
+            }
+            if ( 0.0 < (float) $opacity ) {
+                $opaque[] = $index;
+            }
+        }
+        if ( 1 < count($items) && 1 === count($opaque) ) {
+            $presentation = 'slideshow';
+            $initialSlide = $opaque[0];
+        }
         foreach ( $items as $index => $item ) {
             if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
                 $presentation = 'slideshow';
@@ -2303,6 +2322,14 @@ JS;
         if ($this->slideIndex($element) !== null) {
             return true;
         }
+        $tag = strtolower($element->tagName);
+        $pagerItem = 'li' === $tag ? $element : ( in_array($tag, array('a', 'button'), true) ? $element->parentNode : null );
+        if ( $pagerItem instanceof DOMElement && 'li' === strtolower($pagerItem->tagName)
+            && ( 'li' === $tag || $pagerItem->firstElementChild === $element )
+            && $pagerItem->parentNode instanceof DOMElement && $this->isNumberedSlidePager($pagerItem->parentNode)
+        ) {
+            return true;
+        }
         if ( 'li' === strtolower($element->tagName) && ctype_digit(trim(SourceDom::attr($element, 'aria-label'))) ) {
             $list = $element->parentNode;
             if ( $list instanceof DOMElement && in_array(strtolower($list->tagName), array('ol', 'ul'), true)
@@ -2320,6 +2347,83 @@ JS;
             SourceDom::attr($element, 'data-testid'),
         ))));
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item)[^a-z0-9]*[0-9]+(?:[^a-z0-9]|$)/', $identity);
+    }
+
+    /**
+     * The items of a numbered pager list (jQuery FlexSlider's
+     * `ol.flex-control-paging`): two or more `li`, each holding only one link
+     * or button whose text is its 1-based position.
+     *
+     * @return list<DOMElement>
+     */
+    private function numberedPagerItems(DOMElement $list): array
+    {
+        if ( ! in_array(strtolower($list->tagName), array('ol', 'ul'), true) ) {
+            return array();
+        }
+        $items = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( $child instanceof DOMText ) {
+                if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->data)) ) {
+                    return array();
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $control = $child->firstElementChild;
+            if ( 'li' !== strtolower($child->tagName) || ! $control instanceof DOMElement || $control !== $child->lastElementChild
+                || ! in_array(strtolower($control->tagName), array('a', 'button'), true)
+                || null !== $control->firstElementChild
+                || (string) (count($items) + 1) !== trim(str_replace("\xc2\xa0", ' ', $control->textContent ?? ''))
+                || trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? '')) !== trim(str_replace("\xc2\xa0", ' ', $control->textContent ?? ''))
+            ) {
+                return array();
+            }
+            $items[] = $child;
+        }
+        return count($items) >= 2 ? $items : array();
+    }
+
+    /**
+     * A numbered pager is carousel pagination only inside a carousel-identified
+     * root whose slide list has exactly one item per number. Numbered page
+     * links elsewhere, or counting differently, stay ordinary navigation.
+     */
+    private function isNumberedSlidePager(DOMElement $list): bool
+    {
+        $memo = $this->recognitions[$list] ?? array();
+        if ( array_key_exists('numberedPager', $memo) ) {
+            return $memo['numberedPager'];
+        }
+        $result = false;
+        $count = count($this->numberedPagerItems($list));
+        if ( $count >= 2 ) {
+            for ( $root = $list->parentNode; $root instanceof DOMElement; $root = $root->parentNode ) {
+                if ( ! $this->sourceElementClassifier->hasCarouselIdentity($root) ) {
+                    continue;
+                }
+                foreach ( $root->getElementsByTagName('*') as $candidate ) {
+                    if ( $candidate instanceof DOMElement && $candidate !== $list
+                        && ! $this->containsNode($candidate, $list) && ! $this->containsNode($list, $candidate)
+                        && $this->sourceElementClassifier->isCarouselList($candidate)
+                        && array() === $this->numberedPagerItems($candidate)
+                    ) {
+                        $items = $this->carouselListItems($candidate);
+                        if ( count($items) === $count && $this->carouselItemsHaveContent($items) ) {
+                            $result = true;
+                            break 2;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        $memo = $this->recognitions[$list] ?? array();
+        $memo['numberedPager'] = $result;
+        $this->recognitions[$list] = $memo;
+        return $result;
     }
 
     /**
@@ -3164,7 +3268,9 @@ JS;
         $list = null;
         $items = array();
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root) ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root)
+                || $this->isNumberedSlidePager($candidate)
+            ) {
                 continue;
             }
             for ( $ancestor = $candidate->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
@@ -3187,7 +3293,9 @@ JS;
         $list = null;
         $items = array();
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root) ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root)
+                || $this->isNumberedSlidePager($candidate)
+            ) {
                 continue;
             }
             $candidateItems = $this->carouselListItems($candidate);

@@ -336,11 +336,6 @@ final class RouteStateProjector
         $resting = array_filter($rows, static fn(array $row): bool => !$row['self']);
         if (array() === $selected || array() === $resting) return false;
         foreach ($rows[0]['nodes'] as $position => $node) {
-            // A stable class pair on the same self-targeting anchor is also
-            // observed route paint (utility-class routers need no aria-current).
-            $activeClasses = array_values(array_unique(array_map(static fn(array $row): string => self::sortedClasses($row['nodes'][$position]->getAttribute('class')), $selected)));
-            $restClasses = array_values(array_unique(array_map(static fn(array $row): string => self::sortedClasses($row['nodes'][$position]->getAttribute('class')), $resting)));
-            if (1 === count($activeClasses) && 1 === count($restClasses) && $activeClasses !== $restClasses) return true;
             if (0 === $position || 'a' === strtolower($node->tagName)) continue;
             $styles = array_map(static fn(array $row): array => self::inlineDeclarations($row['nodes'][$position]->getAttribute('style')), $rows);
             foreach (array_unique(array_merge(...array_map('array_keys', $styles))) as $property) {
