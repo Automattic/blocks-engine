@@ -225,6 +225,7 @@ final class BoxTreeDeclarationPruner
         if (in_array($property, BoxTree::INHERITED_PROPERTIES, true) || in_array($property, self::EXTRA_INHERITED, true)) {
             // The element would compute its own default, not the parent's value.
             if ($ownDefault) return self::KEPT;
+            if ('pointer-events' === $property && self::passThroughLayer($value, $styles)) return self::KEPT;
             return null !== $parent && isset($parent[$property]) && self::inheritedValue($property, (string) $parent[$property]) === self::inheritedValue($property, $value) ? self::INHERITED : self::KEPT;
         }
         if ($protected) return self::KEPT;
@@ -284,6 +285,18 @@ final class BoxTreeDeclarationPruner
             return 'auto' === $value || ('0px' === $value && null !== $parentDisplay && ! self::isFlex($parentDisplay) && ! self::isGrid($parentDisplay));
         }
         return in_array($value, self::INITIAL_VALUES[$property] ?? array(), true);
+    }
+
+    /**
+     * An out-of-flow box that lets pointers through to the content it covers
+     * (a pinned header layer, an overlay) states that itself. The block editor
+     * gives every block wrapper `pointer-events: auto`, so the inherited
+     * `none` never reaches the block there, and the layer swallows clicks
+     * meant for the blocks beneath it.
+     */
+    private static function passThroughLayer(string $value, array $styles): bool
+    {
+        return 'none' === $value && in_array($styles['position'] ?? '', array('absolute', 'fixed'), true);
     }
 
     /** Inherited values compared by rendering: a fully transparent shadow paints nothing. */

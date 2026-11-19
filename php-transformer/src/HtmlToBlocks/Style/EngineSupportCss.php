@@ -261,17 +261,6 @@ final class EngineSupportCss
                 // their intrinsic width instead of the retained source host.
                 . $inlineFigure . '.blocks-engine-custom-host-image.blocks-engine-linked-image-figure>a{display:contents}';
         }
-        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYER_IMAGE_FIGURE_CLASS) ) {
-            // An absolutely positioned source host is a layer: stacked slides
-            // cover each other, and a positioned caption sibling covers its
-            // photo. Either way the image's block root sits under another
-            // block and cannot be selected. In the editor, put the layer and
-            // its positioned non-image children in flow so every block gets
-            // its own hit-test box. The host stays the containing block, and
-            // front-end geometry is unchanged.
-            $layerHost = ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::LAYER_IMAGE_FIGURE_CLASS . ')';
-            $parts[] = $layerHost . ',' . $layerHost . '>:not(figure){position:relative!important;inset:auto!important;transform:none!important}';
-        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS) ) {
             // An ordinary inline source image sat on its parent's line, so the
             // parent was image + strut tall. Keep that line box: the figure has
