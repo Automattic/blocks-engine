@@ -140,6 +140,7 @@ final class BoxTreeStyleProjector
         $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, false, $parents, false, array(), self::IMAGE_SELECTOR);
         $class = $this->carrier(($synthetic ? $this->rule(self::SELECTOR, array('display' => 'contents')) : '') . $css, $state);
         if ('' === $class) return $attrs;
+        if ($synthetic) $state->markBoxlessImageFigureCarrier($class);
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
     }
