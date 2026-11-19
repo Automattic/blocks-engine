@@ -397,6 +397,49 @@ final class AuthorStyleAnalysis
     }
 
     /**
+     * CSS inputs observable by a journal, including inherited/custom properties
+     * on every ancestor. Match vectors retain positional and sibling context
+     * without hashing unrelated siblings or page-wide stylesheet identities.
+     * Null means the selector/dependency surface is not safe to share.
+     */
+    public function journalIdentity(DOMElement $element): ?string
+    {
+        // At-rules can introduce non-selector dependencies (fonts, animations,
+        // layers, imports). Until those are modelled, convert normally.
+        if ( preg_match('/@(?!media\b|supports\b)[a-z-]+/i', $this->combinedCss)
+            || ! \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTreeCache::parse($this->combinedCss)->recoverable
+        ) return null;
+        $nodes = array($element);
+        foreach ( $element->getElementsByTagName('*') as $node ) $nodes[] = $node;
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) $nodes[] = $parent;
+        $rules = array();
+        foreach ( $this->styleRules as $rule ) {
+            $selectors = array();
+            foreach ( $rule['selectors'] as $selector ) {
+                $parsed = $selector['parsed'];
+                if ( ! ($parsed['supported'] ?? false) ) $parsed = $selector['direct_child_parsed'] ?? array();
+                if ( ! ($parsed['supported'] ?? false) ) {
+                    // The established whole-CSS context remains safe for
+                    // selectors whose observable context we cannot narrow.
+                    return hash('sha256', serialize(array($this->contextIdentity($element), $this->stylesheetAssets)));
+                }
+                $matches = array();
+                foreach ( $nodes as $index => $node ) {
+                    if ( CssSelectorMatcher::matches($node, $parsed, true, $this->selectorMatchCache())['matches'] ) $matches[] = $index;
+                }
+                if ( array() !== $matches ) $selectors[] = array($selector['selector'], $matches);
+            }
+            if ( array() !== $selectors ) {
+                // URL bases and provenance are observable for declarations that
+                // refer to assets; do not guess their page-local dependencies.
+                if ( preg_match('/url\s*\(/i', serialize($rule['declarations'])) ) return null;
+                $rules[] = array($selectors, $rule['declarations'], $rule['conditions'] ?? array(), $rule['capture_only'] ?? false);
+            }
+        }
+        return hash('sha256', serialize(array($this->documentTypeIdentity($element), $rules)));
+    }
+
+    /**
      * The marker standing for a source tag, named from the tag alone. Every
      * element of the tag carries it, and a type selector means the same thing
      * in any stylesheet on any page, so pages under different author CSS

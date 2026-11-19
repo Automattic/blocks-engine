@@ -2191,6 +2191,13 @@ final class NavigationToggleSuppressor
      */
     private function isEquivalentNavigationVariantCandidate(DOMElement $element): bool
     {
+        // A branch inherits its mobile menu's signal, but is not a device
+        // counterpart of an independent navigation with the same links.
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'li' === strtolower($node->tagName) ) {
+                return false;
+            }
+        }
         if ( $this->isNavigationMenuCandidate($element) ) {
             return true;
         }
