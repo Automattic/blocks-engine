@@ -177,6 +177,10 @@ final class EngineSupportCss
                 // Put its immediate host in editor flow so both native blocks
                 // remain selectable, without changing front-end layer geometry.
                 . ':root .editor-styles-wrapper .wp-block-group:has(>figure.' . SourceBlockAttributeProjector::LAYER_FILL_IMAGE_FIGURE_CLASS . '){position:static!important;inset:auto!important}'
+                // The converse: a later positioned layer paints over an
+                // in-flow fill image. Put that layer in editor flow after the
+                // image, so a click on the image reaches the image block.
+                . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS . '~.block-editor-block-list__block{position:static!important;inset:auto!important}'
                 // A linked image adds core's inline-block anchor between the
                 // figure and the image. Shrink-to-fit, it sizes from the image
                 // whose percentages size from it, so the fill collapses. Let
