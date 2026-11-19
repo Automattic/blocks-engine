@@ -2605,6 +2605,16 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 'fluid' => $fluidIntent->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
             );
         }
+        // core/image saves the caption as a bare inner element, not a block.
+        $caption = 'core/image' === $name ? SourceDom::firstChildElement($sourceElement, 'figcaption') : null;
+        if ($caption instanceof DOMElement) {
+            $captionObservations = $this->session->boxTreeEvidence($caption);
+            $image['caption'] = array(
+                'observations' => $captionObservations,
+                'parents' => $observations,
+                'fluid' => $fluidIntent->lift($caption, $this->styleResolver, $captionObservations, $viewports, $observations, '', $this->liftEvidence()),
+            );
+        }
         // core/details renders the source `<summary>` bare: its own evidence styles that element.
         $summary = array();
         $sourceSummary = 'core/details' === $name && 'details' === $sourceTagName ? SourceDom::firstChildElement($sourceElement, 'summary') : null;
