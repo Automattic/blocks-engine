@@ -128,13 +128,16 @@ final class EditorCanvasStylesheets
         for ($index = count($rules) - 1; 0 <= $index; --$index) {
             $rule = $rules[$index];
             $declarations = self::declarations($rule['body']);
-            $arms = str_contains($rule['body'], '{') || 1 !== preg_match(self::EDITOR_ARM, $rule['selector']) ? null : CssStylesheetTransformer::splitSelectorList($rule['selector']);
+            // A staying list is weighed arm by arm too: the list as a whole
+            // has no specificity, and an unreadable weight ties with every arm.
+            $list = str_contains($rule['body'], '{') ? null : CssStylesheetTransformer::splitSelectorList($rule['selector']);
+            $arms = 1 !== preg_match(self::EDITOR_ARM, $rule['selector']) ? null : $list;
             $editorArms = array();
             foreach ($arms ?? array() as $position => $arm) {
                 if ('' === trim(AbsentCarrierSelectors::withoutArmsRequiring(trim($arm) . '{}', self::EDITOR_ARM))) $editorArms[$position] = true;
             }
             $weights = array();
-            foreach ($arms ?? array($rule['selector']) as $position => $arm) $weights[$position] = self::weight($arm);
+            foreach ($list ?? array($rule['selector']) as $position => $arm) $weights[$position] = self::weight($arm);
             $moved = array_intersect_key($weights, $editorArms);
             $movable = array() !== $editorArms && null !== $declarations && ($frontendOnly || !self::shadowed($declarations, $moved, $staying));
             if ($movable) $moves[$index] = array('arms' => $arms, 'editor' => $editorArms);
@@ -221,10 +224,22 @@ final class EditorCanvasStylesheets
         return false;
     }
 
-    /** An arm's specificity as `ids,classes,types`, or `?` when unreadable. */
+    /**
+     * An arm's specificity as `ids,classes,types`, or `?` when unreadable.
+     * A `::before`/`::after` arm styles its generated box, never the element
+     * itself, so its weight names that box: it ties only with arms of the
+     * same box, and an element arm never ties with it.
+     */
     private static function weight(string $arm): string
     {
-        $parsed = CssSelectorMatcher::parse(trim(CssSyntaxScanner::withoutComments($arm)));
+        $arm = trim(CssSyntaxScanner::withoutComments($arm));
+        $host = CssSelectorMatcher::pseudoElementHost($arm);
+        if (null !== $host) {
+            $counts = CssSelectorMatcher::specificityCounts($host['parsed']);
+            ++$counts['types'];
+            return implode(',', $counts) . '::' . strtolower(ltrim($host['suffix'], ':'));
+        }
+        $parsed = CssSelectorMatcher::parse($arm);
         if (!($parsed['supported'] ?? false)) return '?';
         return implode(',', CssSelectorMatcher::specificityCounts($parsed));
     }
