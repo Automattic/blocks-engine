@@ -183,7 +183,7 @@ final class ButtonPatternContext
         return SourceDom::innerHtml($source);
     }
 
-    /** Keep hidden labels and class-painted icon boxes on RichText-safe carriers. */
+    /** Keep hidden, text-bearing DIV labels on RichText-safe carriers. */
     private function lowerLabelDivs(DOMElement $source, DOMElement $copy): bool
     {
         $changed = false;
@@ -193,7 +193,8 @@ final class ButtonPatternContext
             $target = $copies[$index] ?? null;
             if ( ! $target instanceof DOMElement || 'div' !== strtolower($node->tagName) ) continue;
             $display = CssValueInspector::declared($this->resolvedDeclarations($node), 'display');
-            if ( 'none' !== $display && ( '' !== trim($node->textContent ?? '') || '' === trim(SourceDom::attr($node, 'class')) ) ) continue;
+            // Text-free DIVs must stay on the existing button-decoration path.
+            if ( 'none' !== $display || '' === trim($node->textContent ?? '') ) continue;
             $span = $copy->ownerDocument->createElement('span');
             foreach ( $target->attributes as $attribute ) {
                 $span->setAttribute($attribute->nodeName, $attribute->nodeValue ?? '');

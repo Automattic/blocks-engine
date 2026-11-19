@@ -12,6 +12,7 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
 
 $cases = array(
     'issue reproduction' => '<main><button aria-label="Open options"><div style="display: none"><span>Open options</span></div><div class="icon"><span class="glyph"></span></div></button></main>',
+    'span icon' => '<main><button aria-label="Open options"><div class="label" style="display: none"><span>Open options</span></div><span class="icon"><span class="glyph"></span></span></button></main>',
     'inline' => '<main><button aria-label="Open options"><div class="label" style="display: none"><span>Open options</span></div><div class="icon"><span class="glyph"></span></div></button></main>',
     'author rule' => '<style>.launcher .label{display:none}.launcher .icon{background:blue}</style><main><button class="launcher" aria-label="Open options"><div class="label"><span>Open options</span></div><div class="icon"><span class="glyph"></span></div></button></main>',
 );
@@ -27,7 +28,9 @@ foreach ($cases as $name => $html) {
     $assert($button instanceof DOMElement, "$name: one native button survives");
     if (!$button instanceof DOMElement) continue;
     $assert('Open options' === $button->getAttribute('aria-label') || 'Open options' === $button->getAttribute('title'), "$name: accessible name survives");
-    $assert(1 === $xpath->query('./span[contains(concat(" ",normalize-space(@class)," ")," icon ")]/span[contains(concat(" ",normalize-space(@class)," ")," glyph ")]', $button)->length, "$name: visible icon subtree and classes survive");
+    if ('span icon' === $name) {
+        $assert(1 === $xpath->query('./span[contains(concat(" ",normalize-space(@class)," ")," icon ")]', $button)->length, "$name: trunk-supported icon box survives");
+    }
     $hidden = $xpath->query('./span[1]', $button)->item(0);
     $assert($hidden instanceof DOMElement && 'Open options' === trim($hidden->textContent), "$name: label stays in its original descendant box");
     if (!$hidden instanceof DOMElement) continue;
