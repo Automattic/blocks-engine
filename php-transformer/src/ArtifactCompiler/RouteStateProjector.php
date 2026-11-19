@@ -81,7 +81,7 @@ final class RouteStateProjector
         // Route bindings record class names, so they read the aligned ones.
         $files = self::withRouteAlignedChromeClasses($files);
         $files = self::bindNavigationRuns(self::bindRetainedLabels($files, $entryPath));
-        $files = self::bindCurrentNavigationSources($files);
+        $files = self::bindCurrentNavigationSources($files, $entryPath);
         $files = self::withRestingChrome($files);
         foreach ($files as &$file) {
             if ('html' !== ($file['kind'] ?? null) || ! is_string($file['content'] ?? null)) {
@@ -463,7 +463,7 @@ final class RouteStateProjector
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
-    private static function bindCurrentNavigationSources(array $files): array
+    private static function bindCurrentNavigationSources(array $files, string $entryPath): array
     {
         $documents = array();
         $items = array();
@@ -517,16 +517,40 @@ final class RouteStateProjector
                 }
             }
             $current = array_keys(array_filter($rows, static fn(array $row): bool => $row['current']));
-            if (array() === $current || count($current) === count($rows)) continue;
             $named = array();
             foreach ($rows as $index => $row) {
                 $path = (string) ($files[$index]['path'] ?? '');
                 $href = $row['href'];
                 if ('' === $href || ArtifactPath::namesSection($href) || str_starts_with($href, '//') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $href)) continue;
-                $target = str_starts_with($href, '/') ? ltrim($href, '/') : ArtifactPath::resolveRelativePath($href, $path);
+                // A root-relative URL is rooted at the imported site, not
+                // at the archive containing its entry document.
+                $target = ArtifactPath::resolveRelativePath(ltrim($href, '/'), str_starts_with($href, '/') ? $entryPath : $path);
                 if ($route($target) === $route($path)) $named[] = $index;
             }
-            if ($named === $current) continue;
+            // Some client routers swap utility classes without any semantic
+            // current marker. Prove that paint against the same link on other
+            // captures, not against differently styled sibling items. Exactly
+            // one resting look and one distinct self look must partition the
+            // observations along the served URL.
+            if (array() === $current && array() !== $named && count($named) < count($rows)
+                && 1 === count(array_unique(array_column($rows, 'href')))) {
+                $selfLooks = array(); $restLooks = array();
+                foreach ($rows as $index => $row) {
+                    $look = self::sortedClasses($row['classes']);
+                    if (in_array($index, $named, true)) $selfLooks[$look] = true;
+                    else $restLooks[$look] = true;
+                }
+                if (1 === count($selfLooks) && 1 === count($restLooks) && array_key_first($selfLooks) !== array_key_first($restLooks)) {
+                    foreach ($named as $index) {
+                        $node = $rows[$index]['node'];
+                        if ('a' !== strtolower($node->tagName)) continue;
+                        $node->setAttribute('aria-current', 'page');
+                        $changed[$index] = true;
+                        $current[] = $index;
+                    }
+                }
+            }
+            if (array() === $current || count($current) === count($rows) || $named === $current) continue;
             $sources = (string) json_encode(array_values(array_map(static fn(int $index): string => (string) ($files[$index]['path'] ?? ''), $current)), JSON_UNESCAPED_SLASHES);
             foreach ($rows as $index => $row) {
                 $row['node']->setAttribute(self::CURRENT_SOURCES_ATTRIBUTE, $sources);
