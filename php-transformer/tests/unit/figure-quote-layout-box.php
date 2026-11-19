@@ -32,4 +32,22 @@ if ('core/group' !== ($card['blockName'] ?? '')
 ) {
     throw new RuntimeException('A laid-out figure must keep its box separate from its quotation and caption: ' . $result['serialized_blocks']);
 }
+// Ordinary styled figures still collapse to the established native quote.
+// Neither padding alone nor flex sizing outside a flex parent creates the
+// separate flex-item box this regression covers.
+foreach ( array('padding:24px;border:1px solid #ccc', 'flex:0 0 340px') as $style ) {
+    $ordinary = (new HtmlTransformer())->transform(
+        '<figure style="' . $style . '"><blockquote>A quotation</blockquote><figcaption>Publication</figcaption></figure>'
+    )->toArray();
+    if ( 'core/quote' !== ($ordinary['blocks'][0]['blockName'] ?? '') ) {
+        throw new RuntimeException('Unrelated styled figures must retain native quote lowering.');
+    }
+}
+
+$generic = (new HtmlTransformer())->transform(
+    '<figure><p>First line.</p><p>Second line.</p><figcaption>Combined notes</figcaption></figure>'
+)->toArray();
+if ( !str_contains($generic['serialized_blocks'], '<!-- wp:paragraph --><p>Combined notes</p><!-- /wp:paragraph -->') ) {
+    throw new RuntimeException('Generic figure captions must retain their existing presentation.');
+}
 echo "Figure quote layout box passed\n";

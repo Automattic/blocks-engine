@@ -47,17 +47,19 @@ final class QuotePatternContext
             : $content;
     }
 
-    /** A separately laid out figure cannot share the quotation's blockquote box. */
+    /** An explicitly sized flex item must keep its box separate from its quote. */
     public function figureOwnsBox(DOMElement $figure): bool
     {
-        foreach ( $this->styleResolver->structuralPresentationDeclarations($figure) as $property => $value ) {
-            if ( in_array($property, array('display', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'flex', 'flex-basis', 'grid-template-columns'), true)
-                || str_starts_with($property, 'padding')
-                || str_starts_with($property, 'border') ) {
-                return true;
-            }
+        $parent = $figure->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
         }
-        return false;
+        $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
+        if ( ! in_array($parentDeclarations['display'] ?? '', array('flex', 'inline-flex'), true) ) {
+            return false;
+        }
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($figure);
+        return isset($declarations['flex']) || isset($declarations['flex-basis']);
     }
 
     /** Preserve the typography of the caption consumed by a native quote. */

@@ -47,6 +47,18 @@ final class GenericFigureLowering
         if ( $caption instanceof DOMElement ) {
             $captionHtml = $this->styleResolver->innerHtml($caption);
             if ( $this->runtime->hasVisibleText($captionHtml) ) {
+                $presentation = $this->styleResolver->presentationAttributes($caption);
+                // Only a separately lowered quotation introduces a new caption
+                // paragraph here. Keep existing generic figure lowering unchanged.
+                $figureDeclarations = $this->styleResolver->structuralPresentationDeclarations($figure);
+                $parentDeclarations = $figure->parentNode instanceof DOMElement
+                    ? $this->styleResolver->structuralPresentationDeclarations($figure->parentNode)
+                    : array();
+                $separateQuote = 1 === count($children)
+                    && 'core/quote' === ($children[0]['blockName'] ?? '')
+                    && SourceDom::firstChildElement($figure, 'blockquote') instanceof DOMElement
+                    && in_array($parentDeclarations['display'] ?? '', array('flex', 'inline-flex'), true)
+                    && (isset($figureDeclarations['flex']) || isset($figureDeclarations['flex-basis']));
                 // The native paragraph no longer matches figcaption selectors.
                 // Retain the caption's text presentation on its new carrier.
                 $typography = $this->styleResolver->styleAttributeMapper()->map(
@@ -60,12 +72,14 @@ final class GenericFigureLowering
                 // A figcaption has no UA paragraph margins. Supply that
                 // default before merging presentation, so authored caption
                 // spacing still wins and the new carrier stays block-level.
-                $attrs = array_replace_recursive(
-                    array('style' => array('spacing' => array('margin' => array('top' => '0', 'bottom' => '0')))),
-                    array('style' => $typography['style'] ?? array()),
-                    $this->styleResolver->presentationAttributes($caption),
-                    array('content' => $captionHtml)
-                );
+                $attrs = $separateQuote
+                    ? array_replace_recursive(
+                        array('style' => array('spacing' => array('margin' => array('top' => '0', 'bottom' => '0')))),
+                        array('style' => $typography['style'] ?? array()),
+                        $presentation,
+                        array('content' => $captionHtml)
+                    )
+                    : array_merge($presentation, array('content' => $captionHtml));
                 $children[] = $this->blocks->createBlock('core/paragraph', $attrs, array(), $caption);
             } elseif ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($caption) ) {
                 // An empty caption can still hold space (padding, border,
