@@ -55,7 +55,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  * sets `line-height`). The preset wins without removing it: core's preset
  * classes are `!important`, and a spacing preset is inline. What could still
  * override a preset is another `!important` rule, which is why binding is
- * refused when one can reach the element. The projected native-button rules
+ * refused when one can reach the element and does not already outrank the
+ * preset class. One that outranks it (`.booking h3`) wins over the bound
+ * value exactly as it won over the inline literal. The projected native-button rules
  * that restate author classes on `.wp-block-button__link` with `!important`
  * step aside for `.has-text-color` and `.has-background` (see
  * AuthorStylesheetProjector and GeneratedBlockStyleProjector), the same way
@@ -75,7 +77,8 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  * - re-encoding the delimiter JSON would not reproduce it byte for byte;
  * - a stylesheet declares the property `!important` for a selector whose
  *   subject this block could match, unless the selector excludes the classes
- *   the bound block carries;
+ *   the bound block carries or is more specific than the single-class preset
+ *   rule binding adds;
  * - a stylesheet selects on the inline style text (`[style*=…]`) for that
  *   property in a way the rewrite would change;
  * - a `:hover`, `:focus`, `:focus-visible`, `:focus-within` or `:active`
@@ -194,7 +197,7 @@ final class PresetBinding
     /** Core's text-colour format background when none is chosen (format-library `transparentValue`). */
     private const INLINE_TRANSPARENT = 'rgba(0, 0, 0, 0)';
 
-    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>}>> `!important` rules per property family. */
+    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>,outranks_preset_class:bool}>> `!important` rules per property family. */
     private array $importantRules = array();
     /** @var array<string,list<array{tokens:list<string>|null,negated:list<string>,fragment:string}>> `[style*=…]` selectors per family; null tokens reach any element. */
     private array $styleTextRules = array();
@@ -915,7 +918,7 @@ final class PresetBinding
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $added = array($flagClass, sprintf($presetClass, '%s'));
             $observation = $observed[$observedProperty] ?? null;
-            $resolvedInline = is_string($literal) && str_contains($literal, 'var(') && null !== CssColor::parse($this->resolve($literal));
+            $resolvedInline = 'text' === $key && is_string($literal) && str_contains($literal, 'var(') && null !== CssColor::parse($this->resolve($literal));
             $inlineOnly = $resolvedInline && null === $this->presetSlug('color', $literal, $observation);
             if (is_string($literal) && (null !== CssColor::parse($literal) || $inlineOnly)) {
                 // A proven inline colour belongs to this block, not every
@@ -941,7 +944,8 @@ final class PresetBinding
                 // Resolving custom properties proves the colour, not that an
                 // !important preset class is equivalent to the authored inline
                 // declaration. Keep its cascade slot (and avoid adding core's
-                // has-background presentation) when binding that evidence.
+                // background presentation) when binding that evidence. Backgrounds
+                // retain the existing class/element ownership checks below.
                 if ($this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
                 else $this->refuse($reason ?? 'inconsistent_source');
                 continue;
@@ -1853,6 +1857,10 @@ final class PresetBinding
             if ($staysInline) continue;
             $reason = 'important';
             foreach ($this->importantRules[$family] ?? array() as $rule) {
+                // Binding adds only single-class preset rules. An `!important`
+                // rule that outranks them wins over the bound value exactly as
+                // it won over the inline literal, wherever it applies.
+                if (array() !== $addedClasses && $rule['outranks_preset_class']) continue;
                 $tags = array_values(array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'tag:')));
                 if (array() !== $tags && array() === array_intersect_key(array_flip($tags), $tokens)) continue;
                 if (array() !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
@@ -2143,7 +2151,8 @@ final class PresetBinding
             if (array() === $important) continue;
             $subject = self::subjectTokens($selector);
             if (null === $subject) continue;
-            foreach ($important as $family => $_) $this->importantRules[$family][] = $subject + array('attributes' => self::subjectAttributes($selector));
+            $rule = $subject + array('attributes' => self::subjectAttributes($selector), 'outranks_preset_class' => self::outranksPresetClass($selector));
+            foreach ($important as $family => $_) $this->importantRules[$family][] = $rule;
         }
     }
 
@@ -2291,6 +2300,20 @@ final class PresetBinding
             }
         }
         return implode(' ', $properties);
+    }
+
+    /**
+     * Whether a selector is more specific than a core preset class rule
+     * (`.has-contrast-color`, one class), so its `!important` declaration
+     * keeps winning over the class's. A selector the matcher cannot read is
+     * not known to outrank it.
+     */
+    private static function outranksPresetClass(string $selector): bool
+    {
+        $parsed = CssSelectorMatcher::parse(trim($selector));
+        if (!$parsed['supported']) return false;
+        $weight = CssSelectorMatcher::specificityCounts($parsed);
+        return array($weight['ids'], $weight['classes'], $weight['types']) > array(0, 1, 0);
     }
 
     /** The selector's last compound, after its final combinator. */

@@ -22,10 +22,18 @@ use DOMElement;
 final class BoxTreeClassifier
 {
     /** Fold rules, in report order. */
-    public const FOLD_RULES = array('own-sizing', 'paint', 'containing-block', 'own-placement');
+    public const FOLD_RULES = array('own-sizing', 'paint', 'containing-block', 'own-placement', 'viewport-entrance');
 
     /** Criteria a fold can discharge; every other criterion keeps the box. */
-    private const FOLDABLE = array('paints', 'containing-block', 'own-sizing', 'own-placement');
+    private const FOLDABLE = array('paints', 'containing-block', 'own-sizing', 'own-placement', 'viewport-entrance');
+
+    /**
+     * Text blocks a viewport entrance can move to: each always emits its own
+     * block, and that block's root renders both an anchor and runtime
+     * attributes, so the entrance and the id its state rules key on land on
+     * the element the box's border box became.
+     */
+    private const ENTRANCE_TARGETS = array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6');
 
     /** Report-safe classification: dispositions, criteria, fold rules, counts and projection. */
     public static function report(string $html, array $tree): array
@@ -112,7 +120,7 @@ final class BoxTreeClassifier
                 // A state rule kept on the route can hang on any tag, not only custom elements.
                 if (!$stateTargeted) {
                     $stateCompounds ??= self::stateCompounds($dom);
-                    $stateTargeted = self::targetedByState($element, $stateCompounds);
+                    $stateTargeted = self::targetedByState($element, self::entranceKeepsIdRules($element, $node, $stateCompounds));
                 }
                 $fold = $stateTargeted ? null : self::fold($element, $node, $effective, $effective['nodes'][$blockParents[$id]] ?? null, isset($containing[$id]), $referenced);
                 if (null !== $fold) {
@@ -205,7 +213,11 @@ final class BoxTreeClassifier
             if (str_starts_with($attribute->name, 'on') || str_starts_with($attribute->name, 'aria-') || in_array($attribute->name, array('tabindex', 'contenteditable', 'draggable', 'hidden', 'inert'), true)) return 'interaction/state';
         }
         if (!empty($node['interaction_states']) || $stateTargeted) return 'interaction/state';
-        if (self::carriesCaptureMarker($element, $linkCarried)) return 'capture-marker';
+        // A viewport entrance is a runtime handle, not geometry: it can move
+        // to a sole text child ({@see self::entranceTarget()}). Any other
+        // capture marker keeps the box.
+        $entrance = self::carriesCaptureMarker($element, $linkCarried);
+        if ($entrance && (!self::carriesOnlyViewportEntrance($element) || null === self::entranceTarget($element, $node))) return 'capture-marker';
         foreach ($node['viewports'] as $observation) {
             $s = $observation['used_styles'];
             if (isset($s['animation-name']) && 'none' !== $s['animation-name']) return 'motion';
@@ -214,6 +226,54 @@ final class BoxTreeClassifier
         // Unknown boxes between observations cannot prove wrapper neutrality.
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement && !isset($tree['nodes'][$child->getAttribute(BoxTree::NODE_ATTRIBUTE)])) return 'unobserved-child';
+        }
+        return $entrance ? 'viewport-entrance' : null;
+    }
+
+    /**
+     * State compounds a fold must not orphan. A box whose viewport entrance
+     * moves to its child takes its id there too, so a compound naming that id
+     * still finds the element that replays the entrance.
+     *
+     * @param list<string> $compounds
+     * @return list<string>
+     */
+    private static function entranceKeepsIdRules(DOMElement $element, array $node, array $compounds): array
+    {
+        $id = $element->getAttribute('id');
+        if ('' === $id || !self::carriesOnlyViewportEntrance($element) || null === self::entranceTarget($element, $node)) return $compounds;
+        $pattern = '/#' . preg_quote($id, '/') . '(?![\w-])/';
+        return array_values(array_filter($compounds, static fn (string $compound): bool => !preg_match($pattern, $compound)));
+    }
+
+    /** Whether the only capture marker a box carries is its viewport entrance. */
+    private static function carriesOnlyViewportEntrance(DOMElement $element): bool
+    {
+        foreach ($element->attributes as $attribute) {
+            if (str_starts_with($attribute->name, CaptureEvidence::ATTRIBUTE_PREFIX) && CaptureEvidence::VIEWPORT_ENTRANCE !== $attribute->name) return false;
+        }
+        foreach (preg_split('/\s+/', $element->getAttribute('class'), -1, PREG_SPLIT_NO_EMPTY) as $class) {
+            if (str_starts_with($class, CaptureEvidence::ATTRIBUTE_PREFIX)) return false;
+        }
+        return $element->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE);
+    }
+
+    /**
+     * The sole child a box's viewport entrance and id can move to: a text
+     * block with no id or capture marker of its own, under a box with no
+     * inline style of its own, so its state rules
+     * (keyed on the box's id) and the replayed entrance stay on one element.
+     */
+    public static function entranceTarget(DOMElement $element, array $node): ?DOMElement
+    {
+        // Inline declarations (the motion variables a reveal's keyframes
+        // read, for one) are authored on the box itself; the child cannot
+        // stand in for an element whose own style the entrance resolves.
+        if (1 !== count($node['children']) || '' !== trim($element->getAttribute('style'))) return null;
+        foreach ($element->childNodes as $child) {
+            if (!$child instanceof DOMElement || $node['children'][0] !== $child->getAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
+            if (!in_array(strtolower($child->tagName), self::ENTRANCE_TARGETS, true) || $child->hasAttribute('id') || self::carriesCaptureMarker($child)) return null;
+            return $child;
         }
         return null;
     }
@@ -292,7 +352,8 @@ final class BoxTreeClassifier
     private static function fold(DOMElement $element, array $node, array $tree, ?array $parent, bool $containing, bool $referenced): ?array
     {
         if (1 !== count($node['children']) || null === $parent) return null;
-        if (null !== self::behavior($element, $node, $tree, $referenced, false)) return null;
+        $behavior = self::behavior($element, $node, $tree, $referenced, false);
+        if (null !== $behavior && 'viewport-entrance' !== $behavior) return null;
         foreach ($element->childNodes as $text) {
             if ($text instanceof \DOMText && '' !== trim($text->textContent)) return null;
         }
@@ -441,6 +502,12 @@ final class BoxTreeClassifier
             }
         }
         if (array_intersect_key($moves, self::PLACEMENT_INITIAL) || in_array('margin', $source, true)) $rules[] = 'own-placement';
+        if ('viewport-entrance' === $behavior) {
+            // The replayed entrance animates the element that carries it; the
+            // child plays it identically only on the box's own border box.
+            if (!$equalBox) return null;
+            $rules[] = 'viewport-entrance';
+        }
         if (array() === $rules) return null;
         $moves += $inheritedMoves;
         return array('rules' => $rules, 'moves' => $moves, 'equal_box' => $equalBox);

@@ -23,7 +23,7 @@ foreach (array('', '.copy:hover{color:#fff}', '@media(min-width:700px){.copy{col
     $token = $attrs['style']['color']['text'] ?? '';
     $slug = str_starts_with($token, 'var:preset|color|') ? substr($token, strlen('var:preset|color|')) : '';
     if (($palette[$slug] ?? null) !== '#d9381c' || isset($attrs['textColor']) || !str_contains($match[2], 'color:var(--wp--preset--color--' . $slug . ')')) throw new RuntimeException('Resolved paint binds independently of shared-class observations without changing its inline cascade slot.');
-    if (($attrs['style']['color']['background'] ?? null) !== $token || isset($attrs['backgroundColor']) || !str_contains($match[2], 'background-color:var(--wp--preset--color--' . $slug . ')')) throw new RuntimeException('Resolved background paint also retains its inline cascade slot.');
+    if (($attrs['style']['color']['background'] ?? null) !== 'hsl(var(--ink))' || isset($attrs['backgroundColor']) || !str_contains($match[2], 'background-color:hsl(var(--ink))')) throw new RuntimeException('Conflicting background evidence retains its existing presentation and ownership checks.');
 }
 // Consistent class evidence must still use core's ordinary preset attributes,
 // including when conversion serialized a custom-property colour inline.
