@@ -276,14 +276,20 @@ final class AuthorStylesheetMaterialization
         'margin-top' => '0px', 'margin-right' => '0px', 'margin-bottom' => '0px', 'margin-left' => '0px',
         'padding-top' => '0px', 'padding-right' => '0px', 'padding-bottom' => '0px', 'padding-left' => '0px',
         'text-align' => 'start',
+        // The canvas paint and the text colour every block inherits: box-tree
+        // carriers prune a value equal to their parent's, so no block below
+        // restates them.
+        'background-color' => 'rgba(0, 0, 0, 0)', 'color' => 'rgb(0, 0, 0)',
     );
 
     /**
      * On a box-tree route the author stylesheet is not shipped (ADR 0005) and
      * the source body becomes no block, so nothing else restates the column,
-     * centring and padding the author gave it. WordPress renders the content
-     * in its own body: restate the source body's box there, from its
-     * evidence and the author intent lifted from it.
+     * centring, padding, background and text colour the author gave it.
+     * WordPress renders the content in its own body: restate the source
+     * body's box there, from its evidence and the author intent lifted from
+     * it. The source `html` paints the canvas behind the body when it has its
+     * own background, so its observed colour is restated on the root.
      */
     private function boxTreeBodyCss(string $html): string
     {
@@ -298,8 +304,11 @@ final class AuthorStylesheetMaterialization
             return '';
         }
         $body = $this->session->authorStyleAnalysis()->sourceBody();
-        $fluid = ( new BoxTreeFluidIntent() )->lift($body, $this->styleResolver, $observations, $viewports, $this->session->boxTreeEvidence($root));
-        return ( new BoxTreeStyleProjector() )->boxRule(':root body', self::BODY_BOX_PROPERTIES, $observations, $fluid);
+        $rootObservations = $this->session->boxTreeEvidence($root);
+        $fluid = ( new BoxTreeFluidIntent() )->lift($body, $this->styleResolver, $observations, $viewports, $rootObservations);
+        $projector = new BoxTreeStyleProjector();
+        return $projector->boxRule(':root', array( 'background-color' => 'rgba(0, 0, 0, 0)' ), $rootObservations)
+            . $projector->boxRule(':root body', self::BODY_BOX_PROPERTIES, $observations, $fluid);
     }
 
     /** Whether the source paints its canvas on `html` and never on `body`, under any condition. */
