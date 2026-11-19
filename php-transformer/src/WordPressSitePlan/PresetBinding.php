@@ -204,6 +204,9 @@ final class PresetBinding
     private array $stateTokens = array();
     /** @var array<string,array<string,string>> Authored class list => property => the one observation every element agreed on, or `!`. */
     private array $classStyles = array();
+
+    /** @var array<string, array<string, array<string, string>>> */
+    private array $classStylesBySource = array();
     /** @var array<string,array<string,list<string>>> Unconditional single-class colour and font-size declarations. */
     private array $classColors = array();
     /** @var array<string,array<string,array<string,list<int>>>> Rule indexes by kind, family and required subject token. */
@@ -287,6 +290,9 @@ final class PresetBinding
             if (!array_key_exists($name, $this->variables)) $this->variables[$name] = false;
         }
         $this->classStyles = self::mergeClassStyles($usageBySource);
+        foreach ($usageBySource as $source => $usage) {
+            $this->classStylesBySource[$source] = self::mergeClassStyles(array($source => $usage));
+        }
     }
 
     /**
@@ -357,8 +363,19 @@ final class PresetBinding
         return $refusals;
     }
 
-    public function bind(string $markup): string
+    public function bind(string $markup, ?string $source = null): string
     {
+        // Class observations contain resolved contextual matches, not class
+        // recipes. Reuse only the observations from this source document.
+        if (null !== $source) {
+            $shared = $this->classStyles;
+            $this->classStyles = $this->classStylesBySource[$source] ?? array();
+            try {
+                return $this->bind($markup);
+            } finally {
+                $this->classStyles = $shared;
+            }
+        }
         if (!str_contains($markup, '<!-- wp:')) return $markup;
         $markup = $this->bindNavigations($markup);
         $pattern = '/<!-- wp:(' . implode('|', array_map(static fn(string $name): string => preg_quote($name, '/'), array_merge(self::WRAPPER_BLOCKS, self::LINK_BLOCKS))) . ') (\{.*?\}) (\/)?-->/s';
