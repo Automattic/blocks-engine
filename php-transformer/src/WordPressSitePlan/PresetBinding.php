@@ -2047,6 +2047,10 @@ final class PresetBinding
                 $tags = array_values(array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'tag:')));
                 if (array() !== $tags && array() === array_intersect_key(array_flip($tags), $tokens)) continue;
                 if (array() !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
+                // A compound subject (`.a.b`) applies only where every one of
+                // its classes stands; sharing one class is not enough.
+                $classes = array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'class:'));
+                if (array() !== array_diff_key(array_flip($classes), $finalClasses)) continue;
                 if (array() !== array_intersect_key(array_flip($rule['negated']), $finalClasses)) continue;
                 if (isset($tokens[self::KNOWN_ATTRIBUTES])) {
                     foreach ($rule['attributes'] as [$name, $value]) {
