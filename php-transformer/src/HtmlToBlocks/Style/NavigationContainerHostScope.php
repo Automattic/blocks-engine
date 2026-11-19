@@ -9,76 +9,130 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /**
- * Keeps a navigation host's box rules off Core's duplicated container list.
+ * Neutralizes a navigation host's box sizing on Core's duplicated container list.
  *
  * Core renders a core/navigation `className` on both the `<nav>` root and its
- * inner `ul.wp-block-navigation__container` (which also carries
- * `wp-block-navigation`). When the source put the class on a menu wrapper
- * (never on a list), author box rules for it would size the list a second
- * time inside the root: a `width:50%` host makes the list half the host and
- * the items wrap. Those box declarations are moved to a sibling rule whose
- * wrapper-class subjects exclude the container. The exclusion sits in
- * `:not(:where())`, so specificity and cascade position are unchanged.
+ * inner `ul.wp-block-navigation__container`. When the source put the class on
+ * a menu wrapper (never on a list), author rules that size the host also size
+ * the list a second time inside the root: a `width:50%` host makes the list
+ * half the host and the items wrap. Every author rule is kept as projected;
+ * one additive rule per host resets only the sizing properties the host sets
+ * (width, min-/max-width, inline-axis margin and padding) on the duplicated
+ * container.
+ * Display, alignment and visibility are left to the author rules.
  */
 final class NavigationContainerHostScope
 {
     private const CONTAINER_CLASS = 'wp-block-navigation__container';
 
-    private const EXCLUSION = ':not(:where(.' . self::CONTAINER_CLASS . '))';
+    /**
+     * Container initial value of each neutralized property. Block-axis and
+     * shorthand margin and padding belong to the navigation frame reset
+     * (NavigationPatternContext::recordNavigationContainerReset), so only the
+     * inline-axis longhands it leaves are listed here.
+     */
+    private const RESETS = array(
+        'width' => 'auto',
+        'min-width' => 'auto',
+        'max-width' => 'none',
+        'margin-left' => '0',
+        'margin-right' => '0',
+        'margin-inline' => '0',
+        'margin-inline-start' => '0',
+        'margin-inline-end' => '0',
+        'padding-left' => '0',
+        'padding-right' => '0',
+        'padding-inline' => '0',
+        'padding-inline-start' => '0',
+        'padding-inline-end' => '0',
+    );
 
     /** @var array<string, list<list<string>>> Wrapper class sets per emitted markup. */
     private array $wrapperClassSets = array();
 
     /**
+     * Wrapper host class sets named by a source rule's subjects.
+     *
      * @param callable(string): list<DOMElement> $sourceElements Source elements matching a class compound.
+     * @return list<list<string>>
      */
-    public function scope(string $css, string $sourcePrelude, string $markup, callable $sourceElements): string
+    public function hostClassSets(string $sourcePrelude, string $markup, callable $sourceElements): array
     {
-        if ( '' === $css || ! str_contains($markup, '<!-- wp:navigation ') || ! str_contains($sourcePrelude, '.') ) {
-            return $css;
+        if ( ! str_contains($markup, '<!-- wp:navigation ') || ! str_contains($sourcePrelude, '.') ) {
+            return array();
         }
-        $hosts = $this->wrapperHostClassSets($sourcePrelude, $markup, $sourceElements);
-        if ( array() === $hosts ) {
-            return $css;
-        }
+        return $this->wrapperHostClassSets($sourcePrelude, $markup, $sourceElements);
+    }
 
-        return ( new CssStylesheetTransformer() )->transformStyleRules(
+    /**
+     * One additive rule per wrapper host resetting, on the duplicated
+     * container, the sizing properties the projected stylesheet sets on it.
+     *
+     * @param list<list<string>> $hosts
+     */
+    public function neutralizingRules(string $css, array $hosts): string
+    {
+        if ( '' === $css || array() === $hosts ) {
+            return '';
+        }
+        $set = array();
+        ( new CssStylesheetTransformer() )->visitStyleRules(
             $css,
-            function (string $prelude, string $body) use ($hosts): string {
-                $rule = $prelude . '{' . $body . '}';
-                $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-                if ( null === $selectors ) {
-                    return $rule;
+            function (string $prelude, string $body) use ($hosts, &$set): void {
+                $properties = self::sizingProperties($body);
+                if ( array() === $properties ) {
+                    return;
                 }
-                $scoped = array();
-                $changed = false;
-                foreach ( $selectors as $selector ) {
-                    $exclusive = $this->excludeContainer(trim($selector), $hosts);
-                    $changed = $changed || null !== $exclusive;
-                    $scoped[] = $exclusive ?? trim($selector);
-                }
-                if ( ! $changed ) {
-                    return $rule;
-                }
-                $box = $other = array();
-                foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-                    $name = strtolower(trim(explode(':', $declaration, 2)[0]));
-                    if ( '' === trim($declaration) ) {
-                        continue;
-                    }
-                    if ( self::isBoxProperty($name) ) {
-                        $box[] = trim($declaration);
-                    } else {
-                        $other[] = trim($declaration);
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $index = $this->hostIndex(trim($selector), $hosts);
+                    if ( null !== $index ) {
+                        $set[ $index ] = array_merge($set[ $index ] ?? array(), $properties);
                     }
                 }
-                if ( array() === $box ) {
-                    return $rule;
-                }
-                return (array() === $other ? '' : $prelude . '{' . implode(';', $other) . '}')
-                    . implode(',', $scoped) . '{' . implode(';', $box) . '}';
             }
         );
+
+        $rules = '';
+        foreach ( $set as $index => $properties ) {
+            $compound = implode('', array_map(static fn (string $class): string => '.' . self::escapeClass($class), $hosts[ $index ]));
+            $declarations = array();
+            foreach ( self::RESETS as $property => $value ) {
+                if ( in_array($property, $properties, true) ) {
+                    $declarations[] = $property . ':' . $value;
+                }
+            }
+            $rules .= ':root .wp-block-navigation' . $compound . ' .' . self::CONTAINER_CLASS . $compound . '{' . implode(';', $declarations) . '}';
+        }
+        return $rules;
+    }
+
+    /**
+     * Neutralized properties a rule body sets to something other than the
+     * container's initial value.
+     *
+     * @return list<string>
+     */
+    private static function sizingProperties(string $body): array
+    {
+        $properties = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            if ( ! str_contains($declaration, ':') ) {
+                continue;
+            }
+            [$name, $value] = array_map('trim', explode(':', $declaration, 2));
+            $name = strtolower($name);
+            $value = strtolower(trim((string) preg_replace('/!\s*important$/i', '', $value)));
+            if ( ! isset(self::RESETS[ $name ]) || in_array($value, array( self::RESETS[ $name ], '0', '0px' ), true) ) {
+                continue;
+            }
+            $properties[] = $name;
+        }
+        return $properties;
+    }
+
+    private static function escapeClass(string $class): string
+    {
+        return (string) preg_replace('/[^A-Za-z0-9_-]/', '\\\\$0', $class);
     }
 
     /**
@@ -136,36 +190,30 @@ final class NavigationContainerHostScope
     }
 
     /**
-     * The selector with the container excluded from its subject, when the
-     * subject's top-level classes are a wrapper host class set (optionally
-     * with Core's shared `wp-block-navigation` class).
+     * Index of the wrapper host whose class set is the selector subject's
+     * top-level classes (optionally with Core's shared `wp-block-navigation`).
      *
      * @param list<list<string>> $hosts
      */
-    private function excludeContainer(string $selector, array $hosts): ?string
+    private function hostIndex(string $selector, array $hosts): ?int
     {
         if ( str_contains($selector, self::CONTAINER_CLASS) ) {
             return null;
         }
-        $start = self::subjectStart($selector);
-        $subject = substr($selector, $start);
-        $classes = array_values(array_diff(self::topLevelClasses($subject), array( 'wp-block-navigation' )));
-        sort($classes);
-        $matches = false;
-        foreach ( $hosts as $host ) {
-            $sorted = $host;
-            sort($sorted);
-            $matches = $matches || $sorted === $classes;
-        }
-        if ( ! $matches ) {
+        $subject = substr($selector, self::subjectStart($selector));
+        if ( 1 === preg_match('/::|:(?:before|after|first-line|first-letter|marker|placeholder|selection|backdrop)\b/i', $subject) ) {
             return null;
         }
-        // Pseudo-elements close a compound; the exclusion goes before them.
-        if ( preg_match('/::?(?:before|after|first-line|first-letter|marker|placeholder|selection|backdrop)\b|::/i', $subject, $pseudo, PREG_OFFSET_CAPTURE) ) {
-            $at = $start + (int) $pseudo[0][1];
-            return substr($selector, 0, $at) . self::EXCLUSION . substr($selector, $at);
+        $classes = array_values(array_diff(self::topLevelClasses($subject), array( 'wp-block-navigation' )));
+        sort($classes);
+        foreach ( $hosts as $index => $host ) {
+            $sorted = $host;
+            sort($sorted);
+            if ( $sorted === $classes ) {
+                return $index;
+            }
         }
-        return $selector . self::EXCLUSION;
+        return null;
     }
 
     /**
@@ -237,13 +285,5 @@ final class NavigationContainerHostScope
         }
         preg_match_all('/\.((?:\\\\.|[A-Za-z0-9_-])+)/', $flat, $matches);
         return array_values(array_unique(array_map('stripslashes', $matches[1])));
-    }
-
-    /** Properties that size, space or paint the host's own box. */
-    private static function isBoxProperty(string $name): bool
-    {
-        return 'display' === $name
-            || 'box-shadow' === $name
-            || 1 === preg_match('/^(?:(?:min-|max-)?(?:width|height|inline-size|block-size)|margin(?:-.+)?|padding(?:-.+)?|border(?:-(?!collapse$|spacing$).+)?|background(?:-.+)?)$/', $name);
     }
 }
