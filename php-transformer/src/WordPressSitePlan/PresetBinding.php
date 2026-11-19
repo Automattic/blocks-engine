@@ -55,7 +55,9 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  * sets `line-height`). The preset wins without removing it: core's preset
  * classes are `!important`, and a spacing preset is inline. What could still
  * override a preset is another `!important` rule, which is why binding is
- * refused when one can reach the element. The projected native-button rules
+ * refused when one can reach the element and does not already outrank the
+ * preset class. One that outranks it (`.booking h3`) wins over the bound
+ * value exactly as it won over the inline literal. The projected native-button rules
  * that restate author classes on `.wp-block-button__link` with `!important`
  * step aside for `.has-text-color` and `.has-background` (see
  * AuthorStylesheetProjector and GeneratedBlockStyleProjector), the same way
@@ -75,7 +77,8 @@ use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
  * - re-encoding the delimiter JSON would not reproduce it byte for byte;
  * - a stylesheet declares the property `!important` for a selector whose
  *   subject this block could match, unless the selector excludes the classes
- *   the bound block carries;
+ *   the bound block carries or is more specific than the single-class preset
+ *   rule binding adds;
  * - a stylesheet selects on the inline style text (`[style*=…]`) for that
  *   property in a way the rewrite would change;
  * - a `:hover`, `:focus`, `:focus-visible`, `:focus-within` or `:active`
@@ -108,6 +111,13 @@ final class PresetBinding
 
     /** core/button serializes colour and padding on its inner link. */
     private const LINK_BLOCKS = array('button');
+
+    /**
+     * Blocks whose author class and inline style sit on one element, so a
+     * colour the class paints renders without the duplicate literal
+     * (rendersThroughClass()).
+     */
+    private const CLASS_RENDERED_BLOCKS = array('paragraph', 'heading', 'group', 'list', 'list-item', 'column', 'columns');
 
     /** Supports a block type has for values it carries only through classes. */
     private const CLASS_SUPPORTS = array(
@@ -173,7 +183,7 @@ final class PresetBinding
     private const BACKGROUND_PADDED_BLOCKS = array('paragraph', 'heading', 'list', 'columns');
 
     /** Refusal reasons for the `!` observations DesignUsageCollector records. */
-    private const OBSERVATION_REASONS = array('!' => 'inconsistent_source', '!important' => 'important', '!alpha' => 'alpha', '!state' => 'state_variant', '!breakpoint' => 'breakpoint_variant', '!value' => 'unresolved_value');
+    private const OBSERVATION_REASONS = array('!' => 'inconsistent_source', '!important' => 'important', '!alpha' => 'alpha', '!context' => 'contextual_source', '!state' => 'state_variant', '!breakpoint' => 'breakpoint_variant', '!value' => 'unresolved_value');
 
     /** Rich-text blocks whose inline colours bind to core's text-colour format. */
     private const RICH_TEXT_BLOCKS = array('paragraph', 'heading');
@@ -187,7 +197,7 @@ final class PresetBinding
     /** Core's text-colour format background when none is chosen (format-library `transparentValue`). */
     private const INLINE_TRANSPARENT = 'rgba(0, 0, 0, 0)';
 
-    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>}>> `!important` rules per property family. */
+    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>,outranks_preset_class:bool}>> `!important` rules per property family. */
     private array $importantRules = array();
     /** @var array<string,list<array{tokens:list<string>|null,negated:list<string>,fragment:string}>> `[style*=…]` selectors per family; null tokens reach any element. */
     private array $styleTextRules = array();
@@ -202,6 +212,22 @@ final class PresetBinding
     /** @var array<string,array<string,array<string,list<int>>>> Rule indexes by kind, family and required subject token. */
     private array $subjectBuckets = array();
     private int $bound = 0;
+    /** Set by bindColorTokens() when it derived a near shade (nearShadeColor()). */
+    private bool $derivedNearShade = false;
+    /**
+     * Near-shade derivations of the rule being bound. They are emitted under
+     * RELATIVE_COLOR_SUPPORTS after the declarations that keep the literal.
+     *
+     * @var list<string>
+     */
+    private array $derivedDeclarations = array();
+    /**
+     * A near-shade derivation reads a preset through var(), so a browser
+     * without relative colours would accept it at parse time and compute it
+     * as `unset`; a later declaration in the same block could never fall
+     * back to the literal. The feature query keeps the literal for them.
+     */
+    private const RELATIVE_COLOR_SUPPORTS = '@supports (color:rgb(from red r g b))';
     /** Projected font defaults, keyed by the HTML target that inherits them. @var array<string,string> */
     private array $fontDefaults = array();
     /** Preset slugs of the projected font defaults, keyed like $fontDefaults. @var array<string,string> */
@@ -252,9 +278,19 @@ final class PresetBinding
                         // Remove only that generated scope, not author contexts/states.
                         $routeScope = ':where\(:root:(?:is|not)\(\.be-r-[a-f0-9]+(?:,\.be-r-[a-f0-9]+)*\)\)';
                         $selector = preg_replace('/^' . $routeScope . ' +|' . $routeScope . '$/', '', trim($selector)) ?? $selector;
-                        if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', $selector, $match)) continue;
+                        $control = false;
+                        if (1 !== preg_match('/^\.([a-zA-Z_][a-zA-Z0-9_-]*)(?::not\(:where\(\.blocks-engine-role-control\)\))?$/', $selector, $match)) {
+                            // A single author class projected onto a native
+                            // control's button element (`.filter-btn` as its
+                            // subject class). Only its border colour is read
+                            // here: the class renders it with its states.
+                            if (1 !== preg_match('/^:where\(\.blocks-engine-role-control\.blocks-engine-subject\.(' . preg_quote(EngineMarker::SUBJECT_CLASS_PREFIX, '/') . '[a-f0-9]+)\)(?::not\(\.be-c-\d+\))*\s*>\s*:where\(\.wp-block-button__link\)(?::not\(be-t-\d+\))*$/', $selector, $match)) continue;
+                            $control = true;
+                        }
                         foreach (self::declarations($body) as [$property, $value]) {
-                            if (in_array($property, array('color', 'background-color', 'background', 'font-size'), true)) $this->classColors[$match[1]][$property][] = $value;
+                            if (!$control && in_array($property, array('color', 'background-color', 'background', 'font-size'), true)) $this->classColors[$match[1]][$property][] = $value;
+                            elseif ('border-color' === $property) $this->classColors[$match[1]][$property][] = $value;
+                            elseif ('border' === $property) $this->classColors[$match[1]]['border-color'][] = self::borderShorthandColor($value);
                         }
                     }
                 }
@@ -898,8 +934,10 @@ final class PresetBinding
             if (!is_string($literal) && !in_array($key, $supports, true)) continue;
             $added = array($flagClass, sprintf($presetClass, '%s'));
             $observation = $observed[$observedProperty] ?? null;
-            if (is_string($literal) && null !== CssColor::parse($literal)) {
-                // A plain inline colour belongs to this block, not every
+            $resolvedInline = 'text' === $key && is_string($literal) && str_contains($literal, 'var(') && null !== CssColor::parse($this->resolve($literal));
+            $inlineOnly = $resolvedInline && null === $this->presetSlug('color', $literal, $observation);
+            if (is_string($literal) && (null !== CssColor::parse($literal) || $inlineOnly)) {
+                // A proven inline colour belongs to this block, not every
                 // element sharing its author classes. Ordinary breakpoint
                 // rules cannot override it. safe() still checks all reachable
                 // !important, state and style-text rules; removeDeclaration()
@@ -918,8 +956,18 @@ final class PresetBinding
                 }
                 continue;
             }
+            if (null !== $slug && $inlineOnly) {
+                // Resolving custom properties proves the colour, not that an
+                // !important preset class is equivalent to the authored inline
+                // declaration. Keep its cascade slot (and avoid adding core's
+                // background presentation) when binding that evidence. Backgrounds
+                // retain the existing class/element ownership checks below.
+                if ($this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
+                else $this->refuse($reason ?? 'inconsistent_source');
+                continue;
+            }
             $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
-            if (!$safe && is_string($literal) && ($this->rendersThroughClass($name, $property, $literal, $tokens) || ('state_variant' === $reason && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)))) {
+            if (!$safe && is_string($literal) && ($this->rendersThroughClass($name, $property, $literal, $tokens, $classes) || ('state_variant' === $reason && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)))) {
                 // A preset class would mask the hover colour; the button
                 // element or author class renders this value with its state, so the
                 // literal only duplicated it.
@@ -995,6 +1043,20 @@ final class PresetBinding
             $literal = $group->color ?? null;
             if (!is_string($literal) || str_starts_with($literal, 'var:')) continue;
             $property = '' === $side ? 'border-color' : 'border-' . $side . '-color';
+            // Without the colour core's `has-border-color` no longer supplies
+            // a solid style, so another block must declare its own.
+            if ('' === $side && ('button' === $d->name || is_string($group->style ?? null)) && $this->rendersThroughClass($d->name, $property, $literal, $tokens, $d->classes)) {
+                // As with a button's text and background (bindColorPresets()):
+                // the author class renders this border colour with its
+                // states, so the literal only duplicated it, outside the
+                // editable design system, and masked the class's hover rule.
+                if (self::removeDeclaration($d->declarations, $property, $literal)) {
+                    unset($group->color);
+                    $d->dropClasses[] = 'has-border-color';
+                    ++$d->bound;
+                    continue;
+                }
+            }
             $slug = $this->presetSlug('color', $literal, null);
             if (null !== $slug && $this->inlinePreset($group, 'color', 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
         }
@@ -1181,6 +1243,13 @@ final class PresetBinding
      *   A `var()` in a whole colour must resolve the same way as
      *   for a block literal, or have unanimous class-list rendering evidence
      *   for a class-only selector when global resolution is impossible.
+     * - A literal near shade the palette omits (DesignSystem::nearShadeColor())
+     *   keeps its literal, and a feature-queried copy of the rule right after
+     *   it restates the shade relative to its family's representative:
+     *   `.band{background:#f7f7f4}` gains `@supports (color:rgb(from red r g b))
+     *   {.band{background:rgb(from var(--wp--preset--color--base) calc(r - 8)
+     *   calc(g - 8) calc(b - 11))}}`. Both paint the source shade until the
+     *   representative is edited; the derived value then follows it.
      * - A font size binds only when it is the preset's own length, and a
      *   font family only when it is the preset's own stack, so no fallback
      *   or rounding changes what renders. Font-shorthand custom properties
@@ -1263,11 +1332,27 @@ final class PresetBinding
                     // Keep off-look controls unchanged, but let the registered
                     // variation beat both author rules and wp-element-button.
                     $excluded = implode(',', array_map(static fn(string $arm): string => trim($arm) . ':not(:where(.is-style-' . $slug . ' *))', CssValueSplitter::splitTopLevel($prelude, array(','))));
-                    return $prelude . '{' . $this->bindRuleBody($transformer, implode(';', $kept), false) . '}' . $excluded . '{' . $this->bindRuleBody($transformer, implode(';', $shared), false) . '}';
+                    return $this->boundRule($transformer, $prelude, implode(';', $kept)) . $this->boundRule($transformer, $excluded, implode(';', $shared));
                 }
             }
-            return $prelude . '{' . $this->bindRuleBody($transformer, $body, self::rootSelector($prelude), $prelude) . '}';
+            return $this->boundRule($transformer, $prelude, $body, self::rootSelector($prelude), $prelude);
         });
+    }
+
+    /**
+     * The bound rule, followed by a feature-queried copy of its selector
+     * carrying any near-shade derivations: `.note{color:#151515}` becomes
+     * `.note{color:#151515}@supports (color:rgb(from red r g b)){.note{color:rgb(from var(--wp--preset--color--contrast) calc(r + 4) calc(g + 4) calc(b + 4))}}`.
+     * The copy directly follows the rule with the same selector and
+     * importance, so it wins exactly where the literal would have.
+     */
+    private function boundRule(CssStylesheetTransformer $transformer, string $prelude, string $body, bool $rootSelector = false, string $selector = ''): string
+    {
+        $this->derivedDeclarations = array();
+        $rule = $prelude . '{' . $this->bindRuleBody($transformer, $body, $rootSelector, $selector) . '}';
+        $derived = $this->derivedDeclarations;
+        $this->derivedDeclarations = array();
+        return array() === $derived ? $rule : $rule . self::RELATIVE_COLOR_SUPPORTS . '{' . $prelude . '{' . implode(';', $derived) . '}}';
     }
 
     /**
@@ -1434,7 +1519,14 @@ final class PresetBinding
         foreach ($transformer->splitStyleRuleBody($body) as $part) {
             if (!isset($part['declarations'])) {
                 $nested = '' === $part['at_rule'] || in_array($part['at_rule'], array('media', 'supports', 'container', 'layer', 'scope'), true);
-                $result .= $part['prelude'] . '{' . ($nested ? $this->bindRuleBody($transformer, $part['body'], $rootSelector) : $part['body']) . '}';
+                $outer = $this->derivedDeclarations;
+                $this->derivedDeclarations = array();
+                $inner = $nested ? $this->bindRuleBody($transformer, $part['body'], $rootSelector) : $part['body'];
+                // A nested rule's derivations stay nested in it: bare
+                // declarations in a nested feature query apply to its selector.
+                if (array() !== $this->derivedDeclarations) $inner = rtrim($inner) . ('' === trim($inner) || preg_match('/[;}]\s*$/', $inner) ? '' : ';') . self::RELATIVE_COLOR_SUPPORTS . '{' . implode(';', $this->derivedDeclarations) . '}';
+                $this->derivedDeclarations = $outer;
+                $result .= $part['prelude'] . '{' . $inner . '}';
                 continue;
             }
             $declarations = $part['declarations'];
@@ -1536,16 +1628,19 @@ final class PresetBinding
         // Borders may carry a colour alongside width/style tokens, or several
         // colours in a longhand. Reuse the author-CSS token binder so only
         // the colour changes and its original bytes remain the fallback.
+        $source = self::sourcePresets($parts[0]) . ':' . self::sourcePresets($value) . $important;
         if (1 === preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-color)?$/', $property)) {
+            $this->derivedNearShade = false;
             $bound = $this->bindColorTokens($value);
-            return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
+            return $this->boundTokens($declaration, $parts[0], $value, $bound, $important, $source);
         }
         // A light-dark() pair binds each scheme's colour on its own, so the
         // dark argument keeps rendering under a dark preference.
         $schemeColor = null !== CssColor::lightDark($this->resolve($value)) && in_array($property, array('color', 'background-color', 'background'), true);
         if ($schemeColor || ((str_starts_with($property, '--') || in_array($property, array('background', 'background-image'), true)) && null === CssColor::parse($this->resolve($value)))) {
+            $this->derivedNearShade = false;
             $bound = $this->bindColorTokens($value);
-            return $bound === self::sourcePresets($value) ? $declaration : self::sourcePresets($parts[0]) . ':' . $bound . $important;
+            return $this->boundTokens($declaration, $parts[0], $value, $bound, $important, $source);
         }
         $kind = match (true) {
             in_array($property, array('color', 'background-color', 'background'), true), str_starts_with($property, '--') => 'color',
@@ -1563,6 +1658,15 @@ final class PresetBinding
             $slug = $this->observedSelectorColorSlug($selector, $property);
         }
         if (null === $slug && 'color' === $kind) {
+            // A near shade the palette omits keeps its literal here and is
+            // restated as a relative colour of its representative under a
+            // feature query (boundRule()), exact at the default palette.
+            $derived = $this->nearShade($value);
+            if (null !== $derived) {
+                ++$this->bound;
+                $this->derivedDeclarations[] = self::sourcePresets($parts[0]) . ':' . $derived . $important;
+                return $source;
+            }
             $mix = $this->translucentMix($value);
             if (null === $mix) return $declaration;
             ++$this->bound;
@@ -1578,6 +1682,20 @@ final class PresetBinding
         // weight repeated on every rule. A different stack stays the fallback.
         $fallback = 'font-family' === $kind && $this->presetHoldsFamily($slug, $value) ? '' : ',' . self::sourcePresets($value);
         return self::sourcePresets($parts[0]) . ':var(--wp--preset--' . ('color' === $kind ? 'color' : $kind) . '--' . $slug . $fallback . ')' . $important;
+    }
+
+    /**
+     * A declaration whose colour tokens bindColorTokens() rewrote. When a
+     * token is a near-shade derivation the rewritten value moves under the
+     * feature query (boundRule()) and the declaration keeps its source value.
+     */
+    private function boundTokens(string $declaration, string $property, string $value, string $bound, string $important, string $source): string
+    {
+        if ($bound === self::sourcePresets($value)) return $declaration;
+        $rewritten = self::sourcePresets($property) . ':' . $bound . $important;
+        if (!$this->derivedNearShade) return $rewritten;
+        $this->derivedDeclarations[] = $rewritten;
+        return $source;
     }
 
     /**
@@ -1603,6 +1721,7 @@ final class PresetBinding
                 } elseif (null !== CssColor::parse($resolved)) {
                     $slug = $this->system->stylesheetColorSlug($resolved);
                     $replacement = null !== $slug ? 'var(--wp--preset--color--' . $slug . ',' . self::sourcePresets($token) . ')' : $this->translucentMix($token, true);
+                    if (null === $replacement && null !== ($replacement = $this->nearShade($token))) $this->derivedNearShade = true;
                     if (null !== $replacement) ++$this->bound;
                 } elseif (1 === preg_match('/^((?:repeating-)?(?:linear|radial|conic)-gradient)\((.*)\)$/is', $token, $match) && CssValueSplitter::hasBalancedParens($token)) {
                     $replacement = $match[1] . '(' . $this->bindColorTokens($match[2]) . ')';
@@ -1612,6 +1731,18 @@ final class PresetBinding
             }
         }
         return $result . self::sourcePresets(substr($value, $offset));
+    }
+
+    /**
+     * A literal near shade the palette omits as a relative colour of its
+     * family's representative preset (DesignSystem::nearShadeColor()). A
+     * value that reads a custom property is left alone: the property's own
+     * definition carries the derivation.
+     */
+    private function nearShade(string $value): ?string
+    {
+        if (str_contains($value, 'var(') || !$this->comparable('color', $value)) return null;
+        return $this->system->nearShadeColor($value);
     }
 
     /**
@@ -1811,6 +1942,10 @@ final class PresetBinding
             if ($staysInline) continue;
             $reason = 'important';
             foreach ($this->importantRules[$family] ?? array() as $rule) {
+                // Binding adds only single-class preset rules. An `!important`
+                // rule that outranks them wins over the bound value exactly as
+                // it won over the inline literal, wherever it applies.
+                if (array() !== $addedClasses && $rule['outranks_preset_class']) continue;
                 $tags = array_values(array_filter($rule['tokens'], static fn(string $token): bool => str_starts_with($token, 'tag:')));
                 if (array() !== $tags && array() === array_intersect_key(array_flip($tags), $tokens)) continue;
                 if (array() !== $rule['tokens'] && array() === array_intersect_key(array_flip($rule['tokens']), $tokens)) continue;
@@ -1965,14 +2100,26 @@ final class PresetBinding
         return false;
     }
 
-    private function rendersThroughClass(string $name, string $property, string $literal, array $tokens): bool
+    /**
+     * Whether the block's own author class paints exactly this literal, so
+     * the literal only duplicates it. A button's colours sit on its link,
+     * which carries the author class or its subject class. Other blocks
+     * qualify only for text and border colour, and only through a class on
+     * the very element that carries the inline style (`$classes`): their
+     * background preset class also changes core padding.
+     *
+     * @param array<string,true> $tokens
+     */
+    private function rendersThroughClass(string $name, string $property, string $literal, array $tokens, string $classes = ''): bool
     {
-        if ('button' !== $name) return false;
+        $button = 'button' === $name;
+        if (!$button && (!in_array($name, self::CLASS_RENDERED_BLOCKS, true) || !in_array($property, array('color', 'border-color'), true))) return false;
         $color = CssColor::parse($this->resolve($literal));
         if (null === $color) return false;
+        $own = array_flip(preg_split('/\s+/', trim($classes)) ?: array());
         $found = false;
         foreach ($this->classColors as $class => $properties) {
-            if (!isset($tokens['class:' . $class]) && !isset($tokens['class:' . EngineMarker::subjectClassClass($class)])) continue;
+            if ($button ? !isset($tokens['class:' . $class]) && !isset($tokens['class:' . EngineMarker::subjectClassClass($class)]) : !isset($own[$class])) continue;
             foreach ('background-color' === $property ? array('background-color', 'background') : array($property) as $candidate) {
                 foreach ($properties[$candidate] ?? array() as $value) {
                     if (CssColor::parse($this->resolve($value)) !== $color) return false;
@@ -2089,7 +2236,8 @@ final class PresetBinding
             if (array() === $important) continue;
             $subject = self::subjectTokens($selector);
             if (null === $subject) continue;
-            foreach ($important as $family => $_) $this->importantRules[$family][] = $subject + array('attributes' => self::subjectAttributes($selector));
+            $rule = $subject + array('attributes' => self::subjectAttributes($selector), 'outranks_preset_class' => self::outranksPresetClass($selector));
+            foreach ($important as $family => $_) $this->importantRules[$family][] = $rule;
         }
     }
 
@@ -2237,6 +2385,20 @@ final class PresetBinding
             }
         }
         return implode(' ', $properties);
+    }
+
+    /**
+     * Whether a selector is more specific than a core preset class rule
+     * (`.has-contrast-color`, one class), so its `!important` declaration
+     * keeps winning over the class's. A selector the matcher cannot read is
+     * not known to outrank it.
+     */
+    private static function outranksPresetClass(string $selector): bool
+    {
+        $parsed = CssSelectorMatcher::parse(trim($selector));
+        if (!$parsed['supported']) return false;
+        $weight = CssSelectorMatcher::specificityCounts($parsed);
+        return array($weight['ids'], $weight['classes'], $weight['types']) > array(0, 1, 0);
     }
 
     /** The selector's last compound, after its final combinator. */
@@ -2414,6 +2576,21 @@ final class PresetBinding
     private static function declarationText(array $declarations): string
     {
         return implode(';', array_map(static fn(array $declaration): string => $declaration[0] . ':' . $declaration[1], $declarations));
+    }
+
+    /**
+     * The colour a `border` shorthand sets (`1px solid #e0ddd7`), or the
+     * shorthand itself when no single component parses as a colour, which no
+     * literal then matches. A shorthand without a colour sets `currentcolor`.
+     */
+    private static function borderShorthandColor(string $value): string
+    {
+        $colors = array();
+        foreach (preg_split('/\s+(?![^()]*\))/', trim($value)) ?: array() as $part) {
+            if (null !== CssColor::parse($part) || 'currentcolor' === strtolower($part)) $colors[] = $part;
+        }
+        if (1 === count($colors)) return $colors[0];
+        return array() === $colors ? 'currentcolor' : $value;
     }
 
     /** @param list<array{0:string,1:string}> $declarations */

@@ -117,7 +117,9 @@ final class SitePlanRun
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
         $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
-        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups)->withBlockTypography($markups)->withBlockColors($markups);
+        // A box-tree carrier on a button's link owns that button's look.
+        $stylesheets = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) ? $asset['content'] : null, $assets), 'is_string'));
+        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups, $stylesheets)->withBlockTypography($markups)->withBlockColors($markups);
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
@@ -254,7 +256,7 @@ final class SitePlanRun
         $this->timer?->start('compose.site_plan.theme_json');
         $assets = StylesheetScopes::assign($assets, StylesheetScopes::documentsBySource($assetPages, $rootDocuments));
         $projector = new ThemeJsonProjection();
-        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
+        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem, array_column(array_filter($pages, static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles'])), 'source_path'));
         $assets = $themeProjection['assets'];
         $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
         $pages = $this->presetBoundPages($pages, $documents);

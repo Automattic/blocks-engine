@@ -364,6 +364,25 @@ final class HtmlTransformerSession
         foreach ($ids as $id) $this->collapsedBoxTreeNodes[$id] = true;
     }
 
+    /** @var array<string, true> Observed link-carrier anchors (ADR 0005 `link_carrier`). */
+    private array $linkCarrierBoxTreeNodes = array();
+
+    /**
+     * Record anchors the classifier proved neutral once their link moves onto
+     * the blocks they wrap ({@see \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\BoxTreeClassifier}).
+     *
+     * @param list<string> $ids Node ids.
+     */
+    public function markLinkCarrierBoxTreeNodes(array $ids): void
+    {
+        foreach ($ids as $id) $this->linkCarrierBoxTreeNodes[$id] = true;
+    }
+
+    public function isLinkCarrierBox(\DOMElement $element): bool
+    {
+        return isset($this->linkCarrierBoxTreeNodes[$element->getAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE)]);
+    }
+
     /** The nearest source ancestor that keeps its own box in the output. */
     public function boxTreeOutputParent(\DOMElement $element): ?\DOMElement
     {
@@ -390,7 +409,7 @@ final class HtmlTransformerSession
     public function installTransformOptions(array $options): void
     {
         $this->boxTree = is_array($options['box_tree'] ?? null) ? $options['box_tree'] : array();
-        $this->collapsedBoxTreeNodes = array();
+        $this->collapsedBoxTreeNodes = $this->linkCarrierBoxTreeNodes = array();
         $this->transformationProvenanceState()->installFallback(TransformationOptions::provenance($options));
         $this->installGeneratedBlockRegistry(new GeneratedBlockRegistry(TransformOptions::generatedBlockNamespaceFromOptions($options)));
         $this->installAssetMaterializationState(new AssetMaterializationState(

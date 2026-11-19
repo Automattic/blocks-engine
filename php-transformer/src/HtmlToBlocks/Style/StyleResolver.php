@@ -1264,6 +1264,14 @@ final class StyleResolver implements ElementPresentationResolver
         if (isset(SourceDeclarations::inline($element)['font-size'])) {
             return '';
         }
+        // With box-tree evidence the author stylesheet is not shipped (ADR
+        // 0005) and the box-tree carrier owns font-size, lifting the author's
+        // breakpoint variants itself. This rescue restates author rules after
+        // that carrier: it would outrank it, and read author custom properties
+        // the route never defines.
+        if (array() !== $this->session->boxTreeViewports()) {
+            return '';
+        }
 
         $hasConditionalFontSize = false;
         foreach ($this->session->sourceStyleResolutionState()->conditionalRules() as $rule) {
@@ -3560,9 +3568,13 @@ final class StyleResolver implements ElementPresentationResolver
                 $authoredNames[strtolower($name)] ??= $name;
             }
         }
-        // Keyframes are not ordinary selector consumers. Preserve only the
-        // variables they read, not unrelated capture layout variables.
+        // Keyframes are not ordinary selector consumers. Preserve their
+        // variables and entrance motion parameters (including on folded text
+        // children), not unrelated capture layout variables.
         if ($element->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE)) {
+            foreach ($declarations as $property => $value) {
+                if (preg_match('/^--motion-/i', $property)) $required[$property] = true;
+            }
             $required = $this->inlineCustomPropertiesRequired(
                 $declarations,
                 $required + $this->keyframeCustomProperties($this->session->authorStyleAnalysis()->combinedCss())
@@ -5544,16 +5556,46 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Provenance of class observations, in the same shorthand/cascade order
+     * as presentation values. Desktop rules fill missing resting families.
+     *
+     * @return array<string, string> `0` for a recipe, `!context` otherwise.
+     */
+    public function classRecipeOrigins(DOMElement $element): array
+    {
+        $state = $this->session->sourceStyleResolutionState();
+        $inline = SourceDom::attr($element, 'style');
+        $resting = $this->cascadeWinners($state->matchingRules($element, 'static'), self::DESKTOP_REFERENCE_WIDTH, null, $inline, true);
+        return $resting + $this->cascadeWinners($state->matchingRules($element, 'static-conditional'), self::DESKTOP_REFERENCE_WIDTH, null, $inline, true);
+    }
+
+    /** Only a selector that matches the element by itself, with no ancestry or position, defines a portable recipe. */
+    private function isClassRecipeSelector(string $selector): bool
+    {
+        $parsed = $this->session->sourceStyleResolutionState()->parsedSelector($selector);
+        if (!($parsed['supported'] ?? false) || count($parsed['compounds']) !== 1 || array() !== $parsed['combinators']) return false;
+        $compound = $parsed['compounds'][0];
+        // Functional selectors can hide ancestry or position constraints.
+        // Conservatively retain their ownership in the source stylesheet.
+        return empty($compound['not']) && empty($compound['any']) && empty($compound['has'])
+            && empty($compound['nth_child']) && empty($compound['nth_type'])
+            && empty($compound['first_child']) && empty($compound['last_child']) && empty($compound['last_type'])
+            && empty($compound['empty']) && empty($compound['root']) && empty($compound['resting_state_negations'])
+            && null === ($parsed['pseudo_state_suffix_span'] ?? null);
+    }
+
+    /**
      * Serialized cascade winners of matched rules at one viewport, with the
      * inline style applied over them.
      *
      * @param list<array<string, mixed>> $rules
      * @return array<string, string>
      */
-    private function cascadeWinners(array $rules, float $viewportWidth, ?callable $excludeSelector, string $inlineStyle): array
+    private function cascadeWinners(array $rules, float $viewportWidth, ?callable $excludeSelector, string $inlineStyle, bool $recipeOrigins = false): array
     {
         $cascade = array();
         $sequence = 0;
+        $recipes = array();
         foreach ( $rules as $rule ) {
             if ( ( ! empty($rule['conditions']) && ! $this->cascade->conditionsApplyAtViewport($rule['conditions'], $viewportWidth) )
                 || ( null !== $excludeSelector && $excludeSelector((string) $rule['selector']) )
@@ -5563,6 +5605,7 @@ final class StyleResolver implements ElementPresentationResolver
 
             $specificity = $this->cascade->specificity($rule['selector']);
             foreach ( $rule['declarations'] as $property => $value ) {
+                if ($recipeOrigins) $recipes[$sequence + 1] = $this->isClassRecipeSelector((string) $rule['selector']);
                 $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, false, $specificity, ++$sequence, $rule['layerRank'] ?? null);
             }
         }
@@ -5580,7 +5623,9 @@ final class StyleResolver implements ElementPresentationResolver
         $declarations = array();
         foreach ( $cascade as $property => $entry ) {
             if ( "\0all" !== $property ) {
-                $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
+                $declarations[$property] = $recipeOrigins
+                    ? (($entry['inline'] || ($recipes[$entry['sequence']] ?? false)) ? '0' : '!context')
+                    : $entry['value'] . ($entry['important'] ? ' !important' : '');
             }
         }
 

@@ -25,9 +25,11 @@ $guarded = new PresetBinding($system, array(array('kind' => 'css', 'content' =>
 if (!str_contains($guarded->bind($button), 'color:#116dff')) {
     throw new RuntimeException('A matching subject type must retain the style-text safety guard');
 }
+// A bare type selector stays below the single-class preset rule, so only
+// the subject type decides whether the guard applies.
 foreach (array('span' => false, 'a' => true) as $tag => $matches) {
     $important = new PresetBinding($system, array(array('kind' => 'css', 'content' =>
-        $tag . '.blocks-engine-subject{color:red!important}'
+        $tag . '{color:red!important}'
     )));
     $retained = str_contains($important->bind($button), 'color:#116dff');
     if ($retained !== $matches) throw new RuntimeException('Important paint guard must respect the subject type: ' . $tag);

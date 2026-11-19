@@ -736,7 +736,7 @@ final class GeneratedBlockStyleProjector
                 . $button . '>.wp-block-button__link{word-break:normal}'
                 . ($hasWidth || ! $isFlex ? '' : $wrapper . '{width:auto!important}')
                 . ($isGrid ? $button . '{width:100%}' : '')
-                . ($isFlex ? $button . '{width:100%!important;height:100%}' . $link . '{' . ($hasWidth ? '' : 'width:100%!important;') . 'height:100%}' : '')
+                . ($isFlex ? $button . '{' . (! $isColumn || $stretchesCrossAxis ? 'width:100%!important;' : '') . 'height:100%}' . $link . '{' . (! $hasWidth && (! $isColumn || $stretchesCrossAxis) ? 'width:100%!important;' : '') . 'height:100%}' : '')
                 . $stretchRule
         );
     }
@@ -751,11 +751,18 @@ final class GeneratedBlockStyleProjector
      * (`center`, `flex-start`, `flex-end`, `baseline`, ...) means the source
      * anchor sized to its own content instead of the row, and the button must
      * keep hugging its label rather than stretching to the container width.
+     * Stretch also requires an automatic cross size: an authored non-auto
+     * width keeps its own sizing regardless of the alignment keywords.
      *
      * @param array<string, string> $parentStyle
      */
     private function columnFlexChildStretches(array $parentStyle, DOMElement $control): bool
     {
+        $width = CssValueInspector::declared($this->styleResolver->resolvedSourceStateDeclarations($control), 'width');
+        if ( ! in_array($width, array( '', 'auto' ), true) ) {
+            return false;
+        }
+
         $alignSelf = CssValueInspector::comparable(
             (string) ($this->styleResolver->structuralPresentationDeclarations($control)['align-self'] ?? '')
         );

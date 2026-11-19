@@ -69,6 +69,7 @@ Two audiences read this vocabulary:
 | ---- | ---- | ----- | ------- |
 | `data-blocks-engine-capture-document-scope` | attribute (flag) | ignored | The element is a body-equivalent document root. With `device-document` it declares a device profile. |
 | `data-blocks-engine-capture-device-document` | attribute | `[a-z][a-z0-9_-]{0,63}` | Profile id of a declared document scope. |
+| `data-blocks-engine-capture-device-unavailable` | attribute (flag) | ignored | Device-selection notice: capture-runtime chrome, not source content. The element and its subtree are omitted from compiled blocks regardless of visibility or selection state. |
 | `data-blocks-engine-capture-device-only` | attribute | device profile id (for example `mobile`) | Folded device-specific subtree, rather than a separate document. Its host, attributes and classes survive compilation so capture visibility CSS can select it; the buttons recognizer does not replace a marked host. For width-selected captures, a part that becomes a core block carries core-named markers as core block visibility (`metadata.blockVisibility.viewport`). When the marked device-visibility stylesheet gates on `data-blocks-engine-capture-selected-document`, all profiles instead use `blocks-engine-device-only-<profile>` (or `blocks-engine-device-hide-<profile>`) with a selected-document rule in the engine support stylesheet; absent selection defaults to desktop. Profiles other than `mobile`, `tablet` or `desktop` always use these classes. Only width-gated sibling navigation with the same links, one for `mobile` and one hidden on `mobile`, becomes one block with `overlayMenu` set to `mobile`, hidden only where both copies were. Document-selected pairs stay separate. |
 | `data-blocks-engine-capture-device-hide` | attribute | device profile id (for example `mobile`) | Subtree hidden on this device profile by capture visibility CSS; preserved on its emitted host like `device-only`. |
 | `data-blocks-engine-capture-selected-document` | attribute on `<html>` | profile id | The device profile the selection runtime chose. Written at runtime, so author selectors on it stay live. The engine support rule for fallback device classes selects on it. |
@@ -187,6 +188,8 @@ See [Native control state](../native-control-state.md).
 | `data-blocks-engine-capture-anchor-target` | attribute | fragment | On an empty placeholder: the fragment a route's link scrolls to. Inside route chrome it moves to just before the chrome landmark, so it stays with that route rather than the shared part. |
 | `data-blocks-engine-capture-viewport-entrance` | attribute | JSON | Recorded entrance states of an element the source reveals as it scrolls into view; layout shells carrying it are labelled "Scroll reveal". Shared source-shell identity ignores this evidence and attributes matching its recorded `after` states. The emitted shared part prefers a member with observed entrance evidence and retains it for replay. Native leaf blocks carry the evidence in render metadata so their saved markup remains Gutenberg-valid. One engine-owned front-end runtime replays the capture activator's attribute poses, observer options and repeat semantics; it is not loaded in the editor. Saved markup stays in its final state without JavaScript, with reduced motion, or without IntersectionObserver. |
 | `data-blocks-engine-capture-viewport-entrances` | attribute | presence | Marks the capture's own entrance activator `<script>`. It addresses entrance evidence, not source behavior, so runtime-selector analysis excludes it. |
+| `data-blocks-engine-capture-runtime-owner` | attribute | region id | On the root of a runtime-owned region: the id of its record in the `runtime-owned-regions` source evidence. The compiler hands that region to its site owner before form discovery and DOM conversion. |
+| `data-blocks-engine-capture-source-evidence` | attribute on JSON `<script>` | sidecar name | Names the inline capture evidence the script carries (`runtime-owned-regions`). |
 
 ### Component replay
 
@@ -213,6 +216,7 @@ are skipped with one structured warning, not a fatal error.
 | `blocks-engine-capture/source-interactivity/v1` | receipt `sourceInteractivity.schema` | Source interactivity summary. |
 | `blocks-engine-capture/finite-bootstrap/v1` | filter `finiteBootstrap.schema` | Finite collection bootstrap record. |
 | `blocks-engine-capture/collection-status/v1` | filter `finiteBootstrap.status.schema` | Collection status labels. |
+| `blocks-engine-capture/runtime-owned-regions/v1` | inline `runtime-owned-regions` source evidence `schema` | Capture-proven runtime regions, keyed by id, handed to site owners. |
 
 ### Runtime scripts
 

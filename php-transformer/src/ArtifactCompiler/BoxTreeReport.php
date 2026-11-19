@@ -20,8 +20,9 @@ final class BoxTreeReport
         foreach ($files as $file) {
             if (!BoxTree::isSidecarPath($file['path'])) continue;
             $content = $file['content'] ?? '';
-            $tree = strlen($content) <= BoxTree::MAX_BYTES ? json_decode($content, true, 32) : null;
-            $code = self::validate($tree, $sources);
+            $decoded = strlen($content) <= BoxTree::MAX_BYTES ? json_decode($content, true, 32) : null;
+            $tree = BoxTree::expandCompact($decoded);
+            $code = null === $tree && null !== $decoded ? 'box_tree_styles_invalid' : self::validate($tree, $sources);
             if (null === $code) {
                 $path = $tree['source_path'];
                 if (isset($seen[$path])) {
@@ -31,7 +32,7 @@ final class BoxTreeReport
                 $seen[$path] = true;
             }
             if (null !== $code) {
-                $diagnostics[] = ArtifactDiagnostics::make($code, 'warning', 'Box-tree evidence was rejected; conversion continues without it.', array_filter(array('path' => $file['path'], 'source_path' => is_array($tree) && is_string($tree['source_path'] ?? null) ? $tree['source_path'] : null)));
+                $diagnostics[] = ArtifactDiagnostics::make($code, 'warning', 'Box-tree evidence was rejected; conversion continues without it.', array_filter(array('path' => $file['path'], 'source_path' => is_array($decoded) && is_string($decoded['source_path'] ?? null) ? $decoded['source_path'] : null)));
                 continue;
             }
             $trees[$tree['source_path']] = $tree;

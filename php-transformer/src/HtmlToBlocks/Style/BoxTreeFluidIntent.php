@@ -91,8 +91,10 @@ use DOMElement;
  * redefines a scaling token, or sets another pixel length such as an image
  * height under a breakpoint), the lift is a set of bands keyed by the
  * author's own breakpoint, not the capture width. Captures verify the
- * declarations active there; author variants between captures are retained
- * even when no capture falls inside that media condition. Only unexplained
+ * declarations active there; resting author variants between captures and
+ * outside the captured range (below the narrowest or above the widest capture)
+ * are retained even when no capture falls inside that media condition. Thus a
+ * desktop-only route keeps the author's mobile-first rules. Only unexplained
  * observations keep their capture bands.
  *
  * A `%` width or height is proven against the used value its observed
@@ -268,18 +270,24 @@ final class BoxTreeFluidIntent
         $this->requested = array_values(array_unique(array_merge($properties, $shorthands, $aliases)));
         // The widths where the author's cascade can change between captures.
         $samples = array();
+        $authorSamples = array();
         $widest = reset($widths);
         $narrowest = end($widths);
         foreach ($resolver->authorViewport->widthBreakpoints() as $breakpoint) {
             foreach (array(floor($breakpoint), floor($breakpoint) + 1) as $width) {
                 if ($width > $narrowest && $width < $widest) $samples[(string) $width] = $width;
             }
+            // Resting author lifts need no capture in every band. Sample both
+            // sides of each switch, including variants outside the captures.
+            foreach (array(floor($breakpoint) - 1, floor($breakpoint), floor($breakpoint) + 1) as $width) {
+                if ($width > 0) $authorSamples[(string) $width] = $width;
+            }
         }
-        foreach ($widths as $width) unset($samples[(string) $width]);
+        foreach ($widths as $width) unset($samples[(string) $width], $authorSamples[(string) $width]);
         $inheriting = in_array($blockName, self::INHERITING_BLOCKS, true);
         $lifted = array();
         foreach ($properties as $property) {
-            $bands = $this->liftedAuthor($property, $widths, $samples, $observations, $viewports, $parents)
+            $bands = $this->liftedAuthor($property, $widths, $authorSamples, $observations, $viewports, $parents)
                 ?? (isset(self::KEYWORD_SWITCHES[$property]) ? $this->liftedKeyword($property, $widths, $samples, $observations, $parents) : $this->liftedExpression($property, $widths, $samples, $observations, $viewports, $parents))
                 ?? $this->liftedIntrinsic($property, $widths, $samples)
                 ?? $this->liftedAutoMargin($property, $widths, $samples)
@@ -486,7 +494,14 @@ final class BoxTreeFluidIntent
     {
         [$initial] = self::INTRINSIC[$property];
         foreach (array_slice(self::INTRINSIC[$property], 1) as $alias) {
-            if (null !== $this->declared($alias, $width)) return null;
+            $aliasValue = $this->declared($alias, $width);
+            if (null === $aliasValue) continue;
+            // Explicit logical auto sizes still leave block height to layout;
+            // they must not freeze grid/flex stretch as a physical height.
+            if (in_array($property, array('height', 'min-height'), true)
+                && in_array(strtolower($aliasValue), array('auto', 'initial', 'unset'), true)
+                && null === $this->declared($property, $width)) continue;
+            return null;
         }
         $grid = in_array($property, self::GRID_TEMPLATES, true);
         $offset = in_array($property, self::OFFSETS, true);

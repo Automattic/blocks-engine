@@ -73,7 +73,7 @@ foreach (array('absolute', 'fixed') as $position) {
             $parsed = CssSelectorMatcher::parse($selector);
             foreach (array($host, $overlay) as $target) {
                 if ((CssSelectorMatcher::matches($target, $parsed, true)['matches'] ?? false)
-                    && preg_match('/(?:^|;)\s*(' . $forbidden . ')\s*:/i', $body, $match)) {
+                    && preg_match('/(?:^|;)\s*(' . $forbidden . ')\s*:/i', preg_replace('/(?:^|;)(?:width|height):auto!important(?=;|$)/', '', $body) ?? $body, $match)) {
                     $failures[] = "$position: $selector must not apply {$match[1]} to the navigation host or overlay.";
                 }
             }

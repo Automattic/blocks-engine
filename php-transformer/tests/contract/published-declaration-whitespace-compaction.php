@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
-require dirname(__DIR__, 2) . '/vendor/autoload.php';
+// Exercise the public plugin bootstrap, including checkouts without Composer.
+require dirname(__DIR__, 2) . '/php-transformer.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssDeclarationWhitespaceCompactor;

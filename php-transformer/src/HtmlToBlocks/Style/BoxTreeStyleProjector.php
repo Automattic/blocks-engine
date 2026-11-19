@@ -27,10 +27,51 @@ final class BoxTreeStyleProjector
      * @param string $sourceTag The observed source element's tag name.
      * @param array{observations?: array<string, array<string, mixed>>, parents?: array<string, array<string, mixed>>, fluid?: array<string, list<array{0: float|null, 1: string}>>} $image
      *        The painting `<img>` inside an authored core/image `<figure>`: its observations, its parent's, and its lifted author values.
+     * @param array{observations?: array<string, array<string, mixed>>, parents?: array<string, array<string, mixed>>, fluid?: array<string, list<array{0: float|null, 1: string}>>, pseudoFluid?: array<string, array<string, list<array{0: float|null, 1: string}>>>} $summary
+     *        The source `<summary>` of a core/details, the same way, plus its pseudo-elements' lifted author values.
      * @param bool $inlineSupports Whether invariant declarations may become block style attributes. A block whose
      *        saved markup is built by hand (and so never serializes them) keeps every declaration in its carrier.
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array(), bool $inlineSupports = true): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array(), array $summary = array(), bool $inlineSupports = true): array
+    {
+        $attrs = $this->projectBlock($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid, $sourceTag, $image, $inlineSupports);
+        $summaryObservations = $summary['observations'] ?? array();
+        if ('core/details' !== $blockName || array() === $summaryObservations) return $attrs;
+        // core/details saves a bare `<summary>`: the source summary's whole
+        // observed box, pseudo-elements included, lands on that rendered
+        // element through the block's carrier, like any source-node mapping.
+        $selector = self::SELECTOR . ' > summary';
+        return $this->projectRenderedElement($attrs, $summaryObservations, $viewports, $state, $summary['parents'] ?? array(), $summary['fluid'] ?? array(), false, $selector, 'core/details', 'summary', $summary['pseudoFluid'] ?? array(), $this->disclosureMarkerCss($summaryObservations, $viewports, $selector));
+    }
+
+    /**
+     * WebKit paints a summary's disclosure triangle as its own
+     * `::-webkit-details-marker`, which neither `list-style` nor `display`
+     * reaches. Where the source summary shows no list-item marker (its
+     * `list-style-type` is `none`, or it is not a list item) the author hid
+     * that marker too, so it is hidden at the same captures.
+     *
+     * @param array<string, array<string, mixed>> $observations The source summary's, by viewport key.
+     */
+    private function disclosureMarkerCss(array $observations, array $viewports, string $selector): string
+    {
+        $keys = array_values(array_filter(array_map('strval', array_keys($observations)), static fn(string $key): bool => isset($viewports[$key]['width']) && is_array($observations[$key]['used_styles'] ?? null)));
+        usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
+        $css = '';
+        $hidden = false;
+        foreach ($keys as $index => $key) {
+            $styles = $observations[$key]['used_styles'];
+            $hides = 'none' === ($styles['list-style-type'] ?? null) || 'list-item' !== ($styles['display'] ?? 'list-item');
+            if ($hides === $hidden) continue;
+            $hidden = $hides;
+            $rule = $this->rule($selector . '::-webkit-details-marker', array('display' => $hides ? 'none' : 'revert'));
+            $css .= 0 === $index ? $rule : '@media (max-width:' . (int) $viewports[$key]['width'] . 'px){' . $rule . '}';
+        }
+        return $css;
+    }
+
+    /** {@see self::project()} for the block's own source element and an authored figure's image. */
+    private function projectBlock(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $blockName, array $fluid, array $pseudoFluid, string $sourceTag, array $image, bool $inlineSupports): array
     {
         $target = self::renderedElement($blockName, $attrs, $sourceTag);
         if (array() !== $observations) {
@@ -123,8 +164,9 @@ final class BoxTreeStyleProjector
      *
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
      * @param bool $synthetic Whether the carrier host exists only for core markup.
+     * @param string $extraCss Carrier rules for the element that no observed longhand expresses.
      */
-    private function projectRenderedElement(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, array $fluid, bool $synthetic, string $selector, string $blockName, string $sourceTag, array $pseudoFluid = array()): array
+    private function projectRenderedElement(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, array $fluid, bool $synthetic, string $selector, string $blockName, string $sourceTag, array $pseudoFluid = array(), string $extraCss = ''): array
     {
         $keys = array_keys($observations);
         usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
@@ -169,7 +211,7 @@ final class BoxTreeStyleProjector
         $boxless = $synthetic && null === $split
             && !in_array(SourceBlockAttributeProjector::INLINE_ANCHOR_CARRIER_CLASS, SourceDom::tokens((string) ($attrs['className'] ?? '')), true);
         $wrapper = $boxless ? $this->rule(self::SELECTOR, array('display' => 'contents')) : '';
-        $class = $this->carrier($wrapper . $css, $state);
+        $class = $this->carrier($wrapper . $css . $extraCss, $state);
         if ('' === $class) return $attrs;
         if ($synthetic) $state->markBoxlessImageFigureCarrier($class);
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
@@ -216,6 +258,9 @@ final class BoxTreeStyleProjector
         $baseKey = $keys[0];
         $parentDisplay = (string) ($parents[$baseKey]['used_styles']['display'] ?? '');
         $item = 1 === preg_match('/(?<![\w-])(?:inline-)?(?:flex|grid)(?![\w-])/', $parentDisplay);
+        // Outside a layout item there is no wrapper box to place. Keep
+        // positioning (including fixed offsets) on the source link itself.
+        if (!$item) return null;
         $outer = $item ? self::OUTER_BOX + self::OUTER_ITEM_SIZE : self::OUTER_BOX;
         $placed = array();
         $declaredOuter = array();
@@ -404,6 +449,16 @@ final class BoxTreeStyleProjector
      */
     private const GRID_LINES = array('grid-row-start' => true, 'grid-row-end' => true, 'grid-column-start' => true, 'grid-column-end' => true);
 
+    /**
+     * Heights BoxTreeFluidIntent lifts as `auto` when no author rule sizes the
+     * box at any width. A captured pixel height is then what layout made of
+     * the box (grid or flex stretch, row sizing, content), not author intent:
+     * the lift replaces it at every capture, including those that pruned the
+     * initial `auto`, so no capture's used height freezes as a floor or a
+     * fixed size for the widths between captures.
+     */
+    private const LAYOUT_HEIGHTS = array('height' => true, 'min-height' => true);
+
     private const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
 
     /**
@@ -433,14 +488,15 @@ final class BoxTreeStyleProjector
         foreach ($fluid as $property => $propertyBands) {
             if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
             $kept = 0;
+            $layoutHeight = isset(self::LAYOUT_HEIGHTS[$property]) && array() === array_diff(array_column($propertyBands, 1), array('auto'));
             foreach ($keys as $key) {
                 if (isset($declarations[$key][$property])) {
                     ++$kept;
                     continue;
                 }
-                if (!isset(self::SWITCHED_KEYWORDS[$property]) && !isset(self::GRID_LINES[$property])) continue 2;
+                if (!isset(self::SWITCHED_KEYWORDS[$property]) && !isset(self::GRID_LINES[$property]) && !$layoutHeight) continue 2;
             }
-            if (0 === $kept && isset(self::GRID_LINES[$property])) continue;
+            if (0 === $kept && (isset(self::GRID_LINES[$property]) || $layoutHeight)) continue;
             foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
             if (1 === count($propertyBands) && 'display' !== $property) $unbanded[] = $property;
             foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
