@@ -107,7 +107,7 @@ final class EngineSupportCss
             // A lowered block-level source wrapper keeps its block box.
             $parts[] = ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:inline}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'
-                . "\n" . ':where(p.blocks-engine-inline-anchor-carrier){display:inline}'
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::INLINE_ANCHOR_CARRIER_CLASS . '){display:inline}'
                 // A parent's sibling-spacing rule (`.stack > * + *`) now matches the
                 // carrier, whose margins do nothing as display:contents. The
                 // anchor it stands for takes them instead, as in the source.
@@ -147,8 +147,9 @@ final class EngineSupportCss
             // core/image inserts a figure between a source flex/grid item and
             // the image. Keep the wrapper in the DOM for Gutenberg, but remove
             // its layout box so the source image retains its native replaced-
-            // element min-content and flex-shrink behavior.
-            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '){display:contents}'
+            // element min-content and flex-shrink behavior. A `hidden` figure
+            // keeps the UA `display:none`, also when script toggles it later.
+            $parts[] = ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . ':not([hidden])){display:contents}'
                 // Gutenberg selects the block root, not its img. A transparent
                 // root has no hit-test box and cannot expose the image toolbar.
                 . ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::SYNTHETIC_FLEX_IMAGE_FIGURE_CLASS . '.wp-block-image{display:block}';
@@ -232,8 +233,9 @@ final class EngineSupportCss
             // This figure has no source box. Remove its layout box so image
             // percentages keep the source containing block, rather than a
             // cyclic shrink-to-fit basis. Keep the image itself inline too.
+            // A `hidden` figure keeps the UA `display:none` at the same weight.
             $inlineFigure = ':root .' . SourceBlockAttributeProjector::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS;
-            $parts[] = $inlineFigure . '{display:contents}'
+            $parts[] = $inlineFigure . ':where(:not([hidden])){display:contents}'
                 // Keep a selectable, shrink-wrapped root in Gutenberg only.
                 // Source positioning belongs to the image's transparent front-end
                 // carrier. Applying it to an editor box can stack block roots on
@@ -266,9 +268,10 @@ final class EngineSupportCss
             // parent was image + strut tall. Keep that line box: the figure has
             // no source box and the image stays inline on the source baseline.
             // This figure owns no source positioning, so unlike the inline
-            // carrier its image never inherits the figure's placement.
+            // carrier its image never inherits the figure's placement. A
+            // `hidden` figure keeps the UA `display:none` at the same weight.
             $strutFigure = SourceBlockAttributeProjector::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS;
-            $parts[] = ':root .' . $strutFigure . '{display:contents}'
+            $parts[] = ':root .' . $strutFigure . ':where(:not([hidden])){display:contents}'
                 // Gutenberg still needs a selectable, shrink-wrapped block root.
                 . ':root .editor-styles-wrapper figure.' . $strutFigure . '.wp-block-image{display:inline-block}'
                 . ':root .' . $strutFigure . ' img{display:inline}'
@@ -907,6 +910,11 @@ final class EngineSupportCss
             $fill = ':root .wp-block-cover.' . CoverPattern::FILL_CLASS . '>.wp-block-cover__inner-container';
             $parts[] = $fill . '{flex:1 1 auto;align-self:stretch;display:flex;flex-direction:column}';
             $parts[] = $fill . '>.wp-block-group{flex-grow:1}';
+        }
+        if ( str_contains($serializedBlocks, CoverPattern::GAP_CLASS) ) {
+            $gap = ':root .wp-block-cover.' . CoverPattern::GAP_CLASS . '>.wp-block-cover__inner-container';
+            $parts[] = $gap . '{gap:inherit}';
+            $parts[] = $gap . '>.wp-block-group{gap:inherit}';
         }
         if ( preg_match_all('/(?<![\w-])' . preg_quote(CoverPattern::STACK_CLASS_PREFIX, '/') . '(\d+)(?![\w-])/', $serializedBlocks, $stackMatches) ) {
             foreach ( array_unique($stackMatches[1]) as $stackOrder ) {

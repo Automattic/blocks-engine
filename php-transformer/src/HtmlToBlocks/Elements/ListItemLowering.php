@@ -89,6 +89,18 @@ final class ListItemLowering
         $items = array();
         foreach ( $this->listStructure->listMemberElements($list) as $child ) {
             if ( 'li' !== strtolower($child->tagName) ) {
+                if ( ! $this->listStructure->listNonItemChildCarriesContent($child) ) {
+                    continue;
+                }
+
+                // Keep the source element itself (not just its text) inside
+                // the synthetic item, so bare anchors retain their links and
+                // styling. Do not mutate the source DOM used by CSS matching.
+                $wrapper = $child->ownerDocument->createElement('li');
+                $wrapper->appendChild($child->cloneNode(true));
+                $items[] = $this->blocks->createBlock('core/list-item', array(
+                    'content' => $this->listItemContentWithoutNestedLists($wrapper),
+                ));
                 continue;
             }
 

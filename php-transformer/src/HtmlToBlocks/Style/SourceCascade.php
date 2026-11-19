@@ -326,9 +326,10 @@ final class SourceCascade
      * @param list<string> $properties
      * @param iterable<array{selectors: list<string>, declarations: array<string, string>, conditions: list<string>, layer?:int|null}> $rules
      * @param callable(string): bool $matches Whether one selector matches the element.
+     * @param bool $elementStyles Whether the element's inline style and presentational hints apply (not to its pseudo-elements).
      * @return array<string, string>
      */
-    public function declarationsAtViewport(DOMElement $element, array $properties, iterable $rules, callable $matches, float $viewportWidth = StyleResolver::MOBILE_REFERENCE_WIDTH): array
+    public function declarationsAtViewport(DOMElement $element, array $properties, iterable $rules, callable $matches, float $viewportWidth = StyleResolver::MOBILE_REFERENCE_WIDTH, bool $elementStyles = true): array
     {
         $facts = array();
         $requested = array_flip($properties);
@@ -355,7 +356,7 @@ final class SourceCascade
                 ));
             }
         }
-        $inline = SourceDeclarations::inline($element);
+        $inline = $elementStyles ? SourceDeclarations::inline($element) : array();
         foreach ( $inline as $property => $value ) {
             if ( ! isset($requested[$property]) || '' === trim($value) ) continue;
             CssCascade::apply($facts, $property, array(
@@ -366,7 +367,7 @@ final class SourceCascade
         }
         uasort($facts, static fn(array $left, array $right): int => CssCascade::wins($left, $right) ? 1 : -1);
         return array_replace(
-            array_intersect_key(self::presentationalHints($element), $requested),
+            $elementStyles ? array_intersect_key(self::presentationalHints($element), $requested) : array(),
             array_map(static fn(array $fact): string => $fact['value'], $facts)
         );
     }

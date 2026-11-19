@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -254,7 +255,7 @@ final class SearchBlockConverter implements ElementConverter
         $inputCss = 'padding:1px 2px;';
         $buttonCss = '';
         if ( $button instanceof DOMElement ) {
-            $buttonCss = $this->sourceControlPadding($button, '1px 6px');
+            $buttonCss = $this->sourceControlPadding($button, '1px 6px') . $this->uaButtonPaint($button);
             if ( $this->isIconOnlySearchControl($button) ) {
                 // Core replaces the source glyph with an SVG using currentColor.
                 // Resolve on the glyph first, then its ancestors (including the
@@ -316,6 +317,57 @@ final class SearchBlockConverter implements ElementConverter
             return $marker;
         }
         return '';
+    }
+
+    /**
+     * UA button paint for a source submit whose background, border or text
+     * color no author rule sets. core/search renders a `.wp-element-button`,
+     * which otherwise takes core's dark button default (`#32373c` on `#fff`)
+     * while author text rules such as `*{color:#444}` still reach it. Authored
+     * properties are left to the projected author cascade.
+     */
+    private function uaButtonPaint(DOMElement $control): string
+    {
+        $tagName = strtolower($control->tagName);
+        if ( 'button' !== $tagName && 'input' !== $tagName ) {
+            return '';
+        }
+
+        $css = '';
+        foreach ( self::UA_BUTTON_PAINT as $declaration => $properties ) {
+            if ( ! $this->declaresAnyProperty($control, $properties) ) {
+                $css .= $declaration . ';';
+            }
+        }
+
+        return $css;
+    }
+
+    /** Chromium's resolved light-scheme paint for an unstyled submit button. */
+    private const UA_BUTTON_PAINT = array(
+        'background-color:#efefef' => array( 'background', 'background-color', 'background-image' ),
+        'border:2px outset #767676' => array(
+            'border', 'border-width', 'border-style', 'border-color',
+            'border-top', 'border-right', 'border-bottom', 'border-left',
+            'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+            'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
+            'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
+        ),
+        'color:#000' => array( 'color' ),
+    );
+
+    /** @param list<string> $properties */
+    private function declaresAnyProperty(DOMElement $control, array $properties): bool
+    {
+        $inline = SourceDeclarations::inline($control);
+        foreach ( $properties as $property ) {
+            if ( isset($inline[$property]) || isset($inline['all'])
+                || ! $this->presentationResolver->declaredPresentation($control, $property)->isEmpty() ) {
+                return true;
+            }
+        }
+
+        return ! $this->presentationResolver->declaredPresentation($control, 'all')->isEmpty();
     }
 
     private function sourceControlPadding(DOMElement $control, string $uaPadding): string
