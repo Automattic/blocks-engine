@@ -96,6 +96,16 @@ final class NavigationPattern implements PatternRecognizerInterface
     /** A dialog entry carried into the overlay; hidden where the row shows in full. */
     private const MENU_FOLD_OVERLAY_ONLY_CLASS = 'blocks-engine-menu-fold-overlay-only';
 
+    /**
+     * Whether a menu toggle's controlled panel holds its list through
+     * sole-child wrappers, so the panel itself becomes the navigation rather
+     * than deferring to the wrapper (#6807).
+     */
+    public function ownsToggledPanelList(DOMElement $element, ?NavigationPatternContext $navigationContext): bool
+    {
+        return array() !== $this->toggledPanelListWrappers($element, $navigationContext);
+    }
+
     public function claimsBeforeAuthorOwnedLayout(DOMElement $element): bool
     {
         $tag = strtolower($element->tagName);
@@ -341,7 +351,8 @@ final class NavigationPattern implements PatternRecognizerInterface
                 }
             }
         }
-        if ( 'nav' !== strtolower($element->tagName) && ! $isLandmarkList && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
+        if ( 'nav' !== strtolower($element->tagName) && ! $isLandmarkList && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element)
+            && array() === $this->toggledPanelListWrappers($element, $navigationContext) ) {
             return null;
         }
 
@@ -4138,6 +4149,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $list instanceof DOMElement && ! $list->isSameNode($element) ) {
             $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($list));
             $listClasses = trim((string) ($listAttrs['className'] ?? ''));
+            foreach ( array_reverse($this->toggledPanelListWrappers($element, $navigationContext)) as $wrapper ) {
+                $listClasses = SourceDom::mergeClassNames(trim((string) ($this->withoutCoreNavigationClasses($presentationAttributes($wrapper))['className'] ?? '')), $listClasses);
+            }
             if ( '' !== $listClasses ) {
                 if ( true === ($attrs['metadata']['blocksEngineNavigationContainer']['ownsSource'] ?? false) ) {
                     // The list renders inside that panel, so its classes follow it.
@@ -5804,6 +5818,58 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return true;
+    }
+
+    /**
+     * The sole-child wrappers between a menu toggle's controlled panel and its
+     * navigation list, outer first. Folding the menu into such a wrapper would
+     * leave Core's opener inside the hidden panel, so the panel itself becomes
+     * the navigation and the wrappers' classes follow the list's onto it.
+     *
+     * @return list<DOMElement> Empty unless $element is that panel.
+     */
+    private function toggledPanelListWrappers(DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    {
+        $id = trim(SourceDom::attr($element, 'id'));
+        if ( '' === $id || null === $navigationContext ) {
+            return array();
+        }
+        $wrappers = array();
+        for ( $node = $this->soleElementChild($element); $node instanceof DOMElement && in_array(strtolower($node->tagName), array( 'div', 'span', 'section' ), true); $node = $this->soleElementChild($node) ) {
+            $wrappers[] = $node;
+        }
+        if ( array() === $wrappers || ! $node instanceof DOMElement
+            || ! in_array(strtolower($node->tagName), array( 'ul', 'ol' ), true) || ! $this->hasNavigationSignal($node) ) {
+            return array();
+        }
+        $toggle = $navigationContext->navigationToggleControl($element);
+        if ( ! $toggle instanceof DOMElement ) {
+            return array();
+        }
+        $targets = array_map(
+            static fn (string $token): string => ltrim($token, '#'),
+            SourceDom::tokens(SourceDom::attr($toggle, 'aria-controls') . ' ' . ( SourceDom::attr($toggle, 'data-bs-target') ?: SourceDom::attr($toggle, 'data-target') ))
+        );
+
+        return in_array($id, $targets, true) ? $wrappers : array();
+    }
+
+    private function soleElementChild(DOMElement $element): ?DOMElement
+    {
+        $sole = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return null;
+            }
+            if ( $child instanceof DOMElement ) {
+                if ( $sole instanceof DOMElement ) {
+                    return null;
+                }
+                $sole = $child;
+            }
+        }
+
+        return $sole;
     }
 
     private function hasDirectListNavigationSignal(DOMElement $element): bool

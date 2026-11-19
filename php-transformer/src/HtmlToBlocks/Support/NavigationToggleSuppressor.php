@@ -1454,7 +1454,9 @@ final class NavigationToggleSuppressor
     private function isCheckboxBoundEmptyLabel(DOMElement $element): bool
     {
         $controlId = trim(SourceDom::attr($element, 'for'));
-        if ( '' === $controlId || '' !== $this->visibleMenuToggleLabel($element) ) {
+        // A label in a form is never the toggle; decide that before reading
+        // its visible text through the cascade.
+        if ( '' === $controlId || self::isInsideForm($element) || '' !== $this->visibleMenuToggleLabel($element) ) {
             return false;
         }
 
@@ -1467,15 +1469,18 @@ final class NavigationToggleSuppressor
             return false;
         }
 
-        foreach ( array( $element, $control ) as $candidate ) {
-            for ( $node = $candidate->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-                if ( 'form' === strtolower($node->tagName) ) {
-                    return false;
-                }
+        return ! self::isInsideForm($control);
+    }
+
+    private static function isInsideForm(DOMElement $element): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'form' === strtolower($node->tagName) ) {
+                return true;
             }
         }
 
-        return true;
+        return false;
     }
 
     private function hasCheckboxNavigationToggleSignal(DOMElement $label, DOMElement $control): bool

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 
 $failures = 0;
 $passes = 0;
@@ -32,6 +33,28 @@ $assert(1 === substr_count($duplicates, 'body.admin-bar .x{'), 'duplicate author
 $many = '';
 for ($index = 0; $index < 101; ++$index) $many .= '.x' . $index . '{position:fixed;top:0}';
 $assert(100 === substr_count($build($many), 'body.admin-bar .x'), 'accommodation caps generated overrides');
+
+// Each emitted selector must still reach the header once body carries `admin-bar`
+// (Automattic/blocks-engine#6803): a leading body compound gains the class, and a
+// leading html/:root compound stays the root ahead of the body scope.
+$rootedCases = array(
+    '.hdr' => array('html' => '', 'body' => 'admin-bar'),
+    'body.x .hdr' => array('html' => '', 'body' => 'admin-bar x'),
+    'html.y .hdr' => array('html' => 'y', 'body' => 'admin-bar'),
+    ':root .hdr' => array('html' => '', 'body' => 'admin-bar'),
+    ':root body.x .hdr' => array('html' => '', 'body' => 'admin-bar x'),
+);
+foreach ($rootedCases as $selector => $classes) {
+    $emitted = $build($selector . '{position:sticky;top:0}');
+    $assert(1 === preg_match('/^(.+)\{top:/', $emitted, $match), "{$selector} emits one offset rule");
+    $emittedSelector = $match[1] ?? '';
+    $document = new DOMDocument();
+    $document->loadHTML('<!DOCTYPE html><html class="' . $classes['html'] . '"><body class="' . $classes['body'] . '"><header class="hdr"></header></body></html>', LIBXML_NOERROR);
+    $header = $document->getElementsByTagName('header')->item(0);
+    $parsed = CssSelectorMatcher::parse($emittedSelector);
+    $result = $header instanceof DOMElement ? CssSelectorMatcher::matches($header, $parsed) : array('supported' => false, 'matches' => false);
+    $assert($result['supported'] && $result['matches'], "{$selector} offset selector `{$emittedSelector}` matches the header under body.admin-bar");
+}
 
 if ($failures > 0) {
     fwrite(STDERR, "Admin bar accommodation unit tests: {$failures} failed, {$passes} passed\n");

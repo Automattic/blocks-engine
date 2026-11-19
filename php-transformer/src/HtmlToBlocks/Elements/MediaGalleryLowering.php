@@ -29,6 +29,12 @@ final class MediaGalleryLowering
      */
     public function mediaGalleryBlockFromElement(DOMElement $element, array &$fallbacks): ?array
     {
+        // Every gallery and slideshow shape is built from img or picture
+        // descendants. Without one, skip resolving the layout of the whole
+        // subtree, which every enclosing container would otherwise repeat.
+        if ( 0 === $element->getElementsByTagName('img')->length && 0 === $element->getElementsByTagName('picture')->length ) {
+            return null;
+        }
         if ( $this->sourceElementClassifier->isImageOnlySlideshowCollection($element) ) {
             return $this->tree->patterns($element, $fallbacks, array(GalleryPattern::class));
         }

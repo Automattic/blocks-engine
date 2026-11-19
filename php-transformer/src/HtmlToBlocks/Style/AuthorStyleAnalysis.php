@@ -679,6 +679,20 @@ final class AuthorStyleAnalysis
         return $this->selectorMatches[$selector] = $matches;
     }
 
+    /**
+     * The node path of a source element, read once per element. Like the
+     * remembered selector matches it serves, it treats the analyzed source as
+     * fixed; every projected rule otherwise re-walks a match's siblings.
+     */
+    public function sourcePath(DOMElement $element): string
+    {
+        $this->sourcePaths ??= new \WeakMap();
+        return $this->sourcePaths[$element] ??= $element->getNodePath() ?? '';
+    }
+
+    /** @var \WeakMap<DOMElement, string>|null */
+    private ?\WeakMap $sourcePaths = null;
+
     /** @param array<string, mixed> $parsed @return list<DOMElement> */
     public function selectorCandidates(array $parsed): array
     {

@@ -550,7 +550,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->wrapperCoalescer,
             $this->authorLayoutOwnership
         );
-        $emptyFeatureShells = new Elements\EmptyInteractiveFeatureShell($this->runtimeIslands, $this->wrapperCoalescer);
+        $emptyFeatureShells = new Elements\EmptyInteractiveFeatureShell($this->runtimeIslands, $this->wrapperCoalescer, $this->emptyElementFootprint);
         $this->generatedComponentCandidates = new Support\GeneratedComponentCandidates($this->session, $this->sourceElementClassifier);
         $this->documentEnvelope = new Support\SourceDocumentEnvelope($this->styleResolver);
         $customVideoHosts = new Elements\CustomVideoHostLowering($this->session, $this->styleResolver, $this->imageUrls, $this->runtimeIslands, $mediaLowering, $this->imageLowering, $this->layoutShells, $this);
@@ -938,7 +938,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new ScrollStateConverter(
                 $this,
                 $this->styleResolver,
-                fn (DOMElement $element, string $className): string => $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext(), $className)
+                fn (DOMElement $element, string $className): string => $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext(), $className),
+                fn (DOMElement $element, array $attrs, array $withheld): array => $this->projectBoxTreeCarrier('core/group', $attrs, $element, $withheld, false)
             ),
             new ThemeToggleConverter(
                 $this->svgMaterializer,
@@ -1303,6 +1304,26 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         // content rather than the source's wrapping convention.
         $this->documentAuthorCss = $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss);
         $this->retainedCustomWrapperHooks = $this->wrapperConventions->unwrapConventionWrappers($body, $this->documentAuthorCss);
+        // Evidence-proven image frames merge into their image before any
+        // selector projection or conversion observes the frame as a box.
+        if ( array() !== $this->session->boxTreeViewports() ) {
+            ( new Elements\FilledImageFrameLowering(
+                fn (DOMElement $element): array => $this->session->boxTreeEvidence($element),
+                fn (DOMElement $element): array => array_map(
+                    static fn (array $rule): string => (string) ( $rule['selector'] ?? '' ),
+                    $this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional')
+                )
+            ) )->lower($body);
+            // A layer's empty colour fill becomes the layer's own paint.
+            $this->session->overrideBoxTreeObservations(( new Elements\FilledPaintLayerLowering(
+                fn (DOMElement $element): array => $this->session->boxTreeEvidence($element),
+                fn (DOMElement $element): array => array_map(
+                    static fn (array $rule): string => (string) ( $rule['selector'] ?? '' ),
+                    $this->session->sourceStyleResolutionState()->matchingRules($element, 'static-conditional')
+                )
+            ) )->lower($body));
+            $this->session->sourceStyleResolutionState()->invalidateSelectorMatches();
+        }
         $timer->start('transform.author_selector_preparation');
         $this->authorSelectorSemanticPreparer->prepare($html, $staticCss, $body, $options, $this->session);
         $this->session->fallbackEmitter()->configure($this->session->transformationProvenanceState()->fallback(), $this->session->runtimeBehaviorState()->runtimeScriptMetadata(), $this->session->runtimeSelectorState(), $this->session->authorSelectorProjectionState()->tagMarkers());
@@ -2395,53 +2416,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
-            $observations = $this->session->boxTreeEvidence($sourceElement);
-            $viewports = $this->session->boxTreeViewports();
-            $blockParent = $this->blockParentElement($sourceElement);
-            $parents = $this->session->boxTreeParentEvidence($sourceElement, $blockParent);
-            $liftingFor = $this->liftingFor;
-            $this->liftingFor = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
-            $fluid = $this->liftedBands($sourceElement, $observations, $viewports, $parents, $name);
-            $this->liftingFor = $liftingFor;
-            $fluidIntent = new Style\BoxTreeFluidIntent();
-            $pseudoFluid = array();
-            foreach ( array( 'before', 'after' ) as $pseudo ) {
-                $pseudoFluid[$pseudo] = $fluidIntent->liftPseudo($sourceElement, $this->styleResolver, $observations, $viewports, $pseudo, $this->liftEvidence());
-            }
-            // An authored figure keeps its own box; the image it paints is styled from its own evidence.
-            $image = array();
-            $paintedImage = 'core/image' === $name && 'figure' === $sourceTagName ? $sourceElement->getElementsByTagName('img')->item(0) : null;
-            if ($paintedImage instanceof DOMElement && $paintedImage->parentNode instanceof DOMElement) {
-                $imageObservations = $this->session->boxTreeEvidence($paintedImage);
-                $imageParents = $this->session->boxTreeEvidence($paintedImage->parentNode);
-                $image = array(
-                    'observations' => $imageObservations,
-                    'parents' => $imageParents,
-                    'fluid' => $fluidIntent->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
-                );
-            }
-            $scrollAnimation = ($this->boxTreeScrollAnimationBinding ??= new Style\BoxTreeScrollAnimationBinding($this->session))->binding($sourceElement, $observations, $viewports);
-            if (null !== $scrollAnimation) {
-                // The restored binding names the animation, and the transform
-                // it painted at capture is a frozen frame of it, not the
-                // carrier's to restate.
-                $frozen = array_merge(array('animation-name'), array_intersect($scrollAnimation['animated'], array('transform', 'translate', 'rotate', 'scale')));
-                foreach ($observations as &$observation) {
-                    foreach ($frozen as $property) {
-                        if (isset($observation['used_styles'][$property])) $observation['used_styles'][$property] = 'none';
-                    }
-                }
-                unset($observation);
-            }
-            $classesBefore = self::classTokens((string) ($attrs['className'] ?? ''));
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image);
-            if (null !== $scrollAnimation) {
-                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->boxTreeScrollAnimationBinding->carrier($sourceElement, $scrollAnimation, $this->session->layoutGeometryState()));
-            }
-            $carrierNode = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
-            if ( '' !== $carrierNode ) {
-                $this->boxTreeCarriers[$carrierNode] = array_values(array_diff(self::classTokens((string) ($attrs['className'] ?? '')), $classesBefore));
-            }
+            $attrs = $this->projectBoxTreeCarrier($name, $attrs, $sourceElement);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,
@@ -2481,6 +2456,77 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $sourceMaterializationFacts,
             $this->session->transformationProvenanceState()
         ), $sourceElement);
+    }
+
+    /**
+     * Give a source element's block its box-tree carrier: the observed
+     * presentation of an evidence route, whose author stylesheets are retired.
+     * Without box-tree evidence the attributes are returned unchanged.
+     *
+     * @param array<string, mixed> $attrs
+     * @param list<string> $withheld Properties another owner (a runtime toggle) sets on the box, kept out of the carrier.
+     * @param bool $inlineSupports Whether invariant declarations may become style attributes; a block whose markup
+     *        is built by hand keeps them all in the carrier.
+     * @return array<string, mixed>
+     */
+    public function projectBoxTreeCarrier(string $name, array $attrs, DOMElement $sourceElement, array $withheld = array(), bool $inlineSupports = true): array
+    {
+        $sourceTagName = strtolower($sourceElement->tagName);
+        $withheld = array_fill_keys($withheld, true);
+        $observations = $this->session->boxTreeEvidence($sourceElement);
+        foreach ($observations as $key => $observation) {
+            if (is_array($observation['used_styles'] ?? null)) $observations[$key]['used_styles'] = array_diff_key($observation['used_styles'], $withheld);
+        }
+        $viewports = $this->session->boxTreeViewports();
+        $blockParent = $this->blockParentElement($sourceElement);
+        $parents = $this->session->boxTreeParentEvidence($sourceElement, $blockParent);
+        $liftingFor = $this->liftingFor;
+        $this->liftingFor = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
+        $fluid = $this->liftedBands($sourceElement, $observations, $viewports, $parents, $name);
+        $this->liftingFor = $liftingFor;
+        $fluid = array_diff_key($fluid, $withheld);
+        $fluidIntent = new Style\BoxTreeFluidIntent();
+        $pseudoFluid = array();
+        foreach ( array( 'before', 'after' ) as $pseudo ) {
+            $pseudoFluid[$pseudo] = $fluidIntent->liftPseudo($sourceElement, $this->styleResolver, $observations, $viewports, $pseudo, $this->liftEvidence());
+        }
+        // An authored figure (or a custom image host lowered as the figure)
+        // keeps its own box; the image it paints is styled from its own evidence.
+        $image = array();
+        $paintedImage = 'core/image' === $name && ('figure' === $sourceTagName || str_contains($sourceTagName, '-')) ? $sourceElement->getElementsByTagName('img')->item(0) : null;
+        if ($paintedImage instanceof DOMElement && $paintedImage->parentNode instanceof DOMElement) {
+            $imageObservations = $this->session->boxTreeEvidence($paintedImage);
+            $imageParents = $this->session->boxTreeEvidence($paintedImage->parentNode);
+            $image = array(
+                'observations' => $imageObservations,
+                'parents' => $imageParents,
+                'fluid' => $fluidIntent->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
+            );
+        }
+        $scrollAnimation = ($this->boxTreeScrollAnimationBinding ??= new Style\BoxTreeScrollAnimationBinding($this->session))->binding($sourceElement, $observations, $viewports);
+        if (null !== $scrollAnimation) {
+            // The restored binding names the animation, and the transform
+            // it painted at capture is a frozen frame of it, not the
+            // carrier's to restate.
+            $frozen = array_merge(array('animation-name'), array_intersect($scrollAnimation['animated'], array('transform', 'translate', 'rotate', 'scale')));
+            foreach ($observations as &$observation) {
+                foreach ($frozen as $property) {
+                    if (isset($observation['used_styles'][$property])) $observation['used_styles'][$property] = 'none';
+                }
+            }
+            unset($observation);
+        }
+        $classesBefore = self::classTokens((string) ($attrs['className'] ?? ''));
+        $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image, $inlineSupports);
+        if (null !== $scrollAnimation) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->boxTreeScrollAnimationBinding->carrier($sourceElement, $scrollAnimation, $this->session->layoutGeometryState()));
+        }
+        $carrierNode = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
+        if ( '' !== $carrierNode ) {
+            $this->boxTreeCarriers[$carrierNode] = array_values(array_diff(self::classTokens((string) ($attrs['className'] ?? '')), $classesBefore));
+        }
+
+        return $attrs;
     }
 
     /**
