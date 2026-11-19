@@ -2003,7 +2003,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         // Absolute inset-zero placement replaces the child's former alignment,
         // rather than carrying either element's alignment bands forward.
-        if (isset($fold['moves']['position']) && 'absolute' === (reset($observations)['used_styles']['position'] ?? null)) {
+        if (isset($fold['moves']['position']) && !isset($fold['moves']['align-self']) && 'absolute' === (reset($observations)['used_styles']['position'] ?? null)) {
             unset($fluid['align-self'], $fluid['justify-self']);
         }
         $box = $element->parentNode;
@@ -2037,6 +2037,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
         }
         foreach ( self::FOLD_SIZING as $property ) {
+            // An absolute fill child replaces the box's sizing outright;
+            // the move above already lifted that sizing in the box's context.
+            if (isset($fold['moves'][$property])) continue;
             $bands = $boxFluid[$property] ?? null;
             $keywords = null !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => !in_array($value, self::INTRINSIC_SIZES, true));
             if ( $keywords && ($fold['equal_box'] || ($fluid[$property] ?? null) === $bands) ) {
