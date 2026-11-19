@@ -43,6 +43,9 @@ final class CaptureEvidence
     /** On `<html>`: the profile the device-selection runtime selected; written at runtime. */
     public const SELECTED_DOCUMENT = 'data-blocks-engine-capture-selected-document';
 
+    /** Presence marks capture-runtime notice chrome, omitted from compiled content. */
+    public const DEVICE_UNAVAILABLE = 'data-blocks-engine-capture-device-unavailable';
+
     /** Capture runtime stylesheet selecting which device document or subtree is shown. */
     public const DEVICE_VISIBILITY = 'data-blocks-engine-capture-device-visibility';
     /** Class on the root of the mobile copy of a responsive capture. */
