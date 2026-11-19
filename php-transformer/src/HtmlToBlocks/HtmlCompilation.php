@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerS
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\BoxTreeClassifier;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -295,9 +296,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     /**
      * Folded boxes' moves, keyed by the receiving child's node id: the box id
      * (`from`), child property => box property (`moves`), and whether the
-     * child's border box equals the box's (`equal_box`).
+     * child's border box equals the box's (`equal_box`), and whether the box
+     * hands its viewport entrance to the child (`entrance`).
      *
-     * @var array<string, array{from: string, moves: array<string, string>, equal_box: bool}>
+     * @var array<string, array{from: string, moves: array<string, string>, equal_box: bool, entrance: bool}>
      */
     private array $foldedInto = array();
 
@@ -1955,7 +1957,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         // ADR 0005 slice 5: a folded box's declarations now belong to its child.
         foreach ( $classification['folds'] as $id => $fold ) {
-            $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box']);
+            $this->foldedInto[(string) $fold['child']] = array('from' => (string) $id, 'moves' => $fold['moves'], 'equal_box' => $fold['equal_box'], 'entrance' => !empty($fold['entrance']));
         }
         $this->session->overrideBoxTreeObservations($classification['observations']);
         $this->session->collapseBoxTreeNodes(array_map('strval', array_keys($children)));
@@ -2059,7 +2061,37 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $parents = $element->parentNode === $box ? $boxObservations : array();
         $bands = (new Style\BoxTreeFluidIntent())->lift($element, $this->styleResolver, $own, $viewports, $parents, '', $this->session->boxTreeEvidence(...))['width'] ?? array();
-        return array() !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => '100%' !== $value);
+        $fills = $this->autoWidthFillsBox($element, $observations, $boxObservations) ? array('100%', 'auto') : array('100%');
+        return array() !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => !in_array($value, $fills, true));
+    }
+
+    /**
+     * Whether a child's `width:auto` fills its box: a non-replaced block-level
+     * child in normal flow of a block container stretches to the box's content
+     * width at every width (the caller has proved the child's border box was
+     * the box's, so no margin of its own narrows it).
+     *
+     * @param array<string, array<string, mixed>> $observations
+     * @param array<string, array<string, mixed>> $boxObservations
+     */
+    private function autoWidthFillsBox(DOMElement $element, array $observations, array $boxObservations): bool
+    {
+        if ( in_array(strtolower($element->tagName), array('img', 'video', 'canvas', 'iframe', 'svg', 'input', 'button', 'select', 'textarea', 'object', 'embed', 'picture', 'audio', 'table'), true) ) {
+            return false;
+        }
+        foreach ( $boxObservations as $key => $boxObservation ) {
+            $box = $boxObservation['used_styles'] ?? array();
+            $child = $observations[$key]['used_styles'] ?? null;
+            if ( !is_array($child) || !in_array($box['display'] ?? '', array('block', 'flow-root'), true) ) {
+                return false;
+            }
+            if ( !in_array($child['display'] ?? '', array('block', 'flow-root', 'flex', 'grid'), true)
+                || 'none' !== ($child['float'] ?? 'none')
+                || !in_array($child['position'] ?? 'static', array('static', 'relative'), true) ) {
+                return false;
+            }
+        }
+        return array() !== $boxObservations;
     }
 
     /**
@@ -2080,6 +2112,49 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $carriers = $this->boxTreeCarriers[$carrierNode] ?? array();
         return array() === $carriers || array() !== array_intersect($carriers, self::blockClassTokens($block));
+    }
+
+    /**
+     * Hand a folded box's viewport entrance to its sole child as it converts:
+     * the child takes the entrance marker, the box's id (so the `#id` motion
+     * rules projected for the box, and the entrance runtime, find the child's
+     * block) and the inline motion custom properties those rules read. The
+     * box keeps them in the source, where author selectors were matched, so
+     * its rules still project; it emits no block of its own. Returns the undo
+     * for a child whose block cannot carry them.
+     */
+    private function handEntranceTo(DOMElement $box, DOMElement $child): \Closure
+    {
+        $saved = array_map(static fn (string $name): ?string => $child->hasAttribute($name) ? $child->getAttribute($name) : null, array('id' => 'id', 'style' => 'style', CaptureEvidence::VIEWPORT_ENTRANCE => CaptureEvidence::VIEWPORT_ENTRANCE));
+        $child->setAttribute(CaptureEvidence::VIEWPORT_ENTRANCE, $box->getAttribute(CaptureEvidence::VIEWPORT_ENTRANCE));
+        if ( $box->hasAttribute('id') ) {
+            $child->setAttribute('id', $box->getAttribute('id'));
+        }
+        $moved = array();
+        foreach ( \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($box->getAttribute('style'), array(';')) as $declaration ) {
+            if ( preg_match(BoxTreeClassifier::ENTRANCE_CUSTOM_PROPERTY, trim(explode(':', $declaration, 2)[0])) ) {
+                $moved[] = trim($declaration);
+            }
+        }
+        if ( array() !== $moved ) {
+            $own = rtrim(trim($child->getAttribute('style')), ';');
+            $child->setAttribute('style', ('' === $own ? '' : $own . ';') . implode(';', $moved));
+        }
+        return static function () use ($child, $saved): void {
+            foreach ( $saved as $name => $value ) {
+                if ( null === $value ) {
+                    $child->removeAttribute($name);
+                } else {
+                    $child->setAttribute($name, $value);
+                }
+            }
+        };
+    }
+
+    /** Whether a block's root carries viewport-entrance evidence. @param array<string, mixed> $block */
+    private static function carriesEntrance(array $block): bool
+    {
+        return isset($block['attrs']['metadata'][BlockMaterializer::RUNTIME_ATTRIBUTES_KEY][CaptureEvidence::VIEWPORT_ENTRANCE]);
     }
 
     /**
@@ -2201,11 +2276,16 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // accessible icon link) would drop the box's placement and size,
             // so the box keeps its own block and rule instead.
             $before = $fallbacks;
+            $fold = $this->foldedInto[$childId];
+            $handoff = $fold['entrance'] ? $this->handEntranceTo($element, $neutralChild) : null;
             $block = $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
-            if ( null === $block || $this->foldCarried($boxId, $block) ) {
+            if ( null === $block || (( array() === $fold['moves'] || $this->foldCarried($boxId, $block) ) && ( null === $handoff || self::carriesEntrance($block) )) ) {
                 return $block;
             }
             $fallbacks = $before;
+            if ( null !== $handoff ) {
+                $handoff();
+            }
             unset($this->neutralBoxChildren[$boxId], $this->foldedInto[$childId]);
         }
         $tagName = strtolower($element->tagName);

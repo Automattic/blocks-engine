@@ -90,3 +90,9 @@ $assert(!str_contains($rules, 'width:720px') && !str_contains($rules, 'width:351
 [$disposition, $rules] = $compile('.fold-child{width:calc(100% - 0px)}.fold-child{width:720px}@media (max-width:600px){.fold-child{width:351px}}');
 $assert('folded' === $disposition, 'the box folds into a fixed-width child.');
 $assert(!str_contains($rules, 'width:50%') && !str_contains($rules, 'width:90%'), "a fixed-width child does not take the box's fluid width.", $rules);
+
+// A block child with `width:auto` in a block box stretches to the box's
+// content width at every width: it fills the box as surely as `width:100%`.
+[$disposition, $rules, $markup] = $compile('');
+$assert('folded' === $disposition, 'the box folds into an auto-width block child.', $markup);
+$assert(str_contains($rules, "width:50%") && str_contains($rules, "width:90%"), "the auto-width child takes the box's fluid width.", $rules . $markup);

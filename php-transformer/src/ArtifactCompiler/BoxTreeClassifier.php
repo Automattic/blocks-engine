@@ -22,7 +22,7 @@ use DOMElement;
 final class BoxTreeClassifier
 {
     /** Fold rules, in report order. */
-    public const FOLD_RULES = array('own-sizing', 'paint', 'containing-block', 'own-placement');
+    public const FOLD_RULES = array('own-sizing', 'paint', 'containing-block', 'own-placement', 'viewport-entrance');
 
     /** Criteria a fold can discharge; every other criterion keeps the box. */
     private const FOLDABLE = array('paints', 'containing-block', 'own-sizing', 'own-placement');
@@ -42,7 +42,9 @@ final class BoxTreeClassifier
      * author bands the child now carries) and `equal_box` (whether the child's
      * border box equals the box's at every viewport). `observations` maps each
      * child that received declarations to its viewport observations with
-     * those declarations applied.
+     * those declarations applied. A fold whose `entrance` is true also hands
+     * the box's viewport-entrance marker, id and inline motion custom
+     * properties to the child ({@see self::entranceHandoff()}).
      */
     public static function classify(string $html, array $tree): array
     {
@@ -103,14 +105,40 @@ final class BoxTreeClassifier
             $criterion = self::criterion($element, $node, $effective, isset($containing[$id]), $referenced, $stateTargeted);
             $disposition = 'equal-child-geometry' === $criterion ? 'neutral' : 'load-bearing';
             $nodes[$id] = array('disposition' => $disposition, 'criterion' => $criterion);
+            // A viewport-entrance marker is the only reason left: the entrance
+            // plays identically on a sole child that fills the box.
+            $entrance = 'capture-marker' === $criterion && isset($effective['nodes'][$blockParents[$id]]) && self::entranceHandoff($element, $node, $effective);
+            $rest = $entrance ? self::criterion($element, $node, $effective, isset($containing[$id]), $referenced, $stateTargeted, true) : null;
+            if ($entrance && 'equal-child-geometry' === $rest) {
+                if (!$stateTargeted) {
+                    $stateCompounds ??= self::stateCompounds($dom);
+                    $stateTargeted = self::targetedByState($element, $stateCompounds);
+                }
+                if (!$stateTargeted) {
+                    $fold = array('rules' => array('viewport-entrance'), 'moves' => array(), 'equal_box' => true, 'entrance' => true);
+                    $folds[$id] = array('child' => $node['children'][0]) + $fold;
+                    $disposition = 'folded';
+                    $nodes[$id] = array('disposition' => $disposition, 'criterion' => $criterion, 'fold' => $fold['rules']);
+                    ++$foldCounts['viewport-entrance'];
+                }
+            } elseif ($entrance && in_array($rest, self::FOLDABLE, true)) {
+                $criterion = $rest;
+            }
             if ('load-bearing' === $disposition && in_array($criterion, self::FOLDABLE, true)) {
                 // A state rule kept on the route can hang on any tag, not only custom elements.
                 if (!$stateTargeted) {
                     $stateCompounds ??= self::stateCompounds($dom);
                     $stateTargeted = self::targetedByState($element, $stateCompounds);
                 }
-                $fold = $stateTargeted ? null : self::fold($element, $node, $effective, $effective['nodes'][$blockParents[$id]] ?? null, isset($containing[$id]), $referenced);
+                $fold = $stateTargeted ? null : self::fold($element, $node, $effective, $effective['nodes'][$blockParents[$id]] ?? null, isset($containing[$id]), $referenced, $entrance);
+                if ($entrance && null !== $fold && !$fold['equal_box']) $fold = null;
+                if ($entrance) {
+                    $criterion = 'capture-marker';
+                    $nodes[$id]['criterion'] = $criterion;
+                    if (null !== $fold) $fold = array('rules' => array_merge(array('viewport-entrance'), $fold['rules'])) + $fold;
+                }
                 if (null !== $fold) {
+                    $fold['entrance'] = $entrance;
                     $child = $node['children'][0];
                     foreach ($effective['nodes'][$child]['viewports'] as $viewport => &$observation) {
                         if (!isset($node['viewports'][$viewport])) continue;
@@ -153,7 +181,8 @@ final class BoxTreeClassifier
         ) : null);
     }
 
-    private static function criterion(DOMElement $element, array $node, array $tree, bool $containing, bool $referenced, bool $stateTargeted = false): string
+    /** @param bool $entrance Whether the box's viewport entrance moves to its sole child, discharging its marker and motion. */
+    private static function criterion(DOMElement $element, array $node, array $tree, bool $containing, bool $referenced, bool $stateTargeted = false, bool $entrance = false): string
     {
         foreach ($node['viewports'] as $observation) {
             $s = $observation['used_styles'];
@@ -164,7 +193,7 @@ final class BoxTreeClassifier
             if (count($node['children']) > 1 && in_array($observation['used_styles']['display'], array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) return 'multi-child-layout';
         }
         if ($containing) return 'containing-block';
-        $behavior = self::behavior($element, $node, $tree, $referenced, $stateTargeted);
+        $behavior = self::behavior($element, $node, $tree, $referenced, $stateTargeted, $entrance);
         if (null !== $behavior) return $behavior;
         if (1 !== count($node['children'])) return 'own-sizing';
         $placement = self::placement($node, $tree['nodes'][$node['children'][0]] ?? array());
@@ -186,9 +215,11 @@ final class BoxTreeClassifier
     /**
      * Load-bearing reasons no declaration move can discharge: semantics and
      * references, interaction and state, capture markers, motion, and
-     * unobserved children.
+     * unobserved children. A handed-off viewport entrance
+     * ({@see self::entranceHandoff()}) discharges its marker and the box's
+     * own motion: the entrance plays on the child instead.
      */
-    private static function behavior(DOMElement $element, array $node, array $tree, bool $referenced, bool $stateTargeted): ?string
+    private static function behavior(DOMElement $element, array $node, array $tree, bool $referenced, bool $stateTargeted, bool $entrance = false): ?string
     {
         // Autonomous custom elements have no implicit role: they are generic
         // containers like div/span and fall through to the remaining criteria.
@@ -197,8 +228,8 @@ final class BoxTreeClassifier
             if (str_starts_with($attribute->name, 'on') || str_starts_with($attribute->name, 'aria-') || in_array($attribute->name, array('tabindex', 'contenteditable', 'draggable', 'hidden', 'inert'), true)) return 'interaction/state';
         }
         if (!empty($node['interaction_states']) || $stateTargeted) return 'interaction/state';
-        if (self::carriesCaptureMarker($element)) return 'capture-marker';
-        foreach ($node['viewports'] as $observation) {
+        if (!$entrance && self::carriesCaptureMarker($element)) return 'capture-marker';
+        foreach ($entrance ? array() : $node['viewports'] as $observation) {
             $s = $observation['used_styles'];
             if (isset($s['animation-name']) && 'none' !== $s['animation-name']) return 'motion';
             if (isset($s['transition-duration']) && preg_match('/[1-9]/', $s['transition-duration']) && 'none' !== ($s['transition-property'] ?? 'all')) return 'motion';
@@ -280,10 +311,10 @@ final class BoxTreeClassifier
      * @param array<string, mixed>|null $parent The node the child would sit in.
      * @return array{rules: list<string>, moves: array<string, string>, equal_box: bool}|null
      */
-    private static function fold(DOMElement $element, array $node, array $tree, ?array $parent, bool $containing, bool $referenced): ?array
+    private static function fold(DOMElement $element, array $node, array $tree, ?array $parent, bool $containing, bool $referenced, bool $entrance = false): ?array
     {
         if (1 !== count($node['children']) || null === $parent) return null;
-        if (null !== self::behavior($element, $node, $tree, $referenced, false)) return null;
+        if (null !== self::behavior($element, $node, $tree, $referenced, false, $entrance)) return null;
         foreach ($element->childNodes as $text) {
             if ($text instanceof \DOMText && '' !== trim($text->textContent)) return null;
         }
@@ -552,6 +583,51 @@ final class BoxTreeClassifier
             }
         }
         return false;
+    }
+
+    /** Inline custom properties that drive a captured entrance (Wix `--motion-origin-x`, `--motion-rotate`). */
+    public const ENTRANCE_CUSTOM_PROPERTY = '/^--motion-/i';
+
+    /**
+     * Whether a box's only capture marker, a viewport entrance, can move to
+     * its sole child: the child's border box is the box's at every captured
+     * viewport, so the entrance plays identically on it. The child must take
+     * the box's id (it has none of its own), and must have no motion,
+     * transform or capture marker of its own to compose with the entrance.
+     */
+    private static function entranceHandoff(DOMElement $element, array $node, array $tree): bool
+    {
+        if (!$element->hasAttribute(CaptureEvidence::VIEWPORT_ENTRANCE) || 1 !== count($node['children'])) return false;
+        foreach ($element->attributes as $attribute) {
+            if (str_starts_with($attribute->name, CaptureEvidence::ATTRIBUTE_PREFIX) && CaptureEvidence::VIEWPORT_ENTRANCE !== $attribute->name) return false;
+        }
+        foreach (preg_split('/\s+/', $element->getAttribute('class'), -1, PREG_SPLIT_NO_EMPTY) as $class) {
+            if (str_starts_with($class, CaptureEvidence::ATTRIBUTE_PREFIX)) return false;
+        }
+        $childId = (string) $node['children'][0];
+        $childElement = null;
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof \DOMText && '' !== trim($child->textContent)) return false;
+            if ($child instanceof DOMElement && $childId === $child->getAttribute(BoxTree::NODE_ATTRIBUTE)) $childElement = $child;
+        }
+        $child = $tree['nodes'][$childId] ?? null;
+        if (null === $childElement || null === $child || self::carriesCaptureMarker($childElement)) return false;
+        if ($childElement->hasAttribute('id') && $element->hasAttribute('id') && $childElement->getAttribute('id') !== $element->getAttribute('id')) return false;
+        foreach (CssValueSplitter::splitTopLevel($childElement->getAttribute('style'), array(';')) as $declaration) {
+            if (preg_match(self::ENTRANCE_CUSTOM_PROPERTY, trim(explode(':', $declaration, 2)[0]))) return false;
+        }
+        foreach ($node['viewports'] as $viewport => $observation) {
+            $inner = $child['viewports'][$viewport] ?? null;
+            if (!is_array($inner) || !is_array($inner['border_box'] ?? null)) return false;
+            foreach ($observation['border_box'] as $axis => $value) {
+                if (abs($value - ($inner['border_box'][$axis] ?? INF)) > 0.01) return false;
+            }
+            $c = $inner['used_styles'];
+            if (isset($c['animation-name']) && 'none' !== $c['animation-name']) return false;
+            if (isset($c['transition-duration']) && preg_match('/[1-9]/', $c['transition-duration']) && 'none' !== ($c['transition-property'] ?? 'all')) return false;
+            if (!self::identityTransform($c['transform'] ?? 'none')) return false;
+        }
+        return true;
     }
 
     /** Capture markers gate device visibility or interaction; the box carrying one is the engine's handle. */
