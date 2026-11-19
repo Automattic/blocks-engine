@@ -60,7 +60,10 @@ final class QuotePatternContext
             }
         }
         $style = $this->styleResolver->cssDeclarationString($declarations);
-        return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
+        // A figcaption is a block, whereas the span inside core's cite is
+        // inline. Keep its own line box: an inline span otherwise leaves the
+        // cite's inherited font strut sizing the entire quotation figure.
+        return '' === $style ? $content : '<span style="display:block;' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
     }
 
     public function citationFromElement(DOMElement $element): string
