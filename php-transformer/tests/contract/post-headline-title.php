@@ -56,7 +56,7 @@ foreach ($artifact['files'] as &$file) {
 unset($file);
 $fallbackPlan = $compiler->compile($artifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 $fallbacks = array_column($fallbackPlan['pages'], 'title', 'source_path');
-$assert('About the publication' === ($fallbacks['about.html'] ?? null), 'Pages retain existing title derivation.');
+$assert('Meet the team' === ($fallbacks['about.html'] ?? null), 'Pages use their unique visible headline while ignoring shared site chrome.');
 $assert('Field notes' === ($fallbacks['untitled.html'] ?? null), 'Posts without an H1 retain existing title derivation.');
 $assert('Collected notes' === ($fallbacks['ambiguous.html'] ?? null), 'Posts with multiple H1s retain existing title derivation.');
 $assert('Journal updates' === ($fallbacks['site-name.html'] ?? null), 'A normalised H1 shared across routes is chrome, not a post title.');

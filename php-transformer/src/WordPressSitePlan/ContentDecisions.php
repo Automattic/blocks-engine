@@ -376,7 +376,7 @@ final class ContentDecisions
             foreach (self::visibleH1s($html, false) as $heading) {
                 $headlineRoutes[mb_strtolower($heading, 'UTF-8')][$routes[$index]] = true;
             }
-            if ('post' === ($document['metadata']['post_type'] ?? null)) {
+            if (in_array($document['metadata']['post_type'] ?? null, array('post', 'page'), true)) {
                 $headings = self::visibleH1s($html, true);
                 if (1 === count($headings)) $postHeadlines[$index] = $headings[0];
             }
