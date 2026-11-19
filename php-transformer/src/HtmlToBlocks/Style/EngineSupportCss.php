@@ -92,10 +92,6 @@ final class EngineSupportCss
             // Core has concealed the panel.
             $parts[] = ':root .blocks-engine-accordion-panel[hidden]{display:none!important}';
         }
-        if (str_contains($serializedBlocks, 'blocks-engine-figure-quote')) {
-            // Keep the caption's block line box independent of the quotation.
-            $parts[] = ':root .blocks-engine-figure-quote>cite{display:block;font-size:inherit;line-height:inherit;font-style:normal}';
-        }
         if (str_contains($serializedBlocks, 'blocks-engine-social-source-row')) {
             $parts[] = ':root .blocks-engine-social-source-row{font-size:inherit;line-height:inherit}';
             $parts[] = ':root .blocks-engine-social-source-row>:where(.wp-social-link)>a{line-height:inherit}';

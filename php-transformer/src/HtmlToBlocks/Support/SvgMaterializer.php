@@ -586,7 +586,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         $imageAttributes = array(
             'src' => (string) $attrs['url'],
             'alt' => (string) ($attrs['alt'] ?? ''),
-            'class' => (string) ($attrs['className'] ?? ''),
+            // This replaced element still owns a box inside RichText. On
+            // evidence imports no author stylesheet supplies its margins or
+            // flex-item properties; typography-only inline carriers cannot
+            // preserve that geometry.
+            'class' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->boxTreeElementCarrier($element)),
             'style' => $style,
         );
         // RichText serializes an inline image object as a bare void tag, the

@@ -185,29 +185,14 @@ final class QuotePattern implements PatternRecognizerInterface
             }
             $innerBlocks[] = $createBlock('core/paragraph', array_merge($context->presentationAttributes($child), array( 'content' => $content )), array(), $child);
         }
-        $separateBoxes = $caption instanceof DOMElement && $quotes->figureOwnsLayoutBox($figure);
-        if ($separateBoxes) {
-            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-figure-quote');
-            // Only the caption's line-box dimensions belong on this carrier.
-            // Its weight, family and other text styles already live on the
-            // citation span and must not become inherited quotation styles.
-            $attrs['style']['typography'] = array_intersect_key(
-                $quotes->figureQuotationTypography($caption),
-                array_flip(array('fontSize', 'lineHeight'))
-            );
-        }
         $quoteChildren = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes);
         if ( array() !== $quoteChildren ) {
-            // Ordinary collapsed quotes use an inline synthetic paragraph.
-            // Layout-owning figures instead keep the quotation's block margins
-            // and an independent caption line box within the same native quote.
+            // Only transfer text presentation: the consumed blockquote's box
+            // (especially margins) must not become the synthetic paragraph's box.
             $quoteChildren[0] = $createBlock('core/paragraph', array(
                 'content' => $value,
-                'className' => $separateBoxes ? 'blocks-engine-figure-quotation' : 'blocks-engine-synthetic-paragraph',
-                'style' => array_filter(array(
-                    'typography' => $quotes->figureQuotationTypography($blockquote),
-                    'spacing' => $separateBoxes ? $quotes->figureQuotationSpacing($blockquote) : array(),
-                )),
+                'className' => 'blocks-engine-synthetic-paragraph',
+                'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
             ));
         }
         $innerBlocks = array_merge($innerBlocks, $quoteChildren);
