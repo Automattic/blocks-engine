@@ -16,6 +16,17 @@ $source = '<!doctype html><html><head><style>'
     . '<li><a href="/b/">Two</a></li>'
     . '<li><a href="/c/">Three</a></li>'
     . '</ul></div><p>Following content</p></main></body></html>';
+// Ordinary authored flex lists already own their display through the cascade.
+// Adding a second important projection restyles navigation outside the defect.
+$authored = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $source,
+)))->toArray();
+foreach ($authored['assets'] ?? array() as $asset) {
+    if ('css' === ($asset['kind'] ?? '')
+        && preg_match('/wp-block-navigation__container[^{}]*\\{[^{}]*display:flex!important/', $asset['content'] ?? '')) {
+        throw new RuntimeException('Authored list display must not gain an important override');
+    }
+}
 // Supply observed boxes through the public artifact interface, where author
 // styles are retired and the default block host used to swallow the flex list.
 $dom = new DOMDocument();

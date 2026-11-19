@@ -1632,11 +1632,11 @@ final class NavigationPatternContext
 
     public function resolvedDisplay(DOMElement $element): string
     {
-        $display = $this->styleResolver->resolvedConditionalDisplay($element);
-        if ( '' !== $display ) {
-            return $display;
-        }
+        return $this->styleResolver->resolvedConditionalDisplay($element);
+    }
 
+    public function observedListDisplay(DOMElement $element): string
+    {
         // Captured imports retire author rules in favour of observed boxes.
         // Only use a viewport-independent observation as a static fallback;
         // differing responsive displays remain owned by the geometry carriers.

@@ -3962,16 +3962,22 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function projectBlockListDisplay(DOMElement $listSource, NavigationPatternContext $navigationContext, bool $preserveSemanticBlockStack = false): void
     {
         $display = strtolower(trim($navigationContext->resolvedDisplay($listSource)));
-        if ( ! $preserveSemanticBlockStack && in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
-            // The host's classes are repeated on Core's inner list. Retain the
-            // list's own formatting context rather than inheriting the folded
-            // wrapper's display (which can be block even for a flex list).
-            $navigationContext->projectSourceToNativeTarget(
-                $listSource,
-                '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__responsive-container>.wp-block-navigation__responsive-container-content>.wp-block-navigation__container',
-                'display:' . $display . '!important'
-            );
-            return;
+        if ( ! $preserveSemanticBlockStack ) {
+            $observedDisplay = $navigationContext->observedListDisplay($listSource);
+            if ( in_array($observedDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+                // Only retired author CSS needs an observed formatting context.
+                // Do not override the cascade for ordinary authored lists or
+                // expose observations to unrelated navigation recognition.
+                $navigationContext->projectSourceToNativeTarget(
+                    $listSource,
+                    '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__responsive-container>.wp-block-navigation__responsive-container-content>.wp-block-navigation__container',
+                    'display:' . $observedDisplay . '!important'
+                );
+                return;
+            }
+            if ( in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+                return;
+            }
         }
 
         // Core starts the generated list as flex. A source list without a
