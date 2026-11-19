@@ -6,7 +6,10 @@ declare(strict_types=1);
 // captured viewport: the child takes the marker, the box's id (so `#id`
 // motion rules and the entrance runtime still find it) and its inline motion
 // custom properties, and the box emits no block. An unequal child, a child
-// with motion of its own, or any other capture marker keeps the group.
+// with motion of its own, any other capture marker, or a box whose height
+// comes from its own author `aspect-ratio` or height constraint the child does
+// not repeat (equal captured boxes, but fluid sizing between captures) keeps
+// the group.
 require __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
@@ -24,6 +27,11 @@ $cases = array(
     array('name' => 'equal-box entrance', 'marker' => $entrance, 'fold' => true),
     array('name' => 'unequal child box', 'marker' => $entrance, 'child_box' => array('height' => 80)),
     array('name' => 'child with its own animation', 'marker' => $entrance, 'child' => array('animation-name' => 'pulse')),
+    array('name' => 'box aspect-ratio the child lacks', 'marker' => $entrance, 'box' => array('aspect-ratio' => '1 / 1.32304'),
+        'css' => '.entrance-box{aspect-ratio:1/1.30749}@media (max-width:1023px){.entrance-box{aspect-ratio:1/1.32304}}'),
+    array('name' => 'box min-height the child lacks', 'marker' => $entrance, 'box' => array('min-height' => '100px'), 'css' => '.entrance-box{min-height:100px}'),
+    array('name' => 'aspect-ratio the child repeats', 'marker' => $entrance, 'fold' => true, 'box' => array('aspect-ratio' => '4 / 1'), 'child' => array('aspect-ratio' => '4 / 1'),
+        'css' => '.entrance-box,.entrance-box>p{aspect-ratio:4/1}'),
     array('name' => 'dialog marker', 'marker' => 'data-blocks-engine-capture-dialog-panel="panel"'),
 );
 
@@ -48,7 +56,7 @@ foreach ($cases as $case) {
     foreach ($layout as $id => $children) {
         $node = array('children' => $children, 'viewports' => array());
         foreach ($base['nodes']['n1']['viewports'] as $viewport => $observation) {
-            $observation['used_styles'] = array_replace($observation['used_styles'], $initial, 'child' === $id ? ($case['child'] ?? array()) : array());
+            $observation['used_styles'] = array_replace($observation['used_styles'], $initial, 'child' === $id ? ($case['child'] ?? array()) : array(), 'box' === $id ? ($case['box'] ?? array()) : array());
             $observation['border_box'] = array_replace(array('x' => 0, 'y' => 'sibling' === $id ? 100 : 0, 'width' => 400, 'height' => 100), 'child' === $id ? ($case['child_box'] ?? array()) : array());
             $node['viewports'][$viewport] = $observation;
         }
