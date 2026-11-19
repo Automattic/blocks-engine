@@ -3127,12 +3127,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
             'kind'  => 'custom',
         ), $presentationAttributes, $navigationContext);
-        // An icon-only anchor keeps its accessible name as the saved label, but
-        // core/navigation-link has nowhere to store the artwork that name
-        // described. Carry an opaque marker so the recovered source icon can be
-        // projected onto the rendered item without leaving native navigation.
-        $artwork = isset($linkAttrs['metadata']['blocksEngineNavigationAnchor']) ? ($navigationContext?->navigationAnchorArtwork($anchor) ?? '') : '';
-        if ('' !== $artwork) $linkAttrs['metadata']['blocksEngineNavigationAnchor']['svg'] = $artwork;
+        // core/navigation-link has nowhere to store an anchor's inline icon:
+        // carry it as anchor presentation so the runtime renders it before the
+        // label. An icon-only anchor hides its label (the accessible name); a
+        // leading icon beside visible text keeps the label painted.
+        $artwork = isset($linkAttrs['metadata']['blocksEngineNavigationAnchor']) ? ($navigationContext?->navigationAnchorArtwork($anchor) ?? array()) : array();
+        if (array() !== $artwork) $linkAttrs['metadata']['blocksEngineNavigationAnchor'] += $artwork;
         else $linkAttrs = $this->withClassName($linkAttrs, $navigationContext?->linkIconMarker($anchor) ?? '');
 
         return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
