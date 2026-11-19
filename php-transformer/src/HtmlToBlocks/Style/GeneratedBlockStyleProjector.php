@@ -670,7 +670,7 @@ final class GeneratedBlockStyleProjector
         $parentStyle = $parent instanceof DOMElement
             ? SourceDeclarations::parse($this->styleResolver->controlSurfaceResolvedStyle($parent))
             : array();
-        $isColumn = str_starts_with(strtolower(trim((string) ($parentStyle['flex-direction'] ?? 'row'))), 'column');
+        $isColumn = str_starts_with(CssValueInspector::declared($parentStyle, 'flex-direction'), 'column');
         $stretchesCrossAxis = $isColumn && $this->columnFlexChildStretches($parentStyle, $control);
         $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
         $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';

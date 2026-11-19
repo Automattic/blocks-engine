@@ -527,7 +527,7 @@ final class BoxTreeStyleProjector
         $display = (string) ($originator['display'] ?? '');
         if (in_array($display, array('flex', 'inline-flex'), true)) {
             $align = 'auto' === ($pseudo['align-self'] ?? 'auto') ? (string) ($originator['align-items'] ?? 'normal') : (string) $pseudo['align-self'];
-            if (!str_starts_with((string) ($originator['flex-direction'] ?? 'row'), 'column') || !in_array($align, array('normal', 'stretch'), true)) return false;
+            if (!str_starts_with(CssValueInspector::declared($originator, 'flex-direction'), 'column') || !in_array($align, array('normal', 'stretch'), true)) return false;
         } elseif (!in_array($display, array('block', 'flow-root', 'list-item', 'inline-block'), true)) {
             return false;
         }
