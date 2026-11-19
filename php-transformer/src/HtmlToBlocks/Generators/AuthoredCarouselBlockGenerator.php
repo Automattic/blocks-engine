@@ -35,6 +35,8 @@ final class AuthoredCarouselBlockGenerator
     private SplObjectStorage $recognitions;
 
     public const LOCAL_NAME = 'authored-carousel';
+    /** Marks a rebuilt control whose artwork is author-painted generated content. */
+    private const SOURCE_PAINTED_CONTROL_CLASS = 'blocks-engine-authored-carousel__control--source-painted';
     /**
      * Below a recorded breakpoint the rail is hidden and the stage spans the
      * carousel. The root attribute scopes each rule to opted-in instances.
@@ -66,15 +68,22 @@ final class AuthoredCarouselBlockGenerator
      * around the carousel, and nothing under them could be selected. Each
      * slide keeps the captured stage height and contains its own positioned
      * content.
+     *
+     * The editor host is wrapped in a scope that carries the root's source
+     * presentation classes, so source descendant selectors (a slideshow's
+     * caption colour under its gallery class) style the slides as the saved
+     * root does. The scope generates no box: those classes' root paint and
+     * geometry belong to the frontend root, not the editor list.
      */
-    private const SLIDESHOW_EDITOR_STYLE = '.blocks-engine-authored-carousel-editor--slideshow{position:relative;isolation:isolate}'
+    private const SLIDESHOW_EDITOR_STYLE = '.blocks-engine-authored-carousel-editor__source-scope{display:contents!important}'
+        . '.blocks-engine-authored-carousel-editor--slideshow{position:relative;isolation:isolate}'
         . '.blocks-engine-authored-carousel-editor--slideshow>.block-editor-inner-blocks>.block-editor-block-list__layout>.wp-block{position:relative!important;inset:auto!important;z-index:auto!important;transform:none!important;opacity:1!important;visibility:visible!important;height:var(--blocks-engine-carousel-height,auto)!important;overflow:hidden;contain:paint}';
     private const ROOT_GEOMETRY_PROPERTIES = array('margin', 'margin-bottom', 'margin-top', 'margin-inline', 'margin-left', 'margin-right', 'position');
     private const SLIDE_INDEX_ATTRIBUTES = array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item');
     private const GEOMETRY_VALUE_PATTERN = '^[0-9a-zA-Z.%()+*/,_ -]+(?:\\s*!important)?$';
 
     /**
-     * @param Closure(DOMElement): ?array<string, mixed> $convertImage
+     * @param Closure(DOMElement, ?DOMElement=): ?array<string, mixed> $convertImage
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier = new SourceElementClassifier(),
@@ -212,6 +221,13 @@ final class AuthoredCarouselBlockGenerator
         Object.keys( attributes.sourceRootGeometry || {} ).forEach( function( name ) { var value = attributes.sourceRootGeometry[ name ]; if ( -1 === rootGeometryProperties.indexOf( name ) || 'string' !== typeof value || ! geometryValuePattern.test( value.trim() ) ) return; var key = name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); props.style[ key ] = value.trim(); } );
         return props;
     }
+    // The saved root carries the source presentation classes; the editor
+    // host must sit under them too or source descendant rules miss its slides.
+    function editorSourceScope( attributes, child ) {
+        var classes = 'string' === typeof attributes.sourcePresentationClasses ? attributes.sourcePresentationClasses.trim() : '';
+        if ( ! classes ) return child;
+        return createElement( 'div', { className: 'blocks-engine-authored-carousel-editor__source-scope ' + classes, style: { display: 'contents' } }, child );
+    }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
         supports: { html: false, customClassName: false },
@@ -267,7 +283,7 @@ final class AuthoredCarouselBlockGenerator
                         )
                         : null
                 ),
-                createElement( 'div', { className: 'blocks-engine-authored-carousel-editor' + ( 'slideshow' === props.attributes.presentation ? ' blocks-engine-authored-carousel-editor--slideshow' : '' ), style: 'slideshow' === props.attributes.presentation && props.attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( props.attributes.viewportHeight ) + 'px' } : undefined }, createElement( 'strong', null, props.attributes.ariaLabel || 'Carousel' ), createElement( InnerBlocks, { allowedBlocks: [ 'core/image', 'core/group' ], renderAppender: InnerBlocks.ButtonBlockAppender } ) )
+                editorSourceScope( props.attributes, createElement( 'div', { className: 'blocks-engine-authored-carousel-editor' + ( 'slideshow' === props.attributes.presentation ? ' blocks-engine-authored-carousel-editor--slideshow' : '' ), style: 'slideshow' === props.attributes.presentation && props.attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( props.attributes.viewportHeight ) + 'px' } : undefined }, createElement( 'strong', null, props.attributes.ariaLabel || 'Carousel' ), createElement( InnerBlocks, { allowedBlocks: [ 'core/image', 'core/group' ], renderAppender: InnerBlocks.ButtonBlockAppender } ) ) )
             );
         },
         save: function( props ) {
@@ -420,7 +436,7 @@ const syncDots = ( root, context ) => {
         const active = index === context.index;
         const item = control.parentElement?.matches( '.blocks-engine-authored-carousel__dots > li' ) ? control.parentElement : control;
         item.hidden = index > maximumIndex( context );
-        ( item.dataset.carouselActiveClasses || '' ).split( /\s+/ ).filter( Boolean ).forEach( ( name ) => item.classList.toggle( name, active ) );
+        ( item === control ? [ item ] : [ item, control ] ).forEach( ( node ) => ( node.dataset.carouselActiveClasses || '' ).split( /\s+/ ).filter( Boolean ).forEach( ( name ) => node.classList.toggle( name, active ) ) );
         control.classList.toggle( 'blocks-engine-authored-carousel__dot--active', active );
         control.setAttribute( 'aria-current', active ? 'true' : 'false' );
     } );
@@ -618,7 +634,7 @@ JS;
         // block through the inserted wrappers. Min-height slideshows must keep
         // auto-height wrappers so their controls do not inflate normal flow.
         $style .= '.blocks-engine-authored-carousel--positioned-stage>.blocks-engine-authored-carousel__source-stage{height:100%;flex-shrink:0}.blocks-engine-authored-carousel--positioned-stage .blocks-engine-authored-carousel__viewport{height:100%}';
-        $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0}:where(.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__next){transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
+        $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted)),.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted)){position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0}:where(.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__previous:not(.blocks-engine-authored-carousel__control--source-painted),.blocks-engine-authored-carousel--slideshow:not(.blocks-engine-authored-carousel--source-control-topology) .blocks-engine-authored-carousel__next:not(.blocks-engine-authored-carousel__control--source-painted)){transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted)){left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted)){right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
         $style .= '.blocks-engine-authored-carousel__dots--source{position:static;inset:auto;gap:0;grid-column:1/-1}:where(.blocks-engine-authored-carousel__dots--source) .blocks-engine-authored-carousel__dot{width:revert;height:revert;border:revert;border-radius:revert;background:revert;color:inherit}';
         // A captured orientation is carried by the separate translate and scale
         // properties, as core/icon does, so the source's own transform cannot
@@ -645,7 +661,7 @@ JS;
         // zero specificity lets every author rule still win over the reset.
         $style .= '.blocks-engine-authored-carousel--overlay-controls>.blocks-engine-authored-carousel__source-stage{grid-column:1/-1}'
             . ':where(.blocks-engine-authored-carousel__control--source-box){display:grid;align-content:start;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:inherit}';
-        $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next::before{content:none}';
+        $style .= '.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__previous:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before,.blocks-engine-authored-carousel--source-control-artwork .blocks-engine-authored-carousel__next:not(:where(.blocks-engine-authored-carousel__control--source-painted))::before{content:none}';
         $style .= '.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track{display:flex!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>*{display:none!important}.blocks-engine-authored-carousel--multiple .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{display:block!important;position:relative!important;flex:0 0 calc(100% / var(--blocks-engine-carousel-visible));width:calc(100% / var(--blocks-engine-carousel-visible))}';
         $style .= '[data-carousel-arrows="false"]>.blocks-engine-authored-carousel__controls{display:none!important}';
         $style .= '.blocks-engine-authored-carousel--show-status>.blocks-engine-authored-carousel__status{position:static;width:auto;height:auto;margin:0;clip:auto;overflow:visible;white-space:normal}';
@@ -1103,7 +1119,9 @@ JS;
             // retain their media, links and authored text through child conversion.
             $image = $this->sourceElementClassifier->isSingleMediaSlide($item, 'img') && ! $this->ownsAuthoredSlideBox($item, $styleResolver) ? $item->getElementsByTagName('img')->item(0) : null;
             if ( $image instanceof DOMElement ) {
-                $slide = $convertImage($image);
+                // A slide image wrapped in its own link keeps that link.
+                $link = $image->parentNode instanceof DOMElement && 'a' === strtolower($image->parentNode->tagName) && $image->parentNode !== $item ? $image->parentNode : null;
+                $slide = $convertImage($image, $link);
                 if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
                     if ( $temporary ) {
                         $item->parentNode?->removeChild($item);
@@ -1187,6 +1205,9 @@ JS;
             // element's box: no native button padding, border or centring.
             if ( 'track' === $presentation && '' === $controlsTopology && 'button' !== strtolower($control->tagName) ) {
                 $tokens[] = 'blocks-engine-authored-carousel__control--source-box';
+            }
+            if ( $this->sourcePaintsControlArtwork($control, $styleResolver) ) {
+                $tokens[] = self::SOURCE_PAINTED_CONTROL_CLASS;
             }
             $controlClasses[$direction] = implode(' ', $tokens);
             $position = strtolower(trim(CssValueInspector::withoutImportant((string) ($styleResolver->structuralPresentationDeclarations($control)['position'] ?? ''))));
@@ -1560,6 +1581,23 @@ JS;
             $presentation = 'slideshow';
         }
         $initialSlide = 0;
+        // Cross-faded frames (FlexSlider's fade animation): every frame
+        // declares its opacity and exactly one of them is opaque.
+        $opaque = array();
+        foreach ( $items as $index => $item ) {
+            $opacity = CssValueInspector::comparable((string) ($styleResolver->structuralPresentationDeclarations($item)['opacity'] ?? ''));
+            if ( '' === $opacity || ! is_numeric($opacity) ) {
+                $opaque = array();
+                break;
+            }
+            if ( 0.0 < (float) $opacity ) {
+                $opaque[] = $index;
+            }
+        }
+        if ( 1 < count($items) && 1 === count($opaque) ) {
+            $presentation = 'slideshow';
+            $initialSlide = $opaque[0];
+        }
         foreach ( $items as $index => $item ) {
             if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
                 $presentation = 'slideshow';
@@ -1845,6 +1883,9 @@ JS;
         if (isset($controls[$key])) {
             $control = $controls[$key]['element'];
             $class = $this->sourceClassTokens(SourceDom::attr($control, 'class'), $control, $styleResolver);
+            if ( $this->sourcePaintsControlArtwork($control, $styleResolver) ) {
+                $class[] = self::SOURCE_PAINTED_CONTROL_CLASS;
+            }
             $direction = $controls[$key]['next'];
             return $this->navigationButtonMarkup($direction, implode(' ', $class), $this->sourceControlVisual($control), $this->resolvedControlPresentation($control, $styleResolver), $control);
         }
@@ -1894,6 +1935,56 @@ JS;
             array_values(array_filter(SourceDom::boundedClassTokens($classes), static fn (string $class): bool => !str_starts_with($class, 'blocks-engine-') || str_starts_with($class, 'blocks-engine-attribute-'))),
             $styleResolver->sourceAttributeSelectorMarkers($element)
         )));
+    }
+
+    /**
+     * A rebuilt element's source classes plus the projection markers the
+     * engine allocated for its source path, the identity any other emitted
+     * source element carries, so scoped author rules projected onto those
+     * markers still bind.
+     *
+     * @return list<string>
+     */
+    private function sourceIdentityTokens(DOMElement $element, StyleResolver $styleResolver): array
+    {
+        return array_values(array_unique(array_merge(
+            $this->sourceClassTokens(SourceDom::attr($element, 'class'), $element, $styleResolver),
+            array_filter($styleResolver->richTextSourceMarkers($element), static fn (string $marker): bool => '' !== $marker)
+        )));
+    }
+
+    /**
+     * Identities for sibling pagination items rebuilt as carousel dots. Each
+     * keeps its source identity, but markers only a source-selected item owns
+     * (its selected-state projection) follow carousel selection instead: they
+     * are returned as toggled markers, and the source-selected item statically
+     * carries the identity of an unselected sibling.
+     *
+     * @param list<DOMElement> $elements
+     * @param list<bool> $sourceActive
+     * @return array{0: list<list<string>>, 1: list<string>}
+     */
+    private function paginationIdentities(array $elements, array $sourceActive, StyleResolver $styleResolver): array
+    {
+        $identities = array_map(fn (DOMElement $element): array => $this->sourceIdentityTokens($element, $styleResolver), $elements);
+        $inactive = array_keys(array_filter($sourceActive, static fn (bool $active): bool => !$active));
+        if (array() === $inactive || count($inactive) === count($elements)) {
+            return array($identities, array());
+        }
+        $shared = array_merge(...array_map(static fn (int $index): array => $identities[$index], $inactive));
+        $activeOnly = array();
+        foreach ($sourceActive as $index => $active) {
+            if ($active) {
+                $activeOnly = array_merge($activeOnly, array_diff($identities[$index], $shared));
+            }
+        }
+        $activeOnly = array_values(array_unique($activeOnly));
+        foreach ($sourceActive as $index => $active) {
+            if ($active) {
+                $identities[$index] = array_values(array_unique(array_merge(array_diff($identities[$index], $activeOnly), $identities[$inactive[0]])));
+            }
+        }
+        return array($identities, $activeOnly);
     }
 
     private function safeInlineStyle(string $style): string
@@ -2131,17 +2222,19 @@ JS;
             return '';
         }
         $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $markup = '<' . strtolower($list->tagName) . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceClassTokens(SourceDom::attr($list, 'class'), $list, $styleResolver))) . '" role="group" aria-label="Choose slide">';
-        foreach ($controls as $control) {
-            if ($control->parentNode !== $list) {
-                continue;
-            }
+        $markup = '<' . strtolower($list->tagName) . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceIdentityTokens($list, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        $controls = array_values(array_filter($controls, static fn (DOMElement $control): bool => $control->parentNode === $list));
+        $activeClasses = array_map(static fn (DOMElement $control): array => $styleResolver->paginationActiveClasses($control), $controls);
+        $sourceActive = array_map(static fn (DOMElement $control, array $classes): bool => array() !== array_intersect(SourceDom::tokens(SourceDom::attr($control, 'class')), $classes), $controls, $activeClasses);
+        [$itemIdentities, $itemActiveMarkers] = $this->paginationIdentities($controls, $sourceActive, $styleResolver);
+        $visuals = array_map(static fn (DOMElement $control): ?DOMElement => $control->firstElementChild, $controls);
+        [$visualIdentities, $visualActiveMarkers] = in_array(null, $visuals, true) ? array(array_fill(0, count($controls), array()), array()) : $this->paginationIdentities($visuals, $sourceActive, $styleResolver);
+        foreach ($controls as $position => $control) {
             $index = $this->slideIndex($control);
-            $visual = $control->firstElementChild;
-            $classes = $visual instanceof DOMElement ? $this->sourceClassTokens(SourceDom::attr($visual, 'class'), $visual, $styleResolver) : array();
-            $activeClasses = $styleResolver->paginationActiveClasses($control);
-            $itemClasses = array_diff($this->sourceClassTokens(SourceDom::attr($control, 'class'), $control, $styleResolver), $activeClasses);
-            $markup .= '<li data-carousel-active-classes="' . $escape(implode(' ', $activeClasses)) . '" class="' . $escape(implode(' ', $itemClasses)) . '"><button type="button" class="blocks-engine-authored-carousel__dot ' . $escape(implode(' ', $classes)) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></button></li>';
+            $itemClasses = array_diff($itemIdentities[$position], $activeClasses[$position]);
+            $markup .= '<li data-carousel-active-classes="' . $escape(implode(' ', array_unique(array_merge($activeClasses[$position], $itemActiveMarkers)))) . '" class="' . $escape(implode(' ', $itemClasses)) . '"><button type="button"'
+                . (array() === $visualActiveMarkers ? '' : ' data-carousel-active-classes="' . $escape(implode(' ', $visualActiveMarkers)) . '"')
+                . ' class="blocks-engine-authored-carousel__dot ' . $escape(implode(' ', $visualIdentities[$position])) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></button></li>';
         }
         return $markup . '</' . strtolower($list->tagName) . '>';
     }
@@ -2196,13 +2289,15 @@ JS;
         }
         $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $tag = in_array(strtolower($container->tagName), array('div', 'nav', 'span', 'p'), true) ? strtolower($container->tagName) : 'div';
-        $markup = '<' . $tag . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceClassTokens(SourceDom::attr($container, 'class'), $container, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        $markup = '<' . $tag . ' class="blocks-engine-authored-carousel__dots blocks-engine-authored-carousel__dots--source ' . $escape(implode(' ', $this->sourceIdentityTokens($container, $styleResolver))) . '" role="group" aria-label="Choose slide">';
+        $activeClasses = array_map(static fn (DOMElement $bullet): array => $styleResolver->paginationActiveClasses($bullet), $bullets);
+        $sourceActive = array_map(static fn (DOMElement $bullet, array $classes): bool => array() !== array_intersect(SourceDom::tokens(SourceDom::attr($bullet, 'class')), $classes), $bullets, $activeClasses);
+        [$identities, $activeMarkers] = $this->paginationIdentities($bullets, $sourceActive, $styleResolver);
         foreach ($bullets as $index => $bullet) {
             $button = 'button' === strtolower($bullet->tagName);
-            $activeClasses = $styleResolver->paginationActiveClasses($bullet);
-            $classes = array_diff($this->sourceClassTokens(SourceDom::attr($bullet, 'class'), $bullet, $styleResolver), $activeClasses);
+            $classes = array_diff($identities[$index], $activeClasses[$index]);
             $markup .= ($button ? '<button type="button"' : '<span role="button" tabindex="0"')
-                . ' data-carousel-active-classes="' . $escape(implode(' ', $activeClasses)) . '" class="' . $escape(trim('blocks-engine-authored-carousel__dot ' . implode(' ', $classes))) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></' . ($button ? 'button' : 'span') . '>';
+                . ' data-carousel-active-classes="' . $escape(implode(' ', array_unique(array_merge($activeClasses[$index], $activeMarkers)))) . '" class="' . $escape(trim('blocks-engine-authored-carousel__dot ' . implode(' ', $classes))) . '" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo"></' . ($button ? 'button' : 'span') . '>';
         }
         return $markup . '</' . $tag . '>';
     }
@@ -2227,6 +2322,14 @@ JS;
         if ($this->slideIndex($element) !== null) {
             return true;
         }
+        $tag = strtolower($element->tagName);
+        $pagerItem = 'li' === $tag ? $element : ( in_array($tag, array('a', 'button'), true) ? $element->parentNode : null );
+        if ( $pagerItem instanceof DOMElement && 'li' === strtolower($pagerItem->tagName)
+            && ( 'li' === $tag || $pagerItem->firstElementChild === $element )
+            && $pagerItem->parentNode instanceof DOMElement && $this->isNumberedSlidePager($pagerItem->parentNode)
+        ) {
+            return true;
+        }
         if ( 'li' === strtolower($element->tagName) && ctype_digit(trim(SourceDom::attr($element, 'aria-label'))) ) {
             $list = $element->parentNode;
             if ( $list instanceof DOMElement && in_array(strtolower($list->tagName), array('ol', 'ul'), true)
@@ -2244,6 +2347,83 @@ JS;
             SourceDom::attr($element, 'data-testid'),
         ))));
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item)[^a-z0-9]*[0-9]+(?:[^a-z0-9]|$)/', $identity);
+    }
+
+    /**
+     * The items of a numbered pager list (jQuery FlexSlider's
+     * `ol.flex-control-paging`): two or more `li`, each holding only one link
+     * or button whose text is its 1-based position.
+     *
+     * @return list<DOMElement>
+     */
+    private function numberedPagerItems(DOMElement $list): array
+    {
+        if ( ! in_array(strtolower($list->tagName), array('ol', 'ul'), true) ) {
+            return array();
+        }
+        $items = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( $child instanceof DOMText ) {
+                if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->data)) ) {
+                    return array();
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $control = $child->firstElementChild;
+            if ( 'li' !== strtolower($child->tagName) || ! $control instanceof DOMElement || $control !== $child->lastElementChild
+                || ! in_array(strtolower($control->tagName), array('a', 'button'), true)
+                || null !== $control->firstElementChild
+                || (string) (count($items) + 1) !== trim(str_replace("\xc2\xa0", ' ', $control->textContent ?? ''))
+                || trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? '')) !== trim(str_replace("\xc2\xa0", ' ', $control->textContent ?? ''))
+            ) {
+                return array();
+            }
+            $items[] = $child;
+        }
+        return count($items) >= 2 ? $items : array();
+    }
+
+    /**
+     * A numbered pager is carousel pagination only inside a carousel-identified
+     * root whose slide list has exactly one item per number. Numbered page
+     * links elsewhere, or counting differently, stay ordinary navigation.
+     */
+    private function isNumberedSlidePager(DOMElement $list): bool
+    {
+        $memo = $this->recognitions[$list] ?? array();
+        if ( array_key_exists('numberedPager', $memo) ) {
+            return $memo['numberedPager'];
+        }
+        $result = false;
+        $count = count($this->numberedPagerItems($list));
+        if ( $count >= 2 ) {
+            for ( $root = $list->parentNode; $root instanceof DOMElement; $root = $root->parentNode ) {
+                if ( ! $this->sourceElementClassifier->hasCarouselIdentity($root) ) {
+                    continue;
+                }
+                foreach ( $root->getElementsByTagName('*') as $candidate ) {
+                    if ( $candidate instanceof DOMElement && $candidate !== $list
+                        && ! $this->containsNode($candidate, $list) && ! $this->containsNode($list, $candidate)
+                        && $this->sourceElementClassifier->isCarouselList($candidate)
+                        && array() === $this->numberedPagerItems($candidate)
+                    ) {
+                        $items = $this->carouselListItems($candidate);
+                        if ( count($items) === $count && $this->carouselItemsHaveContent($items) ) {
+                            $result = true;
+                            break 2;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        $memo = $this->recognitions[$list] ?? array();
+        $memo['numberedPager'] = $result;
+        $this->recognitions[$list] = $memo;
+        return $result;
     }
 
     /**
@@ -2331,6 +2511,17 @@ JS;
             $next = $next || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
         return $previous && $next;
+    }
+
+    /**
+     * A control with no child artwork whose arrow the author stylesheet paints
+     * as generated `::before`/`::after` content (an icon-font glyph, say). The
+     * rebuilt button keeps the source classes that draw it, so the engine adds
+     * no glyph or disc chrome of its own over it.
+     */
+    private function sourcePaintsControlArtwork(DOMElement $control, StyleResolver $styleResolver): bool
+    {
+        return '' === $this->sourceControlVisual($control) && $styleResolver->paintsGeneratedContent($control);
     }
 
     private function sourceControlVisual(DOMElement $control): string
@@ -3077,7 +3268,9 @@ JS;
         $list = null;
         $items = array();
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root) ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root)
+                || $this->isNumberedSlidePager($candidate)
+            ) {
                 continue;
             }
             for ( $ancestor = $candidate->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
@@ -3100,7 +3293,9 @@ JS;
         $list = null;
         $items = array();
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root) ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root)
+                || $this->isNumberedSlidePager($candidate)
+            ) {
                 continue;
             }
             $candidateItems = $this->carouselListItems($candidate);

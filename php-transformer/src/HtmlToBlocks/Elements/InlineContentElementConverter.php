@@ -44,7 +44,7 @@ final class InlineContentElementConverter implements ElementConverter
 
     public static function handlesTag(string $tagName): bool
     {
-        return in_array($tagName, array( 'abbr', 'acronym', 'b', 'cite', 'code', 'del', 'em', 'font', 'i', 'ins', 'kbd', 'mark', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'span', 'strike', 'strong', 'sub', 'sup', 'time', 'tt', 'u', 'var' ), true);
+        return in_array($tagName, array( 'abbr', 'acronym', 'b', 'big', 'cite', 'code', 'del', 'em', 'font', 'i', 'ins', 'kbd', 'mark', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'span', 'strike', 'strong', 'sub', 'sup', 'time', 'tt', 'u', 'var' ), true);
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
@@ -189,7 +189,11 @@ final class InlineContentElementConverter implements ElementConverter
         // before the empty-inline omission path can discard it.
         if ('' === trim($element->textContent ?? '') && 0 === $element->childElementCount && $this->styleResolver->hasBeforeFontGlyph($element)) {
             $carrier = $element->cloneNode(true);
-            $carrier->setAttribute('style', $this->styleResolver->cssDeclarationString($this->richTextMaterializer->inlineVisualDeclarations($element)));
+            $declarations = $this->richTextMaterializer->inlineVisualDeclarations($element);
+            // A family declared on the pseudo-element itself would not reach
+            // the mark, whose tag and attributes no longer match that rule.
+            $declarations['font-family'] = (string) $this->styleResolver->beforeFontGlyphFamily($element);
+            $carrier->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
             $content = SourceDom::outerHtml($carrier);
             if ($this->richTextMaterializer->requiresHtmlFallbackForElement($element, $content)) {
                 $fallbacks[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic::build(array(
@@ -250,8 +254,11 @@ final class InlineContentElementConverter implements ElementConverter
         if (null === $sourceElement) $attrs = array_merge($this->sourceAttributes->syntheticInlineParagraphAttributes($element), $attrs);
         if ($retainAlignment) {
             $presentation = $this->styleResolver->presentationAttributes($element);
-            if (isset($presentation['style']['typography']['textAlign'])) {
-                $attrs['style']['typography']['textAlign'] = $presentation['style']['typography']['textAlign'];
+            // The glyph sits in its parent's line box, so the alignment it
+            // inherits is what positions it once the wrappers are gone.
+            $textAlign = $presentation['style']['typography']['textAlign'] ?? $this->styleResolver->inheritedTextAlignmentDeclaration($element);
+            if ('' !== $textAlign) {
+                $attrs['style']['typography']['textAlign'] = $textAlign;
             }
         }
         $paragraph = $this->createBlock->createBlock('core/paragraph', $attrs, array(), $sourceElement);

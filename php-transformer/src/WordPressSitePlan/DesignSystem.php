@@ -742,6 +742,10 @@ final class DesignSystem
      * - `palette_size`: colours in the palette.
      * - `literal_color_count`: painted opaque colours without a palette token
      *   (report `literal_colors`); zero when every usage colour is registered.
+     * - `literal_preset_color_count`: block colour attributes (text,
+     *   background, border and its sides, link) that store a literal equal
+     *   to a palette preset, so a palette edit skips them; zero when every
+     *   such colour is bound (see PresetBinding).
      * - `unused_font_families`: primary families (the first name of a
      *   `font-family` stack, unquoted) the source stylesheets declare that no
      *   rendered text uses as its primary, so the theme does not offer them.
@@ -770,7 +774,7 @@ final class DesignSystem
      */
     public function metrics(array $markups, array $assets, array $routeMarkups = array(), array $refusals = array(), ?int $uniqueSourceBytes = null): array
     {
-        $preset = $literal = 0;
+        $preset = $literal = $literalPreset = 0;
         $inline = $engine = $shipped = 0;
         foreach ($markups as $markup) {
             if (preg_match_all('/<!-- wp:[a-z0-9\/-]+ (\{.*?\}) \/?-->/s', $markup, $matches)) {
@@ -782,6 +786,10 @@ final class DesignSystem
                     $values = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $style['typography']['fontSize'] ?? null, $style['typography']['fontFamily'] ?? null);
                     foreach (array('padding', 'margin') as $box) foreach ((array) ($style['spacing'][$box] ?? array()) as $value) $values[] = $value;
                     foreach ((array) ($style['spacing']['blockGap'] ?? array()) as $value) $values[] = $value;
+                    $border = ArrayField::array($style, 'border');
+                    $colors = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $border['color'] ?? null, $style['elements']['link']['color']['text'] ?? null);
+                    foreach (array('top', 'right', 'bottom', 'left') as $side) $colors[] = $border[$side]['color'] ?? null;
+                    foreach ($colors as $color) if (is_string($color) && !str_starts_with($color, 'var:') && null !== $this->colorSlug($color)) $literalPreset++;
                     foreach ($values as $value) {
                         if (!is_string($value) || 1 === preg_match('/^(?:0[a-z%]*|auto|inherit|initial|unset|revert|revert-layer|)$/i', trim($value))) continue;
                         if (str_starts_with($value, 'var:preset|')) $preset++;
@@ -835,6 +843,7 @@ final class DesignSystem
             'refusal_reasons' => $refusals,
             'palette_size' => count($this->colors),
             'literal_color_count' => count($this->literalColors),
+            'literal_preset_color_count' => $literalPreset,
             'font_size_count' => count($this->fontSizes),
             'spacing_size_count' => count($this->spacing),
             'font_family_count' => count($this->fontFamilies),

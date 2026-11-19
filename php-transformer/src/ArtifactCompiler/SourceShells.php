@@ -212,16 +212,32 @@ final class SourceShells
             if (array() !== array_filter(SourceDom::tokens($node->getAttribute('class')), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...))) $currentNodes[] = $node;
         }
         foreach ($currentNodes as $node) {
+            // A navigation toggle may be an anchor without href, with no
+            // same-tag sibling to establish its resting classes. Known current
+            // tokens are route state independently of its computed link colour.
+            if ('a' === strtolower($node->tagName) && 0 < ($xpath->query('ancestor::nav | ancestor::*[@role="navigation"]', $node)?->length ?? 0)) {
+                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !\Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken($class)));
+                if (array() === $classes) $node->removeAttribute('class');
+                else $node->setAttribute('class', implode(' ', $classes));
+            }
+            // Sibling class intersection describes route state only at the
+            // menu-item level: the current node and its wrappers up to the
+            // first level whose same-tag siblings are navigation peers. Layout
+            // wrappers above it keep their classes on every route.
+            $atItemLevel = true;
             for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
                 if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
                 $classes = SourceDom::tokens($cursor->getAttribute('class'));
-                if (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
+                if ($atItemLevel && $cursor->parentNode instanceof \DOMElement) {
                     $siblingClasses = array();
+                    $hasNavigationPeer = false;
                     foreach ($cursor->parentNode->childNodes as $sibling) {
                         if (!$sibling instanceof \DOMElement || $sibling === $cursor || $sibling->tagName !== $cursor->tagName) continue;
+                        if ('a' === strtolower($sibling->tagName) || 0 !== $sibling->getElementsByTagName('a')->length) $hasNavigationPeer = true;
                         foreach (SourceDom::tokens($sibling->getAttribute('class')) as $class) $siblingClasses[$class] = true;
                     }
-                    if (array() !== $siblingClasses) $cursor->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($siblingClasses[$class])))));
+                    if (array() !== $classes && array() !== $siblingClasses) $cursor->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($siblingClasses[$class])))));
+                    if ($hasNavigationPeer) $atItemLevel = false;
                 }
                 if ('nav' === strtolower($cursor->tagName) || 'navigation' === strtolower($cursor->getAttribute('role'))) break;
             }

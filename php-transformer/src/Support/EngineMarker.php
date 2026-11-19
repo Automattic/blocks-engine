@@ -42,6 +42,13 @@ final class EngineMarker
         'specificity-id' => 'be-i-',
     );
 
+    /**
+     * `source_role` of a generated stylesheet whose rules name only engine
+     * markup (no author selector), so routes that ship engine-owned styles
+     * still deliver it.
+     */
+    public const ENGINE_OWNED_STYLESHEET_ROLE = 'engine-owned';
+
     /** Compact output alias for CaptureEvidence::DEVICE_DOCUMENT. */
     public const DEVICE_SCOPE_ATTRIBUTE = 'data-be-d';
 
@@ -315,6 +322,22 @@ final class EngineMarker
     public static function editorAnchorClass(string $id): string
     {
         return self::EDITOR_ANCHOR_PREFIX . $id;
+    }
+
+    /**
+     * Whether a class exists only for emitted stylesheets and scripts to name:
+     * an allocated marker, a role class, a subject class or an editor anchor.
+     * Such a class does nothing on its own, so a carrier no emitted rule or
+     * runtime names renders the same without it.
+     */
+    public static function isSelectorHook(string $class): bool
+    {
+        return null !== self::markerKind($class)
+            || in_array($class, array_map(static fn (string $kind): string => 'blocks-engine-role-' . $kind, self::ROLE_KINDS), true)
+            || self::SUBJECT_BASE_CLASS === $class
+            || str_starts_with($class, self::SUBJECT_TAG_PREFIX)
+            || str_starts_with($class, self::SUBJECT_CLASS_PREFIX)
+            || null !== self::editorAnchorId($class);
     }
 
     /** The source id an editor-anchor class stands for, or null for any other class. */

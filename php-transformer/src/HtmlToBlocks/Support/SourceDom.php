@@ -921,6 +921,24 @@ final class SourceDom
         }
     }
 
+    /**
+     * Removes attributes that SVG does not define and browsers ignore when
+     * rendering the `<svg>` element, such as the `size` prop that Lucide's
+     * runtime leaves on every icon it renders. The icon box still comes from
+     * width/height/CSS. Dropping them before SVG sanitization lets the icon
+     * convert the same way as it would without them.
+     */
+    public static function removeNonRenderingSvgAttributes(DOMElement $root): void
+    {
+        foreach ( $root->getElementsByTagName('svg') as $svg ) {
+            foreach ( array( 'size' ) as $name ) {
+                if ( $svg->hasAttribute($name) ) {
+                    $svg->removeAttribute($name);
+                }
+            }
+        }
+    }
+
     public static function ancestorElement(DOMElement $element, string $tagName): ?DOMElement
     {
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {

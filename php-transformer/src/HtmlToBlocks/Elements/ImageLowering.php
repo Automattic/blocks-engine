@@ -630,6 +630,17 @@ final class ImageLowering
             }
         }
 
+        // A linked image may become a listing card's per-post featured image.
+        // Its authored width/height state the box the card reserved, which the
+        // lowered figure no longer carries once author CSS makes it fluid.
+        if ( $link instanceof DOMElement ) {
+            $intrinsicWidth = trim(SourceDom::attr($image, 'width'));
+            $intrinsicHeight = trim(SourceDom::attr($image, 'height'));
+            if ( 1 === preg_match('/^[1-9]\d{0,5}$/', $intrinsicWidth) && 1 === preg_match('/^[1-9]\d{0,5}$/', $intrinsicHeight) ) {
+                $attrs['metadata'] = array_merge(ArrayField::array($attrs, 'metadata'), array( 'blocksEngineIntrinsicSize' => array( 'width' => (int) $intrinsicWidth, 'height' => (int) $intrinsicHeight ) ));
+            }
+        }
+
         $selection = $this->authoredImageSelection($image, (string) $attrs['url'], $picture);
         if ( array() !== $selection ) {
             $attrs['metadata'] = array_merge(ArrayField::array($attrs, 'metadata'), array( 'blocksEngineImageSelection' => $selection ));
@@ -671,6 +682,9 @@ final class ImageLowering
             // which the synthetic figure now stands in for. Core's inline-block
             // anchor would shrink-wrap the image and pin it to the line start;
             // keep the source link inline so the image lays out on the figure.
+            // A floated source image escaped its inline link the same way, so
+            // following siblings wrapped beside it; an inline-block anchor
+            // would contain the float and push that text below the image.
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::INLINE_IMAGE_LINK_CLASS);
         }
         $block = $this->blocks->createBlock('core/image', $attrs, array(), $figure ?? $image);
@@ -831,7 +845,19 @@ final class ImageLowering
 
     private function isBlockImageInInlineLink(DOMElement $image, DOMElement $link): bool
     {
-        return 'block' === $this->sourceDisplay($image) && 'inline' === $this->sourceDisplay($link);
+        return 'inline' === $this->sourceDisplay($link)
+            && ('block' === $this->sourceDisplay($image) || $this->isFloatedSourceImage($image));
+    }
+
+    /**
+     * A floated image escapes its inline link: following siblings wrap beside
+     * it. Core's inline-block anchor would contain the float instead.
+     */
+    private function isFloatedSourceImage(DOMElement $image): bool
+    {
+        $float = CssValueInspector::declared($this->styleResolver->authorViewport->reference($image, array( 'float' )), 'float');
+
+        return in_array($float, array( 'left', 'right', 'inline-start', 'inline-end' ), true);
     }
 
     private function sourceDisplay(DOMElement $element): string
