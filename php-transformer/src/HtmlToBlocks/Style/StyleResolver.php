@@ -2055,6 +2055,20 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->inlineGeometry()->emptyElementBackgroundCarrierClassName($element, $nativeBackgroundColor);
     }
 
+    /** @param array<string, string> $declarations */
+    public function figureQuoteCaptionClassName(DOMElement $caption, array $declarations): string
+    {
+        if (array() === $declarations) {
+            return '';
+        }
+        // Style the native cite, not a nested block inside an inline cite:
+        // that topology introduces anonymous line boxes using the parent strut.
+        $body = $this->cssDeclarationString($declarations) . ';display:block';
+        $className = $this->session->layoutGeometryState()->allocateCarrier($this->geometryStructuralPath($caption) . "\nfigure-quote-caption\n" . $body);
+        $this->session->layoutGeometryState()->registerRule($className, '.' . $className . ' > cite{' . $body . '}');
+        return $className;
+    }
+
     /** Restate source caption margins that differ from core/image's defaults. */
     public function imageCaptionMarginClassName(DOMElement $caption): string
     {

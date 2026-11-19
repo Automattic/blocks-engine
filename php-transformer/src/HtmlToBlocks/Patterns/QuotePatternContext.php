@@ -47,10 +47,9 @@ final class QuotePatternContext
             : $content;
     }
 
-    /** Preserve the typography of the caption consumed by a native quote. */
-    public function figureCaptionContent(DOMElement $caption): string
+    /** Preserve the line box of the caption on the native citation itself. */
+    public function figureCaptionClassName(DOMElement $caption): string
     {
-        $content = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom::innerHtml($caption);
         $declarations = array();
         $authored = $this->styleResolver->structuralPresentationDeclarations($caption);
         foreach (array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color') as $property) {
@@ -59,8 +58,7 @@ final class QuotePatternContext
                 $declarations[$property] = $value;
             }
         }
-        $style = $this->styleResolver->cssDeclarationString($declarations);
-        return '' === $style ? $content : '<span style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</span>';
+        return $this->styleResolver->figureQuoteCaptionClassName($caption, $declarations);
     }
 
     public function citationFromElement(DOMElement $element): string
