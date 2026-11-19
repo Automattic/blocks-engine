@@ -3075,8 +3075,16 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $submenuBlocks = array();
+        $titleLink = null;
         foreach ( $this->submenuContainers($element, $anchor) as $submenuContainer ) {
             $submenuAnchors = null;
+            $titled = null === $siblingLabel ? $this->titledSubmenuPanel($submenuContainer, $anchor) : null;
+            if ( null !== $titled ) {
+                // The title list only restates the toggle as a link to the
+                // section; core's submenu parent carries that destination.
+                $titleLink = $titled['title'];
+                $submenuContainer = $titled['list'];
+            }
             $children = $this->navigationBlocks($submenuContainer, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, true, false, $submenuAnchors, $listItems);
             if ( array() === $children ) {
                 // A candidate child menu still owns its content when native
@@ -3098,7 +3106,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 'label' => null !== $siblingLabel && 'a' !== strtolower($anchor->tagName)
                     ? trim(preg_replace('/\s+/', ' ', $this->visibleText($anchor)) ?? '')
                     : $this->anchorLabel($anchor, $innerHtml, $navigationContext),
-                'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
+                'url'   => SourceDom::safeNavigationUrl(null !== $titleLink ? $titleLink->getAttribute('href') : ($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : '')),
                 'kind'  => 'custom',
             );
             if ( null !== $siblingLabel && '' === $submenuAttrs['url'] ) {
@@ -4557,6 +4565,62 @@ final class NavigationPattern implements PatternRecognizerInterface
     /**
      * @return array<int, DOMElement>
      */
+    /**
+     * A submenu panel opened by an href-less toggle and made of exactly two
+     * lists: a title list whose single link names the section with the
+     * toggle's own label, then the section's child links. Recognized by
+     * structure alone, never by class names.
+     *
+     * @return array{title: DOMElement, list: DOMElement}|null
+     */
+    private function titledSubmenuPanel(DOMElement $panel, DOMElement $toggle): ?array
+    {
+        if ( 'a' !== strtolower($toggle->tagName) || '' !== trim($toggle->getAttribute('href')) ) {
+            return null;
+        }
+        $lists = array();
+        foreach ( $panel->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                return null;
+            }
+            $lists[] = $child;
+        }
+        if ( 2 !== count($lists) ) {
+            return null;
+        }
+
+        $items = array();
+        foreach ( $lists[0]->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                return null;
+            }
+            $items[] = $child;
+        }
+        if ( 1 !== count($items) || 1 !== $items[0]->getElementsByTagName('a')->length
+            || 0 < $items[0]->getElementsByTagName('ul')->length || 0 < $items[0]->getElementsByTagName('ol')->length
+        ) {
+            return null;
+        }
+        $title = $items[0]->getElementsByTagName('a')->item(0);
+        if ( ! $title instanceof DOMElement || ! $this->leadsToPage($title) ) {
+            return null;
+        }
+
+        $normalize = fn (DOMElement $node): string => mb_strtolower(trim(preg_replace('/\s+/u', ' ', $this->visibleText($node)) ?? ''));
+        $label = $normalize($toggle);
+        if ( '' === $label || $label !== $normalize($title) || $label !== $normalize($items[0]) ) {
+            return null;
+        }
+
+        return array( 'title' => $title, 'list' => $lists[1] );
+    }
+
     private function submenuContainers(DOMElement $element, DOMElement $primaryAnchor): array
     {
         $containers = array();
