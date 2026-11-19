@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorListCompactor;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSpecificityShimCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssMathValueCompactor;
 use Automattic\BlocksEngine\PhpTransformer\Css\ShadowedDeclarationPruner;
 use Automattic\BlocksEngine\PhpTransformer\Support\NativeListItemFallbackReconciler;
@@ -582,6 +583,10 @@ final class SitePlanRun
             }
             // A restated arm folded beside the arm it restricts adds nothing.
             $compacted = CssSelectorListCompactor::withoutSubsumedArmsInStylesheet($compacted);
+            // Projection pays each arm's specificity one shim at a time
+            // (`:not(.be-c-0):not(.be-c-0)`, `:where(.x):not(.be-c-0)`); every
+            // arm ships that weight at its smallest spelling.
+            $compacted = CssSpecificityShimCompactor::stylesheet($compacted);
             // Projection writes combinators and selector lists spaced out;
             // the selector whitespace that separates no tokens ships once
             // per arm. Declaration values are left byte for byte.
