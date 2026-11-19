@@ -35,6 +35,25 @@ final class QuotePatternContext
     }
 
     /**
+     * Margins belong to the quotation, not the figure that also holds its
+     * attribution. Map them without registering generated box geometry.
+     *
+     * @return array<string, mixed>
+     */
+    public function figureQuotationSpacing(DOMElement $blockquote): array
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($blockquote);
+        $margins = array_intersect_key($declarations, array_flip(array(
+            'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+        )));
+        $mapped = $this->styleResolver->styleAttributeMapper()->map(
+            $margins,
+            fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $blockquote)
+        );
+        return $mapped['style']['spacing'] ?? array();
+    }
+
+    /**
      * The quotation's RichText. Under a clip that author motion carries it
      * across, the text runs the source split with empty comments
      * (`“<!---->{quote}<!---->”`) are painted one by one, so they keep
