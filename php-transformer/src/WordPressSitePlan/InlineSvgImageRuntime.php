@@ -18,7 +18,23 @@ add_filter( 'render_block_core/image', static function ( string $content, array 
     $svg = trim( wp_kses( $source['svg'], array_fill_keys( array( 'svg', 'g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon', 'title', 'desc' ), $attributes ) ) );
     if ( ! str_starts_with( $svg, '<svg' ) ) return $content;
     // Match the original inline root, not Core's figure: an extra wrapper
-    // changes child selectors, grid placement and inherited paint.
+    // changes child selectors, grid placement and inherited paint. The
+    // figure's minted `be-` classes are the SVG's projected author geometry
+    // (its box size, for one), so the restored root carries them.
+    $minted = array();
+    $carrier = new WP_HTML_Tag_Processor( $content );
+    while ( $carrier->next_tag() ) {
+        foreach ( preg_split( '/\s+/', (string) $carrier->get_attribute( 'class' ), -1, PREG_SPLIT_NO_EMPTY ) as $class ) {
+            if ( str_starts_with( $class, 'be-' ) ) $minted[ $class ] = true;
+        }
+    }
+    if ( array() !== $minted ) {
+        $root = new WP_HTML_Tag_Processor( $svg );
+        if ( $root->next_tag( 'SVG' ) ) {
+            foreach ( array_keys( $minted ) as $class ) $root->add_class( $class );
+            $svg = $root->get_updated_html();
+        }
+    }
     return $svg;
 }, 10, 2 );
 PHP;

@@ -2035,6 +2035,15 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $fluid[$property] = $bands;
             } elseif ( null !== $bands && 'width' === $property && $fold['equal_box'] && $this->fillsFoldedBox($element, $box, $observations, $viewports, $boxObservations) ) {
                 $fluid[$property] = $bands;
+            } elseif ( $fold['equal_box'] && null !== $bands && self::containingBlockIndependent($bands) && self::edgeless($observations, $property) ) {
+                // The child filled the box exactly at every capture and adds
+                // no padding or border, so the box's own length (a viewport-
+                // scaled icon frame) sizes it the same wherever it sits.
+                $fluid[$property] = $bands;
+            } elseif ( $fold['equal_box'] && isset($fluid[$property]) && self::containingBlockIndependent($fluid[$property]) ) {
+                // The child's own length was the box's at every capture and
+                // resolves the same wherever it sits.
+                continue;
             } else {
                 unset($fluid[$property]);
             }
@@ -2043,9 +2052,49 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     }
 
     /**
+     * Whether every band is a length that resolves without a containing block
+     * or font size (pixels, viewport units and math on them), so it sizes the
+     * box the same whichever box it is laid out in.
+     *
+     * @param list<array{0: float|null, 1: string}> $bands
+     */
+    private static function containingBlockIndependent(array $bands): bool
+    {
+        foreach ( $bands as [, $value] ) {
+            if ( null === \Automattic\BlocksEngine\PhpTransformer\Css\CssFluidLength::evaluate($value, 1000.0, 1000.0) ) {
+                return false;
+            }
+        }
+        return array() !== $bands;
+    }
+
+    /**
+     * Whether a box has no padding or border on a size's axis at every
+     * capture, so a length sizes its border box whatever its `box-sizing`.
+     *
+     * @param array<string, array<string, mixed>> $observations
+     */
+    private static function edgeless(array $observations, string $property): bool
+    {
+        $sides = 'width' === $property ? array('left', 'right') : array('top', 'bottom');
+        foreach ( $observations as $observation ) {
+            $styles = $observation['used_styles'] ?? array();
+            foreach ( $sides as $side ) {
+                if ( 0.0 !== (float) ($styles['padding-' . $side] ?? '') || 0.0 !== (float) ($styles['border-' . $side . '-width'] ?? (string) ($styles['border-' . $side] ?? '')) ) {
+                    return false;
+                }
+            }
+        }
+        return array() !== $observations;
+    }
+
+    /**
      * Whether a folded box's child declares that it fills the box: its own
      * width, lifted with the box still in place as its containing block, is
-     * `100%` at every width the author's cascade reaches.
+     * `100%` at every width the author's cascade reaches, or `auto` on an
+     * in-flow, unfloated block-level box inside a block container, which
+     * block layout stretches across the box's content box at every width
+     * (a rich-text wrapper's paragraph, for example).
      *
      * @param array<string, array<string, mixed>> $observations
      * @param array<string, array<string, mixed>> $viewports
@@ -2059,7 +2108,24 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $parents = $element->parentNode === $box ? $boxObservations : array();
         $bands = (new Style\BoxTreeFluidIntent())->lift($element, $this->styleResolver, $own, $viewports, $parents, '', $this->session->boxTreeEvidence(...))['width'] ?? array();
-        return array() !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => '100%' !== $value);
+        $values = array_values(array_unique(array_column($bands, 1)));
+        if ( array('100%') === $values ) {
+            return true;
+        }
+        if ( array('auto') !== $values ) {
+            return false;
+        }
+        foreach ( $observations as $key => $observation ) {
+            $styles = $observation['used_styles'] ?? array();
+            $container = $boxObservations[$key]['used_styles']['display'] ?? null;
+            if ( !in_array($styles['display'] ?? null, self::FILLING_BLOCK_DISPLAYS, true)
+                || !in_array($styles['position'] ?? 'static', array('static', 'relative', 'sticky'), true)
+                || 'none' !== ($styles['float'] ?? 'none')
+                || !in_array($container, array('block', 'flow-root', 'list-item'), true) ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -2105,6 +2171,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     /** Sizes a folded box's intent decides for its child. */
     private const FOLD_SIZING = array('width', 'height');
+
+    /** Block-level displays whose `auto` width fills a block container's content box. */
+    private const FILLING_BLOCK_DISPLAYS = array('block', 'flow-root', 'flex', 'grid', 'list-item');
 
     private const INTRINSIC_SIZES = array('auto', 'none', 'fit-content', 'min-content', 'max-content', 'stretch');
 

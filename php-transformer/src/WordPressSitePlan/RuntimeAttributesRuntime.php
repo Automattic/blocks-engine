@@ -29,9 +29,11 @@ add_filter( 'render_block', static function ( string $content, array $block ): s
         $processor = new WP_HTML_Tag_Processor( $content );
         if ( $processor->next_tag() ) {
             // Keep projection identities: route CSS can address these markers
-            // even though the published box sheds Core's group chrome.
+            // even though the published box sheds Core's group chrome. Minted
+            // `be-` classes (inline geometry among them) carry the box's own
+            // projected author geometry, so they stay with the box too.
             $classes = preg_split( '/\s+/', (string) $processor->get_attribute( 'class' ) );
-            $markers = array_filter( $classes, static fn ( string $class ): bool => str_starts_with( $class, 'blocks-engine-' ) );
+            $markers = array_filter( $classes, static fn ( string $class ): bool => str_starts_with( $class, 'blocks-engine-' ) || str_starts_with( $class, 'be-' ) );
             $box['class'] = trim( ( $box['class'] ?? '' ) . ' ' . implode( ' ', $markers ) );
             $processor->remove_attribute( 'class' );
             $processor->remove_attribute( 'style' );

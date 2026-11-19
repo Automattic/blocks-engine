@@ -197,6 +197,8 @@ final class BoxTreeFluidIntent
     private \Closure $evidence;
     /** @var array<string, array<string, mixed>> */
     private array $viewports = array();
+    /** Whether a `<button>` becomes a plain box laid out as a flex item, where its `auto` size is any box's. */
+    private bool $buttonAsFlexItem = false;
 
     /**
      * @param array<string, array<string, mixed>> $observations Captured observations of the element, by viewport key.
@@ -277,6 +279,8 @@ final class BoxTreeFluidIntent
         }
         foreach ($widths as $width) unset($samples[(string) $width]);
         $inheriting = in_array($blockName, self::INHERITING_BLOCKS, true);
+        $this->buttonAsFlexItem = '' === $this->pseudo && 'core/group' === $blockName && 'button' === strtolower($element->tagName)
+            && $this->flexItemAtEveryCapture(array_keys($widths));
         $lifted = array();
         foreach ($properties as $property) {
             $bands = $this->liftedAuthor($property, $widths, $samples, $observations, $viewports, $parents)
@@ -485,12 +489,19 @@ final class BoxTreeFluidIntent
     private function intrinsicKeyword(string $property, float $width): ?string
     {
         [$initial] = self::INTRINSIC[$property];
+        $declared = $this->declared($property, $width);
         foreach (array_slice(self::INTRINSIC[$property], 1) as $alias) {
-            if (null !== $this->declared($alias, $width)) return null;
+            $logical = $this->declared($alias, $width);
+            if (null === $logical) continue;
+            // In horizontal writing a later `block-size` (or its `min-`/`max-`
+            // form) is the used height, read like the physical longhand: a
+            // wrapper sized `block-size:100%` follows its container as
+            // `height:100%` would, instead of keeping capture pixels.
+            if (!in_array($property, self::PERCENT_HEIGHTS, true) || '' === $logical || !$this->winsOver($alias, $property, $width) || !$this->horizontalWriting($width)) return null;
+            $declared = $logical;
         }
         $grid = in_array($property, self::GRID_TEMPLATES, true);
         $offset = in_array($property, self::OFFSETS, true);
-        $declared = $this->declared($property, $width);
         $value = null === $declared ? $initial : strtolower($declared);
         if (in_array($value, array('initial', 'unset'), true)) $value = $initial;
         if ($grid) {
@@ -503,7 +514,7 @@ final class BoxTreeFluidIntent
         // A replaced or attribute-sized element's intrinsic size is not the
         // author's to restate; a pseudo-element is neither.
         if ('' !== $this->pseudo) return $value;
-        if (in_array(strtolower($this->element->tagName), self::REPLACED, true)) return $this->replacedHeightFromWidth($property, $value, $width);
+        if (in_array(strtolower($this->element->tagName), self::REPLACED, true) && !$this->buttonAsFlexItem) return $this->replacedHeightFromWidth($property, $value, $width);
         if (in_array($property, array('width', 'height'), true) && $this->element->hasAttribute($property)) return null;
         return $value;
     }
@@ -727,6 +738,14 @@ final class BoxTreeFluidIntent
         return false;
     }
 
+    /** Whether an alias is declared after the longhand (or the longhand is absent) in the element's cascade at one width. */
+    private function winsOver(string $alias, string $property, float $width): bool
+    {
+        $winners = $this->winners[(string) $width] ??= $this->resolver->authorViewport->atViewport($this->element, $this->requested, $width, pseudoElement: $this->pseudo);
+        $order = array_flip(array_keys($winners));
+        return isset($order[$alias]) && (!isset($order[$property]) || $order[$alias] > $order[$property]);
+    }
+
     /** Whether the element's resolved `writing-mode` at this width is horizontal (`horizontal-tb`, the initial value). */
     private function horizontalWriting(float $width): bool
     {
@@ -890,6 +909,34 @@ final class BoxTreeFluidIntent
         // An absolute box with no positioned ancestor uses the initial containing block.
         $viewport = $this->viewports[$key] ?? array();
         return $absolute && isset($viewport['width'], $viewport['height']) ? array((float) $viewport['width'], (float) $viewport['height']) : null;
+    }
+
+    /**
+     * Whether the element's parent box (past `display: contents` ancestors)
+     * is a flex container at every capture where it renders. A flex item's
+     * `auto` size is its content's whether it is a `<button>` or a `<div>`,
+     * so a button rebuilt as a group keeps the author's intrinsic size.
+     *
+     * @param list<string> $keys Capture keys.
+     */
+    private function flexItemAtEveryCapture(array $keys): bool
+    {
+        $flex = false;
+        foreach ($keys as $key) {
+            $display = null;
+            for ($node = $this->element->parentNode; $node instanceof DOMElement; $node = $node->parentNode) {
+                $styles = ($this->evidence)($node)[$key]['used_styles'] ?? null;
+                if (!is_array($styles)) return false;
+                $display = strtolower((string) ($styles['display'] ?? ''));
+                if ('contents' !== $display) break;
+            }
+            if (in_array($display, array('flex', 'inline-flex'), true)) {
+                $flex = true;
+            } elseif ('none' !== $display) {
+                return false;
+            }
+        }
+        return $flex;
     }
 
     /** Whether a box is the containing block of its absolutely positioned descendants. */
