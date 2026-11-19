@@ -39,10 +39,7 @@ final class SharedChromeStylesheets
     /** A compiler route gate compound: `:where(:root:is(.be-r-…))`, `:where(:root:not(.be-r-…))` or `:where(:root.be-r)`. */
     private const ROUTE_GATE = '/^:where\(:root(?::(?:is|not)\((?:\.be-r-[a-f0-9]+,?)+\)|\.be-r(?::not\((?:\.be-r-[a-f0-9]+,?)+\))?)\)$/';
 
-    // A content-addressed marker (a navigation toggle, overlay or link icon:
-    // a hash and no instance index) is generated too: the part that carries
-    // it on every route it renders needs the rules it names on each of them.
-    private const GENERATED_CLASS_PATTERN = '/blocks-engine-(?!editor-anchor-)[a-z-]+-[0-9a-f]{12}(?:-\d+)?(?![\w-])/';
+    private const GENERATED_CLASS_PATTERN = '/blocks-engine-(?:[a-z-]+-[0-9a-f]{12}-\d+|subject-class-[0-9a-f]{12})(?![\w-])/';
 
     private const BOX_PROPERTIES = '/(?:^|[;{\s])(?:(?:max-)?width|z-index|overflow(?:-[xy])?|inset|top|right|bottom|left)\s*:/i';
 
@@ -1271,6 +1268,12 @@ final class SharedChromeStylesheets
             // from the adopting page's capture; its rules must follow the part
             // just like generated attribute and semantic marker rules do.
             if (preg_match_all('/\bbe-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?\b/', $markup, $matches)) foreach ($matches[0] as $class) $classes[$class] = true;
+            // A native navigation's toggle and overlay markers are content
+            // addressed the same way: each route compiles its own copy of a
+            // source-equal header, so the part carries one capture's marker
+            // while the other routes' stylesheets style theirs. Its rules
+            // follow the part, or adopting routes lose their collapsed menu.
+            if (preg_match_all('/\bblocks-engine-(?:native-navigation-toggle|navigation-overlay)-[a-f0-9]{12}(?![\w-])/', $markup, $matches)) foreach ($matches[0] as $class) $classes[$class] = true;
             // The chrome's own authored hooks: rules written for them styled it
             // on every page, so they follow it into the shared part.
             foreach (self::authoredChromeElementHooks($markup) as $element) {

@@ -155,6 +155,10 @@ final class FormLayoutGraphBuilder
                 $ancestorVisits[] = $ancestor;
             }
         }
+        // Each selector is matched only against the elements carrying its
+        // rightmost compound's key.
+        $scopeIndex = $selectorCache->subjectElementIndex($scope);
+        $ancestorIndex = $selectorCache->subjectElementIndex($ancestorVisits);
         $analysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
@@ -163,15 +167,7 @@ final class FormLayoutGraphBuilder
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
-            static function (array $selector, string $selectorText) use ($scope, $selectorCache): bool {
-                foreach ( $scope as $element ) {
-                    $match = $selectorCache->matches($element, $selectorText, $selector);
-                    if ( ! $match['supported'] || $match['matches'] ) {
-                        return true;
-                    }
-                }
-                return false;
-            },
+            static fn (array $selector, string $selectorText): bool => $selectorCache->anySubjectMatches($scopeIndex, $selectorText, $selector, true),
             CssAnalysisLimits::MAX_SCANNED_SELECTORS
         );
         $this->diagnostics = array_merge($this->diagnostics, $analysis['diagnostics']);
@@ -184,14 +180,7 @@ final class FormLayoutGraphBuilder
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
-            static function (array $selector, string $selectorText) use ($ancestorVisits, $selectorCache): bool {
-                foreach ( $ancestorVisits as $ancestor ) {
-                    if ( $selectorCache->matches($ancestor, $selectorText, $selector)['matches'] ) {
-                        return true;
-                    }
-                }
-                return false;
-            },
+            static fn (array $selector, string $selectorText): bool => $selectorCache->anySubjectMatches($ancestorIndex, $selectorText, $selector, false),
             CssAnalysisLimits::MAX_SCANNED_SELECTORS
         );
         $this->diagnostics = array_merge($this->diagnostics, $customPropertyAnalysis['diagnostics']);
