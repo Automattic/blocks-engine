@@ -9,8 +9,10 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 // wrapper div. The panel itself must become the mobile core/navigation (as
 // it does without the wrapper), carrying its anchor and the wrapper's
 // classes, so Core's opener does not render inside the hidden panel group.
+// Bootstrap lays the panel out as a column flex box, so it is an author-owned
+// layout and reaches the navigation through the layout claim.
 $html = '<!doctype html><html><head><style>.navbar-toggler{display:none}'
-    . '.offcanvas{position:fixed;top:0;right:0;bottom:0;visibility:hidden;transform:translateX(100%)}'
+    . '.offcanvas{position:fixed;top:0;right:0;bottom:0;display:flex;flex-direction:column;visibility:hidden;transform:translateX(100%)}'
     . '@media(max-width:991px){.navbar-toggler{display:block;width:35px;height:28px}}</style></head><body>'
     . '<header><nav class="navbar" aria-label="Main menu"><div class="container"><a class="navbar-brand" href="https://example.com/">Brand</a>'
     . '<button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#mob-nav" aria-controls="mob-nav"><span></span></button>'

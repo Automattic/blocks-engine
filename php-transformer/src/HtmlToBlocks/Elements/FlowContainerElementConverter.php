@@ -662,7 +662,8 @@ final class FlowContainerElementConverter implements ElementConverter
     private function navigationClaim(DOMElement $element, array &$fallbacks): ?ConversionOutcome
     {
         if ( $this->shouldDeferNavigationPatternToChildren($element)
-            || ! $this->navigationPattern->claimsBeforeAuthorOwnedLayout($element)
+            || ( ! $this->navigationPattern->claimsBeforeAuthorOwnedLayout($element)
+                && ! $this->navigationPattern->ownsToggledPanelList($element, $this->context->patternContext()->navigationContext()) )
         ) {
             return null;
         }
