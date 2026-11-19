@@ -9,7 +9,9 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 $cases = array(
     'consent' => array('attributes' => '', 'control' => '<input id="consent" type="checkbox" name="consent"><label for="consent">Consent</label>', 'group' => true),
     'row' => array('attributes' => '', 'control' => '<label for="email">Email</label><input id="email" type="email" name="email">', 'group' => true),
-    'data-row' => array('attributes' => ' data-x="keep"', 'control' => '<label for="extra">Extra</label><input id="extra" name="extra">', 'group' => false),
+    // A data attribute nothing on the page addresses is inert, value or not:
+    // the Group drops it instead of keeping a generated shell to carry it.
+    'data-row' => array('attributes' => ' data-x="keep"', 'control' => '<label for="extra">Extra</label><input id="extra" name="extra">', 'group' => true, 'carried' => false),
     // A Group carries an id as its anchor; only attributes it cannot carry
     // need the generated shell.
     'id-row' => array('attributes' => ' id="keep"', 'control' => '<label for="other">Other</label><input id="other" name="other">', 'group' => true),
@@ -54,7 +56,7 @@ foreach ($cases as $class => $case) {
         $assert(!str_contains(json_encode($block), 'layout-shell'), $class . ' contains no layout-shell.');
         $assert(str_contains($block['innerContent'][0] ?? '', $class), $class . ' survives in readable wrapper markup.');
         $assert(!isset($block['innerBlocks'][0]['_form_field_box']), $class . ' does not duplicate the consumed field box.');
-        $assert('' === $case['attributes'] || str_contains($block['innerContent'][0] ?? '', $case['attributes']), $class . ' retains its source attribute in readable markup.');
+        $assert('' === $case['attributes'] || false === ($case['carried'] ?? true) || str_contains($block['innerContent'][0] ?? '', $case['attributes']), $class . ' retains its source attribute in readable markup.');
     } else {
         $assert(str_contains($block['innerContent'][0] ?? '', $case['attributes']), $class . ' retains its source attribute in readable markup.');
     }

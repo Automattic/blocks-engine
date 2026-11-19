@@ -481,23 +481,25 @@ final class ReadableFormBlockBuilder
 
     /**
      * Geometry provenance does not change a container's native transport. A
-     * Group carries the class and the id (as its anchor). A valueless data
-     * attribute is a presence marker: when no stylesheet, script or runtime
-     * selector tests for it, it is inert, so dropping it loses nothing and
-     * needs no generated block to keep it. A data attribute with a value
-     * carries data a Group cannot hold, so it keeps the shell.
+     * Group carries the class, the id (as its anchor) and the inline style,
+     * which the presentation resolver projects onto the Group as it does for
+     * any other container. A data attribute, valueless marker or not, is inert
+     * when no stylesheet, script or runtime selector addresses it, so dropping
+     * it loses nothing and needs no generated block to keep it. A runtime DOM
+     * target keeps its source attributes on the shell, where a script finds
+     * them.
      */
     private function hasNativeContainerAttributes(DOMElement $element): bool
     {
+        $runtimeTarget = $this->runtimeDomTargets->isRuntimeDomTarget($element);
         foreach ($element->attributes as $attribute) {
             $name = strtolower($attribute->name);
             if (in_array($name, array('class', 'id', BoxTree::NODE_ATTRIBUTE), true)
-                || ('style' === $name && '' === trim($attribute->value))) {
+                || ('style' === $name && ('' === trim($attribute->value) || ! $runtimeTarget))) {
                 continue;
             }
             if (str_starts_with($name, 'data-')
-                && '' === $attribute->value
-                && ! $this->runtimeDomTargets->isRuntimeDomTarget($element)
+                && ! $runtimeTarget
                 && ! DataAttributeReferences::isReferenced($this->session, $element, $name)) {
                 continue;
             }
