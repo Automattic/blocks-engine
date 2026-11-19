@@ -14,8 +14,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
-use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\BoxTreeClassifier;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\BoxTreeClassifier;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
@@ -2062,37 +2062,34 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $parents = $element->parentNode === $box ? $boxObservations : array();
         $bands = (new Style\BoxTreeFluidIntent())->lift($element, $this->styleResolver, $own, $viewports, $parents, '', $this->session->boxTreeEvidence(...))['width'] ?? array();
-        $fills = $this->autoWidthFillsBox($element, $observations, $boxObservations) ? array('100%', 'auto') : array('100%');
+        // An in-flow block with an auto width fills its block container's
+        // content box just as `100%` does.
+        $fills = $this->autoWidthFills($element, $box, $observations, $boxObservations) ? array('100%', 'auto') : array('100%');
         return array() !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => !in_array($value, $fills, true));
     }
 
     /**
-     * Whether a child's `width:auto` fills its box: a non-replaced block-level
-     * child in normal flow of a block container stretches to the box's content
-     * width at every width (the caller has proved the child's border box was
-     * the box's, so no margin of its own narrows it).
+     * Whether a child's `auto` width fills its box: the child is an in-flow,
+     * unfloated block in a box that lays its children out as flow blocks.
+     * The caller holds the equal box, so no margin or padding sits between.
      *
      * @param array<string, array<string, mixed>> $observations
      * @param array<string, array<string, mixed>> $boxObservations
      */
-    private function autoWidthFillsBox(DOMElement $element, array $observations, array $boxObservations): bool
+    private function autoWidthFills(DOMElement $element, DOMElement $box, array $observations, array $boxObservations): bool
     {
-        if ( in_array(strtolower($element->tagName), array('img', 'video', 'canvas', 'iframe', 'svg', 'input', 'button', 'select', 'textarea', 'object', 'embed', 'picture', 'audio', 'table'), true) ) {
+        if ( $element->parentNode !== $box || array() === $observations ) {
             return false;
         }
-        foreach ( $boxObservations as $key => $boxObservation ) {
-            $box = $boxObservation['used_styles'] ?? array();
-            $child = $observations[$key]['used_styles'] ?? null;
-            if ( !is_array($child) || !in_array($box['display'] ?? '', array('block', 'flow-root'), true) ) {
-                return false;
-            }
-            if ( !in_array($child['display'] ?? '', array('block', 'flow-root', 'flex', 'grid'), true)
-                || 'none' !== ($child['float'] ?? 'none')
-                || !in_array($child['position'] ?? 'static', array('static', 'relative'), true) ) {
+        foreach ( $observations as $key => $observation ) {
+            $child = $observation['used_styles'] ?? array();
+            $parent = $boxObservations[$key]['used_styles'] ?? null;
+            if ( !is_array($parent) || 'block' !== ($child['display'] ?? null) || !in_array($parent['display'] ?? null, array('block', 'flow-root'), true)
+                || !in_array($child['position'] ?? 'static', array('static', 'relative'), true) || 'none' !== ($child['float'] ?? 'none') ) {
                 return false;
             }
         }
-        return array() !== $boxObservations;
+        return true;
     }
 
     /**
