@@ -34,22 +34,18 @@ final class QuotePatternContext
         return $mapped['style']['typography'] ?? array();
     }
 
-    /** Keep the consumed quotation's margins local to its RichText box. */
-    public function figureQuotationContent(DOMElement $blockquote, string $content): string
+    /** @return array<string, mixed> Authored margins for the existing text carrier. */
+    public function figureQuotationSpacing(DOMElement $blockquote): array
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($blockquote);
         $margins = array_intersect_key($declarations, array_flip(array(
             'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
         )));
-        if (array() === $margins) {
-            return $content;
-        }
-        foreach ($margins as &$value) {
-            $value = $this->styleResolver->customProperties->resolve($value, $blockquote);
-        }
-        unset($value);
-        $style = $this->styleResolver->cssDeclarationString($margins);
-        return '<mark role="none" style="background-color:transparent;color:inherit;display:block;' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>';
+        $mapped = $this->styleResolver->styleAttributeMapper()->map(
+            $margins,
+            fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $blockquote)
+        );
+        return $mapped['style']['spacing'] ?? array();
     }
 
     /**
