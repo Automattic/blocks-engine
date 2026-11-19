@@ -34,6 +34,25 @@ final class QuotePatternContext
         return $mapped['style']['typography'] ?? array();
     }
 
+    public function figureOwnsLayoutBox(DOMElement $figure): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($figure);
+        return array() !== array_intersect_key($declarations, array_flip(array(
+            'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'grid-area', 'grid-column', 'grid-row',
+        )));
+    }
+
+    /** Box presentation for the paragraph replacing a consumed blockquote. */
+    public function figureQuotationSpacing(DOMElement $blockquote): array
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($blockquote);
+        $mapped = $this->styleResolver->styleAttributeMapper()->map(
+            array_intersect_key($declarations, array_flip(array('margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left'))),
+            fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $blockquote)
+        );
+        return $mapped['style']['spacing'] ?? array();
+    }
+
     /**
      * The quotation's RichText. Under a clip that author motion carries it
      * across, the text runs the source split with empty comments

@@ -185,14 +185,23 @@ final class QuotePattern implements PatternRecognizerInterface
             }
             $innerBlocks[] = $createBlock('core/paragraph', array_merge($context->presentationAttributes($child), array( 'content' => $content )), array(), $child);
         }
+        $separateBoxes = $caption instanceof DOMElement && $quotes->figureOwnsLayoutBox($figure);
+        if ($separateBoxes) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-figure-quote');
+            $attrs['style']['typography'] = $quotes->figureQuotationTypography($caption);
+        }
         $quoteChildren = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes);
         if ( array() !== $quoteChildren ) {
-            // Only transfer text presentation: the consumed blockquote's box
-            // (especially margins) must not become the synthetic paragraph's box.
+            // Ordinary collapsed quotes use an inline synthetic paragraph.
+            // Layout-owning figures instead keep the quotation's block margins
+            // and an independent caption line box within the same native quote.
             $quoteChildren[0] = $createBlock('core/paragraph', array(
                 'content' => $value,
-                'className' => 'blocks-engine-synthetic-paragraph',
-                'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
+                'className' => $separateBoxes ? 'blocks-engine-figure-quotation' : 'blocks-engine-synthetic-paragraph',
+                'style' => array_filter(array(
+                    'typography' => $quotes->figureQuotationTypography($blockquote),
+                    'spacing' => $separateBoxes ? $quotes->figureQuotationSpacing($blockquote) : array(),
+                )),
             ));
         }
         $innerBlocks = array_merge($innerBlocks, $quoteChildren);
