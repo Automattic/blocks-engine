@@ -73,10 +73,7 @@ final class ButtonElementConverter implements ElementConverter
             }
         }
 
-        // RichText lowering can expose hidden label text and discard its icon
-        // siblings. Retain the source tree so inline styles and projected
-        // author descendant selectors still address the boxes they hide.
-        if ( $this->hasHiddenDescendant($element) || $this->hasAccessibleIconOnlyContent($element) ) {
+        if ( $this->hasAccessibleIconOnlyContent($element) ) {
             return ConversionOutcome::handled($this->context->runtimeButton($element));
         }
 
@@ -175,17 +172,6 @@ final class ButtonElementConverter implements ElementConverter
                 }
             }
         }
-        return false;
-    }
-
-    private function hasHiddenDescendant(DOMElement $element): bool
-    {
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $this->presentationResolver->isDisplayNoneAtEveryViewport($descendant) ) {
-                return true;
-            }
-        }
-
         return false;
     }
 
