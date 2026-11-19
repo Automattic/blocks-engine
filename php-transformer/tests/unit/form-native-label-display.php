@@ -36,4 +36,24 @@ foreach ($labels($authored) as $row) {
 $graph = $authored['fallbacks'][0]['presentation_graph'] ?? array();
 $variants = array_filter($graph['variants'] ?? array(), static fn (array $variant): bool => 'label' === ($variant['role'] ?? null) && 'inline-flex' === ($variant['style_patch']['display'] ?? null));
 $assert(count($variants) === 2, 'responsive author display still reaches both labels');
+// Match the whole-site form's block-flow field wrappers and sibling-spacing
+// utilities. The UA display must survive even when typography is inherited
+// through a card and the two-column layout exists only at a breakpoint.
+$bookingHtml = '<section class="card"><form class="stack"><div class="fields">'
+    . '<div class="field"><label for="full-name">Full Name</label><input id="full-name"></div>'
+    . '<div class="field"><label for="telephone">Phone</label><input id="telephone"></div></div>'
+    . '<div class="field"><label for="notes">Message</label><textarea id="notes"></textarea></div>'
+    . '<button type="submit">Send request</button></form></section>';
+$bookingCss = '.card{font:16px/24px sans-serif}'
+    . '@layer utilities{.fields{display:grid;gap:16px}.field>:not([hidden])~:not([hidden]){margin-top:6px}'
+    . '.stack>:not([hidden])~:not([hidden]){margin-top:16px}'
+    . 'label{font-size:14px;font-weight:500;line-height:1}input,textarea{display:flex;height:36px}'
+    . '@media(min-width:640px){.fields{grid-template-columns:repeat(2,minmax(0,1fr))}}}';
+$booking = $transformer->transform($bookingHtml, array('static_css' => $bookingCss))->toArray();
+$bookingLabels = $labels($booking);
+$assert(count($bookingLabels) === 3, 'responsive booking form retains text and textarea captions');
+foreach ($bookingLabels as $row) {
+    $assert(($row['styles']['display'] ?? null) === 'inline', 'sibling spacing does not replace native inline label geometry');
+    $assert(($row['styles']['font_size'] ?? null) === '14px', 'layered caption typography survives alongside UA display');
+}
 echo "Native label display tests passed\n";
