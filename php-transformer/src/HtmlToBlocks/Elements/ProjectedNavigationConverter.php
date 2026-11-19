@@ -1576,6 +1576,12 @@ final class ProjectedNavigationConverter implements ElementConverter
             $host[] = 'border-image:none!important';
             $host[] = 'box-shadow:none!important';
             $host[] = 'outline:0!important';
+            // Nor does the panel's box size: an offcanvas width or a
+            // full-height panel would stretch the toggle slot off its row.
+            $host[] = 'width:auto!important';
+            $host[] = 'height:auto!important';
+            $host[] = 'max-width:none!important';
+            $host[] = 'max-height:none!important';
         }
 
         return $host;
