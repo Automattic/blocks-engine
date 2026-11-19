@@ -180,7 +180,7 @@ final class PresetBinding
     private const BACKGROUND_PADDED_BLOCKS = array('paragraph', 'heading', 'list', 'columns');
 
     /** Refusal reasons for the `!` observations DesignUsageCollector records. */
-    private const OBSERVATION_REASONS = array('!' => 'inconsistent_source', '!important' => 'important', '!alpha' => 'alpha', '!state' => 'state_variant', '!breakpoint' => 'breakpoint_variant', '!value' => 'unresolved_value');
+    private const OBSERVATION_REASONS = array('!' => 'inconsistent_source', '!important' => 'important', '!alpha' => 'alpha', '!context' => 'contextual_source', '!state' => 'state_variant', '!breakpoint' => 'breakpoint_variant', '!value' => 'unresolved_value');
 
     /** Rich-text blocks whose inline colours bind to core's text-colour format. */
     private const RICH_TEXT_BLOCKS = array('paragraph', 'heading');
