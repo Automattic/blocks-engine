@@ -2843,10 +2843,10 @@ final class AuthorStylesheetProjector
         if ( count($moved) === count($selectors) ) {
             return $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, true, true) . '}';
         }
-        $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, false, false, array() !== $moved) . '}';
+        $rule = $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, false, false, false, array() !== $moved, false) . '}';
         $movedPrelude = array() === $moved ? '' : $this->projectAuthorImageSelectorPrelude(implode(',', $moved), $context);
 
-        return '' === $movedPrelude ? $rule : $rule . $movedPrelude . '{border-radius:inherit' . $fillBody . '}';
+        return '' === $movedPrelude ? $rule : $rule . $movedPrelude . '{border-radius:inherit;object-position:inherit' . $fillBody . '}';
     }
 
     private function everySubjectStaysOnImage(string $prelude, AuthorStylesheetProjectionContext $context): bool
@@ -2880,7 +2880,7 @@ final class AuthorStylesheetProjector
     }
 
     /** @param array<string, string> $declarations */
-    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false, bool $inheritRadius = true, bool $fillPercentageBox = false, bool $projectDimensions = true): string
+    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false, bool $inheritRadius = true, bool $fillPercentageBox = false, bool $projectDimensions = true, bool $inheritObjectPosition = true): string
     {
         $bridge = array( 'display:block' );
         $position = strtolower(trim((string) ($declarations['position'] ?? '')));
@@ -2918,7 +2918,12 @@ final class AuthorStylesheetProjector
         }
         $objectFit = $this->explicitObjectFit($declarations);
         $bridge[] = 'object-fit:' . ($preserveObjectFit && '' !== $objectFit ? $objectFit : 'inherit');
-        $bridge[] = 'object-position:inherit';
+        // Bare image subjects keep their focal point on the leaf. Do not
+        // introduce a higher-specificity reset, even for rules that declare
+        // no position: those would erase another authored rule's focal point.
+        if ( $inheritObjectPosition ) {
+            $bridge[] = 'object-position:inherit';
+        }
         if ( $inheritRadius ) {
             $bridge[] = 'border-radius:inherit';
         }
