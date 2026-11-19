@@ -936,7 +936,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             new ScrollStateConverter(
                 $this,
                 $this->styleResolver,
-                fn (DOMElement $element, string $className): string => $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext(), $className)
+                fn (DOMElement $element, string $className): string => $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext(), $className),
+                fn (DOMElement $element, array $attrs, array $withheld): array => $this->projectBoxTreeCarrier('core/group', $attrs, $element, $withheld, false)
             ),
             new ThemeToggleConverter(
                 $this->svgMaterializer,
@@ -2393,38 +2394,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
-            $observations = $this->session->boxTreeEvidence($sourceElement);
-            $viewports = $this->session->boxTreeViewports();
-            $blockParent = $this->blockParentElement($sourceElement);
-            $parents = $this->session->boxTreeParentEvidence($sourceElement, $blockParent);
-            $liftingFor = $this->liftingFor;
-            $this->liftingFor = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
-            $fluid = $this->liftedBands($sourceElement, $observations, $viewports, $parents, $name);
-            $this->liftingFor = $liftingFor;
-            $fluidIntent = new Style\BoxTreeFluidIntent();
-            $pseudoFluid = array();
-            foreach ( array( 'before', 'after' ) as $pseudo ) {
-                $pseudoFluid[$pseudo] = $fluidIntent->liftPseudo($sourceElement, $this->styleResolver, $observations, $viewports, $pseudo, $this->liftEvidence());
-            }
-            // An authored figure (or a custom image host lowered as the figure)
-            // keeps its own box; the image it paints is styled from its own evidence.
-            $image = array();
-            $paintedImage = 'core/image' === $name && ('figure' === $sourceTagName || str_contains($sourceTagName, '-')) ? $sourceElement->getElementsByTagName('img')->item(0) : null;
-            if ($paintedImage instanceof DOMElement && $paintedImage->parentNode instanceof DOMElement) {
-                $imageObservations = $this->session->boxTreeEvidence($paintedImage);
-                $imageParents = $this->session->boxTreeEvidence($paintedImage->parentNode);
-                $image = array(
-                    'observations' => $imageObservations,
-                    'parents' => $imageParents,
-                    'fluid' => $fluidIntent->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
-                );
-            }
-            $classesBefore = self::classTokens((string) ($attrs['className'] ?? ''));
-            $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image);
-            $carrierNode = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
-            if ( '' !== $carrierNode ) {
-                $this->boxTreeCarriers[$carrierNode] = array_values(array_diff(self::classTokens((string) ($attrs['className'] ?? '')), $classesBefore));
-            }
+            $attrs = $this->projectBoxTreeCarrier($name, $attrs, $sourceElement);
             $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
                 $sourceElement,
                 $sourceTagName,
@@ -2464,6 +2434,61 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $sourceMaterializationFacts,
             $this->session->transformationProvenanceState()
         ), $sourceElement);
+    }
+
+    /**
+     * Give a source element's block its box-tree carrier: the observed
+     * presentation of an evidence route, whose author stylesheets are retired.
+     * Without box-tree evidence the attributes are returned unchanged.
+     *
+     * @param array<string, mixed> $attrs
+     * @param list<string> $withheld Properties another owner (a runtime toggle) sets on the box, kept out of the carrier.
+     * @param bool $inlineSupports Whether invariant declarations may become style attributes; a block whose markup
+     *        is built by hand keeps them all in the carrier.
+     * @return array<string, mixed>
+     */
+    public function projectBoxTreeCarrier(string $name, array $attrs, DOMElement $sourceElement, array $withheld = array(), bool $inlineSupports = true): array
+    {
+        $sourceTagName = strtolower($sourceElement->tagName);
+        $withheld = array_fill_keys($withheld, true);
+        $observations = $this->session->boxTreeEvidence($sourceElement);
+        foreach ($observations as $key => $observation) {
+            if (is_array($observation['used_styles'] ?? null)) $observations[$key]['used_styles'] = array_diff_key($observation['used_styles'], $withheld);
+        }
+        $viewports = $this->session->boxTreeViewports();
+        $blockParent = $this->blockParentElement($sourceElement);
+        $parents = $this->session->boxTreeParentEvidence($sourceElement, $blockParent);
+        $liftingFor = $this->liftingFor;
+        $this->liftingFor = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
+        $fluid = $this->liftedBands($sourceElement, $observations, $viewports, $parents, $name);
+        $this->liftingFor = $liftingFor;
+        $fluid = array_diff_key($fluid, $withheld);
+        $fluidIntent = new Style\BoxTreeFluidIntent();
+        $pseudoFluid = array();
+        foreach ( array( 'before', 'after' ) as $pseudo ) {
+            $pseudoFluid[$pseudo] = $fluidIntent->liftPseudo($sourceElement, $this->styleResolver, $observations, $viewports, $pseudo, $this->liftEvidence());
+        }
+        // An authored figure (or a custom image host lowered as the figure)
+        // keeps its own box; the image it paints is styled from its own evidence.
+        $image = array();
+        $paintedImage = 'core/image' === $name && ('figure' === $sourceTagName || str_contains($sourceTagName, '-')) ? $sourceElement->getElementsByTagName('img')->item(0) : null;
+        if ($paintedImage instanceof DOMElement && $paintedImage->parentNode instanceof DOMElement) {
+            $imageObservations = $this->session->boxTreeEvidence($paintedImage);
+            $imageParents = $this->session->boxTreeEvidence($paintedImage->parentNode);
+            $image = array(
+                'observations' => $imageObservations,
+                'parents' => $imageParents,
+                'fluid' => $fluidIntent->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
+            );
+        }
+        $classesBefore = self::classTokens((string) ($attrs['className'] ?? ''));
+        $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image, $inlineSupports);
+        $carrierNode = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
+        if ( '' !== $carrierNode ) {
+            $this->boxTreeCarriers[$carrierNode] = array_values(array_diff(self::classTokens((string) ($attrs['className'] ?? '')), $classesBefore));
+        }
+
+        return $attrs;
     }
 
     /**

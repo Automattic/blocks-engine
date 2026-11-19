@@ -27,13 +27,15 @@ final class BoxTreeStyleProjector
      * @param string $sourceTag The observed source element's tag name.
      * @param array{observations?: array<string, array<string, mixed>>, parents?: array<string, array<string, mixed>>, fluid?: array<string, list<array{0: float|null, 1: string}>>} $image
      *        The painting `<img>` inside an authored core/image `<figure>`: its observations, its parent's, and its lifted author values.
+     * @param bool $inlineSupports Whether invariant declarations may become block style attributes. A block whose
+     *        saved markup is built by hand (and so never serializes them) keeps every declaration in its carrier.
      */
-    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array()): array
+    public function project(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents = array(), string $blockName = '', array $fluid = array(), array $pseudoFluid = array(), string $sourceTag = '', array $image = array(), bool $inlineSupports = true): array
     {
         $target = self::renderedElement($blockName, $attrs, $sourceTag);
         if (array() !== $observations) {
             $attrs = self::SELECTOR === $target
-                ? $this->projectBox($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid)
+                ? $this->projectBox($attrs, $observations, $viewports, $state, $parents, $blockName, $fluid, $pseudoFluid, $inlineSupports)
                 : $this->projectRenderedElement($attrs, $observations, $viewports, $state, $parents, $fluid, true, $target, $blockName, $sourceTag, $pseudoFluid);
         }
         $imageObservations = $image['observations'] ?? array();
@@ -42,7 +44,7 @@ final class BoxTreeStyleProjector
     }
 
     /** One carrier for the block's own box, from its source element's observations. */
-    private function projectBox(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $blockName, array $fluid, array $pseudoFluid = array()): array
+    private function projectBox(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $blockName, array $fluid, array $pseudoFluid = array(), bool $inlineSupports = true): array
     {
         $keys = array_keys($observations);
         usort($keys, static fn(string $a, string $b): int => ($viewports[$b]['width'] ?? 0) <=> ($viewports[$a]['width'] ?? 0));
@@ -57,6 +59,26 @@ final class BoxTreeStyleProjector
         $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, $blockName, $tagName);
         $baseKey = $keys[0];
         $base = $declarations[$baseKey];
+        $consumed = $inlineSupports ? $this->mapInlineSupports($attrs, $base, $keys, $observations, $blockName) : array();
+        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs), $pseudoFluid);
+        $class = $this->carrier($css, $state);
+        if ('' === $class) return $attrs;
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
+        return $attrs;
+    }
+
+    /**
+     * Move the invariant base declarations a block support can carry into its
+     * style attributes; returns the declarations those attributes now own.
+     *
+     * @param array<string, mixed> $attrs
+     * @param array<string, string> $base
+     * @param list<string> $keys
+     * @return array<string, string>
+     */
+    private function mapInlineSupports(array &$attrs, array $base, array $keys, array $observations, string $blockName): array
+    {
+        $baseKey = $keys[0];
         $mapper = new StyleAttributeMapper();
         $existing = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
         $existingDeclarations = SourceDeclarations::parse($mapper->serialize($existing)['style']);
@@ -81,14 +103,9 @@ final class BoxTreeStyleProjector
         $attrs = array_replace($attrs, $mapped['attrs']);
         // Layout declarations are deliberately excluded by StyleAttributeMapper;
         // the captured layout belongs to the engine rule, not a core layout guess.
-        $consumed = SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
-        $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs), $pseudoFluid);
-        $class = $this->carrier($css, $state);
-        if ('' === $class) return $attrs;
-        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
-        return $attrs;
+        return SourceDeclarations::parse($mapper->serialize($mapped['style'])['style']);
     }
 
     private static function runtime(): Runtime
