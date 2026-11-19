@@ -368,6 +368,11 @@ final class SitePlanRun
         // is written through that kind's role class instead.
         $assets = CompleteMarkerLists::compact($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
+        // Bytes are final: arms only the editor canvas can match move from
+        // each sheet visitors load into an editor-only extract after it.
+        $known = array_column($assets, 'target_path');
+        $assets = EditorCanvasStylesheets::split($assets);
+        $tokens = array_merge($tokens, $this->tokens(array_values(array_filter($assets, static fn(array $asset): bool => !in_array($asset['target_path'] ?? null, $known, true)))));
         // Writing canonicalizes references and can still drop rules (a missing
         // font source drops its face). Emptiness is judged on the written bytes,
         // and a row whose write came out empty describes those bytes.
