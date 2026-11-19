@@ -325,6 +325,19 @@ PHP;
             $lines[] = "add_filter( 'render_block_core/post-title', static function ( string \$content, array \$block ): string { \$classes = \$block['attrs']['metadata']['blocksEngineLinkClass'] ?? ''; if ( ! is_string( \$classes ) || '' === \$classes ) return \$content; \$tag = new WP_HTML_Tag_Processor( \$content ); if ( \$tag->next_tag( 'A' ) ) foreach ( preg_split( '/\\s+/', \$classes ) ?: array() as \$class ) \$tag->add_class( \$class ); return \$tag->get_updated_html(); }, 10, 2 );";
         }
         self::serve($lines, $served, $units, 'post_title_link_class');
+        if (self::markupContains($templates, 'blocksEngineFallbackTitle')) {
+            $lines[] = <<<'PHP'
+add_filter( 'render_block_core/post-title', static function ( string $content, array $block, WP_Block $instance ): string {
+    if ( empty( $block['attrs']['metadata']['blocksEngineFallbackTitle'] ) ) return $content;
+    $post_id = $instance->context['postId'] ?? get_the_ID();
+    // Captured pages already own their title. Inspect saved markup rather than
+    // rendering post content again (which could recurse or run shortcodes twice).
+    $tags = new WP_HTML_Tag_Processor( (string) get_post_field( 'post_content', $post_id ) );
+    return $tags->next_tag( 'H1' ) ? '' : $content;
+}, 10, 3 );
+PHP;
+        }
+        self::serve($lines, $served, $units, 'page_fallback_title');
         if (self::markupContains($documents, 'blocksEngineIcon')) {
             $lines[] = self::ACCORDION_ICON_RENDERER;
         }
