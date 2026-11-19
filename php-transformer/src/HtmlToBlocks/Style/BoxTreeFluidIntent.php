@@ -304,6 +304,7 @@ final class BoxTreeFluidIntent
             if (null === $value || '' === $value) return null;
             $actual = (string) ($observations[$key]['used_styles'][$property] ?? '');
             if ($value !== $actual
+                && !('aspect-ratio' === $property && self::sameRatio($value, $actual))
                 && null === $this->provedExpression($property, (string) $key, $width, $observations, $viewports, $parents)
                 && (!isset(self::INTRINSIC[$property]) || $value !== $this->intrinsicKeyword($property, $width))) return null;
             $proven[$key] = $value;
@@ -354,6 +355,26 @@ final class BoxTreeFluidIntent
         if (null !== $predicted && isset(self::CLAMPS[$property])) $predicted = self::clamped($predicted, $styles, ...self::CLAMPS[$property]);
         if (null === $actual || null === $predicted || abs($actual - $predicted) > self::TOLERANCE) return null;
         return $value;
+    }
+
+    /**
+     * Whether a declared `aspect-ratio` (its `var()` expanded) is the used
+     * one. The browser reports the same `<ratio>` re-serialized and rounded
+     * (`1/0.7079850648855999` is used as `1 / 0.707985`), so a string
+     * comparison would reject the author's ratio and freeze it per capture,
+     * moving its switch from the author's breakpoint to the narrow capture.
+     */
+    private static function sameRatio(string $declared, string $used): bool
+    {
+        $ratio = static function (string $value): ?float {
+            if (1 !== preg_match('/^\s*(\d*\.?\d+)\s*(?:\/\s*(\d*\.?\d+)\s*)?$/', $value, $match)) return null;
+            $height = isset($match[2]) ? (float) $match[2] : 1.0;
+            return $height > 0.0 ? (float) $match[1] / $height : null;
+        };
+        $declaredRatio = $ratio($declared);
+        $usedRatio = $ratio($used);
+        if (null === $declaredRatio || null === $usedRatio) return false;
+        return abs($declaredRatio - $usedRatio) <= 1e-4 * max(1.0, $usedRatio);
     }
 
     /** Whether a value is a viewport-, font- or containing-block-relative expression. */

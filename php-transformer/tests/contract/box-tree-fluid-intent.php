@@ -90,6 +90,15 @@ $cases = array(
     '% width against the parent content width lifts' => array(
         'h1{width:50%}', array('n5.width' => array('200px', '100px'), 'n6.width' => array('100px', '50px')), array('width:50%'), array('width:50px'),
     ),
+    // sdnunca case-study images: `aspect-ratio:1/var(--aspect-ratio)` with
+    // the token switched at the author's 1023px breakpoint. Frozen per
+    // capture, the 1440px ratio held down to 403px and every card between
+    // was taller than the source.
+    'an aspect ratio a width query switches is banded at the author breakpoint' => array(
+        ':root{--ar:1.11243}@media (max-width:1023px){:root{--ar:0.926199}}h1{aspect-ratio:1/var(--ar)}',
+        array('n6.aspect-ratio' => array('1 / 1.11243', '1 / 0.926199')),
+        array('aspect-ratio:1/1.11243', '@media (max-width:1023px){.be-inline-geometry-'), array('max-width:402px', 'aspect-ratio:1 / 0.926199', 'var(--ar)'),
+    ),
     'clamp() lifts' => array(
         'h1{font-size:clamp(10px,5.2vw,100px)}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:clamp(10px,5.2vw,100px)'), array('font-size:75px'),
     ),
