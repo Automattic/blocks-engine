@@ -1106,12 +1106,19 @@ final class SharedChromeStylesheets
                 $children = $index->children($range);
                 $length = array() !== $children ? $children[0]['offset'] - $range['offset'] : $range['length'];
                 foreach (self::authoredChromeElementHooks(substr($markup, $range['offset'], $length)) as $element) {
-                    foreach ($routeHooks as $kind => $names) $routeHooks[$kind] += $element[$kind];
+                    foreach ($routeHooks as $kind => $names) if ('content_marker' !== $kind) $routeHooks[$kind] += $element[$kind];
+                    $routeHooks['content_marker'] += $element['marker'];
                 }
             }
         }
+        // Engine support sheets hold the engine's own per-element projection,
+        // never the author cascade that keeps a chrome element's hooks in one
+        // stylesheet. A marker only the parts carry names the part's element
+        // alone: its support rules follow the part to every route rendering
+        // it, even when the element's authored hooks stay on the route.
+        $supportClasses = array_diff_key($classes, $routeHooks['content_marker']);
         $classes = array_diff_key($classes, $routeHooks['marker']);
-        unset($routeHooks['marker']);
+        unset($routeHooks['marker'], $routeHooks['content_marker']);
         foreach ($routeHooks as $kind => $names) $authored[$kind] = array_diff_key($authored[$kind], $names);
         // A route-kept hook that a detached part also carries still styles that
         // part wherever a rule reaches it through the ancestors it was hoisted
@@ -1123,7 +1130,7 @@ final class SharedChromeStylesheets
             'class' => array_intersect_key($detachedHooks['class'], $routeHooks['class']),
             'id' => array_intersect_key($detachedHooks['id'], $routeHooks['id']),
         );
-        if (!$hasSharedNavigation && array() === $classes && array() === $authored['class'] && array() === $authored['id'] && array() === $detachedRouteHooks['class'] && array() === $detachedRouteHooks['id']) return $assets;
+        if (!$hasSharedNavigation && array() === $supportClasses && array() === $authored['class'] && array() === $authored['id'] && array() === $detachedRouteHooks['class'] && array() === $detachedRouteHooks['id']) return $assets;
         $classMatcher = self::generatedClassMatcher($classes);
         // Current state is assigned by core on the served route, not saved in
         // the shared part. Projected selectors using only native navigation
@@ -1135,6 +1142,9 @@ final class SharedChromeStylesheets
         $reachesDetachedPart = static fn (string $selector): bool => self::selectorTargetsAuthoredChrome($selector, $detachedRouteHooks, $context)
             && self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots)) !== trim($selector);
         $liftsToChrome = static fn (string $selector): bool => $targetsChrome($selector) || $reachesDetachedPart($selector);
+        $supportClassMatcher = self::generatedClassMatcher($supportClasses);
+        $supportTargetsChrome = static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $supportClassMatcher) || $targetsChrome($selector);
+        $supportLiftsToChrome = static fn (string $selector): bool => $supportTargetsChrome($selector) || $reachesDetachedPart($selector);
         $reanchor = static function (string $selector) use ($context, $detachedRoots, $controlRoutes): string {
             $routes = array();
             foreach ($controlRoutes as $control => $classes) {
@@ -1175,12 +1185,14 @@ final class SharedChromeStylesheets
                 $keep($asset);
                 continue;
             }
-            $shared = self::sharedChromeRules($asset['content'], $liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $classMatcher);
+            $support = 'engine-support' === ($asset['source'] ?? null);
+            $assetClassMatcher = $support ? $supportClassMatcher : $classMatcher;
+            $shared = self::sharedChromeRules($asset['content'], $support ? $supportLiftsToChrome : $liftsToChrome, $reanchor, $inheritedContexts, $liveElementMarkers, $assetClassMatcher);
             if (null === $shared) {
                 $keep($asset);
                 continue;
             }
-            $route = self::withoutSharedKeyframes(self::routeRules($asset['content'], $targetsChrome, $classMatcher), $shared);
+            $route = self::withoutSharedKeyframes(self::routeRules($asset['content'], $support ? $supportTargetsChrome : $targetsChrome, $assetClassMatcher), $shared);
             $contract = self::sharedChromeContract($asset);
             $sharedAsset = self::sharedChromeAsset($asset, $shared, $contract, $routeClasses);
             $shared = (string) $sharedAsset['content'];
@@ -1318,13 +1330,14 @@ final class SharedChromeStylesheets
      * Hooks whose rules stay on the route: hooks route content also uses,
      * hooks whose rules vary by route, hooks no lifted selector can name, and
      * every hook of a chrome element that carries one of those.
+     * `content_marker` holds just the generated markers route content carries.
      *
      * @param array<int,array<string,mixed>> $assets
      * @param array<int,array<string,mixed>> $pages
      * @param array{class:array<string,true>,id:array<string,true>} $authored
      * @param array{class:array<string,array<string,true>>,id:array<string,array<string,true>>} $hookRoutes
      * @param list<array{class:array<string,true>,id:array<string,true>,marker:array<string,true>}> $chromeElements
-     * @return array{class:array<string,true>,id:array<string,true>,marker:array<string,true>}
+     * @return array{class:array<string,true>,id:array<string,true>,marker:array<string,true>,content_marker:array<string,true>}
      */
     private static function routeKeptHooks(array $assets, array $pages, array $authored, array $hookRoutes, array $chromeElements): array
     {
@@ -1338,6 +1351,7 @@ final class SharedChromeStylesheets
                 foreach ($routeHooks as $kind => $names) $routeHooks[$kind] += $element[$kind];
             }
         }
+        $contentMarkers = $routeHooks['marker'];
         // A hook whose rules differ between the routes rendering its chrome
         // carries route state, such as where each route's own layout places
         // the part. One global rule cannot declare both, so it stays with the
@@ -1365,7 +1379,7 @@ final class SharedChromeStylesheets
                 }
             }
         } while ($grown);
-        return $routeHooks;
+        return $routeHooks + array('content_marker' => $contentMarkers);
     }
 
     /**
