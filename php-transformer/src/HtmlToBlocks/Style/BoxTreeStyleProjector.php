@@ -322,9 +322,13 @@ final class BoxTreeStyleProjector
      * @param string $tagName The emitted (source) element's tag, for UA defaults.
      * @param array<string, list<array{0: float|null, 1: string}>> $fluid {@see BoxTreeFluidIntent::lift()}
      * @param array<string, array<string, list<array{0: float|null, 1: string}>>> $pseudoFluid {@see BoxTreeFluidIntent::liftPseudo()}, by name.
+     * @param bool $tagQualified Whether the rule names the tag as well: a
+     *     carrier on a Core block's own root (a navigation item's `<li>`)
+     *     must also outrank the engine's display baseline for that block,
+     *     which a shared-chrome stylesheet can load after.
      * @return string The carrier class, or '' when nothing observed differs from what the element gets anyway.
      */
-    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $tagName, array $fluid = array(), array $pseudoFluid = array()): string
+    public function elementCarrier(array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $tagName, array $fluid = array(), array $pseudoFluid = array(), bool $tagQualified = false): string
     {
         $observations = array_filter($observations, static fn(mixed $observation, string|int $key): bool => isset($viewports[$key]['width']) && is_array($observation['used_styles'] ?? null), ARRAY_FILTER_USE_BOTH);
         if (array() === $observations) return '';
@@ -338,7 +342,7 @@ final class BoxTreeStyleProjector
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
         $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, '', $tagName);
-        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid), $state);
+        return $this->carrier($this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid), $state, $tagQualified ? $tagName : '');
     }
 
     /**
@@ -567,12 +571,13 @@ final class BoxTreeStyleProjector
     }
 
     /** Register one carrier per distinct declaration set, not per source node. */
-    private function carrier(string $css, LayoutGeometryState $state): string
+    /** @param string $tagName A tag qualifying the selector ({@see elementCarrier()}), or ''. */
+    private function carrier(string $css, LayoutGeometryState $state, string $tagName = ''): string
     {
         if ('' === $css) return '';
-        $class = $state->allocateCarrier('box-tree:' . $css);
+        $class = $state->allocateCarrier('box-tree:' . $tagName . $css);
         // Outrank core block/layout selectors without defeating editor inline styles.
-        $state->registerRule($class, str_replace(self::SELECTOR, '.' . $class . '.' . $class, $css));
+        $state->registerRule($class, str_replace(self::SELECTOR, $tagName . '.' . $class . '.' . $class, $css));
         return $class;
     }
 

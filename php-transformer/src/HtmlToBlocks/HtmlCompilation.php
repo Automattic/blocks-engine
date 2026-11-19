@@ -2394,6 +2394,13 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $this->sourceBlockAttributeProjectionContext()
             );
             $observations = $this->session->boxTreeEvidence($sourceElement);
+            // A link block rendering its anchor as its own subject was
+            // created from that anchor, which carries its observed box in the
+            // item metadata. The block's `<li>` already carries the item's
+            // own box ({@see NavigationPattern::navigationItemAttributes()}).
+            if ( 'core/navigation-link' === $name && isset($attrs['metadata']['blocksEngineNavigationAnchor']) ) {
+                $observations = array();
+            }
             $viewports = $this->session->boxTreeViewports();
             $blockParent = $this->blockParentElement($sourceElement);
             $parents = $this->session->boxTreeParentEvidence($sourceElement, $blockParent);

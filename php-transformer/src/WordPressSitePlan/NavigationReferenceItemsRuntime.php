@@ -46,11 +46,21 @@ add_filter( 'block_core_navigation_render_inner_blocks', static function ( $inne
         $attrs = $block->parsed_block['attrs'] ?? array();
         // The recorded presentation holds the state the item was captured in.
         // Served in the other state, the item keeps the entity's presentation,
-        // which the navigation's current and resting rules complete.
+        // which the navigation's current and resting rules complete. Its
+        // observed box (a box-tree carrier: the item's own flex row) is not
+        // route state: a captured current item already rests on its peers'
+        // ({@see RestingNavigation}), and the entity, shared with references
+        // never observed (a closed overlay menu), cannot hold it.
         $url = is_string( $attrs['url'] ?? null ) ? trim( $attrs['url'] ) : '';
         $current = str_contains( (string) ( $attrs['className'] ?? '' ), 'blocks-engine-current-navigation-item' )
             || ( null !== $served && '' !== $url && '/' === $url[0] && ( 1 === strlen( $url ) || '/' !== $url[1] ) && ! str_contains( $url, '#' ) && '/' . trim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) === $served );
-        if ( $current !== ! empty( $own['current'] ) ) continue;
+        if ( $current !== ! empty( $own['current'] ) ) {
+            if ( ! preg_match_all( '/(?<![\w-])be-inline-geometry-[a-f0-9]{16}(?:-[a-f0-9]{16})?(?![\w-])/', (string) ( $own['className'] ?? '' ), $boxes ) ) continue;
+            $attrs['className'] = implode( ' ', array_unique( array_merge( preg_split( '/\s+/', trim( (string) ( $attrs['className'] ?? '' ) ), -1, PREG_SPLIT_NO_EMPTY ) ?: array(), $boxes[0] ) ) );
+            $block->parsed_block['attrs'] = $attrs;
+            unset( $block->attributes );
+            continue;
+        }
         unset( $attrs['className'], $attrs['metadata']['blocksEngineNavigationAnchor'] );
         if ( is_string( $own['className'] ?? null ) ) $attrs['className'] = $own['className'];
         if ( is_array( $own['blocksEngineNavigationAnchor'] ?? null ) ) $attrs['metadata']['blocksEngineNavigationAnchor'] = $own['blocksEngineNavigationAnchor'];

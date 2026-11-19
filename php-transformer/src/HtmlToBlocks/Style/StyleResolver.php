@@ -859,9 +859,10 @@ final class StyleResolver implements ElementPresentationResolver
      * into their child (ADR 0005 neutral and folded) emit none.
      *
      * @param bool $block Whether the source element is the block itself.
+     * @param bool $tagQualified {@see BoxTreeStyleProjector::elementCarrier()}
      * @return string The carrier class, or '' off an evidence route or when nothing differs.
      */
-    public function boxTreeElementCarrier(DOMElement $source, bool $block = false): string
+    public function boxTreeElementCarrier(DOMElement $source, bool $block = false, bool $tagQualified = false): string
     {
         $viewports = $this->session->boxTreeViewports();
         if (array() === $viewports) return '';
@@ -881,7 +882,8 @@ final class StyleResolver implements ElementPresentationResolver
             $parents,
             strtolower($source->tagName),
             $intent->lift($source, $this, $observations, $viewports, $parents),
-            $pseudoFluid
+            $pseudoFluid,
+            $tagQualified
         );
     }
 

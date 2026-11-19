@@ -105,6 +105,11 @@ foreach (array('/about/' => 1, '/contact/' => 2, '/blog/' => 3) as $route => $po
         if ($index !== $position) $assert($headerAnchors[$index] === $anchor, "Resting items on {$route} take the header's captured presentation.");
     }
 }
+// The item's observed box is not route state: the served item keeps it on
+// top of the entity's presentation, which never held it (#5862).
+$boxed = array_map(static fn (array $item): array => array('className' => trim((string) ($item['className'] ?? '') . ' be-inline-geometry-0123456789abcdef')) + $item, $recorded['header']);
+$anchors = $render('/about/', $boxed);
+$assert(str_ends_with(explode('|', $anchors[1])[0], ' be-inline-geometry-0123456789abcdef') && explode('|', $anchors[1])[1] === explode('|', $entityAnchors[1])[1], 'The served item keeps its recorded box carrier and the entity anchor presentation.');
 // On the hero's own route its captured current item keeps its presentation.
 $anchors = $render('/', $recorded['home']);
 $assert(array_map(static fn (array $item): string => (string) ($item['className'] ?? '') . '|' . (string) ($item['blocksEngineNavigationAnchor']['className'] ?? ''), $recorded['home']) === $anchors, 'The hero renders every item it captured on its own route.');

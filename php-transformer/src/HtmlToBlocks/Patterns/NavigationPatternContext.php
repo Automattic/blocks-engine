@@ -1456,10 +1456,14 @@ final class NavigationPatternContext
         return $result;
     }
 
-    /** An evidence route's observed box for source markup an item keeps ({@see StyleResolver::boxTreeElementCarrier()}). */
-    public function boxTreeElementCarrier(DOMElement $element): string
+    /**
+     * An evidence route's observed box for source markup an item keeps ({@see StyleResolver::boxTreeElementCarrier()}).
+     *
+     * @param bool $item Whether the element is the item whose `<li>` the block itself renders.
+     */
+    public function boxTreeElementCarrier(DOMElement $element, bool $item = false): string
     {
-        return $this->styleResolver->boxTreeElementCarrier($element);
+        return $this->styleResolver->boxTreeElementCarrier($element, $item, $item && 'li' === strtolower($element->tagName));
     }
 
     /** A text-free, link-free sibling of the link that paints only an SVG glyph. */

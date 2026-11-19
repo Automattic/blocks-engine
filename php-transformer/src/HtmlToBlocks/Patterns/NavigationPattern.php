@@ -3582,6 +3582,14 @@ final class NavigationPattern implements PatternRecognizerInterface
                 if (array() !== $siblings) $itemAttrs['metadata']['blocksEngineNavigationAnchor']['siblings'] = $siblings;
             }
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' ' . $navigationContext->navigationItemSubjectMarker($item));
+            // Core renders the item as the block's `<li>` and the link as its
+            // own subject inside it. The link's observed box travels with the
+            // anchor metadata above; the `<li>` keeps the item's own box (its
+            // flex row and gap to an empty divider sibling), not the link's.
+            // A link block is created from its anchor, so the block's own
+            // evidence projection would otherwise restyle the item as the link.
+            // A submenu block is created from its item and projects that box itself.
+            if (null === $submenuContainer) $itemAttrs['className'] = SourceDom::mergeClassNames($itemAttrs['className'], $navigationContext->boxTreeElementCarrier($item, true));
         }
         if ( $submenuContainer instanceof DOMElement ) {
             $iconMarker = $navigationContext?->submenuIconGeometryMarker($item, $anchor, $submenuContainer) ?? '';
