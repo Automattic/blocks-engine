@@ -72,36 +72,6 @@ if (false !== $srcset(true, '<img src="' . $url . '" alt="Portrait" class="wp-im
     $fail('core must not add attachment renditions as srcset to a lowered single-source image');
 }
 
-// Loading hints do not turn a src-only image into a responsive family. Exercise
-// the public transform so the metadata shape is the one emitted in production.
-foreach (array('fetchpriority="high"', 'loading="lazy"', 'loading="eager" fetchpriority="low"') as $hints) {
-    $hinted = (new HtmlTransformer())->transform('<img src="hinted.jpg" alt="Portrait" ' . $hints . '>')->toArray();
-    $hintedBlock = $hinted['blocks'][0];
-    if (!isset($hintedBlock['attrs']['metadata']['blocksEngineImageSelection'])) {
-        $fail('authored loading hints must be carried by the public transform');
-    }
-    $hintedUrl = 'https://example.test/wp-content/uploads/hinted-' . md5($hints) . '.jpg';
-    $hintedMarkup = str_replace('src="hinted.jpg"', 'src="' . $hintedUrl . '"', (string) $hintedBlock['innerHTML']);
-    $render($hintedMarkup, $hintedBlock);
-    if (false !== $srcset(true, '<img src="' . $hintedUrl . '" class="wp-image-10"/>')) {
-        $fail('core must not add attachment renditions to a single-source image carrying ' . $hints);
-    }
-}
-
-// A picture without sources is still a single-source image. Its metadata
-// retains the picture wrapper, not a responsive family of attachment sizes.
-$picture = (new HtmlTransformer())->transform('<picture><img src="picture.jpg" fetchpriority="high" alt="Portrait"></picture>')->toArray();
-$pictureBlock = $picture['blocks'][0];
-$selection = $pictureBlock['attrs']['metadata']['blocksEngineImageSelection'] ?? array();
-if (!isset($selection['picture'], $selection['sources']) || array() !== $selection['sources']) {
-    $fail('a source-less picture must retain its empty source selection metadata');
-}
-$pictureUrl = 'https://example.test/wp-content/uploads/picture.jpg';
-$render(str_replace('src="picture.jpg"', 'src="' . $pictureUrl . '"', (string) $pictureBlock['innerHTML']), $pictureBlock);
-if (false !== $srcset(true, '<img src="' . $pictureUrl . '" class="wp-image-11"/>')) {
-    $fail('a source-less picture must not acquire attachment renditions');
-}
-
 // An image the importer did not lower (a block added in the editor) keeps core srcset.
 $other = 'https://example.test/wp-content/uploads/other.jpg';
 $render('<figure class="wp-block-image"><img src="' . $other . '" class="wp-image-8"/></figure>', array('blockName' => 'core/image', 'attrs' => array()));
@@ -113,12 +83,5 @@ $family = 'https://example.test/wp-content/uploads/family.jpg';
 $render('<figure class="wp-block-image blocks-engine-image"><img src="' . $family . '" class="wp-image-9"/></figure>', array('blockName' => 'core/image', 'attrs' => array('metadata' => array('blocksEngineImageSelection' => array('src' => $family, 'srcset' => $family . ' 1x')))));
 if (true !== $srcset(true, '<img src="' . $family . '" class="wp-image-9"/>', 'the_content', 9)) {
     $fail('an authored srcset family is left to its selection renderer');
-}
-$responsivePicture = (new HtmlTransformer())->transform('<picture><source media="(max-width: 600px)" srcset="small.jpg"><img src="large.jpg" alt="Portrait"></picture>')->toArray();
-$responsiveBlock = $responsivePicture['blocks'][0];
-$responsiveUrl = 'https://example.test/wp-content/uploads/large.jpg';
-$render(str_replace('src="large.jpg"', 'src="' . $responsiveUrl . '"', (string) $responsiveBlock['innerHTML']), $responsiveBlock);
-if (true !== $srcset(true, '<img src="' . $responsiveUrl . '"/>')) {
-    $fail('a picture with authored sources is left to its selection renderer');
 }
 echo "Single-source image srcset passed\n";

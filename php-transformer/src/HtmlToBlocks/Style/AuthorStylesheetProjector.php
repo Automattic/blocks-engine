@@ -2918,7 +2918,10 @@ final class AuthorStylesheetProjector
         }
         $objectFit = $this->explicitObjectFit($declarations);
         $bridge[] = 'object-fit:' . ($preserveObjectFit && '' !== $objectFit ? $objectFit : 'inherit');
-        $bridge[] = 'object-position:inherit';
+        // A bare img subject keeps its declarations on the leaf. The bridge
+        // is more specific, so inheriting here would erase its authored focal
+        // point even though no object-position was moved to the figure.
+        $bridge[] = 'object-position:' . (! $projectDimensions && isset($declarations['object-position']) ? $declarations['object-position'] : 'inherit');
         if ( $inheritRadius ) {
             $bridge[] = 'border-radius:inherit';
         }
