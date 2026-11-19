@@ -170,7 +170,7 @@ final class BoxTreeDeclarationPruner
         'code' => self::MONOSPACE, 'kbd' => self::MONOSPACE, 'samp' => self::MONOSPACE, 'tt' => self::MONOSPACE,
         'pre' => array('font-family', 'font-size', 'white-space'),
         'em' => array('font-style'), 'i' => array('font-style'), 'cite' => array('font-style'), 'var' => array('font-style'), 'dfn' => array('font-style'), 'address' => array('font-style'),
-        'mark' => array('color'), 'center' => array('text-align'), 'summary' => array('cursor'),
+        'mark' => array('color'), 'center' => array('text-align'), 'summary' => array('cursor', 'list-style-type', 'list-style-position'),
         'ul' => self::LIST_MARKER, 'ol' => self::LIST_MARKER, 'menu' => self::LIST_MARKER,
     );
 
@@ -264,6 +264,12 @@ final class BoxTreeDeclarationPruner
             if ($known && !$defaults && in_array($value, self::LIFTED_INITIAL_VALUES[$property] ?? array(), true)) $status[$property] = self::INITIAL;
         }
         return $status;
+    }
+
+    /** Whether the user agent gives this element its own value for an inherited property ({@see self::TAG_INHERITED_DEFAULTS}). */
+    public static function ownsDefault(string $tagName, string $property): bool
+    {
+        return in_array($property, self::TAG_INHERITED_DEFAULTS[strtolower($tagName)] ?? array(), true);
     }
 
     /**

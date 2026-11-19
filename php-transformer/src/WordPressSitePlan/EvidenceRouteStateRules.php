@@ -24,8 +24,11 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * rules and kept keyframes read are closed over: every rule that defines one
  * keeps that definition. Every `@keyframes` and `@property` the kept rules
  * reach is kept. Rules whose subject names an id no emitted element carries
- * are dropped. Everything else is dropped, except `@font-face` and `@layer`
- * order statements.
+ * are dropped. The capture's device-island gate (`.data-blocks-engine-capture-
+ * desktop-only` / `-mobile-only` under its viewport media) is engine contract,
+ * not author selectors, and carriers render both islands: it is kept too.
+ * Everything else is dropped, except `@font-face` and `@layer` order
+ * statements.
  */
 final class EvidenceRouteStateRules
 {
@@ -202,7 +205,11 @@ final class EvidenceRouteStateRules
         foreach ($nodes as &$node) {
             if ('group' === $node['type']) $this->markState($node['children']);
             if ('style' !== $node['type']) continue;
-            $selectors = $this->reachable(array_values(array_filter(CssStylesheetTransformer::splitSelectorList($node['prelude']) ?? array(), fn(string $selector): bool => $this->isState($selector))));
+            $arms = CssStylesheetTransformer::splitSelectorList($node['prelude']) ?? array();
+            // A device gate is kept whole: its other arms are the engine's
+            // projections of the same gate onto converted controls.
+            $gate = array() !== array_filter($arms, static fn(string $selector): bool => self::isDeviceIslandGate($selector));
+            $selectors = $this->reachable($gate ? $arms : array_values(array_filter($arms, fn(string $selector): bool => $this->isState($selector))));
             if (array() === $selectors) continue;
             $node['keep'] = array('selectors' => $selectors, 'body' => $node['body'], 'state' => true);
             foreach ($this->declarations($node['body']) as [$property]) if (str_starts_with($property, '--')) $this->stateProperties[$property] = true;
@@ -230,6 +237,17 @@ final class EvidenceRouteStateRules
             $node['keep'] = array('selectors' => $selectors, 'declarations' => $motion, 'state' => false);
             $this->bind(implode(';', $motion));
         }
+    }
+
+    /**
+     * The gate's arm selects the island class alone, at most narrowed by
+     * `:not()`: the engine keeps converted controls out of it that way
+     * (`.…-desktop-only:not(:where(.blocks-engine-role-control))`).
+     */
+    private static function isDeviceIslandGate(string $selector): bool
+    {
+        return 1 === preg_match('/^\.([\w-]+)((?::not\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\))*)$/', trim($selector), $match)
+            && in_array($match[1], array(CaptureEvidence::DESKTOP_ONLY_CLASS, CaptureEvidence::MOBILE_ONLY_CLASS), true);
     }
 
     private function isState(string $selector): bool

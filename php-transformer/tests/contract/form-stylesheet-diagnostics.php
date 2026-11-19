@@ -63,7 +63,8 @@ $withoutDiagnostics = static function (array $value) use (&$withoutDiagnostics):
     return $value;
 };
 $hash = hash('sha256', json_encode($withoutDiagnostics($result), JSON_THROW_ON_ERROR));
-// Includes form intent metadata, native Groups and single-page selector compaction.
-$assert('f6bb41bc738e93f0e169dc0af874bee419604f0de90f6fa162eab02853282331' === $hash, 'non-diagnostic transform output retains the control-row presentation baseline: ' . $hash);
+// Includes form intent metadata, native Groups, single-page selector compaction
+// and the generated layout-shell editor script (its anchors cancel canvas navigation).
+$assert('97d86d7b77f140efcf7319b0ff4ba77d2052cc1b882ab86f67bab4b649bde5a7' === $hash, 'non-diagnostic transform output retains the control-row presentation baseline: ' . $hash);
 fwrite(STDOUT, 'fixture layout graph bytes: ' . strlen(json_encode($layout, JSON_THROW_ON_ERROR)) . PHP_EOL);
 exit($failures ? 1 : 0);

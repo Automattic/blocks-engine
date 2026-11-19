@@ -183,6 +183,12 @@ final class EngineSupportCss
                 // the anchor fill the figure so the image resolves against it.
                 . ':root :where(figure.' . SourceBlockAttributeProjector::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS . '.blocks-engine-linked-image-figure)>a{display:block;width:100%;height:100%}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS) ) {
+            // The converse of a layer fill image: a later positioned layer
+            // paints over an in-flow fill image. Put that layer in editor flow
+            // after the image, so a click on the image reaches the image block.
+            $parts[] = ':root .editor-styles-wrapper figure.' . SourceBlockAttributeProjector::COVERED_FILL_IMAGE_FIGURE_CLASS . '~.block-editor-block-list__block{position:static!important;inset:auto!important}';
+        }
         if ( str_contains($serializedBlocks, RichTextElementConverter::EMPTY_SOURCE_PARAGRAPH_CLASS) ) {
             // Saved, an empty source text block is an empty element with no line
             // box. In the editor, RichText fills it with a padding character and
@@ -423,6 +429,15 @@ final class EngineSupportCss
             // margins (notably p's 1em). Author CSS follows and remains in
             // control; synthesized boxes get their own zero-margin resets.
             $parts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '>*' . self::notZeroMarginBox() . '){margin-block-start:revert;margin-block-end:revert}';
+            // Native flex groups also have Core's physical margin:0 reset.
+            // Beat Core's (0,1,1) inline reset. marginSelectorPrelude gives
+            // authored margins on these items the same two-class baseline,
+            // after this support sheet, preserving even universal author rules.
+            // Emit only for markup using this contract, keeping unrelated
+            // CSS-owned flow documents' stylesheets unchanged.
+            if ( preg_match('/class="(?=[^"]*\bis-layout-flex\b)(?=[^"]*\b' . self::CSS_OWNED_FLOW_CLASS . '\b)[^"]*"/', $serializedBlocks) ) {
+                $parts[] = ':root:root :where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>:where(*' . self::notZeroMarginBox() . '){margin:revert}';
+            }
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
             // Core flow margins are not part of a source grid contract; the
@@ -912,6 +927,10 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, CoverPattern::CONSUMED_BACKGROUND_CLASS) ) {
             $parts[] = ':root .wp-block-cover.' . CoverPattern::CONSUMED_BACKGROUND_CLASS . '{background-image:none!important}';
+        }
+        if ( str_contains($serializedBlocks, CoverPattern::SOURCE_SIZED_CLASS) ) {
+            // The authored aspect-ratio/height sizes the hero, not core's 430px floor.
+            $parts[] = ':root .wp-block-cover.' . CoverPattern::SOURCE_SIZED_CLASS . '{min-height:0}';
         }
         if ( str_contains($serializedBlocks, CoverPattern::FILL_CLASS) ) {
             $fill = ':root .wp-block-cover.' . CoverPattern::FILL_CLASS . '>.wp-block-cover__inner-container';

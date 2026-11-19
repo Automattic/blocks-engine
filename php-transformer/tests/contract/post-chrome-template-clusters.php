@@ -27,10 +27,17 @@ $assert(array() !== $plan, 'The neutral cluster fixture must produce a valid sit
 WordPressSitePlan::assertValid($plan);
 $templates = array_column($plan['templates'], null, 'slug');
 $bindings = array();
+$defaultPosts = 0;
 foreach ($plan['pages'] as $post) {
     if ('post' !== $post['post_type']) continue;
     $slug = $post['route_template'] ?? 'single';
     $markup = $templates[$slug]['canonical_block_markup'];
+    if ('single' === $slug) {
+        ++$defaultPosts;
+        $assert(!isset($post['metadata']['post_meta']['_wp_page_template']), 'Canonical cluster posts must not be pinned.');
+    } else {
+        $assert($slug === ($post['metadata']['post_meta']['_wp_page_template'] ?? null), 'Different designs retain their explicit template.');
+    }
     $assert(str_contains($markup, '<!-- wp:post-title'), 'Every bound template renders its posts\' headline: ' . $slug);
     $assert(str_contains($markup, '<!-- wp:post-date'), 'Every bound template renders its posts\' date: ' . $slug);
     $assert(!str_contains($post['canonical_block_markup'], '<h1'), 'Lifted headlines no longer remain in post content.');
@@ -40,5 +47,6 @@ foreach ($plan['pages'] as $post) {
     $bindings[$post['source_path']] = $slug;
 }
 $assert(6 === count($bindings), 'All six posts survive.');
+$assert(2 === $defaultPosts, 'One complete design cluster owns single, even with multiple shell and article designs.');
 $assert(3 === count(array_unique($bindings)), 'Two shell clusters and the distinct article layout render through three templates.');
 fwrite(STDOUT, "post-chrome-template-clusters: ok\n");

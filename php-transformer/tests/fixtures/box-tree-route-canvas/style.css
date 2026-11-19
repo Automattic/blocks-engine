@@ -1,0 +1,7 @@
+:root { --bg: #f2f2f2; --fg: #111; }
+html { background: var(--bg); }
+body { background: var(--bg); color: var(--fg); margin: 0; padding: 4em 2em; }
+body.alt { background: #fff; }
+.post { max-width: 40em; margin: 0 auto; }
+.post a { color: inherit; text-decoration: underline; }
+a:hover { color: red; }

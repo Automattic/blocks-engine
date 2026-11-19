@@ -146,19 +146,30 @@ final class FormLayoutGraphBuilder
                 if ( $child instanceof DOMElement ) $scope[] = $child;
             }
         }
-        // The custom-property pass walks each scope element's ancestor chain on
-        // every scanned selector; resolve the chains once so every pass reads
-        // stable wrappers through the match memo.
-        $ancestorVisits = array();
+        // Every scanned selector is asked of each scope element and, for the
+        // custom-property pass, of each element on their ancestor chains.
+        // Sibling controls share almost all of those chains, so ask each
+        // element once per selector: listing a shared wrapper per descendant
+        // made every non-matching selector cost scope size times depth.
+        // Held wrappers keep spl_object_id() stable for the whole build.
+        $scopeElements = array();
         foreach ( $scope as $element ) {
+            $scopeElements[spl_object_id($element)] = $element;
+        }
+        $scopeElements = array_values($scopeElements);
+        $ancestorVisits = array();
+        foreach ( $scopeElements as $element ) {
             for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
-                $ancestorVisits[] = $ancestor;
+                if ( isset($ancestorVisits[$id = spl_object_id($ancestor)]) ) {
+                    break;
+                }
+                $ancestorVisits[$id] = $ancestor;
             }
         }
         // Each selector is matched only against the elements carrying its
         // rightmost compound's key.
-        $scopeIndex = $selectorCache->subjectElementIndex($scope);
-        $ancestorIndex = $selectorCache->subjectElementIndex($ancestorVisits);
+        $scopeIndex = $selectorCache->subjectElementIndex($scopeElements);
+        $ancestorIndex = $selectorCache->subjectElementIndex(array_values($ancestorVisits));
         $analysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,

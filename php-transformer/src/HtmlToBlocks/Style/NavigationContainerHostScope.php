@@ -47,21 +47,19 @@ final class NavigationContainerHostScope
         'padding-inline-end' => '0',
     );
 
-    /** @var array<string, list<list<string>>> Wrapper class sets per emitted markup. */
-    private array $wrapperClassSets = array();
-
     /**
      * Wrapper host class sets named by a source rule's subjects.
      *
+     * @param list<list<string>> $roots Navigation root class lists for this projection.
      * @param callable(string): list<DOMElement> $sourceElements Source elements matching a class compound.
      * @return list<list<string>>
      */
-    public function hostClassSets(string $sourcePrelude, string $markup, callable $sourceElements): array
+    public function hostClassSets(string $sourcePrelude, array $roots, callable $sourceElements): array
     {
-        if ( ! str_contains($markup, '<!-- wp:navigation ') || ! str_contains($sourcePrelude, '.') ) {
+        if ( array() === $roots || ! str_contains($sourcePrelude, '.') ) {
             return array();
         }
-        return $this->wrapperHostClassSets($sourcePrelude, $markup, $sourceElements);
+        return $this->wrapperHostClassSets($sourcePrelude, $roots, $sourceElements);
     }
 
     /**
@@ -139,12 +137,12 @@ final class NavigationContainerHostScope
      * Class compounds of the source prelude's subjects that name a navigation
      * root and, in the source, a non-list element only.
      *
+     * @param list<list<string>> $roots
      * @param callable(string): list<DOMElement> $sourceElements
      * @return list<list<string>>
      */
-    private function wrapperHostClassSets(string $sourcePrelude, string $markup, callable $sourceElements): array
+    private function wrapperHostClassSets(string $sourcePrelude, array $roots, callable $sourceElements): array
     {
-        $roots = $this->navigationRootClassLists($markup);
         $sets = array();
         foreach ( CssStylesheetTransformer::splitSelectorList($sourcePrelude) ?? array() as $selector ) {
             $classes = self::subjectClasses(trim($selector));
@@ -169,12 +167,8 @@ final class NavigationContainerHostScope
     }
 
     /** @return list<list<string>> */
-    private function navigationRootClassLists(string $markup): array
+    public function navigationRootClassLists(string $markup): array
     {
-        $key = md5($markup);
-        if ( isset($this->wrapperClassSets[$key]) ) {
-            return $this->wrapperClassSets[$key];
-        }
         $lists = array();
         if ( preg_match_all('/<!-- wp:navigation (\{.*?\}) \/?-->/', $markup, $matches) ) {
             foreach ( $matches[1] as $json ) {
@@ -185,7 +179,6 @@ final class NavigationContainerHostScope
                 }
             }
         }
-        $this->wrapperClassSets = array( $key => $lists );
         return $lists;
     }
 

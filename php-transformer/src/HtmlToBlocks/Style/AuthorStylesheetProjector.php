@@ -74,15 +74,16 @@ final class AuthorStylesheetProjector
     {
         $bridges = array();
         $navigationHosts = array();
+        $navigationRoots = $this->navigationContainerScope->navigationRootClassLists($context->emittedMarkup);
         $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody(), $this->styleResolver);
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, &$bridges, &$navigationHosts): string {
+            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, $navigationRoots, &$bridges, &$navigationHosts): string {
                 $css = $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions);
                 $css = $this->withProviderFieldWrapperHeight($prelude, $css, $context);
                 $bridge = $this->projectedLayerBridge($prelude, $css, $ancestors, $context);
                 if ( '' !== $bridge ) $bridges[$bridge] = true;
-                foreach ( $this->navigationContainerHosts($prelude, $context) as $host ) {
+                foreach ( $this->navigationContainerHosts($prelude, $context, $navigationRoots) as $host ) {
                     if ( ! in_array($host, $navigationHosts, true) ) $navigationHosts[] = $host;
                 }
                 return $css;
@@ -129,13 +130,14 @@ final class AuthorStylesheetProjector
     /**
      * Navigation wrapper hosts a source rule names (see NavigationContainerHostScope).
      *
+     * @param list<list<string>> $roots Navigation root class lists for this projection.
      * @return list<list<string>>
      */
-    private function navigationContainerHosts(string $prelude, AuthorStylesheetProjectionContext $context): array
+    private function navigationContainerHosts(string $prelude, AuthorStylesheetProjectionContext $context, array $roots): array
     {
         return $this->navigationContainerScope->hostClassSets(
             $prelude,
-            $context->emittedMarkup,
+            $roots,
             function (string $compound) use ($context): array {
                 $parsed = $context->sourceStyles->parsedSelector($compound);
                 return $parsed['supported'] ? $this->selectors->matchingSourceElements($compound, $parsed, $context) : array();
@@ -1065,12 +1067,17 @@ final class AuthorStylesheetProjector
 
         // Linked author CSS precedes Gutenberg's inline flow resets, so authored margins cannot rely on source order.
         $shim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-        return implode(',', array_map(static function (string $selector) use ($shim): string {
+        $nativeFlex = 1 === preg_match('/class="(?=[^"]*\bis-layout-flex\b)(?=[^"]*\b' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '\b)[^"]*"/', $context->emittedMarkup);
+        return implode(',', array_map(static function (string $selector) use ($shim, $nativeFlex): string {
             $selector = trim($selector);
             // Legacy single-colon pseudo-elements must remain last. Appending the
             // shim after :before/:after invalidates their entire selector list.
             if ( 1 !== preg_match('/(?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?$/', $selector) ) {
-                return $selector . $shim;
+                // Native cover flex items need one more class tier than
+                // Core's inline reset and our UA-margin restoration. Apply
+                // it uniformly, so source specificity/order still arbitrate.
+                $flexItem = ':where(.wp-block-group.' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '.is-layout-flex>*)';
+                return $selector . $shim . ($nativeFlex ? ',' . $selector . $shim . $flexItem . $shim : '');
             }
             return preg_replace('/((?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?)$/', $shim . '$1', $selector, 1) ?? $selector;
         }, $selectors));

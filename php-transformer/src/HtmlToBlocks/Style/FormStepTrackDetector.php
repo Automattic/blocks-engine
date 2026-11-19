@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
-use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -34,6 +34,21 @@ final class FormStepTrackDetector
     // A variant touching any of these on the track, a panel or the clipping
     // chain could unpage the track under that condition.
     private const PAGING_LAYOUT_KEYS = array( 'display', 'direction', 'wrap', 'width', 'flex', 'flex_shrink', 'flex_basis', 'padding', 'padding_left', 'padding_right', 'padding_inline_start', 'padding_inline_end' );
+
+    private readonly CssSelectorMatchCache $matchCache;
+
+    private static int $cascadeBuilds = 0;
+
+    /** Cascades computed since process start, observable for bounded-work tests. */
+    public static function cascadeBuilds(): int
+    {
+        return self::$cascadeBuilds;
+    }
+
+    public function __construct(?CssSelectorMatchCache $matchCache = null)
+    {
+        $this->matchCache = $matchCache ?? new CssSelectorMatchCache();
+    }
 
     /**
      * @param array<string, mixed> $graph A validated, untruncated form layout graph for `$form`.
@@ -297,40 +312,33 @@ final class FormStepTrackDetector
      */
     private function cascade(array $elements, array $stylesheets, string $inlineCss): ?array
     {
-        $retain = static function (array $selector) use ($elements): bool {
-            foreach ( $elements as $element ) {
-                $match = CssSelectorMatcher::matches($element, $selector);
-                if ( ! $match['supported'] || $match['matches'] ) {
-                    return true;
-                }
-            }
-            return false;
-        };
+        ++self::$cascadeBuilds;
+        $cache = $this->matchCache;
+        $index = $cache->subjectElementIndex(array_values($elements));
+        $retain = static fn (array $selector, string $text): bool => $cache->anySubjectMatches($index, $text, $selector, true);
         $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, 512, 1024, 8, $retain, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         if ( $analysis['truncated'] ) {
             return null;
         }
-        $customProperties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array( '--*' ), CssAnalysisLimits::MAX_STYLESHEET_BYTES, 512, 1024, 8, static function (array $selector) use ($elements): bool {
-            foreach ( $elements as $element ) {
-                for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
-                    if ( CssSelectorMatcher::matches($ancestor, $selector)['matches'] ) {
-                        return true;
-                    }
-                }
+        $ancestors = array();
+        foreach ( $elements as $element ) {
+            for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                $ancestors[$ancestor->getNodePath()] = $ancestor;
             }
-            return false;
-        }, CssAnalysisLimits::MAX_SCANNED_SELECTORS);
+        }
+        $ancestorIndex = $cache->subjectElementIndex(array_values($ancestors));
+        $customProperties = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array( '--*' ), CssAnalysisLimits::MAX_STYLESHEET_BYTES, 512, 1024, 8, static fn (array $selector, string $text): bool => $cache->anySubjectMatches($ancestorIndex, $text, $selector, false), CssAnalysisLimits::MAX_SCANNED_SELECTORS);
         if ( $customProperties['truncated'] ) {
             return null;
         }
 
         $result = array();
-        $customPropertyResolver = new FormCustomPropertyResolver();
+        $customPropertyResolver = new FormCustomPropertyResolver($cache);
         foreach ( $elements as $id => $element ) {
             $facts = array();
             $ambiguous = array();
             foreach ( $analysis['rules'] as $rule ) {
-                $match = CssSelectorMatcher::matches($element, $rule['parsed_selector']);
+                $match = $cache->matches($element, $rule['selector'], $rule['parsed_selector']);
                 if ( ! $match['matches'] ) {
                     continue;
                 }

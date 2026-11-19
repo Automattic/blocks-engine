@@ -117,7 +117,9 @@ final class SitePlanRun
         // one that never had the value.
         $this->timer?->start('compose.site_plan.design_system');
         $markups = array_values(array_filter(array_column($documents, 'block_markup'), 'is_string'));
-        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups)->withBlockTypography($markups)->withBlockColors($markups);
+        // A box-tree carrier on a button's link owns that button's look.
+        $stylesheets = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) ? $asset['content'] : null, $assets), 'is_string'));
+        $this->designSystem = DesignSystem::fromUsage(DesignSystem::usageBySource($documents))?->withButtonElementsOwnedBy($markups, $stylesheets)->withBlockTypography($markups)->withBlockColors($markups);
         $this->presetBinding = null === $this->designSystem ? null : new PresetBinding($this->designSystem, $assets, DesignSystem::usageBySource($documents));
         $this->timer?->start('compose.site_plan.routes');
         $tokens = $this->tokens($assets);
@@ -254,7 +256,7 @@ final class SitePlanRun
         $this->timer?->start('compose.site_plan.theme_json');
         $assets = StylesheetScopes::assign($assets, StylesheetScopes::documentsBySource($assetPages, $rootDocuments));
         $projector = new ThemeJsonProjection();
-        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
+        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem, array_column(array_filter($pages, static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles'])), 'source_path'));
         $assets = $themeProjection['assets'];
         $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
         $pages = $this->presetBoundPages($pages, $documents);
@@ -369,6 +371,9 @@ final class SitePlanRun
         // is written through that kind's role class instead.
         $assets = CompleteMarkerLists::compact($assets, $navigationMarkup . "\n" . implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), array($runtimeDeclarations, $runtimeEntityRecords));
         $assets = $this->finalStylesheets($assets, $navigationMarkup);
+        // Readers are final: an author property no shipped sheet, markup,
+        // record, theme.json or script names computes nothing.
+        $assets = UnreadCustomProperties::prune($assets, array($navigationMarkup, implode("\n", array_filter(array_column($menus, 'block_markup'), 'is_string')), (string) json_encode(array($runtimeDeclarations, $runtimeEntityRecords, $themeProjection['theme'], $rootDocuments, array_column($pages, 'document_metadata')), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)));
         // Bytes are final: arms only the editor canvas can match move from
         // each sheet visitors load into an editor-only extract after it.
         $known = array_column($assets, 'target_path');
@@ -549,7 +554,7 @@ final class SitePlanRun
         // text, navigation items and states have no block attribute to bind.
         if (null !== $this->presetBinding) foreach ($assets as &$asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null) || isset($asset['payload_reference'])) continue;
-            $content = $this->presetBinding->bindStylesheet($asset['content']);
+            $content = $this->presetBinding->bindStylesheet($asset['content'], array_values(array_unique(array_map('strval', array_column($asset['stylesheet_instances'] ?? array(), 'source_path')))));
             if ($content === $asset['content']) continue;
             $asset = CompiledAssets::withRewrittenTextContent($asset, $content);
         }
@@ -678,14 +683,14 @@ final class SitePlanRun
     {
         $documentsBySource = array_column($documents, null, 'source_path');
         foreach ($pages as &$page) {
-            $bound = $this->presetBinding?->bind($page['canonical_block_markup']);
+            $bound = $this->presetBinding?->bind($page['canonical_block_markup'], $page['source_path']);
             if (null === $bound || $bound === $page['canonical_block_markup']) continue;
             $page['canonical_block_markup'] = $bound;
             $page['content_hash'] = WordPressSitePlan::contentHash($bound);
             $document = $documentsBySource[$page['source_path']] ?? null;
             if (!is_array($document) || !isset($page['shell_candidates'])) continue;
             foreach ($document['shell_artifacts'] ?? array() as $key => $artifact) {
-                if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup']);
+                if (is_array($artifact) && is_string($artifact['block_markup'] ?? null)) $document['shell_artifacts'][$key]['block_markup'] = $this->presetBinding->bind($artifact['block_markup'], $page['source_path']);
             }
             $page['shell_candidates'] = $this->shellExtraction->shellCandidates($document, $this->references, $bound);
         }
