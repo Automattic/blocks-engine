@@ -47,7 +47,26 @@ final class GenericFigureLowering
         if ( $caption instanceof DOMElement ) {
             $captionHtml = $this->styleResolver->innerHtml($caption);
             if ( $this->runtime->hasVisibleText($captionHtml) ) {
-                $children[] = $this->blocks->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($caption), array( 'content' => $captionHtml )), array(), $caption);
+                // The native paragraph no longer matches figcaption selectors.
+                // Retain the caption's text presentation on its new carrier.
+                $typography = $this->styleResolver->styleAttributeMapper()->map(
+                    array_intersect_key($this->styleResolver->structuralPresentationDeclarations($caption), array_flip(array(
+                        'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color',
+                    ))),
+                    fn (string $value): string => $this->styleResolver->customProperties->resolve($value, $caption)
+                );
+                // map() also returns mapper bookkeeping (attrs/leftover), not
+                // block attributes. Only its style belongs on the paragraph.
+                // A figcaption has no UA paragraph margins. Supply that
+                // default before merging presentation, so authored caption
+                // spacing still wins and the new carrier stays block-level.
+                $attrs = array_replace_recursive(
+                    array('style' => array('spacing' => array('margin' => array('top' => '0', 'bottom' => '0')))),
+                    array('style' => $typography['style'] ?? array()),
+                    $this->styleResolver->presentationAttributes($caption),
+                    array('content' => $captionHtml)
+                );
+                $children[] = $this->blocks->createBlock('core/paragraph', $attrs, array(), $caption);
             } elseif ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($caption) ) {
                 // An empty caption can still hold space (padding, border,
                 // height) that the content after its figure depends on.

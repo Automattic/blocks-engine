@@ -47,6 +47,19 @@ final class QuotePatternContext
             : $content;
     }
 
+    /** A separately laid out figure cannot share the quotation's blockquote box. */
+    public function figureOwnsBox(DOMElement $figure): bool
+    {
+        foreach ( $this->styleResolver->structuralPresentationDeclarations($figure) as $property => $value ) {
+            if ( in_array($property, array('display', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'flex', 'flex-basis', 'grid-template-columns'), true)
+                || str_starts_with($property, 'padding')
+                || str_starts_with($property, 'border') ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Preserve the typography of the caption consumed by a native quote. */
     public function figureCaptionContent(DOMElement $caption): string
     {

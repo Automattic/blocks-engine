@@ -134,6 +134,13 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
 
+        // A figure with its own layout is a distinct box, not the quotation.
+        // Keep it as a group so descendant blockquote rules still reach the
+        // quote, rather than losing its spacing when both boxes are collapsed.
+        if ( $quotes->figureOwnsBox($figure) ) {
+            return null;
+        }
+
         $citation = $quotes->citationFromElement($blockquote);
         $caption = SourceDom::firstChildElement($figure, 'figcaption');
         // The figure collapses into core/quote only when it holds just the
