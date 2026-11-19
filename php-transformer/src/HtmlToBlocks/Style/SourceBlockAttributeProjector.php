@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Support\EngineMarker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextLanguageDirection;
 use DOMElement;
 
 /** Projects source identities and structural carriers onto canonical block attributes. */
@@ -15,6 +16,8 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
     /** A synthetic paragraph that is itself a lowered block-level source box, not a transparent carrier. */
     public const SOURCE_BOX_PARAGRAPH_CLASS = 'blocks-engine-source-box-paragraph';
+    /** A synthetic link paragraph that keeps an inline box, so the editor can focus its RichText root. */
+    public const INLINE_ANCHOR_CARRIER_CLASS = 'blocks-engine-inline-anchor-carrier';
     public const SYNTHETIC_SVG_PARAGRAPH_CLASS = 'blocks-engine-synthetic-svg-paragraph';
     /**
      * A synthetic paragraph whose RichText keeps its source item (a classed
@@ -160,9 +163,14 @@ final class SourceBlockAttributeProjector
         }
         $attrs = $this->withoutDuplicatedButtonLabelColor($name, $attrs, $sourceElement, $logicalSourceElement);
 
-        $attrs = $this->withGroupSourceSemantics($name, $attrs, $sourceElement);
+        $attrs = $this->withGroupSourceSemantics($name, $attrs, $sourceElement, $context);
         $attrs = $this->withSocialAnchorIdentity($name, $attrs, $sourceElement, $sourceTagName, $context);
         $attrs = $this->withGlobalZeroBoxes($name, $attrs, $sourceElement, $context);
+        // An inline source element's own lang/dir already rides in the
+        // RichText it is part of; only the text element's own box adds it.
+        if ( ! $facts->isInlineSourceElement ) {
+            $attrs = RichTextLanguageDirection::apply($name, $attrs, $sourceElement);
+        }
         return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
     }
 
@@ -323,6 +331,13 @@ final class SourceBlockAttributeProjector
                 // display:contents would discard its margin/paint/geometry.
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SOURCE_BOX_PARAGRAPH_CLASS);
             }
+            // The carrier holds the wrapper's lifted alignment for a line it
+            // fills alone. Boxless, that alignment would apply to no line box.
+            $alignedLineBox = in_array($attrs['style']['typography']['textAlign'] ?? '', array( 'left', 'center', 'right' ), true)
+                && $this->styleResolver->inheritedTextAlignmentNeedsLineBox($sourceElement);
+            if ( $alignedLineBox ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SOURCE_BOX_PARAGRAPH_CLASS);
+            }
             if ( 'a' === $sourceTagName && $this->sourceAnchorHasNoTextDecoration($sourceElement) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
             }
@@ -333,7 +348,8 @@ final class SourceBlockAttributeProjector
                 $presentation = $this->styleResolver->structuralPresentationDeclarations($sourceElement);
                 $display = CssValueInspector::comparable((string) ($presentation['display'] ?? ''));
                 $float = CssValueInspector::comparable((string) ($presentation['float'] ?? ''));
-                if ( in_array($display, array('', 'inline'), true)
+                if ( ! $alignedLineBox
+                    && in_array($display, array('', 'inline'), true)
                     && in_array($float, array('', 'none'), true)
                     && ! $this->isDirectChildOfAuthorOwnedLayout($sourceElement)
                     && $this->anchorPrecedesBlock($sourceElement) ) {
@@ -341,7 +357,7 @@ final class SourceBlockAttributeProjector
                     // flow before a block, its fallback hitbox can overlap the
                     // following Group. An inline carrier preserves the source
                     // line without changing flex/grid or floating link layout.
-                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-inline-anchor-carrier');
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::INLINE_ANCHOR_CARRIER_CLASS);
                 }
                 $attrs = $this->withSyntheticHeaderAnchorCarrier($attrs, $sourceElement, $context->generatedStyles);
             }
@@ -480,7 +496,7 @@ final class SourceBlockAttributeProjector
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function withGroupSourceSemantics(string $name, array $attrs, DOMElement $sourceElement): array
+    private function withGroupSourceSemantics(string $name, array $attrs, DOMElement $sourceElement, SourceBlockAttributeProjectionContext $context): array
     {
         if ( 'core/group' === $name ) {
             $responsiveMarginTop = $this->styleResolver->responsiveBlockMarginTopClassName($sourceElement);
@@ -491,6 +507,15 @@ final class SourceBlockAttributeProjector
 
         if ( 'core/group' === $name && ! isset($attrs['tagName']) ) {
             $semanticTag = self::semanticGroupTagName($sourceElement);
+            // A content item's own footer is no landmark (HTML maps it
+            // to a generic role). Saved as `<footer>` it reads as a
+            // copy of the page shell inside page content, so it keeps the
+            // tag only while author CSS still selects it by that tag.
+            if ( null !== $semanticTag && ShellLandmarkPolicy::isContentItemLandmarkTag($sourceElement)
+                && ! self::authorCssSelectsTag($context->authorStyles, $semanticTag)
+            ) {
+                $semanticTag = null;
+            }
             if ( null !== $semanticTag ) {
                 $attrs['tagName'] = $semanticTag;
             }
@@ -1258,6 +1283,31 @@ final class SourceBlockAttributeProjector
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $className);
         $generatedStyles->registerSyntheticHeaderAnchor($className, 'p.' . $className . '>a{' . $css . '}');
         return $attrs;
+    }
+
+    /**
+     * Whether an author rule names the tag as a type with an effect a `div`
+     * would not already have. `display:block` (the normalize.css reset for
+     * sectioning tags) is a div's own display.
+     */
+    private static function authorCssSelectsTag(AuthorStyleAnalysis $authorStyles, string $tagName): bool
+    {
+        $pattern = '/(?<![\w.#-])' . preg_quote($tagName, '/') . '(?![\w-])/i';
+        foreach ( $authorStyles->styleRules() as $rule ) {
+            $declarations = (array) ( $rule['declarations'] ?? array() );
+            if ( 1 === count($declarations) && 'block' === strtolower(trim((string) ( $declarations['display'] ?? '' ))) ) {
+                continue;
+            }
+            foreach ( (array) ( $rule['selectors'] ?? array() ) as $selector ) {
+                $text = is_array($selector) ? (string) ( $selector['selector'] ?? '' ) : (string) $selector;
+                // Attribute values and strings can hold the word; strip them first.
+                $text = preg_replace('/\[[^\]]*\]|"[^"]*"|\'[^\']*\'/', '', $text) ?? $text;
+                if ( 1 === preg_match($pattern, $text) ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static function semanticGroupTagName(DOMElement $element): ?string

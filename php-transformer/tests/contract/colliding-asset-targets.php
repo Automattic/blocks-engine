@@ -30,7 +30,7 @@ $findings = static fn (array $plan): array => array_values(array_filter(
 // into two bundles with one content-addressed target.
 $run = '<style>.a{color:#c00}</style><style>.b{color:#00c}</style>';
 $artifact = array('entrypoint' => 'index.html', 'files' => array(
-    'index.html' => '<!doctype html><html><head>' . $run . '<style media="print">.a{color:#000}</style>' . $run . '</head><body><main><h1 class="a">Kept heading</h1></main></body></html>',
+    'index.html' => '<!doctype html><html><head>' . $run . '<style media="print">.a{color:#000}</style>' . $run . '</head><body><main><h1 class="a">Kept heading</h1><p class="b">Kept copy</p></main></body></html>',
 ));
 $compiler = new ArtifactCompiler();
 $result = $compiler->compile($artifact)->toArray();

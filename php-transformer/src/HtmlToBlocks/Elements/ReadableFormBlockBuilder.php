@@ -11,13 +11,13 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorLayoutOwnership;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
+use WeakMap;
 
 /**
  * Builds the readable static block representation of a form.
@@ -75,6 +75,18 @@ final class ReadableFormBlockBuilder
     private array $controlBoxes = array();
 
     /**
+     * Whole-form facts for the forms the current build reads, keyed by form.
+     * Scoped to one build, which already fixes the form's control inventory,
+     * so no later build of a changed form can read them.
+     *
+     * @var WeakMap<DOMElement, FormFacts>|null
+     */
+    private ?WeakMap $formFacts = null;
+
+    /** @var array<int, array{element: DOMElement, count: int}> How many inventory controls each ancestor contains, keyed by object id. */
+    private array $containedControls = array();
+
+    /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $cssOwnedGroupAttributes
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed>       $layoutShellBlockForElements
      * @param Closure(list<DOMElement>): (array<string, mixed>|null)                                        $fieldBoxShell
@@ -101,6 +113,18 @@ final class ReadableFormBlockBuilder
             ? ($this->cssOwnedGroupAttributes)($element) : $this->presentationResolver->presentationAttributes($element);
     }
 
+    private static int $builds = 0;
+
+    /**
+     * Readable form builds that read a form's controls, since process start;
+     * observable for tests. A form dispatch builds each form's readable block
+     * at most once (#6752).
+     */
+    public static function builds(): int
+    {
+        return self::$builds;
+    }
+
     /** @return array<string, mixed>|null */
     public function layoutGraph(): ?array
     {
@@ -113,6 +137,29 @@ final class ReadableFormBlockBuilder
      */
     public function build(DOMElement $form, bool $allowFormEvents = false, array &$fallbacks = array()): ?array
     {
+        $outerFormFacts = $this->formFacts;
+        $this->formFacts = new WeakMap();
+        try {
+            return $this->buildForm($form, $allowFormEvents, $fallbacks);
+        } finally {
+            $this->formFacts = $outerFormFacts;
+        }
+    }
+
+    /** Facts about a whole form, computed once for the current build. */
+    private function formFacts(DOMElement $form): FormFacts
+    {
+        $this->formFacts ??= new WeakMap();
+
+        return $this->formFacts[$form] ??= new FormFacts($form);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function buildForm(DOMElement $form, bool $allowFormEvents, array &$fallbacks): ?array
+    {
         $this->layoutGraph = null;
         if ( 0 < $form->getElementsByTagName('script')->length
             || ( ! $allowFormEvents && array() !== SourceDom::eventMetadata($form) )
@@ -120,6 +167,7 @@ final class ReadableFormBlockBuilder
             return null;
         }
 
+        ++self::$builds;
         $this->controlIndices = array();
         $this->presentedControls = array();
         $this->controlLabels = array();
@@ -131,6 +179,15 @@ final class ReadableFormBlockBuilder
         $this->controlBoxes = array();
         $this->form = $form;
         $this->controlElements = FormWorkflowControlInventory::elements($form, $this->metadataBuilder, $this->session);
+        // Each field box asks how many controls an ancestor holds; count them
+        // in one walk up every control rather than a scan per ancestor.
+        $this->containedControls = array();
+        foreach ( $this->controlElements as $control ) {
+            for ( $ancestor = $control->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                $this->containedControls[spl_object_id($ancestor)] ??= array( 'element' => $ancestor, 'count' => 0 );
+                ++$this->containedControls[spl_object_id($ancestor)]['count'];
+            }
+        }
         foreach ( $this->controlElements as $index => $control ) {
             $this->controlIndices[(string) $control->getNodePath()] = $index;
             $presenter = FormControlClassifier::presentingElement($control);
@@ -159,7 +216,7 @@ final class ReadableFormBlockBuilder
             return null;
         }
 
-        if ( 'choice_submission' === FormRuntimeRequirementAnalyzer::formIntent($form) ) {
+        if ( 'choice_submission' === $this->formFacts($form)->intent() ) {
             $contentBlocks = array_map($this->inactiveControlBlock(...), $contentBlocks);
             $contentBlocks[] = $this->createBlock->createBlock('core/paragraph', array('content' => 'This form is not accepting responses yet.'));
         }
@@ -209,8 +266,9 @@ final class ReadableFormBlockBuilder
     private function groupedContentBlocks(DOMElement $form, array &$fallbacks): array
     {
         $structure = array();
-        $this->layoutGraph = (new FormLayoutGraphBuilder($this->controlElements))->build(
+        $this->layoutGraph = FormBuildScope::layoutGraph(
             $form,
+            $this->controlElements,
             $this->session->authorStyleAnalysis()->stylesheetAssets(),
             $this->session->sourceStyleResolutionState()->formLayoutCss(),
             $structure
@@ -645,16 +703,19 @@ final class ReadableFormBlockBuilder
         // core/button saves as an anchor, which cannot submit this form.
         // Force the authored companion so even an unstyled submit keeps
         // its type instead of collapsing to a paragraph.
-        $forceNative = FormControlClassifier::isSubmitLikeControl($control);
         // Preference islands retain their choice state in the readable tree,
         // including responsive navigation alternatives built from selects.
+        // Both questions are about the whole form, so every control of one
+        // form shares a single answer.
+        $facts = null;
         for ( $form = $control->parentNode; $form instanceof DOMElement; $form = $form->parentNode ) {
             if ( 'form' === strtolower($form->tagName) ) {
-                $forceNative = $forceNative || FormRuntimeRequirementAnalyzer::collectsOnlyChoices($form)
-                    || FormRuntimeRequirementAnalyzer::collectsOnlyPurchaseChoices($form);
+                $facts = $this->formFacts($form);
                 break;
             }
         }
+        $forceNative = null !== $facts ? $facts->isSubmitLikeControl($control) : FormControlClassifier::isSubmitLikeControl($control);
+        $forceNative = $forceNative || ( null !== $facts && ( $facts->collectsOnlyChoices() || $facts->collectsOnlyPurchaseChoices() ) );
 
         // The control's own label is a source fact the degraded form must
         // keep, so it rides on the control block as a real `<label>` rather
@@ -754,7 +815,7 @@ final class ReadableFormBlockBuilder
         $own = array();
         $path = $control;
         for ($node = $control->parentNode; $node instanceof DOMElement && ! $node->isSameNode($this->form); $node = $node->parentNode) {
-            if ('fieldset' === strtolower($node->tagName) || 1 !== count(array_filter($this->controlElements, fn (DOMElement $element): bool => $this->contains($node, $element)))) {
+            if ('fieldset' === strtolower($node->tagName) || 1 !== $this->containedControlCount($node)) {
                 break;
             }
             // A label's own children are its caption; a wrapper's must be the path or the label.
@@ -774,6 +835,14 @@ final class ReadableFormBlockBuilder
             $path = $node;
         }
         return array('field' => $field, 'control' => $own);
+    }
+
+    /** How many of the build's inventory controls the element contains. */
+    private function containedControlCount(DOMElement $element): int
+    {
+        $entry = $this->containedControls[spl_object_id($element)] ?? null;
+
+        return null !== $entry && $entry['element']->isSameNode($element) ? $entry['count'] : 0;
     }
 
     private function contains(DOMElement $ancestor, DOMElement $node): bool

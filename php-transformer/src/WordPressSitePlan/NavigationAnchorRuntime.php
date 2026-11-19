@@ -72,8 +72,11 @@ $blocks_engine_navigation_anchor = static function ( string $content, array $blo
         $svg = wp_kses( $presentation['svg'], array_fill_keys( array( 'svg', 'g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon' ), $attributes ) );
         if ( str_starts_with( $svg, '<svg' ) ) {
             $svg = preg_replace( '/^<svg\b/', '<svg aria-hidden="true" focusable="false"', $svg, 1 );
-            $content = preg_replace_callback( '/(<span\b[^>]*\bclass="[^"]*\bwp-block-navigation-item__label\b[^"]*"[^>]*>)(.*?)(<\/span>)/s', static function ( array $match ) use ( $svg ): string {
-                return $svg . '<span class="wp-block-navigation-item__label" style="font-size:0;line-height:0">' . $match[2] . $match[3];
+            // An icon-only anchor's label is its hidden accessible name; an
+            // icon beside visible text keeps that text painted after it.
+            $visible = true === ( $presentation['labelVisible'] ?? null );
+            $content = preg_replace_callback( '/(<span\b[^>]*\bclass="[^"]*\bwp-block-navigation-item__label\b[^"]*"[^>]*>)(.*?)(<\/span>)/s', static function ( array $match ) use ( $svg, $visible ): string {
+                return $svg . ( $visible ? $match[1] : '<span class="wp-block-navigation-item__label" style="font-size:0;line-height:0">' ) . $match[2] . $match[3];
             }, $content, 1 ) ?? $content;
         }
     }

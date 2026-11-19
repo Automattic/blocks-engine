@@ -48,7 +48,7 @@ foreach (ThemeBootstrap::documentStylesheets($plan, 'index.html') as $row) $css 
 $assert(!str_contains($css, '[data-interact-key'), 'The author selectors are retired on the evidence route: ' . $css);
 $assert(1 === substr_count($css, '@keyframes motion-parallaxScroll-legacy{'), 'The observed animation ships its keyframes once: ' . $css);
 $assert(1 === preg_match('/@media \(min-width:391px\)\{@media \(prefers-reduced-motion: no-preference\)\{\.(be-[a-z0-9-]+)\{animation:motion-parallaxScroll-legacy auto linear both 1;animation-timeline:--trigger-49;animation-range:cover calc\(0% \+ 7\.5vh\) cover calc\(100% \+ -7\.5vh\);--motion-parallax-to:-7\.5vh\}\}\.\1\{view-timeline:--trigger-49\}\}/', $css, $carrier), 'The animation, its timeline, range and keyframe input keep the author condition, and the element names the view timeline it drives, at the widths that ran it: ' . $css);
-$assert(!str_contains($css, 'animation-composition'), 'An undefined substitution is dropped, as the browser computes it: ' . $css);
+$assert(1 !== preg_match('/\\.' . preg_quote($carrier[1], '/') . '\\{[^}]*animation-composition/', $css), 'An undefined substitution is dropped from the carrier, as the browser computes it: ' . $css);
 $assert(!str_contains($css, 'matrix(1, 0, 0, 1, 0, 67.5)') && !str_contains($css, 'matrix(1,0,0,1,0,67.5)'), 'The frozen parallax frame is not restated: ' . $css);
 $assert(str_contains($result->toArray()['serialized_blocks'], $carrier[1]), 'The binding carrier rides the block.');
 

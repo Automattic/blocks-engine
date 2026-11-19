@@ -135,8 +135,8 @@ $assert(str_contains((string) ($hiddenLinkText['serialized_blocks'] ?? ''), 'Bra
 
 $visibleIframe = $transform('<main><iframe title="HubSpot form" src="https://forms.hsforms.com/widget" width="600" height="400"></iframe></main>');
 $visibleIframeBlock = $visibleIframe['blocks'][0] ?? array();
-$assert('custom/visual-iframe' === ($visibleIframeBlock['blockName'] ?? ''), 'visible HubSpot iframe becomes a bounded companion embed');
-$assert('https://forms.hsforms.com/widget' === ($visibleIframeBlock['attrs']['src'] ?? ''), 'visible HubSpot iframe source is retained structurally');
+$assert('core/embed' === ($visibleIframeBlock['blockName'] ?? '') && isset($visibleIframeBlock['attrs']['metadata']['blocksEngineIframe']), 'visible HubSpot iframe becomes a bounded core embed frame');
+$assert('https://forms.hsforms.com/widget' === ($visibleIframeBlock['attrs']['url'] ?? ''), 'visible HubSpot iframe source is retained structurally');
 $assert(array() === ($visibleIframe['fallbacks'] ?? array()), 'visible bounded iframe does not add a fallback');
 
 $hiddenSourcedIframe = $transform('<main><iframe title="third-party embed" style="display:none" src="https://example.test/embed"></iframe></main>');

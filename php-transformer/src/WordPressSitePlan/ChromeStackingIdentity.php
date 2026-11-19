@@ -15,6 +15,8 @@ final class ChromeStackingIdentity
             if (!preg_match('/^(<!--\s*wp:\S+\s+)(\{.*\})(\s*\/?-->\s*)$/s', $match[0], $parts)) return $match[0];
             $attrs = json_decode($parts[2], true);
             if (!is_array($attrs)) return $match[0];
+            // An emptied attribute object is the same block as one without it.
+            if (array() === $attrs) return rtrim($parts[1]) . ' ' . ltrim($parts[3]);
             foreach ($attrs as &$value) if (is_string($value) && preg_match('/<[a-zA-Z]/', $value)) $value = self::normalize($value);
             unset($value);
             return $parts[1] . BlockAttributes::encode($attrs) . $parts[3];

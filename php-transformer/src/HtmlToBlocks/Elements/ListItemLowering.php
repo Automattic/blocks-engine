@@ -89,6 +89,18 @@ final class ListItemLowering
         $items = array();
         foreach ( $this->listStructure->listMemberElements($list) as $child ) {
             if ( 'li' !== strtolower($child->tagName) ) {
+                if ( ! $this->listStructure->listNonItemChildCarriesContent($child) ) {
+                    continue;
+                }
+
+                // Keep the source element itself (not just its text) inside
+                // the synthetic item, so bare anchors retain their links and
+                // styling. Do not mutate the source DOM used by CSS matching.
+                $wrapper = $child->ownerDocument->createElement('li');
+                $wrapper->appendChild($child->cloneNode(true));
+                $items[] = $this->blocks->createBlock('core/list-item', array(
+                    'content' => $this->listItemContentWithoutNestedLists($wrapper),
+                ));
                 continue;
             }
 
@@ -126,6 +138,15 @@ final class ListItemLowering
         }
         foreach ( $directLists as $directList ) {
             $content->removeChild($directList);
+        }
+        // A render-neutral sole paragraph is the item's own text.
+        if ( null !== $this->listStructure->neutralItemParagraph($item) ) {
+            foreach ( $content->childNodes as $child ) {
+                if ( $child instanceof DOMElement ) {
+                    SourceDom::unwrapElement($child);
+                    break;
+                }
+            }
         }
 
         // Wrapped rich HTML remains inside core/list-item content so its authored

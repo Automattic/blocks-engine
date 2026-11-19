@@ -18,6 +18,7 @@ use DOMDocument;
 use DOMElement;
 use DOMNode;
 use DOMText;
+use WeakMap;
 
 /**
  * The engine's shared DOM reading vocabulary.
@@ -39,6 +40,13 @@ use DOMText;
  */
 final class SourceDom
 {
+    /** @var WeakMap<DOMDocument, array<string, list<DOMElement>>>|null Label `for` indexes while {@see self::withLabelIndex()} runs. */
+    private static ?WeakMap $labelIndexes = null;
+
+    private static int $labelIndexDepth = 0;
+
+    private static int $labelScanVisits = 0;
+
     /**
      * A text label that is read but not painted. It gives a text-less control
      * its accessible name as content, which core blocks require to render.
@@ -758,10 +766,7 @@ final class SourceDom
         $scope = self::documentVariantRoot($control);
         $labels = array();
         $fallback = array();
-        foreach ( $control->ownerDocument->getElementsByTagName('label') as $label ) {
-            if ( ! $label instanceof DOMElement || $id !== self::attr($label, 'for') ) {
-                continue;
-            }
+        foreach ( self::labelsFor($control->ownerDocument, $id) as $label ) {
             $labelScope = self::documentVariantRoot($label);
             if ( ( null === $scope && null === $labelScope ) || ( $scope instanceof DOMElement && $labelScope instanceof DOMElement && $scope->isSameNode($labelScope) ) ) {
                 $labels[] = $label;
@@ -775,6 +780,105 @@ final class SourceDom
             $labels[] = $implicit;
         }
         return $labels;
+    }
+
+    /** The element an {@see elementSelector()} path names below $body. */
+    public static function elementAtSelector(DOMElement $body, string $selector): ?DOMElement
+    {
+        $current = $body;
+        foreach ( explode(' > ', $selector) as $step ) {
+            if ( 1 !== preg_match('/^([a-z0-9-]+):nth-of-type\((\d+)\)$/', $step, $match) ) {
+                return null;
+            }
+            $index = (int) $match[2];
+            $next = null;
+            foreach ( $current->childNodes as $child ) {
+                if ( $child instanceof DOMElement && strtolower($child->tagName) === $match[1] && 0 === --$index ) {
+                    $next = $child;
+                    break;
+                }
+            }
+            if ( null === $next ) {
+                return null;
+            }
+            $current = $next;
+        }
+        return $current === $body ? null : $current;
+    }
+
+    /**
+     * Run `$work` with each document's `label[for]` elements indexed once,
+     * instead of scanned once per control lookup (#6752). Callers scope it to
+     * work that adds no label and changes no `for`, such as one form's
+     * dispatch, so every lookup answers as the scan would.
+     *
+     * @template T
+     * @param Closure(): T $work
+     * @return T
+     */
+    public static function withLabelIndex(Closure $work): mixed
+    {
+        if ( 0 === self::$labelIndexDepth++ ) {
+            self::$labelIndexes = new WeakMap();
+        }
+        try {
+            return $work();
+        } finally {
+            if ( 0 === --self::$labelIndexDepth ) {
+                self::$labelIndexes = null;
+            }
+        }
+    }
+
+    /**
+     * Document labels scanned for `for` targets since process start;
+     * observable for tests. Inside {@see self::withLabelIndex()} a document's
+     * labels are scanned once, not once per control lookup.
+     */
+    public static function labelScanVisits(): int
+    {
+        return self::$labelScanVisits;
+    }
+
+    /** @return list<DOMElement> The document's labels whose `for` is `$id`, in source order. */
+    private static function labelsFor(DOMDocument $document, string $id): array
+    {
+        if ( null === self::$labelIndexes ) {
+            $labels = array();
+            foreach ( $document->getElementsByTagName('label') as $label ) {
+                ++self::$labelScanVisits;
+                if ( $label instanceof DOMElement && $id === self::attr($label, 'for') ) {
+                    $labels[] = $label;
+                }
+            }
+
+            return $labels;
+        }
+        if ( ! isset(self::$labelIndexes[$document]) ) {
+            $index = array();
+            foreach ( $document->getElementsByTagName('label') as $label ) {
+                ++self::$labelScanVisits;
+                if ( $label instanceof DOMElement && $label->hasAttribute('for') ) {
+                    $index[$label->getAttribute('for')][] = $label;
+                }
+            }
+            self::$labelIndexes[$document] = $index;
+        }
+
+        return self::$labelIndexes[$document][$id] ?? array();
+    }
+
+    /** `$value` as an XPath 1.0 string literal, whatever quotes it holds. */
+    public static function xpathLiteral(string $value): string
+    {
+        if ( ! str_contains($value, '"') ) {
+            return '"' . $value . '"';
+        }
+        if ( ! str_contains($value, "'") ) {
+            return "'" . $value . "'";
+        }
+
+        return 'concat("' . str_replace('"', '", \'"\', "', $value) . '")';
     }
 
     public static function elementSelector(DOMElement $element): string
@@ -918,6 +1022,24 @@ final class SourceDom
         }
         foreach ( $removals as $attribute ) {
             $attribute->ownerElement?->removeAttributeNode($attribute);
+        }
+    }
+
+    /**
+     * Removes attributes that SVG does not define and browsers ignore when
+     * rendering the `<svg>` element, such as the `size` prop that Lucide's
+     * runtime leaves on every icon it renders. The icon box still comes from
+     * width/height/CSS. Dropping them before SVG sanitization lets the icon
+     * convert the same way as it would without them.
+     */
+    public static function removeNonRenderingSvgAttributes(DOMElement $root): void
+    {
+        foreach ( $root->getElementsByTagName('svg') as $svg ) {
+            foreach ( array( 'size' ) as $name ) {
+                if ( $svg->hasAttribute($name) ) {
+                    $svg->removeAttribute($name);
+                }
+            }
         }
     }
 

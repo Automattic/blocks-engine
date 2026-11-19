@@ -172,6 +172,10 @@ jobs:
         working-directory: php-transformer
         run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/focused-empty-rich-text-editor-browser.mjs
 
+      - name: Verify an inline layout carrier takes focus while it is edited
+        working-directory: php-transformer
+        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/inline-layout-carrier-editor-focus-browser.mjs
+
       - name: Verify standalone line breaks keep source line spacing
         working-directory: php-transformer
         run: php tests/unit/standalone-break-spacing.php
@@ -226,7 +230,9 @@ jobs:
 
       - name: Verify viewport entrances settle visible when their CSS binding is lost
         working-directory: php-transformer
-        run: PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/viewport-entrance-binding-loss-browser.mjs
+        run: |
+          PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/viewport-entrance-binding-loss-browser.mjs
+          PLAYWRIGHT_MODULE="$PWD/tools/visual-parity/node_modules/playwright/index.mjs" node tests/unit/viewport-entrance-startup-band-browser.mjs
 
       - name: Verify the editor canvas paints the front end resting state
         working-directory: php-transformer

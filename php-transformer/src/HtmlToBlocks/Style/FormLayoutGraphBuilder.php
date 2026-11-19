@@ -43,10 +43,27 @@ final class FormLayoutGraphBuilder
     private array $nodeIds = array();
     private array $spacers = array();
     private array $labels = array();
+    /** @var array<string, string|null> One build's graph entries: each id's parent id, read in O(1) per ancestor step. */
+    private array $entryParents = array();
+    /** @var array<string, int>|null Data-entry controls at or below each entry id, counted once per build. */
+    private ?array $dataEntryCounts = null;
+    /** @var array<string, string>|null The first data-entry control at or below each entry id. */
+    private ?array $firstDataEntryControls = null;
     /** Selector match memo for one build's document; replaced at every build() so it never spans documents. */
     private CssSelectorMatchCache $selectorCache;
     /** Custom-property resolution over {@see $selectorCache}; replaced with it at every build(). */
     private FormCustomPropertyResolver $customProperties;
+
+    private static int $builds = 0;
+
+    /**
+     * Layout graphs built since process start; observable for tests. A form
+     * dispatch shares each of its graphs between readers (#6752).
+     */
+    public static function builds(): int
+    {
+        return self::$builds;
+    }
 
     /** @param list<DOMElement>|null $controlElements Explicit inventory in metadata row order. */
     public function __construct(private readonly ?array $controlElements = null)
@@ -62,6 +79,7 @@ final class FormLayoutGraphBuilder
      */
     public function build(DOMElement $form, array $stylesheets, string $inlineCss = '', ?array &$structure = null): array
     {
+        ++self::$builds;
         $this->diagnostics = array();
         $this->truncated = false;
         // One match memo per build: the layout analyses and both presentation
@@ -220,6 +238,7 @@ final class FormLayoutGraphBuilder
             $this->diagnostics[] = 'node_or_depth_limit';
         }
         $entries = self::withoutDanglingLabels(array_slice($all, 0, self::MAX_NODES));
+        $this->indexEntries($entries);
         $nodes = array();
         $presentationBuilder = new FormPresentationGraphBuilder(scopeElements: array_column($entries, 'element'), selectorMatchCache: $selectorCache);
         $variants = array();
@@ -287,7 +306,7 @@ final class FormLayoutGraphBuilder
                 continue;
             }
             foreach ( array_keys($nodes) as $nodeId ) {
-                if ( $this->hasAncestor($entries, $nodeId, $entry['id']) ) {
+                if ( $this->hasAncestor($nodeId, $entry['id']) ) {
                     $nodes[$entry['id']] = $this->node($entry, array(), array());
                     break;
                 }
@@ -622,27 +641,73 @@ final class FormLayoutGraphBuilder
         return array_values(array_filter($entries, static fn (array $entry): bool => ! isset($entry['for_control']) || isset($ids[$entry['for_control']])));
     }
 
-    /** @param list<array<string, mixed>> $entries */
-    private function hasAncestor(array $entries, string $node, string $ancestor): bool
+    /**
+     * Index one build's entries so ancestry and the per-entry data-entry
+     * questions cost a parent-chain walk, not a scan of every entry per step.
+     * An id keeps its first entry's parent, the one a scan would reach first.
+     *
+     * @param list<array<string, mixed>> $entries
+     */
+    private function indexEntries(array $entries): void
     {
+        $this->entryParents = array();
         foreach ( $entries as $entry ) {
-            if ( $entry['id'] !== $node ) {
-                continue;
+            if ( ! array_key_exists($entry['id'], $this->entryParents) ) {
+                $this->entryParents[$entry['id']] = $entry['parent'];
             }
-            for ( $parent = $entry['parent']; null !== $parent; ) {
-                if ( $parent === $ancestor ) {
-                    return true;
-                }
-                foreach ( $entries as $candidate ) {
-                    if ( $candidate['id'] === $parent ) {
-                        $parent = $candidate['parent'];
-                        continue 2;
-                    }
-                }
+        }
+        $this->dataEntryCounts = null;
+        $this->firstDataEntryControls = null;
+    }
+
+    private function hasAncestor(string $node, string $ancestor): bool
+    {
+        if ( ! array_key_exists($node, $this->entryParents) ) {
+            return false;
+        }
+        for ( $parent = $this->entryParents[$node]; null !== $parent; $parent = $this->entryParents[$parent] ) {
+            if ( $parent === $ancestor ) {
+                return true;
+            }
+            if ( ! array_key_exists($parent, $this->entryParents) ) {
                 return false;
             }
         }
         return false;
+    }
+
+    /**
+     * Each entry id's data-entry controls at or below it, in entry order,
+     * attributed by walking every control's ancestor chain once.
+     *
+     * @param list<array<string, mixed>> $entries
+     */
+    private function indexDataEntryControls(array $entries): void
+    {
+        if ( null !== $this->dataEntryCounts ) {
+            return;
+        }
+        $this->dataEntryCounts = array();
+        $this->firstDataEntryControls = array();
+        foreach ( $entries as $entry ) {
+            if ( 'control' !== $entry['kind'] || ! FormControlClassifier::isDataEntryControl($entry['element']) ) {
+                continue;
+            }
+            $holders = array( $entry['id'] => true );
+            if ( array_key_exists($entry['id'], $this->entryParents) ) {
+                for ( $parent = $this->entryParents[$entry['id']]; null !== $parent; $parent = $this->entryParents[$parent] ) {
+                    $holders[$parent] = true;
+                    if ( ! array_key_exists($parent, $this->entryParents) ) {
+                        break;
+                    }
+                }
+            }
+            foreach ( array_keys($holders) as $holder ) {
+                $holder = (string) $holder;
+                $this->dataEntryCounts[$holder] = ($this->dataEntryCounts[$holder] ?? 0) + 1;
+                $this->firstDataEntryControls[$holder] ??= $entry['id'];
+            }
+        }
     }
 
     /** @return list<DOMElement> */
@@ -822,30 +887,15 @@ final class FormLayoutGraphBuilder
     /** @param list<array<string, mixed>> $entries */
     private function dataEntryControlId(array $entries, string $id): ?string
     {
-        foreach ( $entries as $entry ) {
-            if ( 'control' !== $entry['kind'] || ! FormControlClassifier::isDataEntryControl($entry['element']) ) {
-                continue;
-            }
-            if ( $entry['id'] === $id || $this->hasAncestor($entries, $entry['id'], $id) ) {
-                return $entry['id'];
-            }
-        }
-        return null;
+        $this->indexDataEntryControls($entries);
+        return $this->firstDataEntryControls[$id] ?? null;
     }
 
     /** @param list<array<string, mixed>> $entries */
     private function dataEntryDescendants(array $entries, string $id): int
     {
-        $count = 0;
-        foreach ( $entries as $entry ) {
-            if ( 'control' !== $entry['kind'] || ! FormControlClassifier::isDataEntryControl($entry['element']) ) {
-                continue;
-            }
-            if ( $entry['id'] === $id || $this->hasAncestor($entries, $entry['id'], $id) ) {
-                ++$count;
-            }
-        }
-        return $count;
+        $this->indexDataEntryControls($entries);
+        return $this->dataEntryCounts[$id] ?? 0;
     }
 
     /**

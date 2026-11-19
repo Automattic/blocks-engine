@@ -73,6 +73,10 @@ $rows = array(
     // Inherited properties against the observed parent.
     array('inherited values equal to the parent are omitted', array(), array(), 'core/group', array(), array('font-family', 'color:', 'pointer-events')),
     array('inherited values that differ from the parent are kept', array('pointer-events' => 'auto', 'font-family' => 'Inter'), array('pointer-events' => 'none'), 'core/group', array('pointer-events:auto'), array()),
+    // The block editor resets every block wrapper to pointer-events:auto, so an
+    // inherited none never reaches it there and the layer swallows clicks (#5920).
+    array('a fixed layer keeps the pointer pass-through equal to the parent', array('position' => 'fixed', 'pointer-events' => 'none'), array('pointer-events' => 'none'), 'core/group', array('pointer-events:none'), array()),
+    array('an in-flow box inherits the pointer pass-through equal to the parent', array('pointer-events' => 'none'), array('pointer-events' => 'none'), 'core/group', array(), array('pointer-events')),
     array('a paragraph inherits typography equal to the parent', array(), array(), 'core/paragraph', array(), array('font-size', 'font-weight', 'color:')),
     // An element with its own user-agent or theme.json default would not inherit the parent's value.
     array('a heading keeps typography equal to the parent over its heading defaults', array(), array(), 'core/heading', array('font-size:16px', 'font-weight:400', 'font-family', 'line-height', 'color:'), array('pointer-events', 'white-space')),
@@ -82,8 +86,8 @@ $rows = array(
     array('a transparent text shadow inherits like none', array('text-shadow' => 'rgba(0, 0, 0, 0) 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px'), array(), 'core/group', array(), array('text-shadow')),
     // Longhands that do not apply to the box.
     array('flex container longhands need a flex box', array('justify-content' => 'normal'), array(), 'core/group', array(), array('flex-wrap', 'justify-content', 'row-gap')),
-    array('a flex box keeps longhands core flex layout sets', array('display' => 'flex'), array(), 'core/group', array('flex-wrap:nowrap', 'align-items:normal', 'row-gap:normal'), array('align-content', 'grid-auto-flow')),
-    array('a grid box keeps its template and gaps', array('display' => 'grid', 'grid-template-rows' => '40px'), array(), 'core/group', array('grid-template-columns:none', 'grid-template-rows:40px', 'column-gap:normal'), array('grid-auto-flow', 'justify-items', 'flex-wrap')),
+    array('a flex box keeps longhands core flex layout sets', array('display' => 'flex'), array(), 'core/group', array('flex-wrap:nowrap', 'align-items:normal', 'gap:normal'), array('align-content', 'grid-auto-flow')),
+    array('a grid box keeps its template and gaps', array('display' => 'grid', 'grid-template-rows' => '40px'), array(), 'core/group', array('grid-template-columns:none', 'grid-template-rows:40px', 'gap:normal'), array('grid-auto-flow', 'justify-items', 'flex-wrap')),
     array('item longhands need a flex or grid parent', array('flex-basis' => '50%'), array(), 'core/group', array(), array('flex-basis', 'align-self', 'grid-column-start')),
     array('grid items keep placement but drop flex sizing', array('flex-basis' => '50%', 'grid-column-start' => '2', 'min-width' => '0px'), array('display' => 'grid'), 'core/group', array('grid-column-start:2', 'min-width:0px'), array('flex-basis', 'grid-row-start', 'order')),
     array('offsets need a positioned box', array('top' => '12px'), array(), 'core/group', array(), array('top:')),

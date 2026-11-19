@@ -24,6 +24,26 @@ items rather than acquiring another layout box. This addresses #5213 without
 reviving slug-based template-part unwrapping. The public compiler contract is
 `route-invariant-footer-frame.php`.
 
+A shared header and footer nested in a site wrapper beside `main` (Squarespace's
+`#siteWrapper`) move with that wrapper to the templates. Chrome that precedes
+the header in the wrapper and carries a runtime binding (a floating cart link)
+would otherwise sit in the template frame, where no binding can anchor, and
+keep both references in page content. When every route repeats that leading run
+(compared without route-local box-tree node ids), it joins the header part and
+its bindings re-anchor there, mirroring how trailing frame chrome folds into the
+footer part. Route coverage counts only template references. The compiler
+contract is `tests/unit/shell-wrapper-shared-header-template.php`.
+
+Routes whose header or footer agrees on the box-tree viewports they share stay
+one part even when one route's sidecar samples an extra viewport (`mobile`):
+intake merges that chrome subtree's agreeing observations as a union of
+viewports, while the route's page content keeps its own evidence (`docs/contracts/box-tree.md`).
+The extra viewport can leave a responsive projection hook on that route's
+chrome only; such a source group joins the others only when the box-tree
+records its routes as chrome peers. Without that evidence a projection hook
+may select distinct responsive rules and keeps its own part, and a
+route-current token outside navigation stays part of the chrome's identity.
+
 When the source has no area landmark, extraction adds a semantic header/footer
 Group marked `blocks-engine-shell-landmark`. The same frontend-only transport
 stylesheet makes this synthetic landmark boxless too: source children remain
@@ -31,6 +51,15 @@ items of their original flex/grid parent, and percentage widths resolve against
 that parent. Authored landmarks keep their boxes and styling; the editor keeps
 the synthetic Group's selection box. This avoids copying only selected sizing
 properties and preserves landmark markup without adding layout geometry.
+
+A `<header>` nested in a body-level view that comes after a body-level `<nav>`
+sibling (an SPA page view, a panel) is view content, not the site header
+candidate. Only a sibling whose own element is the nav landmark counts, so
+capture-variant documents and site wrappers never qualify, and a header that
+opens its own wrapper ahead of `main` stays the site header. The leading
+navigation cluster, including a text-only announcement bar directly above it at
+document level, becomes the header part instead
+(`tests/unit/shell-hidden-view-header.php`, #6549).
 
 The seven-route public compiler regression covers identical chrome beneath an
 app root, shared stylesheet scope, lifecycle templates, route-template collapse,

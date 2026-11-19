@@ -246,7 +246,7 @@ final class ChromeIdentity
             if (!preg_match('/^<!--\s*wp:(\S+)\s+(\{.*\})\s*(\/?)-->$/s', $match[0], $parts)) return $match[0];
             $attrs = json_decode($parts[2], true);
             if (!is_array($attrs)) return $match[0];
-            unset($attrs['config'], $attrs['metadata']['blocksEngineScrollState']);
+            unset($attrs['config'], $attrs['metadata']['blocksEngineScrollState'], $attrs['metadata']['blocksEngineNavigationOpener']);
             if (isset($attrs['metadata']) && array() === $attrs['metadata']) unset($attrs['metadata']);
             if (in_array($attrs['metadata']['name'] ?? null, array('Header', 'Footer'), true) && 1 === count($attrs['metadata'])) unset($attrs['metadata']);
             if (array('typography' => array('lineHeight' => '1')) === ($attrs['style'] ?? null)) unset($attrs['style']);

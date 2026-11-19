@@ -21,7 +21,9 @@ use DOMElement;
  * exactly that binding on a carrier: the animation and timeline
  * declarations of the author rules matching the element, with the custom
  * properties they read substituted under the conditions that define them,
- * the custom properties the keyframes read, and the keyframes themselves.
+ * and the custom properties the keyframes read. The keyframes themselves
+ * stay with the retired author sheet, which keeps every `@keyframes` a
+ * delivered carrier binds (EvidenceRouteStateRules).
  * The frozen pose the animation produced at capture (its animated
  * properties) is then the animation's to paint, not the carrier's.
  */
@@ -170,7 +172,6 @@ final class BoxTreeScrollAnimationBinding
         if ('' === $css) return '';
         $className = $state->allocateCarrier(SourceDom::elementSelector($element) . "\nscroll-animation\n" . $css);
         $state->registerRule($className, str_replace($class, $className, $css));
-        foreach ($binding['keyframes'] as $name => $body) $state->registerKeyframes($className, $name, '@keyframes ' . $name . '{' . trim($body) . '}');
         return $className;
     }
 

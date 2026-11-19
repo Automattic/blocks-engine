@@ -91,6 +91,21 @@ final class NavigationToggleSuppressor
             }
         }
 
+        $previous = $this->labelsByFor;
+        try {
+            $this->collectProjectedNavigationRelationshipsFrom($root, $elementsById);
+        } finally {
+            $this->labelsByFor = $previous;
+        }
+    }
+
+    /** @param array<string, DOMElement> $elementsById */
+    private function collectProjectedNavigationRelationshipsFrom(DOMElement $root, array $elementsById): void
+    {
+        // Most elements are rejected as toggles by reads alone, so they share
+        // one label index; a recognised toggle's projection may edit the DOM,
+        // so the index starts over after each (#6752).
+        $this->labelsByFor = new \WeakMap();
         foreach ( $root->getElementsByTagName('*') as $control ) {
             if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) || $this->isInsideNativeDisclosurePanel($control) ) {
                 continue;
@@ -98,6 +113,7 @@ final class NavigationToggleSuppressor
             if ( ! $this->isHamburgerMenuToggleControl($control) && ! $this->isProjectableHashAnchorMenuToggle($control) ) {
                 continue;
             }
+            $this->labelsByFor = new \WeakMap();
 
             $ownedPanels = array();
             foreach ( SourceDom::tokens(SourceDom::attr($control, 'aria-controls')) as $controlledId ) {
@@ -1109,12 +1125,56 @@ final class NavigationToggleSuppressor
      */
     public function collectSupersededNavToggleSelectors(DOMElement $root): void
     {
-        foreach ( $root->getElementsByTagName('*') as $element ) {
-            if ( $element instanceof DOMElement && $this->isRedundantMenuToggleControl($element) ) {
-                $this->recordSupersededNavToggleSelectors($element);
-                $this->recordSupersededControlPaths($element);
+        // The pass only records selectors and paths, so each document's
+        // labels are indexed by their trimmed `for` once for it (#6752).
+        $previous = $this->labelsByFor;
+        $this->labelsByFor = new \WeakMap();
+        try {
+            foreach ( $root->getElementsByTagName('*') as $element ) {
+                if ( $element instanceof DOMElement && $this->isRedundantMenuToggleControl($element) ) {
+                    $this->recordSupersededNavToggleSelectors($element);
+                    $this->recordSupersededControlPaths($element);
+                }
+            }
+        } finally {
+            $this->labelsByFor = $previous;
+        }
+    }
+
+    /** @var \WeakMap<DOMDocument, array<string, list<DOMElement>>>|null Document labels by trimmed `for`, while {@see collectSupersededNavToggleSelectors()} runs. */
+    private ?\WeakMap $labelsByFor = null;
+
+    /**
+     * The document's labels whose trimmed `for` is `$id`, in document order.
+     *
+     * @return list<DOMElement>
+     */
+    private function labelsNaming(DOMDocument $document, string $id): iterable
+    {
+        if ( null !== $this->labelsByFor ) {
+            if ( ! isset($this->labelsByFor[$document]) ) {
+                $index = array();
+                foreach ( $document->getElementsByTagName('label') as $label ) {
+                    if ( $label instanceof DOMElement ) {
+                        $index[trim(SourceDom::attr($label, 'for'))][] = $label;
+                    }
+                }
+                $this->labelsByFor[$document] = $index;
+            }
+
+            return $this->labelsByFor[$document][$id] ?? array();
+        }
+        // Outside that pass the DOM may change between lookups. A `for` that
+        // trims to the id contains it, so XPath narrows the labels to those
+        // without reading each one in PHP per checkbox.
+        $labels = array();
+        foreach ( (new \DOMXPath($document))->query('//*[contains(@for, ' . SourceDom::xpathLiteral($id) . ')]') ?: array() as $label ) {
+            if ( $label instanceof DOMElement && 'label' === $label->tagName && $id === trim(SourceDom::attr($label, 'for')) ) {
+                $labels[] = $label;
             }
         }
+
+        return $labels;
     }
 
     /**
@@ -1270,8 +1330,8 @@ final class NavigationToggleSuppressor
             ))));
             return $parent instanceof DOMElement
                 && 'details' === strtolower($parent->tagName)
-                && '' === $this->visibleMenuToggleLabel($element)
-                && $this->namesMenu($accessibleName);
+                && $this->namesMenu($accessibleName)
+                && '' === $this->visibleMenuToggleLabel($element);
         }
 
         $isButton = 'button' === $tagName;
@@ -1442,11 +1502,8 @@ final class NavigationToggleSuppressor
             return false;
         }
 
-        foreach ( $document->getElementsByTagName('label') as $label ) {
-            if ( $label instanceof DOMElement
-                && $controlId === trim(SourceDom::attr($label, 'for'))
-                && $this->isCheckboxBoundEmptyLabel($label)
-            ) {
+        foreach ( $this->labelsNaming($document, $controlId) as $label ) {
+            if ( $this->isCheckboxBoundEmptyLabel($label) ) {
                 return true;
             }
         }
@@ -1896,13 +1953,14 @@ final class NavigationToggleSuppressor
             return null;
         }
 
+        $navigationVariantRoot = SourceDom::documentVariantRoot($navigation);
         foreach ( $document->getElementsByTagName('*') as $toggle ) {
             // Prefer the authored collapse target to an unrelated captured dialog.
             if ( $toggle instanceof DOMElement && $this->authoredCollapseControlsNavigation($toggle, $navigation) ) {
                 return $this->concreteToggleControl($toggle);
             }
             if ( ! $toggle instanceof DOMElement
-                || SourceDom::documentVariantRoot($toggle) !== SourceDom::documentVariantRoot($navigation)
+                || SourceDom::documentVariantRoot($toggle) !== $navigationVariantRoot
                 || $this->isCapturedDialogControl($toggle)
                 || ( ! $this->isHamburgerMenuToggleControl($toggle) && ! $this->isProjectableHashAnchorMenuToggle($toggle) )
             ) {
@@ -2034,6 +2092,12 @@ final class NavigationToggleSuppressor
             }
         }
         return $toggle;
+    }
+
+    /** Whether the source shows an equivalent copy of this menu at other widths. */
+    public function hasEquivalentNavigationVariant(DOMElement $navigation): bool
+    {
+        return '' === $this->inlineMirrorMarker($navigation) && $this->hasEquivalentSourceNavigationVariant($navigation);
     }
 
     private function hasEquivalentSourceNavigationVariant(DOMElement $navigation): bool
@@ -2518,7 +2582,7 @@ final class NavigationToggleSuppressor
 
     private function isProjectableHashAnchorMenuToggle(DOMElement $element): bool
     {
-        if ( 'a' !== strtolower($element->tagName) || '' !== $this->visibleMenuToggleLabel($element) ) {
+        if ( 'a' !== strtolower($element->tagName) ) {
             return false;
         }
 
@@ -2532,7 +2596,9 @@ final class NavigationToggleSuppressor
             SourceDom::attr($element, 'title'),
         ))));
 
-        return $this->namesMenu($accessibleName);
+        // The visible label resolves the cascade of the anchor and every
+        // descendant; read it only for an anchor the attributes already qualify.
+        return $this->namesMenu($accessibleName) && '' === $this->visibleMenuToggleLabel($element);
     }
 
 

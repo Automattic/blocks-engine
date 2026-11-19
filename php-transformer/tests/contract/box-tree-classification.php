@@ -12,7 +12,7 @@ $assert = static function (bool $ok, string $message): void {
     echo "PASS: $message\n";
 };
 foreach ($cases as $case) {
-    $html = '<html data-blocks-engine-node-id="html"><head data-blocks-engine-node-id="head"></head><body data-blocks-engine-node-id="body"><div data-blocks-engine-node-id="wrapper" ' . ($case['attributes'] ?? '') . '><img data-blocks-engine-node-id="image" src="image.png">' . (!empty($case['second_child']) ? '<img data-blocks-engine-node-id="second" src="image.png">' : '') . '</div></body></html>';
+    $html = '<html data-blocks-engine-node-id="html"><head data-blocks-engine-node-id="head">' . (isset($case['style']) ? '<style>' . $case['style'] . '</style>' : '') . '</head><body data-blocks-engine-node-id="body"><' . ($case['tag'] ?? 'div') . ' data-blocks-engine-node-id="wrapper" ' . ($case['attributes'] ?? '') . '><img data-blocks-engine-node-id="image" src="image.png">' . (!empty($case['second_child']) ? '<img data-blocks-engine-node-id="second" src="image.png">' : '') . '</' . ($case['tag'] ?? 'div') . '></body></html>';
     if (!empty($case['chain'])) {
         $open = '';
         for ($i = 1; $i <= 11; ++$i) $open .= '<div data-blocks-engine-node-id="chain' . $i . '">';
@@ -24,12 +24,13 @@ foreach ($cases as $case) {
     $tree['source_hash'] = hash('sha256', $html);
     $tree['nodes'] = array();
     foreach (HtmlSerialization::parseDocument($html)->getElementsByTagName('*') as $element) {
+        if (!$element->hasAttribute('data-blocks-engine-node-id')) continue;
         $id = $element->getAttribute('data-blocks-engine-node-id');
         $node = $base['nodes']['n1'];
         if (!empty($case['desktop_only'])) unset($node['viewports']['mobile']);
         $node['children'] = array();
         foreach ($element->childNodes as $child) {
-            if ($child instanceof DOMElement) $node['children'][] = $child->getAttribute('data-blocks-engine-node-id');
+            if ($child instanceof DOMElement && $child->hasAttribute('data-blocks-engine-node-id')) $node['children'][] = $child->getAttribute('data-blocks-engine-node-id');
         }
         foreach ($node['viewports'] as $viewport => &$observation) {
             if ('image' === $id) $observation['border_box'] = array_replace($observation['border_box'], $case['child_box'] ?? array());

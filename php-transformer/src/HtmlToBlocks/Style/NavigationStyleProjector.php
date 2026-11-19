@@ -84,6 +84,21 @@ final class NavigationStyleProjector
             $this->session->generatedSupportStylesheetState()->navigationEditorTypographyRules(),
             $this->session->generatedSupportStylesheetState()->navigationEditorItemStyleRules()
         );
+        // Repairs that name only engine markup ship in their own engine-owned
+        // sheet: a route that retires author selectors (box-tree evidence)
+        // must still deliver them, or Gutenberg loses the selectable boxes
+        // and placeholders they restore (issue #5920).
+        $engineRules = array();
+        // A box-tree carrier makes core/image's synthetic figure boxless so
+        // the source image keeps its own layout box on the front end. That
+        // figure is the block root Gutenberg focuses to select the image, and
+        // a `display:contents` element cannot take focus: a click on the image
+        // selected the enclosing group, with no Replace control (issue #5920).
+        // Give exactly those figures a block box in the editor only.
+        $boxlessFigures = $this->session->layoutGeometryState()->boxlessImageFigureCarriersFor($serializedBlocks);
+        if ( array() !== $boxlessFigures ) {
+            $engineRules[] = ':root .editor-styles-wrapper figure.wp-block-image:is(' . implode(',', array_map(static fn(string $class): string => '.' . $class, $boxlessFigures)) . '):not([hidden]){display:block}';
+        }
         // Source runtimes can hide an icon carrier until hover or animation.
         // They do not run in Gutenberg: expose the native image and its direct
         // group carrier there, so the image has a selectable box. Keep this in
@@ -95,8 +110,19 @@ final class NavigationStyleProjector
             && preg_match('/(?:^|[;{])\s*(?:visibility\s*:\s*hidden|display\s*:\s*none)\s*(?:!important\s*)?(?:[;}])/i', $this->session->authorStyleAnalysis()->combinedCss())
         ) {
             $image = 'figure.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '.wp-block-image';
-            $rules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
+            $engineRules[] = ':root .editor-styles-wrapper ' . $image . '{visibility:visible!important}'
                 . ':root .editor-styles-wrapper .wp-block-group:has(>' . $image . '){display:block!important;visibility:visible!important}';
+        }
+        // An inline layout carrier is `display:contents` so its inline content
+        // lays out in the source's own box. In the editor that paragraph is
+        // the RichText root, and a boxless element cannot take focus: putting
+        // the caret in it to replace its text (a `<time>` date line) left focus
+        // outside, and the typed text never reached the block (issue #5797).
+        // Give the carrier an inline box only while it is being edited: at
+        // rest the canvas keeps the front end's boxless layout, and the front
+        // end never matches this editor-only rule.
+        if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
+            $rules[] = ':root .editor-styles-wrapper p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '[contenteditable="true"]:is(.is-selected,:focus){display:inline}';
         }
         foreach ( self::focusedEmptyRichTextRepairRules($projectedAuthorCss) as $repairRule ) {
             $rules[] = $repairRule;
@@ -165,7 +191,7 @@ final class NavigationStyleProjector
         }
         if ( $this->session->runtimeBehaviorState()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
-            $rules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
+            $engineRules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
                 . $selector . '>*{display:none!important}'
                 . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
         }
@@ -177,7 +203,7 @@ final class NavigationStyleProjector
             // reserve no height for it: the source layer is painted out of
             // normal flow, so any reserved height displaces every block after
             // it and moves the composition down the canvas.
-            $rules[] = $selector . '{min-height:0!important;overflow:hidden!important}'
+            $engineRules[] = $selector . '{min-height:0!important;overflow:hidden!important}'
                 . $selector . '>*{display:none!important}'
                 // Core's large empty-group placeholder has a more specific
                 // display declaration than the generic child selector.
@@ -199,6 +225,7 @@ final class NavigationStyleProjector
         }
 
         $this->context->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
+        $this->context->materializeStylesheetAsset($engineRules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor', EngineMarker::ENGINE_OWNED_STYLESHEET_ROLE);
     }
 
     /**
@@ -445,7 +472,16 @@ final class NavigationStyleProjector
         if ( ! ($parsed['supported'] ?? false) || ! is_array($rightmost) || ! is_array($compound) ) {
             return null;
         }
-        if ( array() === array_intersect(array_keys($ids), $compound['ids'] ?? array()) ) {
+        // Look the subject's ids up rather than intersecting every page id
+        // per selector (#6752).
+        $named = false;
+        foreach ( $compound['ids'] ?? array() as $id ) {
+            if ( isset($ids[ (string) $id ]) ) {
+                $named = true;
+                break;
+            }
+        }
+        if ( ! $named ) {
             return null;
         }
 

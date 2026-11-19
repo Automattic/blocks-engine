@@ -36,6 +36,19 @@ function replayViewportEntrances() {
     const signature = (value) => JSON.stringify(value, (_key, field) => field && typeof field === 'object' && !Array.isArray(field)
         ? Object.fromEntries(Object.entries(field).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))
         : typeof field === 'number' ? precise(field) : typeof field === 'string' ? field.replace(/\d*\.\d+/g, number => String(precise(Number(number)))) : field);
+    // The capture proves startup per observed canvas. A canvas it did not
+    // observe takes the capture whose layout the import projects there (the
+    // box-tree width bands): the narrowest observed width at least as wide,
+    // or the widest above them all, at the same canvas height. Startup is
+    // what the initial viewport holds, so another height stays unproven.
+    const startupContext = (contexts) => {
+        const width = document.documentElement.clientWidth, height = document.documentElement.clientHeight;
+        const exact = contexts.find(pose => pose.width === width && pose.height === height);
+        if (exact)
+            return exact;
+        const band = contexts.filter(pose => pose.height === height).sort((left, right) => left.width - right.width);
+        return band.find(pose => pose.width >= width) ?? band[band.length - 1];
+    };
     for (const element of document.querySelectorAll('[__ENTRANCE__]')) {
         let state;
         try { state = JSON.parse(element.getAttribute('__ENTRANCE__'));
@@ -183,7 +196,7 @@ function replayViewportEntrances() {
             }, { passive: true });
         }
         if (state.cssAnimations && state.startupContexts) {
-            const startup = state.startupContexts.find(pose => pose.width === document.documentElement.clientWidth && pose.height === document.documentElement.clientHeight);
+            const startup = startupContext(state.startupContexts);
             if (startup?.started)
                 start();
             else if (!startup)

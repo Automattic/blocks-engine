@@ -406,6 +406,17 @@ final class CssSelectorMatchCache
         return $rules;
     }
 
+    /**
+     * A {@see styleRuleCandidates()} collection name no other index shares,
+     * for a caller that builds its own subject index over a rule list.
+     */
+    public static function uniqueCandidateCollection(string $label): string
+    {
+        return $label . '#' . ++self::$candidateCollections;
+    }
+
+    private static int $candidateCollections = 0;
+
     /** Clear results and selector inputs after a source-DOM mutation. */
     public function clear(): void
     {

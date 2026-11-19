@@ -15,8 +15,8 @@ final class LayoutGeometryState
     /** @var array<string, string> */
     private array $carrierSignatures = array();
 
-    /** @var array<string, array{css: string, classes: array<string, true>}> Keyframes by animation name, with the carriers reading them. */
-    private array $keyframes = array();
+    /** @var array<string, true> Carrier classes that make a core/image figure boxless. */
+    private array $boxlessImageFigureCarriers = array();
 
     private readonly GeometryCarrierClassAllocator $carrierClassAllocator;
 
@@ -51,16 +51,36 @@ final class LayoutGeometryState
         return $className;
     }
 
+    /** Whether a class is a box-tree carrier, which styles the exact element it was allocated for. */
+    public function isBoxTreeCarrier(string $className): bool
+    {
+        return str_starts_with($this->carrierSignatures[$className] ?? '', 'box-tree:');
+    }
+
     public function registerRule(string $className, string $rule): void
     {
         $this->rules[$className] = $rule;
     }
 
-    /** Keyframes a carrier reads, emitted once for every carrier sharing them. */
-    public function registerKeyframes(string $className, string $name, string $css): void
+    /**
+     * Record a carrier whose rule removes a core/image figure's box
+     * (`display:contents`). Gutenberg selects that figure, its block root, by
+     * focusing it, and a boxless element cannot take focus: a click on the
+     * image then selects the enclosing group, with no Replace control.
+     */
+    public function markBoxlessImageFigureCarrier(string $className): void
     {
-        $this->keyframes[$name] ??= array('css' => $css, 'classes' => array());
-        $this->keyframes[$name]['classes'][$className] = true;
+        $this->boxlessImageFigureCarriers[$className] = true;
+    }
+
+    /** @return list<string> The boxless image figure carriers the markup uses. */
+    public function boxlessImageFigureCarriersFor(string $serializedBlocks): array
+    {
+        if (array() === $this->boxlessImageFigureCarriers) {
+            return array();
+        }
+        $tokens = array_fill_keys(preg_split('/[^a-zA-Z0-9_-]+/', $serializedBlocks, -1, PREG_SPLIT_NO_EMPTY) ?: array(), true);
+        return array_values(array_filter(array_keys($this->boxlessImageFigureCarriers), static fn(string $class): bool => isset($tokens[$class])));
     }
 
     public function appendRule(string $className, string $rule): void
@@ -106,11 +126,6 @@ final class LayoutGeometryState
         foreach ($this->rules as $className => $rule) {
             if (isset($tokens[$className])) {
                 $usedRules[] = $rule;
-            }
-        }
-        foreach ($this->keyframes as $keyframes) {
-            if (array() !== array_intersect_key($keyframes['classes'], $tokens)) {
-                $usedRules[] = $keyframes['css'];
             }
         }
 
