@@ -99,6 +99,13 @@ final class NavigationStyleProjector
         if ( array() !== $boxlessFigures ) {
             $engineRules[] = ':root .editor-styles-wrapper figure.wp-block-image:is(' . implode(',', array_map(static fn(string $class): string => '.' . $class, $boxlessFigures)) . '):not([hidden]){display:block}';
         }
+        // Gutenberg gives every block wrapper `pointer-events:auto`, so a box
+        // that inherits `none` on the front end takes clicks in the editor: a
+        // fixed click-through overlay covered the page's text (issue #5901).
+        // Restate it on exactly those blocks; their child blocks keep `auto`.
+        if ( str_contains($serializedBlocks, BoxTreeStyleProjector::CLICK_THROUGH_CLASS) ) {
+            $engineRules[] = ':root .editor-styles-wrapper .' . BoxTreeStyleProjector::CLICK_THROUGH_CLASS . '{pointer-events:none}';
+        }
         // Source runtimes can hide an icon carrier until hover or animation.
         // They do not run in Gutenberg: expose the native image and its direct
         // group carrier there, so the image has a selectable box. Keep this in

@@ -72,7 +72,9 @@ final class BoxTreeClassifier
                 $parent = $parents[$id];
                 $a = $absolute[$parent] ?? null;
                 $f = $fixed[$parent] ?? null;
-                $styles = $tree['nodes'][$id]['viewports'][$viewport]['used_styles'];
+                $styles = $tree['nodes'][$id]['viewports'][$viewport]['used_styles'] ?? null;
+                // Shared chrome may carry fewer viewports than its route.
+                if (!is_array($styles)) { $absolute[$id] = $a; $fixed[$id] = $f; continue; }
                 if ('absolute' === $styles['position'] && null !== $a) $containing[$a] = true;
                 if ('fixed' === $styles['position'] && null !== $f) $containing[$f] = true;
                 $establishes = 'none' !== $styles['transform'] || 'none' !== $styles['filter'];
@@ -111,6 +113,7 @@ final class BoxTreeClassifier
                 if (null !== $fold) {
                     $child = $node['children'][0];
                     foreach ($effective['nodes'][$child]['viewports'] as $viewport => &$observation) {
+                        if (!isset($node['viewports'][$viewport])) continue;
                         foreach ($fold['moves'] as $to => $from) $observation['used_styles'][$to] = $node['viewports'][$viewport]['used_styles'][$from];
                     }
                     unset($observation);
@@ -170,7 +173,9 @@ final class BoxTreeClassifier
             if ($child instanceof \DOMText && '' !== trim($child->textContent)) return 'own-sizing';
         }
         foreach ($node['viewports'] as $viewport => $observation) {
-            $child = $tree['nodes'][$node['children'][0]]['viewports'][$viewport]['border_box'];
+            $child = $tree['nodes'][$node['children'][0]]['viewports'][$viewport]['border_box'] ?? null;
+            // A child observed at fewer viewports cannot prove equal geometry.
+            if (!is_array($child)) return 'own-sizing';
             foreach ($observation['border_box'] as $axis => $value) {
                 if (abs($value - $child[$axis]) > 0.01) return 'own-sizing';
             }
@@ -579,7 +584,9 @@ final class BoxTreeClassifier
             $pending = $node['children'];
             while ($pending) {
                 $descendant = $tree['nodes'][array_pop($pending)];
-                $child = $descendant['viewports'][$viewport]['border_box'];
+                $child = $descendant['viewports'][$viewport]['border_box'] ?? null;
+                // An unobserved descendant cannot prove it stays inside the clip.
+                if (!is_array($child)) return true;
                 foreach (array('x' => 'width', 'y' => 'height') as $axis => $size) {
                     $overflow = $observation['used_styles']['overflow-' . $axis];
                     if (in_array($overflow, $clipping, true)

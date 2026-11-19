@@ -821,7 +821,7 @@ final class StyleResolver implements ElementPresentationResolver
             $parent = $source->parentNode;
             if (!$target instanceof DOMElement || !$parent instanceof DOMElement) continue;
             $observations = $this->session->boxTreeEvidence($source);
-            $parents = $this->session->boxTreeEvidence($parent);
+            $parents = $this->session->boxTreeParentEvidence($source, $parent);
             if (array() === $observations || array() === $parents) continue;
             $fluid = (new BoxTreeFluidIntent())->lift($source, $this, $observations, $viewports, $parents);
             $class = ($projector ??= new BoxTreeStyleProjector())->inlineCarrier($observations, $viewports, $this->session->layoutGeometryState(), $parents, $fluid);

@@ -10,6 +10,13 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 final class BoxTreeStyleProjector
 {
     private const SELECTOR = "\0carrier\0";
+    /**
+     * A container block whose box inherits `pointer-events:none`. The editor
+     * gives every block wrapper `pointer-events:auto`, so the inherited value
+     * the front end keeps must be restated there (NavigationStyleProjector).
+     */
+    public const CLICK_THROUGH_CLASS = 'blocks-engine-click-through';
+    private const CLICK_THROUGH_BLOCKS = array('core/group', 'core/columns', 'core/column', 'core/cover');
 
     private readonly BoxTreeDeclarationPruner $pruner;
 
@@ -85,10 +92,35 @@ final class BoxTreeStyleProjector
         // Border shorthands can serialize as longhands. Retain their captured
         // declarations unless the mapper round-trip represents the same key.
         $css = $this->carrierCss(array_diff_key($base, $consumed), $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, self::syntheticAnchorCarrier($blockName, $attrs), $pseudoFluid);
+        // A click-through box (a fixed Wix pinned layer over the whole page)
+        // that takes `none` from its parent declares nothing on the front end.
+        // In the editor the block wrapper resets it to `auto`, and the overlay
+        // took every click meant for the page's text (issue #5901). Mark it
+        // for the editor-only rule rather than restating it in the front-end
+        // carrier, where inheritance already gives it.
+        if ($this->inheritsClickThrough($blockName, $keys, $observations, $status)) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::CLICK_THROUGH_CLASS);
+        }
         $class = $this->carrier($css, $state);
         if ('' === $class) return $attrs;
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
+    }
+
+    /**
+     * @param list<string> $keys
+     * @param array<string, array<string, mixed>> $observations
+     * @param array<string, array<string, string>> $status
+     */
+    private function inheritsClickThrough(string $blockName, array $keys, array $observations, array $status): bool
+    {
+        if (!in_array($blockName, self::CLICK_THROUGH_BLOCKS, true)) return false;
+        $inherited = false;
+        foreach ($keys as $key) {
+            if ('none' !== strtolower(trim((string) ($observations[$key]['used_styles']['pointer-events'] ?? '')))) return false;
+            $inherited = $inherited || BoxTreeDeclarationPruner::INHERITED === ($status[$key]['pointer-events'] ?? null);
+        }
+        return $inherited;
     }
 
     private static function runtime(): Runtime
@@ -145,18 +177,16 @@ final class BoxTreeStyleProjector
         }
         $split = $synthetic ? $this->outerBoxSplit($blockName, $keys, $declarations, $bands, $observations, $parents, $selector) : null;
         $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, true, $parents, false, $pseudoFluid, $selector, $split);
-        // A synthetic wrapper is boxless, except an inline anchor carrier:
-        // SourceBlockAttributeProjector gave that paragraph an inline box
-        // because, as the RichText root, a boxless paragraph cannot be hit or
-        // focused, and a click on its link selects the enclosing group
-        // (issue #5901). The link is inline in block flow there, so an inline
-        // wrapper lays it out exactly as a boxless one does; this rule's
-        // specificity must not take that box away again.
-        $inlineAnchor = 'core/paragraph' === $blockName && in_array(SourceBlockAttributeProjector::INLINE_ANCHOR_CARRIER_CLASS, SourceDom::tokens((string) ($attrs['className'] ?? '')), true);
-        $wrapper = $synthetic && null === $split ? $this->rule(self::SELECTOR, array('display' => $inlineAnchor ? 'inline' : 'contents')) : '';
+        // An inline anchor carrier keeps the inline box EngineSupportCss gives
+        // it: a boxless paragraph is a RichText root the editor cannot focus,
+        // so text typed into it never reaches the block (issue #5797). Around
+        // a source inline link, an unpadded inline box lays out the same line.
+        $boxless = $synthetic && null === $split
+            && !in_array(SourceBlockAttributeProjector::INLINE_ANCHOR_CARRIER_CLASS, SourceDom::tokens((string) ($attrs['className'] ?? '')), true);
+        $wrapper = $boxless ? $this->rule(self::SELECTOR, array('display' => 'contents')) : '';
         $class = $this->carrier($wrapper . $css, $state);
         if ('' === $class) return $attrs;
-        if ($synthetic && !$inlineAnchor) $state->markBoxlessImageFigureCarrier($class);
+        if ($synthetic) $state->markBoxlessImageFigureCarrier($class);
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
     }

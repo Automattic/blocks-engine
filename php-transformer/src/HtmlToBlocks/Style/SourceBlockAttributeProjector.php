@@ -16,6 +16,8 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
     /** A synthetic paragraph that is itself a lowered block-level source box, not a transparent carrier. */
     public const SOURCE_BOX_PARAGRAPH_CLASS = 'blocks-engine-source-box-paragraph';
+    /** A synthetic link paragraph that keeps an inline box, so the editor can focus its RichText root. */
+    public const INLINE_ANCHOR_CARRIER_CLASS = 'blocks-engine-inline-anchor-carrier';
     public const SYNTHETIC_SVG_PARAGRAPH_CLASS = 'blocks-engine-synthetic-svg-paragraph';
     /**
      * A synthetic paragraph whose RichText keeps its source item (a classed
@@ -25,8 +27,6 @@ final class SourceBlockAttributeProjector
     public const RETAINED_ITEM_CARRIER_CLASS = 'blocks-engine-retained-item';
     public const HIDDEN_RICH_TEXT_MARKER_CLASS = 'blocks-engine-hidden-richtext-marker';
     public const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
-    /** A synthetic anchor paragraph that keeps an inline box, so the editor can hit and focus it. */
-    public const INLINE_ANCHOR_CARRIER_CLASS = 'blocks-engine-inline-anchor-carrier';
     public const SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS = 'blocks-engine-synthetic-anchor-block-display';
     /** RichText content wrapped in a link propagated from an enclosing card anchor. */
     public const PROPAGATED_LINK_CLASS = 'blocks-engine-propagated-link';

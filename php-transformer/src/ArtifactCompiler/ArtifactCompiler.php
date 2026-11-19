@@ -523,14 +523,7 @@ final class ArtifactCompiler
         $referenceReports = $this->referenceReports($normalized['files'], $entryPath);
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $entryOwnership = is_array($entry) ? FileOwnership::of($entry) : array('scope' => 'page', 'id' => $entryPath);
-        $generatedAssets = $this->generatedAssetsForDocuments($entryBlocks['assets'], $entryOwnership, $compiledHtmlDocuments, $normalized['files']);
-        $generatedAssetIdentities = array();
-        foreach ($generatedAssets as $asset) $generatedAssetIdentities[hash('sha256', (string) ($asset['path'] ?? '') . "\0" . (string) ($asset['content'] ?? ''))] = true;
-        foreach ($inlineShellCompilation['assets'] as $asset) {
-            $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . (string) ($asset['content'] ?? ''));
-            if (isset($generatedAssetIdentities[$identity])) continue;
-            $generatedAssetIdentities[$identity] = true; $generatedAssets[] = $asset;
-        }
+        $generatedAssets = $this->generatedAssetsForDocuments($entryBlocks['assets'], $entryOwnership, $compiledHtmlDocuments, $normalized['files'], $inlineShellCompilation['assets']);
         $rootInlineAsset = $this->documentInlineStyleAsset($normalized['files'], $authoredFiles);
         if (null !== $rootInlineAsset) $generatedAssets[] = $rootInlineAsset;
         $presentationalHintAsset = $this->documentPresentationalHintAsset($normalized['files']);
@@ -1027,9 +1020,10 @@ final class ArtifactCompiler
      * @param array{scope:string,id:string} $entryOwnership
      * @param array<string,array<string,mixed>> $compiledHtmlDocuments
      * @param array<int,array<string,mixed>> $files
+     * @param array<int,array<string,mixed>> $sharedShellAssets
      * @return array<int,array<string,mixed>>
      */
-    private function generatedAssetsForDocuments(array $entryAssets, array $entryOwnership, array $compiledHtmlDocuments, array $files): array
+    private function generatedAssetsForDocuments(array $entryAssets, array $entryOwnership, array $compiledHtmlDocuments, array $files, array $sharedShellAssets = array()): array
     {
         $assets = array();
         $assetIndexes = array();
@@ -1094,6 +1088,9 @@ final class ArtifactCompiler
                 FileOwnership::of($file)
             );
         }
+        // Identical support bytes may already belong to the evidence page.
+        // Merge the shell's consumers too, rather than dropping its ownership.
+        $append($sharedShellAssets, array('scope' => 'shared'));
 
         return $assets;
     }
@@ -2733,14 +2730,23 @@ final class ArtifactCompiler
         );
     }
 
+    private static function withoutBoxTreeNodeIds(string $markup): string
+    {
+        return preg_replace('/\s' . preg_quote(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE, '/') . '="[^"]*"/', '', $markup) ?? $markup;
+    }
+
     /**
-     * Keep the members that load every landmark stylesheet most members load.
-     * A landmark stylesheet is a style source that names one of the landmark's
-     * ids; route-only stylesheets still drop out of the shell head.
+     * Split members into those that load every landmark stylesheet most
+     * members load, and those the shared shell serves. A landmark stylesheet
+     * is a style source that names one of the landmark's ids; route-only
+     * stylesheets still drop out of the shell head. A member loading other
+     * landmark stylesheets still shares the shell when its box-tree evidence
+     * proves its landmark renders like a conforming member's
+     * ({@see BoxTreeReport}); it never shapes the shell's head or context.
      *
-     * @param array<string,array{content:string,rows:array<string,mixed>}> $members
+     * @param array<string,array{content:string,rows:array<string,mixed>,chrome_peers:array<string,list<string>>}> $members
      * @param array<int,array<string,mixed>> $files
-     * @return array<string,array{content:string,rows:array<string,mixed>}>
+     * @return array{0:array<string,array<string,mixed>>,1:array<string,array<string,mixed>>} Conforming members, then every sharing member.
      */
     private function membersSharingLandmarkStyles(array $members, string $area, int|string $variant, array $files, string $entryPath): array
     {
@@ -2751,7 +2757,8 @@ final class ArtifactCompiler
             $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $document['content'], $headMatch) ? $headMatch[1] : '';
             preg_match_all('/<(?:link\b[^>]*|style\b[^>]*>.*?<\/style)\s*>/is', $head, $styleMatches);
             $loaded[$path] = array();
-            foreach (array_unique($styleMatches[0]) as $style) {
+            // Capture node ids on head elements are route-local evidence.
+            foreach (array_unique(array_map(self::withoutBoxTreeNodeIds(...), $styleMatches[0])) as $style) {
                 $href = preg_match('/^<link\b[^>]*\bhref="([^"]+)"/i', $style, $hrefMatch) ? (string) strtok(html_entity_decode($hrefMatch[1]), '?#') : null;
                 // Root-relative hrefs resolve from the site root, the entry's directory.
                 $css = null === $href ? $style : (string) ($this->fileIndex->findAssetByHtmlReference($href, str_starts_with($href, '/') ? $entryPath : (string) $path, $files)['content'] ?? '');
@@ -2761,7 +2768,13 @@ final class ArtifactCompiler
             }
         }
         $shared = array_keys(array_filter($counts, static fn(int $count): bool => 2 * $count > count($members)));
-        return array_filter($members, static fn(string $path): bool => array() === array_diff_key(array_flip($shared), $loaded[$path]), ARRAY_FILTER_USE_KEY);
+        $conforming = array_filter($members, static fn(string $path): bool => array() === array_diff_key(array_flip($shared), $loaded[$path]), ARRAY_FILTER_USE_KEY);
+        $sharing = array_filter($members, static function (array $document, string $path) use ($conforming, $area, $variant): bool {
+            if (isset($conforming[$path])) return true;
+            $root = preg_match('/^<[^>]*\s' . preg_quote(\Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::NODE_ATTRIBUTE, '/') . '="([^"]*)"/', (string) $document['rows'][$area][$variant]['markup'], $match) ? $match[1] : null;
+            return null !== $root && array() !== array_intersect($document['chrome_peers'][$root] ?? array(), array_keys($conforming));
+        }, ARRAY_FILTER_USE_BOTH);
+        return array($conforming, $sharing);
     }
 
     /**
@@ -2795,14 +2808,14 @@ final class ArtifactCompiler
             };
             $walk($body);
             foreach ($rows as &$areaRows) foreach ($areaRows as &$row) {
-                $row['source_identity'] = 'markup:' . hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeStackingIdentity::normalize($row['identity']));
+                $row['source_identity'] = 'markup:' . hash('sha256', \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ChromeIdentity::markup($row['identity']));
                 // Include provenance describes transport, not a different shell.
                 // An expanded include and identical inline markup must share the
                 // same compilation group and its canonical support assets.
             }
             unset($areaRows, $row);
             // Shared stylesheet comparison must not see route-specific capture IDs.
-            $documents[(string) $file['path']] = array('content' => $dom->documentElement instanceof DOMElement ? SourceDom::outerHtml($dom->documentElement) : (string) $file['content'], 'rows' => $rows);
+            $documents[(string) $file['path']] = array('content' => $dom->documentElement instanceof DOMElement ? SourceDom::outerHtml($dom->documentElement) : (string) $file['content'], 'rows' => $rows, 'chrome_peers' => $file['box_tree']['chrome_peers'] ?? array());
         }
         if (count($documents) < 2) return array('artifacts' => array(), 'assets' => array(), 'author_stylesheet_projections' => array(), 'runtime_script_projections' => array());
 
@@ -2820,17 +2833,18 @@ final class ArtifactCompiler
             }
             foreach ($groups as $variant => $variantGroups) foreach ($variantGroups as $sourceIdentity => $members) {
                 // A member whose landmark styles come from another stylesheet
-                // renders it under other rules. It keeps its own copy, so the
-                // stylesheets most members load still shape the shared shell.
-                $members = $this->membersSharingLandmarkStyles($members, $area, $variant, $files, $entryPath);
-                if (count($members) < 2) continue;
-                $sourcePath = isset($members[$entryPath]) ? $entryPath : (string) array_key_first($members);
+                // renders it under other rules and keeps its own copy, unless
+                // its observed geometry proves it renders alike. Either way the
+                // stylesheets most members load alone shape the shared shell.
+                [$styleMembers, $members] = $this->membersSharingLandmarkStyles($members, $area, $variant, $files, $entryPath);
+                if (count($members) < 2 || array() === $styleMembers) continue;
+                $sourcePath = isset($styleMembers[$entryPath]) ? $entryPath : (string) array_key_first($styleMembers);
                 // Identity excludes capture-only entrance state, but the emitted
                 // part must retain it. Prefer a member that observed entrances,
                 // even when the entry route was too short to trigger them.
                 $canonicalSource = $members[$sourcePath]['rows'][$area][$variant]['markup'];
                 $evidenceSourcePath = $sourcePath;
-                foreach ($members as $memberPath => $member) {
+                foreach ($styleMembers as $memberPath => $member) {
                     $candidate = $member['rows'][$area][$variant]['markup'];
                     if (SourceShells::evidenceCount($candidate) > SourceShells::evidenceCount($canonicalSource)) {
                         $canonicalSource = $candidate;
@@ -2842,9 +2856,11 @@ final class ArtifactCompiler
                 // A route-only stylesheet must not seed the shared part, even
                 // when that route is the entrypoint. Only style sources common
                 // to this source group shape the shell; carried CSS stays local.
-                $head = preg_replace_callback('/<(?:link\b[^>]*|style\b[^>]*>.*?<\/style)\s*>/is', static function (array $match) use ($members): string {
-                    foreach ($members as $document) {
-                        if (!str_contains($document['content'], $match[0])) return '';
+                $memberContents = array_map(static fn(array $document): string => self::withoutBoxTreeNodeIds($document['content']), $styleMembers);
+                $head = preg_replace_callback('/<(?:link\b[^>]*|style\b[^>]*>.*?<\/style)\s*>/is', static function (array $match) use ($memberContents): string {
+                    $style = self::withoutBoxTreeNodeIds($match[0]);
+                    foreach ($memberContents as $content) {
+                        if (!str_contains($content, $style)) return '';
                     }
                     return $match[0];
                 }, $head) ?? $head;
@@ -2853,11 +2869,11 @@ final class ArtifactCompiler
                 // custom properties) resolve as they do on every member page.
                 // Member-specific ancestor attributes are dropped like route-only
                 // stylesheets, keeping the shell canonical rather than page-seeded.
-                $context = SourceShells::sharedAncestorContext(array_map(static fn(array $member): array => $member['rows'][$area][$variant]['context'], $members));
+                $context = SourceShells::sharedAncestorContext(array_map(static fn(array $member): array => $member['rows'][$area][$variant]['context'], $styleMembers));
                 $open = ''; $close = '';
                 foreach (array_slice($context, 2) as $ancestor) { $open .= '<' . $ancestor['tag'] . SourceShells::attributes($ancestor['attributes']) . '>'; $close = '</' . $ancestor['tag'] . '>' . $close; }
                 $synthetic = '<!doctype html><html' . SourceShells::attributes($context[0]['attributes'] ?? array()) . '><head>' . $head . '</head><body' . SourceShells::attributes($context[1]['attributes'] ?? array()) . '>' . $open . $canonicalMarkup . $close . '</body></html>';
-                $compiled = $this->compileHtmlDocumentBlocks($synthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($context) - 2));
+                $compiled = $this->compileHtmlDocumentBlocks($synthetic, $evidenceSourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true, array(), max(0, count($context) - 2));
                 $generatedBlocks = array_merge($generatedBlocks, $compiled['generated_blocks'] ?? array());
                 $shell = current(array_filter($compiled['shell_artifacts'], static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
                 if (!is_array($shell)) continue;
