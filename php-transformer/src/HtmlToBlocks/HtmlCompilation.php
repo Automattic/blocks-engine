@@ -2339,9 +2339,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             foreach ( array( 'before', 'after' ) as $pseudo ) {
                 $pseudoFluid[$pseudo] = $fluidIntent->liftPseudo($sourceElement, $this->styleResolver, $observations, $viewports, $pseudo, $this->liftEvidence());
             }
-            // An authored figure keeps its own box; the image it paints is styled from its own evidence.
+            // An authored figure (or a custom image host lowered as the figure)
+            // keeps its own box; the image it paints is styled from its own evidence.
             $image = array();
-            $paintedImage = 'core/image' === $name && 'figure' === $sourceTagName ? $sourceElement->getElementsByTagName('img')->item(0) : null;
+            $paintedImage = 'core/image' === $name && ('figure' === $sourceTagName || str_contains($sourceTagName, '-')) ? $sourceElement->getElementsByTagName('img')->item(0) : null;
             if ($paintedImage instanceof DOMElement && $paintedImage->parentNode instanceof DOMElement) {
                 $imageObservations = $this->session->boxTreeEvidence($paintedImage);
                 $imageParents = $this->session->boxTreeEvidence($paintedImage->parentNode);
