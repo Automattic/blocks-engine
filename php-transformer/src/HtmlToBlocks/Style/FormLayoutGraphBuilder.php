@@ -134,15 +134,31 @@ final class FormLayoutGraphBuilder
                 if ( $child instanceof DOMElement ) $scope[] = $child;
             }
         }
-        // The custom-property pass walks each scope element's ancestor chain on
-        // every scanned selector; resolve the chains once so every pass reads
-        // stable wrappers through the match memo.
-        $ancestorVisits = array();
+        // Every scanned selector is asked of each scope element and, for the
+        // custom-property pass, of each element on their ancestor chains.
+        // Sibling controls share almost all of those chains, so ask each
+        // element once per selector: listing a shared wrapper per descendant
+        // made every non-matching selector cost scope size times depth.
+        // Held wrappers keep spl_object_id() stable for the whole build.
+        $scopeElements = array();
         foreach ( $scope as $element ) {
+            $scopeElements[spl_object_id($element)] = $element;
+        }
+        $scopeElements = array_values($scopeElements);
+        $ancestorVisits = array();
+        foreach ( $scopeElements as $element ) {
             for ( $ancestor = $element; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
-                $ancestorVisits[] = $ancestor;
+                if ( isset($ancestorVisits[$id = spl_object_id($ancestor)]) ) {
+                    break;
+                }
+                $ancestorVisits[$id] = $ancestor;
             }
         }
+        $ancestorVisits = array_values($ancestorVisits);
+        // A selector whose subject needs an id, class or tag no element
+        // carries is a supported non-match for all of them; skip the walk.
+        $scopeSubjects = $selectorCache->subjectTokens($scopeElements);
+        $ancestorSubjects = $selectorCache->subjectTokens($ancestorVisits);
         $analysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
@@ -151,8 +167,11 @@ final class FormLayoutGraphBuilder
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
-            static function (array $selector, string $selectorText) use ($scope, $selectorCache): bool {
-                foreach ( $scope as $element ) {
+            static function (array $selector, string $selectorText) use ($scopeElements, $scopeSubjects, $selectorCache): bool {
+                if ( ! $selectorCache->subjectMayMatch($selector, $scopeSubjects) ) {
+                    return false;
+                }
+                foreach ( $scopeElements as $element ) {
                     $match = $selectorCache->matches($element, $selectorText, $selector);
                     if ( ! $match['supported'] || $match['matches'] ) {
                         return true;
@@ -172,7 +191,10 @@ final class FormLayoutGraphBuilder
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
-            static function (array $selector, string $selectorText) use ($ancestorVisits, $selectorCache): bool {
+            static function (array $selector, string $selectorText) use ($ancestorVisits, $ancestorSubjects, $selectorCache): bool {
+                if ( ! $selectorCache->subjectMayMatch($selector, $ancestorSubjects) ) {
+                    return false;
+                }
                 foreach ( $ancestorVisits as $ancestor ) {
                     if ( $selectorCache->matches($ancestor, $selectorText, $selector)['matches'] ) {
                         return true;
