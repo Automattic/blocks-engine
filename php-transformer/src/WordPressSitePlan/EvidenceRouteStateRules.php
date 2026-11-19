@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleTree;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 
@@ -21,9 +22,16 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
  * a scroll- or time-driven animation through a custom property whose value
  * names one of the sheets' `@keyframes` (Wix parallax: `--anm-0` carries the
  * keyframes, `--anm-tmln-0` the view timeline). The custom properties kept
- * rules and kept keyframes read are closed over: every rule that defines one
+ * rules, kept keyframes and the route's delivered markup and carriers read
+ * are closed over: every rule that defines one
  * keeps that definition. Every `@keyframes` and `@property` the kept rules
- * reach is kept. Rules whose subject names an id no emitted element carries
+ * reach is kept.
+ *
+ * Template parts are one capture's chrome, rendered unchanged on every route
+ * and carrying no box-tree carriers, only the authored classes the author
+ * sheet styles (`flex`, `md:grid-cols-4`, `mt-24`). A rule whose subject names
+ * a part hook is kept whole in its cascade position, its subject confined to
+ * part content so it reaches nothing the route's carriers restyle. Rules whose subject names an id no emitted element carries
  * are dropped. Everything else is dropped, except `@font-face` and `@layer`
  * order statements.
  */
@@ -32,6 +40,12 @@ final class EvidenceRouteStateRules
     private const INTERACTION = '/:(?:hover|focus|focus-visible|focus-within|active|checked|target)(?![\w-])/i';
     private const ATTRIBUTE = '\[(?:[^\]"\']|"[^"]*"|\'[^\']*\')*\]';
     private const MOTION = '/^(?:animation|view-timeline|scroll-timeline|timeline-scope)(?:-|$)/i';
+    /** Template part content on an evidence route. Zero weight keeps authored specificity. */
+    private const CHROME_SUBJECT = ':where(.wp-block-template-part *)';
+    /** Route content a frame part wraps is not chrome. */
+    private const FRAMED_CONTENT = ':not(:where(.wp-block-template-part .wp-block-post-content *))';
+    /** Classes WordPress renders around every part. */
+    private const PART_ANCESTORS = array('wp-site-blocks', 'wp-block-template-part');
 
     /** @var array<string, true> Custom properties a kept state rule defines. */
     private array $stateProperties = array();
@@ -51,9 +65,42 @@ final class EvidenceRouteStateRules
      * @param string $markup Emitted route markup; an ancestor compound of attributes it never carries is dropped.
      * @param string|null $reach Every markup the route renders (route and template parts); a rule
      *                           whose subject names an id it never carries matches nothing. Defaults to `$markup`.
+     * @param array{class?: array<string, true>, id?: array<string, true>, elements?: list<array<string, true>>, frames?: bool} $chromeHooks Classes and ids template parts carry, each element's classes, and whether a part wraps route content.
      */
-    public function __construct(private readonly array $stateAttributes, private readonly string $markup = '', private readonly ?string $reach = null)
+    public function __construct(private readonly array $stateAttributes, private readonly string $markup = '', private readonly ?string $reach = null, private readonly array $chromeHooks = array())
     {
+    }
+
+    /**
+     * Classes and ids the parts carry, from rendered HTML and block attributes
+     * (a dynamic block keeps its classes only in its comment).
+     *
+     * @param list<array<string, mixed>> $parts
+     * @return array{class: array<string, true>, id: array<string, true>, elements: list<array<string, true>>, frames: bool}|array{}
+     */
+    public static function chromeHooks(array $parts): array
+    {
+        $hooks = array('class' => array(), 'id' => array(), 'elements' => array(), 'frames' => false);
+        foreach ($parts as $part) {
+            $markup = (string) ($part['canonical_block_markup'] ?? '');
+            $hooks['frames'] = $hooks['frames'] || str_contains($markup, '<!-- wp:post-content');
+            preg_match_all('/\sclass="([^"]*)"/', $markup, $html);
+            preg_match_all('/"className":"((?:[^"\\\\]|\\\\.)*)"/', $markup, $json);
+            $values = array_merge(array_map(static fn(string $value): string => html_entity_decode($value, ENT_QUOTES | ENT_HTML5), $html[1]), array_map(static fn(string $value): string => (string) json_decode('"' . $value . '"'), $json[1]));
+            foreach ($values as $value) {
+                $element = array_fill_keys(preg_split('/\s+/', trim($value), -1, PREG_SPLIT_NO_EMPTY) ?: array(), true);
+                if (array() === $element) continue;
+                $hooks['elements'][serialize($element)] = $element;
+                $hooks['class'] += $element;
+            }
+            preg_match_all('/\sid="([^"]+)"|"anchor":"([^"\\\\]+)"/', $markup, $ids);
+            foreach (array_merge($ids[1], $ids[2]) as $id) if ('' !== $id) $hooks['id'][html_entity_decode($id, ENT_QUOTES | ENT_HTML5)] = true;
+        }
+        if (array() === $hooks['class'] && array() === $hooks['id']) return array();
+        foreach (self::PART_ANCESTORS as $class) $hooks['elements'][] = array($class => true);
+        $hooks['class'] += array_fill_keys(self::PART_ANCESTORS, true);
+        $hooks['elements'] = array_values($hooks['elements']);
+        return $hooks;
     }
 
     /**
@@ -86,16 +133,22 @@ final class EvidenceRouteStateRules
     /**
      * @param list<string> $sheets Retired author sheets, in cascade order.
      * @param string $context Delivered CSS (for example carriers) whose animation names stay bound.
+     * @param string $readers Delivered markup and CSS whose `var()` reads keep the sheets' definitions.
      * @return list<string> Each sheet's retained bytes.
      */
-    public function retain(array $sheets, string $context = ''): array
+    public function retain(array $sheets, string $context = '', string $readers = ''): array
     {
+        // Block attributes serialize `--` as `\u002d\u002d` (JSON-escaped once more in page markup).
+        $readers = (string) preg_replace('/\\\\+u002d/i', '-', $readers);
+        if (preg_match_all('/var\(\s*(--[\w-]+)/', $readers, $reads)) foreach ($reads[1] as $read) $this->referenced[$read] = $this->customProperties[$read] = true;
         $trees = array_map(fn(string $css): array => $this->nodes($css), $sheets);
         foreach ($trees as $tree) $this->collectKeyframes($tree);
         foreach ($trees as $tree) $this->collectMotionProperties($tree);
         // State rules first: they define the custom properties resting
         // animation consumers read.
         foreach ($trees as &$tree) $this->markState($tree);
+        unset($tree);
+        foreach ($trees as &$tree) $this->markChrome($tree);
         unset($tree);
         $this->motionProperties += $this->stateProperties;
         foreach ($trees as &$tree) $this->markConsumers($tree);
@@ -208,6 +261,127 @@ final class EvidenceRouteStateRules
             foreach ($this->declarations($node['body']) as [$property]) if (str_starts_with($property, '--')) $this->stateProperties[$property] = true;
             $this->bind($node['body'], false);
         }
+    }
+
+    /** @param list<array<string, mixed>> $nodes */
+    private function markChrome(array &$nodes): void
+    {
+        if (array() === $this->chromeHooks) return;
+        foreach ($nodes as &$node) {
+            if ('group' === $node['type']) $this->markChrome($node['children']);
+            if ('style' !== $node['type'] || null !== $node['keep']) continue;
+            $selectors = array();
+            foreach ($this->reachable(CssStylesheetTransformer::splitSelectorList($node['prelude']) ?? array()) as $selector) {
+                $confined = $this->confinedToChrome(trim($selector));
+                if (null !== $confined) $selectors[] = $confined;
+            }
+            if (array() === $selectors) continue;
+            $node['keep'] = array('selectors' => $selectors, 'body' => $node['body'], 'state' => true);
+            $this->bind($node['body']);
+        }
+    }
+
+    /** The selector with its subject confined to part content, when the subject names a part hook. */
+    private function confinedToChrome(string $selector): ?string
+    {
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        if (!$tokens['supported'] || array() === $tokens['compounds']) return null;
+        $last = count($tokens['compounds']) - 1;
+        // Ancestors are part content too, or the document around the parts.
+        for ($i = 0; $i < $last; ++$i) if (!$this->reachesChrome($tokens['compounds'][$i], false)) return null;
+        $compound = $tokens['compounds'][$last];
+        $pseudo = self::pseudoElementOffset($compound);
+        if (!$this->reachesChrome(null === $pseudo ? $compound : substr($compound, 0, $pseudo), true)) return null;
+        $span = $tokens['compound_spans'][$last];
+        $insert = null === $pseudo ? $span['end'] : $span['start'] + $pseudo;
+        return substr($selector, 0, $insert) . self::CHROME_SUBJECT . (true === ($this->chromeHooks['frames'] ?? false) ? self::FRAMED_CONTENT : '') . substr($selector, $insert);
+    }
+
+    /**
+     * Whether a compound can match part content: one part element carries
+     * every class it requires, the parts carry the id it requires, and a matches-any argument
+     * (`:where(.space-y-2>…)`) has a member that can. Negations require nothing.
+     * Type and universal subjects (Tailwind's preflight) reach the parts too.
+     * A document root never renders inside a part, but an ancestor compound
+     * may name it (a route gate such as `:where(:root:is(.be-r-…))`).
+     */
+    private function reachesChrome(string $compound, bool $subject): bool
+    {
+        $top = '';
+        $groups = array();
+        $stack = array();
+        for ($i = 0, $length = strlen($compound); $i < $length; ++$i) {
+            $char = $compound[$i];
+            if ('\\' === $char) {
+                $text = substr($compound, $i, 2);
+                ++$i;
+            } elseif ('(' === $char) {
+                $outer = array() === $stack ? null : $stack[array_key_last($stack)];
+                $kind = preg_match('/:(not|is|where|matches|-webkit-any|has)$/i', substr($compound, 0, $i), $pseudo) ? strtolower($pseudo[1]) : 'other';
+                // Only a matches-any argument of the subject itself constrains it.
+                $stack[] = null === $outer && in_array($kind, array('is', 'where', 'matches', '-webkit-any'), true) ? count($groups) : false;
+                if (false !== $stack[array_key_last($stack)]) $groups[] = '';
+                continue;
+            } elseif (')' === $char) {
+                array_pop($stack);
+                continue;
+            } else {
+                $text = $char;
+            }
+            if (array() === $stack) $top .= $text;
+            elseif (false !== $stack[0] && 1 === count($stack)) $groups[$stack[0]] .= $text;
+        }
+        if (preg_match('/(?:^|[^\w-])(?:html|body)(?![\w-])|:(?:root|host)(?![\w-])/i', $top)) return !$subject;
+        // The classes one compound requires must sit on one part element.
+        $classes = array();
+        foreach ($this->hookNames($top) as [$kind, $name]) {
+            if ('id' === $kind && !isset($this->chromeHooks['id'][$name])) return false;
+            if ('class' === $kind) $classes[$name] = true;
+        }
+        if (array() !== $classes && !$this->carried($classes)) return false;
+        foreach ($groups as $group) {
+            $reached = false;
+            foreach (CssStylesheetTransformer::splitSelectorList($group) ?? array($group) as $member) $reached = $reached || $this->selectorReachesChrome(trim($member));
+            if (!$reached) return false;
+        }
+        return true;
+    }
+
+    /** @param array<string, true> $classes */
+    private function carried(array $classes): bool
+    {
+        foreach ($classes as $class => $_) if (!isset($this->chromeHooks['class'][$class])) return false;
+        foreach ($this->chromeHooks['elements'] ?? array() as $element) if (array() === array_diff_key($classes, $element)) return true;
+        return false;
+    }
+
+    private function selectorReachesChrome(string $selector): bool
+    {
+        $tokens = CssSelectorTokenizer::tokenize($selector);
+        if (!$tokens['supported']) return true;
+        foreach ($tokens['compounds'] as $compound) if (!$this->reachesChrome($compound, false)) return false;
+        return true;
+    }
+
+    /** @return list<array{0: 'class'|'id', 1: string}> */
+    private function hookNames(string $text): array
+    {
+        if (!preg_match_all('/([.#])((?:\\\\.|[\w-])+)/', $text, $matches, PREG_SET_ORDER)) return array();
+        return array_map(static fn(array $match): array => array('.' === $match[1] ? 'class' : 'id', (string) preg_replace('/\\\\(.)/s', '$1', $match[2])), $matches);
+    }
+
+    /** Byte offset of a top-level pseudo-element in a compound, if any. */
+    private static function pseudoElementOffset(string $compound): ?int
+    {
+        $depth = 0;
+        for ($i = 0, $length = strlen($compound); $i < $length; ++$i) {
+            $char = $compound[$i];
+            if ('\\' === $char) { ++$i; continue; }
+            if ('(' === $char || '[' === $char) ++$depth;
+            elseif (')' === $char || ']' === $char) --$depth;
+            elseif (0 === $depth && ':' === $char && preg_match('/\G(?:::|:(?:before|after|first-line|first-letter)(?![\w-]))/i', $compound, $match, 0, $i)) return $i;
+        }
+        return null;
     }
 
     /** @param list<array<string, mixed>> $nodes */
