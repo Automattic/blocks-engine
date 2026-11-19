@@ -103,6 +103,11 @@ final class BoxTreeClassifier
             $criterion = self::criterion($element, $node, $effective, isset($containing[$id]), $referenced, $stateTargeted);
             $disposition = 'equal-child-geometry' === $criterion ? 'neutral' : 'load-bearing';
             $nodes[$id] = array('disposition' => $disposition, 'criterion' => $criterion);
+            if ('semantics/id/anchor' === $criterion && self::isLinkCarrier($element, $referenced)) {
+                $stateCompounds ??= self::stateCompounds($dom);
+                if (!self::targetedByOwnState($element, $stateCompounds)
+                    && 'equal-child-geometry' === self::criterion($element, $node, $effective, isset($containing[$id]), $referenced, false, true)) $nodes[$id]['link_carrier'] = true;
+            }
             if ('load-bearing' === $disposition && in_array($criterion, self::FOLDABLE, true)) {
                 // A state rule kept on the route can hang on any tag, not only custom elements.
                 if (!$stateTargeted) {
@@ -153,7 +158,7 @@ final class BoxTreeClassifier
         ) : null);
     }
 
-    private static function criterion(DOMElement $element, array $node, array $tree, bool $containing, bool $referenced, bool $stateTargeted = false): string
+    private static function criterion(DOMElement $element, array $node, array $tree, bool $containing, bool $referenced, bool $stateTargeted = false, bool $linkCarried = false): string
     {
         foreach ($node['viewports'] as $observation) {
             $s = $observation['used_styles'];
@@ -164,7 +169,7 @@ final class BoxTreeClassifier
             if (count($node['children']) > 1 && in_array($observation['used_styles']['display'], array('flex', 'inline-flex', 'grid', 'inline-grid'), true)) return 'multi-child-layout';
         }
         if ($containing) return 'containing-block';
-        $behavior = self::behavior($element, $node, $tree, $referenced, $stateTargeted);
+        $behavior = self::behavior($element, $node, $tree, $referenced, $stateTargeted, $linkCarried);
         if (null !== $behavior) return $behavior;
         if (1 !== count($node['children'])) return 'own-sizing';
         $placement = self::placement($node, $tree['nodes'][$node['children'][0]] ?? array());
@@ -188,16 +193,19 @@ final class BoxTreeClassifier
      * references, interaction and state, capture markers, motion, and
      * unobserved children.
      */
-    private static function behavior(DOMElement $element, array $node, array $tree, bool $referenced, bool $stateTargeted): ?string
+    private static function behavior(DOMElement $element, array $node, array $tree, bool $referenced, bool $stateTargeted, bool $linkCarried = false): ?string
     {
         // Autonomous custom elements have no implicit role: they are generic
         // containers like div/span and fall through to the remaining criteria.
-        if ((!in_array(strtolower($element->tagName), array('div', 'span'), true) && !self::isAutonomousCustomElement($element)) || $referenced || $element->hasAttribute('role') || $element->hasAttribute('name')) return 'semantics/id/anchor';
+        // A link carrier's anchor semantics are its link, which conversion
+        // moves onto the blocks it wraps ({@see self::isLinkCarrier()}).
+        $generic = in_array(strtolower($element->tagName), array('div', 'span'), true) || self::isAutonomousCustomElement($element) || $linkCarried;
+        if (!$generic || $referenced || $element->hasAttribute('role') || $element->hasAttribute('name')) return 'semantics/id/anchor';
         foreach ($element->attributes as $attribute) {
             if (str_starts_with($attribute->name, 'on') || str_starts_with($attribute->name, 'aria-') || in_array($attribute->name, array('tabindex', 'contenteditable', 'draggable', 'hidden', 'inert'), true)) return 'interaction/state';
         }
         if (!empty($node['interaction_states']) || $stateTargeted) return 'interaction/state';
-        if (self::carriesCaptureMarker($element)) return 'capture-marker';
+        if (self::carriesCaptureMarker($element, $linkCarried)) return 'capture-marker';
         foreach ($node['viewports'] as $observation) {
             $s = $observation['used_styles'];
             if (isset($s['animation-name']) && 'none' !== $s['animation-name']) return 'motion';
@@ -554,10 +562,54 @@ final class BoxTreeClassifier
         return false;
     }
 
+    /** Capture annotation of the in-page fragment an anchor's href resolved to. */
+    private const LINK_FRAGMENT_MARKER = CaptureEvidence::ATTRIBUTE_PREFIX . 'anchor-fragment';
+
+    /**
+     * A whole-element link wrapper: a text-less `<a href>` with no identity of
+     * its own. Conversion carries its link onto the blocks it wraps
+     * (`LinkWrapperPropagator`), so once that link has moved the anchor's box
+     * is neutral exactly when a generic box of the same geometry would be.
+     * The classifier only marks it (`link_carrier`); conversion collapses it
+     * only after the link has actually moved. Text is excluded: it would
+     * re-base the anchor's inherited paint (link colour) on its parent.
+     */
+    private static function isLinkCarrier(DOMElement $element, bool $referenced): bool
+    {
+        return 'a' === strtolower($element->tagName)
+            && '' !== trim($element->getAttribute('href'))
+            && !$referenced
+            && !$element->hasAttribute('id')
+            && !$element->hasAttribute('role')
+            && !$element->hasAttribute('name')
+            && '' === trim($element->textContent);
+    }
+
+    /**
+     * Whether a state rule hangs on this element's own identity. A compound a
+     * bare `<a href>` also matches (`a:hover`, a universal focus ring) styles
+     * every link, so it still reaches the anchors the carried link becomes.
+     *
+     * @param list<string> $compounds
+     */
+    private static function targetedByOwnState(DOMElement $element, array $compounds): bool
+    {
+        $bare = $element->ownerDocument?->createElement('a');
+        if (null === $bare) return true;
+        $bare->setAttribute('href', $element->getAttribute('href'));
+        foreach ($compounds as $compound) {
+            if ('*' === $compound) continue;
+            if (self::targetedByState($element, array($compound)) && !self::targetedByState($bare, array($compound))) return true;
+        }
+        return false;
+    }
+
     /** Capture markers gate device visibility or interaction; the box carrying one is the engine's handle. */
-    private static function carriesCaptureMarker(DOMElement $element): bool
+    private static function carriesCaptureMarker(DOMElement $element, bool $linkCarried = false): bool
     {
         foreach ($element->attributes as $attribute) {
+            // The fragment a carried link resolved to travels with its href.
+            if ($linkCarried && self::LINK_FRAGMENT_MARKER === $attribute->name) continue;
             if (str_starts_with($attribute->name, CaptureEvidence::ATTRIBUTE_PREFIX)) return true;
         }
         foreach (preg_split('/\s+/', $element->getAttribute('class'), -1, PREG_SPLIT_NO_EMPTY) as $class) {
