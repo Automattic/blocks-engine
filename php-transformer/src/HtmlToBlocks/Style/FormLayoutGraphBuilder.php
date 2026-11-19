@@ -54,6 +54,17 @@ final class FormLayoutGraphBuilder
     /** Custom-property resolution over {@see $selectorCache}; replaced with it at every build(). */
     private FormCustomPropertyResolver $customProperties;
 
+    private static int $builds = 0;
+
+    /**
+     * Layout graphs built since process start; observable for tests. A form
+     * dispatch shares each of its graphs between readers (#6752).
+     */
+    public static function builds(): int
+    {
+        return self::$builds;
+    }
+
     /** @param list<DOMElement>|null $controlElements Explicit inventory in metadata row order. */
     public function __construct(private readonly ?array $controlElements = null)
     {
@@ -68,6 +79,7 @@ final class FormLayoutGraphBuilder
      */
     public function build(DOMElement $form, array $stylesheets, string $inlineCss = '', ?array &$structure = null): array
     {
+        ++self::$builds;
         $this->diagnostics = array();
         $this->truncated = false;
         // One match memo per build: the layout analyses and both presentation

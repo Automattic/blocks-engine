@@ -16,6 +16,34 @@ final class CssSubjectIndex
         foreach ($rules as $order => $rule) self::insert($index, self::buckets($rule['parsed_selector']), array('order' => (int) $order, 'rule' => $rule));
         return $index;
     }
+    /**
+     * Index rules that each carry a selector list. A rule is filed under the
+     * subject keys of every selector in its list, and stays universal when
+     * any one of them has no key, so an element is a candidate for every rule
+     * one of whose selectors could match it. Input positions keep cascade
+     * order.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @param callable(array<string, mixed>): list<array<string, mixed>> $parsedSelectors The rule's parsed selectors.
+     */
+    public static function buildForSelectorLists(array $rules, callable $parsedSelectors): array
+    {
+        $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'attributes' => array(), 'total' => count($rules));
+        foreach ($rules as $order => $rule) {
+            $buckets = array();
+            foreach ($parsedSelectors($rule) as $parsed) {
+                foreach (self::buckets($parsed) as $bucket) {
+                    if ('universal' === $bucket[0]) {
+                        $buckets = array(array('universal', ''));
+                        break 2;
+                    }
+                    $buckets[$bucket[0] . "\0" . $bucket[1]] = $bucket;
+                }
+            }
+            self::insert($index, array() === $buckets ? array(array('universal', '')) : array_values($buckets), array('order' => (int) $order, 'rule' => $rule));
+        }
+        return $index;
+    }
     /** Files one entry under every subject key; entries() returns it once. */
     public static function insert(array &$index, array $buckets, array $entry): void
     {

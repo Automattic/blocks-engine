@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssLength;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSubjectIndex;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
@@ -151,6 +152,11 @@ final class FormPresentationGraphBuilder
     /** Memoized rule sets for {@see typographyStyles()}, analyzed once per transform. */
     private ?array $typographyAnalysis = null;
     private ?array $visibilityAnalysis = null;
+    /** Rule lists shorter than this are matched rule by rule; an index would cost more than it saves. */
+    private const INDEXED_RULE_COUNT = 16;
+    private const MAX_RULE_INDEXES = 8;
+    /** @var list<array{rules: list<array<string, mixed>>, index: array<string, mixed>, collection: string}> Subject indexes over the rule lists {@see candidateRules()} has seen. */
+    private array $ruleIndexes = array();
     /** Selector match memo for one source document; a cache-owning caller shares it across the passes of one compile. */
     private readonly CssSelectorMatchCache $matchCache;
     /** Custom-property resolution over {@see $matchCache}'s source document. */
@@ -402,6 +408,7 @@ final class FormPresentationGraphBuilder
     private function visibilityFacts(DOMElement $element, array $rules): array
     {
         $properties = array( 'display', 'visibility' );
+        $rules = $this->candidateRules($element, $rules);
         // The user-agent stylesheet's `[hidden] { display: none }`: it loses to
         // every author rule, so a stylesheet that re-shows the element wins.
         if ( $element->hasAttribute('hidden') && 'until-found' !== strtolower(trim($element->getAttribute('hidden'))) ) {
@@ -1562,10 +1569,53 @@ final class FormPresentationGraphBuilder
         return null;
     }
 
+    /**
+     * The rules, in order, whose subject compound the element could match:
+     * those filed under its id, a class, its tag or an attribute it carries,
+     * and those with no such key. A rule left out is one {@see matched()}
+     * would find a supported non-match, so the facts are unchanged, but an
+     * element is no longer matched against every rule of a large author
+     * stylesheet (#6752). Each rule list is indexed once per builder, and
+     * the lists of elements with one selector signature are shared through
+     * {@see $matchCache}.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @return list<array<string, mixed>>
+     */
+    private function candidateRules(DOMElement $element, array $rules): array
+    {
+        if ( count($rules) < self::INDEXED_RULE_COUNT ) {
+            return $rules;
+        }
+        $found = null;
+        foreach ( $this->ruleIndexes as $position => $entry ) {
+            // Lists passed down from one analysis are one array, which the
+            // identity check answers without comparing rules.
+            if ( $entry['rules'] === $rules ) {
+                $found = $position;
+                break;
+            }
+        }
+        if ( null === $found ) {
+            if ( count($this->ruleIndexes) >= self::MAX_RULE_INDEXES ) {
+                array_shift($this->ruleIndexes);
+            }
+            $this->ruleIndexes[] = array(
+                'rules' => $rules,
+                'index' => CssSubjectIndex::build(array_values($rules)),
+                'collection' => CssSelectorMatchCache::uniqueCandidateCollection('form-presentation'),
+            );
+            $found = array_key_last($this->ruleIndexes);
+        }
+        $entry = $this->ruleIndexes[$found];
+        return $this->matchCache->styleRuleCandidates($element, $entry['collection'], $entry['index']);
+    }
+
     /** @param list<array<string, mixed>> $rules */
     private function matched(DOMElement $element, array $rules, bool $expandFlex = false): array
     {
         $allowed = $expandFlex ? array_merge(self::PROPERTIES, self::ROW_ONLY_PROPERTIES) : self::PROPERTIES;
+        $rules = $this->candidateRules($element, $rules);
         if ( $element->hasAttribute('style') ) {
             $inline = $element->getAttribute('style');
             $rules[] = array( 'inline' => true, 'selector' => '[style]', 'declarations' => CssRuleAnalyzer::declarations($inline, $allowed), 'condition' => null, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'order' => PHP_INT_MAX, 'specificity' => 10000 );
