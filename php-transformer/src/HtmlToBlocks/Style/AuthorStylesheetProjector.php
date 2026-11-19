@@ -51,6 +51,8 @@ final class AuthorStylesheetProjector
     /** Projects source selectors onto the block markup they convert to. */
     private readonly AuthorSelectorProjector $selectors;
 
+    private readonly NavigationContainerHostScope $navigationContainerScope;
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer,
@@ -59,6 +61,7 @@ final class AuthorStylesheetProjector
     ) {
         $this->buttonDeclarationRouting = new ButtonDeclarationRouting($styleResolver, $semanticPreparer);
         $this->selectors = new AuthorSelectorProjector($styleResolver, $semanticPreparer);
+        $this->navigationContainerScope = new NavigationContainerHostScope();
     }
 
     /**
@@ -70,18 +73,23 @@ final class AuthorStylesheetProjector
     public function project(string $stylesheet, AuthorStylesheetProjectionContext $context, array $outerConditions = array()): string
     {
         $bridges = array();
+        $navigationHosts = array();
         $clips = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::replacements($context->authorStyles->sourceBody(), $this->styleResolver);
         $projected = ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, &$bridges): string {
+            function (string $prelude, string $body, array $ancestors = array()) use ($context, $outerConditions, $clips, &$bridges, &$navigationHosts): string {
                 $css = $this->projectStyleRule($prelude, \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgDefinitionClips::rewrite($body, $clips), $context, self::ancestorsAreConditional($ancestors), $ancestors, $outerConditions);
                 $css = $this->withProviderFieldWrapperHeight($prelude, $css, $context);
                 $bridge = $this->projectedLayerBridge($prelude, $css, $ancestors, $context);
                 if ( '' !== $bridge ) $bridges[$bridge] = true;
+                foreach ( $this->navigationContainerHosts($prelude, $context) as $host ) {
+                    if ( ! in_array($host, $navigationHosts, true) ) $navigationHosts[] = $host;
+                }
                 return $css;
             }
         );
         $projected .= implode('', array_keys($bridges));
+        $projected .= $this->navigationContainerScope->neutralizingRules($projected, $navigationHosts);
         $projected = $this->buttonLinkWidthRules($projected, $context);
         if ( str_contains($context->emittedMarkup, ImageLowering::BACKGROUND_IMAGE_CLASS) ) {
             // A materialized background is paint, not another author subject.
@@ -116,6 +124,23 @@ final class AuthorStylesheetProjector
             });
         }
         return CssSelectorListCompactor::stylesheet($projected);
+    }
+
+    /**
+     * Navigation wrapper hosts a source rule names (see NavigationContainerHostScope).
+     *
+     * @return list<list<string>>
+     */
+    private function navigationContainerHosts(string $prelude, AuthorStylesheetProjectionContext $context): array
+    {
+        return $this->navigationContainerScope->hostClassSets(
+            $prelude,
+            $context->emittedMarkup,
+            function (string $compound) use ($context): array {
+                $parsed = $context->sourceStyles->parsedSelector($compound);
+                return $parsed['supported'] ? $this->selectors->matchingSourceElements($compound, $parsed, $context) : array();
+            }
+        );
     }
 
     /**

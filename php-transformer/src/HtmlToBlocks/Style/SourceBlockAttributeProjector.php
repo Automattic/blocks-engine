@@ -16,6 +16,8 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
     /** A synthetic paragraph that is itself a lowered block-level source box, not a transparent carrier. */
     public const SOURCE_BOX_PARAGRAPH_CLASS = 'blocks-engine-source-box-paragraph';
+    /** A synthetic link paragraph that keeps an inline box, so the editor can focus its RichText root. */
+    public const INLINE_ANCHOR_CARRIER_CLASS = 'blocks-engine-inline-anchor-carrier';
     public const SYNTHETIC_SVG_PARAGRAPH_CLASS = 'blocks-engine-synthetic-svg-paragraph';
     /**
      * A synthetic paragraph whose RichText keeps its source item (a classed
@@ -355,7 +357,7 @@ final class SourceBlockAttributeProjector
                     // flow before a block, its fallback hitbox can overlap the
                     // following Group. An inline carrier preserves the source
                     // line without changing flex/grid or floating link layout.
-                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-inline-anchor-carrier');
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::INLINE_ANCHOR_CARRIER_CLASS);
                 }
                 $attrs = $this->withSyntheticHeaderAnchorCarrier($attrs, $sourceElement, $context->generatedStyles);
             }
