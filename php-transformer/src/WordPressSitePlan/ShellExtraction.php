@@ -250,7 +250,9 @@ final class ShellExtraction
         preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*\/?-->/s', $markup, $items);
         foreach ($items[1] as $json) {
             $attrs = json_decode($json, true);
-            if (is_array($attrs)) $copy[] = (string) ($attrs['label'] ?? '') . "\0" . (string) ($attrs['url'] ?? '');
+            // A label is rich text: compare the words it shows, not its
+            // generated classes, which carry the route's current-item state.
+            if (is_array($attrs)) $copy[] = implode(' ', self::textRuns((string) ($attrs['label'] ?? ''))) . "\0" . (string) ($attrs['url'] ?? '');
         }
         return $copy;
     }
