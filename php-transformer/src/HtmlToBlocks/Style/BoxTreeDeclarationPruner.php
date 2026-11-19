@@ -266,6 +266,12 @@ final class BoxTreeDeclarationPruner
         return $status;
     }
 
+    /** Whether the user agent gives this element its own value for an inherited property ({@see self::TAG_INHERITED_DEFAULTS}). */
+    public static function ownsDefault(string $tagName, string $property): bool
+    {
+        return in_array($property, self::TAG_INHERITED_DEFAULTS[strtolower($tagName)] ?? array(), true);
+    }
+
     /**
      * @param array<string, string> $styles Observed used styles of one box.
      * @param array<string, string>|null $parent Observed used styles of the box it inherits from, if captured.

@@ -256,6 +256,29 @@ final class DesignSystem
     }
 
     /**
+     * The root font size each document renders, keyed by source path: null
+     * when a document authors a root the collector could not resolve.
+     *
+     * @param array<string,array<string,mixed>> $usageBySource Usage keyed by document source path.
+     * @return array<string,?float>
+     */
+    public static function renderedRoots(array $usageBySource): array
+    {
+        $roots = array();
+        foreach ($usageBySource as $source => $usage) {
+            if (is_array($usage) && self::USAGE_SCHEMA === ($usage['schema'] ?? null)) $roots[(string) $source] = self::renderedRootPx($usage);
+        }
+        return $roots;
+    }
+
+    /** @param array<string,mixed> $usage */
+    private static function renderedRootPx(array $usage): ?float
+    {
+        if (isset($usage['root_font_size_px'])) return (float) $usage['root_font_size_px'];
+        return ($usage['root_font_size_authored'] ?? false) ? null : 16.0;
+    }
+
+    /**
      * @param array<string,array<string,mixed>> $usageBySource Usage keyed by document source path.
      */
     public static function fromUsage(array $usageBySource): ?self
@@ -270,7 +293,8 @@ final class DesignSystem
         $rootPx = $renderedRoots = $sourceRoles = array();
         foreach ($usageBySource as $usage) {
             $px = (float) ($usage['root_font_size_px'] ?? 16);
-            $renderedRoots[isset($usage['root_font_size_px']) || !($usage['root_font_size_authored'] ?? false) ? CssLength::format($px) : 'unknown'] = true;
+            $rendered = self::renderedRootPx($usage);
+            $renderedRoots[null === $rendered ? 'unknown' : CssLength::format($rendered)] = true;
             // Older usage payloads lack the evidence flag; retain their explicit
             // root values, but never let a collector's initial-value fallback vote.
             if (($usage['root_font_size_authored'] ?? true) && isset($usage['root_font_size_px']) && $px > 0) {
@@ -360,21 +384,22 @@ final class DesignSystem
         if (isset($buttonLook['font_size'])) $headingSizes[$buttonLook['font_size']] = 1;
         // A rem preset resolves against whichever root the rendering document
         // has. Spell presets in rem only when every document renders the one
-        // root they were measured under; otherwise their pixel value.
+        // root they were measured under; otherwise their pixel value. Font
+        // sizes, spacing steps and layout widths all follow this.
         $sharedRoot = array(CssLength::format($rootFontPx) => true) === $renderedRoots;
         $fontSizes = self::fontSizes($sizeWeights, $bodySizeWeights, $sharedRoot ? $rootFontPx : 16.0, $headingSizes);
         $fontFamilies = self::fontFamilies($familyWeights, $familyStacks, $headingFamilyWeights, $bodyFamilyWeights, self::familyKey((string) ($root['font_family'] ?? '')), self::unanimousHeadingFamily($usageBySource), $headingFamilyProminence);
-        $spacing = self::spacing($spacingRows);
+        $spacing = self::spacing($spacingRows, $sharedRoot);
         $lengthNames = array();
         foreach ($usageBySource as $usage) foreach ($usage['root_design_tokens'] ?? array() as $name => $value) {
-            $px = CssLength::toPx($value, $rootFontPx);
+            $px = CssLength::toPx($value, self::renderedRootPx($usage) ?? $rootFontPx);
             if (null !== $px) $lengthNames[$name][CssLength::format($px)] = ($lengthNames[$name][CssLength::format($px)] ?? 0) + 1;
         }
         foreach ($fontSizes as &$size) $size['name'] = self::sourceName($lengthNames, CssLength::format($size['px'])) ?? $size['name'];
         unset($size);
         foreach ($spacing as &$step) $step['name'] = self::sourceName($lengthNames, CssLength::format($step['px'])) ?? $step['name'];
         unset($step);
-        $layout = self::layout($widthRows);
+        $layout = self::layout($widthRows, $sharedRoot);
 
         $system = new self(array_slice($colors, 0, self::PRIMARY_COLORS), $fontSizes, $fontFamilies, $spacing, $layout, array(), array(), $rootFontPx > 0 ? $rootFontPx : 16.0, count($usageBySource), $literalColors, array(), $nearShades);
         // Observed translucent paint gets a preset even when its opaque RGB
@@ -882,19 +907,23 @@ final class DesignSystem
         return null === $index ? null : $this->colors[$index]['color'];
     }
 
-    /** Slug of the font size that renders an absolute length exactly, or null. */
-    public function fontSizeSlug(string $value): ?string
+    /**
+     * Slug of the font size that renders an absolute length exactly, or null.
+     * A rem length is measured at `$rootPx`, the root of the document that
+     * renders it, or at the site's root when none is given.
+     */
+    public function fontSizeSlug(string $value, ?float $rootPx = null): ?string
     {
-        $px = CssLength::toPx($value, $this->rootPx);
+        $px = CssLength::toPx($value, $rootPx ?? $this->rootPx);
         if (null === $px || $px <= 0) return null;
         foreach ($this->fontSizes as $size) if (abs($size['px'] - $px) <= self::EXACT_PX) return $size['slug'];
         return null;
     }
 
-    /** Slug of the spacing step equal to an absolute length, or null. */
-    public function spacingSlug(string $value): ?string
+    /** Slug of the spacing step equal to an absolute length, or null; rem is measured as in fontSizeSlug(). */
+    public function spacingSlug(string $value, ?float $rootPx = null): ?string
     {
-        $px = CssLength::toPx($value, $this->rootPx);
+        $px = CssLength::toPx($value, $rootPx ?? $this->rootPx);
         if (null === $px || $px <= 0) return null;
         foreach ($this->spacing as $step) if (abs($step['px'] - $px) <= self::SPACING_TOLERANCE_PX) return $step['slug'];
         return null;
@@ -1010,13 +1039,13 @@ final class DesignSystem
                 foreach ($matches[1] as $json) {
                     $attributes = json_decode($json, true);
                     if (!is_array($attributes)) continue;
-                    foreach (array('textColor', 'backgroundColor', 'fontSize', 'fontFamily') as $key) if (is_string($attributes[$key] ?? null)) $preset++;
+                    foreach (array('textColor', 'backgroundColor', 'overlayTextColor', 'overlayBackgroundColor', 'fontSize', 'fontFamily') as $key) if (is_string($attributes[$key] ?? null)) $preset++;
                     $style = ArrayField::array($attributes, 'style');
-                    $values = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $style['typography']['fontSize'] ?? null, $style['typography']['fontFamily'] ?? null);
+                    $values = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $attributes['customOverlayTextColor'] ?? null, $attributes['customOverlayBackgroundColor'] ?? null, $style['typography']['fontSize'] ?? null, $style['typography']['fontFamily'] ?? null);
                     foreach (array('padding', 'margin') as $box) foreach ((array) ($style['spacing'][$box] ?? array()) as $value) $values[] = $value;
                     foreach ((array) ($style['spacing']['blockGap'] ?? array()) as $value) $values[] = $value;
                     $border = ArrayField::array($style, 'border');
-                    $colors = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $border['color'] ?? null, $style['elements']['link']['color']['text'] ?? null);
+                    $colors = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $attributes['customOverlayTextColor'] ?? null, $attributes['customOverlayBackgroundColor'] ?? null, $border['color'] ?? null, $style['elements']['link']['color']['text'] ?? null);
                     foreach (array('top', 'right', 'bottom', 'left') as $side) $colors[] = $border[$side]['color'] ?? null;
                     foreach ($colors as $color) if (is_string($color) && !str_starts_with($color, 'var:') && null !== $this->colorSlug($color)) $literalPreset++;
                     foreach ($values as $value) {
@@ -1653,9 +1682,10 @@ final class DesignSystem
 
     /**
      * @param list<array{value:string,px:float,weight:int}> $rows
+     * @param bool $sharedRoot Whether every document renders one root, so a rem spelling renders one size.
      * @return list<array{slug:string,name:string,size:string,px:float,weight:int}>
      */
-    private static function spacing(array $rows): array
+    private static function spacing(array $rows, bool $sharedRoot = true): array
     {
         $weights = array();
         $spellings = array();
@@ -1671,6 +1701,7 @@ final class DesignSystem
             $choices = $spellings[CssLength::format($cluster['px'])] ?? array();
             uksort($choices, static fn(string $a, string $b): int => ($choices[$b] <=> $choices[$a]) ?: strcmp($a, $b));
             $value = (string) (array_key_first($choices) ?? CssLength::format($cluster['px']));
+            if (!$sharedRoot && CssLength::rootRelative($value)) $value = CssLength::format($cluster['px']);
             $slug = self::presetSlug((string) (($index + 2) * 10));
             $steps[] = array('slug' => $slug, 'name' => self::spacingName($cluster['px']) . ' (' . $value . ')', 'size' => $value, 'px' => $cluster['px'], 'weight' => $cluster['weight']);
         }
@@ -1679,17 +1710,19 @@ final class DesignSystem
 
     /**
      * @param list<array{value:string,px:float,weight:int}> $rows
+     * @param bool $sharedRoot As for spacing().
      * @return array{content?:array{value:string,px:float},wide?:array{value:string,px:float}}
      */
-    private static function layout(array $rows): array
+    private static function layout(array $rows, bool $sharedRoot = true): array
     {
         $weights = array();
         $values = array();
         foreach ($rows as $row) {
             $key = CssLength::format($row['px']);
             $weights[$key] = ($weights[$key] ?? 0) + $row['weight'];
-            $values[$key] ??= $row['value'];
-            if (strcmp($row['value'], $values[$key]) < 0) $values[$key] = $row['value'];
+            $value = !$sharedRoot && CssLength::rootRelative($row['value']) ? $key : $row['value'];
+            $values[$key] ??= $value;
+            if (strcmp($value, $values[$key]) < 0) $values[$key] = $value;
         }
         if (array() === $weights) return array();
         uksort($weights, static fn(string $a, string $b): int => ($weights[$b] <=> $weights[$a]) ?: ((float) $a <=> (float) $b));
