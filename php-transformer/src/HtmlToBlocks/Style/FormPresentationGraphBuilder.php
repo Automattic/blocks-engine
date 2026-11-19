@@ -632,6 +632,14 @@ final class FormPresentationGraphBuilder
                         }
                     }
                 }
+                // Provider captions have their own block display default. A native
+                // label is inline: its parent's line box (not just the label's
+                // line-height) contributes to the field's vertical geometry.
+                // Keep this UA fact below every author declaration, including
+                // conditional display rules. Flex/grid parents still blockify it.
+                if ( 'label' === $role && 'label' === strtolower($element->tagName) ) {
+                    $matched['base']['display'] ??= array('value' => 'inline', 'path' => 'user-agent', 'hash' => hash('sha256', 'native-label-display'), 'selector' => SourceDom::elementSelector($element), 'order' => PHP_INT_MIN, 'declaration_order' => 0, 'specificity' => -1, 'important' => false);
+                }
                 $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules'], true);
                 $provenance = $this->provenance($matched['base'], null);
                 $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
