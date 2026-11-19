@@ -18,6 +18,13 @@ final class AuthorSelectorProjectionState
     public const NAVIGATION_ITEM = 'item';
     public const NAVIGATION_LIST_HOST = 'list-host';
 
+    /**
+     * Marks a core/navigation that stands in for a source menu and for the
+     * equivalent copy the source shows at other widths. The kept copy's
+     * width-gated hides belong to the copy it absorbed, not to this block.
+     */
+    public const MERGED_DEVICE_NAVIGATION_CLASS = 'blocks-engine-merged-device-navigation';
+
     private ?AuthorStyleAnalysis $authorStyles = null;
 
     /** @var array<string, string> */
@@ -173,6 +180,9 @@ final class AuthorSelectorProjectionState
      * @var array<string, array<string, bool>>
      */
     private array $navigationSourcePaths = array();
+
+    /** @var array<string, true> Source menus whose navigation absorbed an equivalent device copy. */
+    private array $mergedDeviceNavigationPaths = array();
 
     /** @var array<string, string> Source subject path => its exact native CSS target. */
     private array $navigationSubjects = array();
@@ -927,6 +937,39 @@ final class AuthorSelectorProjectionState
     public function isNavigationSourcePath(string $path, string $role): bool
     {
         return isset($this->navigationSourcePaths[$role][$path]);
+    }
+
+    /** Record a source menu whose navigation also serves an absorbed equivalent copy. */
+    public function markMergedDeviceNavigationSource(DOMElement $element): void
+    {
+        $path = $element->getNodePath() ?? '';
+        if ( '' !== $path ) {
+            $this->mergedDeviceNavigationPaths[$path] = true;
+        }
+    }
+
+    public function isMergedDeviceNavigationSource(string $path): bool
+    {
+        return isset($this->mergedDeviceNavigationPaths[$path]);
+    }
+
+    /**
+     * A source list nested in an item core renders as a navigation item:
+     * core renders it as that item's submenu container, never as the
+     * navigation's top-level list.
+     */
+    public function isNavigationSubmenuListSource(DOMElement $element): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
+            return false;
+        }
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'li' === strtolower($node->tagName) && $this->isNavigationSourcePath($node->getNodePath() ?? '', self::NAVIGATION_ITEM) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** A projected opener owns the root; the source list now owns the inner UL. */

@@ -36,8 +36,8 @@ contract is `tests/unit/shell-wrapper-shared-header-template.php`.
 
 Routes whose header or footer agrees on the box-tree viewports they share stay
 one part even when one route's sidecar samples an extra viewport (`mobile`):
-intake aligns that chrome subtree to the common viewports, while the route's
-page content keeps its full evidence (`docs/contracts/box-tree.md`).
+intake merges that chrome subtree's agreeing observations as a union of
+viewports, while the route's page content keeps its own evidence (`docs/contracts/box-tree.md`).
 
 When the source has no area landmark, extraction adds a semantic header/footer
 Group marked `blocks-engine-shell-landmark`. The same frontend-only transport

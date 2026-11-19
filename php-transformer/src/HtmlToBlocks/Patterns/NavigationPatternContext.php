@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAn
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\SourceTargetProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -1748,6 +1749,25 @@ final class NavigationPatternContext
         }
 
         return $overlayMenu;
+    }
+
+    /**
+     * A menu shown at the reference viewport whose source also shows an
+     * equivalent copy elsewhere: its navigation serves both widths, so the
+     * hides that swapped the copies must not hide it. Records the source
+     * menu and returns the marker its navigation carries, or ''.
+     */
+    public function mergedDeviceNavigationMarker(DOMElement $element, DOMElement $navigationSource): string
+    {
+        if ( $this->isHiddenAtReferenceViewport($element)
+            || ! ( $this->navigationToggleSuppressor?->hasEquivalentNavigationVariant($element) ?? false ) ) {
+            return '';
+        }
+        $projections = $this->session->authorSelectorProjectionState();
+        $projections->markMergedDeviceNavigationSource($element);
+        $projections->markMergedDeviceNavigationSource($navigationSource);
+
+        return AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS;
     }
 
     public function capturedMenuFold(DOMElement $row): ?CapturedMenuDialogFold

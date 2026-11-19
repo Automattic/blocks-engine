@@ -798,7 +798,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             $this->session,
             // Carousel slides are editable native images inside authored
             // holders; the carousel owns slide presentation.
-            fn (DOMElement $element): ?array => $this->imageLowering->convertImage($element, nativeImage: true),
+            fn (DOMElement $element, ?DOMElement $link = null): ?array => $this->imageLowering->convertImage($element, null, null, $link, nativeImage: true),
             $this
         );
         $visualIframeGenerator = new VisualIframeBlockGenerator(

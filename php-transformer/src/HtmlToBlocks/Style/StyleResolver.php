@@ -3104,6 +3104,53 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Whether an inherited `left`/`center`/`right` lifted onto $element's
+     * block only reaches the source line when that block keeps a box.
+     *
+     * The element is inline-level, in flow, and the only content of a block
+     * container's line, so the source alignment positioned the element itself
+     * inside that container. A boxless carrier (`display:contents` or
+     * `display:inline`) would hold the lifted alignment on no line box.
+     * Inline content that shares the line with siblings, and flex/grid items
+     * (blockified, so text-align never placed them), keep boxless carriers.
+     */
+    public function inheritedTextAlignmentNeedsLineBox(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement
+            || ! in_array($this->inheritedTextAlignmentDeclaration($element), array( 'left', 'center', 'right' ), true) ) {
+            return false;
+        }
+        foreach ( $parent->childNodes as $sibling ) {
+            if ( $sibling === $element || XML_COMMENT_NODE === $sibling->nodeType
+                || ( XML_TEXT_NODE === $sibling->nodeType && '' === trim($sibling->textContent ?? '') ) ) {
+                continue;
+            }
+            return false;
+        }
+        $inlineLevelTags = array( 'a', 'abbr', 'b', 'cite', 'code', 'em', 'i', 'label', 'mark', 'q', 's', 'small', 'span', 'strong', 'sub', 'sup', 'u', 'button', 'input', 'img', 'select', 'textarea' );
+        $own = $this->structuralPresentationDeclarations($element);
+        $display = CssValueInspector::comparable((string) ($own['display'] ?? ''));
+        if ( '' === $display ) {
+            $display = in_array(strtolower($element->tagName), $inlineLevelTags, true) ? 'inline' : 'block';
+        }
+        $float = CssValueInspector::comparable((string) ($own['float'] ?? ''));
+        $position = CssValueInspector::comparable((string) ($own['position'] ?? ''));
+        if ( ! in_array($display, array( 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true)
+            || ! in_array($float, array( '', 'none' ), true)
+            || in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        $parentDisplay = CssValueInspector::comparable((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? ''));
+        if ( '' === $parentDisplay ) {
+            $parentDisplay = in_array(strtolower($parent->tagName), $inlineLevelTags, true) ? 'inline' : 'block';
+        }
+
+        return in_array($parentDisplay, array( 'block', 'flow-root', 'list-item', 'table-cell' ), true)
+            && ! $this->hasConditionalStyleFamily($parent, 'layout');
+    }
+
+    /**
      * The alignment a text wrapper's GENERATED inner RichText blocks must carry
      * so the source's own alignment survives, or '' when nothing is at risk.
      *
@@ -6326,6 +6373,7 @@ final class StyleResolver implements ElementPresentationResolver
             'border-left-width',
             'border-right-width',
             'border-spacing',
+            'caption-side',
             'border-top',
             'border-top-color',
             'border-top-left-radius',

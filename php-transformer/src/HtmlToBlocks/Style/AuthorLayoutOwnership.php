@@ -251,7 +251,13 @@ final class AuthorLayoutOwnership
         }
 
         $typographyProperties = array( 'font', 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight', 'letter-spacing', 'line-height', 'text-align', 'text-decoration', 'text-indent', 'text-shadow', 'text-transform', 'word-spacing' );
-        if ( array() !== $declarations && array() === array_diff(array_keys($declarations), $typographyProperties) ) {
+        // A universal reset (`*{margin:0;padding:0;border:0 solid;box-sizing:border-box}`)
+        // reaches this phrasing element too, but adds no box to it. Without
+        // ignoring it, the typography-only flex/grid item falls back to a
+        // synthetic paragraph whose own strut line box is taller than the
+        // blockified source item.
+        $boxDeclarations = $this->withoutInertBoxResets($declarations);
+        if ( array() !== $boxDeclarations && array() === array_diff(array_keys($boxDeclarations), $typographyProperties) ) {
             return true;
         }
 
@@ -267,6 +273,28 @@ final class AuthorLayoutOwnership
 
         // A paragraph carrier can host selector-addressed phrasing without a group.
         return (array() !== $this->session->authorSelectorProjectionState()->semanticMarkersForElement($element));
+    }
+
+    /**
+     * Drop declarations that leave the element's box unchanged: zero margins
+     * and padding, zero-width borders, and box-sizing with neither.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private function withoutInertBoxResets(array $declarations): array
+    {
+        $zeroWidthBorder = (new StyleAttributeMapper())->allBorderWidthsZero($declarations);
+        foreach ( $declarations as $name => $value ) {
+            $name = (string) $name;
+            if ( 'box-sizing' === $name
+                || ( preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left|block|inline|block-start|block-end|inline-start|inline-end))?$/', $name)
+                    && ! CssValueInspector::isNonZero((string) $value) )
+                || ( $zeroWidthBorder && preg_match('/^border(?:-(?:top|right|bottom|left))?(?:-(?:width|style|color))?$/', $name) ) ) {
+                unset($declarations[ $name ]);
+            }
+        }
+        return $declarations;
     }
 
     public function isDirectFormattingRunBeforeBlock(DOMElement $element): bool

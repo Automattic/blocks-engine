@@ -94,11 +94,12 @@ Invalid evidence produces a warning diagnostic (`box_tree_schema_invalid`,
 without rejected evidence; this evidence never authorizes layout reductions.
 
 Routes may declare different viewport sets (a producer can sample mobile HTML
-per template cluster). After acceptance, a header or footer whose source
-identity other routes with evidence share keeps, within its subtree, only the
-viewports every sharing route observed, so the extra sampling of one route
-cannot fork shared chrome or its generated geometry classes. The route's other
-nodes, its page content, keep every declared viewport. Classification treats an
+per template cluster). After acceptance, routes whose header or footer shares a
+source identity and agrees on every viewport they have in common merge their
+chrome observations as a union of viewports, and record each other as chrome
+peers of that landmark root. A route that samples an extra viewport therefore
+joins the shared chrome, which gains that viewport's geometry instead of
+forking. The route's other nodes, its page content, keep route-local evidence. Classification treats an
 observation missing at one viewport conservatively: equal child geometry and
 containment inside a clip are unproven there. The contract is
 `tests/unit/shared-header-extra-viewport-box-tree.php`.

@@ -31,4 +31,14 @@ final class ColumnsPatternContext
     {
         return $this->styleResolver->controlSurfaceResolvedStyle($element);
     }
+
+    /**
+     * The element's own `float` at the desktop reference viewport, read from
+     * the author analysis: the source-style allow-list behind
+     * {@see self::referenceViewportStyle()} does not carry `float`.
+     */
+    public function referenceFloat(DOMElement $element): string
+    {
+        return (string) ( $this->styleResolver->authorViewport->reference($element, array( 'float' ))['float'] ?? '' );
+    }
 }

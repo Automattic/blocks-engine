@@ -140,6 +140,7 @@ final class BoxTreeStyleProjector
         $css = $this->carrierCss($declarations[$keys[0]], $keys, $declarations, $status, $observations, $viewports, $bands, false, $parents, false, array(), self::IMAGE_SELECTOR);
         $class = $this->carrier(($synthetic ? $this->rule(self::SELECTOR, array('display' => 'contents')) : '') . $css, $state);
         if ('' === $class) return $attrs;
+        if ($synthetic) $state->markBoxlessImageFigureCarrier($class);
         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
         return $attrs;
     }
@@ -220,6 +221,14 @@ final class BoxTreeStyleProjector
     /** Keyword properties BoxTreeFluidIntent lifts only when they explain every capture, pruned or not. */
     private const SWITCHED_KEYWORDS = array('display' => true, 'visibility' => true);
 
+    /**
+     * Grid lines BoxTreeFluidIntent lifts only from author winners at every
+     * capture: a capture pruned at the initial `auto` is still explained, so
+     * a placement switching to `auto` follows the author's breakpoint. Lines
+     * every capture pruned (not a grid item) stay out.
+     */
+    private const GRID_LINES = array('grid-row-start' => true, 'grid-row-end' => true, 'grid-column-start' => true, 'grid-column-end' => true);
+
     private const INLINE_TYPOGRAPHY = array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform');
 
     /**
@@ -240,9 +249,15 @@ final class BoxTreeStyleProjector
         $bands = array();
         foreach ($fluid as $property => $propertyBands) {
             if (array() === $propertyBands || null !== $propertyBands[0][0]) continue;
+            $kept = 0;
             foreach ($keys as $key) {
-                if (!isset($declarations[$key][$property]) && !isset(self::SWITCHED_KEYWORDS[$property])) continue 2;
+                if (isset($declarations[$key][$property])) {
+                    ++$kept;
+                    continue;
+                }
+                if (!isset(self::SWITCHED_KEYWORDS[$property]) && !isset(self::GRID_LINES[$property])) continue 2;
             }
+            if (0 === $kept && isset(self::GRID_LINES[$property])) continue;
             foreach ($keys as $key) $declarations[$key][$property] = $propertyBands[0][1];
             foreach (array_slice($propertyBands, 1) as [$maxWidth, $value]) {
                 $bands[self::width((float) $maxWidth)][$property] = $value;
