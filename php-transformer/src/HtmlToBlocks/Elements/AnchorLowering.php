@@ -376,6 +376,12 @@ final class AnchorLowering implements ButtonLinkLeftovers
                 if ( $visual instanceof DOMElement && 'picture' === strtolower($visual->tagName) ) {
                     $visual = $visual->parentNode;
                 }
+                // A span that holds only the image (an aspect or hover-scale
+                // frame) is part of the same visual region, not phrasing.
+                if ( $visual instanceof DOMElement && 'span' === strtolower($visual->tagName)
+                    && $this->wrapsOnlyMedia($visual) ) {
+                    $visual = $visual->parentNode;
+                }
                 if ( ! $visual instanceof DOMElement || $visual === $anchor
                     || 'div' !== strtolower($visual->tagName) ) {
                     return false;
@@ -398,10 +404,8 @@ final class AnchorLowering implements ButtonLinkLeftovers
                 }
             }
         }
-        $trailingLabel = $hasHeading ? $this->trailingTextLabel($anchor) : null;
         foreach ( $anchor->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $child !== $trailingLabel
-                && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true) ) {
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array('div', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'img', 'picture'), true) ) {
                 return false;
             }
         }
@@ -421,30 +425,23 @@ final class AnchorLowering implements ButtonLinkLeftovers
     }
 
     /**
-     * A heading card's last child may be a text-only span after its content
-     * (a read-more arrow). It names nothing and is not a control, so it does
-     * not stop the card from exposing its destination on the heading. Leading
-     * or nested phrasing (an eyebrow, a badge) keeps the existing lowering.
+     * Whether a phrasing frame contains nothing but one image or picture.
      */
-    private function trailingTextLabel(DOMElement $anchor): ?DOMElement
+    private function wrapsOnlyMedia(DOMElement $frame): bool
     {
-        $last = null;
-        $elements = 0;
-        foreach ( $anchor->childNodes as $child ) {
+        $media = null;
+        foreach ( $frame->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                $last = $child;
-                ++$elements;
-            } elseif ( $child instanceof \DOMText && '' !== trim($child->textContent) ) {
-                return null;
+                if ( null !== $media || ! in_array(strtolower($child->tagName), array('img', 'picture'), true) ) {
+                    return false;
+                }
+                $media = $child;
+            } elseif ( '' !== trim($child->textContent) ) {
+                return false;
             }
         }
-        if ( ! $last instanceof DOMElement || $elements < 2 || 'span' !== strtolower($last->tagName)
-            || null !== $last->firstElementChild || '' === trim($last->textContent)
-            || $last->hasAttribute('role') || $last->hasAttribute('id') ) {
-            return null;
-        }
 
-        return $last;
+        return null !== $media;
     }
 
     /**
