@@ -466,7 +466,8 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( 'nav' === strtolower($element->tagName) || ! $this->context->shouldPreserveWrapper($element) || $this->isVerifiedCollectionItemList($element) ) {
             return false;
         }
-        if ( $this->isRepeatedLinkItemCluster($element) ) {
+        if ( $this->isRepeatedLinkItemCluster($element)
+            || $this->navigationPattern->ownsToggledPanelList($element, $this->context->patternContext()->navigationContext()) ) {
             return false;
         }
 
