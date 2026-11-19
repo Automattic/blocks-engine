@@ -88,5 +88,6 @@ $linkColor = static function (string $route, bool $hover) use ($plan, $color): ?
     return $winner[1] ?? null;
 };
 $assert(str_contains((string) $linkColor('2020/01/02/a-note.html', false), 'rgb(17,17,17)'), 'The post link keeps the text colour it inherits instead of the browser default blue.');
+$assert(str_starts_with((string) $linkColor('2020/01/02/a-note.html', false), 'var(--wp--preset--color--contrast,'), "The post link's colour follows the theme's contrast colour, so a Global Styles change reaches it.");
 $assert('red' === $linkColor('2020/01/02/a-note.html', true), "The source's retained hover colour still outranks the link's resting colour.");
 $assert(null === $linkColor('index.html', false), "A link at the browser's own colour declares none, keeping the browser's visited colour.");
