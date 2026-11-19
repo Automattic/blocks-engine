@@ -60,6 +60,32 @@ $cases = array(
         'box' => array('grid-row-start' => '1', 'justify-self' => 'start'), 'child' => array('justify-self' => 'end')),
 );
 
+// Equal-box background layers: every refusal changes just one piece of evidence.
+$layer = array('display' => 'grid', 'position' => 'absolute', 'top' => '0px', 'right' => '0px', 'bottom' => '0px', 'left' => '0px',
+    'overflow-x' => 'clip', 'overflow-y' => 'clip', 'grid-template-columns' => '400px', 'grid-template-rows' => '100px');
+$underlay = array('position' => 'relative', 'top' => '0px', 'right' => '0px', 'bottom' => '0px', 'left' => '0px',
+    'overflow-x' => 'clip', 'overflow-y' => 'clip', 'grid-column-start' => '1', 'grid-row-start' => '1', 'background-color' => 'rgb(255, 128, 0)');
+foreach (array(
+    array(),
+    array('box' => array('top' => '1px')),
+    array('child' => array('overflow-x' => 'visible')),
+    array('child' => array('box-shadow' => 'rgb(0, 0, 0) 0px 2px 4px 0px')),
+    array('box' => array('z-index' => '1')),
+    array('child' => array('outline' => '1px solid rgb(0, 0, 0)')),
+    array('child' => array('transform' => 'matrix(1, 0, 0, 1, 1, 0)')),
+    array('child' => array('left' => '1px')),
+    array('child_box' => $inset),
+    array('box' => array('z-index' => '1'), 'child' => array('z-index' => '1'), 'allow' => true),
+) as $change) {
+    $cases[] = array(
+        'rule' => 'own-placement', 'refuse' => array() !== $change && empty($change['allow']),
+        'box' => array_replace($layer, $change['box'] ?? array()),
+        'child' => array_replace($underlay, $change['child'] ?? array()),
+        'child_box' => $change['child_box'] ?? $box,
+        'expect' => array('position' => 'absolute', 'top' => '0px', 'right' => '0px', 'bottom' => '0px', 'left' => '0px'),
+    );
+}
+
 $assert = static function (bool $ok, string $message): void {
     if (!$ok) throw new RuntimeException($message);
     echo "PASS: $message\n";
