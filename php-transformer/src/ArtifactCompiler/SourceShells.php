@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
@@ -166,8 +167,12 @@ final class SourceShells
                 // Measured padding is a route observation, not authored shell
                 // identity. The canonical member still supplies it on emission.
                 if ($node->hasAttribute(CaptureEvidence::fluidIgnorePaddingAttribute())) {
-                    $style = preg_replace('/(?:^|;)\s*padding(?:-(?:top|right|bottom|left))?\s*:[^;]*/i', '', $node->getAttribute('style')) ?? '';
-                    $node->setAttribute('style', ltrim($style, ';'));
+                    $kept = array();
+                    foreach (CssRuleAnalyzer::declarationList($node->getAttribute('style')) as ['name' => $name, 'value' => $value]) {
+                        if (1 !== preg_match('/^padding(?:-(?:top|right|bottom|left))?$/', strtolower($name))) $kept[] = $name . ':' . $value;
+                    }
+                    if (array() === $kept) $node->removeAttribute('style');
+                    else $node->setAttribute('style', implode(';', $kept));
                 }
                 // A selector-resolved dialog ancestor can sit at a different
                 // depth on each route. Its state is shared; the distance from
@@ -184,7 +189,7 @@ final class SourceShells
                         if (false !== $encoded) $node->setAttribute(CaptureEvidence::DIALOG_ANCESTOR_STATE, $encoded);
                     }
                 }
-                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX) && !CaptureEvidence::isDeviceIslandClass($class) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_PROJECTION_CLASS_PREFIX)));
+                $classes = array_values(array_filter(SourceDom::tokens($node->getAttribute('class')), static fn(string $class): bool => !str_starts_with($class, CaptureEvidence::RESPONSIVE_CLASS_PREFIX) && !str_starts_with($class, CaptureEvidence::RESPONSIVE_COUNTERPART_CLASS_PREFIX) && !CaptureEvidence::isDeviceIslandClass($class)));
                 if (array() === $classes) $node->removeAttribute('class');
                 else $node->setAttribute('class', implode(' ', $classes));
             }
@@ -230,11 +235,17 @@ final class SourceShells
         foreach ($currentNodes as $node) {
             // Explicit current tokens are state, not evidence that an item's
             // other classes must match its structurally different siblings.
+            // Only inside navigation: selected content elsewhere is structure.
             $marked = false;
+            $inNavigation = false;
             for ($ancestor = $node; $ancestor instanceof \DOMElement; $ancestor = $ancestor->parentNode) {
                 if (array() !== array_filter(SourceDom::tokens($ancestor->getAttribute('class')), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...)) || str_contains($ancestor->getAttribute('data-blocks-engine-route-resting'), '"class"')) $marked = true;
-                if ('nav' === strtolower($ancestor->tagName)) break;
+                if ('nav' === strtolower($ancestor->tagName)) {
+                    $inNavigation = true;
+                    break;
+                }
             }
+            $marked = $marked && $inNavigation;
             // A navigation toggle may be an anchor without href, with no
             // same-tag sibling to establish its resting classes. Known current
             // tokens are route state independently of its computed link colour.
