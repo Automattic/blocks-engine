@@ -9,6 +9,12 @@ use DOMElement;
 final class BoxTree
 {
     public const SCHEMA = 'blocks-engine/box-tree/v2';
+    /**
+     * v2 with a top-level `styles` list of used-style objects; every node and
+     * pseudo observation's `used_styles` is an integer index into it. Lossless,
+     * and much smaller for long pages that repeat few distinct styles.
+     */
+    public const SCHEMA_COMPACT = 'blocks-engine/box-tree/v3';
     public const NODE_ATTRIBUTE = 'data-blocks-engine-node-id';
     public const MAX_NODES = 100000;
     public const MAX_VIEWPORTS = 8;
@@ -59,6 +65,47 @@ final class BoxTree
     public static function isSidecarPath(string $path): bool
     {
         return 1 === preg_match('~(?:^|/)box-tree/.+\.json$~D', $path);
+    }
+
+    /**
+     * Expand a v3 tree to the exact v2 shape, so v2 validation and every
+     * consumer see one format. Other schemas are returned unchanged. Returns
+     * null when the style table or an index into it is malformed; observation
+     * shape and style content are left to v2 validation.
+     */
+    public static function expandCompact(mixed $tree): mixed
+    {
+        if (!is_array($tree) || self::SCHEMA_COMPACT !== ($tree['schema'] ?? null)) return $tree;
+        $styles = $tree['styles'] ?? null;
+        if (!is_array($styles) || !array_is_list($styles) || count($styles) > self::MAX_NODES * self::MAX_VIEWPORTS) return null;
+        foreach ($styles as $style) {
+            if (!is_array($style)) return null;
+        }
+        $resolve = static function (mixed &$observation) use ($styles): bool {
+            if (!is_array($observation) || !array_key_exists('used_styles', $observation)) return true;
+            $index = $observation['used_styles'];
+            if (!is_int($index) || !isset($styles[$index])) return false;
+            $observation['used_styles'] = $styles[$index];
+            return true;
+        };
+        if (is_array($tree['nodes'] ?? null)) {
+            foreach ($tree['nodes'] as &$node) {
+                if (!is_array($node) || !is_array($node['viewports'] ?? null)) continue;
+                foreach ($node['viewports'] as &$observation) {
+                    if (!$resolve($observation)) return null;
+                    if (!is_array($observation) || !is_array($observation['pseudo'] ?? null)) continue;
+                    foreach ($observation['pseudo'] as &$pseudo) {
+                        if (!$resolve($pseudo)) return null;
+                    }
+                    unset($pseudo);
+                }
+                unset($observation);
+            }
+            unset($node);
+        }
+        unset($tree['styles']);
+        $tree['schema'] = self::SCHEMA;
+        return $tree;
     }
 
     public static function validId(mixed $id): bool
