@@ -5,31 +5,42 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ThemeTemplates;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\TemplateSlugs;
 
-$view = (new ArtifactCompiler())->compile(array(
-    'entrypoint' => 'index.html',
-    'files' => array(
-        'index.html' => '<html><head><title>Home</title></head><body><main><h1>Welcome</h1><p>Home content</p></main></body></html>',
-        'about.html' => '<html><head><title>About</title></head><body><main><h1>About us</h1><p>Our story</p></main></body></html>',
-    ),
-))->toWordPressSitePlanView();
-$plan = $view['wordpress_site_plan'];
-$rendered = ThemeTemplates::rendered($plan);
-$failures = array();
-$dom = new DOMDocument();
-@$dom->loadHTML($rendered['page']);
-$xpath = new DOMXPath($dom);
-$main = $xpath->query('//main')->item(0);
-if (null === $main || !str_contains($dom->saveHTML($main), 'wp:post-title') || !str_contains($dom->saveHTML($main), 'wp:post-content')) {
-    $failures[] = 'New pages own a main landmark containing both native title and content';
+function add_filter(string $hook, mixed $callback, int $priority = 10, int $args = 1): bool { $GLOBALS['filters'][$hook][] = $callback; return true; }
+function add_action(string $hook, mixed $callback, int $priority = 10, int $args = 1): bool { return true; }
+function remove_action(string $hook, mixed $callback, int $priority = 10): bool { return true; }
+function is_singular(string $type): bool { return 'page' === $GLOBALS['type']; }
+function get_the_ID(): int { return $GLOBALS['post_id']; }
+function get_queried_object_id(): int { return 10; }
+function get_post_meta(int $id, string $key, bool $single): string { return $GLOBALS['identity']; }
+function get_page_template_slug(int $id): string { return $GLOBALS['template']; }
+function do_blocks(string $markup): string {
+    if ('<!-- wp:post-title {"level":1} /-->' !== $markup) throw new RuntimeException('Expected native title block');
+    return '<h1>New page</h1>';
 }
-if (!str_contains($rendered['page'], '<!-- wp:post-title {"level":1} /-->')) $failures[] = 'New pages render their native title';
-if (!str_contains($rendered['page'], '<!-- wp:post-content')) $failures[] = 'New pages retain their content slot';
-foreach ($plan['pages'] as $page) {
-    $template = $rendered[TemplateSlugs::forPage($page)] ?? $rendered['page'];
-    if (str_contains($template, '<!-- wp:post-title')) $failures[] = 'Captured pages must not duplicate content-owned headings';
-    if (!str_contains($page['canonical_block_markup'], '<h1')) $failures[] = 'Captured headings remain intact';
+
+$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<main><h1>Home</h1><p>Welcome</p></main>',
+    'about.html' => '<main><h1>About</h1><p>Our story</p></main>',
+)))->toWordPressSitePlanView()['wordpress_site_plan'];
+$writes = array_column($plan['writes'], null, 'target_path');
+eval('?>' . $writes['functions.php']['payload']['data']);
+$filter = $GLOBALS['filters']['render_block_data'][0];
+$slot = array('blockName' => 'core/post-content', 'attrs' => array('className' => 'source-frame'), 'innerContent' => array());
+$assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
+$GLOBALS['type'] = 'page'; $GLOBALS['post_id'] = 10; $GLOBALS['identity'] = ''; $GLOBALS['template'] = '';
+$authored = $filter($slot);
+$assert(!empty($authored['attrs']['metadata']['blocksEngineAuthoredPage']), 'A newly authored page gets the title fallback');
+$renderer = $GLOBALS['filters']['render_block_core/post-content'][0];
+$assert('<main class="wp-block-group"><h1>New page</h1><p>Body</p></main>' === $renderer('<p>Body</p>', $authored), 'A native title and body render inside main');
+$assert('<p>Body</p>' === $renderer('<p>Body</p>', $slot), 'Unmarked captured content renders unchanged');
+$assert('source-frame' === $authored['attrs']['className'], 'The original content slot retains its frame attributes');
+$assert($authored === $filter($authored), 'The content slot is marked only once');
+$assert(1 === count($GLOBALS['filters']['render_block_core/post-content']), 'Only one fallback renderer is registered');
+foreach (array('identity' => 'imported', 'template' => 'custom', 'type' => 'post', 'post_id' => 11) as $key => $value) {
+    $previous = $GLOBALS[$key]; $GLOBALS[$key] = $value;
+    $assert($slot === $filter($slot), 'Captured, custom, non-page and nested content stays unchanged: ' . $key);
+    $GLOBALS[$key] = $previous;
 }
-foreach ($failures as $failure) fwrite(STDERR, "FAIL: {$failure}\n");
-exit($failures ? 1 : 0);
+$assert(!str_contains(ThemeTemplates::rendered($plan)['page'], 'wp:post-title'), 'The saved template stays content-only for captured pages');
+echo "Page authoring title: passed\n";

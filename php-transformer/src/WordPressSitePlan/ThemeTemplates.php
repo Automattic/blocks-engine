@@ -198,11 +198,6 @@ final class ThemeTemplates
      */
     public static function build(RouteLinks $links, array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, ?string $singleContent = null, array $taxonomyEntities = array(), array $frames = array(), array $documentChrome = array(), array $postTemplates = array()): array
      {
-         // A route newly split from the generic page must retain its frame.
-         foreach ($pages as $page) {
-             $slug = TemplateSlugs::forPage($page);
-             if ('page' === ($page['post_type'] ?? null) && empty($page['entrypoint']) && !isset($frames[$slug]) && isset($frames['page'])) $frames[$slug] = $frames['page'];
-         }
          $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
          usort($bound, static function (array $left, array $right): int {
              $priority = array('header' => 0, 'footer' => 2);
@@ -238,16 +233,6 @@ final class ThemeTemplates
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
                  $content = $postTemplates[$templateSlug] ?? (('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->');
-                 // Captured pages own their headings in post content. The
-                 // generic page lifecycle also serves newly authored pages,
-                 // whose title lives in the native post-title field instead.
-                 if ('page' === $templateSlug && !isset($postTemplates[$templateSlug])) {
-                     // The authoring surface owns its main landmark as well as
-                     // its title; captured route bodies supply their own main.
-                     $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n"
-                         . '<main class="wp-block-group"><!-- wp:post-title {"level":1} /-->' . "\n" . $content
-                         . '</main><!-- /wp:group -->';
-                 }
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
@@ -272,9 +257,6 @@ final class ThemeTemplates
         if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
         $overrides = array_filter(TemplateSlugs::overrides($bound, array_keys($frames)), static fn(int|string $slug): bool => 1 === preg_match('/^(?:page|single)-[a-z0-9_-]+$/', (string) $slug), ARRAY_FILTER_USE_KEY);
-        // Keep captured page bodies on content-only route templates rather
-        // than adding the authoring fallback's title above their own headings.
-        foreach ($pages as $page) if ('page' === ($page['post_type'] ?? null) && empty($page['entrypoint'])) $overrides[TemplateSlugs::forPage($page)] = true;
         foreach ($pages as $page) if (isset($page['route_template']) && 'single' !== $page['route_template']) $overrides[$page['route_template']] = true;
         $liveOverrides = array_fill_keys(array_map(TemplateSlugs::forPage(...), $pages), true);
         $overrides = array_intersect_key($overrides, $liveOverrides);

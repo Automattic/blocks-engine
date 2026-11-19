@@ -745,6 +745,20 @@ PHP;
         // at block edges and between inner blocks; text inside blocks is untouched.
         self::serve($lines, $served, $units, 'navigation_anchor');
         $lines[] = "add_filter( 'render_block_data', static function ( array \$block ): array {";
+        // The default page slot also serves pages created after import. Add
+        // their native title at render time, not to captured route templates:
+        // those already own headings, landmarks and shell placement.
+        $lines[] = "    if ( 'core/post-content' === ( \$block['blockName'] ?? null ) && empty( \$block['attrs']['metadata']['blocksEngineAuthoredPage'] ) && is_singular( 'page' ) && get_the_ID() === get_queried_object_id() && ! get_post_meta( get_the_ID(), '_blocks_engine_reconciliation_identity', true ) && ! get_page_template_slug( get_the_ID() ) ) {";
+        $lines[] = "        \$block['attrs']['metadata']['blocksEngineAuthoredPage'] = true;";
+        $lines[] = "        static \$registered = false;";
+        $lines[] = "        if ( ! \$registered ) {";
+        $lines[] = "            \$registered = true;";
+        $lines[] = "            add_filter( 'render_block_core/post-content', static function ( string \$html, array \$slot ): string {";
+        $lines[] = "                if ( empty( \$slot['attrs']['metadata']['blocksEngineAuthoredPage'] ) ) return \$html;";
+        $lines[] = "                return '<main class=\"wp-block-group\">' . do_blocks( '<!-- wp:post-title {\"level\":1} /-->' ) . \$html . '</main>';";
+        $lines[] = "            }, 20, 2 );";
+        $lines[] = "        }";
+        $lines[] = "    }";
         $lines[] = "    \$content = \$block['innerContent'] ?? null; if ( ! is_array( \$content ) ) return \$block;";
         $lines[] = "    if ( null === ( \$block['blockName'] ?? null ) ) { if ( '' === trim( (string) ( \$block['innerHTML'] ?? '' ) ) ) { \$block['innerHTML'] = ''; \$block['innerContent'] = array(); } return \$block; }";
         $lines[] = "    \$last = count( \$content ) - 1;";
