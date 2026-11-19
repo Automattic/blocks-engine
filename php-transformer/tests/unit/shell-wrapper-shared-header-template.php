@@ -67,6 +67,9 @@ foreach ($plan['templates'] as $template) {
     if ('page' !== $template['slug']) continue;
     $markup = (string) $template['canonical_block_markup'];
     $assert(str_contains($markup, 'siteWrapper') && strpos($markup, '"slug":"header"') < strpos($markup, 'wp:post-content') && strpos($markup, 'wp:post-content') < strpos($markup, '"slug":"footer"'), 'The page template keeps the wrapper around header, content and footer.');
+    $assert(!str_contains($markup, '"layout":{"type":"constrained"}'), 'New pages reuse the captured layout rather than inserting a constrained main.');
+    $assert(str_contains($markup, '<!-- wp:post-title {"level":1} /-->'), 'New pages render their editable title inside the frame.');
+    $assert(str_contains($markup, '"className":"' . \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::FRAME_CONTENT_CLASS . '"'), 'New pages keep the transparent post-content slot required by the shared layout.');
 }
 $bindings = array();
 foreach ($plan['runtime_declarations'] as $declaration) {

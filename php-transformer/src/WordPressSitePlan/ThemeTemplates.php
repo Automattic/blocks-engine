@@ -250,7 +250,11 @@ final class ThemeTemplates
             }
             // Keep each lifecycle's native content inside the shared app frame.
             if (isset($frames[$templateSlug]) && array() !== $frames[$templateSlug]['shells']) {
-                if ('<!-- wp:post-content /-->' === $content) $content = '<!-- wp:post-content {"className":"' . WordPressSitePlan::FRAME_CONTENT_CLASS . '"} /-->';
+                // The captured frame already owns the main/layout container.
+                // Keep the new-page title inside it without nesting another main,
+                // and preserve the transparent content slot used by imported pages.
+                if ('page' === $templateSlug) $content = '<!-- wp:post-title {"level":1} /--><!-- wp:post-content /-->';
+                if ('page' === $templateSlug || '<!-- wp:post-content /-->' === $content) $content = str_replace('<!-- wp:post-content /-->', '<!-- wp:post-content {"className":"' . WordPressSitePlan::FRAME_CONTENT_CLASS . '"} /-->', $content);
                 $content = $frames[$templateSlug]['opening'] . $content . $frames[$templateSlug]['closing'];
             }
             if (is_array($container) && is_string($container['opening'] ?? null) && is_string($container['closing'] ?? null)) return $container['opening'] . $before . $content . "\n" . $container['closing'] . $after;
