@@ -242,7 +242,18 @@ final class SvgMaterializer implements SvgElementMaterializer
             return null;
         }
 
-        return $this->createBlock->createBlock('core/image', $attrs, array(), $element);
+        $block = $this->createBlock->createBlock('core/image', $attrs, array(), $element);
+        // Like a lowered <img>, core/image saves the SVG's classes and id on
+        // its <figure>; an author subject naming the SVG by them must find
+        // that figure, which now owns the SVG's outer box.
+        $this->session->authorSelectorProjectionState()->recordImageFigure(
+            $element->getNodePath() ?? '',
+            (string) ( $block['attrs']['className'] ?? '' ),
+            (string) ( $block['attrs']['anchor'] ?? '' ),
+            false
+        );
+
+        return $block;
     }
 
     /**
@@ -1641,6 +1652,14 @@ final class SvgMaterializer implements SvgElementMaterializer
 
             $resolved = trim($resolved);
             if ( 'color' === $property && in_array(strtolower($resolved), array('inherit', 'unset'), true) ) {
+                continue;
+            }
+            if ( '' !== $resolved && ! preg_match('/[<>]/', $resolved) && preg_match('/var\s*\(/i', $resolved) && array() === $this->styleResolver->customProperties->carried($resolved, $current) ) {
+                // Every custom property the declaration reads is undefined in
+                // the source cascade, so the value is invalid at computed-value
+                // time and this inherited property behaves as `unset`: the
+                // element inherits its parent's paint. Keep walking, as the
+                // browser does, rather than leaving the isolated image black.
                 continue;
             }
             if ( '' === $resolved || preg_match('/var\s*\(|[<>]/i', $resolved) ) {

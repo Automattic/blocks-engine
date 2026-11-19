@@ -1,0 +1,186 @@
+{
+    "blocks": [
+        {
+            "blockName": "custom/layout-shell",
+            "attrs": {
+                "wrappers": [
+                    {
+                        "tagName": "div",
+                        "attributes": {
+                            "class": "data-blocks-engine-capture-desktop-document",
+                            "data-blocks-engine-capture-document-scope": ""
+                        }
+                    }
+                ]
+            },
+            "innerBlocks": [
+                {
+                    "blockName": "core/navigation",
+                    "attrs": {
+                        "className": "desktop-links blocks-engine-list-navigation",
+                        "style": {
+                            "spacing": {
+                                "blockGap": "0px"
+                            }
+                        },
+                        "overlayMenu": "never"
+                    },
+                    "innerBlocks": [
+                        {
+                            "blockName": "core/navigation-link",
+                            "attrs": {
+                                "label": "Start",
+                                "url": "/start",
+                                "kind": "custom"
+                            },
+                            "innerBlocks": [],
+                            "innerHTML": "",
+                            "innerContent": [
+                                ""
+                            ],
+                            "_wrapper_normalization_boundary": "non_wrapper_terminal"
+                        },
+                        {
+                            "blockName": "core/navigation-link",
+                            "attrs": {
+                                "label": "Details",
+                                "url": "/details",
+                                "kind": "custom"
+                            },
+                            "innerBlocks": [],
+                            "innerHTML": "",
+                            "innerContent": [
+                                ""
+                            ],
+                            "_wrapper_normalization_boundary": "non_wrapper_terminal"
+                        }
+                    ],
+                    "innerHTML": "",
+                    "innerContent": [
+                        "",
+                        null,
+                        null,
+                        ""
+                    ],
+                    "_wrapper_normalization_boundary": "non_wrapper_terminal"
+                },
+                {
+                    "blockName": "core/heading",
+                    "attrs": {
+                        "content": "Overview",
+                        "level": 1
+                    },
+                    "innerBlocks": [],
+                    "innerHTML": "<h1 class=\"wp-block-heading\">Overview</h1>",
+                    "innerContent": [
+                        "<h1 class=\"wp-block-heading\">Overview</h1>"
+                    ],
+                    "_wrapper_normalization_boundary": "non_wrapper_terminal"
+                }
+            ],
+            "innerHTML": "<div class=\"data-blocks-engine-capture-desktop-document\" data-blocks-engine-capture-document-scope=\"\"></div>",
+            "innerContent": [
+                "<div class=\"data-blocks-engine-capture-desktop-document\" data-blocks-engine-capture-document-scope=\"\">",
+                null,
+                null,
+                "</div>"
+            ],
+            "_wrapper_normalization_boundary": "non_wrapper_terminal"
+        },
+        {
+            "blockName": "custom/layout-shell",
+            "attrs": {
+                "wrappers": [
+                    {
+                        "tagName": "div",
+                        "attributes": {
+                            "class": "data-blocks-engine-capture-mobile-document",
+                            "data-blocks-engine-capture-document-scope": ""
+                        }
+                    }
+                ]
+            },
+            "innerBlocks": [
+                {
+                    "blockName": "core/navigation",
+                    "attrs": {
+                        "metadata": {
+                            "blocksEngineNavigationContainer": {
+                                "className": "",
+                                "ownsSource": true
+                            }
+                        },
+                        "className": "blocks-engine-list-navigation blocks-engine-native-responsive-navigation blocks-engine-native-navigation-toggle-f2c3b31f2f15",
+                        "style": {
+                            "spacing": {
+                                "blockGap": "0px"
+                            }
+                        },
+                        "overlayMenu": "always",
+                        "hasIcon": false
+                    },
+                    "innerBlocks": [
+                        {
+                            "blockName": "core/navigation-link",
+                            "attrs": {
+                                "label": "Start",
+                                "url": "/start",
+                                "kind": "custom"
+                            },
+                            "innerBlocks": [],
+                            "innerHTML": "",
+                            "innerContent": [
+                                ""
+                            ],
+                            "_wrapper_normalization_boundary": "non_wrapper_terminal"
+                        },
+                        {
+                            "blockName": "core/navigation-link",
+                            "attrs": {
+                                "label": "Details",
+                                "url": "/details",
+                                "kind": "custom"
+                            },
+                            "innerBlocks": [],
+                            "innerHTML": "",
+                            "innerContent": [
+                                ""
+                            ],
+                            "_wrapper_normalization_boundary": "non_wrapper_terminal"
+                        }
+                    ],
+                    "innerHTML": "",
+                    "innerContent": [
+                        "",
+                        null,
+                        null,
+                        ""
+                    ],
+                    "_wrapper_normalization_boundary": "non_wrapper_terminal"
+                },
+                {
+                    "blockName": "core/heading",
+                    "attrs": {
+                        "content": "Overview",
+                        "level": 1
+                    },
+                    "innerBlocks": [],
+                    "innerHTML": "<h1 class=\"wp-block-heading\">Overview</h1>",
+                    "innerContent": [
+                        "<h1 class=\"wp-block-heading\">Overview</h1>"
+                    ],
+                    "_wrapper_normalization_boundary": "non_wrapper_terminal"
+                }
+            ],
+            "innerHTML": "<div class=\"data-blocks-engine-capture-mobile-document\" data-blocks-engine-capture-document-scope=\"\"></div>",
+            "innerContent": [
+                "<div class=\"data-blocks-engine-capture-mobile-document\" data-blocks-engine-capture-document-scope=\"\">",
+                null,
+                null,
+                "</div>"
+            ],
+            "_wrapper_normalization_boundary": "non_wrapper_terminal"
+        }
+    ],
+    "serialized_blocks": "<!-- wp:custom/layout-shell {\"wrappers\":[{\"tagName\":\"div\",\"attributes\":{\"class\":\"data-blocks-engine-capture-desktop-document\",\"data-blocks-engine-capture-document-scope\":\"\"}}]} --><div class=\"data-blocks-engine-capture-desktop-document\" data-blocks-engine-capture-document-scope=\"\"><!-- wp:navigation {\"className\":\"desktop-links blocks-engine-list-navigation\",\"style\":{\"spacing\":{\"blockGap\":\"0px\"}},\"overlayMenu\":\"never\"} --><!-- wp:navigation-link {\"label\":\"Start\",\"url\":\"/start\",\"kind\":\"custom\"} /--><!-- wp:navigation-link {\"label\":\"Details\",\"url\":\"/details\",\"kind\":\"custom\"} /--><!-- /wp:navigation --><!-- wp:heading {\"level\":1} --><h1 class=\"wp-block-heading\">Overview</h1><!-- /wp:heading --></div><!-- /wp:custom/layout-shell --><!-- wp:custom/layout-shell {\"wrappers\":[{\"tagName\":\"div\",\"attributes\":{\"class\":\"data-blocks-engine-capture-mobile-document\",\"data-blocks-engine-capture-document-scope\":\"\"}}]} --><div class=\"data-blocks-engine-capture-mobile-document\" data-blocks-engine-capture-document-scope=\"\"><!-- wp:navigation {\"metadata\":{\"blocksEngineNavigationContainer\":{\"className\":\"\",\"ownsSource\":true}},\"className\":\"blocks-engine-list-navigation blocks-engine-native-responsive-navigation blocks-engine-native-navigation-toggle-f2c3b31f2f15\",\"style\":{\"spacing\":{\"blockGap\":\"0px\"}},\"overlayMenu\":\"always\",\"hasIcon\":false} --><!-- wp:navigation-link {\"label\":\"Start\",\"url\":\"/start\",\"kind\":\"custom\"} /--><!-- wp:navigation-link {\"label\":\"Details\",\"url\":\"/details\",\"kind\":\"custom\"} /--><!-- /wp:navigation --><!-- wp:heading {\"level\":1} --><h1 class=\"wp-block-heading\">Overview</h1><!-- /wp:heading --></div><!-- /wp:custom/layout-shell -->"
+}

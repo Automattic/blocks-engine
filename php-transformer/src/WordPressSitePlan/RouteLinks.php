@@ -91,7 +91,7 @@ final class RouteLinks
             return str_replace($match[1], BlockAttributes::encode($attrs, JSON_THROW_ON_ERROR), $match[0]);
         }, $content) ?? $content;
         $content = $this->unresolvedNavigationLinks($content, $origin);
-        return null === $this->presetBinding ? $content : $this->presetBinding->bind($content);
+        return null === $this->presetBinding ? $content : $this->presetBinding->bind($content, $origin);
     }
 
     /** Browser navigation attributes, excluding SVG resource references. */

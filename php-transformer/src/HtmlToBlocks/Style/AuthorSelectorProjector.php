@@ -107,6 +107,8 @@ final class AuthorSelectorProjector
     /**
      * The figure selector for an `img.x` / `img#x` subject whose image became a
      * core/image block, or null when the subject can still reach an <img>.
+     * An `svg.x` / `svg#x` subject materialized as a standalone core/image
+     * follows the same rule: nothing named `svg` remains in the output.
      *
      * A subject naming the image by class or id follows that identity. A
      * type-only positioned image also needs its figure to own the source box:
@@ -127,7 +129,8 @@ final class AuthorSelectorProjector
 
     private function projectImageFigureSubjectSelector(string $selector, array $parsed, DOMElement $element, AuthorStylesheetProjectionContext $context, bool $namesOnlyPositionedImages): ?string
     {
-        if ( 'img' !== strtolower($element->tagName) ) {
+        $tagName = strtolower($element->tagName);
+        if ( 'img' !== $tagName && 'svg' !== $tagName ) {
             return null;
         }
         $leafMarker = $context->selectorProjections->imageFigure($element->getNodePath() ?? '')['leafMarker'] ?? '';
@@ -143,7 +146,7 @@ final class AuthorSelectorProjector
         // an img nested in :where() must remain a leaf selector.
         $positionedTypeSubject = $namesOnlyPositionedImages
             && 1 === preg_match('/^img\b/i', substr($selector, (int) ($parsed['rightmost_compound_span']['start'] ?? 0)));
-        if ( 'img' !== strtolower((string) ($subject['type'] ?? ''))
+        if ( $tagName !== strtolower((string) ($subject['type'] ?? ''))
             || ( array() === ($subject['classes'] ?? array()) && array() === ($subject['ids'] ?? array())
                 && ! $positionedTypeSubject )
             || array() !== ($subject['attributes'] ?? array())
@@ -406,6 +409,20 @@ final class AuthorSelectorProjector
         // The emitted tree is authoritative: add a zero-specificity hop
         // only when that topology actually exists, keeping the source arm
         // for matches that were not wrapped.
+        // A column cover inserts two neutral layout boxes between the
+        // source panel and its items. Keep a child selector's source weight
+        // while following that emitted edge (not arbitrary descendants).
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $combinators = $parsed['combinators'] ?? array();
+        if ( is_array($rightmost) && '>' === end($combinators) ) {
+            $start = (int) $rightmost['start'];
+            $coverChild = substr($selector, 0, $start)
+                . ':where(.wp-block-cover__inner-container)>:where(.wp-block-group.' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '.is-layout-flex)>'
+                . substr($selector, $start);
+            if ( $this->matchesEmittedMarkup($coverChild, $context->emittedMarkup) ) {
+                $arms[] = $coverChild;
+            }
+        }
         $carrierChild = $this->projectParagraphCarrierChildSelector($selector, $parsed, $context);
         if ( null !== $carrierChild ) {
             $arms[] = $carrierChild;
@@ -678,7 +695,22 @@ final class AuthorSelectorProjector
             elseif ($context->selectorProjections->selectsRestingNavigationState($stateSelector)) $target = AuthorSelectorProjectionState::restingNavigationSubject($target);
             // Many source items share one recorded marker target. Emit
             // that subject once per source rule, not once per matching item.
-            $navigationProjection = ':root ' . $target . $this->selectorSpecificityShims($parsed, $context) . $suffix;
+            $itemCondition = '';
+            if ('li' === strtolower($element->tagName) && (
+                ($subject['first_child'] ?? false) || ($subject['last_child'] ?? false)
+                || null !== ($subject['nth_child'] ?? null) || null !== ($subject['nth_of_type'] ?? null)
+                || array() !== ($subject['not'] ?? array()) || array() !== ($subject['any'] ?? array())
+                || 0 !== ($subject['resting_state_negations'] ?? 0)
+            )) {
+                // A container target is shared by siblings, not an identity
+                // for this match. Keep the live item predicate, including
+                // negations, without counting its specificity twice: the
+                // shims below already carry the complete source weight.
+                $span = $parsed['rightmost_compound_span'];
+                $end = $parsed['pseudo_state_suffix_span']['start'] ?? $span['end'];
+                $itemCondition = ':where(' . substr($selector, $span['start'], $end - $span['start']) . ')';
+            }
+            $navigationProjection = ':root ' . $target . $itemCondition . $this->selectorSpecificityShims($parsed, $context) . $suffix;
             $navigationSubjects[$navigationProjection] = true;
         }
         return array(array_keys($navigationSubjects), $otherSubjects);

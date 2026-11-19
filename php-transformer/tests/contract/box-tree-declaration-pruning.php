@@ -65,7 +65,15 @@ $rows = array(
         array('flex-direction', 'flex-grow', 'grid-auto-flow', 'border-top', 'outline', 'mask-mode', 'transition-property', 'animation-name', 'object-position', 'text-overflow', 'vertical-align', 'background-clip', 'clip-path', 'min-width', 'top:')),
     array('non-initial longhands are kept', array('opacity' => '0.5', 'border-top' => '1px solid rgb(255, 0, 0)', 'border-radius' => '4px'), array(), 'core/group', array('opacity:0.5', 'border-top:1px solid rgb(255, 0, 0)', 'border-radius:4px'), array()),
     array('a zero-width border paints nothing', array('border-left' => '0px solid rgba(0, 0, 0, 0)'), array(), 'core/group', array(), array('border-left')),
-    array('box model and sizing stay for user-agent and WordPress block spacing', array(), array(), 'core/paragraph', array('margin-top:0px', 'padding-left:0px', 'max-width:none'), array()),
+    array('box model and sizing stay for user-agent and WordPress block spacing', array(), array(), 'core/group', array('margin-top:0px', 'padding-left:0px', 'max-width:none'), array()),
+    // A paragraph, heading or list restates no zero side its element and core
+    // styles already leave at zero (#7099); vertical margins (the user agent's
+    // 1em) and a list's inline padding (its marker indent) stay.
+    array('a paragraph omits zero padding and inline margins', array('margin-bottom' => '18px'), array(), 'core/paragraph', array('margin-top:0px', 'margin-bottom:18px', 'max-width:none'), array('padding', 'margin-left', 'margin-right')),
+    array('a heading omits zero padding and inline margins', array(), array(), 'core/heading', array('margin-top:0px', 'margin-bottom:0px'), array('padding', 'margin-left', 'margin-right')),
+    array('a list keeps zero inline padding over its marker indent', array(), array(), 'core/list', array('margin-top:0px', 'padding-left:0px', 'padding-right:0px'), array('padding-top', 'padding-bottom', 'margin-left', 'margin-right')),
+    array('a painted paragraph keeps zero padding over the has-background box', array('background-color' => 'rgb(255, 0, 0)'), array(), 'core/paragraph', array('padding-top:0px', 'padding-left:0px'), array('margin-left', 'margin-right')),
+    array('a paragraph keeps non-zero padding and inline margins', array('padding-left' => '13px', 'margin-left' => '4px'), array(), 'core/paragraph', array('padding-left:13px', 'margin-left:4px'), array('padding-top', 'margin-right')),
     // Initial values WordPress base styles would set otherwise on the block.
     array('a separator keeps its absent border over core styles', array(), array(), 'core/separator', array('border-width:0px;border-style:none;border-color:rgb(0, 0, 0)'), array()),
     array('a cover keeps its observed minimum height over core styles', array('min-height' => '0px'), array(), 'core/cover', array('min-height:0px'), array()),

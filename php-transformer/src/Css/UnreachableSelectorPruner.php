@@ -109,13 +109,18 @@ final class UnreachableSelectorPruner
         return is_string($masked) ? $masked : $text;
     }
 
+    /** @var array<string, string> Pruned texts shared by analysis and projection across site pages. */
+    private array $prunedStylesheets = array();
+
     /** @param bool $preserveIds Keep arms whose only absent tokens are IDs. */
     public function prune(string $css, bool $preserveIds = false): string
     {
+        $key = (int) $preserveIds . ':' . hash('sha256', $css);
+        if (isset($this->prunedStylesheets[$key])) return $this->prunedStylesheets[$key];
         // Reset inventories are recognizable before projection expands their
         // universal subjects into native-block and richtext alternatives.
         $css = $this->propertyPruner?->prune($css) ?? $css;
-        return $this->withoutUnreachableArms($css, $preserveIds);
+        return $this->prunedStylesheets[$key] = $this->withoutUnreachableArms($css, $preserveIds);
     }
 
     private function withoutUnreachableArms(string $css, bool $preserveIds): string

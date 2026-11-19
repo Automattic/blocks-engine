@@ -42,7 +42,10 @@ $rows = array(
     array('a lifted one-track template on a grid box', 'core/group', 'grid-template-columns', array(array(null, '1fr')), array('display' => 'grid'), true),
     array('a lifted `column-gap:normal` on a flex box', 'core/group', 'column-gap', array(array(null, 'normal')), array('display' => 'flex'), true),
     array('a protected column `flex-basis:auto`', 'core/column', 'flex-basis', array(array(null, 'auto')), array('flex-basis' => '300px'), true),
-    array('a paragraph `margin-left:0px` over user-agent margins', 'core/paragraph', 'margin-left', array(array(null, '0px')), array(), true),
+    array('a quote `margin-left:0px` over user-agent inline margins', 'core/quote', 'margin-left', array(array(null, '0px')), array(), true),
+    // A paragraph's user-agent margins are block-direction only (#7099).
+    array('a paragraph `margin-left:0px` with no band', 'core/paragraph', 'margin-left', array(array(null, '0px')), array(), false),
+    array('a paragraph `margin-left:0px` with a narrower band', 'core/paragraph', 'margin-left', array(array(null, '0px'), array(781.0, '5%')), array(), true),
     array('an image `max-width:none` over core image styles', 'core/image', 'max-width', array(array(null, 'none')), array(), true),
     array('a lifted non-initial `width:50%`', 'core/group', 'width', array(array(null, '50%')), array(), true),
 );

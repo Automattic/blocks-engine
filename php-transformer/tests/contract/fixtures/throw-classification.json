@@ -533,7 +533,7 @@
       },
       "InvalidArgumentException('Runtime entity manifest record is invalid or exceeds the 5 MiB payload limit.')": {
         "class": "integrity",
-        "count": 1
+        "count": 2
       },
       "InvalidArgumentException('Runtime entity manifest records must be objects.')": {
         "class": "integrity",

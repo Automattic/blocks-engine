@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlLabel;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ImageLowering;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\LayoutTableLowering;
@@ -159,6 +160,12 @@ final class AuthorStylesheetProjector
      * source, and an auto-height parent leaves the wrapper auto as before.
      * Nesting states the wrapper by the rule's own selector instead of
      * repeating it, and a control's own `height:100%` shares that rule.
+     *
+     * A control whose source parent is its own frame (an exclusive box below
+     * its caption level) keeps that frame as its parent: the provider renders
+     * the frame around its control inside the wrapper. The percentage already
+     * resolves against the source box there, and a nested `:has(>&)` would
+     * land on the frame itself and override the frame's own height.
      */
     private function withProviderFieldWrapperHeight(string $prelude, string $css, AuthorStylesheetProjectionContext $context): string
     {
@@ -170,7 +177,7 @@ final class AuthorStylesheetProjector
             if ( str_contains($selector, '::') ) return $css;
             foreach ( $this->selectors->matchingSourceElements($selector, $context->sourceStyles->parsedSelector($selector), $context) as $element ) {
                 $form = SourceDom::ancestorElement($element, 'form');
-                if ( null === $form || ! FormControlClassifier::isDataEntryControl($element) || array() === FormDispatcher::hostRenderedClasses($form) ) return $css;
+                if ( null === $form || ! FormControlClassifier::isDataEntryControl($element) || array() === FormDispatcher::hostRenderedClasses($form) || self::isInOwnControlFrame($element) ) return $css;
                 ++$controls;
             }
         }
@@ -200,6 +207,24 @@ final class AuthorStylesheetProjector
 
             return $selector . '{' . implode(';', $kept) . ( array() === $kept ? '' : ';' ) . $nested . '}';
         });
+    }
+
+    /**
+     * Whether the control's source parent is a frame of the control's own box:
+     * a wrapper holding only the control, below the level that holds its
+     * caption. Provider substitution renders that frame around the control.
+     */
+    private static function isInOwnControlFrame(DOMElement $control): bool
+    {
+        $parent = $control->parentNode;
+        if ( ! $parent instanceof DOMElement || in_array(strtolower($parent->tagName), array( 'form', 'fieldset', 'label' ), true) ) return false;
+        $label = FormControlLabel::element($control);
+        if ( null === $label || $parent->isSameNode($label) || SourceDom::elementContains($parent, $label) ) return false;
+        foreach ( $parent->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ! $child->isSameNode($control) ) return false;
+        }
+
+        return true;
     }
 
     /**
@@ -1067,12 +1092,17 @@ final class AuthorStylesheetProjector
 
         // Linked author CSS precedes Gutenberg's inline flow resets, so authored margins cannot rely on source order.
         $shim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
-        return implode(',', array_map(static function (string $selector) use ($shim): string {
+        $nativeFlex = 1 === preg_match('/class="(?=[^"]*\bis-layout-flex\b)(?=[^"]*\b' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '\b)[^"]*"/', $context->emittedMarkup);
+        return implode(',', array_map(static function (string $selector) use ($shim, $nativeFlex): string {
             $selector = trim($selector);
             // Legacy single-colon pseudo-elements must remain last. Appending the
             // shim after :before/:after invalidates their entire selector list.
             if ( 1 !== preg_match('/(?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?$/', $selector) ) {
-                return $selector . $shim;
+                // Native cover flex items need one more class tier than
+                // Core's inline reset and our UA-margin restoration. Apply
+                // it uniformly, so source specificity/order still arbitrate.
+                $flexItem = ':where(.wp-block-group.' . AuthorLayoutOwnership::CSS_OWNED_FLOW_CLASS . '.is-layout-flex>*)';
+                return $selector . $shim . ($nativeFlex ? ',' . $selector . $shim . $flexItem . $shim : '');
             }
             return preg_replace('/((?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?)$/', $shim . '$1', $selector, 1) ?? $selector;
         }, $selectors));
@@ -2979,6 +3009,10 @@ final class AuthorStylesheetProjector
                 // Overlay lists still own an inner UL, not the opener's root.
                 $target = $context->selectorProjections->navigationListBoxSubject($path);
                 if ('' === $target) continue;
+                if ($context->selectorProjections->isMergedDeviceNavigationSource($path)
+                    && 'none' === CssValueInspector::comparable($box['display'] ?? '')) {
+                    $target .= ':where(:not(.' . AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS . '))';
+                }
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
                 $display = $this->navigationListBoxDisplay($box['display'] ?? null, $context->selectorProjections->navigationListShownDisplay($path));
                 $rendered = '' === $display ? $box : array('display' => $display) + $box;

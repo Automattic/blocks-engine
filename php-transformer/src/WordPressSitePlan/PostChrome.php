@@ -55,6 +55,8 @@ final class PostChrome
 
     /** Whether every post renders one single template, with no layout groups. */
     private bool $uniformTemplate = false;
+    /** Whether post content is the inner children of a hoisted template frame. */
+    private bool $framedContent = false;
 
     /** @var list<array<string,mixed>> Original site posts, across layout groups. */
     private array $allPosts = array();
@@ -254,6 +256,7 @@ final class PostChrome
         $this->taxonomyEntities = $taxonomyEntities;
         $this->relatedTermScopes = array();
         $this->uniformTemplate = null === $templates;
+        $this->framedContent = false;
         if (null === $templates) {
             $result = $this->factorArticleChrome($pages, $parts, $runtimeDeclarations, $runtimeEntityRecords);
             foreach ($this->orderRetained as $finding) ($this->recordFinding)($finding);
@@ -267,7 +270,11 @@ final class PostChrome
             if (!isset($bySlug[$slug]) || isset($bySlug[$slug]['source_path']) || str_contains($bySlug[$slug]['canonical_block_markup'], '<!-- wp:post-title')) continue;
             $bound[$slug][$index] = $page;
         }
+        $canonical = null;
+        $canonicalSize = 0;
         foreach ($bound as $slug => $posts) {
+            $baseTemplate = $bySlug[$slug];
+            $this->framedContent = str_contains($baseTemplate['canonical_block_markup'], WordPressSitePlan::FRAME_CONTENT_CLASS);
             // Peers establish article boundaries even when optional chrome
             // later divides this template's posts into singleton layouts.
             if (count($posts) < 2) continue;
@@ -307,6 +314,7 @@ final class PostChrome
             }
             // Grouping is speculative; only the final factoring pass owns findings.
             $this->orderRetained = $finalFindings;
+            $collected = array();
             foreach ($groups as $identity => $group) {
                 // Peer evidence is only valid for a missing whole section, not
                 // for a replacement menu, widget or header. A singleton keeps
@@ -314,18 +322,19 @@ final class PostChrome
                 // complete blocks removed and every remaining byte unchanged.
                 // Either layout may be richer: a singleton can supply the
                 // optional-section evidence for the smaller peer group.
+                // Otherwise it only joins a merged section design.
+                $mergeOnly = false;
                 if (1 === count($group)) {
-                    $matches = false;
+                    $mergeOnly = true;
                     foreach ($groups as $peerIdentity => $peerGroup) {
                         if ($peerIdentity !== $identity && (self::identityWithoutSections($identity, $peerIdentity) || self::identityWithoutSections($peerIdentity, $identity))) {
-                            $matches = true;
+                            $mergeOnly = false;
                             break;
                         }
                     }
-                    if (!$matches) continue;
                 }
                 $factored = $this->factorArticleChrome($group, $parts, $runtimeDeclarations, $runtimeEntityRecords, $posts);
-                $layouts = array(array('members' => $group, 'factored' => $factored, 'scope' => ''));
+                $layouts = array(array('members' => $group, 'factored' => $factored, 'scope' => '', 'identity' => $identity, 'merge_only' => $mergeOnly));
                 if (isset($factored['split'])) {
                     // One layout whose posts render different related term
                     // scopes needs one template per scope. The whole layout
@@ -333,38 +342,93 @@ final class PostChrome
                     $layouts = array();
                     foreach ($factored['split'] as $scope => $members) {
                         $members = array_intersect_key($group, array_flip($members));
-                        $layouts[] = array('members' => $members, 'factored' => $this->factorArticleChrome($members, $parts, $runtimeDeclarations, $runtimeEntityRecords, $posts, $group), 'scope' => (string) $scope);
+                        $layouts[] = array('members' => $members, 'factored' => $this->factorArticleChrome($members, $parts, $runtimeDeclarations, $runtimeEntityRecords, $posts, $group), 'scope' => (string) $scope, 'identity' => $identity, 'merge_only' => false);
                     }
                 }
                 foreach ($layouts as $layout) {
-                    $factored = $layout['factored'];
-                    if (null === $factored['single'] || isset($factored['split'])) continue;
-                    // A partial group cannot change the template used by the other
-                    // layouts (or by posts whose complete article must be retained).
-                    $target = '' === $layout['scope'] && count($layout['members']) === count($posts) ? $slug : 'single-post-article-' . substr(hash('sha256', $slug . "\0" . $identity . ('' === $layout['scope'] ? '' : "\0" . $layout['scope'])), 0, 12);
-                    $template = $bySlug[$slug];
-                    $template['slug'] = $target;
-                    $template['target_path'] = 'templates/' . $target . '.html';
-                    $template['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $template['target_path'], $template['target_path']);
-                    $template['canonical_block_markup'] = preg_replace_callback('/<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->/', static fn(array $match): string => $factored['single'], $template['canonical_block_markup'], 1);
-                    $template['content_hash'] = WordPressSitePlan::contentHash($template['canonical_block_markup']);
-                    $bySlug[$target] = $template;
-                    foreach ($factored['pages'] as $index => $page) {
-                        $pages[$index] = $page;
-                        if ($target === $slug) continue;
-                        $pages[$index]['route_template'] = $target;
-                        $pages[$index]['metadata']['post_meta']['_wp_page_template'] = $target;
-                    }
-                    if ($target === $slug) continue;
-                    foreach ($parts as &$part) {
-                        foreach (array('template_slugs', 'excluded_template_slugs') as $field) {
-                            if (in_array($slug, $part['placement'][$field] ?? array(), true)) $part['placement'][$field][] = $target;
-                        }
-                        if (isset($part['placement']['template_wrappers'][$slug])) $part['placement']['template_wrappers'][$target] = $part['placement']['template_wrappers'][$slug];
-                    }
-                    unset($part);
+                    if (null !== $layout['factored']['single'] && !isset($layout['factored']['split'])) $collected[] = $layout;
                 }
             }
+            foreach (self::mergeSectionDesigns($collected) as $layout) {
+                $identity = $layout['identity'];
+                $factored = $layout['factored'];
+                // A partial group cannot change the template used by the other
+                // layouts (or by posts whose complete article must be retained).
+                $target = '' === $layout['scope'] && count($layout['members']) === count($posts) ? $slug : 'single-post-article-' . substr(hash('sha256', $slug . "\0" . $identity . ('' === $layout['scope'] ? '' : "\0" . $layout['scope'])), 0, 12);
+                $template = $baseTemplate;
+                $template['slug'] = $target;
+                $template['target_path'] = 'templates/' . $target . '.html';
+                $template['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $template['target_path'], $template['target_path']);
+                // The slot keeps its own attributes: a frame template's
+                // slot is marked so it adds no box inside that frame.
+                $template['canonical_block_markup'] = preg_replace_callback('/<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->/', static fn(array $match): string => str_replace('<!-- wp:post-content /-->', $match[0], $factored['single']), $template['canonical_block_markup'], 1);
+                $template['content_hash'] = WordPressSitePlan::contentHash($template['canonical_block_markup']);
+                $bySlug[$target] = $template;
+                // The largest factored post design owns the hierarchy slot.
+                // Stable traversal breaks ties without depending on post IDs.
+                if (count($layout['members']) > $canonicalSize) {
+                    $canonical = $target;
+                    $canonicalSize = count($layout['members']);
+                }
+                foreach ($factored['pages'] as $index => $page) {
+                    $pages[$index] = $page;
+                    if ($target === $slug) continue;
+                    $pages[$index]['route_template'] = $target;
+                    $pages[$index]['metadata']['post_meta']['_wp_page_template'] = $target;
+                }
+                if ($target === $slug) continue;
+                foreach ($parts as &$part) {
+                    foreach (array('template_slugs', 'excluded_template_slugs') as $field) {
+                        if (in_array($slug, $part['placement'][$field] ?? array(), true)) $part['placement'][$field][] = $target;
+                    }
+                    if (isset($part['placement']['template_wrappers'][$slug])) $part['placement']['template_wrappers'][$target] = $part['placement']['template_wrappers'][$slug];
+                }
+                unset($part);
+            }
+        }
+        if (null !== $canonical) {
+            $remap = array($canonical => 'single');
+            if ('single' !== $canonical) {
+                // Unfactored articles still need their original frame; do not
+                // put the canonical chrome around their retained full article.
+                $fallback = 'single-post-article-' . substr(hash('sha256', $bySlug['single']['canonical_block_markup']), 0, 12);
+                $remap['single'] = $fallback;
+                $original = $bySlug['single'];
+                $bySlug['single'] = $bySlug[$canonical];
+                unset($bySlug[$canonical]);
+                if (array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null) && 'single' === ($page['route_template'] ?? 'single'))) $bySlug[$fallback] = $original;
+                foreach (array('single', $fallback) as $target) {
+                    if (!isset($bySlug[$target])) continue;
+                    $bySlug[$target]['slug'] = $target;
+                    $bySlug[$target]['target_path'] = 'templates/' . $target . '.html';
+                    $bySlug[$target]['reconciliation_identity'] = WordPressSitePlan::identity('template', 'wordpress-site-plan/' . $bySlug[$target]['target_path'], $bySlug[$target]['target_path']);
+                }
+                foreach ($parts as &$part) {
+                    foreach (array('template_slugs', 'excluded_template_slugs') as $field) {
+                        if (isset($part['placement'][$field])) $part['placement'][$field] = array_values(array_unique(array_map(static fn(string $value): string => $remap[$value] ?? $value, $part['placement'][$field])));
+                    }
+                    if (in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)) {
+                        $field = str_contains($bySlug['single']['canonical_block_markup'], '"slug":"' . $part['slug'] . '"') ? 'template_slugs' : 'excluded_template_slugs';
+                        $other = 'template_slugs' === $field ? 'excluded_template_slugs' : 'template_slugs';
+                        $part['placement'][$field][] = 'single';
+                        $part['placement'][$other] = array_values(array_diff($part['placement'][$other] ?? array(), array('single')));
+                    }
+                    $wrappers = $part['placement']['template_wrappers'] ?? array();
+                    if ($wrappers) {
+                        $part['placement']['template_wrappers'] = array();
+                        foreach ($wrappers as $key => $value) $part['placement']['template_wrappers'][$remap[$key] ?? $key] = $value;
+                    }
+                }
+                unset($part);
+            }
+            foreach ($pages as &$page) {
+                if ('post' !== ($page['post_type'] ?? null)) continue;
+                $target = $remap[$page['route_template'] ?? 'single'] ?? ($page['route_template'] ?? 'single');
+                $page['route_template'] = $target;
+                if ('single' === $target) unset($page['metadata']['post_meta']['_wp_page_template']);
+                else $page['metadata']['post_meta']['_wp_page_template'] = $target;
+            }
+            unset($page);
         }
         foreach ($pages as $index => $page) {
             $source = $page['source_path'] ?? '';
@@ -373,6 +437,136 @@ final class PostChrome
         }
         foreach ($this->orderRetained as $finding) ($this->recordFinding)($finding);
         return array('pages' => $pages, 'parts' => $parts, 'templates' => array_values($bySlug));
+    }
+
+    /**
+     * Merge factored layouts of one URL section into one design. Posts in a
+     * section share the source's design even when optional chrome around the
+     * article (a hero variant, a sidebar column, a trailing banner) makes their
+     * layouts differ. The merged template keeps the chrome every layout shares
+     * before and after the content slot, cut at block boundaries; each post
+     * keeps its own differing middle around its body. Sections whose merged
+     * templates are identical share one layout.
+     *
+     * @param list<array{members:array,factored:array,scope:string,identity:string,merge_only:bool}> $layouts
+     * @return list<array{members:array,factored:array,scope:string,identity:string,merge_only:bool}>
+     */
+    private static function mergeSectionDesigns(array $layouts): array
+    {
+        $sections = array();
+        $result = array();
+        foreach ($layouts as $layout) {
+            // Related term scopes are deliberate template splits.
+            if ('' !== $layout['scope']) {
+                $result[] = $layout;
+                continue;
+            }
+            $parents = array();
+            foreach ($layout['members'] as $member) {
+                $parent = dirname('/' . trim((string) ($member['route']['path'] ?? ''), '/'));
+                $parents[$parent] = ($parents[$parent] ?? 0) + 1;
+            }
+            arsort($parents);
+            $sections[(string) array_key_first($parents)][] = $layout;
+        }
+        $merged = array();
+        foreach ($sections as $section) {
+            usort($section, static fn(array $a, array $b): int => count($b['members']) <=> count($a['members']));
+            // One layout merges too when its members' own templates differ
+            // (a per-post hero image), so each post keeps its own values.
+            $design = count($section) > 1 || count(array_unique($section[0]['factored']['post_templates'] ?? array())) > 1 ? self::mergeDesign($section) : null;
+            foreach (null === $design ? $section : array($design) as $layout) {
+                if ($layout['merge_only']) continue;
+                $key = $layout['factored']['single'];
+                if (isset($merged[$key])) {
+                    $merged[$key]['members'] += $layout['members'];
+                    $merged[$key]['factored']['pages'] += $layout['factored']['pages'];
+                    continue;
+                }
+                $merged[$key] = $layout;
+            }
+        }
+        return array_merge(array_values($merged), $result);
+    }
+
+    /**
+     * One template for layouts that differ only between their shared leading
+     * and trailing chrome; null when the slots or block boundaries disagree.
+     *
+     * @param non-empty-list<array{members:array,factored:array,scope:string,identity:string,merge_only:bool}> $layouts
+     * @return ?array{members:array,factored:array,scope:string,identity:string,merge_only:bool}
+     */
+    private static function mergeDesign(array $layouts): ?array
+    {
+        // Compare every member's own template: the layout template carries one
+        // representative's literal values where its members' values differ.
+        $templates = array();
+        foreach ($layouts as $layout) {
+            foreach (array_keys($layout['factored']['pages']) as $index) {
+                if (!isset($layout['factored']['post_templates'][$index])) return null;
+                $templates[$index] = $layout['factored']['post_templates'][$index];
+            }
+        }
+        $first = reset($templates);
+        $slots = array();
+        foreach ($templates as $index => $template) {
+            if (1 !== preg_match_all('/<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->/', $template, $match, PREG_OFFSET_CAPTURE)) return null;
+            $slots[$index] = array('markup' => $match[0][0][0], 'offset' => $match[0][0][1], 'end' => $match[0][0][1] + strlen($match[0][0][0]));
+        }
+        if (1 !== count(array_unique(array_column($slots, 'markup')))) return null;
+        $slot = reset($slots)['markup'];
+        $prefix = min(array_column($slots, 'offset'));
+        $suffix = min(array_map(static fn(string $template, array $slot): int => strlen($template) - $slot['end'], $templates, $slots));
+        foreach ($templates as $template) {
+            $prefix = min($prefix, strspn($template ^ $first, "\0"));
+            $suffix = min($suffix, strspn(strrev($template) ^ strrev($first), "\0"));
+        }
+        // A middle is a balanced sequence of sibling blocks: it starts at a
+        // block opener and ends after a block closer in every template. Query
+        // loops stay template-owned: their scope is the reason layouts split.
+        $balanced = static function (string $middle): bool {
+            if (1 !== preg_match('/^<!-- wp:/', $middle) || 1 !== preg_match('/-->$/', $middle) || str_contains($middle, '<!-- wp:query ')) return false;
+            $depth = 0;
+            preg_match_all('/<!-- (\/)?wp:[a-z0-9\/-]+(?:\s+\{.*?\})?\s*(\/)?-->/s', $middle, $comments, PREG_SET_ORDER);
+            foreach ($comments as $comment) {
+                if ('' !== ($comment[2] ?? '')) continue;
+                $depth += '' !== ($comment[1] ?? '') ? -1 : 1;
+                if ($depth < 0) return false;
+            }
+            return 0 === $depth;
+        };
+        // Prefer the most shared leading chrome, then the most trailing chrome.
+        preg_match_all('/<!-- wp:/', substr($first, 0, $prefix + 1), $openers, PREG_OFFSET_CAPTURE);
+        preg_match_all('/-->/', substr($first, -max(1, $suffix) - 3), $closers, PREG_OFFSET_CAPTURE);
+        $tail = strlen($first) - max(1, $suffix) - 3;
+        $cuts = array_values(array_filter(array_map(static fn(array $closer): int => strlen($first) - ($tail + $closer[1] + 3), $closers[0]), static fn(int $cut): bool => $cut >= 0 && $cut <= $suffix));
+        $cuts[] = 0;
+        $cuts = array_unique($cuts);
+        rsort($cuts);
+        foreach (array_reverse(array_column($openers[0], 1)) as $prefix) {
+            foreach ($cuts as $cut) {
+                $middles = array();
+                foreach ($templates as $index => $template) {
+                    $middle = substr($template, $prefix, strlen($template) - $cut - $prefix);
+                    if (!$balanced($middle)) continue 2;
+                    $middles[$index] = $middle;
+                }
+                $merged = $layouts[0];
+                $merged['merge_only'] = false;
+                $merged['factored']['single'] = substr($first, 0, $prefix) . $slot . (0 === $cut ? '' : substr($first, -$cut));
+                foreach ($layouts as $i => $layout) {
+                    if (0 !== $i) $merged['members'] += $layout['members'];
+                    foreach ($layout['factored']['pages'] as $index => $page) {
+                        $body = str_replace($slot, (string) $page['canonical_block_markup'], $middles[$index]);
+                        $page['canonical_block_markup'] = $body;
+                        $page['content_hash'] = WordPressSitePlan::contentHash($body);
+                        $merged['factored']['pages'][$index] = $page;
+                    }
+                }
+                return $merged;
+            }
+        }
+        return null;
     }
 
     /** Whether removing whole blocks from a layout yields this post's identity. */
@@ -483,6 +677,7 @@ final class PostChrome
         if (count($scopes) > 1 && !$this->uniformTemplate) return array('pages' => $pages, 'single' => null, 'split' => $scopes);
         $promoteLead = count($leadImages) === count($posts) && count(array_unique(array_column($leadImages, 'asset_token'))) > 1;
         $single = null;
+        $postTemplates = array();
         $singleHasTitle = false;
         $singleMenus = array();
         $bodies = array();
@@ -505,14 +700,17 @@ final class PostChrome
             if ($this->factoringStrandsBindings($post, $transformed['retained'], $runtimeDeclarations, $runtimeEntityRecords)) {
                 return array('pages' => $pages, 'single' => null);
             }
+            // Each post's own template keeps its literal values (a hero image),
+            // which a merged section design moves back into its content.
+            $postTemplates[$indexes[$postIndex]] = preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match) use ($posts): string {
+                $attrs = json_decode($match[2], true);
+                if (!is_array($attrs)) return $match[0];
+                foreach ($posts as $peer) if (($attrs['metadata']['name'] ?? null) === ($peer['title'] ?? null)) unset($attrs['metadata']['name']);
+                return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . ($match[3] ?? '') . '-->';
+            }, $this->listings->replaceArchives($transformed['template'], $posts)) ?? $transformed['template'];
             if (null === $single || (!$singleHasTitle && $transformed['title'])) {
                 $singleHasTitle = $transformed['title'];
-                $single = preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match) use ($posts): string {
-                    $attrs = json_decode($match[2], true);
-                    if (!is_array($attrs)) return $match[0];
-                    foreach ($posts as $peer) if (($attrs['metadata']['name'] ?? null) === ($peer['title'] ?? null)) unset($attrs['metadata']['name']);
-                    return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . ($match[3] ?? '') . '-->';
-                }, $this->listings->replaceArchives($transformed['template'], $posts)) ?? $transformed['template'];
+                $single = $postTemplates[$indexes[$postIndex]];
                 $singleMenus = NavigationEntityProjection::renderedMenus($single);
             }
             // After factoring, a post renders only the single template and its
@@ -540,7 +738,20 @@ final class PostChrome
             if ($promoteLead) $pages[$index]['metadata']['featured_image'] = $leadImages[array_search($index, $indexes, true)];
             elseif (isset($featuredImages[$index])) $pages[$index]['metadata']['featured_image'] = $featuredImages[$index];
         }
-        return array('pages' => $pages, 'single' => $single);
+        // A post's own template differs where it renders its own literal
+        // values (a hero image). Per-post evidence in block metadata and post
+        // blocks (a title an untitled post lacks) render from the post itself,
+        // so a post whose only differences are those renders the shared one.
+        $rendered = static fn(string $markup): string => preg_replace_callback('/<!-- wp:([a-z0-9\/-]+) (\{.*?\})(\s*\/?)-->/s', static function (array $match): string {
+            $attrs = json_decode($match[2], true);
+            if (!is_array($attrs)) return $match[0];
+            unset($attrs['metadata']);
+            return '<!-- wp:' . $match[1] . ' ' . BlockAttributes::encode($attrs) . $match[3] . '-->';
+        }, preg_replace('/<!-- wp:post-(?!content\b)[a-z-]+(?:\s+\{.*?\})?\s*\/-->/s', '', $markup) ?? $markup) ?? $markup;
+        foreach ($postTemplates as $index => $template) {
+            if ($rendered($template) === $rendered((string) $single)) $postTemplates[$index] = $single;
+        }
+        return array('pages' => $pages, 'single' => $single, 'post_templates' => $postTemplates);
     }
 
     /**
@@ -806,6 +1017,27 @@ final class PostChrome
                 foreach ($index->ranges() as $owner) if ($owner['offset'] === $offset && $leaf['offset'] >= $offset && $leaf['offset'] < $offset + $owner['length']) continue 3;
             }
             $slice = substr($index->markup, $leaf['offset'], $leaf['length']);
+            // A breadcrumb can repeat the headline without being the article
+            // title or body. Preserve its list item in the template instead of
+            // abandoning the heading-anchored body selection for this variation.
+            if ('list-item' === PostBlocks::sourceBlockName($slice) && !preg_match('/<a\b/i', $slice) && ListingExcerptProjection::text($slice) === ($post['title'] ?? null)) {
+                for ($parent = $index->parent($leaf); null !== $parent; $parent = $index->parent($parent)) {
+                    $owner = substr($index->markup, $parent['offset'], $parent['length']);
+                    if ('nav' === (PostBlocks::sourceAttributes($owner)['tagName'] ?? null)) {
+                        $attrs = PostBlocks::sourceAttributes($slice);
+                        $attrs['metadata']['bindings']['content'] = array('source' => 'core/post-data', 'args' => array('field' => 'title'));
+                        $bound = preg_replace('/^(<!-- wp:list-item)(?:\s+\{.*?\})?\s*-->/', '$1 ' . BlockAttributes::encode($attrs) . ' -->', $slice) ?? $slice;
+                        $slots[$leaf['offset']] = preg_replace('/(<li\b[^>]*>).*?(<\/li>)/s', '$1$2', $bound) ?? $bound;
+                        continue 2;
+                    }
+                }
+            }
+            // A date linked to its own post (Blogger's timestamp permalink)
+            // varies only by that post's URL and date: post-date renders both.
+            if ('date' === $this->classifyBlock($slice, $post, $route, $index) && $this->listings->linksOnlyToRoute($slice, $route)) {
+                $slots[$leaf['offset']] = PostBlocks::date($slice);
+                continue;
+            }
             if ('paragraph' === PostBlocks::sourceBlockName($slice)) {
                 // Slot identity is structural, never a byte offset or source text.
                 $path = array();
@@ -918,7 +1150,13 @@ final class PostChrome
                 if ($range['offset'] < $card['offset'] || $range['offset'] + $range['length'] > $card['offset'] + $card['length']) continue;
                 $slice = substr($cardMarkup, $range['offset'], $range['length']);
                 if ('paragraph' !== PostBlocks::sourceBlockName($slice)) continue;
-                if ('title' === $this->listings->classifyCardBlock($slice, $card['post'], $card['route'], $cardIndex)) continue;
+                $kind = $this->listings->classifyCardBlock($slice, $card['post'], $card['route'], $cardIndex);
+                if ('title' === $kind) continue;
+                // Each related post's own date renders through post-date.
+                if ('date' === $kind) {
+                    $bound[$range['offset']] = PostBlocks::date($slice);
+                    continue;
+                }
                 $key = 'blocks_engine_post_field_' . substr(hash('sha256', $heading . ':' . $ordinal++), 0, 12);
                 $cardFields[$card['post']['source_path']][$key] = ListingFieldProjection::content(array($slice));
                 $bound[$range['offset']] = ListingFieldProjection::paragraph($slice, PostBlocks::sourceAttributes($slice), $key, '');
@@ -998,11 +1236,22 @@ final class PostChrome
         $content = false;
         $retained = array();
         $cursor = 0;
+        $previousContent = false;
         foreach ($top as $range) {
             if ($range['offset'] > $cursor) {
                 $template .= substr($markup, $cursor, $range['offset'] - $cursor);
             }
             $transformed = $this->transformRange($index, $postIndex, $range, $post, $route, $shared, false, $featuredOffset, $contentRange, $slots);
+            // A post whose article became its template frame holds that
+            // article's children: the frame is the body boundary. As inside
+            // a container, content right after the placed slot joins it.
+            if ($this->framedContent && $transformed['content'] && $previousContent) {
+                $body .= substr($markup, $range['offset'], $range['length']);
+                $retained[] = array('offset' => $range['offset'], 'length' => $range['length']);
+                $cursor = $range['offset'] + $range['length'];
+                continue;
+            }
+            $previousContent = $transformed['content'] && '<!-- wp:post-content /-->' === $transformed['template'];
             $template .= $transformed['template'];
             $body .= $transformed['body'];
             $title = $title || $transformed['title'];
