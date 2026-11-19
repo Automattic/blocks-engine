@@ -73,7 +73,8 @@ final class AuthorSelectorSemanticPreparer
         }
 
         $authorAnalysis = $this->stylesheetAnalysisComposer->composedAuthorSelectorAnalysis(
-            $this->stylesheetAnalysisComposer->authorStylesheetPayloads($html, $staticCss, $authorStyles)
+            $this->stylesheetAnalysisComposer->authorStylesheetPayloads($html, $staticCss, $authorStyles),
+            $authorStyles->siteSelectorPruner
         );
         $authorStyleRules = $authorAnalysis['rules'];
         $authorSelectors = array_merge(...array_column($authorStyleRules, 'selectors'));
