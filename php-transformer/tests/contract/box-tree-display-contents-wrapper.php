@@ -26,10 +26,27 @@ $result = $compile($html, $tree);
 if (str_contains($result['serialized_blocks'], '"className":"preset') || !str_contains($result['serialized_blocks'], '<!-- wp:paragraph ')) {
     throw new RuntimeException('A boxless wrapper must not introduce an editor Group around its editable child.');
 }
+// Removing the editor Group must not rebase the child's style projection
+// onto the outer flex container. Compare its public serialized block with the same
+// contents boundary retained for interaction.
+foreach ($tree['nodes']['n5']['viewports'] as &$observation) {
+    $observation['used_styles']['display'] = 'flex';
+}
+unset($observation);
+foreach ($tree['nodes']['n7']['viewports'] as &$observation) {
+    $observation['used_styles']['flex-grow'] = '2';
+}
+unset($observation);
+$reduced = $compile($html, $tree);
 $tree['nodes']['n6']['interaction_states'] = array('hover');
 $result = $compile($html, $tree);
 if (!str_contains($result['serialized_blocks'], 'preset')) {
     throw new RuntimeException('A stateful contents wrapper must retain its boundary.');
+}
+preg_match('/<!-- wp:paragraph .*?<!-- \/wp:paragraph -->/s', $reduced['serialized_blocks'], $reducedChild);
+preg_match('/<!-- wp:paragraph .*?<!-- \/wp:paragraph -->/s', $result['serialized_blocks'], $retainedChild);
+if (empty($reducedChild[0]) || $reducedChild[0] !== ($retainedChild[0] ?? null)) {
+    throw new RuntimeException('Removing a contents Group must not restyle its child relative to the outer flex container.');
 }
 // Custom hosts use the transparent-hook path, not ordinary box removal.
 // In particular their child must keep the same styling context it had before
