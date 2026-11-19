@@ -36,18 +36,23 @@ function replayViewportEntrances() {
     const signature = (value) => JSON.stringify(value, (_key, field) => field && typeof field === 'object' && !Array.isArray(field)
         ? Object.fromEntries(Object.entries(field).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))
         : typeof field === 'number' ? precise(field) : typeof field === 'string' ? field.replace(/\d*\.\d+/g, number => String(precise(Number(number)))) : field);
-    // The capture proves startup per observed canvas. A canvas it did not
-    // observe takes the capture whose layout the import projects there (the
-    // box-tree width bands): the narrowest observed width at least as wide,
-    // or the widest above them all, at the same canvas height. Startup is
-    // what the initial viewport holds, so another height stays unproven.
-    const startupContext = (contexts) => {
+    // Interpolate within the observed width bands, but do not extrapolate
+    // startup above the widest canvas: a wider layout can move an entrance
+    // into the initial viewport. A different height can only preserve a
+    // pending entrance when it is outside both viewport heights; it cannot
+    // prove that an entrance already started.
+    const startupContext = (contexts, element) => {
         const width = document.documentElement.clientWidth, height = document.documentElement.clientHeight;
         const exact = contexts.find(pose => pose.width === width && pose.height === height);
         if (exact)
             return exact;
-        const band = contexts.filter(pose => pose.height === height).sort((left, right) => left.width - right.width);
-        return band.find(pose => pose.width >= width) ?? band[band.length - 1];
+        const band = contexts.filter(pose => pose.width >= width).sort((left, right) => left.width - right.width);
+        const pose = band[0];
+        if (!pose || pose.height === height)
+            return pose;
+        const rect = element.getBoundingClientRect();
+        if (!pose.started && (rect.top >= Math.max(height, pose.height) || rect.bottom <= 0))
+            return pose;
     };
     for (const element of document.querySelectorAll('[__ENTRANCE__]')) {
         let state;
@@ -196,7 +201,7 @@ function replayViewportEntrances() {
             }, { passive: true });
         }
         if (state.cssAnimations && state.startupContexts) {
-            const startup = startupContext(state.startupContexts);
+            const startup = startupContext(state.startupContexts, element);
             if (startup?.started)
                 start();
             else if (!startup)
