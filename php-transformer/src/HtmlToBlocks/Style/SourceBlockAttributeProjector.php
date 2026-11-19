@@ -47,6 +47,8 @@ final class SourceBlockAttributeProjector
     public const PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS = 'blocks-engine-paragraph-line-box-image';
     public const SYNTHETIC_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-fill';
     public const LAYER_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-layer-fill-image';
+    /** A fill image a later absolutely positioned sibling layer paints over. */
+    public const COVERED_FILL_IMAGE_FIGURE_CLASS = 'blocks-engine-covered-fill-image';
     public const SYNTHETIC_FILL_VIDEO_FIGURE_CLASS = 'blocks-engine-synthetic-video-figure-fill';
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
     /** A core/embed under inherited whitespace preservation its wrapper must not apply. */
@@ -96,6 +98,7 @@ final class SourceBlockAttributeProjector
             self::SYNTHETIC_STRUT_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_FILL_IMAGE_FIGURE_CLASS,
             self::LAYER_FILL_IMAGE_FIGURE_CLASS,
+            self::COVERED_FILL_IMAGE_FIGURE_CLASS,
             self::SYNTHETIC_IMAGE_GAP_CLASS,
             self::PARAGRAPH_LINE_BOX_IMAGE_FIGURE_CLASS,
         ),
@@ -234,6 +237,8 @@ final class SourceBlockAttributeProjector
                     $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['position'] ?? ''));
                     if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
                         $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYER_FILL_IMAGE_FIGURE_CLASS);
+                    } elseif ( $this->laterSiblingIsPositionedLayer($sourceElement) ) {
+                        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::COVERED_FILL_IMAGE_FIGURE_CLASS);
                     }
                 }
             }
@@ -631,6 +636,27 @@ final class SourceBlockAttributeProjector
             }
         }
         return true;
+    }
+
+    /**
+     * A later absolutely positioned sibling paints over an image that fills
+     * their shared parent (a scrim with a caption, a play button over a
+     * poster). It is the front end's design, but in the editor that layer is
+     * a block whose box covers the image block, so every click on the image
+     * selects the layer and the image can never be selected or replaced.
+     */
+    private function laterSiblingIsPositionedLayer(DOMElement $image): bool
+    {
+        for ( $sibling = $image->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
+            if ( ! $sibling instanceof DOMElement ) {
+                continue;
+            }
+            $position = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($sibling)['position'] ?? ''));
+            if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function sourceImageIsFlexOrGridItem(DOMElement $image): bool
