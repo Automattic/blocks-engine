@@ -261,6 +261,10 @@ final class CaptureEvidence
     public const VIEWPORT_ENTRANCE = 'data-blocks-engine-capture-viewport-entrance';
     /** Marks the capture's viewport-entrance activator script; engine-owned, not source behavior. */
     public const VIEWPORT_ENTRANCE_ACTIVATOR = 'data-blocks-engine-capture-viewport-entrances';
+    /** On a runtime-owned region's root: the id of its record in the runtime-owned-regions sidecar. */
+    public const RUNTIME_OWNER = 'data-blocks-engine-capture-runtime-owner';
+    /** On an inline JSON `<script>`: names the capture sidecar it carries. */
+    public const SOURCE_EVIDENCE = 'data-blocks-engine-capture-source-evidence';
 
     // Sidecar schemas.
 
@@ -277,6 +281,8 @@ final class CaptureEvidence
     public const FINITE_BOOTSTRAP_SCHEMA = 'blocks-engine-capture/finite-bootstrap/v1';
     /** Collection filter `finiteBootstrap.status` record. */
     public const COLLECTION_STATUS_SCHEMA = 'blocks-engine-capture/collection-status/v1';
+    /** Inline `runtime-owned-regions` source evidence: capture-proven runtime roots handed to site owners. */
+    public const RUNTIME_OWNED_REGIONS_SCHEMA = 'blocks-engine-capture/runtime-owned-regions/v1';
 
     // Recognized capture runtimes: sha256 of the trimmed `<script>` body.
 
