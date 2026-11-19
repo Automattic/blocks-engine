@@ -20,10 +20,22 @@ $citation = $quote['attrs']['citation'] ?? '';
 if ('core/quote' !== ($quote['blockName'] ?? '')
     || str_contains($citation, 'display:block')
     || !preg_match('/be-inline-geometry-[a-f0-9]+/', $quote['attrs']['className'] ?? '')
-    || !str_contains(json_encode($result), '>cite{display:block;font-style:normal;font-size:9px;font-weight:700;letter-spacing:.16em}')
+    || !str_contains(json_encode($result), '>cite{display:block;font-size:9px}')
     || 'core/list' !== ($result['blocks'][1]['blockName'] ?? '')
     || 'pass' !== ((new BlockValidityValidator())->validateBlocks($result['blocks'])['status'] ?? '')
 ) {
     throw new RuntimeException('Consumed figure captions must style the citation host, not introduce a block inside an inline cite: ' . json_encode($result));
+}
+// Unstyled captions must retain native citation behavior, even under inherited
+// typography. They do not have a separate authored line box to project.
+$plain = (new HtmlTransformer())->transform(
+    '<div style="font-family:serif;font-weight:700;color:red"><figure class="testimonial-card">'
+    . '<blockquote><p>Build with care.</p></blockquote><figcaption><strong>Ada</strong>, Founder</figcaption>'
+    . '</figure></div>'
+)->toArray();
+if (!str_contains($plain['serialized_blocks'], '<cite><strong>Ada</strong>, Founder</cite>')
+    || str_contains(json_encode($plain), '>cite{')
+) {
+    throw new RuntimeException('Unstyled captions must not acquire citation host overrides: ' . json_encode($plain));
 }
 echo "Figure quote caption line box passed\n";

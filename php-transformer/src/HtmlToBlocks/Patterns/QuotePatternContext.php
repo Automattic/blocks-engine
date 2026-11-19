@@ -66,14 +66,21 @@ final class QuotePatternContext
     /** Project the consumed caption's line box onto Core's citation host. */
     public function figureCaptionClass(DOMElement $caption): string
     {
-        $declarations = array('display' => 'block', 'font-style' => 'normal');
-        foreach (array('font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'color') as $property) {
-            $value = $this->styleResolver->authoredInheritedPropertyWinner($caption, $property);
+        // Only the line metrics need to move onto the host. Other typography
+        // already lives on the RichText span; restating inherited styles here
+        // changes native citation styling and can change wrapping elsewhere.
+        $authored = $this->styleResolver->structuralPresentationDeclarations($caption);
+        $declarations = array();
+        foreach (array('font-size', 'line-height') as $property) {
+            $value = isset($authored[$property]) ? $this->styleResolver->authoredInheritedPropertyWinner($caption, $property) : '';
             if ('' !== $value) {
                 $declarations[$property] = $value;
             }
         }
-        return $this->styleResolver->registerFigureCitationStyle($caption, $declarations);
+        if (array() === $declarations) {
+            return '';
+        }
+        return $this->styleResolver->registerFigureCitationStyle($caption, array_merge(array('display' => 'block'), $declarations));
     }
 
     public function citationFromElement(DOMElement $element): string
