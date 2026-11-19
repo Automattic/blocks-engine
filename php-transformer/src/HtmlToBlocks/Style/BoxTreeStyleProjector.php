@@ -119,6 +119,10 @@ final class BoxTreeStyleProjector
      */
     private function mapInlineSupports(array &$attrs, array $base, array $keys, array $observations, string $blockName): array
     {
+        // A block the runtime has no metadata for (a generated block, whose
+        // save builds its markup by hand) declares no style supports, so it
+        // would never serialize a style attribute: the carrier keeps them all.
+        if ('' !== $blockName && null === self::runtime()->blockMetadata($blockName)) return array();
         $baseKey = $keys[0];
         $mapper = new StyleAttributeMapper();
         $existing = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();

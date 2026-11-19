@@ -133,6 +133,8 @@ final class DesignSystem
 
     /** Bound on memoized colorSlug() answers per instance. */
     private const COLOR_SLUG_MEMO_LIMIT = 8192;
+    /** Entries literalPresetColors() lists before it stops. */
+    private const MAX_LITERAL_PRESET_COLORS = 50;
 
     /** Weight of one heading by level, before its size: a page title above section and entry titles. */
     public const HEADING_LEVEL_FACTOR = array(1 => 3, 2 => 2);
@@ -974,7 +976,8 @@ final class DesignSystem
      * - `literal_preset_color_count`: block colour attributes (text,
      *   background, border and its sides, link) that store a literal equal
      *   to a palette preset, so a palette edit skips them; zero when every
-     *   such colour is bound (see PresetBinding).
+     *   such colour is bound (see PresetBinding). literalPresetColors() says
+     *   where each one is.
      * - `unused_font_families`: primary families (the first name of a
      *   `font-family` stack, unquoted) the source stylesheets declare that no
      *   rendered text uses as its primary, so the theme does not offer them.
@@ -1015,10 +1018,7 @@ final class DesignSystem
                     $values = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $attributes['customOverlayTextColor'] ?? null, $attributes['customOverlayBackgroundColor'] ?? null, $style['typography']['fontSize'] ?? null, $style['typography']['fontFamily'] ?? null);
                     foreach (array('padding', 'margin') as $box) foreach ((array) ($style['spacing'][$box] ?? array()) as $value) $values[] = $value;
                     foreach ((array) ($style['spacing']['blockGap'] ?? array()) as $value) $values[] = $value;
-                    $border = ArrayField::array($style, 'border');
-                    $colors = array($style['color']['text'] ?? null, $style['color']['background'] ?? null, $attributes['customOverlayTextColor'] ?? null, $attributes['customOverlayBackgroundColor'] ?? null, $border['color'] ?? null, $style['elements']['link']['color']['text'] ?? null);
-                    foreach (array('top', 'right', 'bottom', 'left') as $side) $colors[] = $border[$side]['color'] ?? null;
-                    foreach ($colors as $color) if (is_string($color) && !str_starts_with($color, 'var:') && null !== $this->colorSlug($color)) $literalPreset++;
+                    $literalPreset += count($this->literalPresetColorsOf($attributes));
                     foreach ($values as $value) {
                         if (!is_string($value) || 1 === preg_match('/^(?:0[a-z%]*|auto|inherit|initial|unset|revert|revert-layer|)$/i', trim($value))) continue;
                         if (str_starts_with($value, 'var:preset|')) $preset++;
@@ -1084,6 +1084,53 @@ final class DesignSystem
             'engine_css_bytes' => $engine + $inline,
             'generated_to_source_css_ratio' => 0 === $source ? null : round($theme / $source, 4),
         );
+    }
+
+    /**
+     * Where `literal_preset_color_count` comes from: each block colour
+     * attribute that stores a literal equal to a palette preset, with the
+     * document holding it, the block, the attribute path, the value and the
+     * preset it equals. At most MAX_LITERAL_PRESET_COLORS entries.
+     *
+     * @param array<string,string> $markups Emitted block documents by identity.
+     * @return list<array{document:string,block:string,attribute:string,value:string,preset:string}>
+     */
+    public function literalPresetColors(array $markups): array
+    {
+        $found = array();
+        foreach ($markups as $document => $markup) {
+            if (!preg_match_all('/<!-- wp:([a-z0-9\/-]+) (\{.*?\}) \/?-->/s', $markup, $matches, PREG_SET_ORDER)) continue;
+            foreach ($matches as [, $block, $json]) {
+                $attributes = json_decode($json, true);
+                if (!is_array($attributes)) continue;
+                foreach ($this->literalPresetColorsOf($attributes) as $attribute => [$value, $preset]) {
+                    $found[] = array('document' => (string) $document, 'block' => $block, 'attribute' => $attribute, 'value' => $value, 'preset' => $preset);
+                    if (count($found) >= self::MAX_LITERAL_PRESET_COLORS) return $found;
+                }
+            }
+        }
+        return $found;
+    }
+
+    /**
+     * Block colour attributes (text, background, border and its sides, link)
+     * storing a literal equal to a palette preset.
+     *
+     * @param array<string,mixed> $attributes
+     * @return array<string,array{0:string,1:string}> Attribute path => [literal, preset slug].
+     */
+    private function literalPresetColorsOf(array $attributes): array
+    {
+        $style = ArrayField::array($attributes, 'style');
+        $border = ArrayField::array($style, 'border');
+        $colors = array('style.color.text' => $style['color']['text'] ?? null, 'style.color.background' => $style['color']['background'] ?? null, 'customOverlayTextColor' => $attributes['customOverlayTextColor'] ?? null, 'customOverlayBackgroundColor' => $attributes['customOverlayBackgroundColor'] ?? null, 'style.border.color' => $border['color'] ?? null, 'style.elements.link.color.text' => $style['elements']['link']['color']['text'] ?? null);
+        foreach (array('top', 'right', 'bottom', 'left') as $side) $colors['style.border.' . $side . '.color'] = $border[$side]['color'] ?? null;
+        $literals = array();
+        foreach ($colors as $attribute => $color) {
+            $slug = is_string($color) && !str_starts_with($color, 'var:') ? $this->colorSlug($color) : null;
+            if (null !== $slug) $literals[$attribute] = array($color, $slug);
+        }
+        return $literals;
     }
 
     private function unnamedPresetCount(): int
