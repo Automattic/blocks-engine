@@ -603,7 +603,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
         }
         $path = $anchor->getNodePath() ?? '';
         $projections = $this->session->authorSelectorProjectionState();
-        if ( (! $stretched || $hasTrailingLabel) && '' !== $path && $projections->isControlPath($path) ) {
+        if ( '' !== $path && $projections->isControlPath($path) ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), ...$projections->semanticCarrierClasses($projections->ensureSemanticMarker($path), $path));
         }
 

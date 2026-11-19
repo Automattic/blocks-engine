@@ -52,4 +52,32 @@ if (str_contains($css, 'data-blocks-engine-richtext-marker')
     || substr_count($out['serialized_blocks'], 'blocks-engine-source-box-paragraph') !== 4) {
     throw new RuntimeException('Native card cues must not leave speculative RichText CSS: ' . $css);
 }
+// Extending eligibility must not remove semantic roles from existing cards.
+// Whole-site styles are shared with those cards: even a universal reset uses
+// the role's subject arm after the source anchor becomes a Group.
+$out = (new HtmlTransformer())->transform(
+    '<style>*,:before,:after{margin:0;padding:0}a{color:inherit}</style>'
+    . '<main><a href="/existing/"><h3>Existing card</h3><p>Summary</p></a>'
+    . '<a href="/new/"><div><h3>New card</h3><p>Summary</p></div><span>→</span></a></main>'
+)->toArray();
+$dom = new DOMDocument();
+@$dom->loadHTML('<?xml encoding="utf-8"?>' . $out['serialized_blocks']);
+$xpath = new DOMXPath($dom);
+$cards = $xpath->query('//div[contains(@class,"blocks-engine-stretched-link")]');
+if (2 !== $cards->length) {
+    throw new RuntimeException('Mixed existing and trailing-label cards must both remain native.');
+}
+foreach ($cards as $card) {
+    if (!str_contains($card->getAttribute('class'), 'blocks-engine-role-semantic')) {
+        throw new RuntimeException('Existing stretched cards must keep their semantic selector projection.');
+    }
+}
+$css = implode('', array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    array_filter($out['assets'], static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? ''))
+));
+if (!str_contains($css, ':where(.blocks-engine-role-semantic.blocks-engine-subject)')
+    || preg_match('/blocks-engine-semantic-[0-9a-f]+-\d+/', $css)) {
+    throw new RuntimeException('Mixed cards must retain the shared semantic reset arm: ' . $css);
+}
 echo "Trailing-label row card contract passed.\n";
