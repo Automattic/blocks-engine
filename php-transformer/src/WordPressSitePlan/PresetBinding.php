@@ -260,6 +260,12 @@ final class PresetBinding
      */
     private ?float $rootPx = null;
 
+    /** Bodies of unconditional-state rules that style core button links. @var list<string> */
+    private array $buttonLinkBodies = array();
+
+    /** Button-link properties some rule sets to a value other than the element's. @var array<string,true>|null */
+    private ?array $buttonLinkCompetitors = null;
+
     /**
      * @param array<int,array<string,mixed>> $assets
      * @param array<string,array<string,mixed>> $usageBySource Design usage keyed by document source path.
@@ -276,6 +282,7 @@ final class PresetBinding
                 // media) cannot override a screen preset, so it does not
                 // block binding.
                 if (!$printOnly && !self::offScreen($ancestors)) $this->indexRule($prelude, $body);
+                if (!$printOnly && !self::offScreen($ancestors) && str_contains($prelude, '.wp-block-button__link') && !preg_match('/:(?:hover|focus|active|disabled)/i', $prelude)) $this->buttonLinkBodies[] = $body;
                 $this->indexVariables($prelude, $body, $conditional ? array_merge($ancestors, array('@media ' . $asset['media'])) : $ancestors, $asset['scopes'] ?? array(array('kind' => 'global')));
                 $font = self::declared(self::declarations($body), 'font-family');
                 $shorthand = self::declared(self::declarations($body), 'font');
@@ -1448,6 +1455,21 @@ final class PresetBinding
      *
      * @return array{list<string>, list<string>}
      */
+    private function competesWithButtonElement(string $property): bool
+    {
+        if (null === $this->buttonLinkCompetitors) {
+            $this->buttonLinkCompetitors = array();
+            foreach ($this->buttonLinkBodies as $body) {
+                foreach (self::declarations($body) as [$name, $value]) {
+                    if (str_starts_with($name, '--') || $this->matchesButtonElement($name, $value)) continue;
+                    $this->buttonLinkCompetitors[$name] = true;
+                    if ('font' === $name) $this->buttonLinkCompetitors['font-size'] = $this->buttonLinkCompetitors['font-weight'] = $this->buttonLinkCompetitors['font-family'] = true;
+                }
+            }
+        }
+        return isset($this->buttonLinkCompetitors[$property]);
+    }
+
     private function partitionButtonDeclarations(string $body): array
     {
         $declarations = CssValueSplitter::splitTopLevel($body, array(';'));
@@ -1462,7 +1484,9 @@ final class PresetBinding
                 default => $family,
             };
             $families[$index] = $family;
-            $matches[$index] = 2 === count($pair) && $this->matchesButtonElement($property, trim($pair[1]));
+            // Another button-link rule that sets this property differently
+            // outranks the element style, so yielding would hand it the paint.
+            $matches[$index] = 2 === count($pair) && $this->matchesButtonElement($property, trim($pair[1])) && !$this->competesWithButtonElement($property);
             if (!$matches[$index]) $retained[$family] = true;
         }
         $shared = $kept = array();
