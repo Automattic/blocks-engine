@@ -377,6 +377,12 @@ final class AnchorLowering implements ButtonLinkLeftovers
                 if ( $visual instanceof DOMElement && 'picture' === strtolower($visual->tagName) ) {
                     $visual = $visual->parentNode;
                 }
+                // A span that holds only the image (an aspect or hover-scale
+                // frame) is part of the same visual region, not phrasing.
+                if ( $visual instanceof DOMElement && 'span' === strtolower($visual->tagName)
+                    && $this->wrapsOnlyMedia($visual) ) {
+                    $visual = $visual->parentNode;
+                }
                 if ( ! $visual instanceof DOMElement || $visual === $anchor
                     || 'div' !== strtolower($visual->tagName) ) {
                     return false;
@@ -417,6 +423,26 @@ final class AnchorLowering implements ButtonLinkLeftovers
         return $hasSummary && ($hasHeading || $hasImage
             || (null !== SourceDom::firstChildElement($anchor, 'div')
                 && null !== SourceDom::firstChildElement($anchor, 'p')));
+    }
+
+    /**
+     * Whether a phrasing frame contains nothing but one image or picture.
+     */
+    private function wrapsOnlyMedia(DOMElement $frame): bool
+    {
+        $media = null;
+        foreach ( $frame->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( null !== $media || ! in_array(strtolower($child->tagName), array('img', 'picture'), true) ) {
+                    return false;
+                }
+                $media = $child;
+            } elseif ( '' !== trim($child->textContent) ) {
+                return false;
+            }
+        }
+
+        return null !== $media;
     }
 
     /**
