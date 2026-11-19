@@ -34,12 +34,12 @@ $assert = static function (bool $ok, string $message): void {
 };
 
 $entrance = '{"attributes":{"data-interact-enter":{"before":null,"after":"done"}},"rootMargin":"0px 0px 0px 0px","threshold":[0.15],"repeat":false}';
-$compile = static function (string $childId) use ($base, $initial, $entrance): array {
+$compile = static function (string $childId, string $boxStyle = '', string $childStyle = '', string $tag = 'p') use ($base, $initial, $entrance): array {
     $html = '<!doctype html><html data-blocks-engine-node-id="html"><head data-blocks-engine-node-id="head"><title data-blocks-engine-node-id="title">Entrance</title>'
         . '<style>#rich-text:not([data-interact-enter]){visibility:hidden}</style></head>'
         . '<body data-blocks-engine-node-id="body"><main class="fold-parent" data-blocks-engine-node-id="parent">'
-        . '<div id="rich-text" class="rich-text-box" data-interact-enter="done" data-blocks-engine-capture-viewport-entrance="' . htmlspecialchars($entrance, ENT_QUOTES) . '" data-blocks-engine-node-id="box">'
-        . '<p' . ('' !== $childId ? ' id="' . $childId . '"' : '') . ' data-blocks-engine-node-id="child">Revealed text</p></div>'
+        . '<div id="rich-text" class="rich-text-box" style="' . htmlspecialchars($boxStyle, ENT_QUOTES) . '" data-interact-enter="done" data-blocks-engine-capture-viewport-entrance="' . htmlspecialchars($entrance, ENT_QUOTES) . '" data-blocks-engine-node-id="box">'
+        . '<' . $tag . ('' !== $childId ? ' id="' . $childId . '"' : '') . ' style="' . htmlspecialchars($childStyle, ENT_QUOTES) . '" data-blocks-engine-node-id="child">Revealed text</' . $tag . '></div>'
         . '<p data-blocks-engine-node-id="sibling">Sibling</p></main></body></html>';
     $tree = $base;
     $tree['source_hash'] = hash('sha256', $html);
@@ -74,6 +74,37 @@ $assert(1 === preg_match('/<!-- wp:paragraph (\{[^\n]*?\}) -->\s*<p id="rich-tex
 $attrs = json_decode($match[1], true);
 $assert('rich-text' === ($attrs['anchor'] ?? null), 'the paragraph keeps the id as its anchor.');
 $assert(json_decode((string) ($attrs['metadata']['blocksEngineRuntimeAttributes']['data-blocks-engine-capture-viewport-entrance'] ?? 'null'), true) === json_decode($entrance, true), 'the paragraph carries the replayed entrance.');
+
+$motion = '--motion-origin-x: 0%;--motion-origin-y: -50%;--motion-rotate-x: -90deg;--motion-rotate-y: 0deg';
+foreach (array(
+    'motion heading' => array($motion, '', 'h2', true),
+    'clip paragraph' => array('--motion-clip-start: inset(0 100% 0 0)', '', 'p', true),
+    'mixed case motion' => array('--MOTION-translate-x: 20px', '', 'h2', true),
+    'child non-motion style' => array($motion, 'color: red', 'h2', true),
+    'non-motion declaration' => array($motion . ';color: red', '', 'h2', false),
+    'other custom property' => array('--other: 1', '', 'h2', false),
+    'child motion conflict' => array($motion, '--motion-origin-x: 50%', 'h2', false),
+    'child distinct motion' => array($motion, '--MOTION-clip-start: none', 'h2', false),
+) as $label => [$boxStyle, $childStyle, $tag, $folds]) {
+    $result = $compile('', $boxStyle, $childStyle, $tag);
+    $node = $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box'];
+    $markup = $result['serialized_blocks'];
+    $assert(($folds ? 'folded' : 'load-bearing') === $node['disposition'], "$label: expected disposition.");
+    if (!$folds) {
+        $assert('capture-marker' === $node['criterion'] && str_contains($markup, 'rich-text-box'), "$label: keeps its Group.");
+        continue;
+    }
+    $block = 'p' === $tag ? 'paragraph' : 'heading';
+    $assert(!str_contains($markup, 'rich-text-box') && 1 === substr_count($markup, '<!-- wp:group '), "$label: emits no wrapper Group.");
+    $assert(1 === preg_match('/<!-- wp:' . $block . ' (\\{[^\\n]*?\\}) -->\\s*<' . $tag . ' id="rich-text"[^>]*>Revealed text/', $markup, $match), "$label: text block takes the id.");
+    $attrs = json_decode($match[1], true);
+    $assert(json_decode((string) ($attrs['metadata']['blocksEngineRuntimeAttributes']['data-blocks-engine-capture-viewport-entrance'] ?? 'null'), true) === json_decode($entrance, true), "$label: text block carries the entrance.");
+    $css = implode("\n", array_column($result['assets'], 'content'));
+    foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarationList($boxStyle) as $declaration) {
+        $assert(1 === preg_match('/\\.([\\w-]+)\\{[^}]*' . preg_quote($declaration['name'], '/') . ':' . preg_quote($declaration['value'], '/') . '(?:[;!} ]|$)/', $css, $carrier)
+            && in_array($carrier[1], explode(' ', $attrs['className'] ?? ''), true), "$label: text block carries " . $declaration['name']);
+    }
+}
 
 $result = $compile('own-id');
 $node = $result['source_reports']['box_tree']['index.html']['classification']['nodes']['box'];

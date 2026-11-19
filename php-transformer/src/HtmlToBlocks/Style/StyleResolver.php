@@ -3560,9 +3560,13 @@ final class StyleResolver implements ElementPresentationResolver
                 $authoredNames[strtolower($name)] ??= $name;
             }
         }
-        // Keyframes are not ordinary selector consumers. Preserve only the
-        // variables they read, not unrelated capture layout variables.
+        // Keyframes are not ordinary selector consumers. Preserve their
+        // variables and entrance motion parameters (including on folded text
+        // children), not unrelated capture layout variables.
         if ($element->hasAttribute(\Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence::VIEWPORT_ENTRANCE)) {
+            foreach ($declarations as $property => $value) {
+                if (preg_match('/^--motion-/i', $property)) $required[$property] = true;
+            }
             $required = $this->inlineCustomPropertiesRequired(
                 $declarations,
                 $required + $this->keyframeCustomProperties($this->session->authorStyleAnalysis()->combinedCss())

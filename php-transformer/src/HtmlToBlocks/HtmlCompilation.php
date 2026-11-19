@@ -2139,7 +2139,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
 
     /**
      * A box folded for its viewport entrance ({@see BoxTreeClassifier}) hands
-     * the entrance and its id to the child that takes its place: the child's
+     * the entrance, its id and inline motion variables to the child that takes its place: the child's
      * block renders both on its root, where the replayed entrance and the
      * state rules keyed on that id find it.
      *
@@ -2156,6 +2156,10 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 $child->setAttribute($name, $box->getAttribute($name));
                 $handed[] = $name;
             }
+        }
+        if ( '' !== trim($box->getAttribute('style')) ) {
+            $child->setAttribute('style', rtrim($child->getAttribute('style'), "; \t\n\r\0\x0B") . ';' . $box->getAttribute('style'));
+            $handed[] = 'style';
         }
         return $handed;
     }
@@ -2253,6 +2257,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // accessible icon link) would drop the box's placement and size,
             // so the box keeps its own block and rule instead.
             $before = $fallbacks;
+            $childStyle = $neutralChild->hasAttribute('style') ? $neutralChild->getAttribute('style') : null;
             $handed = $this->handEntranceToFoldChild($element, $neutralChild);
             $block = $this->convertElement($neutralChild, $fallbacks, $captureUnsupported);
             if ( null === $block || $this->foldCarried($boxId, $block) ) {
@@ -2260,6 +2265,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             }
             foreach ( $handed as $name ) {
                 $neutralChild->removeAttribute($name);
+            }
+            if ( null !== $childStyle ) {
+                $neutralChild->setAttribute('style', $childStyle);
             }
             $fallbacks = $before;
             unset($this->neutralBoxChildren[$boxId], $this->foldedInto[$childId]);

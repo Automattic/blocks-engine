@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
@@ -260,19 +261,22 @@ final class BoxTreeClassifier
 
     /**
      * The sole child a box's viewport entrance and id can move to: a text
-     * block with no id or capture marker of its own, under a box with no
-     * inline style of its own, so its state rules
+     * block with no id, capture marker or inline motion properties of its own,
+     * under a box with only transferable --motion-* inline declarations, so its state rules
      * (keyed on the box's id) and the replayed entrance stay on one element.
      */
     public static function entranceTarget(DOMElement $element, array $node): ?DOMElement
     {
-        // Inline declarations (the motion variables a reveal's keyframes
-        // read, for one) are authored on the box itself; the child cannot
-        // stand in for an element whose own style the entrance resolves.
-        if (1 !== count($node['children']) || '' !== trim($element->getAttribute('style'))) return null;
+        if (1 !== count($node['children'])) return null;
+        foreach (CssRuleAnalyzer::declarationList($element->getAttribute('style')) as $declaration) {
+            if (!preg_match('/^--motion-/i', $declaration['name'])) return null;
+        }
         foreach ($element->childNodes as $child) {
             if (!$child instanceof DOMElement || $node['children'][0] !== $child->getAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
             if (!in_array(strtolower($child->tagName), self::ENTRANCE_TARGETS, true) || $child->hasAttribute('id') || self::carriesCaptureMarker($child)) return null;
+            foreach (CssRuleAnalyzer::declarationList($child->getAttribute('style')) as $declaration) {
+                if (preg_match('/^--motion-/i', $declaration['name'])) return null;
+            }
             return $child;
         }
         return null;
