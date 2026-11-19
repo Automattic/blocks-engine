@@ -257,8 +257,15 @@ final class BoxTreeStyleProjector
     {
         $sourceTag = strtolower($sourceTag);
         if ('core/image' === $blockName && 'img' === $sourceTag) return self::SELECTOR . ' img';
-        if ('core/button' === $blockName) return self::SELECTOR . ' > a.wp-block-button__link';
-        if ('core/buttons' === $blockName && in_array($sourceTag, array('a', 'button'), true)) return self::SELECTOR . ' > .wp-block-button > a.wp-block-button__link';
+        // core/button saves its link as `<button>` when its tagName says so,
+        // and a core/buttons wrapper cannot see which element its source
+        // `<button>` was saved as. A carrier aimed at `a.wp-block-button__link`
+        // would then style nothing and leave the control's source presentation
+        // (an opacity:0 skip button, #5860) behind, so a button-sourced
+        // carrier names the link by its class alone.
+        $link = 'button' === ($attrs['tagName'] ?? '') || ('core/buttons' === $blockName && 'button' === $sourceTag) ? '.wp-block-button__link' : 'a.wp-block-button__link';
+        if ('core/button' === $blockName) return self::SELECTOR . ' > ' . $link;
+        if ('core/buttons' === $blockName && in_array($sourceTag, array('a', 'button'), true)) return self::SELECTOR . ' > .wp-block-button > ' . $link;
         // Only a link survives RichText as the paragraph's own child: a span
         // is lowered to a `<mark>` carrier or unwrapped, so a `> span` rule
         // would match nothing and the transparent paragraph would leave its
