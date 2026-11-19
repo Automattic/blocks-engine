@@ -257,8 +257,13 @@ final class BoxTreeStyleProjector
     {
         $sourceTag = strtolower($sourceTag);
         if ('core/image' === $blockName && 'img' === $sourceTag) return self::SELECTOR . ' img';
-        if ('core/button' === $blockName) return self::SELECTOR . ' > a.wp-block-button__link';
-        if ('core/buttons' === $blockName && in_array($sourceTag, array('a', 'button'), true)) return self::SELECTOR . ' > .wp-block-button > a.wp-block-button__link';
+        // core/button saves its link as `<button>` when its tagName is
+        // `button`, else as `<a>`: a rule qualified by the other tag would
+        // match nothing and leave the control on core's default paint. A
+        // core/buttons does not know its child's tagName, so a source
+        // `<button>` (saved as either) leaves the link unqualified.
+        if ('core/button' === $blockName) return self::SELECTOR . ' > ' . ('button' === ($attrs['tagName'] ?? '') ? 'button' : 'a') . '.wp-block-button__link';
+        if ('core/buttons' === $blockName && in_array($sourceTag, array('a', 'button'), true)) return self::SELECTOR . ' > .wp-block-button > ' . ('a' === $sourceTag ? 'a' : '') . '.wp-block-button__link';
         // Only a link survives RichText as the paragraph's own child: a span
         // is lowered to a `<mark>` carrier or unwrapped, so a `> span` rule
         // would match nothing and the transparent paragraph would leave its
