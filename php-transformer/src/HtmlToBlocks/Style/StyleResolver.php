@@ -5557,7 +5557,7 @@ final class StyleResolver implements ElementPresentationResolver
         return $resting + $this->cascadeWinners($state->matchingRules($element, 'static-conditional'), self::DESKTOP_REFERENCE_WIDTH, null, $inline, true);
     }
 
-    /** Only an element's own class subject can define a portable recipe. */
+    /** Only a selector that matches the element by itself, with no ancestry or position, defines a portable recipe. */
     private function isClassRecipeSelector(string $selector): bool
     {
         $parsed = $this->session->sourceStyleResolutionState()->parsedSelector($selector);
@@ -5565,9 +5565,7 @@ final class StyleResolver implements ElementPresentationResolver
         $compound = $parsed['compounds'][0];
         // Functional selectors can hide ancestry or position constraints.
         // Conservatively retain their ownership in the source stylesheet.
-        return !empty($compound['classes'])
-            && empty($compound['ids']) && empty($compound['attributes'])
-            && empty($compound['not']) && empty($compound['any']) && empty($compound['has'])
+        return empty($compound['not']) && empty($compound['any']) && empty($compound['has'])
             && empty($compound['nth_child']) && empty($compound['nth_type'])
             && empty($compound['first_child']) && empty($compound['last_child']) && empty($compound['last_type'])
             && empty($compound['empty']) && empty($compound['root']) && empty($compound['resting_state_negations'])
