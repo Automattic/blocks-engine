@@ -2614,6 +2614,11 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
             // carrier's to restate.
             $frozen = array_merge(array('animation-name'), array_intersect($scrollAnimation['animated'], array('transform', 'translate', 'rotate', 'scale')));
             foreach ($observations as &$observation) {
+                // A binding can be active only in the wider capture. The
+                // narrower capture's transform is static layout, not a frame
+                // of that animation, and must remain on its carrier.
+                $names = \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel((string) ($observation['used_styles']['animation-name'] ?? 'none'), array(','));
+                if (array() === array_intersect(array_map('trim', $names), array_keys($scrollAnimation['keyframes']))) continue;
                 foreach ($frozen as $property) {
                     if (isset($observation['used_styles'][$property])) $observation['used_styles'][$property] = 'none';
                 }

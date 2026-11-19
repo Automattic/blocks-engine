@@ -30,7 +30,7 @@ $tree['nodes']['n5']['children'] = array('n6');
 $animated = static fn(array $observation, string $matrix): array => array('border_box' => $observation['border_box'], 'used_styles' => array_replace($observation['used_styles'], array('transform' => $matrix, 'animation-name' => 'motion-parallaxScroll-legacy')));
 $tree['nodes']['n6'] = array('children' => array('n7'), 'viewports' => array(
     'desktop' => $animated($box['desktop'], 'matrix(1, 0, 0, 1, 0, 67.5)'),
-    'mobile' => $box['mobile'],
+    'mobile' => array_replace_recursive($box['mobile'], array('used_styles' => array('transform' => 'matrix(1, 0, 0, 1, 13, 17)', 'animation-name' => 'none'))),
 ));
 $tree['nodes']['n7'] = array('children' => array(), 'viewports' => $box);
 $tree['source_hash'] = hash('sha256', $html);
@@ -51,5 +51,6 @@ $assert(1 === preg_match('/@media \(min-width:391px\)\{@media \(prefers-reduced-
 $assert(1 !== preg_match('/\\.' . preg_quote($carrier[1], '/') . '\\{[^}]*animation-composition/', $css), 'An undefined substitution is dropped from the carrier, as the browser computes it: ' . $css);
 $assert(!str_contains($css, 'matrix(1, 0, 0, 1, 0, 67.5)') && !str_contains($css, 'matrix(1,0,0,1,0,67.5)'), 'The frozen parallax frame is not restated: ' . $css);
 $assert(str_contains($result->toArray()['serialized_blocks'], $carrier[1]), 'The binding carrier rides the block.');
+$assert(1 === preg_match('/@media[^{}]*max-width:390px[^{}]*\{[^{}]*\{[^{}]*transform:matrix\(1,\s*0,\s*0,\s*1,\s*13,\s*17\)/', $css), 'The non-animated mobile capture keeps its static transform in its own width band: ' . $css);
 
 echo "Box-tree scroll animation binding passed\n";
