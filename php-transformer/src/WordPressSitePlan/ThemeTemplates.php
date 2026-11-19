@@ -233,6 +233,9 @@ final class ThemeTemplates
                   $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->' . "\n" . '<main class="wp-block-group">' . "\n" . '<!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Page not found</h1><!-- /wp:heading -->' . "\n" . '<!-- wp:search {"label":"Search","showLabel":false,"buttonText":"Search"} /-->' . "\n" . '</main>' . "\n" . '<!-- /wp:group -->';
              } else {
                  $content = $postTemplates[$templateSlug] ?? (('single' === $templateSlug && is_string($singleContent) && '' !== $singleContent) ? $singleContent : '<!-- wp:post-content /-->');
+                 if ('page' === $templateSlug && '<!-- wp:post-content /-->' === $content) {
+                     $content = '<!-- wp:post-title {"level":1,"metadata":{"blocksEngineFallbackTitle":true}} /-->' . "\n" . $content;
+                 }
                  if ('single' === $templateSlug && !$hasCapturedPosts) {
                      $content = '<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} --><main class="wp-block-group"><!-- wp:post-title {"level":1} /--><!-- wp:post-content /--></main><!-- /wp:group -->';
                  }
@@ -242,7 +245,7 @@ final class ThemeTemplates
             }
             // Keep each lifecycle's native content inside the shared app frame.
             if (isset($frames[$templateSlug]) && array() !== $frames[$templateSlug]['shells']) {
-                if ('<!-- wp:post-content /-->' === $content) $content = '<!-- wp:post-content {"className":"' . WordPressSitePlan::FRAME_CONTENT_CLASS . '"} /-->';
+                if ('<!-- wp:post-content /-->' === $content || str_contains($content, '"blocksEngineFallbackTitle":true')) $content = str_replace('<!-- wp:post-content /-->', '<!-- wp:post-content {"className":"' . WordPressSitePlan::FRAME_CONTENT_CLASS . '"} /-->', $content);
                 $content = $frames[$templateSlug]['opening'] . $content . $frames[$templateSlug]['closing'];
             }
             if (is_array($container) && is_string($container['opening'] ?? null) && is_string($container['closing'] ?? null)) return $container['opening'] . $before . $content . "\n" . $container['closing'] . $after;
