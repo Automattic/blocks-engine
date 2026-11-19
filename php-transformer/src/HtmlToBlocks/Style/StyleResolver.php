@@ -1264,6 +1264,14 @@ final class StyleResolver implements ElementPresentationResolver
         if (isset(SourceDeclarations::inline($element)['font-size'])) {
             return '';
         }
+        // With box-tree evidence the author stylesheet is not shipped (ADR
+        // 0005) and the box-tree carrier owns font-size, lifting the author's
+        // breakpoint variants itself. This rescue restates author rules after
+        // that carrier: it would outrank it, and read author custom properties
+        // the route never defines.
+        if (array() !== $this->session->boxTreeViewports()) {
+            return '';
+        }
 
         $hasConditionalFontSize = false;
         foreach ($this->session->sourceStyleResolutionState()->conditionalRules() as $rule) {

@@ -256,7 +256,7 @@ final class SitePlanRun
         $this->timer?->start('compose.site_plan.theme_json');
         $assets = StylesheetScopes::assign($assets, StylesheetScopes::documentsBySource($assetPages, $rootDocuments));
         $projector = new ThemeJsonProjection();
-        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem);
+        $themeProjection = $projector->project($assets, array_column($pages, 'source_path'), $this->designSystem, array_column(array_filter($pages, static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles'])), 'source_path'));
         $assets = $themeProjection['assets'];
         $this->presetBinding?->useThemeDefaults($themeProjection['theme']);
         $pages = $this->presetBoundPages($pages, $documents);
