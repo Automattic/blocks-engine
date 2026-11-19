@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-file-link-label-padded-button-lowers-to-button",
+  "description": "A link to a file whose box is painted by the anchor and padded by its sole inline label lowers to core/button, not core/file, and the label keeps its own padding instead of doubling it onto the link.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-file-link-label-padded-button-lowers-to-button.json",
+    "notes": "Regression coverage for blocks-engine issue 6733."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This control-lowering fixture has no legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>\n.btn { display: inline-block; padding: 0; background-color: #e1e4e6; color: #000; text-decoration: none; cursor: pointer; }\n.btn-inner { display: inline-block; padding: 15px 32px; line-height: 1; font-weight: 700; text-transform: uppercase; white-space: nowrap; }\n</style>\n<div style=\"text-align:left\"><div style=\"overflow: hidden;height: 10px\"></div>\n<a class=\"btn\" href=\"uploads/report-january.pdf\"><span class=\"btn-inner\">january</span></a>\n<div style=\"overflow: hidden;height: 10px\"></div></div>\n<div style=\"text-align:left\"><div style=\"overflow: hidden;height: 10px\"></div>\n<a class=\"btn\" href=\"uploads/report-february.pdf\"><span class=\"btn-inner\">february</span></a>\n<div style=\"overflow: hidden;height: 10px\"></div></div>"
+  },
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.blockName", "assert": "equals", "value": "core/button" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.attrs.url", "assert": "equals", "value": "uploads/report-january.pdf" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.attrs.style.color.background", "assert": "equals", "value": "#e1e4e6" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.attrs.style.spacing.padding", "assert": "equals", "value": { "top": "0", "right": "0", "bottom": "0", "left": "0" } },
+    { "path": "blocks.1.innerBlocks.1.blockName", "assert": "equals", "value": "core/buttons" },
+    { "path": "blocks.1.innerBlocks.1.innerBlocks.0.blockName", "assert": "equals", "value": "core/button" },
+    { "path": "blocks.1.innerBlocks.1.innerBlocks.0.attrs.url", "assert": "equals", "value": "uploads/report-february.pdf" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:file" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-file" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "padding-top:15px" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"uploads/report-january.pdf\"><mark class=\"btn-inner blocks-engine-role-richtext" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"display:inline-block;padding:15px 32px;line-height:1;font-weight:700;text-transform:uppercase;white-space:nowrap;--blocks-engine-richtext-marker:" }
+  ]
+}

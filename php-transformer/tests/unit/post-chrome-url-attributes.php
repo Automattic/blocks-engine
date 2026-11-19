@@ -33,6 +33,7 @@ foreach ($posts as $post) {
         if (!str_contains($content, $titles[$slug] . ' ' . $paragraph . ' paragraph.')) $failures[] = $slug . ' retains its ' . $paragraph . ' paragraph';
     }
     if (preg_match('/Shared header|Footer text|site-header|site-footer/', $content)) $failures[] = $slug . ' post_content excludes header and footer';
+    $content = \Automattic\BlocksEngine\PhpTransformer\Tests\Support\IframeEmbedRendererFixture::render($content);
     $rendered = preg_replace('/<!-- wp:post-content(?:\s+\{.*?\})?\s*\/-->/', $content, $template);
     $id = 'alpha' === $slug ? '1001' : '1002';
     $otherId = 'alpha' === $slug ? '1002' : '1001';

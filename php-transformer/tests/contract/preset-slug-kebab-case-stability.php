@@ -56,7 +56,7 @@ $sizes = array_column($theme['settings']['typography']['fontSizes'], 'slug', 'si
 $assert('heading-28' === ($sizes['28px'] ?? null), 'The off-scale heading size becomes the unit-less preset heading-28 (' . json_encode($sizes['28px'] ?? null) . ')');
 $assert(!in_array('heading-28px', $sizes, true), 'No preset slug keeps the pixel unit.');
 $heading = array_values(array_filter($theme['settings']['typography']['fontSizes'], static fn(array $preset): bool => 'heading-28' === $preset['slug']));
-$assert(1 === preg_match('/^Heading /', (string) ($heading[0]['name'] ?? '')), 'The preset display name still names the heading scale.');
+$assert('Subheading (28px)' === ($heading[0]['name'] ?? null), 'The display name describes the size role without changing the heading-28 slug.');
 
 // Editor validation: a block re-renders its preset classes from its
 // attributes, so the saved classes must be exactly the kebab-case derivation

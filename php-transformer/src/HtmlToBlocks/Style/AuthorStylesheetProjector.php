@@ -578,6 +578,8 @@ final class AuthorStylesheetProjector
                 && 'auto' === trim(str_replace('!important', '', $value)), ARRAY_FILTER_USE_BOTH);
         }
         $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
+        $svgLeaf = $this->svgImageLeafOwnership($prelude, $body, $declarations, $svgImagePrelude, $context);
+        $body = $svgLeaf['body'];
         $imageRule = '' === $imagePrelude
             ? ''
             : $this->imageProjectionBridgeRule($prelude, $imagePrelude, $declarations, $context);
@@ -631,12 +633,12 @@ final class AuthorStylesheetProjector
             . $this->syntheticParagraphItemRule($prelude, $declarations, $context)
             . $this->navigationToggleRowRule($prelude, $declarations, $context);
         if ( array() === $margins ) {
-            $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
+            $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $svgLeaf['rules'] . $imageRule . $imagePlacement['rules'] . $svgImageRule . $editorDocumentRootRule . $navigationItemSpaceRule;
 
             return $this->withEditorProjectionRules($css, $prelude, $body, $context);
         }
 
-        $inner = array_diff_key($declarations, $margins);
+        $inner = array_diff_key($declarations, $margins, $svgLeaf['owned']);
         $rules = '' === $this->styleResolver->cssDeclarationString($inner)
             ? ''
             : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context, $inConditional);
@@ -649,7 +651,8 @@ final class AuthorStylesheetProjector
         $marginGroups = array();
         foreach ( $margins as $property => $value ) {
             $marginPrelude = $this->marginSelectorPrelude($prelude, $context);
-            if ( '' !== $imagePlacement['rules'] && 1 !== preg_match('/\bauto\b/i', $value) ) {
+            // The SVG image leaf owns its margins, auto centering included.
+            if ( isset($svgLeaf['owned'][$property]) || ('' !== $imagePlacement['rules'] && 1 !== preg_match('/\bauto\b/i', $value)) ) {
                 // The leaf placement projection already spaces the image.
                 // Keep non-auto margins off its synthetic wrapper; real source
                 // boxes retain them. Auto margins can still center a wrapper
@@ -669,6 +672,7 @@ final class AuthorStylesheetProjector
         }
         $css = $rules
             . $marginRules
+            . $svgLeaf['rules']
             . $imageRule
             . $imagePlacement['rules']
             . $svgImageRule
@@ -682,12 +686,18 @@ final class AuthorStylesheetProjector
      * Project host display here, never in an after-author reference-value replay.
      * The host's cross-axis alignment rides along: the list-navigation baseline
      * outranks a bare class, and Core's toggle is a direct child of the host.
+     *
+     * A list wrapper that lowers onto the host keeps only a table-cell display:
+     * Core's flex layout (`body .is-layout-flex`) would otherwise take the
+     * host out of the source table row, so its percentage width resolves
+     * against an anonymous cell and the items wrap.
      */
     private function directNavigationHostRule(string $prelude, array $declarations, AuthorStylesheetProjectionContext $context): string
     {
         $lifted = array_intersect_key($declarations, array('display' => true, 'align-items' => true));
         if (array() === $lifted) return '';
-        $targets = array();
+        $tableCell = 'table-cell' === CssValueInspector::declared($declarations, 'display');
+        $targets = $cellTargets = array();
         foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
             // Class compounds only (`.menus`, `.menus.res`): every lifted rule
             // gains the same prefix, so their relative specificity holds.
@@ -701,9 +711,31 @@ final class AuthorStylesheetProjector
                     $targets[] = ':root .wp-block-navigation' . $match[0];
                     break;
                 }
+                if ($tableCell && $this->navigationRootCarriesClasses($match[0], $context->emittedMarkup)) {
+                    $cellTargets[] = ':root .wp-block-navigation' . $match[0];
+                }
             }
         }
-        return array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($lifted) . '}';
+        $cellTargets = array_diff(array_unique($cellTargets), $targets);
+        return (array() === $targets ? '' : implode(',', array_unique($targets)) . '{' . $this->styleResolver->cssDeclarationString($lifted) . '}')
+            . (array() === $cellTargets ? '' : implode(',', $cellTargets) . '{' . $this->styleResolver->cssDeclarationString(array('display' => $declarations['display'])) . '}');
+    }
+
+    /** Whether an emitted core/navigation root carries every class of a class compound (`.a.b`). */
+    private function navigationRootCarriesClasses(string $compound, string $markup): bool
+    {
+        $classes = array_map(static fn (string $class): string => stripslashes($class), array_values(array_filter(explode('.', $compound), static fn (string $class): bool => '' !== $class)));
+        if ( array() === $classes || ! preg_match_all('/<!-- wp:navigation (\{.*?\}) \/?-->/', $markup, $matches) ) {
+            return false;
+        }
+        foreach ( $matches[1] as $json ) {
+            $attributes = json_decode($json, true);
+            $tokens = SourceDom::tokens(is_array($attributes) ? (string) ($attributes['className'] ?? '') : '');
+            if ( array() === array_diff($classes, $tokens) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function withEditorProjectionRules(string $css, string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
@@ -1139,6 +1171,9 @@ final class AuthorStylesheetProjector
             return (array() === $static || '' === $projectedPrelude ? '' : $projectedPrelude . '{' . $this->styleResolver->cssDeclarationString($static) . '}')
                 . (array() === $motionSelectors ? '' : implode(',', $motionSelectors) . '{' . $this->styleResolver->cssDeclarationString($motion) . '}');
         }
+        if ( $inConditional ) {
+            $projectedPrelude = $this->withoutMergedDeviceNavigationHide($prelude, $projectedPrelude, $body, $context);
+        }
         // Centered source dropdown boxes are desktop presentation, not Core's
         // open-overlay stack. Keep the authored rule outside that stack rather
         // than relying on a later, higher-specificity alignment override.
@@ -1487,6 +1522,7 @@ final class AuthorStylesheetProjector
                 }
                 $carriers[$selector][] = array(
                     'marker' => $marker,
+                    'element' => $element,
                     'flattened' => LayoutParticipation::resolve($element, $this->styleResolver)->neutralizeButtonWrapper(),
                     'outranked' => array_filter(
                         $this->styleResolver->outrankedAuthorLonghands($element, $selector, $body),
@@ -1508,6 +1544,7 @@ final class AuthorStylesheetProjector
             $exclusion = $this->nativeButtonEditedPropertyExclusion($name);
             $declarations[$exclusion][ButtonDeclarationRouting::isWrapperOwnedProperty($name) ? 1 : 0][] = array(
                 'declaration' => $name . ':' . $value,
+                'value' => $value,
                 'longhands' => array_map('strtolower', array_keys(SourceDeclarations::parse($name . ':' . CssValueInspector::withoutImportant($value)))),
             );
         }
@@ -1525,7 +1562,8 @@ final class AuthorStylesheetProjector
                     foreach ( $entries as $entry ) {
                         $markers = array_values(array_filter(
                             $matched,
-                            static fn (array $carrier): bool => array() === array_intersect_key($carrier['outranked'], array_flip($entry['longhands']))
+                            fn (array $carrier): bool => array() === array_intersect_key($carrier['outranked'], array_flip($entry['longhands']))
+                                && ! ( $wrapperOwned && $this->resolvesAgainstKeptButtonWrapper($entry['value'], $carrier) )
                         ));
                         if ( array() !== $markers ) {
                             $key = implode(' ', array_column($markers, 'marker'));
@@ -1546,6 +1584,20 @@ final class AuthorStylesheetProjector
             }
         }
         return implode('', $rules);
+    }
+
+    /**
+     * A kept (not flattened) save wrapper already carries the source's wrapper
+     * geometry and is the link's containing block. Restating a percentage on
+     * the link would resolve it a second time against that wrapper and shrink
+     * the painted control to a fraction of its source size.
+     *
+     * @param array{element: DOMElement, flattened: bool} $carrier
+     */
+    private function resolvesAgainstKeptButtonWrapper(string $value, array $carrier): bool
+    {
+        return ! $carrier['flattened']
+            && str_contains($this->styleResolver->customProperties->resolve($value, $carrier['element']), '%');
     }
 
     /**
@@ -1678,6 +1730,45 @@ final class AuthorStylesheetProjector
      * @param list<string> $properties
      * @param list<string> $values
      */
+    /**
+     * A desktop menu and the equivalent copy the source shows at other widths
+     * become one core/navigation that serves every width. A width-gated
+     * `display:none` on the kept copy (`@media(max-width:780px){#menu{display:none}}`)
+     * swapped it for the absorbed copy; on the merged block it would hide the
+     * only menu there. Keep the rule for every other subject and add no weight.
+     */
+    private function withoutMergedDeviceNavigationHide(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( '' === $projectedPrelude
+            || ! str_contains($context->emittedMarkup, AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS)
+            || ! self::anyDeclaredAs($body, array( 'display' ), array( 'none' )) ) {
+            return $projectedPrelude;
+        }
+        $hidesMergedNavigation = false;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! ( $parsed['supported'] ?? false ) ) {
+                continue;
+            }
+            foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                if ( $context->selectorProjections->isMergedDeviceNavigationSource($element->getNodePath() ?? '') ) {
+                    $hidesMergedNavigation = true;
+                    break 2;
+                }
+            }
+        }
+        if ( ! $hidesMergedNavigation ) {
+            return $projectedPrelude;
+        }
+        $guard = ':where(:not(.' . AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS . '))';
+
+        return implode(',', array_map(static function (string $selector) use ($guard): string {
+            $selector = trim($selector);
+            $pseudo = strpos($selector, '::');
+            return false === $pseudo ? $selector . $guard : substr($selector, 0, $pseudo) . $guard . substr($selector, $pseudo);
+        }, CssStylesheetTransformer::splitSelectorList($projectedPrelude) ?? array()));
+    }
+
     private static function anyDeclaredAs(string $body, array $properties, array $values): bool
     {
         foreach ( CssRuleAnalyzer::declarations($body, $properties) as [ 'value' => $value ] ) {
@@ -2053,7 +2144,10 @@ final class AuthorStylesheetProjector
                 $retained[] = $declaration;
             }
         }
-        $original = CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context)) ?? array();
+        // Semantic and RichText arms take one shape whatever the rule
+        // declares, so the placement arm names their subjects like the rule's
+        // own projection rather than listing every carrier on the page.
+        $original = CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context, false, false, true)) ?? array();
         // Only an arm whose subject can be the synthetic figure (a figure,
         // an untyped compound, or an image whose identity moved to it) needs
         // the guard; a typed `body`/`p` subject never matches that wrapper.
@@ -2441,6 +2535,74 @@ final class AuthorStylesheetProjector
             || NativeImageLeafPresentation::isPlacementProperty($property)
             || in_array($property, array('display', 'filter', 'opacity', 'object-fit', 'object-position', 'visibility'), true),
             ARRAY_FILTER_USE_KEY
+        );
+    }
+
+    /**
+     * A class-like subject of an SVG materialized as a standalone image moves
+     * to the synthetic figure, while the SVG image rule replays the same
+     * replaced-box declarations on the image leaf. Box, placement, opacity and
+     * filter declarations then apply twice (doubled margins and borders,
+     * compounded fades). The leaf owns them, as it owns an `<img>`'s
+     * placement: keep them off the synthetic figure, and on every other box
+     * the rule matches. Fill and flex SVGs have their own wrapper projection,
+     * and a rule that also reaches a bare `<img>` keeps its figure paint.
+     *
+     * @param array<string, string> $declarations
+     * @return array{body: string, owned: array<string, string>, rules: string}
+     */
+    private function svgImageLeafOwnership(string $prelude, string $body, array $declarations, string $svgImagePrelude, AuthorStylesheetProjectionContext $context): array
+    {
+        $unchanged = array( 'body' => $body, 'owned' => array(), 'rules' => '' );
+        if ( '' === $svgImagePrelude ) {
+            return $unchanged;
+        }
+        $owned = array_diff_key(
+            $this->imageApplicableSvgDeclarations($declarations),
+            array_flip(array( 'display', 'object-fit', 'object-position', 'visibility' ))
+        );
+        if ( array() === $owned ) {
+            return $unchanged;
+        }
+        $moves = false;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                return $unchanged;
+            }
+            // A root-child subject is projected onto the figure's marker.
+            $moves = $moves || ! $this->subjectStaysOnImage($selector, $context) || AuthorSelectorSemanticPreparer::isRootChildSelector($parsed);
+            foreach ( $this->selectors->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                $tagName = strtolower($element->tagName);
+                if ( 'img' === $tagName
+                    || ( 'svg' === $tagName && ( $this->styleResolver->imageIsFlexOrGridItem($element) || $this->isProjectableFillSvg($element, $declarations) ) ) ) {
+                    return $unchanged;
+                }
+            }
+        }
+        if ( ! $moves ) {
+            return $unchanged;
+        }
+        // Margins keep their own projection; the caller guards it the same way.
+        $guarded = array_filter($owned, static fn (string $property): bool => 'margin' !== $property && ! str_starts_with($property, 'margin-'), ARRAY_FILTER_USE_KEY);
+        $retained = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array(';')) as $declaration ) {
+            $property = strtolower(trim((string) strtok($declaration, ':')));
+            if ( ! isset($guarded[$property]) ) {
+                $retained[] = $declaration;
+            }
+        }
+        $original = array_map(static fn (string $selector): string => self::canMatchSyntheticImageFigure($selector)
+            ? rtrim($selector) . ':not(:where(.' . SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS . '))'
+            : rtrim($selector), CssStylesheetTransformer::splitSelectorList($this->rewriteSelectorPrelude($prelude, $context, false, false, true)) ?? array());
+        if ( array() === $original ) {
+            return $unchanged;
+        }
+
+        return array(
+            'body' => implode(';', $retained),
+            'owned' => $owned,
+            'rules' => array() === $guarded ? '' : implode(',', $original) . '{' . $this->styleResolver->cssDeclarationString($guarded) . '}',
         );
     }
 

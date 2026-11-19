@@ -9,7 +9,10 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Closure;
+use DOMDocument;
 use DOMElement;
+use WeakMap;
 
 final class FormControlClassifier
 {
@@ -28,15 +31,95 @@ final class FormControlClassifier
      */
     public const DATA_ENTRY_TAGS = array( 'input', 'select', 'textarea' );
 
+    /** @var WeakMap<DOMDocument, true>|null */
+    private static ?WeakMap $wholeDocuments = null;
+
+    private static int $controlScanVisits = 0;
+
+    /**
+     * Elements {@see self::controlElements()} has visited since process
+     * start; observable for tests. Form conversion must keep this linear in
+     * the form's size, not grow with controls times descendants (#6707).
+     */
+    public static function controlScanVisits(): int
+    {
+        return self::$controlScanVisits;
+    }
+
     /**
      * The external label host emitted independently from its control: a label
      * that names a control by `for`, or a group by its id in `aria-labelledby`.
+     * An empty label whose `for` names no element of its whole document
+     * associates nothing and carries no copy, so it is no host either.
      */
     public static function isExternalAssociatedLabel(DOMElement $element): bool
     {
         return 'label' === strtolower($element->tagName)
             && ('' !== $element->getAttribute('for') || self::namesLabelledElement($element))
-            && array() === self::controlElements($element);
+            && array() === self::controlElements($element)
+            && !(self::isDangling($element) && !self::hasContent($element));
+    }
+
+    /**
+     * A label whose `for` names no element of its whole document, beside the
+     * content it captions in its box (a field pairing the caption with a
+     * static value): it associates nothing, so it is that content's caption
+     * text, not an association host. A dangling label standing alone in its
+     * box stays authored copy a form provider keeps, and a fragment keeps
+     * every `for`, since its control may live outside the fragment.
+     */
+    public static function isDanglingCaptionLabel(DOMElement $element): bool
+    {
+        if ( !self::isExternalAssociatedLabel($element) || !self::isDangling($element) ) {
+            return false;
+        }
+        $parent = $element->parentNode;
+        foreach ( null !== $parent ? $parent->childNodes : array() as $sibling ) {
+            if ( $sibling !== $element
+                && ( $sibling instanceof DOMElement || ( XML_TEXT_NODE === $sibling->nodeType && '' !== trim((string) $sibling->textContent) ) ) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Record that a parsed source holds a whole document, not a fragment of one. */
+    public static function registerWholeDocument(DOMDocument $document): void
+    {
+        self::$wholeDocuments ??= new WeakMap();
+        self::$wholeDocuments[$document] = true;
+    }
+
+    /** Whether the label's only association is a `for` that names no element of its whole document. */
+    private static function isDangling(DOMElement $element): bool
+    {
+        $for = $element->getAttribute('for');
+        $document = $element->ownerDocument;
+        if ( '' === $for || null === $document || !isset(self::$wholeDocuments[$document]) || self::namesLabelledElement($element) ) {
+            return false;
+        }
+        if ( $document->getElementById($for) instanceof DOMElement ) {
+            return false;
+        }
+        foreach ( (new \DOMXPath($document))->query('//*[@id]') ?: array() as $candidate ) {
+            if ( $candidate instanceof DOMElement && $candidate->getAttribute('id') === $for ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function hasContent(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement || ( XML_TEXT_NODE === $child->nodeType && '' !== trim((string) $child->textContent) ) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Whether another element in the document lists this element's id in `aria-labelledby`. */
@@ -107,6 +190,7 @@ final class FormControlClassifier
     {
         $controls = array();
         foreach ( $form->getElementsByTagName('*') as $control ) {
+            ++self::$controlScanVisits;
             if ( $control instanceof DOMElement && (self::isControlElement($control) || in_array($control, $additionalControls, true)) && ! self::isNonAuthoredControl($control) ) {
                 $controls[] = $control;
             }
@@ -555,7 +639,12 @@ final class FormControlClassifier
             || ('input' === $tagName && 'submit' === self::controlType($control));
     }
 
-    public static function isSubmitLikeControl(DOMElement $control): bool
+    /**
+     * @param (Closure(DOMElement): bool)|null $hasSoleActionControl Whole-form
+     *        fact resolver from {@see self::soleActionControlMemo()}, so a
+     *        caller classifying every control of one form asks it once.
+     */
+    public static function isSubmitLikeControl(DOMElement $control, ?Closure $hasSoleActionControl = null): bool
     {
         $tagName = strtolower($control->tagName);
         if ( 'button' !== $tagName && 'input' !== $tagName ) {
@@ -582,7 +671,29 @@ final class FormControlClassifier
         // A popup or disclosure trigger (a country picker, a menu button)
         // operates a widget, so being the form's only button is no evidence
         // that it submits.
-        return ! self::isWidgetTrigger($control) && self::isSoleFormActionControl($control);
+        if ( self::isWidgetTrigger($control) ) {
+            return false;
+        }
+        $form = self::owningForm($control);
+
+        return null !== $form && ( $hasSoleActionControl ?? self::hasSoleActionControl(...) )($form);
+    }
+
+    /**
+     * A resolver for {@see self::hasSoleActionControl()} that computes the
+     * fact once per form for as long as the caller holds it. Hold it only
+     * across reads that do not change the form.
+     *
+     * @return Closure(DOMElement): bool
+     */
+    public static function soleActionControlMemo(): Closure
+    {
+        /** @var WeakMap<DOMElement, bool> $facts */
+        $facts = new WeakMap();
+
+        return static function (DOMElement $form) use ($facts): bool {
+            return $facts[$form] ??= self::hasSoleActionControl($form);
+        };
     }
 
     private static function isWidgetTrigger(DOMElement $control): bool
@@ -736,21 +847,29 @@ final class FormControlClassifier
         'form',
     );
 
-    private static function isSoleFormActionControl(DOMElement $control): bool
+    /** The nearest `<form>` ancestor that owns a control's submission. */
+    private static function owningForm(DOMElement $control): ?DOMElement
     {
-        $form = null;
         for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
             if ( 'form' === strtolower($parent->tagName) ) {
-                $form = $parent;
-                break;
+                return $parent;
             }
         }
-        if ( ! $form instanceof DOMElement ) {
-            return false;
-        }
 
+        return null;
+    }
+
+    /** Whether the form's authored controls hold exactly one action control. */
+    public static function hasSoleActionControl(DOMElement $form): bool
+    {
+        return self::hasSoleActionControlAmong(self::controlElements($form));
+    }
+
+    /** @param list<DOMElement> $controls A form's authored controls ({@see self::controlElements()}). */
+    public static function hasSoleActionControlAmong(array $controls): bool
+    {
         $actions = 0;
-        foreach ( self::controlElements($form) as $candidate ) {
+        foreach ( $controls as $candidate ) {
             $tagName = strtolower($candidate->tagName);
             $type = self::controlType($candidate);
             if ( 'reset' === $type ) {

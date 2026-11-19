@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ArrayField;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Support\HtmlSerialization;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CaptureEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
@@ -107,7 +108,8 @@ final class WrapperCoalescer
         }
         // Native div/nav ancestry may retain its source boxes within the public
         // nesting budget; do not force it through generated shell transport.
-        $nativeNavigationChain = 'div' === ($ancestorChain[0]['descriptor']['tagName'] ?? null)
+        $nativeNavigationChain = ('div' === ($ancestorChain[0]['descriptor']['tagName'] ?? null)
+                || ('nav' === ($ancestorChain[0]['descriptor']['tagName'] ?? null) && $this->isCapturedControlBox($cursor)))
             && array() !== array_filter($ancestorChain, static fn (array $entry): bool => 'nav' === $entry['descriptor']['tagName'])
             && array() === array_filter($ancestorChain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'], array('div', 'nav'), true))
             && $depth - 1 + $this->nativeBlockHeight($block) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
@@ -143,7 +145,7 @@ final class WrapperCoalescer
             || (str_starts_with($terminalName, 'core/') && ! in_array($terminalName, array( 'core/freeform', 'core/html' ), true)))
             && ('core/freeform' === $terminalName
                 || ('core/group' === $terminalName && array() === ($terminal['innerBlocks'] ?? array()))
-                || array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, ('div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div')), true)))
+                || array() === array_filter($chain, fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, (('div' === ($chain[0]['descriptor']['tagName'] ?? null) || ('nav' === ($chain[0]['descriptor']['tagName'] ?? null) && $this->isCapturedControlBox($terminal))) ? array('div', 'nav') : array('div')), true)))
             && $depth + count($chain) - 1 + $this->nativeBlockHeight($terminal) <= EditabilityPolicy::THRESHOLDS['max_nesting_depth'];
         // Native Group ancestors remain editable even when their terminal is a generated
         // block or an extraction slot. The terminal's transport does not require
@@ -154,7 +156,10 @@ final class WrapperCoalescer
         $hasSourceBox = array() !== array_filter($terminal['innerBlocks'] ?? array(), static fn (array $child): bool =>
             ! str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-synthetic-paragraph')
             || str_contains((string) ($child['attrs']['className'] ?? ''), 'blocks-engine-source-box-paragraph'));
-        $nativeTags = 'div' === ($chain[0]['descriptor']['tagName'] ?? null) ? array('div', 'nav') : array('div');
+        // A captured control owns its own runtime boundary. Keep its native
+        // landmark ancestry, without changing transport for unrelated icons.
+        $nativeTags = ('div' === ($chain[0]['descriptor']['tagName'] ?? null)
+            || ('nav' === ($chain[0]['descriptor']['tagName'] ?? null) && $this->isCapturedControlBox($terminal))) ? array('div', 'nav') : array('div');
         // Extend native transport to semantic-only region chains, not mixed
         // chains whose inner containers already have established lowering.
         if (2 <= count($chain) && array() === array_filter($chain, static fn (array $entry): bool => ! in_array($entry['descriptor']['tagName'] ?? null, array('main', 'section', 'article', 'aside'), true))) {
@@ -189,6 +194,13 @@ final class WrapperCoalescer
         // children serialize in place, just as nativeBlockHeight accounts for.
         if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks'], $depth + ('core/freeform' === ($block['blockName'] ?? null) ? 0 : 1));
         return $block;
+    }
+
+    /** @param array<string,mixed> $block */
+    private function isCapturedControlBox(array $block): bool
+    {
+        return 'core/group' === ($block['blockName'] ?? null)
+            && !empty($block['attrs']['metadata']['blocksEngineControlBox'][CaptureEvidence::DIALOG_TRIGGER]);
     }
 
     /** @param array<string,mixed> $block */
@@ -276,7 +288,8 @@ final class WrapperCoalescer
     {
         $attrs = ArrayField::array($block, 'attrs');
         // A dialog Group's identity includes its runtime shell and bindings.
-        return !empty($attrs['metadata']['blocksEngineRuntimeAttributes'])
+        return $this->isCapturedControlBox($block)
+            || !empty($attrs['metadata']['blocksEngineRuntimeAttributes'])
             || isset($attrs['metadata']['blocksEngineDialog'])
             || isset($attrs['metadata']['blocksEngineChoiceGroup'])
             || !empty($block['_editability_runtime_owned'])
@@ -426,6 +439,10 @@ final class WrapperCoalescer
             }
         }
         $attrs = ArrayField::array($childBlock, 'attrs');
+        // Serialized comment attrs omit a link-leading paragraph's content (see
+        // BlockFactory::commentAttrs()); restore it from the saved markup so the
+        // coalesced paragraph keeps its link.
+        if ('core/paragraph' === ($childBlock['blockName'] ?? '') && ! array_key_exists('content', $attrs) && preg_match('/^\s*<p\b[^>]*>(.*)<\/p>\s*$/is', (string) ($childBlock['innerHTML'] ?? ''), $m)) $attrs['content'] = $m[1];
         $textAlign = $attrs['style']['typography']['textAlign'] ?? $attrs['align'] ?? null;
         if (isset($textAlign, $values['text-align']) && $textAlign === CssValueInspector::comparable($values['text-align'])) unset($values['text-align']);
         if (array() === $values) return null;

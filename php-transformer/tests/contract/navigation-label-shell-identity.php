@@ -24,7 +24,9 @@ $reactHeader = static function (string $a, string $b): array {
     return (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => $files))->toWordPressSitePlanView()['wordpress_site_plan'];
 };
 $headers = static fn(array $plan): int => count(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
-foreach (array(array('_r_1_', '_r_2_', 1), array(':r1:', ':r2:', 1), array('«r1»', '«r2»', 1), array('authored-a', 'authored-b', 1)) as [$a, $b, $expected]) {
+// Render ids share one part. Authored ids keep their identity, so the route
+// with the other id binds its own variant part of the same chrome (#6723).
+foreach (array(array('_r_1_', '_r_2_', 1), array(':r1:', ':r2:', 1), array('«r1»', '«r2»', 1), array('authored-a', 'authored-b', 2)) as [$a, $b, $expected]) {
     $assert($expected === $headers($reactHeader($a, $b)), "Header ids {$a}/{$b} yield {$expected} header part(s).");
 }
 $labelBlock = static fn(string $id, string $title = 'Home', string $url = '/'): string => '<!-- wp:navigation-link ' . json_encode(array('label' => '<span id="' . $id . '" data-element-id="' . $id . '">' . $title . '</span>', 'url' => $url)) . ' /-->';
@@ -114,9 +116,12 @@ $swapped['content'] = str_replace(array(';border-width:0px 0px 4px', 'border-rad
 $swapped['content'] = str_replace(array('z-index:2"', 'z-index:14"'), array('z-index:20"', 'z-index:3"'), $swapped['content']);
 $swappedPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array_merge($rooted, array($swapped))))->toWordPressSitePlanView()['wordpress_site_plan'];
 $swappedHeaders = array_values(array_filter($swappedPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
-$assert(1 === count($swappedHeaders), 'Counter magnitudes share one header even alongside a reordered route.');
+// The swapped route also drops its border, a real presentation difference
+// that may bind its own variant part (#6723); counters alone never split.
+$sharedSwapped = current(array_filter($swappedHeaders, static fn(array $part): bool => 'header' === $part['slug']));
+$assert(is_array($sharedSwapped) && array() === array_diff(array_column($rooted, 'path'), array_keys($sharedSwapped['provenance']['sources'] ?? array())), 'Counter magnitudes share one header even alongside a reordered route.');
 $assert(!in_array($swapped['path'], $swappedHeaders[0]['placement']['source_paths'], true), 'Swapped stacking order is excluded.');
-foreach ($swappedPlan['pages'] as $page) $assert(($page['source_path'] === $swapped['path']) === str_contains($page['canonical_block_markup'], '<header'), 'Only the swapped route keeps its header.');
+foreach ($swappedPlan['pages'] as $page) $assert(!str_contains($page['canonical_block_markup'], '<header'), 'The swapped route binds a variant part; no header stays in content.');
 $bootstrap = current(array_filter($plan['writes'], static fn(array $write): bool => 'functions.php' === $write['target_path']));
 $assert(str_contains($bootstrap['payload']['data'], NavigationAnchorRuntime::retainedLabelSource()), 'Menu-only route bindings install the rendering filter.');
 $headers = array_values(array_filter($plan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));

@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredLabel
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\CommentTextRunBoundaries;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NativeControlState;
@@ -49,7 +50,8 @@ final class AuthoredFormControlBlockConverter
         private readonly Runtime $runtime,
         private readonly Closure $projectSourceTags,
         ?Closure $richTextLabelContent = null,
-        ?Closure $editableLabelContent = null
+        ?Closure $editableLabelContent = null,
+        private readonly ?WrapperCoalescer $wrapperCoalescer = null
     ) {
         $this->richTextLabelContent = $richTextLabelContent ?? static fn (DOMElement $label): string => '';
         $this->editableLabelContent = $editableLabelContent ?? $this->richTextLabelContent;
@@ -72,15 +74,13 @@ final class AuthoredFormControlBlockConverter
         return str_contains($content, '<!--') ? CommentTextRunBoundaries::apply($content) : $content;
     }
 
-    /** Keep an explicit external association even when its control is outside this fragment. */
-    public function label(DOMElement $label): ?array
+    /** Keep an explicit external association, or a native form's unassociated label host. */
+    public function label(DOMElement $label, bool $preserveHost = false): ?array
     {
         if (!FormControlClassifier::isExternalAssociatedLabel($label)) {
             return null;
         }
         $generator = new AuthoredLabelBlockGenerator();
-        $registry = $this->session->requireGeneratedBlockRegistry();
-        $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
         $projected = ($this->projectSourceTags)($label) ?? $label;
         $attrs = array_filter(array(
             'htmlFor' => SourceDom::attr($label, 'for'),
@@ -90,7 +90,21 @@ final class AuthoredFormControlBlockConverter
             'content' => $this->labelContent($label),
             'sourceAttributes' => SourceAttribute::staticAttributes(SourceDom::htmlAttributes($label), array_values(AuthoredLabelBlockGenerator::HOST_ATTRIBUTES)),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
+        if (! $preserveHost && FormControlClassifier::isDanglingCaptionLabel($label)) {
+            // Caption text, not an association: the caption is the core
+            // paragraph's own box, carrying the label's classes and its text as
+            // core RichText (a <label> inside RichText is structural markup the
+            // editor cannot edit). It keeps the block box every label of the
+            // materialized form takes, so the field lays out as before.
+            return $this->createBlock->createBlock('core/paragraph', array_filter(array(
+                'className' => SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ' ' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS),
+                'anchor' => (string) ($attrs['id'] ?? ''),
+                'content' => (string) ($attrs['content'] ?? ''),
+            ), static fn (string $value): bool => '' !== $value), array(), $label);
+        }
         $markup = $generator->markup($attrs);
+        $registry = $this->session->requireGeneratedBlockRegistry();
+        $registry->register(AuthoredLabelBlockGenerator::class, $generator->definition($registry->namespace()));
         return BlockFactory::leaf($registry->blockName(AuthoredLabelBlockGenerator::LOCAL_NAME), $attrs, $markup);
     }
 
@@ -478,7 +492,7 @@ final class AuthoredFormControlBlockConverter
         if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
             $type = 'submit';
         }
-        $projected = ($this->projectSourceTags)($button) ?? $button;
+        $projected = $this->projectedControlContent($button);
         $contentParts = AuthoredButtonBlockGenerator::contentParts($projected);
         $text = trim(preg_replace('/\\s+/', ' ', $button->textContent ?? '') ?? '');
         $attrs = array_filter(array(
@@ -486,7 +500,7 @@ final class AuthoredFormControlBlockConverter
             'id' => SourceDom::attr($button, 'id'),
             'name' => SourceDom::attr($button, 'name'),
             'ariaLabel' => SourceDom::attr($button, 'aria-label'),
-            'className' => SourceDom::attr($button, 'class'),
+            'className' => SourceDom::mergeClassNames(SourceDom::attr($button, 'class'), $this->presentation->boxTreeElementCarrier($button, true)),
             'style' => SourceDom::attr($button, 'style'),
             'text' => '' === $text && array() !== $contentParts ? '' : $this->metadataBuilder->submitText($button, 'Submit'),
             'contentParts' => $contentParts,
@@ -628,6 +642,13 @@ final class AuthoredFormControlBlockConverter
         foreach ($element->childNodes as $child) {
             if ($child instanceof DOMElement) $children[] = $this->cssDrawnControlGroup($child);
         }
+        // Artwork containers use the same selector- and geometry-safe
+        // coalescing as ordinary source containers. The actual button retains
+        // its runtime boundary and is never promoted onto its artwork.
+        if ('div' === strtolower($element->tagName) && 1 === count($children)) {
+            $coalesced = $this->wrapperCoalescer?->coalescedSingleGroupWrapper($element, $children[0]);
+            if (null !== $coalesced) return $coalesced;
+        }
         $attributes = array();
         foreach ($element->attributes as $attribute) {
             $attributes[strtolower($attribute->nodeName)] = $attribute->nodeValue ?? '';
@@ -647,7 +668,7 @@ final class AuthoredFormControlBlockConverter
         if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
             $type = 'submit';
         }
-        $projected = ($this->projectSourceTags)($button) ?? $button;
+        $projected = $this->projectedControlContent($button);
         $parts = AuthoredButtonBlockGenerator::contentParts($projected);
         $safeAttributes = AuthoredButtonBlockGenerator::sourceSafeAttributes($button);
         $ariaLabel = SourceDom::attr($button, 'aria-label');
@@ -667,7 +688,7 @@ final class AuthoredFormControlBlockConverter
             'id' => SourceDom::attr($button, 'id'),
             'name' => SourceDom::attr($button, 'name'),
             'ariaLabel' => $ariaLabel,
-            'className' => SourceDom::attr($button, 'class'),
+            'className' => SourceDom::mergeClassNames(SourceDom::attr($button, 'class'), $this->presentation->boxTreeElementCarrier($button, true)),
             'style' => SourceDom::attr($button, 'style'),
             'text' => array() === $parts ? trim(preg_replace('/\s+/', ' ', $button->textContent ?? '') ?? '') : '',
             'labelWrappers' => AuthoredButtonBlockGenerator::labelWrappers($projected),
@@ -675,6 +696,32 @@ final class AuthoredFormControlBlockConverter
             'sourceAttributes' => $sourceAttributes,
             'disabled' => $button->hasAttribute('disabled'),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
+    }
+
+    /**
+     * The control's saved source markup: its descendants keep their source
+     * classes plus their author-selector tag markers, and on an evidence
+     * route the carrier of their observed box, since an evidence route does
+     * not ship the author rules those source classes address (ADR 0005).
+     * The control's own box gets the same carrier on the block's class
+     * name: the generated block has no style supports to map it into.
+     */
+    private function projectedControlContent(DOMElement $control): DOMElement
+    {
+        $projected = ($this->projectSourceTags)($control);
+        // Never write evidence carriers onto the source DOM.
+        if (!$projected instanceof DOMElement || $projected->isSameNode($control)) {
+            $projected = $control->cloneNode(true);
+            if (!$projected instanceof DOMElement) return $control;
+        }
+        $sources = iterator_to_array($control->getElementsByTagName('*'), false);
+        $targets = iterator_to_array($projected->getElementsByTagName('*'), false);
+        if (count($sources) !== count($targets)) return $projected;
+        foreach ($sources as $index => $source) {
+            $carrier = $this->presentation->boxTreeElementCarrier($source);
+            if ('' !== $carrier) $targets[$index]->setAttribute('class', SourceDom::mergeClassNames($targets[$index]->getAttribute('class'), $carrier));
+        }
+        return $projected;
     }
 
     /** @return array<string, string> */

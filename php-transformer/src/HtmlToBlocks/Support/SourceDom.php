@@ -777,6 +777,30 @@ final class SourceDom
         return $labels;
     }
 
+    /** The element an {@see elementSelector()} path names below $body. */
+    public static function elementAtSelector(DOMElement $body, string $selector): ?DOMElement
+    {
+        $current = $body;
+        foreach ( explode(' > ', $selector) as $step ) {
+            if ( 1 !== preg_match('/^([a-z0-9-]+):nth-of-type\((\d+)\)$/', $step, $match) ) {
+                return null;
+            }
+            $index = (int) $match[2];
+            $next = null;
+            foreach ( $current->childNodes as $child ) {
+                if ( $child instanceof DOMElement && strtolower($child->tagName) === $match[1] && 0 === --$index ) {
+                    $next = $child;
+                    break;
+                }
+            }
+            if ( null === $next ) {
+                return null;
+            }
+            $current = $next;
+        }
+        return $current === $body ? null : $current;
+    }
+
     public static function elementSelector(DOMElement $element): string
     {
         $parts = array();
@@ -918,6 +942,24 @@ final class SourceDom
         }
         foreach ( $removals as $attribute ) {
             $attribute->ownerElement?->removeAttributeNode($attribute);
+        }
+    }
+
+    /**
+     * Removes attributes that SVG does not define and browsers ignore when
+     * rendering the `<svg>` element, such as the `size` prop that Lucide's
+     * runtime leaves on every icon it renders. The icon box still comes from
+     * width/height/CSS. Dropping them before SVG sanitization lets the icon
+     * convert the same way as it would without them.
+     */
+    public static function removeNonRenderingSvgAttributes(DOMElement $root): void
+    {
+        foreach ( $root->getElementsByTagName('svg') as $svg ) {
+            foreach ( array( 'size' ) as $name ) {
+                if ( $svg->hasAttribute($name) ) {
+                    $svg->removeAttribute($name);
+                }
+            }
         }
     }
 

@@ -70,6 +70,12 @@ final class TransformationProvenanceState
         return $this->structureSignals;
     }
 
+    /** The id the next registered source receives. */
+    public function nextSourceId(): int
+    {
+        return $this->nextSourceId;
+    }
+
     /** @param array<string, mixed> $entry */
     public function registerSource(array $entry, bool $startsHidden, bool $wrapperHiddenAtCollapsedViewport = false): int
     {

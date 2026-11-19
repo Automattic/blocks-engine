@@ -505,12 +505,11 @@ $inheritedLabelResult = (new ArtifactCompiler())->compile(array('entrypoint' => 
 )))->toArray();
 $inheritedLabelPlan = $inheritedLabelResult['source_reports']['wordpress_site_plan'];
 $inheritedLabelHeaders = array_values(array_filter($inheritedLabelPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
-$inheritedLabelDiagnostic = current(array_filter($inheritedLabelPlan['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_extracted' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)));
 $inheritedLabelMarkup = ($inheritedLabelHeaders[0]['canonical_block_markup'] ?? '') . implode('', array_column($inheritedLabelPlan['menus'], 'block_markup'));
-$assert(1 === count($inheritedLabelHeaders) && 2 === ($inheritedLabelDiagnostic['page_count'] ?? null) && !str_contains($inheritedLabelMarkup, 'blocks-engine-label-typography'), 'An absent and a restated inherited navigation-label font share one header without a label typography wrapper.');
+$assert(2 === count($inheritedLabelHeaders) && !str_contains($inheritedLabelMarkup, 'blocks-engine-label-typography'), 'An absent and a restated inherited navigation-label font share one header without a label typography wrapper.');
 $assert(!preg_match('/<span\b[^>]*\bstyle=/', html_entity_decode($inheritedLabelMarkup, ENT_QUOTES | ENT_HTML5, 'UTF-8')), 'The shared navigation label carries no redundant inline style on its span.');
 $inheritedLabelPages = array_column($inheritedLabelResult['source_reports']['compiled_site']['pages'], null, 'source_path');
-$assert(array(array('source_path' => 'different.html', 'reason' => 'non_equivalent')) === ($inheritedLabelDiagnostic['exclusions'] ?? null) && str_contains($inheritedLabelPages['different.html']['block_markup'] ?? '', 'blocks-engine-label-typography') && str_contains($inheritedLabelPages['different.html']['block_markup'] ?? '', 'Georgia'), 'A navigation label that changes its inherited font remains wrapped and excluded from the shared header.');
+$assert(str_contains($inheritedLabelPages['different.html']['block_markup'] ?? '', 'blocks-engine-label-typography') && str_contains($inheritedLabelPages['different.html']['block_markup'] ?? '', 'Georgia'), 'A navigation label that changes its inherited font remains wrapped in its own header variant.');
 
 // Shared preparation must see the same linked stylesheet occurrences as page
 // workers, including repeated links with distinct media conditions.

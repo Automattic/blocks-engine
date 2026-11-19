@@ -77,15 +77,21 @@ final class PostBlocks
             && trim($time->parentNode->textContent) === trim($time->textContent)) $target = $time->parentNode;
         $root = $target;
         while ($root->parentNode instanceof \DOMElement) $root = $root->parentNode;
+        // libxml < 2.14 URL-encodes braces in URI attributes on saveHTML().
+        // Restore only plan tokens present in the input, never arbitrary URLs.
+        preg_match_all('/\{\{wordpress-site-plan:asset:[^}]+\}\}/', $slice, $tokens);
+        $restore = array();
+        foreach ($tokens[0] as $token) $restore[str_replace(array('{', '}'), array('%7B', '%7D'), $token)] = $token;
+        $serialize = static fn(\DOMNode $node): string => strtr($document->saveHTML($node) ?: '', $restore);
         $seen = false;
-        $split = static function (\DOMNode $node) use (&$split, &$seen, $target, $document): array {
+        $split = static function (\DOMNode $node) use (&$split, &$seen, $target, $serialize): array {
             if ($node === $target) {
                 $seen = true;
                 return array('', '');
             }
             $ancestor = $target->parentNode;
             while (null !== $ancestor && $ancestor !== $node) $ancestor = $ancestor->parentNode;
-            if (null === $ancestor) return $seen ? array('', $document->saveHTML($node) ?: '') : array($document->saveHTML($node) ?: '', '');
+            if (null === $ancestor) return $seen ? array('', $serialize($node)) : array($serialize($node), '');
             $parts = array('', '');
             foreach ($node->childNodes as $child) {
                 $childParts = $split($child);
@@ -94,7 +100,7 @@ final class PostBlocks
             foreach ($parts as &$part) {
                 if ('' === trim($part)) continue;
                 $clone = $node->cloneNode(false);
-                $shell = $document->saveHTML($clone) ?: '';
+                $shell = $serialize($clone);
                 $end = strpos($shell, '>');
                 $part = (false === $end ? '' : substr($shell, 0, $end + 1)) . $part . '</' . $node->nodeName . '>';
             }
@@ -116,7 +122,7 @@ final class PostBlocks
             if ($element->hasAttribute('class')) $dateClasses[] = $element->getAttribute('class');
         }
         $dateSource = array('className' => implode(' ', array_unique($dateClasses)), 'isLink' => 'a' === $target->tagName);
-        $date = self::date('<!-- wp:paragraph ' . BlockAttributes::encode($dateSource) . ' -->' . ($document->saveHTML($target) ?: '') . '<!-- /wp:paragraph -->');
+        $date = self::date('<!-- wp:paragraph ' . BlockAttributes::encode($dateSource) . ' -->' . $serialize($target) . '<!-- /wp:paragraph -->');
         return '<!-- wp:group ' . BlockAttributes::encode($attrs) . ' --><div class="wp-block-group' . (null === $classes ? '' : ' ' . htmlspecialchars($classes, ENT_QUOTES, 'UTF-8')) . '">' . $paragraph($parts[0]) . $date . $paragraph($parts[1]) . '</div><!-- /wp:group -->';
     }
 
@@ -211,6 +217,26 @@ final class PostBlocks
         $url = is_string($visibleImage) ? $visibleImage : (string) ($attributes['src'] ?? '');
         if (1 !== preg_match('/^' . preg_quote(WordPressSitePlan::TOKEN_PREFIX, '/') . '(asset-[0-9a-f]{16})\}\}$/', $url, $match)) return null;
         return array('asset_token' => $match[1], 'alt' => html_entity_decode((string) ($attributes['alt'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    }
+
+    /**
+     * The box ratio an image block's source img stated with width/height,
+     * reduced to lowest terms (510x286 is "255/143").
+     */
+    public static function intrinsicRatio(string $slice): ?string
+    {
+        if ('image' !== self::sourceBlockName($slice)) return null;
+        $size = self::sourceAttributes($slice)['metadata']['blocksEngineIntrinsicSize'] ?? null;
+        $width = is_array($size) && is_int($size['width'] ?? null) ? $size['width'] : 0;
+        $height = is_array($size) && is_int($size['height'] ?? null) ? $size['height'] : 0;
+        if ($width <= 0 || $height <= 0) return null;
+        $divisor = $width;
+        for ($rest = $height; 0 !== $rest;) {
+            $next = $divisor % $rest;
+            $divisor = $rest;
+            $rest = $next;
+        }
+        return intdiv($width, $divisor) . '/' . intdiv($height, $divisor);
     }
 
     /** @return array<string,mixed> */
