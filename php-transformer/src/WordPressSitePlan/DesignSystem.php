@@ -267,9 +267,10 @@ final class DesignSystem
         $textByColor = $backgroundByColor = $ctaByColor = $prominence = $sizeWeights = $bodySizeWeights = $spacingRows = $widthRows = array();
         $familyWeights = $familyStacks = $headingFamilyWeights = $headingFamilyProminence = $bodyFamilyWeights = array();
         $textOnBackground = $headingSizes = array();
-        $rootPx = $sourceRoles = array();
+        $rootPx = $renderedRoots = $sourceRoles = array();
         foreach ($usageBySource as $usage) {
             $px = (float) ($usage['root_font_size_px'] ?? 16);
+            $renderedRoots[isset($usage['root_font_size_px']) || !($usage['root_font_size_authored'] ?? false) ? CssLength::format($px) : 'unknown'] = true;
             // Older usage payloads lack the evidence flag; retain their explicit
             // root values, but never let a collector's initial-value fallback vote.
             if (($usage['root_font_size_authored'] ?? true) && isset($usage['root_font_size_px']) && $px > 0) {
@@ -357,7 +358,11 @@ final class DesignSystem
         }
         $buttonLook = self::dominantButtonLook($usageBySource);
         if (isset($buttonLook['font_size'])) $headingSizes[$buttonLook['font_size']] = 1;
-        $fontSizes = self::fontSizes($sizeWeights, $bodySizeWeights, $rootFontPx, $headingSizes);
+        // A rem preset resolves against whichever root the rendering document
+        // has. Spell presets in rem only when every document renders the one
+        // root they were measured under; otherwise their pixel value.
+        $sharedRoot = array(CssLength::format($rootFontPx) => true) === $renderedRoots;
+        $fontSizes = self::fontSizes($sizeWeights, $bodySizeWeights, $sharedRoot ? $rootFontPx : 16.0, $headingSizes);
         $fontFamilies = self::fontFamilies($familyWeights, $familyStacks, $headingFamilyWeights, $bodyFamilyWeights, self::familyKey((string) ($root['font_family'] ?? '')), self::unanimousHeadingFamily($usageBySource), $headingFamilyProminence);
         $spacing = self::spacing($spacingRows);
         $lengthNames = array();
