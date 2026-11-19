@@ -18,7 +18,10 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity;
  * classes sit together on an emitted image figure, but none of those
  * figures also carries the compound's engine (`blocks-engine-`) classes.
  * A compound whose source classes no emitted figure shows is not judged:
- * the markup is not proof of where they live. Classes a shipped script
+ * the markup is not proof of where they live, unless one of those classes
+ * is named only in class attributes of emitted elements that are not image
+ * figures (an inline icon `<img class="me-1">`): the markup then shows
+ * every element it lives on, and none is a figure. Classes a shipped script
  * names, editor and WordPress render classes and state tokens are never
  * required: they may be added where the markup does not show them. The
  * figure's link is never judged: an editor can link any image, so the
@@ -40,6 +43,12 @@ final class AbsentImageFigureSelectors
     private array $figures = array();
     /** @var array<string,true> */
     private array $scriptTokens = array();
+    /** @var array<string,int> Class attribute placements on elements that are not image figures. */
+    private array $offFigure = array();
+    /** @var array<string,true> Classes some image figure carries, or named where no class attribute places them. */
+    private array $unplaced = array();
+    /** @var list<string> */
+    private array $texts = array();
     /** @var array<string,bool> */
     private array $verdicts = array();
 
@@ -86,7 +95,18 @@ final class AbsentImageFigureSelectors
     private static function read(array $texts, array $scripts): ?self
     {
         $pruner = new self();
+        $pruner->texts = $texts;
         foreach ($texts as $text) {
+            if (preg_match_all('/<[a-zA-Z][\w-]*\s[^<>]*?\bclass\s*=\s*(?:"([^"]*)"|\'([^\']*)\')[^<>]*>/', $text, $elements, PREG_SET_ORDER)) {
+                foreach ($elements as $element) {
+                    $classes = array_unique(preg_split('/\s+/', trim(($element[1] ?? '') . ($element[2] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: array());
+                    $figure = in_array(self::FIGURE, $classes, true);
+                    foreach ($classes as $class) {
+                        if ($figure) $pruner->unplaced[$class] = true;
+                        else $pruner->offFigure[$class] = ($pruner->offFigure[$class] ?? 0) + 1;
+                    }
+                }
+            }
             $named = preg_match_all('/(?<![\w-])' . self::FIGURE . '(?![\w-])/', $text);
             if (0 === $named) continue;
             $placed = 0;
@@ -163,7 +183,13 @@ final class AbsentImageFigureSelectors
             // Only a carrier restatement of a figure the markup shows is
             // provably absent: its source classes must sit on some figure.
             $source = array_values(array_filter($required, static fn (string $class): bool => !str_starts_with($class, self::ENGINE)));
-            if (count($source) === count($required) || !$this->carried($source)) return false;
+            if (!$this->carried($source)) {
+                // A source class the markup places only off image figures
+                // proves no figure carries the compound.
+                foreach ($source as $class) if (self::FIGURE !== $class && $this->offFigureOnly($class)) continue 2;
+                return false;
+            }
+            if (count($source) === count($required)) return false;
         }
         return true;
     }
@@ -176,6 +202,25 @@ final class AbsentImageFigureSelectors
             return true;
         }
         return false;
+    }
+
+    /**
+     * Whether every mention of a class in the emitted markup and records is
+     * a class attribute of an element that is not an image figure.
+     */
+    private function offFigureOnly(string $class): bool
+    {
+        if (isset($this->unplaced[$class])) return false;
+        $placed = $this->offFigure[$class] ?? 0;
+        if (0 === $placed) return false;
+        $named = 0;
+        $pattern = '/(?<![\w-])' . preg_quote($class, '/') . '(?![\w-])/';
+        foreach ($this->texts as $text) {
+            $named += (int) preg_match_all($pattern, $text);
+            if ($named > $placed) break;
+        }
+        if ($named !== $placed) $this->unplaced[$class] = true;
+        return $named === $placed;
     }
 
     private function exempt(string $class): bool
