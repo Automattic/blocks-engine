@@ -237,6 +237,42 @@ final class ShellExtraction
     }
 
     /** @return array<int,string> Visible text runs of block markup. */
+    /**
+     * The copy a landmark shows: its text runs and its navigation items'
+     * labels and destinations, which live in block attributes.
+     *
+     * @return list<string>
+     */
+    private static function chromeCopy(string $markup): array
+    {
+        $copy = self::textRuns($markup);
+        preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*\/?-->/s', $markup, $items);
+        foreach ($items[1] as $json) {
+            $attrs = json_decode($json, true);
+            if (is_array($attrs)) $copy[] = (string) ($attrs['label'] ?? '') . "\0" . (string) ($attrs['url'] ?? '');
+        }
+        return $copy;
+    }
+
+    /**
+     * Authored classes on a landmark's menus, without generated ones: the
+     * menu's own presentation (a dark start-page bar), not item state.
+     *
+     * @return list<string>
+     */
+    private static function navigationClasses(string $markup): array
+    {
+        preg_match_all('/<!--\s*wp:navigation\s+(\{.*?\})\s*\/?-->/s', $markup, $menus);
+        $classes = array();
+        foreach ($menus[1] as $json) {
+            $tokens = preg_split('/\s+/', (string) (json_decode($json, true)['className'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: array();
+            $authored = array_values(array_filter($tokens, static fn(string $class): bool => !str_starts_with($class, 'blocks-engine-')));
+            sort($authored);
+            $classes[] = implode(' ', $authored);
+        }
+        return $classes;
+    }
+
     private static function textRuns(string $markup): array
     {
         $source = preg_replace(array('/<!--.*?-->/s', '#<(script|style|template)\b[^>]*>.*?</\1\s*>#is'), '', $markup) ?? '';
@@ -2309,7 +2345,12 @@ final class ShellExtraction
                 if (!empty($attrs['anchor'])) $anchors[$attrs['anchor']] = $wrapper;
                 elseif (!empty($attrs['className'])) $wrappers[] = $wrapper;
             }
-            if (array() === $anchors && array() === $wrappers) continue;
+            // Compare the landmark, not the part: a route-edge part can also
+            // carry chrome before it (a skip link) that the route row lacks.
+            $partRows = $this->nestedLandmarkCandidates($partIndex, (string) $part['source_path'], 'header');
+            $partLandmark = 1 === count($partRows) ? $partRows[0]['markup'] : $part['canonical_block_markup'];
+            $partCopy = self::chromeCopy($partLandmark);
+            $partNavigationClasses = self::navigationClasses($partLandmark);
             foreach ($pages as $index => $page) {
                 // Do not promote a second occurrence on a route that already
                 // contributed its shell, or one retained for unsafe placement.
@@ -2328,14 +2369,19 @@ final class ShellExtraction
                 // through the same authored wrapper and copy. Keep its layout
                 // in a route-local part rather than freezing the donor's paint.
                 if (null === $sharedWrapper && empty($attrs['anchor']) && in_array($wrapper, $wrappers, true)) $sharedWrapper = $wrapper;
-                if (null === $sharedWrapper && !$anchorVariant) continue;
-                // Navigation-only exclusions remain route-owned unless layout
-                // differs. A bound control, however, must move with its shell
-                // into an editable part, even when block layout is identical.
-                if (!$anchorVariant && self::textRuns($row['markup']) !== self::textRuns($part['canonical_block_markup'])) continue;
+                // The shared header's copy proves this is the site chrome in a
+                // route-specific presentation (#6723), not an article header:
+                // it moves to its own variant part rather than staying content.
+                $copy = self::chromeCopy($row['markup']);
+                if (!$anchorVariant && (array() === $copy || $copy !== $partCopy)) continue;
                 $bindings = $this->runtimeBindingsInRanges($runtimeDeclarations, $page, array($row));
                 if ($bindings['blocked']) continue;
+                // Navigation-only exclusions (which item is current) remain
+                // route-owned unless layout or the menu's own presentation
+                // differs. A bound control, however, must move with its shell
+                // into an editable part, even when block layout is identical.
                 if (!$anchorVariant && (!empty($attrs['anchor']) || (array() === $bindings['refs'] && str_contains($row['markup'], '<!-- wp:navigation '))) && $wrapper === $sharedWrapper
+                    && self::navigationClasses($row['markup']) === $partNavigationClasses
                     && self::descendantShellLayout($row['markup']) === self::descendantShellLayout($part['canonical_block_markup'])) continue;
                 $hoist = array() === $bindings['refs'] ? null : $this->sharedShellBindingHoist($runtimeDeclarations, $pages, array($index), array($index => $bindings['refs']), $row + array('template_part_markup' => $row['markup']), 'header');
                 if (array() !== $bindings['refs'] && null === $hoist) continue;
