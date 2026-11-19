@@ -187,16 +187,15 @@ final class QuotePattern implements PatternRecognizerInterface
         }
         $quoteChildren = $this->phrasingQuoteChildren($blockquote, $value, $context, $quotes);
         if ( array() !== $quoteChildren ) {
-            // This paragraph replaces a block box, not an inline text run.
-            // Keep it out of the synthetic inline-carrier rules so its margins
-            // separate the quotation from the citation and its line boxes
-            // contribute to the figure's height and the flow below it.
+            // Only an authored quotation margin requires a block box. Without
+            // one, retain the margin-neutral synthetic carrier contract.
+            $spacing = $quotes->figureQuotationSpacing($blockquote);
             $quoteChildren[0] = $createBlock('core/paragraph', array(
                 'content' => $value,
-                'className' => 'blocks-engine-synthetic-paragraph blocks-engine-source-box-paragraph',
+                'className' => 'blocks-engine-synthetic-paragraph' . (array() !== $spacing ? ' blocks-engine-source-box-paragraph' : ''),
                 'style' => array_filter(array(
                     'typography' => $quotes->figureQuotationTypography($blockquote),
-                    'spacing' => $quotes->figureQuotationSpacing($blockquote),
+                    'spacing' => $spacing,
                 )),
             ));
         }

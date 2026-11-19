@@ -20,4 +20,16 @@ if ('core/quote' !== ($quote['blockName'] ?? '')
 ) {
     throw new RuntimeException('Consuming a figure quotation must retain its authored citation separation: ' . $result['serialized_blocks']);
 }
+// A figure with no authored quotation box keeps the existing synthetic
+// paragraph contract; opting it into block layout changes unrelated quotes.
+$unstyled = (new HtmlTransformer())->transform(
+    '<figure><blockquote>“<!---->Quote text.<!---->”</blockquote><figcaption>Publication</figcaption></figure>'
+)->toArray();
+$unstyledText = $unstyled['blocks'][0]['innerBlocks'][0] ?? array();
+if ('blocks-engine-synthetic-paragraph' !== ($unstyledText['attrs']['className'] ?? '')
+    || isset($unstyledText['attrs']['style']['spacing'])
+    || 'pass' !== ((new BlockValidityValidator())->validateBlocks($unstyled['blocks'])['status'] ?? '')
+) {
+    throw new RuntimeException('Unstyled figure quotations must retain their margin-neutral carrier: ' . $unstyled['serialized_blocks']);
+}
 echo "Figure quote citation spacing passed\n";
