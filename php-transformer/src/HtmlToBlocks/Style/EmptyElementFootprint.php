@@ -110,9 +110,13 @@ final class EmptyElementFootprint
     private function isEmptyLayoutItemSpacer(DOMElement $element): bool
     {
         $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMElement || 0 !== SourceDom::childElementCount($element) ) {
+        if ( ! $parent instanceof DOMElement ) {
             return false;
         }
+        // Callers ask only once the subtree has rendered nothing. A table
+        // cell's own width holds even when it wraps empty descendants (#6768);
+        // flex sizing evidence still requires a childless box.
+        $tableCellOnly = 0 !== SourceDom::childElementCount($element);
         $parentProperties = array( 'display', 'flex-direction' );
         $properties = array( 'position', 'display', 'width', 'min-width', 'height', 'min-height', 'flex-basis', 'flex-grow', 'flex' );
         $parentDeclared = $declared = array();
@@ -141,14 +145,14 @@ final class EmptyElementFootprint
                 }
                 return array_merge($base, $inline);
             };
-            if ($this->emptyLayoutItemHasFootprint($element, $read($parentBase, $parentDeclared, $parentInline), $read($base, $declared, $inline))) {
+            if ($this->emptyLayoutItemHasFootprint($element, $read($parentBase, $parentDeclared, $parentInline), $read($base, $declared, $inline), $tableCellOnly)) {
                 return true;
             }
         }
         return false;
     }
 
-    private function emptyLayoutItemHasFootprint(DOMElement $element, array $parentDeclarations, array $declarations): bool
+    private function emptyLayoutItemHasFootprint(DOMElement $element, array $parentDeclarations, array $declarations, bool $tableCellOnly = false): bool
     {
         if ( $this->isOutOfFlow($declarations)
             || in_array(CssValueInspector::declared($declarations, 'display'), array( 'none', 'contents' ), true)
@@ -167,7 +171,7 @@ final class EmptyElementFootprint
             }
         }
         $display = CssValueInspector::declared($parentDeclarations, 'display');
-        if ( ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
+        if ( $tableCellOnly || ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
             return false;
         }
 
