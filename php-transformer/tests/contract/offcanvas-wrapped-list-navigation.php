@@ -21,7 +21,8 @@ $html = '<!doctype html><html><head><style>.navbar-toggler{display:none}'
     . '<li class="nav-item"><a class="nav-link" href="https://example.com/events/">Events</a></li></ul>'
     . '</div></div></div></nav></header><main><h1>Contact</h1></main></body></html>';
 
-$plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray()['source_reports']['wordpress_site_plan'];
+$result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
+$plan = $result['source_reports']['wordpress_site_plan'];
 $markup = implode("\n", array_column($plan['template_parts'], 'canonical_block_markup'));
 
 $failures = array();
@@ -44,6 +45,12 @@ if ( 1 !== preg_match('/<!-- wp:navigation (\{[^>]*\}) \/?-->/', $markup, $match
 }
 if ( 1 === preg_match('/<!-- wp:group \{[^>]*"className":"[^"]*\boffcanvas\b/', $markup) ) {
     $failures[] = 'offcanvas panel survives as a core/group around the navigation';
+}
+
+// Closed, the navigation is the toggle's slot in the navbar row: the panel's
+// offcanvas width and full height must not size it off that row.
+if ( 1 !== preg_match('/blocks-engine-native-navigation-toggle-[a-f0-9]{12}\{box-sizing:border-box!important;padding:0!important[^}]*width:auto!important;height:auto!important;max-width:none!important/', stripslashes(json_encode($result, JSON_UNESCAPED_SLASHES))) ) {
+    $failures[] = 'the closed navigation host keeps the panel box size';
 }
 
 if ( array() !== $failures ) {
