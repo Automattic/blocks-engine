@@ -790,7 +790,14 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
 
-        // An SVG directly beside a block starts a phrasing-to-block transition.
+        // An SVG the author lays out as a block-level box is not phrasing
+        // content, so it opens no line box beside its block siblings: it is a
+        // standalone image block, like the same SVG without siblings.
+        if ( $this->hasBlockLevelDisplay($element) ) {
+            return false;
+        }
+
+        // An inline SVG directly beside a block starts a phrasing-to-block transition.
         // A paragraph is the editor-valid native host for the image object.
         for ( $sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
             if ( $sibling instanceof DOMElement ) {
@@ -806,6 +813,17 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return false;
+    }
+
+    /** Whether unconditional source CSS gives the SVG a block-level outer display. */
+    private function hasBlockLevelDisplay(DOMElement $element): bool
+    {
+        $display = CssValueInspector::declared($this->styleResolver->structuralPresentationDeclarations($element), 'display');
+        if ( '' === $display ) {
+            $display = CssValueInspector::declared($this->styleResolver->authorStructuralDeclarations($element), 'display');
+        }
+
+        return in_array($display, array( 'block', 'flow-root', 'list-item', 'flex', 'grid', 'table' ), true);
     }
 
     /**

@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssFontFamily;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssColor;
@@ -615,12 +616,27 @@ final class ThemeJsonProjection
         return in_array($selector, array('a', 'button'), true) ? 'element:' . $selector : null;
     }
 
-    /** @return array<string,string> */
+    /**
+     * Unimportant declarations in source order. An expandable `font`
+     * shorthand counts as the longhands it sets, so an element typeface
+     * authored through it is projected and recorded like `font-family`.
+     *
+     * @return array<string,string>
+     */
     private function declarations(string $body): array
     {
         $declarations = array();
         foreach (CssRuleAnalyzer::declarationList($body) as ['name' => $name, 'value' => $value]) {
-            if ('' !== $name && '' !== $value && !CssPropertyName::startsLikeNumber($name) && !str_contains(strtolower($value), '!important')) $declarations[$name] = $value;
+            if ('' === $name || '' === $value || CssPropertyName::startsLikeNumber($name) || str_contains(strtolower($value), '!important')) continue;
+            // Fluid sizes follow the same projection path as authored font-size;
+            // they must not prevent the shorthand's family from being recorded.
+            $longhands = 'font' === strtolower($name) ? CssFontShorthand::expand($value, true) : array();
+            if (array() === $longhands) { $declarations[$name] = $value; continue; }
+            unset($declarations[$name]);
+            foreach ($longhands as $longhand => $longhandValue) {
+                unset($declarations[$longhand]);
+                $declarations[$longhand] = $longhandValue;
+            }
         }
         return $declarations;
     }

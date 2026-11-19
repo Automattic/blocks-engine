@@ -36,6 +36,14 @@ use DOMText;
  * background properties a media-conditional rule can change for them
  * (`conditional`).
  *
+ * A `light-dark()` colour reads as its light argument, the scheme a
+ * WordPress theme renders by default, and is scheme-conditional like a
+ * `prefers-color-scheme` variant: a fixed text or element colour would
+ * override the dark argument. The root canvas is the exception, because the
+ * author rule that paints it outranks the global-styles body background.
+ * schemeColorFindings() names the values whose dark argument no theme.json
+ * token carries.
+ *
  * The result is per-document aggregate data. Colours are canonical hex,
  * sizes are pixels, family stacks keep their authored spelling, and weights
  * are integers so that adding documents up in any order gives the same
@@ -98,6 +106,11 @@ final class DesignUsageCollector
     private \SplObjectStorage $buttonElements;
     private float $rootPx = 16.0;
     private int $elements = 0;
+    /** @var array<string,true> Authored `light-dark()` colour values, by value. */
+    private array $schemeColors = array();
+
+    /** Upper bound on the `light-dark()` values one finding lists. */
+    private const SCHEME_COLOR_LIMIT = 10;
 
     public function __construct(private readonly StyleResolver $resolver)
     {
@@ -113,7 +126,7 @@ final class DesignUsageCollector
         foreach ($buttonElements as $element) $this->buttonElements->offsetSet($element);
         $this->text = $this->backgrounds = $this->spacing = $this->widths = $this->classStyles = array();
         $this->elements = 0;
-        $this->headingTypography = $this->buttonLooks = array();
+        $this->headingTypography = $this->buttonLooks = $this->schemeColors = array();
         $resolvedRootPx = $this->resolver->documentRootFontSize($body);
         $this->rootPx = $resolvedRootPx ?? 16.0;
         $html = $body->parentNode instanceof DOMElement && 'html' === strtolower($body->parentNode->tagName) ? $body->parentNode : null;
@@ -159,10 +172,11 @@ final class DesignUsageCollector
             )),
         );
 
-        $rootColorTokens = array();
+        $rootColorTokens = $rootDesignTokens = array();
         // Root-declared tokens only: resolving them needs no per-element cascade.
         foreach ($this->resolver->customProperties->root() as $name => $_value) {
             $value = $this->resolver->customProperties->resolve('var(' . $name . ')');
+            $rootDesignTokens[$name] = $value;
             // Channel tuples become colours only in their consuming function.
             foreach (array($value, 'hsl(' . $value . ')') as $candidate) {
                 if (!CssColor::opaque($candidate)) continue;
@@ -177,6 +191,7 @@ final class DesignUsageCollector
             'root_font_size_authored' => $this->resolver->hasAuthoredHtmlFontSize($body),
             'root' => $root,
             'root_color_tokens' => $rootColorTokens,
+            'root_design_tokens' => $rootDesignTokens,
             'text' => self::rows($this->text),
             'backgrounds' => self::rows($this->backgrounds),
             'spacing' => self::rows($this->spacing),
@@ -276,7 +291,7 @@ final class DesignUsageCollector
                 $value = 'background' === $field ? $background : ($lookDeclarations[$property] ?? null);
                 $family = 'background' === $field ? 'background' : $property;
                 $color = in_array($field, array('background', 'color'), true);
-                $conditional = in_array($family, $context['conditional'], true) || $this->resolver->hasConditionalStyleFamily($element, $family)
+                $conditional = in_array($family, $context['conditional'], true) || ($color && self::schemeDependent((string) $value)) || $this->resolver->hasConditionalStyleFamily($element, $family)
                     || $this->resolver->readsConditionalCustomProperty($element, 'padding' === $property ? array_merge(array('padding'), array_keys(self::PADDING_SIDES)) : array($property, $family));
                 if (null !== $value && !$conditional && ($color || !$this->resolver->hasStateStyleFamily($element, $family))) $look[$field] = 'font_size' === $field ? CssLength::format((float) $context['size']) : $value;
                 if ($color && !$conditional) foreach (array('hover', 'focus', 'focus-visible', 'focus-within', 'active') as $state) {
@@ -326,7 +341,7 @@ final class DesignUsageCollector
             if ($opaque) $context['role'] = 'button';
             $this->addText($context, $inputMass);
         }
-        if ($opaque) $this->addBackground((string) CssColor::hex($background), $control || 'input' === $tag ? 'cta' : 'surface', $mass + 1, $background, $control ? $this->hoverColor($element, array('background-color', 'background')) : null, $control && ($this->resolver->hasConditionalStyleFamily($element, 'background') || $this->resolver->readsConditionalCustomProperty($element, array('background', 'background-color'))));
+        if ($opaque) $this->addBackground((string) CssColor::hex($background), $control || 'input' === $tag ? 'cta' : 'surface', $mass + 1, $background, $control ? $this->hoverColor($element, array('background-color', 'background')) : null, $control && (self::schemeDependent($background) || $this->resolver->hasConditionalStyleFamily($element, 'background') || $this->resolver->readsConditionalCustomProperty($element, array('background', 'background-color'))));
         // Retain translucent paint as usage without treating it as the opaque
         // backdrop for descendant contrast calculations.
         if (!$opaque && null !== $background && (CssColor::parse($background)[3] ?? 0) > 0) {
@@ -417,7 +432,7 @@ final class DesignUsageCollector
                 ? (null !== CssLength::toPx($value) && !preg_match('/(?:[\d.](?:r?em|%)|\b(?:smaller|larger))/', $value))
                 : ('' !== $value && !in_array($value, array('inherit', 'unset', 'currentcolor', 'bolder', 'lighter'), true));
             if ($independent) $context['conditional'] = array_values(array_diff($context['conditional'], array($family)));
-            if (!in_array($family, $context['conditional'], true) && ($this->resolver->hasConditionalStyleFamily($element, $family) || $this->resolver->readsConditionalCustomProperty($element, array($family)))) $context['conditional'][] = $family;
+            if (!in_array($family, $context['conditional'], true) && (self::schemeDependent($value) || $this->resolver->hasConditionalStyleFamily($element, $family) || $this->resolver->readsConditionalCustomProperty($element, array($family)))) $context['conditional'][] = $family;
         }
         // A link or button changes colour on hover only through its own
         // state rules; text that sets its own colour stops following them.
@@ -628,6 +643,9 @@ final class DesignUsageCollector
         };
         $live = $this->resolver->resolvedPresentationDeclarations($element);
         foreach ($properties as $property) if (str_contains((string) ($live[$property] ?? ''), 'var(')) return true;
+        // The canvas stays a fixed preset: the author rule painting it keeps
+        // its dark argument and outranks the global-styles body background.
+        if ('background' !== $family) foreach ($properties as $property) if (self::schemeDependent((string) ($live[$property] ?? ''))) return true;
         return false;
     }
 
@@ -675,6 +693,31 @@ final class DesignUsageCollector
         // own spellings (a `background-image`, say) leaves its value alone.
         ksort($variants, SORT_STRING);
         return implode(';', array_merge(array($observation), array_keys($variants)));
+    }
+
+    /**
+     * One informational finding when usage read `light-dark()` colours as
+     * their light argument: palette tokens and fixed styles carry that value,
+     * and the dark argument survives only in the projected author CSS.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function schemeColorFindings(): array
+    {
+        if (array() === $this->schemeColors) return array();
+        return array(array(
+            'code' => 'design_usage_dark_scheme_color_untokenized',
+            'severity' => 'info',
+            'loss_class' => 'native_conversion',
+            'message' => 'light-dark() colours contribute their light value to theme.json tokens; the dark value is kept only in the projected author stylesheet.',
+            'values' => array_keys($this->schemeColors),
+        ));
+    }
+
+    /** Whether a declared value picks its colour by the used colour scheme. */
+    private static function schemeDependent(string $value): bool
+    {
+        return str_contains(strtolower($value), 'light-dark(');
     }
 
     private static function colorObservation(string $value): string
@@ -839,6 +882,7 @@ final class DesignUsageCollector
         $declarations = array();
         foreach ($this->resolver->resolvedPresentationDeclarations($element) as $property => $value) {
             $declarations[strtolower((string) $property)] = $this->resolver->customProperties->resolveCascaded((string) $value, $element);
+            if (self::schemeDependent($declarations[strtolower((string) $property)]) && count($this->schemeColors) < self::SCHEME_COLOR_LIMIT) $this->schemeColors[self::clean($declarations[strtolower((string) $property)])] = true;
         }
         $conditional = array();
         foreach (self::DESKTOP_READ_FAMILIES as $family => $properties) {

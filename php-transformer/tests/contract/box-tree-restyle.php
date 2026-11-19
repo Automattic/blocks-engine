@@ -39,7 +39,7 @@ foreach (array(false, true, 'v1') as $mode) {
         $assert(!empty($plan['pages'][0]['document_metadata']['engine_owned_styles']), 'Evidence ownership reaches canonical page metadata.');
         $assets = array_column($plan['assets'], null, 'target_path');
         $authorAssets = array_filter($plan['assets'], static fn(array $asset): bool => str_ends_with($asset['source_path'], 'author.css'));
-        $assert(array() !== $authorAssets && !str_contains(implode('', array_column($authorAssets, 'content')), 'h1{opacity'), 'Theme inventory retires author rule bytes.');
+        $assert(!str_contains(implode('', array_column($authorAssets, 'content')), 'h1{opacity') && 0 === $plan['quality']['metrics']['empty_asset_count'], 'Theme inventory retires author rule bytes; a sheet left empty is not written.');
         foreach (ThemeBootstrap::documentStylesheets($plan, 'index.html') as $row) {
             $asset = $assets[$row['target_path']];
             $assert(!str_contains((string) ($asset['content'] ?? ''), 'h1{opacity'), 'No author selector bytes are delivered on the evidence route.');

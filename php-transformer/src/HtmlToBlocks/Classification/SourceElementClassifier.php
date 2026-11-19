@@ -672,6 +672,12 @@ final class SourceElementClassifier
             if ( ! $source instanceof DOMElement || '' === SourceDom::attr($source, 'srcset') ) {
                 continue;
             }
+            // A source offering exactly the image's own resources selects
+            // nothing, whatever media or type it declares.
+            $sourceUrls = SrcsetParser::urls(SourceDom::attr($source, 'srcset'));
+            if ( array() !== $imageUrls && array() === array_diff($sourceUrls, $imageUrls) && array() === array_diff($imageUrls, $sourceUrls) ) {
+                continue;
+            }
             $media = strtolower(preg_replace('/\s+/', '', trim(SourceDom::attr($source, 'media'))) ?? '');
             if ( '' !== $media && 'all' !== $media && ! in_array($media, array('(min-width:0)', '(min-width:0px)'), true) ) {
                 return true;
@@ -1039,7 +1045,9 @@ final class SourceElementClassifier
             SourceDom::attr($element, 'data-testid'),
         ))));
 
-        return 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $identity);
+        // `flexslider` is the jQuery FlexSlider root; its `slides` list and
+        // `flex-*` parts carry no identity of their own.
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow|flexslider)(?:[^a-z0-9]|$)/', $identity);
     }
 
     public function isCarouselList(DOMElement $element): bool

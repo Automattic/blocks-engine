@@ -835,7 +835,7 @@ trait StagedTransport
      */
     private function hydrateReferencedStage(array $artifact, string $scope, string $pageId, PayloadReader $payloadReader): array
     {
-        $this->assertReferenceLimits($artifact);
+        $droppedSidecars = $this->assertReferenceLimits($artifact);
         $references = array();
         $hydratedArtifact = $artifact;
         $hydratedArtifact['files'] = array();
@@ -852,7 +852,7 @@ trait StagedTransport
             if (isset($file['payload_reference'])) {
                 $reference = $this->payloadReference($file['payload_reference']);
                 $references[$path] = $reference;
-                if ($required && !ArtifactNormalizer::isReferenceBackedBinary($file)) {
+                if ($required && !isset($droppedSidecars[$key]) && !ArtifactNormalizer::isReferenceBackedBinary($file)) {
                     $content = $this->readPayload($reference, $payloadReader);
                     unset($file['payload_reference']);
                     $file['content'] = $content;
@@ -982,8 +982,10 @@ trait StagedTransport
         unset($file);
     }
 
-    /** Reject unbounded reference declarations before a reader can allocate. */
-    private function assertReferenceLimits(array $artifact): void
+    /** Reject unbounded reference declarations before a reader can allocate.
+     * @return array<array-key,true> Optional sidecars to leave unhydrated.
+     */
+    private function assertReferenceLimits(array $artifact): array
     {
         $requested = ArrayField::array($artifact, 'compiler_limits');
         $maxFile = min(ArtifactNormalizer::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES)));
@@ -996,8 +998,19 @@ trait StagedTransport
         $total = 0;
         $mediaTotal = 0;
         $reportTotal = 0;
-        foreach (ArrayField::array($artifact, 'files') as $file) {
-            if (!is_array($file) || !isset($file['payload_reference'])) continue;
+        $droppedSidecars = array();
+        $normalizer = new ArtifactNormalizer();
+        $files = array_filter(ArrayField::array($artifact, 'files'), 'is_array');
+        foreach (ArtifactNormalizer::reportsBeforeSidecars($files) as $key => $file) {
+            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
+            $sidecar = \Automattic\BlocksEngine\PhpTransformer\Contract\BoxTree::isSidecarPath($path);
+            if (!isset($file['payload_reference'])) {
+                if (isset($reports[$path]) || $sidecar) {
+                    $payload = $normalizer->payload($file, $path);
+                    if ($payload['accepted'] && $payload['bytes'] <= $maxReportFile && $reportTotal + $payload['bytes'] <= $maxReportTotal) $reportTotal += $payload['bytes'];
+                }
+                continue;
+            }
             $reference = $this->payloadReference($file['payload_reference']);
             // Reference-backed media is never opened by a reader, so its bytes
             // cannot cause the allocation this budget exists to bound. It is
@@ -1011,7 +1024,12 @@ trait StagedTransport
             // A declared capture report is hydrated, so it stays bounded, but on
             // the report budget: it is evidence about the capture, not page
             // source the compiler converts.
-            if (isset($reports[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))])) {
+            if ($sidecar) {
+                if ($reference['bytes'] > $maxReportFile || $reportTotal + $reference['bytes'] > $maxReportTotal) $droppedSidecars[$key] = true;
+                else $reportTotal += $reference['bytes'];
+                continue;
+            }
+            if (isset($reports[$path])) {
                 if ($reference['bytes'] > $maxReportFile) throw new \InvalidArgumentException('A declared capture report exceeds the compiler per-file report byte limit.');
                 $reportTotal += $reference['bytes'];
                 if ($reportTotal > $maxReportTotal) throw new \InvalidArgumentException('Declared capture reports exceed the compiler aggregate report byte limit.');
@@ -1021,6 +1039,7 @@ trait StagedTransport
             $total += $reference['bytes'];
             if ($total > $maxTotal) throw new \InvalidArgumentException('Payload references exceed the compiler aggregate byte limit.');
         }
+        return $droppedSidecars;
     }
 
     /** @param mixed $reference @return array{schema:string,id:string,bytes:int,sha256:string} */

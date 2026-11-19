@@ -89,6 +89,16 @@ final class NavigationStyleProjector
         // must still deliver them, or Gutenberg loses the selectable boxes
         // and placeholders they restore (issue #5920).
         $engineRules = array();
+        // A box-tree carrier makes core/image's synthetic figure boxless so
+        // the source image keeps its own layout box on the front end. That
+        // figure is the block root Gutenberg focuses to select the image, and
+        // a `display:contents` element cannot take focus: a click on the image
+        // selected the enclosing group, with no Replace control (issue #5920).
+        // Give exactly those figures a block box in the editor only.
+        $boxlessFigures = $this->session->layoutGeometryState()->boxlessImageFigureCarriersFor($serializedBlocks);
+        if ( array() !== $boxlessFigures ) {
+            $engineRules[] = ':root .editor-styles-wrapper figure.wp-block-image:is(' . implode(',', array_map(static fn(string $class): string => '.' . $class, $boxlessFigures)) . '):not([hidden]){display:block}';
+        }
         // Source runtimes can hide an icon carrier until hover or animation.
         // They do not run in Gutenberg: expose the native image and its direct
         // group carrier there, so the image has a selectable box. Keep this in

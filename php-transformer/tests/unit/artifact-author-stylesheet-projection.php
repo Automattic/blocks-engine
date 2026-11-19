@@ -698,7 +698,7 @@ $pageSubsetArtifact = array(
     'entrypoint' => 'index.html',
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<main><p>Home</p></main>' ),
-        array( 'path' => 'services.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="section.css"><link rel="stylesheet" href="explicit-shared.css"><main><div class="section"><p>Services</p></div></main>' ),
+        array( 'path' => 'services.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="section.css"><link rel="stylesheet" href="explicit-shared.css"><main><div class="section"><p class="shared">Services</p></div></main>' ),
         array( 'path' => 'portfolio.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="section.css"><link rel="stylesheet" href="explicit-shared.css"><main><div class="section"><p>Portfolio</p></div></main>' ),
         array( 'path' => 'section.css', 'kind' => 'css', 'content' => '.section p{display:grid}' ),
         array( 'path' => 'explicit-shared.css', 'kind' => 'css', 'content' => '.shared{color:green}', 'metadata' => array('compilation' => array('scope' => 'shared')) ),
@@ -729,7 +729,7 @@ $sharedShellResponsive = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="shared.css"><style>.home-grid{display:grid;grid-template-columns:1fr 1fr}@media(max-width:700px){.home-grid{grid-template-columns:1fr}}</style></head><body><header class="site-chrome">Brand</header><main><div class="home-grid"><div>One</div><div>Two</div></div></main></body></html>' ),
         array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="shared.css"><style>.about-grid{display:grid;grid-template-columns:1fr 1fr}@media(max-width:700px){.about-grid{grid-template-columns:1fr}}</style></head><body><header class="site-chrome">Brand</header><main><div class="about-grid"><div>One</div><div>Two</div></div></main></body></html>' ),
-        array( 'path' => 'shared.css', 'kind' => 'css', 'content' => '.site-chrome{display:block;color:#123456}' ),
+        array( 'path' => 'shared.css', 'kind' => 'css', 'content' => '.site-chrome{display:block;color:#123456}main{display:block}' ),
     ),
 ) )->toArray();
 $sharedShellPlanAssets = $sharedShellResponsive['source_reports']['wordpress_site_plan']['assets'] ?? array();
