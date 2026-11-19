@@ -1140,12 +1140,17 @@ final class SharedChromeStylesheets
         // the shared part. Projected selectors using only native navigation
         // hooks therefore have no authored/generated class to claim them.
         // Lift them with the menu rather than the capture's matching leaf.
-        $targets = static fn (array $classMatcher): \Closure => static fn (string $selector): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher)
+        $targets = static fn (array $assetClassMatcher): \Closure => static fn (string $selector, string $body = ''): bool => self::selectorTargetsGeneratedClass($selector, $classMatcher)
             || self::selectorTargetsAuthoredChrome($selector, $authored, $context)
-            || ($hasSharedNavigation && self::selectorTargetsRuntimeNavigationState($selector));
+            || ($hasSharedNavigation && self::selectorTargetsRuntimeNavigationState($selector))
+            // Stranded controls need their generated wrapper visibility on
+            // adopting routes, not every presentation rule from each capture.
+            || (1 === preg_match('/^\s*display\s*:\s*none\s*!important\s*;?\s*$/i', $body)
+                && str_contains($selector, '.wp-block-buttons:has(')
+                && self::selectorTargetsGeneratedClass($selector, $assetClassMatcher));
         $reachesDetachedPart = static fn (string $selector): bool => self::selectorTargetsAuthoredChrome($selector, $detachedRouteHooks, $context)
             && self::reanchoredDetachedContextSelector(trim($selector), $context, array_keys($detachedRoots)) !== trim($selector);
-        $lifts = static fn (callable $targetsChrome): \Closure => static fn (string $selector): bool => $targetsChrome($selector) || $reachesDetachedPart($selector);
+        $lifts = static fn (callable $targetsChrome): \Closure => static fn (string $selector, string $body = ''): bool => $targetsChrome($selector, $body) || $reachesDetachedPart($selector);
         $reanchor = static function (string $selector) use ($context, $detachedRoots, $controlRoutes): string {
             $routes = array();
             foreach ($controlRoutes as $control => $classes) {
@@ -1433,7 +1438,8 @@ final class SharedChromeStylesheets
                     $unparseable = true;
                     return '';
                 }
-                $selectors = self::chromeArms($selectors, $liftsToChrome);
+                $targetsRule = static fn (string $selector): bool => $liftsToChrome($selector, $body);
+                $selectors = self::chromeArms($selectors, $targetsRule);
                 $inherited = '';
                 $declarations = \Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer::declarations($body, array(
                     '--*', 'color', 'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'font-variant', 'font-stretch',
@@ -1452,7 +1458,7 @@ final class SharedChromeStylesheets
                         $matched = true;
                     }
                 }
-                $kept = array_values(array_filter($selectors, $liftsToChrome));
+                $kept = array_values(array_filter($selectors, $targetsRule));
                 if (array() === $kept) return $inherited;
                 // A grouped selector lifts only the alternatives the parts carry.
                 $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => self::generatedAlternatives($selector, $classMatcher, true), $kept), 'is_string'));
@@ -1528,9 +1534,10 @@ final class SharedChromeStylesheets
             static function (string $prelude, string $body) use ($targetsChrome, $classMatcher): string {
                 $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
                 if (null === $selectors) return $prelude . '{' . $body . '}';
-                $selectors = self::chromeArms($selectors, $targetsChrome);
+                $targetsRule = static fn (string $selector): bool => $targetsChrome($selector, $body);
+                $selectors = self::chromeArms($selectors, $targetsRule);
                 // Alternatives naming only route content stay in source order on the route.
-                $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => ! $targetsChrome($selector) ? $selector : self::generatedAlternatives($selector, $classMatcher, false), $selectors), 'is_string'));
+                $kept = array_values(array_filter(array_map(static fn (string $selector): ?string => ! $targetsRule($selector) ? $selector : self::generatedAlternatives($selector, $classMatcher, false), $selectors), 'is_string'));
                 return array() === $kept ? '' : implode(',', $kept) . '{' . $body . '}';
             }
         );

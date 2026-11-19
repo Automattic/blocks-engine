@@ -2498,7 +2498,7 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         $sourceTagName = strtolower($sourceElement->tagName);
         $withheld = array_fill_keys($withheld, true);
         $observations = $this->session->boxTreeEvidence($sourceElement);
-        if (array() === $observations) $observations = $this->unobservedIslandOpacity($sourceElement);
+        $restingOpacity = array() === $observations ? $this->unobservedIslandOpacity($sourceElement) : array();
         foreach ($observations as $key => $observation) {
             if (is_array($observation['used_styles'] ?? null)) $observations[$key]['used_styles'] = array_diff_key($observation['used_styles'], $withheld);
         }
@@ -2530,6 +2530,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         }
         $classesBefore = self::classTokens((string) ($attrs['className'] ?? ''));
         $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image, $inlineSupports);
+        if (array() !== $restingOpacity && !isset($withheld['opacity'])) {
+            $attrs = (new Style\BoxTreeStyleProjector())->projectRestingOpacity($name, $attrs, $this->session->layoutGeometryState(), $sourceTagName);
+        }
         $carrierNode = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
         if ( '' !== $carrierNode ) {
             $this->boxTreeCarriers[$carrierNode] = array_values(array_diff(self::classTokens((string) ($attrs['className'] ?? '')), $classesBefore));

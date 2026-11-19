@@ -59,7 +59,9 @@ foreach (preg_split('/\s+/', $match[1]) as $class) {
     }
 }
 if (!str_contains($resting, 'opacity:0')) throw new RuntimeException('Unobserved island loses resting opacity: ' . $css);
-foreach (array('width:', 'height:', 'position:', 'top:') as $unrelated) {
+// This is author opacity, not a synthetic captured box. In particular it
+// must not change the core wrappers to display:contents or move their styles.
+foreach (array('display:', 'width:', 'height:', 'position:', 'top:') as $unrelated) {
     if (preg_match('/(?:^|;)' . preg_quote($unrelated, '/') . '/', $resting)) throw new RuntimeException('Opacity fallback invented presentation: ' . $resting);
 }
 if (str_contains($css, '.skip{')) throw new RuntimeException('Author stylesheet was not retired');

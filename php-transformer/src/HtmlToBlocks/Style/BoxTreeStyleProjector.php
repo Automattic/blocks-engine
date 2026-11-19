@@ -43,6 +43,18 @@ final class BoxTreeStyleProjector
         return $this->projectRenderedElement($attrs, $imageObservations, $viewports, $state, $image['parents'] ?? array(), $image['fluid'] ?? array(), false, self::renderedElement('core/image', $attrs, 'img'), 'core/image', 'img');
     }
 
+    /**
+     * Preserve only the authored transparent resting state of an unobserved
+     * device fragment. Sparse author evidence is not a captured box: projecting
+     * it as one would also reset core wrappers and move their existing styles.
+     */
+    public function projectRestingOpacity(string $blockName, array $attrs, LayoutGeometryState $state, string $sourceTag): array
+    {
+        $class = $this->carrier($this->rule(self::renderedElement($blockName, $attrs, $sourceTag), array('opacity' => '0')), $state);
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $class);
+        return $attrs;
+    }
+
     /** One carrier for the block's own box, from its source element's observations. */
     private function projectBox(array $attrs, array $observations, array $viewports, LayoutGeometryState $state, array $parents, string $blockName, array $fluid, array $pseudoFluid = array(), bool $inlineSupports = true): array
     {
