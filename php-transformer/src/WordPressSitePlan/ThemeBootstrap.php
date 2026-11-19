@@ -330,8 +330,10 @@ PHP;
 add_filter( 'render_block_core/post-title', static function ( string $content, array $block, WP_Block $instance ): string {
     if ( empty( $block['attrs']['metadata']['blocksEngineFallbackTitle'] ) ) return $content;
     $post_id = $instance->context['postId'] ?? get_the_ID();
-    // Captured pages already own their title. Inspect saved markup rather than
-    // rendering post content again (which could recurse or run shortcodes twice).
+    // Captured pages own their presentation, including an intentionally absent
+    // title. Only newly authored pages need the lifecycle's fallback title.
+    if ( '' !== (string) get_post_meta( $post_id, '_blocks_engine_reconciliation_identity', true ) ) return '';
+    // For authored pages, avoid duplicating an H1 without rendering content twice.
     $tags = new WP_HTML_Tag_Processor( (string) get_post_field( 'post_content', $post_id ) );
     return $tags->next_tag( 'H1' ) ? '' : $content;
 }, 10, 3 );
