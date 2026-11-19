@@ -28,6 +28,16 @@ final class FormWorkflowPanelDetector
     public function panels(DOMElement $form, array $controls): array
     {
         $workflow = array();
+        // Each candidate panel's members, in control order, from one walk up
+        // every control's ancestors instead of one scan of every control per
+        // candidate. The elements stay referenced so their ids stay unique.
+        $membership = array();
+        foreach ( $controls as $control ) {
+            for ( $ancestor = $control->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                $membership[spl_object_id($ancestor)] ??= array( 'element' => $ancestor, 'controls' => array() );
+                $membership[spl_object_id($ancestor)]['controls'][] = $control;
+            }
+        }
         foreach ( array($form, ...iterator_to_array($form->getElementsByTagName('*'), false)) as $parent ) {
             $groups = array();
             foreach ( $parent->childNodes as $panel ) {
@@ -39,12 +49,7 @@ final class FormWorkflowPanelDetector
                     $named = $named || (str_starts_with($attribute->nodeName, 'data-') && str_contains(strtolower($attribute->nodeName), 'step'));
                 }
                 if ( ! $named && ! in_array(strtolower($panel->tagName), array('section', 'div', 'fieldset', 'article'), true) ) continue;
-                $members = array_values(array_filter($controls, static function (DOMElement $control) use ($panel): bool {
-                    for ( $ancestor = $control->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-                        if ( $ancestor === $panel ) return true;
-                    }
-                    return false;
-                }));
+                $members = ($membership[spl_object_id($panel)]['element'] ?? null) === $panel ? $membership[spl_object_id($panel)]['controls'] : array();
                 if ( array() === $members ) continue;
                 $hidden = $panel->hasAttribute('hidden');
                 if ( ! $hidden ) {

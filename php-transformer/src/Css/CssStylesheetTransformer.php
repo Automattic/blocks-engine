@@ -292,9 +292,12 @@ final class CssStylesheetTransformer
      * earlier rule's selector list. Projection restates one source rule for
      * each carrier it reaches (a class, its control twin, the editor canvas),
      * and each restatement otherwise ships the same declarations again. The
-     * folded selectors move to the earlier rule only when no rule between the
-     * two declares a property of the same cascade family, so every element
-     * keeps its computed values. Two lists join only when the pseudo-classes
+     * folded selectors move to the earlier rule only when every rule between
+     * the two either declares no property of the same cascade family or
+     * selects no element (or pseudo-element box) the folded selectors do
+     * ({@see selectorListsDisjoint()}), so every element keeps its computed
+     * values. Each selector joins the list as it is, never inside `:is()`,
+     * so it keeps its own specificity. Two lists join only when the pseudo-classes
      * and pseudo-elements outside the universally supported set are the same
      * in both: a browser that drops one list for an unknown pseudo drops the
      * other too, so joining them never discards a rule that used to apply.
@@ -309,6 +312,7 @@ final class CssStylesheetTransformer
         $this->collectRuleUnits($css, array(), $units);
         $anchors = array();
         $families = array();
+        $subjects = array();
         $merged = false;
         foreach ( $units as $index => $unit ) {
             $parts = $this->repeatableDeclarationRuleParts($unit, $includeDocumentRules);
@@ -333,7 +337,8 @@ final class CssStylesheetTransformer
                         continue;
                     }
                     $families[ $between ] ??= $units[ $between ]['dedupable'] || str_contains($units[ $between ]['text'], '{') ? self::cascadePropertyFamilies(self::splitLeadingComments($units[ $between ]['text'])[1]) : array( '*' => true );
-                    $blocked = self::cascadeFamiliesOverlap($own, $families[ $between ]);
+                    $blocked = self::cascadeFamiliesOverlap($own, $families[ $between ])
+                        && ( isset($families[ $between ]['*']) || ! self::selectorListsDisjoint($prelude, $this->styleRulePrelude($units[ $between ]), $subjects) );
                 }
                 if ( ! $blocked ) {
                     [$anchorLead, $anchorPrelude, $anchorBody] = $this->repeatableDeclarationRuleParts($units[ $anchor ], $includeDocumentRules) ?? array( '', '', '' );
@@ -346,6 +351,171 @@ final class CssStylesheetTransformer
             $anchors[ $key ] = $index;
         }
         return $merged ? $this->serializeRuleUnits(array_values($units)) : $css;
+    }
+
+    /**
+     * The selector list of a plain style rule unit, or null for anything else
+     * (at-rules, nested rules, statements, comments inside the selector).
+     *
+     * @param array{context: list<string>, text: string, dedupable: bool} $unit
+     */
+    private function styleRulePrelude(array $unit): ?string
+    {
+        if ( ! $unit['dedupable'] ) {
+            return null;
+        }
+        $rule = rtrim(self::splitLeadingComments($unit['text'])[1]);
+        $brace = strpos($rule, '{');
+        if ( false === $brace || $this->isAtRule($rule) || ! str_ends_with($rule, '}') || str_contains(substr($rule, $brace + 1, -1), '{') ) {
+            return null;
+        }
+        $prelude = trim(substr($rule, 0, $brace));
+        return '' === $prelude || str_contains($prelude, '/*') ? null : $prelude;
+    }
+
+    /**
+     * Whether no element, nor any pseudo-element box, can be selected by an
+     * arm of each list. Two arms are disjoint when their subject compounds
+     * select different pseudo-elements (or one the element itself and the
+     * other a pseudo-element of it), or require two different ids: an
+     * element has one id. Ids count where they constrain the subject: as a
+     * simple selector, or as the only compound inside `:is()`/`:where()`
+     * (specificity markers and carriers write `:where(#id)`); never inside
+     * `:not()` or `:has()`. Ids compare case-insensitively, which also holds
+     * for documents in quirks mode. Anything this cannot read is not proven
+     * disjoint.
+     *
+     * @param array<string, array{ids: array<string, true>, pseudo: string}|null> $cache
+     */
+    private static function selectorListsDisjoint(string $first, ?string $second, array &$cache = array()): bool
+    {
+        if ( null === $second ) {
+            return false;
+        }
+        $read = static function (string $list) use (&$cache): ?array {
+            if ( array_key_exists($list, $cache) ) {
+                return $cache[ $list ];
+            }
+            $arms = self::splitSelectorList($list);
+            $subjects = null === $arms || array() === $arms ? null : array();
+            foreach ( $arms ?? array() as $arm ) {
+                $subject = self::subjectConstraints(trim($arm));
+                if ( null === $subject ) {
+                    $subjects = null;
+                    break;
+                }
+                $subjects[] = $subject;
+            }
+            if ( count($cache) >= 4096 ) {
+                $cache = array();
+            }
+            return $cache[ $list ] = $subjects;
+        };
+        $left = $read($first);
+        $right = $read($second);
+        if ( null === $left || null === $right ) {
+            return false;
+        }
+        foreach ( $left as $a ) {
+            foreach ( $right as $b ) {
+                if ( $a['pseudo'] === $b['pseudo'] && count($a['ids'] + $b['ids']) < 2 ) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The ids an arm's subject compound requires and the pseudo-element it
+     * selects ('' for the element itself), or null when the arm cannot be
+     * read safely.
+     *
+     * @return array{ids: array<string, true>, pseudo: string}|null
+     */
+    private static function subjectConstraints(string $arm): ?array
+    {
+        if ( '' === $arm || str_contains($arm, '/*') || false !== strpbrk($arm, '\\&|"\'') ) {
+            return null;
+        }
+        $tokens = CssSelectorTokenizer::tokenize($arm);
+        if ( ! $tokens['supported'] || '' === $tokens['rightmost_compound'] ) {
+            return null;
+        }
+        $ids = array();
+        $pseudo = '';
+        return self::compoundConstraints($tokens['rightmost_compound'], $ids, $pseudo) ? array( 'ids' => $ids, 'pseudo' => $pseudo ) : null;
+    }
+
+    /** @param array<string, true> $ids */
+    private static function compoundConstraints(string $compound, array &$ids, string &$pseudo, bool $nested = false): bool
+    {
+        $identifier = '-?[a-zA-Z_][a-zA-Z0-9_-]*|--[a-zA-Z0-9_-]*';
+        for ( $i = 0, $length = strlen($compound); $i < $length; ) {
+            $char = $compound[ $i ];
+            if ( '[' === $char ) {
+                $close = CssSyntaxScanner::matchingClose($compound, $i);
+                if ( null === $close ) {
+                    return false;
+                }
+                $i = $close + 1;
+                continue;
+            }
+            if ( '#' === $char ) {
+                if ( ! preg_match('/\G#(' . $identifier . ')/', $compound, $match, 0, $i) ) {
+                    return false;
+                }
+                $ids[ strtolower($match[1]) ] = true;
+                $i += strlen($match[0]);
+                continue;
+            }
+            if ( ':' === $char ) {
+                if ( ! preg_match('/\G(::?)(' . $identifier . ')(\()?/', $compound, $match, 0, $i) ) {
+                    return false;
+                }
+                $name = strtolower($match[2]);
+                $element = '::' === $match[1] || in_array($name, array( 'before', 'after', 'first-line', 'first-letter' ), true);
+                if ( $element ) {
+                    // A pseudo-element ends the subject; a functional one
+                    // (`::part()`, `::slotted()`) or one inside `:is()` is not read.
+                    if ( $nested || isset($match[3]) || '' !== $pseudo ) {
+                        return false;
+                    }
+                    $pseudo = $name;
+                    $i += strlen($match[0]);
+                    continue;
+                }
+                $i += strlen($match[0]);
+                if ( ! isset($match[3]) ) {
+                    continue;
+                }
+                $close = CssSyntaxScanner::matchingClose($compound, $i - 1);
+                if ( null === $close ) {
+                    return false;
+                }
+                $argument = trim(substr($compound, $i, $close - $i));
+                $i = $close + 1;
+                if ( ! in_array($name, array( 'is', 'where' ), true) ) {
+                    continue;
+                }
+                // Only a lone compound constrains the subject itself.
+                $inner = CssSelectorTokenizer::tokenize($argument);
+                if ( '' === $argument || str_contains($argument, ',') || ! $inner['supported'] || 1 !== count($inner['compounds']) ) {
+                    continue;
+                }
+                $innerPseudo = '';
+                $innerIds = array();
+                if ( self::compoundConstraints($argument, $innerIds, $innerPseudo, true) ) {
+                    $ids += $innerIds;
+                }
+                continue;
+            }
+            if ( '(' === $char || ')' === $char ) {
+                return false;
+            }
+            ++$i;
+        }
+        return true;
     }
 
     /**

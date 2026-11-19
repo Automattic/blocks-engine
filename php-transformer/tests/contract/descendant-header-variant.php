@@ -34,7 +34,7 @@ foreach ($plan['pages'] as $page) {
 }
 $variant = array_filter($parts, static fn(array $part): bool => 'header' === ($part['area'] ?? null) && str_contains($part['canonical_block_markup'], '24px'));
 if (1 !== count($variant)) throw new RuntimeException('The descendant presentation must survive in a route-specific header part.');
-// Paint alone must not turn route state into a new shell layout.
+// Route-specific paint must also remain editable outside post content.
 foreach ($result['source_reports']['compiled_site']['pages'] as &$page) {
     $page['block_markup'] = preg_replace('/"spacing":\{"padding":\{"top":"(?:12|24)px"\}\}/', '"color":{"background":"' . ('accessibility.html' === $page['source_path'] ? '#900' : '#123') . '"}', $page['block_markup']);
     $page['block_markup'] = str_replace(array('padding-top:12px', 'padding-top:24px'), 'background-color:' . ('accessibility.html' === $page['source_path'] ? '#900' : '#123'), $page['block_markup']);
@@ -43,5 +43,5 @@ unset($page);
 $paintPlan = (new WordPressSitePlan())->fromResult($result);
 WordPressSitePlan::assertValid($paintPlan);
 $paintHeaders = array_filter($paintPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null));
-if (1 !== count($paintHeaders)) throw new RuntimeException('Descendant paint alone must not create a shell variant.');
+if (2 !== count($paintHeaders)) throw new RuntimeException('Descendant paint must survive in a route-specific shell variant.');
 echo "Descendant header variant: passed\n";

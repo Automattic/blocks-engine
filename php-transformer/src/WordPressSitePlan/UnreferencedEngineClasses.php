@@ -127,8 +127,35 @@ final class UnreferencedEngineClasses
     }
 
     /**
+     * Every block markup a plan emits, keyed `group\0index\0field`: the page,
+     * part, template and pattern bodies (canonical and source block markup),
+     * menus, and the archive presentation an archive entity restates. The
+     * pruner and the counter read this one set, so an id one of them sees
+     * the other sees too.
+     *
+     * @param array<string,array<int,array<string,mixed>>> $units
+     * @return array<string,string>
+     */
+    public static function markups(array $units): array
+    {
+        $markups = array();
+        foreach ($units as $group => $rows) foreach ($rows as $index => $row) {
+            if (!is_array($row)) continue;
+            foreach (array('canonical_block_markup', 'block_markup') as $field) if (is_string($row[$field] ?? null)) $markups[$group . "\0" . $index . "\0" . $field] = $row[$field];
+            if (is_string($row['archive']['presentation_markup'] ?? null)) $markups[$group . "\0" . $index . "\0archive"] = $row['archive']['presentation_markup'];
+        }
+        return $markups;
+    }
+
+    /**
      * How much of the plan's block markup classes are engine-generated, and
-     * how many engine classes no emitted stylesheet, script or runtime names.
+     * how many engine class occurrences the pruner would still drop.
+     *
+     * The count is the class-list occurrences of unreferenced() over the
+     * plan's markups(): the pruner's own judgement, so a hook it keeps (an
+     * editor anchor whose id is delivered, a class whose removal would change
+     * a match, a class that is not a selector hook) is never counted, and a
+     * pruned plan reports 0.
      *
      * @param array<string,mixed> $plan
      * @return array{unreferenced_engine_class_count:int,engine_class_token_share:float}
@@ -140,37 +167,34 @@ final class UnreferencedEngineClasses
             if (!in_array($write['kind'] ?? null, array('theme_template', 'theme_template_part'), true)) $emitted[] = $write['payload']['data'] ?? null;
         }
         $references = self::references($plan['assets'] ?? array(), $emitted, $plan['runtime_declarations'] ?? array(), $plan['runtime_records'] ?? array(), $plan['runtime_entity_records'] ?? array(), $plan['theme'] ?? array(), $plan['visual_repair'] ?? array(), array_column($plan['pages'] ?? array(), 'document_metadata'));
-        $markups = array_values(array_filter(array_map(self::markup(...), self::units($plan)), 'is_string'));
-        $referenced = self::referenced((string) $references) + self::editorCanvasAnchors($markups);
+        $markups = self::markups(self::units($plan));
+        $dropped = self::unreferenced($markups, $references);
         $tokens = 0;
         $engine = 0;
         $unreferenced = 0;
         foreach ($markups as $markup) {
             foreach (self::classLists($markup) as $list) foreach (self::tokens($list['value']) as $token) {
                 ++$tokens;
-                if (1 !== preg_match(self::ENGINE_CLASS, $token)) continue;
-                ++$engine;
-                if (null !== $references && !self::isReferenced($token, $referenced)) ++$unreferenced;
+                if (1 === preg_match(self::ENGINE_CLASS, $token)) ++$engine;
+                if (isset($dropped[$token])) ++$unreferenced;
             }
         }
         return array('unreferenced_engine_class_count' => $unreferenced, 'engine_class_token_share' => 0 === $tokens ? 0.0 : round($engine / $tokens, 4));
     }
 
-    /** @param array<string,mixed> $plan @return list<array<string,mixed>> */
+    /**
+     * The plan's markup units, grouped as the pruner groups them.
+     *
+     * @param array<string,mixed> $plan
+     * @return array<string,array<int,array<string,mixed>>>
+     */
     private static function units(array $plan): array
     {
         $units = array();
-        foreach (array('pages', 'template_parts', 'templates', 'synced_patterns', 'menus') as $group) {
-            foreach ($plan[$group] ?? array() as $unit) if (is_array($unit)) $units[] = $unit;
+        foreach (array('pages', 'template_parts', 'templates', 'synced_patterns', 'menus', 'taxonomy_entities', 'author_entities') as $group) {
+            if (is_array($plan[$group] ?? null)) $units[$group] = array_values($plan[$group]);
         }
         return $units;
-    }
-
-    /** @param array<string,mixed> $unit */
-    private static function markup(array $unit): ?string
-    {
-        $markup = $unit['canonical_block_markup'] ?? $unit['block_markup'] ?? null;
-        return is_string($markup) ? $markup : null;
     }
 
     /**
