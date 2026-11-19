@@ -426,6 +426,8 @@ final class PresetBinding
         if (!str_contains($markup, '<!-- wp:navigation ')) return $markup;
         $markup = (string) preg_replace_callback('/<!-- wp:navigation (\{(?:(?!-->).)*\}) (\/?-->)/s', function (array $match): string {
             $attributes = $this->navigationFontSize($match[1]);
+            $json = null === $attributes ? $match[1] : BlockAttributes::encode($attributes);
+            $attributes = $this->navigationOverlayColors($json) ?? $attributes;
             return null === $attributes ? $match[0] : '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' ' . $match[2];
         }, $markup);
         return (string) preg_replace_callback('/<!-- wp:navigation (\{(?:(?!-->).)*\}) -->(.*?)<!-- \/wp:navigation -->/s', function (array $match): string {
@@ -438,6 +440,28 @@ final class PresetBinding
             ++$this->bound;
             return '<!-- wp:navigation ' . BlockAttributes::encode($attributes) . ' -->' . $match[2] . '<!-- /wp:navigation -->';
         }, $markup);
+    }
+
+    /**
+     * Core renders overlay paint from attributes, including on ref navigations;
+     * there is no saved wrapper or inline style to rewrite. Bind only exact
+     * palette values, never a nearest shade, and leave existing presets alone.
+     */
+    private function navigationOverlayColors(string $json): ?\stdClass
+    {
+        $attributes = json_decode($json, false);
+        if (!$attributes instanceof \stdClass || BlockAttributes::encode($attributes) !== $json) return null;
+        $changed = false;
+        foreach (array('customOverlayBackgroundColor' => 'overlayBackgroundColor', 'customOverlayTextColor' => 'overlayTextColor') as $custom => $preset) {
+            if (isset($attributes->$preset) || !is_string($attributes->$custom ?? null)) continue;
+            $slug = $this->system->colorSlug($attributes->$custom);
+            if (null === $slug) continue;
+            unset($attributes->$custom);
+            $attributes->$preset = $slug;
+            ++$this->bound;
+            $changed = true;
+        }
+        return $changed ? $attributes : null;
     }
 
     /**
