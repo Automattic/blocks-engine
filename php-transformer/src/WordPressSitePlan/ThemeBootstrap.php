@@ -359,8 +359,20 @@ PHP;
         // block; a repeated resource gets one handle per instance, same URI.
         $evidencePages = array_filter(array_merge($pages, $rootDocuments), static fn(array $page): bool => !empty($page['document_metadata']['engine_owned_styles']));
         if (array() !== $evidencePages || array_filter($stylesheetEnqueues, static fn(array $enqueue): bool => isset($enqueue['route']))) $lines[] = '    $blocks_engine_route_styles = false;';
-        $routeRows = array();
-        foreach ($evidencePages as $page) $routeRows[$page['source_path']] = array('condition' => self::bootstrapScopeCondition(PageStylesheets::documentScope($page), true), 'styles' => array(), 'handles' => array());
+        // A post replays its design's sequence (see stylesheetEnqueues()), so
+        // the posts of one design share one route row, selected by template,
+        // instead of one identity-tested row per imported post.
+        $routeRows = $routeKeys = array();
+        foreach ($evidencePages as $page) {
+            $scope = PageStylesheets::documentScope($page);
+            $key = $page['source_path'];
+            if ('post' === $scope['kind']) {
+                $scope = array('kind' => 'post_template', 'template' => $page['route_template'] ?? 'single', 'source_path' => $page['source_path']);
+                $key = "post_template\0" . $scope['template'];
+            }
+            $routeKeys[$page['source_path']] = $key;
+            $routeRows[$key] ??= array('condition' => self::bootstrapScopeCondition($scope, true), 'styles' => array(), 'handles' => array());
+        }
         // The route table sits where the first route instance falls in the
         // stylesheet order, so sheets ordered ahead of the author CSS (the
         // engine reset sheets that also declare the cascade layer order) keep
@@ -383,9 +395,10 @@ PHP;
             $call = "wp_enqueue_style( " . var_export($enqueue['handle'], true) . ", get_theme_file_uri( " . var_export(self::encodedAssetUrlPath($asset['target_path']), true) . " ), array(), null{$media} );";
             if (isset($enqueue['route'])) {
                 if (null === $routePosition) $routePosition = count($lines);
-                $routeRows[$enqueue['route']]['condition'] = $enqueue['condition'];
-                $routeRows[$enqueue['route']]['styles'][] = array(self::encodedAssetUrlPath($asset['target_path']), $enqueue['media'], $stylesheetAttributes[$enqueue['handle']] ?? array());
-                $routeRows[$enqueue['route']]['handles'][] = $enqueue['handle'];
+                $key = $routeKeys[$enqueue['route']] ?? $enqueue['route'];
+                $routeRows[$key]['condition'] = $enqueue['condition'];
+                $routeRows[$key]['styles'][] = array(self::encodedAssetUrlPath($asset['target_path']), $enqueue['media'], $stylesheetAttributes[$enqueue['handle']] ?? array());
+                $routeRows[$key]['handles'][] = $enqueue['handle'];
                 continue;
             }
             // A fallback reads the flag the route table sets: the table goes first.
