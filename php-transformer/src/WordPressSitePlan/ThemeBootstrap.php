@@ -745,6 +745,15 @@ PHP;
         // at block edges and between inner blocks; text inside blocks is untouched.
         self::serve($lines, $served, $units, 'navigation_anchor');
         $lines[] = "add_filter( 'render_block_data', static function ( array \$block ): array {";
+        // Captures keep their source headings. Only a new page's content slot
+        // needs a native title; do not fork captured templates or their frames.
+        if (array_filter($pages, static fn(array $page): bool => 'page' === ($page['post_type'] ?? null))) {
+            $lines[] = "    if ( 'core/post-content' === ( \$block['blockName'] ?? null ) && empty( \$block['attrs']['metadata']['blocksEngineAuthoredTitle'] ) && is_singular( 'page' ) && get_the_ID() === get_queried_object_id() && '' === get_post_meta( get_the_ID(), '_blocks_engine_reconciliation_identity', true ) ) {";
+            $lines[] = "        \$block['attrs']['metadata']['blocksEngineAuthoredTitle'] = true;";
+            $lines[] = "        \$title = array( 'blockName' => 'core/post-title', 'attrs' => array( 'level' => 1 ), 'innerBlocks' => array(), 'innerHTML' => '', 'innerContent' => array() );";
+            $lines[] = "        return array( 'blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array( \$title, \$block ), 'innerHTML' => '<div class=\"wp-block-group\"></div>', 'innerContent' => array( '<div class=\"wp-block-group\">', null, null, '</div>' ) );";
+            $lines[] = "    }";
+        }
         $lines[] = "    \$content = \$block['innerContent'] ?? null; if ( ! is_array( \$content ) ) return \$block;";
         $lines[] = "    if ( null === ( \$block['blockName'] ?? null ) ) { if ( '' === trim( (string) ( \$block['innerHTML'] ?? '' ) ) ) { \$block['innerHTML'] = ''; \$block['innerContent'] = array(); } return \$block; }";
         $lines[] = "    \$last = count( \$content ) - 1;";

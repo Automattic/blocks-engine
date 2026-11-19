@@ -54,8 +54,8 @@ if (is_array($plan)) {
     $templates = array_column($plan['templates'], null, 'slug');
     $assert(array() !== ($templates['page-about']['shell_frame'] ?? array()), 'the variant A inner page gets a frame template with shells');
     $legal = current(array_filter($plan['pages'], static fn(array $page): bool => 'legal/index.html' === $page['source_path']));
-    $legalTemplate = \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\TemplateSlugs::forPage($legal);
-    $assert(array() !== ($templates[$legalTemplate]['shell_frame'] ?? array()), 'Heading-led legal content retains its captured frame rather than losing it to the titled authoring fallback.');
+    $legalTemplate = $legal['route_template'] ?? 'page';
+    $assert(array() !== ($templates[$legalTemplate]['shell_frame'] ?? array()), 'A page heading exposes legal content for frame splitting even without main.');
     foreach (array('page-about', $legalTemplate) as $slug) {
         $assert(1 === substr_count((string) ($templates[$slug]['canonical_block_markup'] ?? ''), '"slug":"footer"'), $slug . ' references the shared footer once');
     }

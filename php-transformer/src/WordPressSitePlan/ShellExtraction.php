@@ -3108,11 +3108,6 @@ final class ShellExtraction
             $assigned[$slug] = $frame;
             preg_match_all('/<!--\s*wp:template-part\s+\{[^}]*"slug":"([^"]+)"/', $frame['opening'] . $frame['closing'], $slugs);
             $frames[$slug] = array('opening' => $frame['opening'], 'closing' => $frame['closing'], 'shells' => array_values(array_unique($slugs[1])));
-            // Captured pages receive content-only route templates so the
-            // generic authoring template can own a native title. Keep the
-            // frame we removed from this route available under its own key,
-            // even when it also supplies the generic page frame.
-            if ('page' === $slug && $routeKey !== $slug) $frames[$routeKey] = $frames[$slug];
             $pages[$index]['canonical_block_markup'] = $frame['content'];
             $pages[$index]['content_hash'] = WordPressSitePlan::contentHash($frame['content']);
         }
