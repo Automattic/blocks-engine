@@ -37,6 +37,17 @@ final class CssValueSplitter
         return CssRuleTreeCache::memo('values:' . serialize($delimiters), $input, static fn (): array => self::splitTopLevelUncached($input, $delimiters));
     }
 
+    /**
+     * Split declarations without trimming custom-property token streams.
+     * Callers retaining source bytes must exclude comments (the lexer removes them).
+     *
+     * @return array<int,string>
+     */
+    public static function splitUntrimmedDeclarations(string $input): array
+    {
+        return self::split($input, array(';'), false);
+    }
+
     private static function splitTopLevelUncached(string $input, array $delimiters): array
     {
         $parts = self::split($input, $delimiters, false);
