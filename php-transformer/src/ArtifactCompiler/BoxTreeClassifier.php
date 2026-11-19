@@ -384,7 +384,8 @@ final class BoxTreeClassifier
      *   box.
      *
      * Absolute inset-zero boxes can hand position to an equal-box flow child.
-     * A clip is redundant when that child repeats it without exterior paint.
+     * A clip is redundant when that child repeats it without exterior paint,
+     * or moves to a non-clipping child that preserves descendant clipping.
      *
      * Never folded: pseudo-elements, transforms, filters, opacity, blending,
      * isolation, unmatched z-index, other non-flow boxes, and every
@@ -429,18 +430,31 @@ final class BoxTreeClassifier
                 if ('z-index' === $property && $fill && $b[$property] === ($c[$property] ?? null)) continue;
                 if (isset($b[$property]) && !in_array(strtolower(trim($b[$property])), $inert, true)) return null;
             }
-            // A square clipping child can take the box's rounded clip. The
-            // geometry and border checks below still require equal, borderless boxes.
+            // A square child can take the box's rounded clip. The geometry
+            // and border checks below still require equal, borderless boxes.
             $roundedClip = !in_array($b['border-radius'], array('0px', 'none'), true)
-                && '0px' === $c['border-radius']
-                && $b['overflow-x'] === $c['overflow-x'] && $b['overflow-y'] === $c['overflow-y'];
+                && '0px' === $c['border-radius'];
+            $transferClip = false;
             foreach (array('overflow-x', 'overflow-y') as $overflow) {
                 if (!in_array($b[$overflow], array('hidden', 'clip', 'auto', 'scroll'), true)) continue;
-                if ($b[$overflow] !== $c[$overflow] || 'none' !== $c['box-shadow']
+                if (($b[$overflow] !== $c[$overflow] && 'visible' !== $c[$overflow]) || 'none' !== $c['box-shadow']
                     || self::paintsLine($c['outline']) || !self::identityTransform($c['transform'])
                     || ($b['border-radius'] !== $c['border-radius'] && !$roundedClip)) return null;
+                $transferClip = $transferClip || $b[$overflow] !== $c[$overflow];
                 if ($roundedClip) $moves['border-radius'] = 'border-radius';
                 $clipped = true;
+            }
+            if ($transferClip) {
+                // Moving both axes must not erase an independent child clip.
+                foreach (array('overflow-x', 'overflow-y') as $overflow) {
+                    if ($b[$overflow] !== $c[$overflow] && 'visible' !== $c[$overflow]) return null;
+                    $moves[$overflow] = $overflow;
+                }
+                $moves['border-radius'] = 'border-radius';
+                // A static child need not be the containing block of a
+                // positioned descendant. Refuse rather than moving its clip
+                // below the ancestor that positions that descendant.
+                if ('static' === $c['position'] && self::hasPositionedDescendant($child, $tree, $viewport)) return null;
             }
             $display = $b['display'];
             $childDisplay = $c['display'];
@@ -585,6 +599,19 @@ final class BoxTreeClassifier
         if (array() === $rules) return null;
         $moves += $inheritedMoves;
         return array('rules' => $rules, 'moves' => $moves, 'equal_box' => $equalBox);
+    }
+
+    /** Missing descendant evidence cannot prove that moving a clip is safe. */
+    private static function hasPositionedDescendant(array $node, array $tree, string|int $viewport): bool
+    {
+        $pending = $node['children'];
+        while ($pending) {
+            $descendant = $tree['nodes'][array_pop($pending)] ?? null;
+            $position = $descendant['viewports'][$viewport]['used_styles']['position'] ?? null;
+            if (null === $position || in_array($position, array('absolute', 'fixed'), true)) return true;
+            foreach ($descendant['children'] as $id) $pending[] = $id;
+        }
+        return false;
     }
 
     /**
