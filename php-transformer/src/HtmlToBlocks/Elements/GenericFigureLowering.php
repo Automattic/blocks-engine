@@ -47,18 +47,7 @@ final class GenericFigureLowering
         if ( $caption instanceof DOMElement ) {
             $captionHtml = $this->styleResolver->innerHtml($caption);
             if ( $this->runtime->hasVisibleText($captionHtml) ) {
-                // The caption becomes a paragraph. Publish that changed subject
-                // so tag-qualified author typography still reaches its new host.
-                $attributes = $this->styleResolver->presentationAttributes($caption);
-                if (array() !== $this->styleResolver->structuralPresentationDeclarations($caption)) {
-                    $projections = $this->session->authorSelectorProjectionState();
-                    $marker = $projections->ensureSemanticMarker($caption->getNodePath() ?? '');
-                    // The paragraph remains under the figure's ancestors, so
-                    // universal rules already reach it without a per-caption arm.
-                    $projections->installInnerSubject($caption->getNodePath() ?? '', 'p.' . $marker, '', false, true);
-                    $attributes['className'] = SourceDom::mergeClassNames((string) ($attributes['className'] ?? ''), $marker);
-                }
-                $children[] = $this->blocks->createBlock('core/paragraph', array_merge($attributes, array( 'content' => $captionHtml )), array(), $caption);
+                $children[] = $this->blocks->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($caption), array( 'content' => $captionHtml )), array(), $caption);
             } elseif ( $this->emptyVisualRetention->shouldPreserveEmptyVisualElement($caption) ) {
                 // An empty caption can still hold space (padding, border,
                 // height) that the content after its figure depends on.

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -134,10 +135,6 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
 
-        if ($quotes->figureOwnsBox($figure)) {
-            return null;
-        }
-
         $citation = $quotes->citationFromElement($blockquote);
         $caption = SourceDom::firstChildElement($figure, 'figcaption');
         // The figure collapses into core/quote only when it holds just the
@@ -193,10 +190,19 @@ final class QuotePattern implements PatternRecognizerInterface
         if ( array() !== $quoteChildren ) {
             // Only transfer text presentation: the consumed blockquote's box
             // (especially margins) must not become the synthetic paragraph's box.
+            $typography = $quotes->figureQuotationTypography($blockquote);
+            $className = 'blocks-engine-synthetic-paragraph';
+            if (isset($typography['lineHeight'])) {
+                // This text replaces a blockquote, not an inline text run.
+                // Keep its independent line box when author leading differs
+                // from the figure's inherited leading. An inline paragraph
+                // would instead enlarge each line to the figure's strut.
+                $className = SourceDom::mergeClassNames($className, SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS);
+            }
             $quoteChildren[0] = $createBlock('core/paragraph', array(
                 'content' => $value,
-                'className' => 'blocks-engine-synthetic-paragraph',
-                'style' => array('typography' => $quotes->figureQuotationTypography($blockquote)),
+                'className' => $className,
+                'style' => array('typography' => $typography),
             ));
         }
         $innerBlocks = array_merge($innerBlocks, $quoteChildren);

@@ -5,9 +5,8 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
-// Separate figure and quotation boxes must not share a line box: the figure's
-// inherited 24px line-height otherwise enlarges the 20.3px quotation lines and
-// shifts every following section, including unrelated paragraph blocks.
+// A consumed blockquote's shorter leading needs its own block line box, not
+// the figure's inherited strut. Keep the existing native quote/citation shape.
 $result = (new HtmlTransformer())->transform(
     '<style>body{font-size:16px;line-height:1.5}'
     . '.review{padding:24px 36px 20px;border-right:1px solid #ccc;margin:0}'
@@ -17,22 +16,17 @@ $result = (new HtmlTransformer())->transform(
     . '<figcaption>Publication</figcaption></figure><p>Following section</p>'
 )->toArray();
 
-$figure = $result['blocks'][0] ?? array();
-$quote = $figure['innerBlocks'][0] ?? array();
-$caption = $figure['innerBlocks'][1] ?? array();
-if ('core/group' !== ($figure['blockName'] ?? '')
-    || 'core/quote' !== ($quote['blockName'] ?? '')
-    || '1.45' !== ($quote['attrs']['style']['typography']['lineHeight'] ?? '')
-    || '12px' !== ($quote['attrs']['style']['spacing']['margin']['bottom'] ?? '')
-    || 'core/paragraph' !== ($caption['blockName'] ?? '')
+$quote = $result['blocks'][0] ?? array();
+$text = $quote['innerBlocks'][0] ?? array();
+if ('core/quote' !== ($quote['blockName'] ?? '')
+    || 'core/paragraph' !== ($text['blockName'] ?? '')
+    || !str_contains($text['attrs']['className'] ?? '', 'blocks-engine-source-box-paragraph')
+    || '1.45' !== ($text['attrs']['style']['typography']['lineHeight'] ?? '')
+    || isset($text['attrs']['style']['spacing'])
+    || !str_contains($quote['attrs']['citation'] ?? '', 'Publication')
+    || array() !== ($result['blocks'][1]['attrs']['style'] ?? array())
     || 'pass' !== ($result['source_reports']['wp_block_validity']['status'] ?? '')
 ) {
-    throw new RuntimeException('Boxed figure must retain an independent quotation box: ' . $result['serialized_blocks']);
-}
-$css = implode("\n", array_column(array_filter($result['assets'], static fn (array $asset): bool => 'css' === $asset['kind']), 'content'));
-preg_match('/blocks-engine-semantic-[^ ]+/', $caption['attrs']['className'] ?? '', $markers);
-$marker = $markers[0] ?? '';
-if ('' === $marker || !str_contains($css, 'p.' . $marker) || !str_contains($css, 'font-size:9px;font-weight:700')) {
-    throw new RuntimeException('Caption author rules must reach its paragraph host: ' . $css);
+    throw new RuntimeException('Quotation leading must retain a block line box without changing surrounding topology: ' . $result['serialized_blocks']);
 }
 echo "Boxed figure quote passed\n";
