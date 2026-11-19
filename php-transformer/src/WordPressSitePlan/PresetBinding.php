@@ -1361,7 +1361,7 @@ final class PresetBinding
             }
             $value = self::declared(self::declarations($body), 'font-family');
             if (str_contains($body, '{')) return $prelude;
-            if (null === $value && (array() === $this->bodyColorDefaults || !preg_match('/(?:^|,)\s*(?:body|(?::root\s+)?body\.editor-styles-wrapper)\s*(?:,|$)/', $prelude))) return $prelude;
+            if (null === $value && (array() === $this->bodyColorDefaults || !preg_match('/(?:^|,)\s*(?::root\s+)?body(?:\.editor-styles-wrapper)?\s*(?:,|$)/', $prelude))) return $prelude;
             $rawValue = $value ?? '';
             $rules = array();
             foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array($prelude) as $selector) {
