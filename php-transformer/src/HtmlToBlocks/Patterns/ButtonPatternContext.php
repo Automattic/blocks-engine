@@ -290,6 +290,18 @@ final class ButtonPatternContext
     }
 
     /**
+     * Whether the saved label still renders this source descendant as its own
+     * RichText carrier, so the descendant keeps its box inside the link
+     * rather than being absorbed into it.
+     */
+    public function labelRendersDescendant(DOMElement $descendant, string $labelHtml): bool
+    {
+        $marker = $this->session?->authorSelectorProjectionState()->richTextMarker($descendant->getNodePath() ?? '') ?? '';
+
+        return '' !== $marker && str_contains($labelHtml, $marker);
+    }
+
+    /**
      * core/button's label is RichText, which cannot hold an element without
      * text. A text-free child the author paints at either edge of the button
      * (a selection dot beside the label, say) is the button's own decoration:
