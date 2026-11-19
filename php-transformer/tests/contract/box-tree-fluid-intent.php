@@ -90,6 +90,11 @@ $cases = array(
     '% width against the parent content width lifts' => array(
         'h1{width:50%}', array('n5.width' => array('200px', '100px'), 'n6.width' => array('100px', '50px')), array('width:50%'), array('width:50px'),
     ),
+    // sdnunca image link layers: `inline-size:100%` sets the width the 402px
+    // capture froze, which is too wide for any narrower viewport.
+    'a % inline-size lifts as the width it sets' => array(
+        'h1{inline-size:50%}', array('n5.width' => array('200px', '100px'), 'n6.width' => array('100px', '50px')), array('width:50%'), array('width:50px', 'width:100px'),
+    ),
     'clamp() lifts' => array(
         'h1{font-size:clamp(10px,5.2vw,100px)}', array('n6.font-size' => array('75px', '20.9px')), array('font-size:clamp(10px,5.2vw,100px)'), array('font-size:75px'),
     ),

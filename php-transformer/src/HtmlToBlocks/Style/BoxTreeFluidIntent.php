@@ -143,6 +143,13 @@ final class BoxTreeFluidIntent
         'left' => array('auto', 'inset-inline', 'inset-inline-start'),
     );
 
+    /** Physical size => the logical longhand that sets it (horizontal writing mode). */
+    private const LOGICAL_SIZES = array(
+        'width' => 'inline-size', 'height' => 'block-size',
+        'min-width' => 'min-inline-size', 'min-height' => 'min-block-size',
+        'max-width' => 'max-inline-size', 'max-height' => 'max-block-size',
+    );
+
     /** Keyword properties the author switches by width, lifted per author band. */
     private const KEYWORD_SWITCHES = array('display' => true, 'visibility' => true);
 
@@ -469,6 +476,8 @@ final class BoxTreeFluidIntent
     {
         [$initial] = self::INTRINSIC[$property];
         foreach (array_slice(self::INTRINSIC[$property], 1) as $alias) {
+            // The logical size is read through the physical one ({@see self::declared()}).
+            if ($alias === (self::LOGICAL_SIZES[$property] ?? null)) continue;
             if (null !== $this->declared($alias, $width)) return null;
         }
         $grid = in_array($property, self::GRID_TEMPLATES, true);
@@ -656,8 +665,13 @@ final class BoxTreeFluidIntent
         foreach ((array) (self::SHORTHANDS[$property] ?? array()) as $candidate) {
             if (isset($order[$candidate]) && (null === $shorthand || $order[$candidate] > $order[$shorthand])) $shorthand = $candidate;
         }
-        $fromShorthand = null !== $shorthand && (!isset($order[$property]) || $order[$shorthand] > $order[$property]);
-        $name = $fromShorthand ? $shorthand : $property;
+        // A logical size (`inline-size:100%`) sets the same box size as its
+        // physical longhand; whichever the cascade puts last wins.
+        $own = $property;
+        $logical = self::LOGICAL_SIZES[$property] ?? null;
+        if (null !== $logical && isset($order[$logical]) && (!isset($order[$property]) || $order[$logical] > $order[$property])) $own = $logical;
+        $fromShorthand = null !== $shorthand && (!isset($order[$own]) || $order[$shorthand] > $order[$own]);
+        $name = $fromShorthand ? $shorthand : $own;
         if (!isset($winners[$name])) return null;
         $value = trim(CssValueInspector::withoutImportant((string) $winners[$name]));
         if ('' === $value) return null;

@@ -1962,7 +1962,8 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      * folded box's declarations takes the box's bands for them (lifted in the
      * box's own context), never its own; sizing keeps the child's captured
      * pixels unless the box's intent is an intrinsic keyword that holds for
-     * the child too.
+     * the child too, or the child's border box is the box's at every capture
+     * and its size sets that border box, so the box's intent sizes it.
      *
      * @return array<string, list<array{0: float|null, 1: string}>>
      */
@@ -2006,7 +2007,12 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
         foreach ( self::FOLD_SIZING as $property ) {
             $bands = $boxFluid[$property] ?? null;
             $keywords = null !== $bands && array() === array_filter(array_column($bands, 1), static fn(string $value): bool => !in_array($value, self::INTRINSIC_SIZES, true));
-            if ( $keywords && ($fold['equal_box'] || ($fluid[$property] ?? null) === $bands) ) {
+            // A child whose border box is the box's at every capture takes
+            // the box's place, so the box's own `%` or viewport size, proven
+            // against the containing block the child now shares, sizes the
+            // child too, unlike the pixels one capture width froze.
+            $sized = null !== $bands && $fold['equal_box'] && self::sizesBorderBox($observations, $property);
+            if ( ($keywords && ($fold['equal_box'] || ($fluid[$property] ?? null) === $bands)) || $sized ) {
                 $fluid[$property] = $bands;
             } else {
                 unset($fluid[$property]);
@@ -2054,6 +2060,30 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
     private static function classTokens(string $className): array
     {
         return array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array(), static fn(string $token): bool => '' !== $token));
+    }
+
+    /**
+     * Whether a size declared on the element sets its border box at every
+     * capture: border-box sizing, or no padding or border on that axis.
+     *
+     * @param array<string, array<string, mixed>> $observations
+     */
+    private static function sizesBorderBox(array $observations, string $property): bool
+    {
+        $sides = 'width' === $property ? array('left', 'right') : array('top', 'bottom');
+        foreach ( $observations as $observation ) {
+            $styles = is_array($observation['used_styles'] ?? null) ? $observation['used_styles'] : array();
+            if ( 'border-box' === ($styles['box-sizing'] ?? null) ) {
+                continue;
+            }
+            foreach ( $sides as $side ) {
+                // `border-<side>` is captured as its used shorthand, width first.
+                if ( 0.0 !== (float) ($styles['padding-' . $side] ?? 1) || 0.0 !== (float) ($styles['border-' . $side] ?? 1) ) {
+                    return false;
+                }
+            }
+        }
+        return array() !== $observations;
     }
 
     /** Sizes a folded box's intent decides for its child. */
