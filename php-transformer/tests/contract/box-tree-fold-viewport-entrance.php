@@ -7,9 +7,10 @@ declare(strict_types=1);
 // motion rules and the entrance runtime still find it) and its inline motion
 // custom properties, and the box emits no block. An unequal child, a child
 // with motion of its own, any other capture marker, or a box whose height
-// comes from its own author `aspect-ratio` or height constraint the child does
-// not repeat (equal captured boxes, but fluid sizing between captures) keeps
-// the group.
+// comes from its own author `aspect-ratio` or a binding height constraint the
+// child does not repeat (equal captured boxes, but fluid sizing between
+// captures) keeps the group. A non-binding constraint (Wix's
+// `max-height:99999px`, a `min-height` below the box) does not block the fold.
 require __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
@@ -30,6 +31,10 @@ $cases = array(
     array('name' => 'box aspect-ratio the child lacks', 'marker' => $entrance, 'box' => array('aspect-ratio' => '1 / 1.32304'),
         'css' => '.entrance-box{aspect-ratio:1/1.30749}@media (max-width:1023px){.entrance-box{aspect-ratio:1/1.32304}}'),
     array('name' => 'box min-height the child lacks', 'marker' => $entrance, 'box' => array('min-height' => '100px'), 'css' => '.entrance-box{min-height:100px}'),
+    array('name' => 'box max-height that binds', 'marker' => $entrance, 'box' => array('max-height' => '100px'), 'css' => '.entrance-box{max-height:100px}'),
+    array('name' => 'non-binding max-height and min-height', 'marker' => $entrance, 'fold' => true, 'box' => array('min-height' => '0px', 'max-height' => '99999px'),
+        'css' => '.entrance-box{max-height:99999px}'),
+    array('name' => 'non-binding min-height below the box', 'marker' => $entrance, 'fold' => true, 'box' => array('min-height' => '40px'), 'css' => '.entrance-box{min-height:40px}'),
     array('name' => 'aspect-ratio the child repeats', 'marker' => $entrance, 'fold' => true, 'box' => array('aspect-ratio' => '4 / 1'), 'child' => array('aspect-ratio' => '4 / 1'),
         'css' => '.entrance-box,.entrance-box>p{aspect-ratio:4/1}'),
     array('name' => 'dialog marker', 'marker' => 'data-blocks-engine-capture-dialog-panel="panel"'),
@@ -44,7 +49,7 @@ foreach ($cases as $case) {
     $name = $case['name'];
     $html = '<!doctype html><html data-blocks-engine-node-id="html"><head data-blocks-engine-node-id="head"><title data-blocks-engine-node-id="title">Entrance</title>'
         . '<style data-blocks-engine-node-id="style">@keyframes fade{from{opacity:0;transform:rotate(var(--motion-rotate))}to{opacity:1}}'
-        . '#comp-entrance:not([data-motion-enter="done"]){opacity:0}#comp-entrance[data-motion-enter="done"]{animation:fade 1s}</style></head>'
+        . '#comp-entrance:not([data-motion-enter="done"]){opacity:0}#comp-entrance[data-motion-enter="done"]{animation:fade 1s}' . ($case['css'] ?? '') . '</style></head>'
         . '<body data-blocks-engine-node-id="body"><main data-blocks-engine-node-id="parent">'
         . '<div id="comp-entrance" class="entrance-box" style="--motion-rotate:12deg" ' . $case['marker'] . ' data-blocks-engine-node-id="box"><p data-blocks-engine-node-id="child">Entrance text</p></div>'
         . '<p data-blocks-engine-node-id="sibling">Sibling</p></main></body></html>';

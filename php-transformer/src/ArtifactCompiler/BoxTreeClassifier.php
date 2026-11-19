@@ -600,9 +600,11 @@ final class BoxTreeClassifier
      * the box's id (it has none of its own), and must have no motion,
      * transform or capture marker of its own to compose with the entrance.
      * Equal captured boxes do not prove equal sizing intent between captures:
-     * a box whose height comes from its own `aspect-ratio` or a height
-     * constraint the child does not repeat keeps its group, so that intent
-     * is not lost to the child's captured pixels at an uncaptured width.
+     * a box whose height comes from its own `aspect-ratio` or a binding
+     * height constraint the child does not repeat keeps its group, so that
+     * intent is not lost to the child's captured pixels at an uncaptured
+     * width. A constraint that does not bind at any capture leaves the size
+     * to the child's equal box.
      */
     private static function entranceHandoff(DOMElement $element, array $node, array $tree): bool
     {
@@ -635,13 +637,29 @@ final class BoxTreeClassifier
             $b = $observation['used_styles'];
             foreach (self::ENTRANCE_SIZING_INITIAL as $property => $initial) {
                 $own = strtolower(trim((string) ($b[$property] ?? $initial[0])));
-                if (!in_array($own, $initial, true) && $own !== strtolower(trim((string) ($c[$property] ?? $initial[0])))) return false;
+                if (in_array($own, $initial, true) || $own === strtolower(trim((string) ($c[$property] ?? $initial[0])))) continue;
+                if (self::entranceSizingBinds($property, $own, (float) $observation['border_box']['height'])) return false;
             }
             if (isset($c['animation-name']) && 'none' !== $c['animation-name']) return false;
             if (isset($c['transition-duration']) && preg_match('/[1-9]/', $c['transition-duration']) && 'none' !== ($c['transition-property'] ?? 'all')) return false;
             if (!self::identityTransform($c['transform'] ?? 'none')) return false;
         }
         return true;
+    }
+
+    /**
+     * Whether a box's non-default sizing value decides its height at a
+     * capture: an `aspect-ratio` always does; a `min-height` only when it
+     * reaches the box's border-box height, a `max-height` only when the box's
+     * height reaches it (Wix reports a non-binding `max-height:99999px`). A
+     * value that is not plain pixels cannot be proven non-binding.
+     */
+    private static function entranceSizingBinds(string $property, string $value, float $height): bool
+    {
+        if ('aspect-ratio' === $property) return true;
+        if (1 !== preg_match('/^(-?\d*\.?\d+)px$/', $value, $match)) return true;
+        $limit = (float) $match[1];
+        return 'min-height' === $property ? $limit >= $height - 0.01 : $limit <= $height + 0.01;
     }
 
     /** Capture markers gate device visibility or interaction; the box carrying one is the engine's handle. */
