@@ -83,10 +83,15 @@ final class BoxTreeReport
                         if (!$node instanceof DOMElement || !$node->hasAttribute(BoxTree::NODE_ATTRIBUTE)) continue;
                         $id = $node->getAttribute(BoxTree::NODE_ATTRIBUTE);
                         $ids[] = $id;
+                        // Only navigation carries route-current state; a
+                        // current token elsewhere is the chrome's own design.
+                        $marked = $inNavigation = false;
                         for ($ancestor = $node; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
-                            if ($ancestor->hasAttribute('aria-current') || array_filter(preg_split('/\s+/', $ancestor->getAttribute('class')) ?: array(), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...))) $current[$path][$id] = true;
+                            if ($ancestor->hasAttribute('aria-current') || array_filter(preg_split('/\s+/', $ancestor->getAttribute('class')) ?: array(), \Automattic\BlocksEngine\PhpTransformer\WordPress\SourceClassIdentity::containsCurrentStateToken(...))) $marked = true;
+                            if ('nav' === strtolower($ancestor->tagName) || 'navigation' === strtolower($ancestor->getAttribute('role'))) $inNavigation = true;
                             if ($ancestor === $child) break;
                         }
+                        if ($marked && $inNavigation) $current[$path][$id] = true;
                     }
                     if (array() === $ids) continue;
                     for ($ancestor = $child->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
