@@ -313,7 +313,13 @@ add_action( 'init', static function (): void {
 } );
 PHP;
         self::serve($lines, $served, $units, 'button_variations');
-        $rootContext = DocumentRootContext::bootstrap(array_merge($pages, $rootDocuments));
+        $rootPages = array_merge($pages, $rootDocuments);
+        // Prune only against the complete published CSS.
+        $css = array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null));
+        if (array() === array_filter($css, static fn(array $asset): bool => !is_string($asset['content'] ?? null))) {
+            $rootPages = DocumentRootContext::withoutUnreferencedRouteClasses($rootPages, array_merge(array_column($css, 'content'), array_map(static fn(array $document): string => (string) ($document['canonical_block_markup'] ?? $document['block_markup'] ?? ''), array_merge($templates, $parts, $pages))));
+        }
+        $rootContext = DocumentRootContext::bootstrap($rootPages);
         if ('' !== $rootContext) $lines[] = $rootContext;
         self::serve($lines, $served, $units, 'document_attributes');
         $fields = ListingFieldProjection::bootstrap($pages);
