@@ -486,7 +486,14 @@ final class BoxTreeFluidIntent
     {
         [$initial] = self::INTRINSIC[$property];
         foreach (array_slice(self::INTRINSIC[$property], 1) as $alias) {
-            if (null !== $this->declared($alias, $width)) return null;
+            $aliasValue = $this->declared($alias, $width);
+            if (null === $aliasValue) continue;
+            // Explicit logical auto sizes still leave block height to layout;
+            // they must not freeze grid/flex stretch as a physical height.
+            if (in_array($property, array('height', 'min-height'), true)
+                && in_array(strtolower($aliasValue), array('auto', 'initial', 'unset'), true)
+                && null === $this->declared($property, $width)) continue;
+            return null;
         }
         $grid = in_array($property, self::GRID_TEMPLATES, true);
         $offset = in_array($property, self::OFFSETS, true);
