@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 // A provider wraps each input in a field shell. Layered sibling spacing must
 // identify that outer box, not remain only in the native-control paint graph.
-$source = '<style>@layer utilities { .stack > :not(:last-child) { margin-block-start:0; margin-block-end:16px } }</style>'
+$source = '<style>@layer utilities { .stack > :not(:last-child) { margin-block-start:0; margin-block-end:16px } button { display:inline-flex; gap:8px } }</style>'
     . '<main><form class="stack"><input placeholder="Name"><input placeholder="Vehicle">'
     . '<button type="submit">Book</button></form></main>';
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'booking.html', 'files' => array('booking.html' => $source)))->toArray();
@@ -24,4 +24,11 @@ if (isset($nodes['control-2']['layout']['margin_block_end'])) {
     fwrite(STDERR, 'FAIL: last control acquired sibling spacing' . PHP_EOL);
     exit(1);
 }
-echo 'PASS: layered control margins retain their structural owner' . PHP_EOL;
+// A control's internal icon/caption gap is presentation, not field-stack
+// spacing. Promoting it alongside margins changes provider layout eligibility
+// and can restyle otherwise unrelated forms.
+if (isset($nodes['control-2']['layout']['gap']) || isset($nodes['control-2']['layout']['column_gap'])) {
+    fwrite(STDERR, 'FAIL: layered button presentation gap became structural spacing' . PHP_EOL);
+    exit(1);
+}
+echo 'PASS: layered control margins retain their structural owner without promoting button gaps' . PHP_EOL;

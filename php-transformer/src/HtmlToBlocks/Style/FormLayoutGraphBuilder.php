@@ -249,7 +249,7 @@ final class FormLayoutGraphBuilder
             // when authored in a cascade layer. The presentation graph also
             // records them; providers need the structural owner to avoid
             // applying the same spacing again inside their field shell.
-            $matched = $this->matched($entry['element'], $analysis['rules'], 'control' === $entry['kind']);
+            $matched = $this->matched($entry['element'], $analysis['rules'], false, 'control' === $entry['kind']);
             $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
             $resolved[$entry['id']] = array( $matched, $conditional );
             foreach ( $conditional as $encoded => $facts ) {
@@ -972,7 +972,7 @@ final class FormLayoutGraphBuilder
     }
 
     /** @param list<array<string, mixed>> $rules @return array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>} */
-    private function matched(DOMElement $element, array $rules, bool $spacingFromLayers = false): array
+    private function matched(DOMElement $element, array $rules, bool $spacingFromLayers = false, bool $controlMarginsFromLayers = false): array
     {
         $base = array();
         $gaps = array();
@@ -1001,14 +1001,17 @@ final class FormLayoutGraphBuilder
             // still belongs on variants.
             $layered = null !== ( $rule['layer'] ?? null );
             $conditionalRule = null !== ( $rule['condition'] ?? null );
-            if ( $layered && ! $spacingFromLayers && ! $conditionalRule ) {
+            if ( $layered && ! $spacingFromLayers && ! $controlMarginsFromLayers && ! $conditionalRule ) {
                 continue;
             }
             $ruleDeclarations = $rule['declarations'];
             if ( $layered && ! $conditionalRule ) {
                 $ruleDeclarations = array_values(array_filter(
                     $ruleDeclarations,
-                    static fn (array $declaration): bool => in_array($declaration['name'], array_merge(self::SPACING_PROPERTIES, array('margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end')), true)
+                    static fn (array $declaration): bool => in_array($declaration['name'], array_merge(
+                        $spacingFromLayers ? self::SPACING_PROPERTIES : array(),
+                        $controlMarginsFromLayers ? array( 'margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end' ) : array()
+                    ), true)
                 ));
                 if ( array() === $ruleDeclarations ) {
                     continue;
