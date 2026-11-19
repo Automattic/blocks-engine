@@ -99,6 +99,31 @@ final class WrapperCoalescer
     /** @param array<string, mixed> $block @return array<string, mixed> */
     private function normalizeWrapperChain(array $block, int $depth = 1): array
     {
+        // An existing shell already owns static wrapper transport. Extend it
+        // through a sole static Group child rather than adding redundant List
+        // View levels for the same rendered boxes. Ownership/layout boundaries
+        // still use the same eligibility checks as ordinary chain folding.
+        if ($this->sourceElementClassifier->isLayoutShellBlock($block)) {
+            $wrappers = ArrayField::array($block, '_layout_shell_wrappers');
+            if (array() !== $wrappers) {
+                $children = ArrayField::array($block, 'innerBlocks');
+                while (1 === count($children) && null !== ($descriptor = $this->foldableWrapperDescriptor($children[0]))) {
+                    $child = $children[0];
+                    $wrappers[] = $descriptor;
+                    if (isset($child['_source_provenance_id'])) {
+                        $block['_source_provenance_ids'][] = $child['_source_provenance_id'];
+                    }
+                    $children = ArrayField::array($child, 'innerBlocks');
+                }
+                $opening = implode('', array_column($wrappers, 'opening'));
+                $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
+                $block['_layout_shell_wrappers'] = $wrappers;
+                $block['attrs']['wrappers'] = array_map(static fn (array $wrapper): array => array('tagName' => $wrapper['tagName'], 'attributes' => $wrapper['attributes']), $wrappers);
+                $block['innerBlocks'] = $children;
+                $block['innerHTML'] = $opening . $closing;
+                $block['innerContent'] = array_merge(array($opening), array_fill(0, count($children), null), array($closing));
+            }
+        }
         // Spend shared ancestry once before charging its depth to each branch.
         $ancestorChain = array();
         $cursor = $block;
