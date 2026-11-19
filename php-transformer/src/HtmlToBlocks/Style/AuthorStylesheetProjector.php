@@ -2977,6 +2977,10 @@ final class AuthorStylesheetProjector
                 // Overlay lists still own an inner UL, not the opener's root.
                 $target = $context->selectorProjections->navigationListBoxSubject($path);
                 if ('' === $target) continue;
+                if ($context->selectorProjections->isMergedDeviceNavigationSource($path)
+                    && 'none' === CssValueInspector::comparable($box['display'] ?? '')) {
+                    $target .= ':where(:not(.' . AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS . '))';
+                }
                 $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
                 $display = $this->navigationListBoxDisplay($box['display'] ?? null, $context->selectorProjections->navigationListShownDisplay($path));
                 $rendered = '' === $display ? $box : array('display' => $display) + $box;
