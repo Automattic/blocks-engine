@@ -16,10 +16,53 @@ final class EmptyStylesheets
         return 'css' === ($asset['kind'] ?? null) && is_string($asset['content'] ?? null) && '' === trim($asset['content']) && !isset($asset['payload_reference']);
     }
 
-    /** @param array<int,array<string,mixed>> $assets */
-    public static function count(array $assets): int
+    /**
+     * Writing a sheet canonicalizes it and can still drop rules: a face whose
+     * local font source is missing goes, and a font sheet holding only such
+     * faces is written empty. A row whose write came out empty takes the
+     * written bytes, so its bytes and hashes describe what is written and
+     * isEmpty() judges the same thing the write delivers.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $writes Theme asset writes of $assets.
+     * @return array<int,array<string,mixed>>
+     */
+    public static function describingWrites(array $assets, array $writes): array
     {
-        return count(array_filter($assets, self::isEmpty(...)));
+        $written = self::writtenText($writes);
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || isset($asset['payload_reference']) || self::isEmpty($asset)) continue;
+            $text = $written[$asset['target_path'] ?? ''] ?? null;
+            if (is_string($text) && '' === trim($text)) $asset = CompiledAssets::withRewrittenTextContent($asset, $text);
+        }
+        unset($asset);
+        return $assets;
+    }
+
+    /**
+     * Empty stylesheet writes: theme asset writes of a stylesheet asset whose
+     * written text holds nothing but whitespace.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $writes
+     */
+    public static function countWrites(array $assets, array $writes): int
+    {
+        $stylesheets = array_fill_keys(array_column(array_filter($assets, static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)), 'target_path'), true);
+        return count(array_filter(self::writtenText($writes), static fn(string $text, int|string $target): bool => isset($stylesheets[(string) $target]) && '' === trim($text), ARRAY_FILTER_USE_BOTH));
+    }
+
+    /** @param array<int,array<string,mixed>> $writes @return array<string,string> Decoded text of each theme asset write, by target. */
+    private static function writtenText(array $writes): array
+    {
+        $text = array();
+        foreach ($writes as $write) {
+            if ('theme_asset' !== ($write['kind'] ?? null) || !is_string($write['target_path'] ?? null) || !is_string($write['payload']['data'] ?? null)) continue;
+            $encoding = $write['payload']['encoding'] ?? null;
+            $data = 'base64' === $encoding ? base64_decode($write['payload']['data'], true) : ('utf8' === $encoding ? $write['payload']['data'] : false);
+            if (is_string($data)) $text[$write['target_path']] = $data;
+        }
+        return $text;
     }
 
     /**
@@ -41,9 +84,13 @@ final class EmptyStylesheets
     {
         $unchanged = array('assets' => $assets, 'document_sets' => $documentSets, 'tokens' => array());
         $delivering = array();
-        foreach ($assets as $asset) {
+        // Replays own delivery references just like top-level assets.
+        $owners = array_values($assets);
+        while (array() !== $owners) {
+            $asset = array_pop($owners);
             if (is_string($asset['stylesheet_parent'] ?? null)) $delivering['source:' . $asset['stylesheet_parent']] = true;
             foreach ($asset['stylesheet_parts'] ?? array() as $path) $delivering['target:' . $path] = true;
+            foreach ($asset['stylesheet_replays'] ?? array() as $replay) $owners[] = $replay;
         }
         $candidates = array();
         foreach ($assets as $index => $asset) {

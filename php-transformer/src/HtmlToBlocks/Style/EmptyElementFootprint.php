@@ -141,29 +141,38 @@ final class EmptyElementFootprint
                 }
                 return array_merge($base, $inline);
             };
-            if ($this->emptyFlexItemHasFootprint($element, $read($parentBase, $parentDeclared, $parentInline), $read($base, $declared, $inline))) {
+            if ($this->emptyLayoutItemHasFootprint($element, $read($parentBase, $parentDeclared, $parentInline), $read($base, $declared, $inline))) {
                 return true;
             }
         }
         return false;
     }
 
-    private function emptyFlexItemHasFootprint(DOMElement $element, array $parentDeclarations, array $declarations): bool
+    private function emptyLayoutItemHasFootprint(DOMElement $element, array $parentDeclarations, array $declarations): bool
     {
-        $display = CssValueInspector::declared($parentDeclarations, 'display');
-        if ( ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
-            return false;
-        }
         if ( $this->isOutOfFlow($declarations)
             || in_array(CssValueInspector::declared($declarations, 'display'), array( 'none', 'contents' ), true)
         ) {
             return false;
         }
+        $hasSize = fn (string $value): bool => $this->sourceElementClassifier->isPositiveCssLength($value)
+            || (1 === preg_match('/^\+?(\d+(?:\.\d+)?|\.\d+)%$/', trim($value), $matches) && 0 < (float) $matches[1]);
+        // A table cell takes its declared width out of the table's row even
+        // when it is empty; dropping it hands that width to its siblings.
+        if ( 'table-cell' === CssValueInspector::declared($declarations, 'display') ) {
+            foreach ( array( 'width', 'min-width' ) as $property ) {
+                if ( $hasSize($this->styleResolver->customProperties->resolve((string) ($declarations[$property] ?? ''), $element)) ) {
+                    return true;
+                }
+            }
+        }
+        $display = CssValueInspector::declared($parentDeclarations, 'display');
+        if ( ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
+            return false;
+        }
 
         $column = in_array(CssValueInspector::declared($parentDeclarations, 'flex-direction'), array( 'column', 'column-reverse' ), true);
         $properties = $column ? array( 'height', 'min-height', 'flex-basis' ) : array( 'width', 'min-width', 'flex-basis' );
-        $hasSize = fn (string $value): bool => $this->sourceElementClassifier->isPositiveCssLength($value)
-            || (1 === preg_match('/^\+?(\d+(?:\.\d+)?|\.\d+)%$/', trim($value), $matches) && 0 < (float) $matches[1]);
         foreach ( $properties as $property ) {
             $value = $this->styleResolver->customProperties->resolve((string) ($declarations[$property] ?? ''), $element);
             if ( $hasSize($value) ) {

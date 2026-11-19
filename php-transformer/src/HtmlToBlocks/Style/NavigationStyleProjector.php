@@ -89,6 +89,16 @@ final class NavigationStyleProjector
         // must still deliver them, or Gutenberg loses the selectable boxes
         // and placeholders they restore (issue #5920).
         $engineRules = array();
+        // A box-tree carrier makes core/image's synthetic figure boxless so
+        // the source image keeps its own layout box on the front end. That
+        // figure is the block root Gutenberg focuses to select the image, and
+        // a `display:contents` element cannot take focus: a click on the image
+        // selected the enclosing group, with no Replace control (issue #5920).
+        // Give exactly those figures a block box in the editor only.
+        $boxlessFigures = $this->session->layoutGeometryState()->boxlessImageFigureCarriersFor($serializedBlocks);
+        if ( array() !== $boxlessFigures ) {
+            $engineRules[] = ':root .editor-styles-wrapper figure.wp-block-image:is(' . implode(',', array_map(static fn(string $class): string => '.' . $class, $boxlessFigures)) . '):not([hidden]){display:block}';
+        }
         // Source runtimes can hide an icon carrier until hover or animation.
         // They do not run in Gutenberg: expose the native image and its direct
         // group carrier there, so the image has a selectable box. Keep this in
@@ -108,18 +118,11 @@ final class NavigationStyleProjector
         // the RichText root, and a boxless element cannot take focus: putting
         // the caret in it to replace its text (a `<time>` date line) left focus
         // outside, and the typed text never reached the block (issue #5797).
-        // Give every editable carrier a block container box before focus is
-        // attempted. Waiting for :focus or .is-selected is circular for direct
-        // RichText editing: display:contents cannot receive the initial focus.
-        // The box must be a block container, not inline: author CSS often
-        // makes the carried element itself block-level (a `.post-date`
-        // `display:block`), and a block inside an inline editing host loses
-        // the typed text when its selected content is replaced. The carrier
-        // only ever sits beside blocks, where its inline content already forms
-        // an anonymous block, so a block box lays out the same. The front end
-        // never matches this editor-only rule.
+        // Give the carrier an inline box only while it is being edited: at
+        // rest the canvas keeps the front end's boxless layout, and the front
+        // end never matches this editor-only rule.
         if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
-            $rules[] = ':root .editor-styles-wrapper p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '[contenteditable="true"]{display:block}';
+            $rules[] = ':root .editor-styles-wrapper p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '[contenteditable="true"]:is(.is-selected,:focus){display:inline}';
         }
         foreach ( self::focusedEmptyRichTextRepairRules($projectedAuthorCss) as $repairRule ) {
             $rules[] = $repairRule;

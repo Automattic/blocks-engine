@@ -36,7 +36,6 @@ final class InteractionFallbackReporter
     /**
      */
     public function __construct(
-        private readonly FormControlMetadataBuilder $formControlMetadataBuilder,
         private readonly NavigationToggleSuppressor $navigationToggleSuppressor,
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
         private readonly Runtime $runtime,
@@ -95,8 +94,9 @@ final class InteractionFallbackReporter
         }
 
         if ( 'form' === $tagName ) {
-            $metadata = $this->formControlMetadataBuilder->form($element);
-            $candidates[] = $this->interactionCandidate($element, 'form', 'submit', (string) ($metadata['action'] ?? ''), array_filter(array('form_element', (string) ($metadata['method'] ?? ''))), 'high', 'form_submission');
+            // Only where the form submits; full control metadata is the conversion's (#6731).
+            $submission = FormControlMetadataBuilder::submission($element);
+            $candidates[] = $this->interactionCandidate($element, 'form', 'submit', $submission['action'], array_filter(array('form_element', $submission['method'])), 'high', 'form_submission');
         }
 
         if ( in_array($tagName, array('button', 'a'), true) && ( array() !== $events || array() !== $actionDataAttributes || $hasAriaControl ) ) {

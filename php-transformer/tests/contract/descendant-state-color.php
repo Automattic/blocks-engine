@@ -10,7 +10,8 @@ $assert = static function (bool $condition, string $message): void {
 };
 $html = file_get_contents(dirname(__DIR__) . '/fixtures/descendant-state-color.html');
 $hover = '.contact a:hover { color: rgb(201, 169, 106); }';
-foreach (array('control' => str_replace($hover, '', $html), 'descendant' => $html, 'own' => str_replace('.contact a:hover', '.contact:hover', $html)) as $case => $source) {
+$distinct = str_replace('rgb(250, 247, 242)', 'rgb(120, 210, 170)', $html);
+foreach (array('control' => str_replace($hover, '', $html), 'descendant' => $html, 'distinct-control' => str_replace($hover, '', $distinct), 'distinct-descendant' => $distinct, 'own' => str_replace('.contact a:hover', '.contact:hover', $html)) as $case => $source) {
     $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $source)))->toArray()['source_reports']['wordpress_site_plan'];
     $markup = $plan['pages'][0]['canonical_block_markup'];
     $assert(1 === preg_match('/<!-- wp:group (\{.*?\}) -->/', $markup, $match), 'The section remains a native group.');
@@ -28,10 +29,17 @@ foreach (array('control' => str_replace($hover, '', $html), 'descendant' => $htm
         }
         if (str_ends_with($write['target_path'], '.css')) $css .= $write['payload']['data'];
     }
-    $slug = $palette['#faf7f2'] ?? null;
-    $assert(is_string($slug) && $slug === ($attributes['textColor'] ?? null), $case . ': section text binds to its exact palette preset.');
-    $assert(!isset($attributes['style']['color']['text']), $case . ': section no longer retains literal text color.');
+    if (str_starts_with($case, 'distinct-')) {
+        $slug = $palette['#78d2aa'] ?? null;
+        $assert(is_string($slug) && $slug === ($attributes['textColor'] ?? null), $case . ': distinct section text still binds to its exact preset.');
+        $assert(!isset($attributes['style']['color']['text']), $case . ': bound text has no literal override.');
+    } else {
+    // This near-white shade is intentionally local, not a duplicate palette
+    // entry. A descendant hover must neither block it nor change its paint.
+    $assert(!isset($palette['#faf7f2']) && !isset($attributes['textColor']), $case . ': near-white text does not bind to a nearby preset.');
+    $assert('rgb(250, 247, 242)' === ($attributes['style']['color']['text'] ?? null), $case . ': section retains its exact local text color.');
+    }
     $assert(0 === $plan['theme']['design_system']['metrics']['refusal_reasons']['state_variant'], $case . ': no unrelated state refusal.');
-    if ('descendant' === $case) $assert(str_contains($css, '.contact a:hover') && str_contains($css, '201, 169, 106'), 'The authored link hover color remains in the stylesheet.');
+    if (str_ends_with($case, 'descendant')) $assert(str_contains($css, '.contact a:hover') && str_contains($css, '201, 169, 106'), 'The authored link hover color remains in the stylesheet.');
 }
 echo "Descendant state color contract passed.\n";

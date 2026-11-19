@@ -34,6 +34,7 @@ final class AnchorElementConverter implements ElementConverter
         if ( SourceDom::isEmptyNamedFragmentTarget($element) ) {
             return ConversionOutcome::handled(null);
         }
+        $this->lowerSourcelessImagesToAltText($element);
         $anchorBlock = $this->buttonLinks->convertAnchor($element, $fallbacks);
         if ( null !== $anchorBlock ) {
             return ConversionOutcome::handled($anchorBlock);
@@ -97,6 +98,64 @@ final class AnchorElementConverter implements ElementConverter
         }
 
         return true;
+    }
+
+    /**
+     * A link whose only content is `<img>` elements with no image source (no
+     * src, srcset, lazy-source attribute or host metadata) shows no image: the
+     * browser renders each one as its alt text, and the link navigates on that
+     * text. Lower it as that text link. Each sourceless image is replaced by
+     * its alt text; one without alt text renders nothing and is dropped, which
+     * leaves the empty destination link every other text-less link becomes.
+     * Links that wrap anything else, and href-less anchors (handled below as
+     * non-rendering scaffolding), are left unchanged.
+     */
+    private function lowerSourcelessImagesToAltText(DOMElement $element): void
+    {
+        if ( ! $element->hasAttribute('href') || '' !== trim($element->textContent ?? '') || 0 === SourceDom::childElementCount($element) ) {
+            return;
+        }
+        $images = array();
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( 'img' !== strtolower($descendant->tagName) || ! $this->isSourcelessImage($descendant) ) {
+                return;
+            }
+            $images[] = $descendant;
+        }
+        $labelled = array_values(array_filter($images, static fn (DOMElement $image): bool => '' !== self::altText($image)));
+        foreach ( $images as $image ) {
+            $alt = self::altText($image);
+            $parent = $image->parentNode;
+            if ( null === $parent || null === $element->ownerDocument ) {
+                continue;
+            }
+            if ( '' === $alt ) {
+                $parent->removeChild($image);
+                continue;
+            }
+            $separator = $image === $labelled[0] ? '' : ' ';
+            $parent->replaceChild($element->ownerDocument->createTextNode($separator . $alt), $image);
+        }
+    }
+
+    private function isSourcelessImage(DOMElement $image): bool
+    {
+        foreach ( array( 'src', 'srcset', 'data-src', 'data-lazy-src', 'data-original', 'data-image-src', 'data-srcset', 'data-lazy-srcset' ) as $attribute ) {
+            if ( '' !== trim(SourceDom::attr($image, $attribute)) ) {
+                return false;
+            }
+        }
+        $parent = $image->parentNode;
+        if ( $parent instanceof DOMElement && 'picture' === strtolower($parent->tagName) ) {
+            return false;
+        }
+
+        return '' === trim(SourceDom::imageUrlFromHostMetadata($image));
+    }
+
+    private static function altText(DOMElement $image): string
+    {
+        return trim((string) preg_replace('/\s+/u', ' ', SourceDom::attr($image, 'alt')));
     }
 
     /**

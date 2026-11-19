@@ -107,7 +107,7 @@ final class EngineSupportCss
             // A lowered block-level source wrapper keeps its block box.
             $parts[] = ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . ')){display:inline}'
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . ':not(.' . SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS . '):has(>a)){display:contents}'
-                . "\n" . ':where(p.blocks-engine-inline-anchor-carrier){display:inline}'
+                . "\n" . ':where(p.' . SourceBlockAttributeProjector::INLINE_ANCHOR_CARRIER_CLASS . '){display:inline}'
                 // A parent's sibling-spacing rule (`.stack > * + *`) now matches the
                 // carrier, whose margins do nothing as display:contents. The
                 // anchor it stands for takes them instead, as in the source.
