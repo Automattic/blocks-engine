@@ -1635,21 +1635,6 @@ final class NavigationPatternContext
         return $this->styleResolver->resolvedConditionalDisplay($element);
     }
 
-    public function observedListDisplay(DOMElement $element): string
-    {
-        // Captured imports retire author rules in favour of observed boxes.
-        // Only use a viewport-independent observation as a static fallback;
-        // differing responsive displays remain owned by the geometry carriers.
-        $displays = array();
-        foreach ( $this->session->boxTreeEvidence($element) as $box ) {
-            $observed = $box['used_styles']['display'] ?? '';
-            if ( is_string($observed) && '' !== $observed ) {
-                $displays[$observed] = true;
-            }
-        }
-        return 1 === count($displays) ? (string) array_key_first($displays) : '';
-    }
-
     /**
      * The display the browser cascade gives the element at the reference
      * viewport: static and applying conditional rules, ranked by specificity
