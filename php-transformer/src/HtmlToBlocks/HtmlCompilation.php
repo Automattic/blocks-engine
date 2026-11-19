@@ -2583,8 +2583,24 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
                 'fluid' => $fluidIntent->lift($paintedImage, $this->styleResolver, $imageObservations, $viewports, $imageParents, $name, $this->liftEvidence()),
             );
         }
+        // core/details renders the source `<summary>` bare: its own evidence styles that element.
+        $summary = array();
+        $sourceSummary = 'core/details' === $name && 'details' === $sourceTagName ? SourceDom::firstChildElement($sourceElement, 'summary') : null;
+        if ($sourceSummary instanceof DOMElement) {
+            $summaryObservations = $this->session->boxTreeEvidence($sourceSummary);
+            $summaryPseudoFluid = array();
+            foreach ( array( 'before', 'after' ) as $pseudo ) {
+                $summaryPseudoFluid[$pseudo] = $fluidIntent->liftPseudo($sourceSummary, $this->styleResolver, $summaryObservations, $viewports, $pseudo, $this->liftEvidence());
+            }
+            $summary = array(
+                'observations' => $summaryObservations,
+                'parents' => $observations,
+                'fluid' => $fluidIntent->lift($sourceSummary, $this->styleResolver, $summaryObservations, $viewports, $observations, '', $this->liftEvidence()),
+                'pseudoFluid' => $summaryPseudoFluid,
+            );
+        }
         $classesBefore = self::classTokens((string) ($attrs['className'] ?? ''));
-        $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image, $inlineSupports);
+        $attrs = (new Style\BoxTreeStyleProjector())->project($attrs, $observations, $viewports, $this->session->layoutGeometryState(), $parents, $name, $fluid, $pseudoFluid, $sourceTagName, $image, $summary, $inlineSupports);
         $carrierNode = $sourceElement->getAttribute(BoxTree::NODE_ATTRIBUTE);
         if ( '' !== $carrierNode ) {
             $this->boxTreeCarriers[$carrierNode] = array_values(array_diff(self::classTokens((string) ($attrs['className'] ?? '')), $classesBefore));
