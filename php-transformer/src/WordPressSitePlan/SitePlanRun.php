@@ -574,7 +574,8 @@ final class SitePlanRun
             // that spelling, so it is written once at its smallest form.
             // Literal colours need not repeat verbose captured RGB spellings.
             // Keep custom-property token streams and non-colour values intact.
-            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet(CssColorValueCompactor::stylesheet($asset['content']))));
+            $content = \Automattic\BlocksEngine\PhpTransformer\Css\CssDeclarationWhitespaceCompactor::stylesheet($asset['content']);
+            $compacted = $compactor->compactStylesheet(ShadowedDeclarationPruner::prune(CssMathValueCompactor::stylesheet(CssColorValueCompactor::stylesheet($content))));
             // Inline source sheets are projected like linked ones: a motion
             // or state rule restated per subject ships its block once.
             if (in_array($asset['source'] ?? null, array('files', 'inline-style'), true)) $compacted = $compactor->mergeRepeatedDeclarationRules($compacted);
