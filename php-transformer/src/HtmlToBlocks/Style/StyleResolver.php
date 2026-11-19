@@ -1525,12 +1525,12 @@ final class StyleResolver implements ElementPresentationResolver
     private function carriedFontSizeValue(array $entry, DOMElement $element): string
     {
         $value = $entry['value'];
-        // Captured presentation can retire author tokens from the projected
-        // stylesheet. Keep the responsive rescue (and its literal sizes), but
-        // do not reintroduce a reference that can invalidate the captured size
-        // at computed-value time. Resolve against the source, before retirement.
-        if (array() !== $this->session->boxTreeEvidence($element)) {
-            $value = $this->customProperties->resolve($value, $element);
+        // The captured carrier already owns token-based sizes, including
+        // their viewport changes. Author tokens may be retired from its route;
+        // neither a dead reference nor a resolved duplicate may override that
+        // carrier. Literal responsive declarations still need the rescue.
+        if (str_contains($value, 'var(') && array() !== $this->session->boxTreeEvidence($element)) {
+            return '';
         }
         $value = CssValueInspector::carriableDeclarationValue($value);
 
