@@ -334,8 +334,29 @@ final class RichTextMaterializer implements RichTextMaterialization
             'border-bottom-color',
             'border-left-color',
             'box-shadow',
+            'box-sizing',
             'color',
             'display',
+            // Phrasing carriers can own layout as well as text formatting.
+            // Keep the constraints that size and align their flex boxes;
+            // display:flex alone does not preserve the source geometry.
+            'align-content',
+            'align-items',
+            'align-self',
+            'justify-content',
+            'flex',
+            'flex-basis',
+            'flex-direction',
+            'flex-flow',
+            'flex-grow',
+            'flex-shrink',
+            'flex-wrap',
+            'gap',
+            'row-gap',
+            'column-gap',
+            'min-width',
+            'min-height',
+            'order',
             // Keep pending shorthands (including var() and system fonts) intact.
             // Filtering these loses all of their font resets and values; parsing
             // them here would also change their ordering against longhands.
