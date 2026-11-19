@@ -478,6 +478,10 @@ final class AnchorLowering implements ButtonLinkLeftovers
                     $content = '<img src="' . htmlspecialchars($image['attrs']['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
                         . '" alt="" class="' . htmlspecialchars(SourceDom::attr($icon, 'class'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"/>';
                 }
+                // These source elements now own native blocks, not the
+                // speculative RichText carriers discovered before lowering.
+                // Reconcile that state before projecting the site's styles.
+                $this->session->authorSelectorProjectionState()->adoptAsNativeSourceBox($child->getNodePath() ?? '');
                 $attrs = $this->styleResolver->presentationAttributes($child);
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, SourceBlockAttributeProjector::SOURCE_BOX_PARAGRAPH_CLASS);
                 $attrs['content'] = $content;
@@ -599,7 +603,7 @@ final class AnchorLowering implements ButtonLinkLeftovers
         }
         $path = $anchor->getNodePath() ?? '';
         $projections = $this->session->authorSelectorProjectionState();
-        if ( '' !== $path && $projections->isControlPath($path) ) {
+        if ( (! $stretched || $hasTrailingLabel) && '' !== $path && $projections->isControlPath($path) ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), ...$projections->semanticCarrierClasses($projections->ensureSemanticMarker($path), $path));
         }
 

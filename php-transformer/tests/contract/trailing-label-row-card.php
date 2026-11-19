@@ -38,4 +38,18 @@ foreach (array(
         throw new RuntimeException('Unrelated listing and eyebrow cards must retain their source anchor.');
     }
 }
+// Source analysis initially sees the cue as RichText. After the cue
+// becomes its own paragraph, no dead per-element RichText arm should remain
+// in the shared author CSS (nor multiply once for each card on a route).
+$out = (new HtmlTransformer())->transform(
+    '<style>.cue{margin-left:auto;color:green;transition:transform .15s}.row{display:flex}</style>'
+    . '<a class="row" href="/one/"><div><h3>One</h3><p>Summary</p></div><span class="cue">→</span></a>'
+    . '<a class="row" href="/two/"><div><h3>Two</h3><p>Summary</p></div><span class="cue">→</span></a>'
+)->toArray();
+$css = implode("\n", array_column($out['assets'], 'content'));
+if (str_contains($css, 'data-blocks-engine-richtext-marker')
+    || !str_contains($css, '.cue')
+    || substr_count($out['serialized_blocks'], 'blocks-engine-source-box-paragraph') !== 4) {
+    throw new RuntimeException('Native card cues must not leave speculative RichText CSS: ' . $css);
+}
 echo "Trailing-label row card contract passed.\n";

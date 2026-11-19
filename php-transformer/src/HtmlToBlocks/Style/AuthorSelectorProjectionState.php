@@ -908,6 +908,13 @@ final class AuthorSelectorProjectionState
         return $marker;
     }
 
+    /** A native box keeps the source hooks without an inline carrier. */
+    public function adoptAsNativeSourceBox(string $path): void
+    {
+        unset($this->richTextMarkers[$path], $this->inlineLayoutCarrierPaths[$path]);
+        $this->markRetainedSourcePath($path);
+    }
+
     public function markInlineLayoutCarrierPath(string $path): void
     {
         $this->inlineLayoutCarrierPaths[$path] = true;
