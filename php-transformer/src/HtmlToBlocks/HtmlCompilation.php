@@ -2080,7 +2080,9 @@ final class HtmlCompilation extends SourceBlockCreator implements RichTextInline
      */
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
-        if ( true === $this->chromeJournal?->covers($element) ) {
+        // A folded child converts with its box's declarations, decided outside
+        // the subtree, so it always converts.
+        if ( true === $this->chromeJournal?->covers($element) && !isset($this->foldedInto[$element->getAttribute(BoxTree::NODE_ATTRIBUTE)]) ) {
             return $this->chromeJournal->convert($element, $fallbacks, fn (array &$fallbacks): ?array => $this->convertElement($element, $fallbacks, $captureUnsupported));
         }
         $hookChild = $this->boxlessWrapperHookChild($element);
