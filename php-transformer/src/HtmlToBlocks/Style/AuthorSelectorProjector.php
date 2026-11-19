@@ -1907,19 +1907,12 @@ final class AuthorSelectorProjector
         if ( array() !== array_diff($carriers['reached'], $routed) ) {
             return null;
         }
-        $classes = array( 'blocks-engine-role-' . $kind );
+        $classes = array( 'blocks-engine-role-' . $kind, EngineMarker::SUBJECT_BASE_CLASS );
         if ( is_string($compound['type'] ?? null) ) {
             $classes[] = EngineMarker::subjectTagClass($compound['type']);
         }
         foreach ( array_values(array_unique(array_map('strval', $compound['classes'] ?? array()))) as $class ) {
             $classes[] = EngineMarker::subjectClassClass($class);
-        }
-        // RichText carriers imply the base through their subject tag/class.
-        // Other roles retain the established selector contract, including the
-        // base immediately after the role (semantic geometry carriers rely on
-        // this public author-CSS representation).
-        if ( 'richtext' !== $kind || 1 === count($classes) ) {
-            array_splice($classes, 1, 0, array( EngineMarker::SUBJECT_BASE_CLASS ));
         }
         return array( 'target' => ':where(.' . implode('.', $classes) . ')', 'rest' => array_values(array_diff($routed, $carriers['covered'])) );
     }

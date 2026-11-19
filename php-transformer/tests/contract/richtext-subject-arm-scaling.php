@@ -132,7 +132,7 @@ foreach (array(2, 4, 6) as $routes) {
     $siteSizes[$routes] = array_sum(array_map(static fn (array $asset): int => strlen((string) $asset['content']), $sheets));
     $all = implode('', array_map(static fn (array $asset): string => (string) $asset['content'], $sheets));
     $assert(0 === preg_match('/blocks-engine-richtext-[a-f0-9]+-\d/', $all), 'No author stylesheet names a per-route carrier marker (' . $routes . ' routes).', $all);
-    $assert(str_contains($all, ':where(.blocks-engine-role-richtext.blocks-engine-subject-class-'), 'The hidden label is reached through its subject arm (' . $routes . ' routes).', $all);
+    $assert(str_contains($all, ':where(.blocks-engine-role-richtext.blocks-engine-subject.'), 'The hidden label is reached through its subject arm (' . $routes . ' routes).', $all);
 }
 $assert(1 === count(array_unique($siteSizes)), 'Author stylesheet bytes stay constant as routes grow: ' . json_encode($siteSizes));
 
