@@ -1756,6 +1756,33 @@ final class NavigationPatternContext
         $projections->markMergedDeviceNavigationSource($element);
         $projections->markMergedDeviceNavigationSource($navigationSource);
 
+        $expanded = $this->navigationToggleSuppressor?->expandedMobileNavigation($element);
+        if ( null !== $expanded ) {
+            $marker = $projections->ensureSemanticMarker($navigationSource->getNodePath() ?? '');
+            $host = '.wp-block-navigation.' . $marker;
+            $width = $expanded['breakpoint'];
+            $source = $expanded['source'];
+            $properties = array('background', 'background-color', 'color', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'font-family', 'font-size', 'font-weight', 'line-height', 'text-align', 'text-decoration', 'border', 'border-radius');
+            $declarations = fn (array $values): string => $this->styleResolver->cssDeclarationString($values);
+            $css = $host . '{display:flex!important;flex-direction:column!important;align-items:stretch!important;'
+                . $declarations($this->styleResolver->authorViewport->atViewport($source, $properties, $width)) . '}'
+                . $host . ' .wp-block-navigation__container{display:flex!important;flex-direction:column!important;align-items:stretch!important;width:100%}'
+                . $host . ' .wp-block-navigation__container>.wp-block-navigation-item{float:none!important;width:100%}';
+            $index = 0;
+            foreach ($source->childNodes as $item) {
+                if (! $item instanceof DOMElement || 'li' !== strtolower($item->tagName)) continue;
+                ++$index;
+                $target = $host . ' .wp-block-navigation__container>.wp-block-navigation-item:nth-child(' . $index . ')';
+                $css .= $target . '{' . $declarations($this->styleResolver->authorViewport->atViewport($item, $properties, $width)) . '}';
+                $anchor = $item->getElementsByTagName('a')->item(0);
+                if ($anchor instanceof DOMElement) {
+                    $css .= $target . '>.wp-block-navigation-item__content{' . $declarations($this->styleResolver->authorViewport->atViewport($anchor, $properties, $width)) . '}';
+                }
+            }
+            $this->registerMenuFoldRule($marker, '@media(max-width:' . $width . 'px){' . $css . '}');
+            return AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS . ' ' . $marker;
+        }
+
         return AuthorSelectorProjectionState::MERGED_DEVICE_NAVIGATION_CLASS;
     }
 
