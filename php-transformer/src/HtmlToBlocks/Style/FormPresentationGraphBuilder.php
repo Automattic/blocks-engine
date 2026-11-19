@@ -632,6 +632,16 @@ final class FormPresentationGraphBuilder
                         }
                     }
                 }
+                // A provider wraps a select in its own styled dropdown shell.
+                // Resolve explicit source font inheritance before that boundary:
+                // leaving `font:inherit` would inherit the provider shell instead.
+                if ('control' === $role && 'select' === strtolower($element->tagName)) {
+                    $matched['base'] = $this->selectInheritedFont($element, $matched['base'], $analysis['rules']);
+                    foreach ($matched['conditional'] as &$facts) {
+                        $facts = $this->selectInheritedFont($element, $facts, $analysis['rules']);
+                    }
+                    unset($facts);
+                }
                 $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules'], true);
                 $provenance = $this->provenance($matched['base'], null);
                 $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
@@ -1674,6 +1684,31 @@ final class FormPresentationGraphBuilder
         foreach ($conditional as &$facts) $facts = $this->shorthandCascade($facts, $base);
         unset($facts);
         return array( 'base' => $base, 'conditional' => $conditional );
+    }
+
+    /** Resolve a select's explicit font inheritance against its source ancestors. */
+    private function selectInheritedFont(DOMElement $element, array $facts, array $rules): array
+    {
+        if ('inherit' !== strtolower($facts['font']['value'] ?? '')) return $facts;
+        $properties = array_fill_keys(self::SHORTHAND_LONGHANDS['font'], true);
+        foreach (array_keys($properties) as $property) {
+            if (isset($facts[$property]) && 'inherit' !== strtolower($facts[$property]['value'])) unset($properties[$property]);
+        }
+        for ($ancestor = $element->parentNode; $ancestor instanceof DOMElement && $properties; $ancestor = $ancestor->parentNode) {
+            $parent = $this->matched($ancestor, $rules)['base'];
+            $font = $parent['font'] ?? null;
+            if (is_array($font)) {
+                foreach (\Automattic\BlocksEngine\PhpTransformer\Css\CssFontShorthand::expand($font['value']) as $property => $value) {
+                    $parent[$property] ??= array_replace($font, array('value' => $value));
+                }
+            }
+            foreach (array_intersect_key($parent, $properties) as $property => $fact) {
+                if (in_array(strtolower($fact['value']), array('inherit', 'unset'), true)) continue;
+                $facts[$property] = $fact + array('element' => $ancestor);
+                unset($properties[$property]);
+            }
+        }
+        return $facts;
     }
 
     /** A winning shorthand resets weaker longhands on the same source element. */
