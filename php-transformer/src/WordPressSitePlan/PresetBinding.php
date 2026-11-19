@@ -197,8 +197,16 @@ final class PresetBinding
     /** Core's text-colour format background when none is chosen (format-library `transparentValue`). */
     private const INLINE_TRANSPARENT = 'rgba(0, 0, 0, 0)';
 
-    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>,outranks_preset_class:bool,conditional:bool}>> `!important` rules per property family. */
+    /** @var array<string,list<array{tokens:list<string>,negated:list<string>,attributes:list<array{0:string,1:string|null}>,outranks_preset_class:bool}>> `!important` rules per property family. */
     private array $importantRules = array();
+    /**
+     * Final markup can lose generated subject classes before refusals() replays
+     * binding. Preserve the original important refusal for a retained literal,
+     * keyed without generated classes so it cannot silently disappear.
+     *
+     * @var array<string,string>
+     */
+    private array $literalRefusals = array();
     /** @var array<string,list<array{tokens:list<string>|null,negated:list<string>,fragment:string}>> `[style*=…]` selectors per family; null tokens reach any element. */
     private array $styleTextRules = array();
     /** @var array<string,array<string,list<array{0:string,1:string}>>> Per button box family (`border-radius`, `padding`), the declarations of rules naming each control marker. */
@@ -260,7 +268,7 @@ final class PresetBinding
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $conditional = !in_array(strtolower(trim((string) ($asset['media'] ?? ''))), array('', 'all'), true);
             $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors = array()) use ($conditional, $asset): void {
-                $this->indexRule($prelude, $body, $conditional || array() !== $ancestors);
+                $this->indexRule($prelude, $body);
                 $this->indexVariables($prelude, $body, $conditional ? array_merge($ancestors, array('@media ' . $asset['media'])) : $ancestors, $asset['scopes'] ?? array(array('kind' => 'global')));
                 $font = self::declared(self::declarations($body), 'font-family');
                 $shorthand = self::declared(self::declarations($body), 'font');
@@ -856,7 +864,6 @@ final class PresetBinding
         $this->bindButtonLook($d, $variation);
         $this->bindColorPresets($d);
         $this->bindBorderColors($d);
-        $this->bindLinkColor($d);
         $this->bindTypography($d);
         $this->bindSpacing($d);
         if (0 === $d->bound) return null;
@@ -902,6 +909,8 @@ final class PresetBinding
             foreach (array('text' => 'color', 'background' => 'background-color') as $key => $property) {
                 $value = $style->color->{$key} ?? null;
                 if (!is_string($value) || !$this->matchesButtonElement($property, $value)) continue;
+                $refusalKey = json_encode(array($d->name, self::authoredClassKey($attributes->className ?? ''), $property, $value), JSON_THROW_ON_ERROR);
+                if (null !== $this->refusals && isset($this->literalRefusals[$refusalKey])) continue;
                 $slug = $this->presetSlug('color', $value, null);
                 $added = null === $slug ? array() : array('text' === $key ? 'has-text-color' : 'has-background', 'has-' . $slug . ('text' === $key ? '-color' : '-background-color'));
                 // Native button elements need explicit palette bindings; link
@@ -942,6 +951,11 @@ final class PresetBinding
             // device-inline runtime writes for another device.
             if (isset($deviceOverridden[$property]) || ('background' === $key && isset($deviceOverridden['background']))) continue;
             $literal = $style->color->{$key} ?? null;
+            $refusalKey = json_encode(array($name, self::authoredClassKey($attributes->className ?? ''), $property, $literal), JSON_THROW_ON_ERROR);
+            if (null !== $this->refusals && isset($this->literalRefusals[$refusalKey])) {
+                $this->refuse($this->literalRefusals[$refusalKey]);
+                continue;
+            }
             if ($buttonLook && null === $literal && $this->matchesButtonElement($property, (string) ($observed[$observedProperty] ?? ''))) continue;
             if (is_string($literal) && str_starts_with($literal, 'var:')) continue;
             $blockSlug = is_string($literal) ? $this->system->blockColorSlug($this->resolve($literal)) : null;
@@ -1005,15 +1019,18 @@ final class PresetBinding
                 ++$d->bound;
                 continue;
             }
-            if (!$safe && in_array($reason, array('state_variant', 'important'), true) && null !== $slug && is_string($literal) && $this->safe($property, $tokens, array(), true, false, $inlineReason, true, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) {
-                // Keep the inline declaration's cascade slot. Unlike a
-                // preset class, a variable neither masks ordinary states nor
-                // competes with author !important rules.
+            if (!$safe && 'state_variant' === $reason && null !== $slug && is_string($literal) && $this->safe($property, $tokens, array(), false, false, $reason, true) && $this->inlinePreset($style->color, $key, 'color', $slug, $d->declarations, $property, $literal)) {
+                // A preset class is !important and would mask the state
+                // rule. The inline literal already outranks that rule, and
+                // the inline preset variable keeps its place in the cascade
+                // and paints the same colour, so only where the value comes
+                // from changes.
                 ++$d->bound;
                 continue;
             }
             if (!$safe) {
-                $this->refuse($reason ?? (is_string($literal) && self::paints($literal) ? 'inconsistent_source' : null));
+                if (is_string($literal) && null !== $slug && 'important' === $reason) $this->literalRefusals[$refusalKey] = $reason;
+                $this->refuse($reason);
                 continue;
             }
             if ('background' === $key && !is_string($literal) && !$this->keepsPaddingWithBackground($name, $classes, $d->declarations, $observed)) {
@@ -1055,8 +1072,8 @@ final class PresetBinding
                     $attributes->borderColor = $slug;
                     array_push($d->addClasses, ...$added);
                     ++$d->bound;
-                }
-            }
+                } else $this->refuse('inconsistent_source');
+            } else $this->refuse($reason);
         }
 
         // Border sides have no preset class: keep their declarations in place,
@@ -1080,25 +1097,9 @@ final class PresetBinding
                     continue;
                 }
             }
-            $slug = $this->presetSlug('color', $literal, null, $reason);
-            if (null !== $slug && $this->safe($property, $tokens, array(), true, false, $reason, true) && $this->inlinePreset($group, 'color', 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
-            elseif (self::paints($literal)) $this->refuse($reason ?? 'inconsistent_source');
+            $slug = $this->presetSlug('color', $literal, null);
+            if (null !== $slug && $this->inlinePreset($group, 'color', 'color', $slug, $d->declarations, $property, $literal)) ++$d->bound;
         }
-    }
-
-    /** Link support emits its own CSS; a preset variable keeps its priority. */
-    private function bindLinkColor(PresetBlockDraft $d): void
-    {
-        $group = $d->style->elements->link->color ?? null;
-        $literal = $group->text ?? null;
-        if (!is_string($literal) || str_starts_with($literal, 'var:')) return;
-        $slug = $this->presetSlug('color', $literal, null, $reason);
-        if (null === $slug) {
-            $this->refuse($reason);
-            return;
-        }
-        $group->text = 'var:preset|color|' . $slug;
-        ++$d->bound;
     }
 
     /**
@@ -1961,7 +1962,7 @@ final class PresetBinding
         return true;
     }
 
-    private function safe(string $property, array $tokens, array $addedClasses, bool $staysInline = false, bool $addsDeclaration = false, ?string &$reason = null, bool $statesRendered = false, bool $guardConditional = false): bool
+    private function safe(string $property, array $tokens, array $addedClasses, bool $staysInline = false, bool $addsDeclaration = false, ?string &$reason = null, bool $statesRendered = false): bool
     {
         $finalClasses = $tokens;
         foreach ($addedClasses as $class) $finalClasses['class:' . $class] = true;
@@ -1978,10 +1979,9 @@ final class PresetBinding
                 if (array() !== array_intersect_key(array_flip($rule['negated']), $finalClasses)) continue;
                 if (!$staysInline || $addsDeclaration || 1 !== preg_match('/^[a-z-]*:?$/', strtolower(trim($rule['fragment'], ' ;')))) return false;
             }
-            if ($staysInline && !$guardConditional) continue;
+            if ($staysInline) continue;
             $reason = 'important';
             foreach ($this->importantRules[$family] ?? array() as $rule) {
-                if ($staysInline && !($rule['conditional'] ?? false)) continue;
                 // Binding adds only single-class preset rules. An `!important`
                 // rule that outranks them wins over the bound value exactly as
                 // it won over the inline literal, wherever it applies.
@@ -2218,7 +2218,7 @@ final class PresetBinding
         }
     }
 
-    private function indexRule(string $prelude, string $body, bool $conditional = false): void
+    private function indexRule(string $prelude, string $body): void
     {
         $nested = str_contains($body, '{') ? (new CssStylesheetTransformer())->splitStyleRuleBody($body) : array(array('declarations' => $body));
         $important = array();
@@ -2276,7 +2276,7 @@ final class PresetBinding
             if (array() === $important) continue;
             $subject = self::subjectTokens($selector);
             if (null === $subject) continue;
-            $rule = $subject + array('attributes' => self::subjectAttributes($selector), 'outranks_preset_class' => self::outranksPresetClass($selector), 'conditional' => $conditional);
+            $rule = $subject + array('attributes' => self::subjectAttributes($selector), 'outranks_preset_class' => self::outranksPresetClass($selector));
             foreach ($important as $family => $_) $this->importantRules[$family][] = $rule;
         }
     }

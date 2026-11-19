@@ -14,15 +14,20 @@ foreach (array('plain' => array('', false), 'important' => array(' !important', 
         . str_repeat('<div><a class="wsite-button" href="/x.pdf"><span class="wsite-button-inner">Sermon Notes</span></a></div>', 3) . '</main></body></html>';
     $plan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html, 'style.css' => $css)))->toArray()['source_reports']['wordpress_site_plan'];
     $metrics = $plan['theme']['design_system']['metrics'];
-    if (0 !== $metrics['literal_preset_color_count']) throw new RuntimeException($label . ': preset-equal colours must bind.');
-    if (0 !== $metrics['refused_value_count']) throw new RuntimeException($label . ': exact bindings must not count as refusals: ' . json_encode($metrics['refusal_reasons']));
+    $expectedLiterals = '' === $priority ? 0 : 3;
+    if ($expectedLiterals !== $metrics['literal_preset_color_count']) throw new RuntimeException($label . ': exact bindings bind; important competitors preserve literals.');
+    if ($expectedLiterals !== $metrics['refusal_reasons']['important'] || $expectedLiterals !== $metrics['refused_value_count']) {
+        throw new RuntimeException($label . ': every retained preset-equal literal must count as an important refusal: ' . json_encode($metrics['refusal_reasons']));
+    }
     $markup = $plan['pages'][0]['canonical_block_markup'];
     preg_match_all('/<!-- wp:button (\{.*?\}) -->/', $markup, $buttons);
     if (3 !== count($buttons[1])) throw new RuntimeException($label . ': all three buttons survive.');
     foreach ($buttons[1] as $json) {
         $attributes = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-        if ('contrast' !== ($attributes['textColor'] ?? null) && 'var:preset|color|contrast' !== ($attributes['style']['color']['text'] ?? null)) {
-            throw new RuntimeException($label . ': button text must reference the exact black preset.');
+        if ('' === $priority) {
+            if ('contrast' !== ($attributes['textColor'] ?? null)) throw new RuntimeException($label . ': exact text binds to the black preset.');
+        } elseif ('#000000' !== ($attributes['style']['color']['text'] ?? null) || isset($attributes['textColor'])) {
+            throw new RuntimeException($label . ': important refusal must preserve the literal text.');
         }
     }
     $emitted = implode("\n", array_column($plan['assets'], 'content'));
