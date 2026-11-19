@@ -11,7 +11,7 @@ $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
 };
 $footer = '<footer class="site-footer"><h2>Contact our studio</h2>';
-foreach (range(1, 40) as $item) $footer .= '<p><a href="https://example.com/contact/' . $item . '">Contact our studio about project number ' . $item . '</a></p>';
+foreach (range(1, 40) as $item) $footer .= '<p>Our <span class="footer-text">studio</span>: <a href="https://example.com/contact/' . $item . '">Contact our studio about project number ' . $item . '</a></p>';
 $footer .= '<canvas width="20" height="20"></canvas></footer>';
 // Match the dependency surface of captured Wix posts, not a style-only toy.
 $wixCss = '@charset "UTF-8"; @import url("https://static.example.com/site.css");';
@@ -22,7 +22,9 @@ foreach (range(1, 12) as $item) {
     $wixCss .= '@property --wix' . $item . ' { syntax: "<color>"; inherits: true; initial-value: teal; }';
     $wixCss .= '@layer wix' . $item . ' { .site-footer { border-color: teal; } }';
 }
-$wixCss .= '.site-footer { background-image: url("https://static.example.com/footer.jpg"); }';
+$wixCss .= '.site-footer { background-image: url("../../assets/footer.jpg"); }';
+$wixCss .= ':root:active-view-transition { background-color: pink; } .site-footer .footer-text { font-weight: bold; }';
+$pagePath = static fn (string $page): string => 'post/' . match ($page) { 'one' => 'a', 'two' => 'b', default => $page } . '/index.html';
 $files = array();
 foreach (array('one', 'two', 'three', 'font', 'animation', 'container', 'property', 'layer', 'import', 'charset', 'image') as $index => $page) {
     // Different content at every ancestor prevents an outer wrapper winning.
@@ -47,8 +49,9 @@ foreach (array('one', 'two', 'three', 'font', 'animation', 'container', 'propert
     $css = $dependencies . ':root { --footer-color: #333; } .site-footer { color: var(--footer-color); }'
         . ' .' . $page . '-only { color: red; }';
     if ('three' === $page) $css .= ' .site-footer { color: blue; }';
-    $html = '<!doctype html><html><head><title>' . $page . '</title><style>' . $css . '</style></head><body>' . $html . '</body></html>';
-    $files[] = array('path' => $page . '.html', 'content' => $html);
+    $bodyClass = 'one' === $page ? 'responsive no-outline' : 'responsive';
+    $html = '<!doctype html><html><head><title>' . $page . '</title><style>' . $css . '</style></head><body class="' . $bodyClass . '">' . $html . '</body></html>';
+    $files[] = array('path' => $pagePath($page), 'content' => $html);
 }
 // Keep both tested pages in the same non-entry scope.
 $files[] = array('path' => 'index.html', 'content' => '<html><body><h1>Home</h1></body></html>');
@@ -78,20 +81,21 @@ $compile = static function (array $plan, ?ChromeJournalStore $store = null) use 
 };
 $property = new ReflectionProperty(MemoryChromeJournalStore::class, 'journals');
 foreach (array('one', 'two') as $page) {
-    $plan = $compiler->preparePage($artifact, $shared, $page . '.html');
+    $plan = $compiler->preparePage($artifact, $shared, $pagePath($page));
     $expected = $compile($plan);
     $actual = $compile($plan, $store);
     $assert($expected === $actual, $page . ': shared and unshared receipts must be byte-identical.');
     $journals = $property->getValue($store->inner);
     $assert(1 === count($journals), 'The captured footer must record and reuse one key.');
+    $assert(array() !== reset($journals)['richtext_markers'], 'The footer must contain prepared rich-text markers to rebase.');
 }
 $assert(1 === $store->hits, 'Second captured page must hit the footer journal once (trunk: zero hits).');
-$third = $compiler->preparePage($artifact, $shared, 'three.html');
+$third = $compiler->preparePage($artifact, $shared, $pagePath('three'));
 $assert($compile($third) === $compile($third, $store), 'Relevant footer CSS must preserve the unshared receipt.');
 $assert(1 === $store->hits, 'Matching footer CSS must not hit the journal.');
 $assert(2 === count($property->getValue($store->inner)), 'Matching footer CSS must miss and record a different key.');
 foreach (array('font', 'animation', 'container', 'property', 'layer', 'import', 'charset', 'image') as $page) {
-    $changed = $compiler->preparePage($artifact, $shared, $page . '.html');
+    $changed = $compiler->preparePage($artifact, $shared, $pagePath($page));
     $before = count($property->getValue($store->inner));
     $assert($compile($changed) === $compile($changed, $store), $page . ': dependency change must preserve the unshared receipt.');
     $assert(1 === $store->hits, $page . ': dependency change must miss.');

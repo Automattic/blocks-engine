@@ -418,6 +418,10 @@ final class AuthorStyleAnalysis
                 $parsed = $selector['parsed'];
                 if ( ! ($parsed['supported'] ?? false) ) $parsed = $selector['direct_child_parsed'] ?? array();
                 if ( ! ($parsed['supported'] ?? false) ) {
+                    // View-transition state cannot match a static document.
+                    // Limit this exemption to an unambiguous root subject;
+                    // other unsupported selectors retain the safe fallback.
+                    if ( 1 === preg_match('/^(?::root|html):active-view-transition$/i', trim($selector['selector'])) ) continue;
                     // The established whole-CSS context remains safe for
                     // selectors whose observable context we cannot narrow.
                     return hash('sha256', serialize(array($this->contextIdentity($element), $this->stylesheetAssets)));
@@ -431,7 +435,7 @@ final class AuthorStyleAnalysis
             if ( array() !== $selectors ) {
                 // Asset URL values are inputs, not a reason to decline. The
                 // prepared stylesheet supplies rebased URLs; ChromeJournal's
-                // page digest also retains the base for inline relative URLs.
+                // page digest keys inline relative URLs by their resolved targets.
                 $rules[] = array($selectors, $rule['declarations'], $rule['conditions'] ?? array(), $rule['capture_only'] ?? false);
             }
         }
