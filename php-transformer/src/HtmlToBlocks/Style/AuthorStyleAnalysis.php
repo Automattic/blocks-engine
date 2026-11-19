@@ -229,7 +229,51 @@ final class AuthorStyleAnalysis
         return $this->captureOnlySelectors = array_diff_key($capture, $authored);
     }
 
+    /** Start logging marker allocations; {@see allocations()} ends the log. */
+    public function logAllocations(): void
+    {
+        $this->allocationLog = array();
+    }
+
+    /**
+     * Each allocation since {@see logAllocations()} as method, arguments and
+     * marker, so a replay can allocate the same markers on another page.
+     *
+     * @return list<array{0:string,1:list<string>,2:string}>
+     */
+    public function allocations(): array
+    {
+        $log = $this->allocationLog ?? array();
+        $this->allocationLog = null;
+        return $log;
+    }
+
+    /** @var list<array{0:string,1:list<string>,2:string}>|null */
+    private ?array $allocationLog = null;
+    private int $allocationDepth = 0;
+
+    /** @param list<string> $arguments @param \Closure():string $allocate */
+    private function logged(string $method, array $arguments, \Closure $allocate): string
+    {
+        if ( null === $this->allocationLog || 0 < $this->allocationDepth ) {
+            return $allocate();
+        }
+        ++$this->allocationDepth;
+        try {
+            $marker = $allocate();
+        } finally {
+            --$this->allocationDepth;
+        }
+        $this->allocationLog[] = array($method, $arguments, $marker);
+        return $marker;
+    }
+
     public function allocateMarker(string $kind): string
+    {
+        return $this->logged(__FUNCTION__, array($kind), fn (): string => $this->newMarker($kind));
+    }
+
+    private function newMarker(string $kind): string
     {
         if ( ! EngineMarker::isDeclaredKind($kind) ) {
             throw new \InvalidArgumentException("Undeclared engine marker kind: {$kind}. Declare it in EngineMarker::DOCUMENT_KINDS.");
@@ -241,6 +285,11 @@ final class AuthorStyleAnalysis
     }
 
     public function allocateStableMarker(string $kind, string $identity): string
+    {
+        return $this->logged(__FUNCTION__, array($kind, $identity), fn (): string => $this->newStableMarker($kind, $identity));
+    }
+
+    private function newStableMarker(string $kind, string $identity): string
     {
         if ( ! EngineMarker::isDeclaredKind($kind) ) {
             throw new \InvalidArgumentException("Undeclared engine marker kind: {$kind}.");
@@ -326,14 +375,25 @@ final class AuthorStyleAnalysis
      */
     public function allocateContextMarker(string $kind, string $path): string
     {
-        $element = '' === $path ? null : $this->sourceElementAtPath($path);
-        if ( null === $element ) {
-            return $this->allocateMarker($kind);
-        }
-        return $this->allocateStableMarker(
-            $kind,
-            "context\0" . $kind . "\0\0" . $this->authorCssIdentity . "\0" . $this->documentTypeIdentity($element) . "\0" . $this->contextHash($element) . "\0" . $this->subtreeHash($element, in_array($kind, array('semantic', 'richtext'), true))
-        );
+        return $this->logged(__FUNCTION__, array($kind, $path), function () use ($kind, $path): string {
+            $element = '' === $path ? null : $this->sourceElementAtPath($path);
+            if ( null === $element ) {
+                return $this->allocateMarker($kind);
+            }
+            return $this->allocateStableMarker(
+                $kind,
+                "context\0" . $kind . "\0\0" . $this->contextIdentity($element) . "\0" . $this->subtreeHash($element, in_array($kind, array('semantic', 'richtext'), true))
+            );
+        });
+    }
+
+    /**
+     * What author CSS can observe of an element's place in its document: the
+     * author CSS, the document type, and the ancestor chain {@see contextHash()}.
+     */
+    public function contextIdentity(DOMElement $element): string
+    {
+        return $this->authorCssIdentity . "\0" . $this->documentTypeIdentity($element) . "\0" . $this->contextHash($element);
     }
 
     /**
