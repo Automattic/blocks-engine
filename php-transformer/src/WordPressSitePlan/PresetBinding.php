@@ -109,6 +109,13 @@ final class PresetBinding
     /** core/button serializes colour and padding on its inner link. */
     private const LINK_BLOCKS = array('button');
 
+    /**
+     * Blocks whose author class and inline style sit on one element, so a
+     * colour the class paints renders without the duplicate literal
+     * (rendersThroughClass()).
+     */
+    private const CLASS_RENDERED_BLOCKS = array('paragraph', 'heading', 'group', 'list', 'list-item', 'column', 'columns');
+
     /** Supports a block type has for values it carries only through classes. */
     private const CLASS_SUPPORTS = array(
         'paragraph' => array('text', 'background', 'fontSize', 'fontFamily', 'padding'),
@@ -929,7 +936,7 @@ final class PresetBinding
                 continue;
             }
             $safe = null !== $slug && $this->safe($property, $tokens, array_map(static fn(string $class): string => sprintf($class, $slug), $added), false, false, $reason);
-            if (!$safe && is_string($literal) && ($this->rendersThroughClass($name, $property, $literal, $tokens) || ('state_variant' === $reason && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)))) {
+            if (!$safe && is_string($literal) && ($this->rendersThroughClass($name, $property, $literal, $tokens, $classes) || ('state_variant' === $reason && $this->rendersThroughElement($name, $key, $slug ?? $this->slug('color', $this->resolve($literal)) ?? '', $property, $tokens)))) {
                 // A preset class would mask the hover colour; the button
                 // element or author class renders this value with its state, so the
                 // literal only duplicated it.
@@ -1005,7 +1012,9 @@ final class PresetBinding
             $literal = $group->color ?? null;
             if (!is_string($literal) || str_starts_with($literal, 'var:')) continue;
             $property = '' === $side ? 'border-color' : 'border-' . $side . '-color';
-            if ('' === $side && $this->rendersThroughClass($d->name, $property, $literal, $tokens)) {
+            // Without the colour core's `has-border-color` no longer supplies
+            // a solid style, so another block must declare its own.
+            if ('' === $side && ('button' === $d->name || is_string($group->style ?? null)) && $this->rendersThroughClass($d->name, $property, $literal, $tokens, $d->classes)) {
                 // As with a button's text and background (bindColorPresets()):
                 // the author class renders this border colour with its
                 // states, so the literal only duplicated it, outside the
@@ -1987,14 +1996,26 @@ final class PresetBinding
         return false;
     }
 
-    private function rendersThroughClass(string $name, string $property, string $literal, array $tokens): bool
+    /**
+     * Whether the block's own author class paints exactly this literal, so
+     * the literal only duplicates it. A button's colours sit on its link,
+     * which carries the author class or its subject class. Other blocks
+     * qualify only for text and border colour, and only through a class on
+     * the very element that carries the inline style (`$classes`): their
+     * background preset class also changes core padding.
+     *
+     * @param array<string,true> $tokens
+     */
+    private function rendersThroughClass(string $name, string $property, string $literal, array $tokens, string $classes = ''): bool
     {
-        if ('button' !== $name) return false;
+        $button = 'button' === $name;
+        if (!$button && (!in_array($name, self::CLASS_RENDERED_BLOCKS, true) || !in_array($property, array('color', 'border-color'), true))) return false;
         $color = CssColor::parse($this->resolve($literal));
         if (null === $color) return false;
+        $own = array_flip(preg_split('/\s+/', trim($classes)) ?: array());
         $found = false;
         foreach ($this->classColors as $class => $properties) {
-            if (!isset($tokens['class:' . $class]) && !isset($tokens['class:' . EngineMarker::subjectClassClass($class)])) continue;
+            if ($button ? !isset($tokens['class:' . $class]) && !isset($tokens['class:' . EngineMarker::subjectClassClass($class)]) : !isset($own[$class])) continue;
             foreach ('background-color' === $property ? array('background-color', 'background') : array($property) as $candidate) {
                 foreach ($properties[$candidate] ?? array() as $value) {
                     if (CssColor::parse($this->resolve($value)) !== $color) return false;
