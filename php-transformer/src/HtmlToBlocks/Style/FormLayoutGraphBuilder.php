@@ -245,7 +245,11 @@ final class FormLayoutGraphBuilder
         $resolved = array();
         $hidden = array();
         foreach ( $entries as $entry ) {
-            $matched = $this->matched($entry['element'], $analysis['rules']);
+            // Control margins belong to the field's outer layout box even
+            // when authored in a cascade layer. The presentation graph also
+            // records them; providers need the structural owner to avoid
+            // applying the same spacing again inside their field shell.
+            $matched = $this->matched($entry['element'], $analysis['rules'], 'control' === $entry['kind']);
             $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
             $resolved[$entry['id']] = array( $matched, $conditional );
             foreach ( $conditional as $encoded => $facts ) {
@@ -989,9 +993,9 @@ final class FormLayoutGraphBuilder
             // structural facts. Emitting them here as if they were unlayered
             // made optional layout graphs look complete, so providers declined
             // forms they can still materialize. Layered presentation stays on
-            // the presentation graph, which overlays as CSS. Field-list gap is
-            // the exception: a provider form flattens that wrapper, so the
-            // authored stack spacing has to ride on the form node itself.
+            // the presentation graph, which overlays as CSS. Field-list gaps
+            // and control margins are exceptions: providers need their outer
+            // structural owner when wrappers replace the source boxes.
             // A layered rule that is itself media/container/supports-gated is
             // not an unlayered base fact — it is a stated condition, so it
             // still belongs on variants.
@@ -1004,7 +1008,7 @@ final class FormLayoutGraphBuilder
             if ( $layered && ! $conditionalRule ) {
                 $ruleDeclarations = array_values(array_filter(
                     $ruleDeclarations,
-                    static fn (array $declaration): bool => in_array($declaration['name'], self::SPACING_PROPERTIES, true)
+                    static fn (array $declaration): bool => in_array($declaration['name'], array_merge(self::SPACING_PROPERTIES, array('margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end')), true)
                 ));
                 if ( array() === $ruleDeclarations ) {
                     continue;
