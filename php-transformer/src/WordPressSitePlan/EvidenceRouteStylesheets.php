@@ -19,8 +19,9 @@ final class EvidenceRouteStylesheets
         $markup = (string) json_encode(array_values(array_map(static fn(array $page): array => array($page['canonical_block_markup'] ?? null, $page['resolved_block_markup'] ?? null), array_filter($pages, static fn(array $page): bool => isset($evidence[$page['source_path']])))), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $retired = array();
         // A sheet legacy routes still link is retired only on the evidence
-        // routes: they get its retained rules as a sibling sheet in the same
-        // cascade position, as a wholly retired sheet would deliver them.
+        // routes, which never linked it: they get, as a sibling sheet in the
+        // same cascade position, only what makes their carriers' animations
+        // run (carriers bind an animation by name, not its timing).
         $siblings = array();
         $legacy = array_values(array_filter($pages, static fn(array $page): bool => !isset($evidence[$page['source_path']])));
         $evidencePages = array_values(array_filter($pages, static fn(array $page): bool => isset($evidence[$page['source_path']])));
@@ -70,10 +71,10 @@ final class EvidenceRouteStylesheets
             $assets = $placed;
             $retired = $placedRetired;
         }
-        $assets = self::retireRules($assets, $retired, $markup, $parts, $context);
+        $assets = self::retireRules($assets, $retired, $markup, $parts, $context, $placedSiblings);
         // A sibling that retains nothing has nothing to deliver.
         if (array() === $placedSiblings) return $assets;
-        foreach ($placedSiblings as $key) if ('' === trim((string) ($assets[$key]['content'] ?? ''))) unset($assets[$key]);
+        foreach ($placedSiblings as $key) if ('' === trim((string) preg_replace('/@layer\s[^{};]+;/i', '', (string) ($assets[$key]['content'] ?? '')))) unset($assets[$key]);
         return array_values($assets);
     }
 
@@ -81,9 +82,10 @@ final class EvidenceRouteStylesheets
      * @param array<int|string, array<string, mixed>> $assets
      * @param list<int|string> $retired
      * @param list<array<string, mixed>> $parts
+     * @param list<int|string> $siblings Retired keys that are evidence-route siblings of a sheet legacy routes keep.
      * @return array<int|string, array<string, mixed>>
      */
-    private static function retireRules(array $assets, array $retired, string $markup, array $parts, string $context): array
+    private static function retireRules(array $assets, array $retired, string $markup, array $parts, string $context, array $siblings = array()): array
     {
         // Editor static state sheets are editor projections of author rules
         // the author sheets themselves still carry: keeping their state rules
@@ -96,9 +98,16 @@ final class EvidenceRouteStylesheets
         }
         if (array() === $author) return $assets;
         $reach = $markup . (string) json_encode(array_column($parts, 'canonical_block_markup'), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        $rules = new EvidenceRouteStateRules(EvidenceRouteStateRules::stateAttributes($markup), $markup, $reach);
-        $kept = $rules->retain(array_map(static fn(int|string $key): string => (string) ($assets[$key]['content'] ?? ''), $author), $context);
-        foreach ($author as $index => $key) $assets[$key] = CompiledAssets::withRewrittenTextContent($assets[$key], $kept[$index]);
+        $attributes = EvidenceRouteStateRules::stateAttributes($markup);
+        // The evidence routes never linked a sheet legacy routes keep, so its
+        // sibling delivers no state rules they did not already receive: only
+        // what makes the carriers' animations run.
+        foreach (array(array_values(array_diff($author, $siblings)), array_values(array_intersect($author, $siblings))) as $carriedOnly => $keys) {
+            if (array() === $keys) continue;
+            $rules = new EvidenceRouteStateRules($attributes, $markup, $reach);
+            $kept = $rules->retain(array_map(static fn(int|string $key): string => (string) ($assets[$key]['content'] ?? ''), $keys), $context, (bool) $carriedOnly);
+            foreach ($keys as $index => $key) $assets[$key] = CompiledAssets::withRewrittenTextContent($assets[$key], $kept[$index]);
+        }
         return $assets;
     }
 

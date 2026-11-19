@@ -34,7 +34,7 @@ $legacyPage = array(
     'canonical_block_markup' => '<p class="imb-anim-up">Book</p>',
 );
 $authorCss = '.container{padding:1rem}.imb-anim-up{animation:.9s cubic-bezier(.2,.7,.2,1) both imb-up}'
-    . '@keyframes imb-up{0%{opacity:0}to{opacity:1}}@keyframes unused{to{opacity:0}}.hover\:underline:hover{text-decoration-line:underline}';
+    . '@layer theme,utilities;@font-face{font-family:X;src:url(x.woff2)}@keyframes imb-up{0%{opacity:0}to{opacity:1}}@keyframes unused{to{opacity:0}}.hover\:underline:hover{text-decoration-line:underline}';
 $assets = array(
     array('kind' => 'css', 'source' => 'engine-support', 'source_path' => 'engine-before.css', 'target_path' => 'assets/css/engine-support-before-author.css', 'content' => '.be-inline-geometry-1.be-inline-geometry-1{display:block;animation-name:imb-up}', 'scopes' => array(array('kind' => 'page', 'source_path' => 'menu/index.html'))),
     array('kind' => 'css', 'source' => 'files', 'source_path' => 'assets/index.css', 'target_path' => 'assets/website/assets/index.css', 'token' => 'asset-author', 'content' => $authorCss, 'scopes' => array(array('kind' => 'global')), 'stylesheet_instances' => array(array('source_path' => 'menu/index.html', 'order' => 0, 'media' => ''), array('source_path' => 'booking/index.html', 'order' => 0, 'media' => ''))),
@@ -51,5 +51,5 @@ $assert(array('menu/index.html') === array_column($sibling['scopes'], 'source_pa
 $assert(array_search($sibling, $retired, true) === array_search($author, $retired, true) + 1, 'the retained sheet keeps the author sheet cascade position');
 $assert(str_contains($sibling['content'], '.imb-anim-up{animation:.9s cubic-bezier(.2,.7,.2,1) both imb-up}'), 'a resting rule applying a carried animation keeps its motion declarations', $sibling['content']);
 $assert(str_contains($sibling['content'], '@keyframes imb-up{') && !str_contains($sibling['content'], 'unused'), 'carried keyframes are retained and unbound keyframes dropped', $sibling['content']);
-$assert(str_contains($sibling['content'], '.hover\:underline:hover{') && !str_contains($sibling['content'], 'padding:1rem'), 'state rules are retained and resting rules retired', $sibling['content']);
+$assert(!str_contains($sibling['content'], 'hover') && !str_contains($sibling['content'], 'padding:1rem') && !str_contains($sibling['content'], '@font-face'), 'only the carried motion is delivered: no state rule, resting rule or font face the evidence routes never received', $sibling['content']);
 $assert($sibling['token'] !== $author['token'] && $sibling['source_path'] !== $author['source_path'], 'the retained sheet is its own asset');

@@ -89,18 +89,24 @@ final class EvidenceRouteStateRules
     /**
      * @param list<string> $sheets Retired author sheets, in cascade order.
      * @param string $context Delivered CSS (for example carriers) whose animation names stay bound.
+     * @param bool $carriedOnly Retain only what makes the carriers' animations run: the resting
+     *                          rules that apply them by name, their keyframes and the custom
+     *                          properties those read. For a sheet the evidence routes never
+     *                          linked whole, whose state rules they never received.
      * @return list<string> Each sheet's retained bytes.
      */
-    public function retain(array $sheets, string $context = ''): array
+    public function retain(array $sheets, string $context = '', bool $carriedOnly = false): array
     {
-        $trees = array_map(fn(string $css): array => $this->nodes($css), $sheets);
+        $trees = array_map(fn(string $css): array => $this->nodes($css, null, -1, $carriedOnly), $sheets);
         foreach ($trees as $tree) $this->collectKeyframes($tree);
-        foreach ($trees as $tree) $this->collectMotionProperties($tree);
-        // State rules first: they define the custom properties resting
-        // animation consumers read.
-        foreach ($trees as &$tree) $this->markState($tree);
-        unset($tree);
-        $this->motionProperties += $this->stateProperties;
+        if (!$carriedOnly) {
+            foreach ($trees as $tree) $this->collectMotionProperties($tree);
+            // State rules first: they define the custom properties resting
+            // animation consumers read.
+            foreach ($trees as &$tree) $this->markState($tree);
+            unset($tree);
+            $this->motionProperties += $this->stateProperties;
+        }
         // Carriers bind an animation by name only: its timing stays in the
         // resting rule that applied it.
         $carried = array();
@@ -183,7 +189,7 @@ final class EvidenceRouteStateRules
     }
 
     /** @return list<array<string, mixed>> */
-    private function nodes(string $css, ?CssRuleTree $tree = null, int $scope = -1): array
+    private function nodes(string $css, ?CssRuleTree $tree = null, int $scope = -1, bool $carriedOnly = false): array
     {
         $tree ??= new CssRuleTree($css);
         $nodes = array();
@@ -196,10 +202,12 @@ final class EvidenceRouteStateRules
                 continue;
             }
             $body = substr($css, $rule['boundary'] + 1, $rule['end'] - $rule['boundary'] - 1);
-            if (preg_match('/^@font-face$/i', $prelude)) $nodes[] = array('type' => 'verbatim', 'text' => $prelude . '{' . $body . '}');
+            if (preg_match('/^@font-face$/i', $prelude)) {
+                if (!$carriedOnly) $nodes[] = array('type' => 'verbatim', 'text' => $prelude . '{' . $body . '}');
+            }
             elseif (preg_match('/^@(?:-[a-z]+-)?keyframes\s+(["\']?)([^\s"\']+)\1$/i', $prelude, $match)) $nodes[] = array('type' => 'keyframes', 'name' => $match[2], 'text' => $prelude . '{' . $body . '}');
             elseif (preg_match('/^@property\s+(--[\w-]+)$/i', $prelude, $match)) $nodes[] = array('type' => 'property', 'name' => $match[1], 'text' => $prelude . '{' . $body . '}');
-            elseif (preg_match('/^@(?:media|supports|layer|container|scope|document|-moz-document)\b/i', $prelude)) $nodes[] = array('type' => 'group', 'prelude' => $prelude, 'children' => $this->nodes($css, $tree, $rule['boundary']));
+            elseif (preg_match('/^@(?:media|supports|layer|container|scope|document|-moz-document)\b/i', $prelude)) $nodes[] = array('type' => 'group', 'prelude' => $prelude, 'children' => $this->nodes($css, $tree, $rule['boundary'], $carriedOnly));
             elseif ('' !== $prelude && '@' !== $prelude[0]) $nodes[] = array('type' => 'style', 'prelude' => $prelude, 'body' => $body, 'keep' => null);
         }
         return $nodes;
