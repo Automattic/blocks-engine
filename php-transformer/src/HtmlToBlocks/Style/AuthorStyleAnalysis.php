@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\MediaCondition;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorCompoundInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\ClassAttributeSelectorProjection;
@@ -843,7 +844,7 @@ final class AuthorStyleAnalysis
     private static function rendersOnScreen(array $conditions): bool
     {
         foreach ( $conditions as $condition ) {
-            if ( 1 === preg_match('/^@media\s+(.+)$/is', trim((string) $condition), $media) && ! CssCascade::mediaConditionTargetsScreen($media[1]) ) {
+            if ( 1 === preg_match('/^@media\s+(.+)$/is', trim((string) $condition), $media) && ! MediaCondition::targetsScreen($media[1]) ) {
                 return false;
             }
         }
