@@ -633,8 +633,8 @@ final class FormPresentationGraphBuilder
                     }
                 }
                 // A provider wraps a select in its own styled dropdown shell.
-                // Resolve the source family before that boundary: leaving it
-                // implicit would inherit the provider shell's typeface instead.
+                // Resolve source text before that boundary: leaving inheritance
+                // implicit would inherit the provider shell's typography instead.
                 if ('control' === $role && 'select' === strtolower($element->tagName)) {
                     $matched['base'] = $this->selectInheritedFont($element, $matched['base'], $analysis['rules']);
                     foreach ($matched['conditional'] as &$facts) {
@@ -1686,15 +1686,18 @@ final class FormPresentationGraphBuilder
         return array( 'base' => $base, 'conditional' => $conditional );
     }
 
-    /** Resolve a select's explicitly inherited family against its source ancestors. */
+    /** Resolve inherited select text without copying native-control line metrics. */
     private function selectInheritedFont(DOMElement $element, array $facts, array $rules): array
     {
-        if ('inherit' !== strtolower($facts['font']['value'] ?? '')) return $facts;
-        // Only the family needs to cross the provider boundary. In particular,
-        // copying an ancestor's line-height onto a native select changes its
-        // control metrics (and the layout below it), rather than just restoring
-        // the source typeface. Keep all other authored control facts intact.
+        $inheritance = $facts['font-family'] ?? $facts['font'] ?? null;
+        if (!is_array($inheritance) || 'inherit' !== strtolower(trim($inheritance['value']))) return $facts;
+        // Native selects keep their platform line-height. Resolve only the text
+        // longhands, including weight: a provider shell can be bold even when
+        // the source ancestors have the initial (normal) weight.
         $properties = array('font-family' => true);
+        if ('inherit' === strtolower(trim($facts['font']['value'] ?? ''))) {
+            $properties += array('font-weight' => true, 'font-style' => true, 'font-variant' => true);
+        }
         foreach (array_keys($properties) as $property) {
             if (isset($facts[$property]) && 'inherit' !== strtolower($facts[$property]['value'])) unset($properties[$property]);
         }
@@ -1713,12 +1716,15 @@ final class FormPresentationGraphBuilder
                 // not compare the ancestor's specificity with `font:inherit`
                 // and discard the resolved longhand as a weaker reset.
                 // Keep the value's owner for custom-property resolution only.
-                $facts[$property] = array_replace($facts['font'], array(
+                $facts[$property] = array_replace($inheritance, array(
                     'value' => $fact['value'],
                     'element' => $ancestor,
                 ));
                 unset($properties[$property]);
             }
+        }
+        foreach (array_intersect_key(array('font-weight' => 'normal', 'font-style' => 'normal', 'font-variant' => 'normal'), $properties) as $property => $value) {
+            $facts[$property] = array_replace($inheritance, array('value' => $value));
         }
         return $facts;
     }

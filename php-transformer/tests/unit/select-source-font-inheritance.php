@@ -36,4 +36,19 @@ $inputStyles = $withSibling['fallbacks'][0]['presentation_graph']['controls'][0]
 if ('inherit' !== ($inputStyles['font'] ?? null) || isset($inputStyles['font_family']) || isset($inputStyles['line_height'])) {
     throw new RuntimeException('Select family resolution must not change sibling control metrics: ' . json_encode($inputStyles));
 }
+// The provider dropdown shell must not supply its own bold/italic text when
+// the source explicitly inherits the initial values. Exercise the public API
+// and compare every non-select control with a form lacking font inheritance.
+$markup = '<form method="post"><label for="name">Name</label><input id="name" name="name"><label for="topic">Topic</label><select id="topic" name="topic"><option>One</option></select><button>Send</button></form>';
+$transform = static fn (string $css): array => (new HtmlTransformer())->transform('<style>body{font-family:Arial,sans-serif}' . $css . '</style>' . $markup)->toArray()['fallbacks'][0]['presentation_graph']['controls'];
+$before = array_column($transform(''), null, 'index');
+$after = array_column($transform('select{font:inherit;font-size:16px}'), null, 'index');
+foreach (array('font_weight', 'font_style', 'font_variant') as $property) {
+    if ('normal' !== ($after[1]['control']['styles'][$property] ?? null)) {
+        throw new RuntimeException('Select must not inherit provider text defaults: ' . $property);
+    }
+}
+foreach (array(0, 2) as $index) {
+    if (($before[$index] ?? null) !== ($after[$index] ?? null)) throw new RuntimeException('Select inheritance changed another control');
+}
 echo "Select source font inheritance passed\n";
