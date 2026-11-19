@@ -97,6 +97,23 @@ final class BoxTreeStyleProjector
             $status[$key] = $this->pruner->classify($observations[$key]['used_styles'], is_array($parent) ? $parent : null, $blockName, $tagName);
             $declarations[$key] = $this->kept($observations[$key]['used_styles'], $status[$key]);
         }
+        // Core border support can supply a solid style on every side when
+        // only one observed side paints. Keep the other sides' zero widths
+        // on this box; pruning them would expose the browser's medium width.
+        foreach ($keys as $key) {
+            $styles = $observations[$key]['used_styles'];
+            $hasBorder = false;
+            foreach (self::BORDER_SIDES as $side) {
+                if (isset($declarations[$key][$side])) $hasBorder = true;
+            }
+            if (!$hasBorder) continue;
+            foreach (self::BORDER_SIDES as $side) {
+                if (isset($styles[$side]) && ($status[$key][$side] ?? '') === BoxTreeDeclarationPruner::INITIAL) {
+                    $status[$key][$side] = BoxTreeDeclarationPruner::KEPT;
+                    $declarations[$key][$side] = $styles[$side];
+                }
+            }
+        }
         $bands = $this->liftFluid($declarations, $keys, $fluid, $observations, $parents, $blockName, $tagName);
         $baseKey = $keys[0];
         $base = $declarations[$baseKey];
