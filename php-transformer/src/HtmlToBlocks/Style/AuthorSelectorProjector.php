@@ -940,7 +940,13 @@ final class AuthorSelectorProjector
         $supersededToggles = false;
         foreach ( $matches as $element ) {
             $path = $context->authorStyles->sourcePath($element);
-            if ( $context->selectorProjections->isRetainedSourcePath($path) || $this->isPreservedCodeSyntaxElement($element) ) {
+            // Native card boxes keep their class/id hooks. Do not turn a
+            // shared utility rule into a document-local semantic arm merely
+            // because one of its subjects used to be an anchor or span.
+            // Type subjects still need projection onto the new block tag.
+            if ( $context->selectorProjections->isRetainedSourcePath($path)
+                || ($context->selectorProjections->isNativeSourceBoxPath($path) && ! $typeSubject && $this->hasClassBoundSubject($parsed))
+                || $this->isPreservedCodeSyntaxElement($element) ) {
                 $hasNonProjected = true;
             } elseif ( $typeSubject && $context->selectorProjections->isSupersededControlPath($path) ) {
                 $supersededToggles = true;

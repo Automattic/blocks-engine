@@ -80,4 +80,21 @@ if (!str_contains($css, ':where(.blocks-engine-role-semantic.blocks-engine-subje
     || preg_match('/blocks-engine-semantic-[0-9a-f]+-\d+/', $css)) {
     throw new RuntimeException('Mixed cards must retain the shared semantic reset arm: ' . $css);
 }
+// Public-interface regression: introducing a native card must not rebind
+// shared utility classes to semantic subjects local to this route. Site-plan
+// consumers (including extracted chrome) still use the authored hooks.
+$out = (new HtmlTransformer())->transform(
+    '<style>.rounded{border-radius:16px}.cue{margin-left:auto}a{color:green}</style>'
+    . '<aside class="rounded">Shared chrome</aside>'
+    . '<a class="rounded" href="/place/"><div><h3>Place</h3><p>Summary</p></div><span class="cue">→</span></a>'
+)->toArray();
+$css = implode('', array_column(array_filter(
+    $out['assets'], static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '')
+), 'content'));
+if (!str_contains($css, '.rounded{border-radius:16px}')
+    || !str_contains($css, '.cue:not(.be-c-0){margin-left:auto}')
+    || !str_contains($css, 'blocks-engine-subject-tag-a')
+    || str_contains($out['serialized_blocks'], '/layout-shell')) {
+    throw new RuntimeException('Native cards must preserve shared class rules and project anchor types: ' . $css);
+}
 echo "Trailing-label row card contract passed.\n";
